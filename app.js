@@ -1,8 +1,37 @@
-fetch("data/demo.json")
-  .then((res) => res.json())
-  .then((data) => {
-    const safe = (v, fallback = "") => (v === null || v === undefined ? fallback : v);
+// app.js
 
+// Small helper: turns null/undefined into a fallback
+function safe(v, fallback = "") {
+  return v === null || v === undefined ? fallback : v;
+}
+
+// 1) Highlight current page in the TOP NAV
+(function () {
+  let file = (window.location.pathname.split("/").pop() || "").toLowerCase();
+  if (file === "" || file === "index.html") file = "dashboard.html";
+
+  const links = document.querySelectorAll("nav.nav a");
+
+  links.forEach((a) => {
+    const href = (a.getAttribute("href") || "").trim().toLowerCase();
+
+    // Ignore external links like Forum
+    if (href.startsWith("http://") || href.startsWith("https://")) return;
+
+    if (href === file) {
+      a.classList.add("is-active");
+      a.setAttribute("aria-current", "page");
+    }
+  });
+})();
+
+// 2) Load demo data + render dashboard widgets (only if elements exist)
+fetch("data/demo.json")
+  .then((res) => {
+    if (!res.ok) throw new Error("Could not load data/demo.json (" + res.status + ")");
+    return res.json();
+  })
+  .then((data) => {
     // ---------- What's Going On (dashboard only) ----------
     const wgoEl = document.getElementById("whats-going-on");
     if (wgoEl) {
@@ -12,16 +41,17 @@ fetch("data/demo.json")
       const economy = safe(w.economy, {});
       const pollingRaw = Array.isArray(w.polling) ? w.polling : [];
 
-      // Polling: show parties >= 2%, always include SNP if present
       const polling = pollingRaw
-        .filter((p) => (p.value >= 2) || p.party === "SNP")
+        .filter((p) => p.value >= 2 || p.party === "SNP")
         .sort((a, b) => b.value - a.value);
 
       const pollingLines = polling.length
         ? polling
             .map(
               (p) =>
-                `<div class="row"><span>${safe(p.party, "—")}</span><b>${Number(p.value).toFixed(1)}%</b></div>`
+                `<div class="row"><span>${safe(p.party, "—")}</span><b>${Number(p.value).toFixed(
+                  1
+                )}%</b></div>`
             )
             .join("")
         : `<div class="wgo-strap">No polling yet.</div>`;
@@ -38,7 +68,10 @@ fetch("data/demo.json")
 
           <div class="wgo-tile">
             <div class="wgo-kicker">Papers</div>
-            <div class="wgo-title">${safe(papers.paper, "Paper")}: ${safe(papers.headline, "No headline yet.")}</div>
+            <div class="wgo-title">${safe(papers.paper, "Paper")}: ${safe(
+              papers.headline,
+              "No headline yet."
+            )}</div>
             <div class="wgo-strap">${safe(papers.strap, "")}</div>
             <div class="wgo-actions"><a class="btn" href="papers.html">View</a></div>
           </div>
@@ -46,9 +79,15 @@ fetch("data/demo.json")
           <div class="wgo-tile">
             <div class="wgo-kicker">Economy</div>
             <div class="wgo-metric">
-              <div class="row"><span>Growth</span><b>${Number(safe(economy.growth, 0)).toFixed(1)}%</b></div>
-              <div class="row"><span>Inflation</span><b>${Number(safe(economy.inflation, 0)).toFixed(1)}%</b></div>
-              <div class="row"><span>Unemployment</span><b>${Number(safe(economy.unemployment, 0)).toFixed(1)}%</b></div>
+              <div class="row"><span>Growth</span><b>${Number(safe(economy.growth, 0)).toFixed(
+                1
+              )}%</b></div>
+              <div class="row"><span>Inflation</span><b>${Number(
+                safe(economy.inflation, 0)
+              ).toFixed(1)}%</b></div>
+              <div class="row"><span>Unemployment</span><b>${Number(
+                safe(economy.unemployment, 0)
+              ).toFixed(1)}%</b></div>
             </div>
             <div class="wgo-actions"><a class="btn" href="economy.html">Economy</a></div>
           </div>
@@ -93,13 +132,16 @@ fetch("data/demo.json")
                       status === "passed"
                         ? `<div class="bill-result passed">Royal Assent Granted</div>`
                         : status === "failed"
-                          ? `<div class="bill-result failed">Bill Defeated</div>`
-                          : `<div class="bill-current">Current Stage: <b>${stage}</b></div>`;
+                        ? `<div class="bill-result failed">Bill Defeated</div>`
+                        : `<div class="bill-current">Current Stage: <b>${stage}</b></div>`;
 
                     return `
                       <div class="bill-card ${status}">
                         <div class="bill-title">${safe(b.title, "Untitled Bill")}</div>
-                        <div class="bill-sub">Author: ${safe(b.author, "—")} · ${safe(b.department, "—")}</div>
+                        <div class="bill-sub">Author: ${safe(b.author, "—")} · ${safe(
+                      b.department,
+                      "—"
+                    )}</div>
 
                         <div class="stage-track">${stageTrack}</div>
 
@@ -119,4 +161,6 @@ fetch("data/demo.json")
       `;
     }
   })
-  .catch((err) => console.error("Error loading data/demo.json:", err));
+  .catch((err) => {
+    console.error("Dashboard error:", err);
+  });
