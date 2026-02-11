@@ -377,4 +377,40 @@ a{ color:inherit; text-decoration:none; }
   padding:12px;
   line-height:1.55;
 }
+/* Amendments list */
+.amend{
+  background: rgba(255,255,255,.75);
+  border:1px solid rgba(1,33,105,.14);
+  border-radius:14px;
+  padding:10px;
+  margin-bottom:10px;
+}
+
+.amend-top{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.amend-sub{
+  margin-top:6px;
+  color:var(--muted);
+  font-size:13px;
+}
+
+.tag{
+  padding:4px 8px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+  text-transform:capitalize;
+  border:1px solid rgba(1,33,105,.18);
+  background: rgba(1,33,105,.06);
+}
+
+.tag.proposed{ background: rgba(1,33,105,.06); }
+.tag.friendly{ background: rgba(46,139,87,.18); border-color: rgba(46,139,87,.35); }
+.tag.accepted{ background: rgba(46,139,87,.22); border-color: rgba(46,139,87,.45); }
+.tag.rejected{ background: rgba(200,16,46,.16); border-color: rgba(200,16,46,.35); }
+.tag.division{ background: rgba(200,16,46,.10); border-color: rgba(200,16,46,.25); }
 
