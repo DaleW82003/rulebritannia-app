@@ -65,8 +65,37 @@ fetch("data/demo.json")
 // ---------- Live Docket (dashboard only) ----------
 const docketEl = document.getElementById("live-docket");
 if (docketEl) {
+  const player = data.currentPlayer || {
+    name: "Unknown",
+    party: "Unknown",
+    role: "backbencher",
+    office: null,
+    isSpeaker: false,
+    isMod: false
+  };
+
   const docket = data.liveDocket || {};
   const items = Array.isArray(docket.items) ? docket.items : [];
+
+  const canSee = (it) => {
+    const a = it.audience;
+    if (!a) return true;
+
+    // Speaker-only items
+    if (a.speakerOnly) return !!player.isSpeaker;
+
+    // Role filter
+    if (Array.isArray(a.roles) && a.roles.length) {
+      if (!a.roles.includes(player.role)) return false;
+    }
+
+    // Office filter (only relevant if you're a minister / office holder)
+    if (Array.isArray(a.offices) && a.offices.length) {
+      if (!player.office || !a.offices.includes(player.office)) return false;
+    }
+
+    return true;
+  };
 
   const icon = (type) => {
     switch (type) {
@@ -75,20 +104,26 @@ if (docketEl) {
       case "edm": return "✍️";
       case "statement": return "🗣️";
       case "division": return "🗳️";
+      case "speaker": return "🔔";
       default: return "•";
     }
   };
 
-  if (!items.length) {
+  const visible = items.filter(canSee);
+
+  if (!visible.length) {
     docketEl.innerHTML = `<div class="muted-block">No live items right now.</div>`;
   } else {
     docketEl.innerHTML = `
       <div class="docket-top">
-        <div class="docket-kicker">As of: <b>${docket.asOf || "now"}</b></div>
+        <div class="docket-kicker">
+          As of: <b>${docket.asOf || "now"}</b> ·
+          Logged in as: <b>${player.name}</b> (${player.role})
+        </div>
       </div>
 
       <div class="docket-list">
-        ${items.map(it => `
+        ${visible.map(it => `
           <div class="docket-item ${it.priority === "high" ? "high" : ""}">
             <div class="docket-left">
               <div class="docket-icon">${icon(it.type)}</div>
@@ -106,6 +141,7 @@ if (docketEl) {
     `;
   }
 }
+
 
     // ---------- Order Paper (dashboard only) ----------
     const orderWrap = document.getElementById("order-paper");
