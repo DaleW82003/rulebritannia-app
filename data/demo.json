@@ -30,3 +30,47 @@
     ]
   }
 }
+,
+"orderPaperCommons": [
+  {
+    "id": "nhs-reform-2026",
+    "title": "NHS Reform Bill 2026",
+    "author": "Rt Hon. Sarah Jenkins MP",
+    "department": "Health",
+    "stage": "Committee Stage",
+    "next": "Tomorrow, 14:00",
+    "votesRequired": 326,
+    "amendments": 42
+  },
+  {
+    "id": "housing-dev-act",
+    "title": "Housing Development Act",
+    "author": "Mr. David Chen MP",
+    "department": "Housing",
+    "stage": "Second Reading",
+    "next": "Today, 16:30",
+    "votesRequired": 326,
+    "amendments": 12
+  },
+  {
+    "id": "cyber-bill",
+    "title": "Cybersecurity Measures Bill",
+    "author": "Dr. Evelyn Reed MP",
+    "department": "Cabinet Office",
+    "stage": "Report Stage",
+    "next": "Thursday, 12:00",
+    "votesRequired": 326,
+    "amendments": 7
+  },
+  {
+    "id": "education-funding",
+    "title": "Education Funding Allocation Bill",
+    "author": "Sir Alistair Thorne MP",
+    "department": "Education",
+    "stage": "Division",
+    "next": "Tonight, 19:00",
+    "votesRequired": 326,
+    "amendments": 19
+  }
+]
+}
