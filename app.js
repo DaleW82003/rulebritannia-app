@@ -1,21 +1,18 @@
 fetch("data/demo.json")
   .then((res) => res.json())
   .then((data) => {
-    // ---------- Helpers ----------
     const safe = (v, fallback = "") => (v === null || v === undefined ? fallback : v);
 
     // ---------- What's Going On (dashboard only) ----------
     const wgoEl = document.getElementById("whats-going-on");
     if (wgoEl) {
       const w = safe(data.whatsGoingOn, {});
-
       const bbc = safe(w.bbc, {});
       const papers = safe(w.papers, {});
       const economy = safe(w.economy, {});
-      const commonsLeg = Array.isArray(w.commonsLegislation) ? w.commonsLegislation : [];
       const pollingRaw = Array.isArray(w.polling) ? w.polling : [];
 
-      // Filter polling: show parties >= 2%, and always include SNP if present
+      // Polling: show parties >= 2%, always include SNP if present
       const polling = pollingRaw
         .filter((p) => (p.value >= 2) || p.party === "SNP")
         .sort((a, b) => b.value - a.value);
@@ -28,7 +25,6 @@ fetch("data/demo.json")
             )
             .join("")
         : `<div class="wgo-strap">No polling yet.</div>`;
-
 
       wgoEl.innerHTML = `
         <div class="wgo-grid">
@@ -44,7 +40,7 @@ fetch("data/demo.json")
             <div class="wgo-kicker">Papers</div>
             <div class="wgo-title">${safe(papers.paper, "Paper")}: ${safe(papers.headline, "No headline yet.")}</div>
             <div class="wgo-strap">${safe(papers.strap, "")}</div>
-            <div class="wgo-actions"><a class="btn" href="papers.html">View Front Page</a></div>
+            <div class="wgo-actions"><a class="btn" href="papers.html">View</a></div>
           </div>
 
           <div class="wgo-tile">
