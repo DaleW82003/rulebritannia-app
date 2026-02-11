@@ -473,3 +473,77 @@ a{ color:inherit; text-decoration:none; }
   color:var(--muted);
   font-size:12px;
 }
+/* ================== LIVE DOCKET ================== */
+.docket-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:10px;
+}
+
+.docket-kicker{
+  font-size:12px;
+  color:var(--muted);
+}
+
+.docket-list{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.docket-item{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  align-items:center;
+  padding:12px;
+  border-radius:16px;
+  border:1px solid rgba(1,33,105,.14);
+  background: rgba(255,255,255,.88);
+}
+
+.docket-item.high{
+  border-color: rgba(200,16,46,.30);
+  box-shadow: 0 10px 30px rgba(200,16,46,.10);
+}
+
+.docket-left{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  min-width:0;
+}
+
+.docket-icon{
+  width:34px;
+  height:34px;
+  border-radius:12px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: rgba(1,33,105,.06);
+  border:1px solid rgba(1,33,105,.12);
+  flex:0 0 auto;
+}
+
+.docket-text{
+  min-width:0;
+}
+
+.docket-title{
+  font-weight:900;
+  font-size:14px;
+  line-height:1.25;
+}
+
+.docket-detail{
+  margin-top:4px;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.35;
+}
+
+.docket-cta{
+  flex:0 0 auto;
+}
