@@ -370,18 +370,12 @@ a{ color:inherit; text-decoration:none; }
 .tag.accepted{ background: rgba(46,139,87,.22); border-color: rgba(46,139,87,.45); }
 .tag.rejected{ background: rgba(200,16,46,.16); border-color: rgba(200,16,46,.35); }
 .tag.division{ background: rgba(200,16,46,.10); border-color: rgba(200,16,46,.25); }
-/* current / active nav item */
-.sidebar a.is-active,
-.sidebar a[aria-current="page"] {
-  font-weight: 700;
-  background: rgba(255,255,255,0.08);
-  border-left: 3px solid currentColor;
+/* current / active TOP nav item */
+.nav a.is-active,
+.nav a[aria-current="page"]{
+  font-weight: 800;
+  background: rgba(255,255,255,.22);
+  border-color: rgba(255,255,255,.55);
+  box-shadow: 0 8px 24px rgba(0,0,0,.18);
 }
 
-/* optional: if your sidebar links are block elements */
-.sidebar a {
-  display: block;
-  padding: 10px 12px;
-  border-radius: 8px;
-  text-decoration: none;
-}
