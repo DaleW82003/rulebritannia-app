@@ -120,3 +120,25 @@ fetch("data/demo.json")
     }
   })
   .catch((err) => console.error("Error loading data/demo.json:", err));
+// ===== NAV ACTIVE STATE =====
+(function(){
+  const current = window.location.pathname.split("/").pop();
+  const links = document.querySelectorAll(".nav a");
+
+  links.forEach(link => {
+    const href = link.getAttribute("href");
+
+    // Ignore external links
+    if (!href || href.startsWith("http")) return;
+
+    if (href === current) {
+      link.classList.add("active");
+    }
+
+    // Special case: dashboard.html is root sometimes
+    if (current === "" && href === "dashboard.html") {
+      link.classList.add("active");
+    }
+  });
+})();
+
