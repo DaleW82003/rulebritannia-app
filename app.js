@@ -1,71 +1,88 @@
 fetch("data/demo.json")
-  .then(res => res.json())
-  .then(data => {
+  .then((res) => res.json())
+  .then((data) => {
+    // ---------- Helpers ----------
+    const safe = (v, fallback = "") => (v === null || v === undefined ? fallback : v);
 
-    // ===== What's Going On (ONLY if element exists) =====
+    // ---------- What's Going On (dashboard only) ----------
     const wgoEl = document.getElementById("whats-going-on");
     if (wgoEl) {
-      const w = data.whatsGoingOn;
+      const w = safe(data.whatsGoingOn, {});
 
-      const polling = (w.polling || [])
-        .filter(p => p.value >= 2 || p.party === "SNP")
-        .sort((a,b) => b.value - a.value);
+      const bbc = safe(w.bbc, {});
+      const papers = safe(w.papers, {});
+      const economy = safe(w.economy, {});
+      const commonsLeg = Array.isArray(w.commonsLegislation) ? w.commonsLegislation : [];
+      const pollingRaw = Array.isArray(w.polling) ? w.polling : [];
 
-      const pollingLines = polling
-        .map(p => `<div class="row"><span>${p.party}</span><b>${p.value.toFixed(1)}%</b></div>`)
-        .join("");
+      // Filter polling: show parties >= 2%, and always include SNP if present
+      const polling = pollingRaw
+        .filter((p) => (p.value >= 2) || p.party === "SNP")
+        .sort((a, b) => b.value - a.value);
 
-      const billsLines = (w.commonsLegislation || [])
-        .slice(0, 4)
-        .map(b => `<div class="row"><span>${b.title}</span><b>${b.stage}</b></div>`)
-        .join("");
+      const pollingLines = polling.length
+        ? polling
+            .map(
+              (p) =>
+                `<div class="row"><span>${safe(p.party, "—")}</span><b>${Number(p.value).toFixed(1)}%</b></div>`
+            )
+            .join("")
+        : `<div class="wgo-strap">No polling yet.</div>`;
+
+      const billsLines = commonsLeg.length
+        ? commonsLeg
+            .slice(0, 4)
+            .map(
+              (b) =>
+                `<div class="row"><span>${safe(b.title, "—")}</span><b>${safe(b.stage, "—")}</b></div>`
+            )
+            .join("")
+        : `<div class="wgo-strap">No items on the Order Paper.</div>`;
 
       wgoEl.innerHTML = `
         <div class="wgo-grid">
+
           <div class="wgo-tile">
             <div class="wgo-kicker">BBC News</div>
-            <div class="wgo-title">${w.bbc.headline}</div>
-            <div class="wgo-strap">${w.bbc.strap}</div>
-            <div class="wgo-actions"><a class="btn" href="#">Open</a></div>
+            <div class="wgo-title">${safe(bbc.headline, "No headline yet.")}</div>
+            <div class="wgo-strap">${safe(bbc.strap, "")}</div>
+            <div class="wgo-actions"><a class="btn" href="news.html">Open</a></div>
           </div>
 
           <div class="wgo-tile">
             <div class="wgo-kicker">Papers</div>
-            <div class="wgo-title">${w.papers.paper}: ${w.papers.headline}</div>
-            <div class="wgo-strap">${w.papers.strap}</div>
-            <div class="wgo-actions"><a class="btn" href="#">View Front Page</a></div>
+            <div class="wgo-title">${safe(papers.paper, "Paper")}: ${safe(papers.headline, "No headline yet.")}</div>
+            <div class="wgo-strap">${safe(papers.strap, "")}</div>
+            <div class="wgo-actions"><a class="btn" href="papers.html">View Front Page</a></div>
           </div>
 
           <div class="wgo-tile">
             <div class="wgo-kicker">Economy</div>
             <div class="wgo-metric">
-              <div class="row"><span>Growth</span><b>${w.economy.growth.toFixed(1)}%</b></div>
-              <div class="row"><span>Inflation</span><b>${w.economy.inflation.toFixed(1)}%</b></div>
-              <div class="row"><span>Unemployment</span><b>${w.economy.unemployment.toFixed(1)}%</b></div>
+              <div class="row"><span>Growth</span><b>${Number(safe(economy.growth, 0)).toFixed(1)}%</b></div>
+              <div class="row"><span>Inflation</span><b>${Number(safe(economy.inflation, 0)).toFixed(1)}%</b></div>
+              <div class="row"><span>Unemployment</span><b>${Number(safe(economy.unemployment, 0)).toFixed(1)}%</b></div>
             </div>
-            <div class="wgo-actions"><a class="btn" href="#">Economy</a></div>
+            <div class="wgo-actions"><a class="btn" href="economy.html">Economy</a></div>
           </div>
 
           <div class="wgo-tile">
             <div class="wgo-kicker">Polling</div>
-            <div class="wgo-metric">
-              ${pollingLines || `<div class="wgo-strap">No polling yet.</div>`}
-            </div>
-            <div class="wgo-actions"><a class="btn" href="#">Polling</a></div>
+            <div class="wgo-metric">${pollingLines}</div>
+            <div class="wgo-actions"><a class="btn" href="polling.html">Polling</a></div>
           </div>
 
           <div class="wgo-tile">
-            <div class="wgo-kicker">Commons Legislation</div>
-            <div class="wgo-metric">
-              ${billsLines || `<div class="wgo-strap">No items on the Order Paper.</div>`}
-            </div>
-            <div class="wgo-actions"><a class="btn" href="bill.html">Legislation</a></div>
+            <div class="wgo-kicker">Order Paper</div>
+            <div class="wgo-metric">${billsLines}</div>
+            <div class="wgo-actions"><a class="btn" href="#order-paper">Go to Order Paper</a></div>
           </div>
+
         </div>
       `;
     }
 
-    // ===== Order Paper (ONLY if element exists) =====
+    // ---------- Order Paper (dashboard only) ----------
     const orderWrap = document.getElementById("order-paper");
     if (orderWrap) {
       const stageOrder = [
@@ -73,43 +90,52 @@ fetch("data/demo.json")
         "Second Reading",
         "Committee Stage",
         "Report Stage",
-        "Division"
+        "Division",
       ];
 
-      const bills = data.orderPaperCommons || [];
+      const bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
 
       orderWrap.innerHTML = `
         <div class="order-grid">
-          ${bills.map(b => `
-            <div class="bill-card ${b.status}">
-              <div class="bill-title">${b.title}</div>
-              <div class="bill-sub">
-                Author: ${b.author} · ${b.department}
-              </div>
+          ${
+            bills.length
+              ? bills
+                  .map((b) => {
+                    const status = safe(b.status, "in-progress");
+                    const stage = safe(b.stage, "First Reading");
 
-              <div class="stage-track">
-                ${stageOrder.map(s => `
-                  <div class="stage ${b.stage === s ? "on" : ""}">${s}</div>
-                `).join("")}
-              </div>
+                    const stageTrack = stageOrder
+                      .map((s) => `<div class="stage ${stage === s ? "on" : ""}">${s}</div>`)
+                      .join("");
 
-              ${
-                b.status === "passed"
-                  ? `<div class="bill-result passed">Royal Assent Granted</div>`
-                  : b.status === "failed"
-                    ? `<div class="bill-result failed">Bill Defeated</div>`
-                    : `<div class="bill-current">Current Stage: <b>${b.stage}</b></div>`
-              }
+                    const resultBlock =
+                      status === "passed"
+                        ? `<div class="bill-result passed">Royal Assent Granted</div>`
+                        : status === "failed"
+                          ? `<div class="bill-result failed">Bill Defeated</div>`
+                          : `<div class="bill-current">Current Stage: <b>${stage}</b></div>`;
 
-              <div class="bill-actions spaced">
-                <a class="btn" href="bill.html?id=${encodeURIComponent(b.id)}">View Bill</a>
-                <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
-              </div>
-            </div>
-          `).join("")}
+                    return `
+                      <div class="bill-card ${status}">
+                        <div class="bill-title">${safe(b.title, "Untitled Bill")}</div>
+                        <div class="bill-sub">Author: ${safe(b.author, "—")} · ${safe(b.department, "—")}</div>
+
+                        <div class="stage-track">${stageTrack}</div>
+
+                        ${resultBlock}
+
+                        <div class="bill-actions spaced">
+                          <a class="btn" href="bill.html?id=${encodeURIComponent(safe(b.id, ""))}">View Bill</a>
+                          <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
+                        </div>
+                      </div>
+                    `;
+                  })
+                  .join("")
+              : `<div class="muted-block">No bills on the Order Paper.</div>`
+          }
         </div>
       `;
     }
-
   })
-  .catch(err => console.error("Error loading demo.json:", err));
+  .catch((err) => console.error("Error loading data/demo.json:", err));
