@@ -370,7 +370,8 @@ a{ color:inherit; text-decoration:none; }
 .tag.accepted{ background: rgba(46,139,87,.22); border-color: rgba(46,139,87,.45); }
 .tag.rejected{ background: rgba(200,16,46,.16); border-color: rgba(200,16,46,.35); }
 .tag.division{ background: rgba(200,16,46,.10); border-color: rgba(200,16,46,.25); }
-/* current / active TOP nav item */
+
+/* current / active TOP NAV item */
 .nav a.is-active,
 .nav a[aria-current="page"]{
   font-weight: 800;
