@@ -31,14 +31,38 @@
   },
 
     "orderPaperCommons": [
+  {
+  "id": "nhs-ft-2000",
+  "title": "National Health Service Foundation Trusts Act 2000",
+  "author": "Dale Weston MP",
+  "department": "Health",
+  "stage": "Committee Stage",
+  "status": "in-progress",
+  "billText": "A Bill to make provision about NHS Foundation Trusts; to establish governance and financial duties; and for connected purposes.\n\nPART 1 — FOUNDATION TRUST STATUS\n1. Eligibility and designation.\n2. Governance requirements.\n\nPART 2 — FINANCE AND ACCOUNTABILITY\n3. Accounts and reporting.\n4. Oversight and intervention powers.\n\nPART 3 — GENERAL\n5. Commencement and extent.",
+  "amendments": [
     {
-      "id": "nhs-ft-2000",
-      "title": "National Health Service Foundation Trusts Act 2000",
-      "author": "Dale Weston MP",
-      "department": "Health",
-      "stage": "Committee Stage",
-      "status": "in-progress"
+      "id": "A1",
+      "title": "Duty to publish quarterly performance data",
+      "proposedBy": "Labour",
+      "status": "proposed",
+      "supporters": ["Labour"]
     },
+    {
+      "id": "A2",
+      "title": "Ring-fence capital spend for maintenance backlog",
+      "proposedBy": "Conservative",
+      "status": "friendly",
+      "supporters": ["Conservative", "Liberal Democrat"]
+    },
+    {
+      "id": "A3",
+      "title": "Remove Clause 4 intervention power",
+      "proposedBy": "SNP",
+      "status": "rejected",
+      "supporters": ["SNP"]
+    }
+  ]
+},
     {
       "id": "rail-safety-2000",
       "title": "Rail Safety Reform Act 2000",
