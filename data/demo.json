@@ -30,46 +30,38 @@
     ]
   },
 
-  "orderPaperCommons": [
+    "orderPaperCommons": [
     {
-      "id": "nhs-reform-2026",
-      "title": "NHS Reform Bill 2026",
-      "author": "Rt Hon. Sarah Jenkins MP",
+      "id": "nhs-ft-2000",
+      "title": "National Health Service Foundation Trusts Act 2000",
+      "author": "Dale Weston MP",
       "department": "Health",
       "stage": "Committee Stage",
-      "next": "Tomorrow, 14:00",
-      "votesRequired": 326,
-      "amendments": 42
+      "status": "in-progress"
     },
     {
-      "id": "housing-dev-act",
-      "title": "Housing Development Act",
-      "author": "Mr. David Chen MP",
-      "department": "Housing",
-      "stage": "Second Reading",
-      "next": "Today, 16:30",
-      "votesRequired": 326,
-      "amendments": 12
-    },
-    {
-      "id": "cyber-bill",
-      "title": "Cybersecurity Measures Bill",
-      "author": "Dr. Evelyn Reed MP",
-      "department": "Cabinet Office",
+      "id": "rail-safety-2000",
+      "title": "Rail Safety Reform Act 2000",
+      "author": "Grant Kingston MP",
+      "department": "Transport",
       "stage": "Report Stage",
-      "next": "Thursday, 12:00",
-      "votesRequired": 326,
-      "amendments": 7
+      "status": "in-progress"
     },
     {
-      "id": "education-funding",
-      "title": "Education Funding Allocation Bill",
-      "author": "Sir Alistair Thorne MP",
-      "department": "Education",
+      "id": "age-consent-2000",
+      "title": "Sexual Offences (Age of Consent Equality) Act 2000",
+      "author": "John Shade MP",
+      "department": "Home Office",
+      "stage": "First Reading",
+      "status": "in-progress"
+    },
+    {
+      "id": "finance-2000",
+      "title": "Finance Act 2000",
+      "author": "Dylan Macmillan MP",
+      "department": "Treasury",
       "stage": "Division",
-      "next": "Tonight, 19:00",
-      "votesRequired": 326,
-      "amendments": 19
+      "status": "passed"
     }
   ]
 }
