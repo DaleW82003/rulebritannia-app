@@ -17,14 +17,14 @@
 
     <nav class="nav">
       <a href="dashboard.html">Home</a>
-      <a href="bill.html">Legislation</a>
+      <a href="dashboard.html#order-paper">Legislation</a>
       <a href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Forum</a>
     </nav>
   </div>
 </header>
 
 <main class="wrap">
-  <h1 class="page-title" id="billTitle">Bill</h1>
+  <h1 class="page-title" id="billTitle">Loading…</h1>
 
   <section class="panel" id="billMeta">
     Loading bill…
@@ -33,17 +33,16 @@
   <div class="bill-layout">
     <section class="panel">
       <h2>Bill Text</h2>
-  <div class="muted-block" id="billText"></div>
-
+      <div class="muted-block" id="billText"></div>
     </section>
 
     <section class="panel">
       <h2>Amendments</h2>
-<div id="amendmentsList" class="muted-block"></div>
 
+      <div id="amendmentsList" class="muted-block"></div>
 
       <div style="margin-top:12px;">
-        <a class="btn" href="#">Propose Amendment</a>
+        <a class="btn" href="#" onclick="alert('Form comes in Step 8'); return false;">Propose Amendment</a>
       </div>
     </section>
   </div>
@@ -51,7 +50,7 @@
   <section class="panel">
     <h2>Debate</h2>
     <div class="muted-block">
-      Debate happens on the forum. We’ll link this bill to a specific Discourse topic next.
+      Debate happens on the forum. Next step we’ll link each bill to a specific Discourse topic and embed it.
     </div>
     <div style="margin-top:12px;">
       <a class="btn" id="debateBtn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Open Debate</a>
@@ -60,38 +59,128 @@
 </main>
 
 <script>
-  // Basic loader for bill.html
   const params = new URLSearchParams(location.search);
   const billId = params.get("id");
+
+  const stageOrder = [
+    "First Reading",
+    "Second Reading",
+    "Committee Stage",
+    "Report Stage",
+    "Division"
+  ];
+
+  function escapeHtml(str) {
+    return String(str)
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
 
   fetch("data/demo.json")
     .then(r => r.json())
     .then(data => {
       const bills = data.orderPaperCommons || [];
-      const b = bills.find(x => x.id === billId) || bills[0];
 
-      document.getElementById("billTitle").textContent = b ? b.title : "Bill";
+      // Find bill by id. If no id provided, show first bill. If id is wrong, show "not found".
+      let b = null;
+      if (billId) b = bills.find(x => x.id === billId);
+      if (!billId && bills.length) b = bills[0];
 
-      const stageOrder = ["First Reading","Second Reading","Committee Stage","Report Stage","Division"];
+      if (!b) {
+        document.getElementById("billTitle").textContent = "Bill not found";
+        document.getElementById("billMeta").innerHTML = `
+          <div class="muted-block">
+            This bill ID doesn’t exist. Go back to the dashboard and open a bill from the Order Paper.
+          </div>
+          <div style="margin-top:12px;">
+            <a class="btn" href="dashboard.html">Back to Dashboard</a>
+          </div>
+        `;
+        document.getElementById("billText").textContent = "";
+        document.getElementById("amendmentsList").textContent = "";
+        return;
+      }
+
+      // Title
+      document.getElementById("billTitle").textContent = b.title;
+
+      // Stage chips
       const stageChips = stageOrder.map(s => `
-        <div class="stage ${b && b.stage === s ? "on" : ""}">${s}</div>
+        <div class="stage ${b.stage === s ? "on" : ""}">${s}</div>
       `).join("");
 
+      // Result block
       let resultBlock = "";
-      if (b && b.status === "passed") resultBlock = `<div class="bill-result passed">Royal Assent Granted</div>`;
-      if (b && b.status === "failed") resultBlock = `<div class="bill-result failed">Bill Defeated</div>`;
-      if (b && b.status === "in-progress") resultBlock = `<div class="bill-current">Current Stage: <b>${b.stage}</b></div>`;
+      if (b.status === "passed") resultBlock = `<div class="bill-result passed">Royal Assent Granted</div>`;
+      else if (b.status === "failed") resultBlock = `<div class="bill-result failed">Bill Defeated</div>`;
+      else resultBlock = `<div class="bill-current">Current Stage: <b>${escapeHtml(b.stage)}</b></div>`;
 
-      document.getElementById("billMeta").innerHTML = b ? `
-        <div class="bill-title">${b.title}</div>
-        <div class="bill-sub">Author: ${b.author} · ${b.department}</div>
-        <div class="stage-track" style="margin-top:12px;">${stageChips}</div>
+      // Meta panel
+      document.getElementById("billMeta").innerHTML = `
+        <div class="bill-title">${escapeHtml(b.title)}</div>
+        <div class="bill-sub">Author: ${escapeHtml(b.author)} · ${escapeHtml(b.department)}</div>
+
+        <div class="stage-track" style="margin-top:12px;">
+          ${stageChips}
+        </div>
+
         ${resultBlock}
+
         <div class="bill-actions spaced" style="margin-top:16px;">
           <a class="btn" href="dashboard.html">Back to Dashboard</a>
           <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
         </div>
-      ` : `Bill not found.`;
+      `;
+
+      // Bill text
+      const billTextEl = document.getElementById("billText");
+      billTextEl.textContent = b.billText || "(No bill text added yet.)";
+
+      // Amendments
+      const amendEl = document.getElementById("amendmentsList");
+      const ams = b.amendments || [];
+
+      if (!ams.length) {
+        amendEl.textContent = "No amendments proposed.";
+      } else {
+        amendEl.innerHTML = ams.map(a => {
+          const status = (a.status || "proposed").toLowerCase();
+          const supporters = Array.isArray(a.supporters) ? a.supporters.join(", ") : "None";
+
+          return `
+            <div class="amend">
+              <div class="amend-top">
+                <b>${escapeHtml(a.id)} — ${escapeHtml(a.title)}</b>
+                <span class="tag ${escapeHtml(status)}">${escapeHtml(status)}</span>
+              </div>
+              <div class="amend-sub">
+                Proposed by: ${escapeHtml(a.proposedBy || "Unknown")}
+                · Supporters: ${escapeHtml(supporters)}
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      // Debate link (placeholder)
+      // Later: b.discourseTopicUrl or b.discourseTopicId
+      const debateBtn = document.getElementById("debateBtn");
+      if (debateBtn) debateBtn.href = "https://forum.rulebritannia.org";
+    })
+    .catch(err => {
+      console.error(err);
+      document.getElementById("billTitle").textContent = "Error loading bill";
+      document.getElementById("billMeta").innerHTML = `
+        <div class="muted-block">
+          Couldn’t load demo data. Check that <b>data/demo.json</b> is valid JSON.
+        </div>
+        <div style="margin-top:12px;">
+          <a class="btn" href="dashboard.html">Back to Dashboard</a>
+        </div>
+      `;
     });
 </script>
 </body>
