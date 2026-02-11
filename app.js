@@ -10,7 +10,7 @@ function safe(v, fallback = "") {
 // ---------- Nav: highlight current page ----------
 (function highlightCurrentNav() {
   const currentFile = (location.pathname.split("/").pop() || "index.html").toLowerCase();
-  const navLinks = document.querySelectorAll(".sidebar a[href]");
+const navLinks = document.querySelectorAll(".nav a[href]");
   let bestMatch = null;
 
   for (const a of navLinks) {
