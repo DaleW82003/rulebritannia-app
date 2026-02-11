@@ -1,1 +1,32 @@
-{}
+{
+  "whatsGoingOn": {
+    "bbc": {
+      "headline": "BBC: Top political story headline goes here",
+      "strap": "One-sentence summary of the lead story."
+    },
+    "papers": {
+      "paper": "The Times",
+      "headline": "Front page headline goes here",
+      "strap": "One-sentence front page standfirst."
+    },
+    "economy": {
+      "growth": 1.8,
+      "inflation": 2.6,
+      "unemployment": 4.3
+    },
+    "polling": [
+      { "party": "Labour", "value": 34.1 },
+      { "party": "Conservative", "value": 31.7 },
+      { "party": "Liberal Democrat", "value": 11.2 },
+      { "party": "Green", "value": 5.4 },
+      { "party": "SNP", "value": 3.2 },
+      { "party": "Reform", "value": 2.4 },
+      { "party": "Others", "value": 11.0 }
+    ],
+    "commonsLegislation": [
+      { "title": "Bill A", "stage": "Second Reading" },
+      { "title": "Bill B", "stage": "Committee Stage" },
+      { "title": "Bill C", "stage": "Report Stage" }
+    ]
+  }
+}
