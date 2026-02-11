@@ -69,3 +69,57 @@ fetch("data/demo.json")
     const econ = document.getElementById("economy");
     if (econ) econ.innerHTML = "";
   });
+    // ===== Order Paper (Commons) =====
+    const stageOrder = ["First Reading","Second Reading","Committee Stage","Report Stage","Division"];
+
+    function stageIndex(stage){
+      const i = stageOrder.indexOf(stage);
+      return i === -1 ? 0 : i;
+    }
+
+    function stagePercent(stage){
+      // 0..4 mapped to 10..100
+      const i = stageIndex(stage);
+      const pct = Math.round(((i + 1) / stageOrder.length) * 100);
+      return Math.max(10, pct);
+    }
+
+    const orderWrap = document.getElementById("order-paper");
+    if (orderWrap) {
+      const bills = data.orderPaperCommons || [];
+      orderWrap.innerHTML = `
+        <div class="order-grid">
+          ${bills.map(b => `
+            <div class="bill-card">
+              <div class="bill-head">
+                <div>
+                  <div class="bill-title">${b.title}</div>
+                  <div class="bill-sub">Author: ${b.author} · ${b.department}</div>
+                </div>
+                <span class="pill">${b.stage}</span>
+              </div>
+
+              <div class="stage-track">
+                ${stageOrder.map(s => `
+                  <div class="stage ${stageIndex(b.stage) >= stageOrder.indexOf(s) ? "on" : ""}">${s.replace(" Reading","")}</div>
+                `).join("")}
+              </div>
+
+              <div class="bar"><div style="width:${stagePercent(b.stage)}%"></div></div>
+
+              <div class="bill-meta">
+                <div><span>Next:</span><b>${b.next}</b></div>
+                <div><span>Votes:</span><b>${b.votesRequired}</b></div>
+                <div><span>Amendments:</span><b>${b.amendments}</b></div>
+              </div>
+
+              <div class="bill-actions">
+                <a class="btn" href="bill.html?id=${encodeURIComponent(b.id)}">View Bill</a>
+                <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
