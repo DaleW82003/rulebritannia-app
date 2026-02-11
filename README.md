@@ -1,5 +1,3 @@
-# rulebritannia-app
-Rule Britannia Political Simulator
 <!DOCTYPE html>
 <html>
 <head>
