@@ -371,12 +371,13 @@ a{ color:inherit; text-decoration:none; }
 .tag.rejected{ background: rgba(200,16,46,.16); border-color: rgba(200,16,46,.35); }
 .tag.division{ background: rgba(200,16,46,.10); border-color: rgba(200,16,46,.25); }
 
-/* current / active TOP NAV item */
+/* ACTIVE TOP NAV (obvious highlight) */
 .nav a.is-active,
 .nav a[aria-current="page"]{
-  font-weight: 800;
-  background: rgba(255,255,255,.22);
-  border-color: rgba(255,255,255,.55);
-  box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  background: #ffffff;
+  color: #012169;
+  border-color: #ffffff;
+  font-weight: 900;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
 }
 
