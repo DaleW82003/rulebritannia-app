@@ -29,12 +29,13 @@
       { "title": "Bill C", "stage": "Report Stage" }
     ]
   },
+  
 "currentPlayer": {
   "name": "Dale Weston MP",
   "party": "Conservative",
 "role": "minister",
 "office": "prime-minister"
-  "isSpeaker": true,
+  "isSpeaker": false,
   "isMod": false
 },
 
