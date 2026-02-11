@@ -93,5 +93,103 @@
       "billText": "(Placeholder) Bill text not added yet.",
       "amendments": []
     }
+,
+"questionTime": {
+  "cabinet": [
+    {
+      "slug": "prime-minister",
+      "title": "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service",
+      "short": "PMQs"
+    },
+    {
+      "slug": "chancellor",
+      "title": "Chancellor of the Exchequer, and Second Lord of the Treasury",
+      "short": "Treasury Questions"
+    },
+    {
+      "slug": "foreign",
+      "title": "Secretary of State for Foreign and Commonwealth Affairs",
+      "short": "FCO Questions"
+    },
+    {
+      "slug": "trade",
+      "title": "Secretary of State for Business and Trade, and President of the Board of Trade",
+      "short": "Trade Questions"
+    },
+    {
+      "slug": "defence",
+      "title": "Secretary of State for Defence",
+      "short": "Defence Questions"
+    },
+    {
+      "slug": "welfare",
+      "title": "Secretary of State for Work and Pensions",
+      "short": "Welfare Questions"
+    },
+    {
+      "slug": "education",
+      "title": "Secretary of State for Education",
+      "short": "Education Questions"
+    },
+    {
+      "slug": "env-agri",
+      "title": "Secretary of State for the Environment and Agriculture",
+      "short": "Environment & Agriculture Questions"
+    },
+    {
+      "slug": "health",
+      "title": "Secretary of State for Health and Social Security",
+      "short": "Health Questions"
+    },
+    {
+      "slug": "eti",
+      "title": "Secretary of State for the Environment, Transport and Infrastructure",
+      "short": "ETI Questions"
+    },
+    {
+      "slug": "culture",
+      "title": "Secretary of State for Culture, Media and Sport",
+      "short": "Culture Questions"
+    },
+    {
+      "slug": "home-nations",
+      "title": "Secretary of State for the Home Nations",
+      "short": "Home Nations Questions"
+    },
+    {
+      "slug": "leader-commons",
+      "title": "Leader of the House of Commons",
+      "short": "Commons Business Questions"
+    }
+  ],
+  "questions": [
+    {
+      "id": "qt-001",
+      "office": "prime-minister",
+      "askedBy": "Dale Weston MP",
+      "askedRole": "backbencher",
+      "text": "Will the Prime Minister commit to publishing a timetable for the next Queen’s Speech and the government’s priorities for this session?",
+      "status": "submitted",
+      "answer": ""
+    },
+    {
+      "id": "qt-002",
+      "office": "health",
+      "askedBy": "John Shade MP",
+      "askedRole": "shadow",
+      "text": "What assessment has the Secretary of State made of NHS waiting times over the last quarter, and what action will be taken to improve performance?",
+      "status": "answered",
+      "answer": "Waiting times have stabilised and targeted funding is being directed to high-pressure trusts. A further update will be issued in the next performance bulletin."
+    },
+    {
+      "id": "qt-003",
+      "office": "leader-commons",
+      "askedBy": "Grant Kingston MP",
+      "askedRole": "leader-opposition",
+      "text": "Will the Leader of the House confirm the government’s legislative timetable for the next two sitting weeks, including opposition day allocation?",
+      "status": "closed",
+      "answer": "A business statement will be issued outlining the next two sitting weeks, including one opposition day within that period."
+    }
   ]
 }
+
