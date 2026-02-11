@@ -371,7 +371,7 @@ a{ color:inherit; text-decoration:none; }
 .tag.rejected{ background: rgba(200,16,46,.16); border-color: rgba(200,16,46,.35); }
 .tag.division{ background: rgba(200,16,46,.10); border-color: rgba(200,16,46,.25); }
 
-/* ACTIVE TOP NAV (obvious highlight) */
+/* ACTIVE TOP NAV (makes the current page obvious) */
 .nav a.is-active,
 .nav a[aria-current="page"]{
   background: #ffffff;
@@ -380,4 +380,5 @@ a{ color:inherit; text-decoration:none; }
   font-weight: 900;
   box-shadow: 0 10px 30px rgba(0,0,0,.25);
 }
+
 
