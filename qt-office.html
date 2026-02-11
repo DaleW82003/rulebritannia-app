@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rule Britannia — Question Time</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="theme-commons">
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
+    </div>
+
+    <nav class="nav">
+      <a href="dashboard.html">Your Office</a>
+      <a href="news.html">News</a>
+      <a href="papers.html">Papers</a>
+      <a href="economy.html">Economy</a>
+      <a href="budget.html">Budget</a>
+      <a href="polling.html">Polling</a>
+      <a href="questiontime.html">Question Time</a>
+      <a href="motions.html">Motions</a>
+      <a href="statements.html">Statements</a>
+      <a href="government.html">Government</a>
+      <a href="party.html">Party</a>
+      <a href="civilservice.html">Civil Service</a>
+      <a href="personal.html">Personal</a>
+      <a href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Forum</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <h1 class="page-title" id="officeTitle">Question Time</h1>
+
+  <section class="panel">
+    <h2>Rules Summary</h2>
+    <div class="muted-block" id="rulesBox">Loading…</div>
+  </section>
+
+  <section class="panel">
+    <h2>Submit a Question</h2>
+    <div class="muted-block">
+      Demo-only form (no login yet). Later this will enforce eligibility and question limits automatically.
+    </div>
+
+    <form id="qtForm" class="qt-form" style="margin-top:12px;">
+      <div class="qt-field">
+        <label>Asked By</label>
+        <input id="askedBy" type="text" placeholder="e.g. Dale Weston MP">
+      </div>
+
+      <div class="qt-field">
+        <label>Role</label>
+        <select id="askedRole">
+          <option value="backbencher">Backbencher</option>
+          <option value="leader-opposition">Leader of the Opposition</option>
+          <option value="party-leader-3rd-4th">3rd/4th Party Leader</option>
+          <option value="shadow">Shadow Secretary/Minister</option>
+        </select>
+      </div>
+
+      <div class="qt-field qt-wide">
+        <label>Question</label>
+        <textarea id="questionText" rows="4" placeholder="Type your question…"></textarea>
+      </div>
+
+      <div style="margin-top:12px;">
+        <button class="btn" type="submit">Submit Question</button>
+        <a class="btn" href="questiontime.html" style="margin-left:8px;">Back to Cabinet</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Questions</h2>
+    <div id="qtList" class="muted-block">Loading…</div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+<script>
+  const params = new URLSearchParams(location.search);
+  const office = params.get("office");
+
+  function esc(s){
+    return String(s ?? "")
+      .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+  }
+
+  fetch("data/demo.json")
+    .then(r => r.json())
+    .then(data => {
+      const qt = data.questionTime || {};
+      const offices = qt.cabinet || [];
+      const officeObj = offices.find(o => o.slug === office) || offices[0];
+
+      // Title
+      document.getElementById("officeTitle").textContent = officeObj ? officeObj.title : "Question Time";
+
+      // Rules box
+      const isPM = officeObj && officeObj.slug === "prime-minister";
+      document.getElementById("rulesBox").innerHTML = isPM ? `
+        <b>PMQs</b><br>
+        • Backbenchers may ask the Prime Minister questions, but may only have <b>1 outstanding</b> question to the PM.<br>
+        • Backbenchers may have <b>3 outstanding total</b> across all ministers.<br>
+        • Leader of the Opposition: <b>3</b> follow-ups.<br>
+        • 3rd/4th party leaders: <b>2</b> follow-ups.<br>
+        • Backbenchers: <b>1</b> follow-up.
+      ` : `
+        <b>Departmental Questions</b><br>
+        • Shadow Secretaries/Ministers may ask <b>only their matching portfolio</b> (no cross-portfolio).<br>
+        • Shadows: <b>2</b> follow-ups to their Secretary/Minister.<br>
+        • Backbenchers: <b>1</b> follow-up to any Secretary/Minister.
+      `;
+
+      // Filter questions for this office
+      const allQ = Array.isArray(qt.questions) ? qt.questions : [];
+      const list = allQ.filter(q => q.office === (officeObj ? officeObj.slug : office));
+
+      const qtList = document.getElementById("qtList");
+      if (!list.length) {
+        qtList.innerHTML = "No questions yet.";
+      } else {
+        qtList.innerHTML = list.map(q => `
+          <div class="qt-q">
+            <div class="qt-qtop">
+              <b>${esc(q.askedBy)}</b>
+              <span class="tag ${esc(q.status)}">${esc(q.status)}</span>
+            </div>
+            <div class="qt-qtext">${esc(q.text)}</div>
+
+            ${q.answer ? `<div class="qt-answer"><b>Answer:</b> ${esc(q.answer)}</div>` : ""}
+
+            <div class="qt-qmeta">
+              <span>Office:</span> <b>${esc(officeObj ? officeObj.title : q.office)}</b>
+            </div>
+          </div>
+        `).join("");
+      }
+
+      // Demo-only submit (shows alert only, no persistence yet)
+      document.getElementById("qtForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        alert("Submitted (demo). Next step will save to the backend / database.");
+      });
+    });
+</script>
+</body>
+</html>
