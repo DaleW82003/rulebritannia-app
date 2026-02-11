@@ -165,7 +165,7 @@ a{ color:inherit; text-decoration:none; }
 /* ================== WHAT'S GOING ON (5 tiles) ================== */
 .wgo-grid{
   display:grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap:12px;
 }
 
@@ -370,15 +370,3 @@ a{ color:inherit; text-decoration:none; }
 .tag.accepted{ background: rgba(46,139,87,.22); border-color: rgba(46,139,87,.45); }
 .tag.rejected{ background: rgba(200,16,46,.16); border-color: rgba(200,16,46,.35); }
 .tag.division{ background: rgba(200,16,46,.10); border-color: rgba(200,16,46,.25); }
-
-/* ACTIVE TOP NAV (makes the current page obvious) */
-.nav a.is-active,
-.nav a[aria-current="page"]{
-  background: #ffffff;
-  color: #012169;
-  border-color: #ffffff;
-  font-weight: 900;
-  box-shadow: 0 10px 30px rgba(0,0,0,.25);
-}
-
-
