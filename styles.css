@@ -378,3 +378,98 @@ a{ color:inherit; text-decoration:none; }
 .tag.accepted{ background: rgba(46,139,87,.22); border-color: rgba(46,139,87,.45); }
 .tag.rejected{ background: rgba(200,16,46,.16); border-color: rgba(200,16,46,.35); }
 .tag.division{ background: rgba(200,16,46,.10); border-color: rgba(200,16,46,.25); }
+/* ================== QUESTION TIME ================== */
+.qt-grid{
+  margin-top:12px;
+  display:grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap:12px;
+}
+@media (max-width: 980px){
+  .qt-grid{ grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 700px){
+  .qt-grid{ grid-template-columns: 1fr; }
+}
+
+.qt-card{
+  display:block;
+  background: rgba(255,255,255,.92);
+  border:1px solid var(--panel-border);
+  border-radius:18px;
+  padding:12px;
+  box-shadow: 0 10px 40px rgba(1,33,105,.10);
+}
+
+.qt-title{
+  font-weight:900;
+  font-size:14px;
+  line-height:1.25;
+}
+
+.qt-sub{
+  margin-top:8px;
+  color:var(--muted);
+  font-size:13px;
+}
+
+.qt-form{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:12px;
+  margin-top:12px;
+}
+
+.qt-field label{
+  display:block;
+  font-size:12px;
+  color:var(--muted);
+  margin-bottom:6px;
+}
+
+.qt-field input,
+.qt-field select,
+.qt-field textarea{
+  width:100%;
+  border-radius:12px;
+  border:1px solid rgba(1,33,105,.18);
+  padding:10px;
+  font-size:14px;
+  background: rgba(255,255,255,.95);
+}
+
+.qt-wide{
+  grid-column: 1 / -1;
+}
+
+.qt-q{
+  background: rgba(255,255,255,.75);
+  border:1px solid rgba(1,33,105,.14);
+  border-radius:14px;
+  padding:10px;
+  margin-bottom:10px;
+}
+
+.qt-qtop{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.qt-qtext{
+  margin-top:8px;
+  color:var(--text);
+  line-height:1.5;
+}
+
+.qt-answer{
+  margin-top:10px;
+  color:var(--muted);
+  line-height:1.5;
+}
+
+.qt-qmeta{
+  margin-top:8px;
+  color:var(--muted);
+  font-size:12px;
+}
