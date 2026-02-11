@@ -62,6 +62,50 @@ fetch("data/demo.json")
         </div>
       `;
     }
+// ---------- Live Docket (dashboard only) ----------
+const docketEl = document.getElementById("live-docket");
+if (docketEl) {
+  const docket = data.liveDocket || {};
+  const items = Array.isArray(docket.items) ? docket.items : [];
+
+  const icon = (type) => {
+    switch (type) {
+      case "question": return "❓";
+      case "motion": return "📜";
+      case "edm": return "✍️";
+      case "statement": return "🗣️";
+      case "division": return "🗳️";
+      default: return "•";
+    }
+  };
+
+  if (!items.length) {
+    docketEl.innerHTML = `<div class="muted-block">No live items right now.</div>`;
+  } else {
+    docketEl.innerHTML = `
+      <div class="docket-top">
+        <div class="docket-kicker">As of: <b>${docket.asOf || "now"}</b></div>
+      </div>
+
+      <div class="docket-list">
+        ${items.map(it => `
+          <div class="docket-item ${it.priority === "high" ? "high" : ""}">
+            <div class="docket-left">
+              <div class="docket-icon">${icon(it.type)}</div>
+              <div class="docket-text">
+                <div class="docket-title">${it.title || "Item"}</div>
+                <div class="docket-detail">${it.detail || ""}</div>
+              </div>
+            </div>
+            <div class="docket-cta">
+              <a class="btn" href="${it.href || "#"}">${it.ctaLabel || "Open"}</a>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+}
 
     // ---------- Order Paper (dashboard only) ----------
     const orderWrap = document.getElementById("order-paper");
