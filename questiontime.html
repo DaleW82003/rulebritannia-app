@@ -5,16 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Rule Britannia — Question Time</title>
   <link rel="stylesheet" href="styles.css">
-<script src="app.js"></script>
 </head>
+
 <body class="theme-commons">
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand">
       <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
     </div>
+
     <nav class="nav">
-      <a href="dashboard.html">Office</a>
+      <a href="dashboard.html">Your Office</a>
       <a href="news.html">News</a>
       <a href="papers.html">Papers</a>
       <a href="economy.html">Economy</a>
@@ -36,18 +37,39 @@
   <h1 class="page-title">Question Time</h1>
 
   <section class="panel">
-    <h2>How this will work</h2>
+    <h2>Select an Office</h2>
     <div class="muted-block">
-      Managed parliamentary questions to the PM and Secretaries of State.
-      Moderators/Civil Service schedule sessions, accept questions, and publish an Order of Questions.
-      (We’ll build the submission + scheduling system next.)
+      Choose an office to submit questions and view answered/closed questions.
+      (Moderators will validate and close questions.)
     </div>
-  </section>
-
-  <section class="panel">
-    <h2>Upcoming Sessions</h2>
-    <div class="muted-block">No sessions scheduled yet.</div>
+    <div id="qt-grid" style="margin-top:12px;">Loading…</div>
   </section>
 </main>
+
+<script src="app.js"></script>
+<script>
+  fetch("data/demo.json")
+    .then(r => r.json())
+    .then(data => {
+      const offices = (data.questionTime && data.questionTime.cabinet) || [];
+      const grid = document.getElementById("qt-grid");
+
+      if (!offices.length) {
+        grid.innerHTML = `<div class="muted-block">No cabinet configured yet.</div>`;
+        return;
+      }
+
+      grid.innerHTML = `
+        <div class="qt-grid">
+          ${offices.map(o => `
+            <a class="qt-card" href="qt-office.html?office=${encodeURIComponent(o.slug)}">
+              <div class="qt-title">${o.title}</div>
+              <div class="qt-sub">${o.short || ""}</div>
+            </a>
+          `).join("")}
+        </div>
+      `;
+    });
+</script>
 </body>
 </html>
