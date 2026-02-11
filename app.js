@@ -120,3 +120,40 @@ fetch("data/demo.json")
     }
   })
   .catch((err) => console.error("Error loading data/demo.json:", err));
+<script>
+(() => {
+  // Normalize file name, e.g. "/app/questiontime.html" -> "questiontime.html"
+  const currentFile = (location.pathname.split("/").pop() || "index.html").toLowerCase();
+
+  // Consider hash/query as well if you want; for now we match just the file
+  const navLinks = document.querySelectorAll(".sidebar a[href]");
+
+  let bestMatch = null;
+
+  for (const a of navLinks) {
+    // Ignore external links
+    try {
+      const url = new URL(a.getAttribute("href"), location.href);
+      if (url.origin !== location.origin) continue;
+
+      const file = (url.pathname.split("/").pop() || "index.html").toLowerCase();
+
+      // Prefer exact file match first
+      if (file === currentFile) {
+        bestMatch = a;
+        break;
+      }
+    } catch {
+      // skip invalid hrefs
+    }
+  }
+
+  if (bestMatch) {
+    bestMatch.classList.add("is-active");
+    bestMatch.setAttribute("aria-current", "page");
+
+    // If you have collapsible sections, expand the parent section here if needed
+    // (depends on your markup, so we’ll add that once we see your sidebar structure)
+  }
+})();
+</script>
