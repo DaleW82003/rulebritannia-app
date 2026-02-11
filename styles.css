@@ -1,70 +1,110 @@
-body{
-  margin:0;
-  font-family: system-ui, Arial, sans-serif;
-  background:#081510;
-  color:#e9f3ee;
+/* ---------- Brand + Themes (edit these later, everything updates) ---------- */
+:root{
+  /* Union palette */
+  --union-navy:#0b1b3a;
+  --union-red:#c8102e;
+  --union-white:#ffffff;
+
+  /* Default UI tokens */
+  --bg: #070b14;
+  --panel: rgba(255,255,255,.06);
+  --border: rgba(255,255,255,.12);
+  --text: #f2f4fb;
+  --muted: rgba(242,244,251,.72);
+
+  /* Accent defaults (overridden by chamber themes) */
+  --accent: var(--union-red);
+  --topbar: rgba(11,27,58,.75);   /* navy glass */
+  --topbar-border: rgba(255,255,255,.12);
 }
 
+/* Commons theme (green) */
+body.theme-commons{
+  --accent:#2fb56a;                 /* commons green accent */
+  --bg: #07130e;
+  --topbar: rgba(7,19,14,.80);
+}
+
+/* Lords theme (red) */
+body.theme-lords{
+  --accent: var(--union-red);
+  --bg: #15070a;
+  --topbar: rgba(21,7,10,.82);
+}
+
+/* Neutral/national theme */
+body.theme-union{
+  --accent: var(--union-red);
+  --bg: #070b14;
+  --topbar: rgba(11,27,58,.78);
+}
+
+/* ---------- Base layout ---------- */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background:
+    radial-gradient(900px 420px at 20% 12%, rgba(200,16,46,.18), transparent 60%),
+    radial-gradient(900px 420px at 80% 10%, rgba(11,27,58,.28), transparent 60%),
+    linear-gradient(180deg, var(--bg), #05070d);
+  color: var(--text);
+}
+
+a{color:inherit;text-decoration:none}
+
 .topbar{
-  position:sticky;
-  top:0;
-  background:#0c2016;
-  border-bottom:1px solid #1f3b2c;
+  position:sticky; top:0; z-index:10;
+  backdrop-filter: blur(10px);
+  background: var(--topbar);
+  border-bottom: 1px solid var(--topbar-border);
 }
 
 .topbar-inner{
   max-width:1200px;
-  margin:auto;
-  padding:12px;
+  margin:0 auto;
+  padding:12px 16px;
   display:flex;
+  align-items:center;
   justify-content:space-between;
-  align-items:center;
+  gap:12px;
 }
 
-.brand{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  font-weight:900;
-}
-
-.crest{
-  width:32px;
+.brand{display:flex;align-items:center;gap:12px;font-weight:900}
+.logo{
   height:32px;
-  border-radius:10px;
-  background:linear-gradient(135deg,#cbb67a,#39d98a);
+  width:auto;
+  border-radius:6px;
 }
+.brand-text{letter-spacing:.2px}
 
-.nav{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-}
-
+.nav{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
 .nav a{
-  color:#bcd8c9;
-  text-decoration:none;
-  padding:6px 10px;
-  border-radius:8px;
+  color: var(--muted);
+  padding:7px 10px;
+  border-radius:10px;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.03);
+  font-size:13px;
 }
-
 .nav a:hover{
-  background:#173b2a;
+  color: var(--text);
+  border-color: rgba(255,255,255,.18);
+}
+.nav a.primary{
+  color:#061018;
+  font-weight:900;
+  border-color: rgba(0,0,0,.12);
+  background: linear-gradient(135deg, var(--accent), rgba(255,255,255,.15));
 }
 
-.wrap{
-  max-width:1200px;
-  margin:auto;
-  padding:18px;
-}
-
-.page-title{
-  margin:10px 0 20px;
-}
+.wrap{max-width:1200px;margin:0 auto;padding:18px 16px}
+.page-title{margin:10px 0 20px}
 
 .panel{
-  background:#0f261c;
-  border:1px solid #1f3b2c;
+  background: var(--panel);
+  border:1px solid var(--border);
   border-radius:14px;
   padding:14px;
   margin-bottom:16px;
