@@ -32,8 +32,8 @@
 "currentPlayer": {
   "name": "Dale Weston MP",
   "party": "Conservative",
-  "role": "backbencher",
-  "office": null,
+  "role": "minister",
+  "office": prime-minister,
   "isSpeaker": false,
   "isMod": false
 },
