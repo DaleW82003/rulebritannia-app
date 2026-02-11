@@ -1,1 +1,102 @@
-<!-- placeholder -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rule Britannia — Bill</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="theme-commons">
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
+      <span class="brand-text">Legislation — House of Commons</span>
+    </div>
+
+    <nav class="nav">
+      <a href="dashboard.html">Home</a>
+      <a href="bill.html">Legislation</a>
+      <a href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Forum</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <h1 class="page-title" id="billTitle">Bill</h1>
+
+  <section class="panel" id="billMeta">
+    Loading bill…
+  </section>
+
+  <div class="bill-layout">
+    <section class="panel">
+      <h2>Bill Text</h2>
+      <div class="muted-block" id="billText">
+        (Placeholder) We’ll paste the bill text here later, or load it from data.
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Amendments</h2>
+      <div class="muted-block">
+        (Placeholder) Proposed amendments will appear here.
+        Government/author can mark friendly, accept, reject, or trigger a division if 2 parties support.
+      </div>
+
+      <div style="margin-top:12px;">
+        <a class="btn" href="#">Propose Amendment</a>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Debate</h2>
+    <div class="muted-block">
+      Debate happens on the forum. We’ll link this bill to a specific Discourse topic next.
+    </div>
+    <div style="margin-top:12px;">
+      <a class="btn" id="debateBtn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Open Debate</a>
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+<script>
+  // Basic loader for bill.html
+  const params = new URLSearchParams(location.search);
+  const billId = params.get("id");
+
+  fetch("data/demo.json")
+    .then(r => r.json())
+    .then(data => {
+      const bills = data.orderPaperCommons || [];
+      const b = bills.find(x => x.id === billId) || bills[0];
+
+      document.getElementById("billTitle").textContent = b ? b.title : "Bill";
+
+      const stageOrder = ["First Reading","Second Reading","Committee Stage","Report Stage","Division"];
+      const stageChips = stageOrder.map(s => `
+        <div class="stage ${b && b.stage === s ? "on" : ""}">${s}</div>
+      `).join("");
+
+      let resultBlock = "";
+      if (b && b.status === "passed") resultBlock = `<div class="bill-result passed">Royal Assent Granted</div>`;
+      if (b && b.status === "failed") resultBlock = `<div class="bill-result failed">Bill Defeated</div>`;
+      if (b && b.status === "in-progress") resultBlock = `<div class="bill-current">Current Stage: <b>${b.stage}</b></div>`;
+
+      document.getElementById("billMeta").innerHTML = b ? `
+        <div class="bill-title">${b.title}</div>
+        <div class="bill-sub">Author: ${b.author} · ${b.department}</div>
+        <div class="stage-track" style="margin-top:12px;">${stageChips}</div>
+        ${resultBlock}
+        <div class="bill-actions spaced" style="margin-top:16px;">
+          <a class="btn" href="dashboard.html">Back to Dashboard</a>
+          <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
+        </div>
+      ` : `Bill not found.`;
+    });
+</script>
+</body>
+</html>
