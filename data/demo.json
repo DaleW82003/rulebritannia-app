@@ -29,6 +29,14 @@
       { "title": "Bill C", "stage": "Report Stage" }
     ]
   },
+"currentPlayer": {
+  "name": "Dale Weston MP",
+  "party": "Conservative",
+  "role": "backbencher",
+  "office": null,
+  "isSpeaker": false,
+  "isMod": false
+},
 
   "orderPaperCommons": [
     {
