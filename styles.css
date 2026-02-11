@@ -325,3 +325,37 @@ a{ color:inherit; text-decoration:none; }
   gap:10px;
   flex-wrap:wrap;
 }
+/* ===== Bill results ===== */
+
+.bill-current{
+  margin-top:10px;
+  font-size:13px;
+  color:var(--muted);
+}
+
+.bill-result{
+  margin-top:12px;
+  padding:10px;
+  border-radius:12px;
+  font-weight:900;
+  text-align:center;
+}
+
+.bill-result.passed{
+  background: rgba(46,139,87,.20);
+  border:1px solid rgba(46,139,87,.45);
+  color:#1f6d45;
+}
+
+.bill-result.failed{
+  background: rgba(200,16,46,.18);
+  border:1px solid rgba(200,16,46,.45);
+  color:#9b0d23;
+}
+
+/* Wider button spacing */
+.bill-actions.spaced{
+  margin-top:16px;
+  display:flex;
+  justify-content:space-between;
+}
