@@ -1,9 +1,10 @@
 fetch("data/demo.json")
   .then(res => res.json())
   .then(data => {
+
+    // ===== What's Going On =====
     const w = data.whatsGoingOn;
 
-    // Filter polling: show parties >= 2%, and always include SNP if present
     const polling = (w.polling || [])
       .filter(p => p.value >= 2 || p.party === "SNP")
       .sort((a,b) => b.value - a.value);
@@ -17,7 +18,7 @@ fetch("data/demo.json")
       .map(b => `<div class="row"><span>${b.title}</span><b>${b.stage}</b></div>`)
       .join("");
 
-    const html = `
+    document.getElementById("whats-going-on").innerHTML = `
       <div class="wgo-grid">
         <div class="wgo-tile">
           <div class="wgo-kicker">BBC News</div>
@@ -61,14 +62,6 @@ fetch("data/demo.json")
       </div>
     `;
 
-    document.getElementById("whats-going-on").innerHTML = html;
-
-    // Keep placeholders for now
-    const op = document.getElementById("order-paper");
-    if (op) op.innerHTML = "";
-    const econ = document.getElementById("economy");
-    if (econ) econ.innerHTML = "";
-  });
     // ===== Order Paper (Commons) =====
     const stageOrder = ["First Reading","Second Reading","Committee Stage","Report Stage","Division"];
 
@@ -78,7 +71,6 @@ fetch("data/demo.json")
     }
 
     function stagePercent(stage){
-      // 0..4 mapped to 10..100
       const i = stageIndex(stage);
       const pct = Math.round(((i + 1) / stageOrder.length) * 100);
       return Math.max(10, pct);
@@ -101,7 +93,9 @@ fetch("data/demo.json")
 
               <div class="stage-track">
                 ${stageOrder.map(s => `
-                  <div class="stage ${stageIndex(b.stage) >= stageOrder.indexOf(s) ? "on" : ""}">${s.replace(" Reading","")}</div>
+                  <div class="stage ${stageIndex(b.stage) >= stageOrder.indexOf(s) ? "on" : ""}">
+                    ${s.replace(" Reading","")}
+                  </div>
                 `).join("")}
               </div>
 
@@ -123,3 +117,12 @@ fetch("data/demo.json")
       `;
     }
 
+    // State of the Nation placeholder stays for now
+    const econ = document.getElementById("economy");
+    if (econ) econ.innerHTML = "Economy system connected ✓";
+  })
+  .catch(err => {
+    console.error(err);
+    const w = document.getElementById("whats-going-on");
+    if (w) w.innerHTML = "Error loading demo data. Check demo.json formatting.";
+  });
