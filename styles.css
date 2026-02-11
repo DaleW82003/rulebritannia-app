@@ -82,10 +82,8 @@ a{ color:inherit; text-decoration:none; }
 .brand{
   display:flex;
   align-items:center;
-  gap:12px;
-  font-weight:900;
-  color:white;
 }
+
 
 .logo{
   height:34px;
