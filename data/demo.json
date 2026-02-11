@@ -29,15 +29,15 @@
       { "title": "Bill C", "stage": "Report Stage" }
     ]
   },
-  
-"currentPlayer": {
-  "name": "Dale Weston MP",
-  "party": "Conservative",
-"role": "minister",
-"office": "prime-minister"
-  "isSpeaker": false,
-  "isMod": false
-},
+
+  "currentPlayer": {
+    "name": "Dale Weston MP",
+    "party": "Conservative",
+    "role": "minister",
+    "office": "prime-minister",
+    "isSpeaker": false,
+    "isMod": false
+  },
 
   "orderPaperCommons": [
     {
@@ -103,83 +103,84 @@
       "amendments": []
     }
   ],
-"liveDocket": {
-  "asOf": "Today, 10:15",
- "items": [
-  {
-    "type": "question",
-    "title": "PMQs: Outstanding question",
-    "detail": "Awaiting answer from the Prime Minister",
-    "ctaLabel": "Open",
-    "href": "qt-office.html?office=prime-minister",
-    "priority": "high",
-    "audience": { "roles": ["minister"], "offices": ["prime-minister"] }
+
+  "liveDocket": {
+    "asOf": "Today, 10:15",
+    "items": [
+      {
+        "type": "question",
+        "title": "PMQs: Outstanding question",
+        "detail": "Awaiting answer from the Prime Minister",
+        "ctaLabel": "Open",
+        "href": "qt-office.html?office=prime-minister",
+        "priority": "high",
+        "audience": { "roles": ["minister"], "offices": ["prime-minister"] }
+      },
+      {
+        "type": "question",
+        "title": "PMQs: Follow-up available",
+        "detail": "You may ask follow-ups if eligible.",
+        "ctaLabel": "Open",
+        "href": "qt-office.html?office=prime-minister",
+        "priority": "normal",
+        "audience": { "roles": ["leader-opposition", "party-leader-3rd-4th", "backbencher"] }
+      },
+      {
+        "type": "question",
+        "title": "Health Questions: Awaiting ministerial answer",
+        "detail": "A question is awaiting an answer from the Health Secretary.",
+        "ctaLabel": "Open",
+        "href": "qt-office.html?office=health",
+        "priority": "high",
+        "audience": { "roles": ["minister"], "offices": ["health"] }
+      },
+      {
+        "type": "motion",
+        "title": "Motion: Rail Reform Timetable",
+        "detail": "Debate open — division scheduled after close.",
+        "ctaLabel": "Debate",
+        "href": "motions.html",
+        "priority": "high",
+        "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
+      },
+      {
+        "type": "edm",
+        "title": "EDM 14: Protect Coastal Communities",
+        "detail": "Signatures open (opt-in).",
+        "ctaLabel": "Sign",
+        "href": "motions.html",
+        "priority": "normal",
+        "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
+      },
+      {
+        "type": "statement",
+        "title": "Ministerial Statement: NHS Performance",
+        "detail": "Response window open (2 hours).",
+        "ctaLabel": "Open",
+        "href": "statements.html",
+        "priority": "high",
+        "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
+      },
+      {
+        "type": "division",
+        "title": "Division: Finance Act 2000",
+        "detail": "Vote open now — closes 19:00.",
+        "ctaLabel": "Vote",
+        "href": "bill.html?id=finance-2000",
+        "priority": "high",
+        "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
+      },
+      {
+        "type": "speaker",
+        "title": "Speaker Queue: Close outstanding questions",
+        "detail": "Items awaiting review and closure.",
+        "ctaLabel": "Open",
+        "href": "civilservice.html",
+        "priority": "high",
+        "audience": { "speakerOnly": true }
+      }
+    ]
   },
-  {
-    "type": "question",
-    "title": "PMQs: Follow-up available",
-    "detail": "You may ask follow-ups if eligible.",
-    "ctaLabel": "Open",
-    "href": "qt-office.html?office=prime-minister",
-    "priority": "normal",
-    "audience": { "roles": ["leader-opposition", "party-leader-3rd-4th", "backbencher"] }
-  },
-  {
-    "type": "question",
-    "title": "Health Questions: Awaiting ministerial answer",
-    "detail": "A question is awaiting an answer from the Health Secretary.",
-    "ctaLabel": "Open",
-    "href": "qt-office.html?office=health",
-    "priority": "high",
-    "audience": { "roles": ["minister"], "offices": ["health"] }
-  },
-  {
-    "type": "motion",
-    "title": "Motion: Rail Reform Timetable",
-    "detail": "Debate open — division scheduled after close.",
-    "ctaLabel": "Debate",
-    "href": "motions.html",
-    "priority": "high",
-    "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
-  },
-  {
-    "type": "edm",
-    "title": "EDM 14: Protect Coastal Communities",
-    "detail": "Signatures open (opt-in).",
-    "ctaLabel": "Sign",
-    "href": "motions.html",
-    "priority": "normal",
-    "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
-  },
-  {
-    "type": "statement",
-    "title": "Ministerial Statement: NHS Performance",
-    "detail": "Response window open (2 hours).",
-    "ctaLabel": "Open",
-    "href": "statements.html",
-    "priority": "high",
-    "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
-  },
-  {
-    "type": "division",
-    "title": "Division: Finance Act 2000",
-    "detail": "Vote open now — closes 19:00.",
-    "ctaLabel": "Vote",
-    "href": "bill.html?id=finance-2000",
-    "priority": "high",
-    "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
-  },
-  {
-    "type": "speaker",
-    "title": "Speaker Queue: Close outstanding questions",
-    "detail": "Items awaiting review and closure.",
-    "ctaLabel": "Open",
-    "href": "civilservice.html",
-    "priority": "high",
-    "audience": { "speakerOnly": true }
-  }
-]
-},
 
   "questionTime": {
     "cabinet": [
