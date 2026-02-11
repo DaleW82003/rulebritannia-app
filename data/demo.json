@@ -34,7 +34,7 @@
   "party": "Conservative",
   "role": "minister",
   "office": prime-minister,
-  "isSpeaker": false,
+  "isSpeaker": true,
   "isMod": false
 },
 
