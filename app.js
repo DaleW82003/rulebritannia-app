@@ -29,15 +29,6 @@ fetch("data/demo.json")
             .join("")
         : `<div class="wgo-strap">No polling yet.</div>`;
 
-      const billsLines = commonsLeg.length
-        ? commonsLeg
-            .slice(0, 4)
-            .map(
-              (b) =>
-                `<div class="row"><span>${safe(b.title, "—")}</span><b>${safe(b.stage, "—")}</b></div>`
-            )
-            .join("")
-        : `<div class="wgo-strap">No items on the Order Paper.</div>`;
 
       wgoEl.innerHTML = `
         <div class="wgo-grid">
@@ -70,12 +61,6 @@ fetch("data/demo.json")
             <div class="wgo-kicker">Polling</div>
             <div class="wgo-metric">${pollingLines}</div>
             <div class="wgo-actions"><a class="btn" href="polling.html">Polling</a></div>
-          </div>
-
-          <div class="wgo-tile">
-            <div class="wgo-kicker">Order Paper</div>
-            <div class="wgo-metric">${billsLines}</div>
-            <div class="wgo-actions"><a class="btn" href="#order-paper">Go to Order Paper</a></div>
           </div>
 
         </div>
