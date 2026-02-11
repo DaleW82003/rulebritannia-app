@@ -1,8 +1,46 @@
+// app.js
+// Loads demo data + renders dashboard widgets when the relevant elements exist
+// Also highlights the current page in the sidebar nav
+
+// ---------- Helpers ----------
+function safe(v, fallback = "") {
+  return v === null || v === undefined ? fallback : v;
+}
+
+// ---------- Nav: highlight current page ----------
+(function highlightCurrentNav() {
+  const currentFile = (location.pathname.split("/").pop() || "index.html").toLowerCase();
+  const navLinks = document.querySelectorAll(".sidebar a[href]");
+  let bestMatch = null;
+
+  for (const a of navLinks) {
+    try {
+      const url = new URL(a.getAttribute("href"), location.href);
+
+      // Ignore external links
+      if (url.origin !== location.origin) continue;
+
+      const file = (url.pathname.split("/").pop() || "index.html").toLowerCase();
+
+      if (file === currentFile) {
+        bestMatch = a;
+        break;
+      }
+    } catch {
+      // ignore invalid hrefs
+    }
+  }
+
+  if (bestMatch) {
+    bestMatch.classList.add("is-active");
+    bestMatch.setAttribute("aria-current", "page");
+  }
+})();
+
+// ---------- Data load + page rendering ----------
 fetch("data/demo.json")
   .then((res) => res.json())
   .then((data) => {
-    const safe = (v, fallback = "") => (v === null || v === undefined ? fallback : v);
-
     // ---------- What's Going On (dashboard only) ----------
     const wgoEl = document.getElementById("whats-going-on");
     if (wgoEl) {
@@ -14,14 +52,16 @@ fetch("data/demo.json")
 
       // Polling: show parties >= 2%, always include SNP if present
       const polling = pollingRaw
-        .filter((p) => (p.value >= 2) || p.party === "SNP")
+        .filter((p) => p.value >= 2 || p.party === "SNP")
         .sort((a, b) => b.value - a.value);
 
       const pollingLines = polling.length
         ? polling
             .map(
               (p) =>
-                `<div class="row"><span>${safe(p.party, "—")}</span><b>${Number(p.value).toFixed(1)}%</b></div>`
+                `<div class="row"><span>${safe(p.party, "—")}</span><b>${Number(p.value).toFixed(
+                  1
+                )}%</b></div>`
             )
             .join("")
         : `<div class="wgo-strap">No polling yet.</div>`;
@@ -38,7 +78,10 @@ fetch("data/demo.json")
 
           <div class="wgo-tile">
             <div class="wgo-kicker">Papers</div>
-            <div class="wgo-title">${safe(papers.paper, "Paper")}: ${safe(papers.headline, "No headline yet.")}</div>
+            <div class="wgo-title">${safe(papers.paper, "Paper")}: ${safe(
+              papers.headline,
+              "No headline yet."
+            )}</div>
             <div class="wgo-strap">${safe(papers.strap, "")}</div>
             <div class="wgo-actions"><a class="btn" href="papers.html">View</a></div>
           </div>
@@ -46,9 +89,15 @@ fetch("data/demo.json")
           <div class="wgo-tile">
             <div class="wgo-kicker">Economy</div>
             <div class="wgo-metric">
-              <div class="row"><span>Growth</span><b>${Number(safe(economy.growth, 0)).toFixed(1)}%</b></div>
-              <div class="row"><span>Inflation</span><b>${Number(safe(economy.inflation, 0)).toFixed(1)}%</b></div>
-              <div class="row"><span>Unemployment</span><b>${Number(safe(economy.unemployment, 0)).toFixed(1)}%</b></div>
+              <div class="row"><span>Growth</span><b>${Number(safe(economy.growth, 0)).toFixed(
+                1
+              )}%</b></div>
+              <div class="row"><span>Inflation</span><b>${Number(
+                safe(economy.inflation, 0)
+              ).toFixed(1)}%</b></div>
+              <div class="row"><span>Unemployment</span><b>${Number(
+                safe(economy.unemployment, 0)
+              ).toFixed(1)}%</b></div>
             </div>
             <div class="wgo-actions"><a class="btn" href="economy.html">Economy</a></div>
           </div>
@@ -88,72 +137,3 @@ fetch("data/demo.json")
                     const stageTrack = stageOrder
                       .map((s) => `<div class="stage ${stage === s ? "on" : ""}">${s}</div>`)
                       .join("");
-
-                    const resultBlock =
-                      status === "passed"
-                        ? `<div class="bill-result passed">Royal Assent Granted</div>`
-                        : status === "failed"
-                          ? `<div class="bill-result failed">Bill Defeated</div>`
-                          : `<div class="bill-current">Current Stage: <b>${stage}</b></div>`;
-
-                    return `
-                      <div class="bill-card ${status}">
-                        <div class="bill-title">${safe(b.title, "Untitled Bill")}</div>
-                        <div class="bill-sub">Author: ${safe(b.author, "—")} · ${safe(b.department, "—")}</div>
-
-                        <div class="stage-track">${stageTrack}</div>
-
-                        ${resultBlock}
-
-                        <div class="bill-actions spaced">
-                          <a class="btn" href="bill.html?id=${encodeURIComponent(safe(b.id, ""))}">View Bill</a>
-                          <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
-                        </div>
-                      </div>
-                    `;
-                  })
-                  .join("")
-              : `<div class="muted-block">No bills on the Order Paper.</div>`
-          }
-        </div>
-      `;
-    }
-  })
-  .catch((err) => console.error("Error loading data/demo.json:", err));
-<script>
-(() => {
-  // Normalize file name, e.g. "/app/questiontime.html" -> "questiontime.html"
-  const currentFile = (location.pathname.split("/").pop() || "index.html").toLowerCase();
-
-  // Consider hash/query as well if you want; for now we match just the file
-  const navLinks = document.querySelectorAll(".sidebar a[href]");
-
-  let bestMatch = null;
-
-  for (const a of navLinks) {
-    // Ignore external links
-    try {
-      const url = new URL(a.getAttribute("href"), location.href);
-      if (url.origin !== location.origin) continue;
-
-      const file = (url.pathname.split("/").pop() || "index.html").toLowerCase();
-
-      // Prefer exact file match first
-      if (file === currentFile) {
-        bestMatch = a;
-        break;
-      }
-    } catch {
-      // skip invalid hrefs
-    }
-  }
-
-  if (bestMatch) {
-    bestMatch.classList.add("is-active");
-    bestMatch.setAttribute("aria-current", "page");
-
-    // If you have collapsible sections, expand the parent section here if needed
-    // (depends on your markup, so we’ll add that once we see your sidebar structure)
-  }
-})();
-</script>
