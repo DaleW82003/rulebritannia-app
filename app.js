@@ -9,33 +9,32 @@ function safe(v, fallback = "") {
 
 // ---------- Nav: highlight current page ----------
 (function highlightCurrentNav() {
-  const currentFile = (location.pathname.split("/").pop() || "index.html").toLowerCase();
-const navLinks = document.querySelectorAll(".nav a[href]");
-  let bestMatch = null;
+  const currentFile = (location.pathname.split("/").pop() || "").toLowerCase();
+
+  // If you're opening the site at "/" or "index.html", treat it as dashboard.html
+  const effectiveFile = (currentFile === "" || currentFile === "index.html")
+    ? "dashboard.html"
+    : currentFile;
+
+  const navLinks = document.querySelectorAll(".nav a[href]");
 
   for (const a of navLinks) {
-    try {
-      const url = new URL(a.getAttribute("href"), location.href);
+    const href = (a.getAttribute("href") || "").trim().toLowerCase();
+    if (!href || href === "#") continue;
 
-      // Ignore external links
-      if (url.origin !== location.origin) continue;
+    // Ignore external links (Forum)
+    if (href.startsWith("http://") || href.startsWith("https://")) continue;
 
-      const file = (url.pathname.split("/").pop() || "index.html").toLowerCase();
+    const linkFile = href.split("/").pop().split("?")[0].split("#")[0];
 
-      if (file === currentFile) {
-        bestMatch = a;
-        break;
-      }
-    } catch {
-      // ignore invalid hrefs
+    if (linkFile === effectiveFile) {
+      a.classList.add("is-active");
+      a.setAttribute("aria-current", "page");
+      break;
     }
   }
-
-  if (bestMatch) {
-    bestMatch.classList.add("is-active");
-    bestMatch.setAttribute("aria-current", "page");
-  }
 })();
+
 
 // ---------- Data load + page rendering ----------
 fetch("data/demo.json")
