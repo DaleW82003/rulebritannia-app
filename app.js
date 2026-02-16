@@ -222,3 +222,31 @@ if (docketEl) {
   });
 })();
 
+// ---------- Dropdown Nav ----------
+document.querySelectorAll(".nav-toggle").forEach(btn => {
+  btn.addEventListener("click", e => {
+    e.stopPropagation();
+
+    document.querySelectorAll(".nav-group").forEach(g => {
+      if (g !== btn.parentElement) g.classList.remove("open");
+    });
+
+    btn.parentElement.classList.toggle("open");
+  });
+});
+
+document.addEventListener("click", () => {
+  document.querySelectorAll(".nav-group").forEach(g => g.classList.remove("open"));
+});
+
+// ---------- Active Page Highlight ----------
+const current = location.pathname.split("/").pop();
+
+document.querySelectorAll(".nav a, .dropdown a").forEach(link => {
+  if (link.getAttribute("href") === current) {
+    link.classList.add("active");
+
+    const group = link.closest(".nav-group");
+    if (group) group.querySelector(".nav-toggle").classList.add("active");
+  }
+});
