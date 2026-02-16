@@ -879,3 +879,84 @@ if (orderWrap) {
     </div>
   `;
 }
+// ================== SUNDAY ACTIVITY ROLL ==================
+
+function processSundayActivity(players){
+
+  if (!isSunday()) return players;
+
+  const now = Date.now();
+
+  return players.map(p => {
+
+    // Inactive if not logged in within 7 real days
+    const daysSinceLogin = Math.floor((now - new Date(p.lastLogin).getTime()) / 86400000);
+
+    if (daysSinceLogin > 7) {
+      p.active = false;
+    }
+
+    // Maturity check: must survive 2 Sundays since join
+    const joined = new Date(p.joinedAt);
+    const nowDate = new Date();
+
+    let sundays = 0;
+    let temp = new Date(joined);
+
+    while (temp <= nowDate) {
+      if (temp.getDay() === 0) sundays++;
+      temp.setDate(temp.getDate() + 1);
+    }
+
+    p.mature = sundays >= 2;
+
+    return p;
+  });
+}
+// ================== DIVISION WEIGHT ENGINE ==================
+
+function getFrontbenchRoles(){
+  return [
+    "prime-minister",
+    "leader-opposition",
+    "secretary",
+    "shadow-secretary",
+    "party-leader"
+  ];
+}
+
+function calculateDivisionWeights(players, parliament){
+
+  const processed = processSundayActivity(players);
+
+  const result = {};
+
+  parliament.parties.forEach(party => {
+
+    const partyPlayers = processed.filter(pl => pl.party === party.name && pl.active);
+
+    const fullEligible = partyPlayers.filter(pl => {
+
+      const isFrontbench = getFrontbenchRoles().includes(pl.role);
+
+      if (isFrontbench) return true;
+
+      // backbencher maturity rule
+      return pl.role === "backbencher" && pl.mature;
+    });
+
+    const seatCount = party.seats;
+
+    const weightPerFull = fullEligible.length > 0
+      ? seatCount / fullEligible.length
+      : 0;
+
+    result[party.name] = {
+      seatCount,
+      fullEligible,
+      weightPerFull
+    };
+  });
+
+  return result;
+}
