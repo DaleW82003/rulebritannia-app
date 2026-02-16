@@ -1146,43 +1146,113 @@ Commencement:
 This Act shall come into force ${commencement.toLowerCase()}.
   `;
 }
-function submitBill(){
+function submitStructuredBill(){
 
   let data = getFullData();
 
-  const title = document.getElementById("shortTitle").value;
-  const policy = document.getElementById("policyArea").value;
-  const purpose = document.getElementById("purpose").value;
-  const extent = document.getElementById("extent").value;
-  const commencement = document.getElementById("commencement").value;
-  const clauses = document.getElementById("clauses").value;
+  const titleRaw = document.getElementById("billTitleInput").value.trim();
+  const purpose = document.getElementById("billPurpose").value.trim();
+  const articleCount = parseInt(document.getElementById("articleCount").value);
+  const extent = document.getElementById("extentSelect").value;
+  const commencement = document.getElementById("commencementSelect").value;
 
-  const isOpp = document.getElementById("oppositionDay")?.checked || false;
-  const isGov = document.getElementById("governmentBill")?.checked || false;
+  if (!titleRaw){
+    alert("Title is required.");
+    return;
+  }
 
-  const billText = generateBillText(title, purpose, extent, commencement, clauses);
+  if (!purpose){
+    alert("The 'A Bill to' section is required.");
+    return;
+  }
 
-  const newBill = {
-    id: title.toLowerCase().replace(/\s/g,"-") + "-" + Date.now(),
-    title,
-    author: data.currentPlayer.name,
-    department: policy,
-    stage: isOpp || isGov ? "Second Reading" : "First Reading",
-    status: "in-progress",
-    billType: isGov ? "government" : isOpp ? "opposition" : "pmb",
-    billText,
-    amendments: [],
-    submittedAt: new Date().toISOString(),
-    stageStartedAt: new Date().toISOString()
-  };
+  let articlesText = "";
+  let hasContent = false;
 
-  data.orderPaperCommons.push(newBill);
+  for (let i = 1; i <= articleCount; i++){
 
-  saveFullData(data);
+    const heading = document.getElementById(`articleHeading${i}`).value.trim();
+    const body = document.getElementById(`articleBody${i}`).value.trim();
 
-  location.href = "dashboard.html";
+    if (!heading || !body){
+      alert(`Article ${i} must have both heading and body.`);
+      return;
+    }
+
+    hasContent = true;
+
+    articlesText += `
+Article ${i} — ${heading}
+${body}
+
+`;
+  }
+
+  if (!hasContent){
+    alert("At least one article is required.");
+    return;
+  }
+
+  const year = data.simulation.currentYear;
+  const fullTitle = `${titleRaw} Bill ${year}`;
+
+  const preamble = generatePreamble(data);
+
+  const finalArticleNumber = articleCount + 1;
+
+  const finalArticle = `
+Article ${finalArticleNumber} — Extent, Commencement and Short Title
+
+1. This Act extends to ${extent}.
+2. This Act comes into force ${commencement}.
+3. This Act may be cited as the ${titleRaw} Act ${year}.
+`;
+
+  const fullBillText = `
+${fullTitle}
+
+A Bill to ${purpose}.
+
+${preamble}
+
+${articlesText}
+${finalArticle}
+`;
+
+  createBillObject(data, fullTitle, fullBillText);
+
 }
+<div id="bill-type-controls"></div>
+
+
 function renderLegislationBuilder(data){
+const current = data.currentPlayer;
+
+const isPM = current.role === "prime-minister";
+const isLOTO = current.role === "leader-opposition";
+const isLeaderOfHouse = current.office === "leader-commons";
+
+let typeControls = "";
+
+if (isLOTO){
+  typeControls += `
+    <label>
+      <input type="checkbox" id="oppositionDay" />
+      Opposition Day Bill
+    </label>
+  `;
+}
+
+if (isPM || isLeaderOfHouse){
+  typeControls += `
+    <label>
+      <input type="checkbox" id="governmentBill" />
+      Move as Government Bill
+    </label>
+  `;
+}
+
+document.getElementById("bill-type-controls").innerHTML = typeControls;
 
   const container = document.getElementById("legislation-builder");
   if (!container) return;
@@ -1272,4 +1342,32 @@ by and with the advice and consent of the Lords Spiritual and Temporal,
 and Commons, in this present Parliament assembled,
 and by the authority of the same, as follows:—
   `;
+}
+function createBillObject(data, fullTitle, fullBillText){
+
+  const isOpp = document.getElementById("oppositionDay")?.checked || false;
+  const isGov = document.getElementById("governmentBill")?.checked || false;
+
+  const stage = (isOpp || isGov) ? "Second Reading" : "First Reading";
+
+  const billType = isGov ? "government"
+                   : isOpp ? "opposition"
+                   : "pmb";
+
+  const newBill = {
+    id: fullTitle.toLowerCase().replace(/\s/g,"-") + "-" + Date.now(),
+    title: fullTitle,
+    author: data.currentPlayer.name,
+    stage,
+    status: "in-progress",
+    billType,
+    billText: fullBillText,
+    amendments: [],
+    submittedAt: new Date().toISOString(),
+    stageStartedAt: new Date().toISOString()
+  };
+
+  data.orderPaperCommons.push(newBill);
+  saveFullData(data);
+  location.href = "dashboard.html";
 }
