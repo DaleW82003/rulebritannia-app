@@ -115,6 +115,8 @@
       renderOrderPaper(data);
       renderHansard(data);
       renderSundayRollDisplay();
+      renderAbsenceUI(data);
+
 
       initSubmitBillPage(data);
       initPartyDraftPage(data);
@@ -1231,3 +1233,151 @@ ${articlesText}${finalArticle}
   }
 
 })();
+/* =========================
+   ABSENCE SYSTEM (WORKING)
+   Renders into: <div id="absence-ui"></div>
+   Stores changes in localStorage rb_full_data
+   ========================= */
+
+function rbGetData() {
+  const raw = localStorage.getItem("rb_full_data");
+  return raw ? JSON.parse(raw) : null;
+}
+
+function rbSaveData(data) {
+  localStorage.setItem("rb_full_data", JSON.stringify(data));
+}
+
+function renderAbsenceUI(data) {
+  const container = document.getElementById("absence-ui");
+  if (!container) return;
+
+  // Always use latest stored state when clicking buttons
+  data = rbGetData() || data;
+
+  const players = Array.isArray(data.players) ? data.players : [];
+  const current = data.currentPlayer || {};
+  const me = players.find(p => p.name === current.name);
+
+  if (!me) {
+    container.innerHTML = `<div class="muted-block">No player profile loaded.</div>`;
+    return;
+  }
+
+  const party = me.party;
+  const partyLeader = players.find(p => p.party === party && p.partyLeader === true) || null;
+
+  const activePartyMembers = players.filter(p =>
+    p.party === party &&
+    p.active !== false &&
+    p.name !== me.name
+  );
+
+  function saveAndRerender() {
+    rbSaveData(data);
+    renderAbsenceUI(data);
+  }
+
+  // Toggle absence
+  function setAbsent(value) {
+    me.absent = value;
+
+    if (value === true) {
+      // Non-leader: delegate automatically to party leader (if set)
+      if (!me.partyLeader && partyLeader) {
+        me.delegatedTo = partyLeader.name;
+      }
+
+      // Leader: must choose someone manually
+      if (me.partyLeader) {
+        me.delegatedTo = null;
+      }
+    }
+
+    // Returning active clears delegation
+    if (value === false) {
+      me.delegatedTo = null;
+    }
+
+    saveAndRerender();
+  }
+
+  // Leader sets delegate
+  function setLeaderDelegation(name) {
+    me.delegatedTo = name || null;
+    saveAndRerender();
+  }
+
+  // Make buttons work
+  window.rbSetAbsent = setAbsent;
+  window.rbSetLeaderDelegation = setLeaderDelegation;
+
+  const statusLine = me.absent ? "Absent" : "Active";
+
+  let delegationInfo = "";
+  if (me.absent) {
+    if (me.partyLeader) {
+      delegationInfo = `
+        <div class="muted-block" style="margin-top:12px;">
+          <b>You are the party leader.</b> While absent, you must choose who holds the party vote.
+        </div>
+      `;
+    } else {
+      const target = me.delegatedTo || (partyLeader ? partyLeader.name : null);
+      delegationInfo = `
+        <div class="muted-block" style="margin-top:12px;">
+          Your vote is delegated to: <b>${target ? target : "No party leader set"}</b>
+        </div>
+      `;
+    }
+  }
+
+  let leaderDelegationControls = "";
+  if (me.absent && me.partyLeader) {
+    leaderDelegationControls = `
+      <div style="margin-top:12px;">
+        <label><b>Delegate party vote to:</b></label>
+        <select id="rbLeaderDelegateSelect">
+          <option value="">-- Select member --</option>
+          ${activePartyMembers.map(p => `
+            <option value="${p.name}" ${me.delegatedTo === p.name ? "selected" : ""}>${p.name}</option>
+          `).join("")}
+        </select>
+
+        <div style="margin-top:10px;">
+          <button class="btn" type="button"
+            onclick="rbSetLeaderDelegation(document.getElementById('rbLeaderDelegateSelect').value)">
+            Save Delegate
+          </button>
+        </div>
+
+        ${activePartyMembers.length === 0 ? `
+          <div class="small" style="margin-top:8px;">No eligible active members in your party right now.</div>
+        ` : ``}
+      </div>
+    `;
+  }
+
+  const leaderWarning = (me.absent && me.partyLeader && !me.delegatedTo)
+    ? `<div class="bill-result failed" style="margin-top:12px;">
+         No delegate selected — your party vote will not be cast until you choose one.
+       </div>`
+    : "";
+
+  container.innerHTML = `
+    <div class="kv"><span>Status:</span><b>${statusLine}</b></div>
+    <div class="kv"><span>Party:</span><b>${party || "Unknown"}</b></div>
+
+    <div style="margin-top:12px;">
+      ${
+        me.absent
+          ? `<button class="btn" type="button" onclick="rbSetAbsent(false)">Return to Active</button>`
+          : `<button class="btn" type="button" onclick="rbSetAbsent(true)">Mark as Absent</button>`
+      }
+    </div>
+
+    ${delegationInfo}
+    ${leaderDelegationControls}
+    ${leaderWarning}
+  `;
+}
