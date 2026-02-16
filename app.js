@@ -86,6 +86,33 @@ if (simDisplay && GAME_STATE?.started) {
   simDisplay.textContent = `${getMonthName(sim.month)} ${sim.year}`;
 }
 
+function getSimMonthsSince(realTimestamp){
+  if (!GAME_STATE?.started) return 0;
+
+  const start = new Date(realTimestamp);
+  const now = new Date();
+
+  let days = Math.floor((now - start) / 86400000);
+
+  let temp = new Date(start);
+  let sundays = 0;
+
+  while (temp <= now){
+    if (temp.getDay() === 0) sundays++;
+    temp.setDate(temp.getDate() + 1);
+  }
+
+  const validDays = days - sundays;
+  return Math.floor(validDays / 3);
+}
+const STAGE_LENGTHS = {
+  "First Reading": 0, // handled by 1 real day rule
+  "Second Reading": 2,
+  "Report Stage": 1,
+  "Division": 1
+};
+getSimMonthsSince(bill.stageStartedAt) >= STAGE_LENGTHS[bill.stage]
+if (isSunday()) return;
 
     // ---------- What's Going On (dashboard only) ----------
     const wgoEl = document.getElementById("whats-going-on");
