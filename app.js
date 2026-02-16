@@ -223,30 +223,54 @@ if (docketEl) {
 })();
 
 // ---------- Dropdown Nav ----------
-document.querySelectorAll(".nav-toggle").forEach(btn => {
-  btn.addEventListener("click", e => {
-    e.stopPropagation();
+(function initNavDropdowns(){
+  const groups = Array.from(document.querySelectorAll(".nav-group"));
+  const toggles = Array.from(document.querySelectorAll(".nav-toggle"));
 
-    document.querySelectorAll(".nav-group").forEach(g => {
-      if (g !== btn.parentElement) g.classList.remove("open");
+  if (!groups.length || !toggles.length) return;
+
+  toggles.forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+
+      // close others
+      groups.forEach(g => {
+        if (g !== btn.parentElement) g.classList.remove("open");
+      });
+
+      btn.parentElement.classList.toggle("open");
     });
-
-    btn.parentElement.classList.toggle("open");
   });
-});
 
-document.addEventListener("click", () => {
-  document.querySelectorAll(".nav-group").forEach(g => g.classList.remove("open"));
-});
+  // click outside closes all
+  document.addEventListener("click", () => {
+    groups.forEach(g => g.classList.remove("open"));
+  });
+
+  // escape closes all
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") groups.forEach(g => g.classList.remove("open"));
+  });
+})();
 
 // ---------- Active Page Highlight ----------
-const current = location.pathname.split("/").pop();
+(function highlightActiveNav(){
+  const current = location.pathname.split("/").pop() || "dashboard.html";
 
-document.querySelectorAll(".nav a, .dropdown a").forEach(link => {
-  if (link.getAttribute("href") === current) {
-    link.classList.add("active");
+  document.querySelectorAll(".nav a").forEach(link => {
+    const href = link.getAttribute("href");
+    if (!href) return;
 
-    const group = link.closest(".nav-group");
-    if (group) group.querySelector(".nav-toggle").classList.add("active");
-  }
-});
+    // only match local pages (ignore https links)
+    if (href.startsWith("http")) return;
+
+    if (href === current) {
+      link.classList.add("active");
+      const group = link.closest(".nav-group");
+      if (group) {
+        const toggle = group.querySelector(".nav-toggle");
+        if (toggle) toggle.classList.add("active");
+      }
+    }
+  });
+})();
