@@ -752,86 +752,119 @@ function renderQuestionTime(data){
     return { text: "PMB", cls: "badge-pmb" };
   }
 
-  /* =========================
-     AMENDMENT ENGINE (core)
-     ========================= */
-  function logHansardAmendment(bill, amend, outcome) {
-    bill.hansard = bill.hansard || {};
-    bill.hansard.amendments = bill.hansard.amendments || [];
-    bill.hansard.amendments.push({
-      id: amend.id,
-      articleNumber: amend.articleNumber || null,
-      proposedBy: amend.proposedBy || null,
-      supporters: amend.supporters || [],
-      outcome,
-      timestamp: new Date().toISOString(),
-      failedReason: amend.failedReason || null
-    });
-  }
+ /* =========================
+   AMENDMENT ENGINE (core)
+   Rules:
+   - Proposed -> support window (24 active hours)
+   - If <2 party leaders support by deadline -> failed
+   - If >=2 support -> division opens (24 active hours)
+   - Division auto-closes on deadline (tie fails)
+   - Sunday freezes expiry/closure
+   - Logs to bill.hansard.amendments
+   ========================= */
 
-  function processAmendments(bill) {
-    if (!Array.isArray(bill.amendments)) bill.amendments = [];
-    if (isSunday()) return bill; // freeze
+function ensureAmendmentDefaults(amend) {
+  if (!amend.id) amend.id = `amend-${Date.now()}`;
+  if (!amend.status) amend.status = "proposed";
+  if (!Array.isArray(amend.supporters)) amend.supporters = [];
+  if (!amend.submittedAt) amend.submittedAt = new Date().toISOString();
+  return amend;
+}
 
-    const now = nowTs();
+function logHansardAmendment(bill, amend, outcome) {
+  bill.hansard = bill.hansard || {};
+  bill.hansard.amendments = bill.hansard.amendments || [];
 
-    bill.amendments.forEach(amend => {
-      // Set support deadline once
-      if (!amend.supportDeadlineAt) {
-        const submitted = amend.submittedAt ? new Date(amend.submittedAt).getTime() : now;
-        amend.supportDeadlineAt = addActiveHoursSkippingSundays(submitted, 24);
+  // prevent duplicates
+  const exists = bill.hansard.amendments.some(x => x.id === amend.id && x.outcome === outcome);
+  if (exists) return;
+
+  bill.hansard.amendments.push({
+    id: amend.id,
+    articleNumber: amend.articleNumber,
+    type: amend.type,
+    proposedBy: amend.proposedBy,
+    supporters: amend.supporters || [],
+    outcome, // "passed" | "failed"
+    timestamp: new Date().toISOString(),
+    failedReason: amend.failedReason || null
+  });
+}
+
+function billHasOpenAmendmentDivision(bill) {
+  return (bill.amendments || []).some(a =>
+    a.status === "division" && a.division && a.division.closed !== true
+  );
+}
+
+function processAmendments(bill) {
+  if (!Array.isArray(bill.amendments)) bill.amendments = [];
+
+  // Sunday freeze: do not expire windows, do not close divisions
+  if (isSunday()) return bill;
+
+  const now = Date.now();
+
+  bill.amendments.forEach(amend => {
+    ensureAmendmentDefaults(amend);
+
+    // Set support deadline once
+    if (!amend.supportDeadlineAt) {
+      const submitted = amend.submittedAt ? new Date(amend.submittedAt).getTime() : now;
+      amend.supportDeadlineAt = addActiveHoursSkippingSundays(submitted, 24);
+    }
+
+    // Proposed -> fail if deadline passes and <2 supporters
+    if (amend.status === "proposed") {
+      const supporters = amend.supporters || [];
+      if (now > amend.supportDeadlineAt && supporters.length < 2) {
+        amend.status = "failed";
+        amend.failedReason = "Insufficient leader support within 24 active hours.";
+        logHansardAmendment(bill, amend, "failed");
       }
+    }
 
-      // Proposed -> fail if deadline passes and <2 supporters
-      if (amend.status === "proposed") {
-        const supporters = amend.supporters || [];
-        if (now > amend.supportDeadlineAt && supporters.length < 2) {
+    // Proposed -> if >=2 supporters -> open division
+    if (amend.status === "proposed" && (amend.supporters || []).length >= 2) {
+      amend.status = "division";
+      const opened = now;
+      amend.division = amend.division || {
+        openedAt: new Date(opened).toISOString(),
+        closesAt: addActiveHoursSkippingSundays(opened, 24),
+        votes: { aye: 0, no: 0, abstain: 0 },
+        voters: [],
+        closed: false,
+        result: null
+      };
+    }
+
+    // Division -> close if deadline passed
+    if (amend.status === "division" && amend.division && amend.division.closed !== true) {
+      if (now >= amend.division.closesAt) {
+        const aye = amend.division.votes?.aye || 0;
+        const no = amend.division.votes?.no || 0;
+
+        amend.division.closed = true;
+
+        if (aye > no) {
+          amend.division.result = "passed";
+          amend.status = "passed";
+          logHansardAmendment(bill, amend, "passed");
+        } else {
+          amend.division.result = "failed";
           amend.status = "failed";
-          amend.failedReason = "Insufficient leader support within 24 hours.";
+          amend.failedReason = (aye === no)
+            ? "Tie (Speaker maintains status quo)."
+            : "Majority against.";
           logHansardAmendment(bill, amend, "failed");
         }
       }
+    }
+  });
 
-      // Proposed -> if >=2 supporters -> open division
-      if (amend.status === "proposed" && (amend.supporters || []).length >= 2) {
-        amend.status = "division";
-        const opened = now;
-        amend.division = amend.division || {
-          openedAt: new Date(opened).toISOString(),
-          closesAt: addActiveHoursSkippingSundays(opened, 24),
-          votes: { aye: 0, no: 0, abstain: 0 },
-          voters: [],
-          closed: false,
-          result: null
-        };
-      }
+  return bill;
+}
 
-      // Division -> close if deadline passed
-      if (amend.status === "division" && amend.division && amend.division.closed !== true) {
-        if (now >= amend.division.closesAt) {
-          const aye = amend.division.votes?.aye || 0;
-          const no = amend.division.votes?.no || 0;
-
-          amend.division.closed = true;
-
-          if (aye > no) {
-            amend.division.result = "passed";
-            amend.status = "passed";
-            logHansardAmendment(bill, amend, "passed");
-          } else {
-            amend.division.result = "failed";
-            amend.status = "failed";
-            amend.failedReason = (aye === no)
-              ? "Tie (Speaker casting vote maintains status quo)."
-              : "Majority against.";
-            logHansardAmendment(bill, amend, "failed");
-          }
-        }
-      }
-    });
-
-    return bill;
-  }
 
   /* =========================
      Dashboard: What’s Going On
