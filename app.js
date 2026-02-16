@@ -9,6 +9,8 @@
    - Amendment engine (support window + division)
    - Submit Bill builder (structured template)
    - Party Draft builder (saved to localStorage)
+   - Question Time (tiles + office view)
+   - Absence system (delegation)
    - Nav highlighting + dropdown support
    ========================================================= */
 
@@ -59,7 +61,7 @@
   }
 
   function escapeHtml(str) {
-    return String(str)
+    return String(str ?? "")
       .replaceAll("&","&amp;")
       .replaceAll("<","&lt;")
       .replaceAll(">","&gt;")
@@ -86,121 +88,16 @@
   function savePartyDrafts(list) {
     localStorage.setItem(LS_PARTY_DRAFTS, JSON.stringify(list));
   }
-// ===== Amendment actions (mutate rb_full_data safely) =====
-
-function rbUpdateBill(billId, updaterFn){
-  const data = getData();
-  if (!data) return null;
-
-  data.orderPaperCommons = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
-  const bill = data.orderPaperCommons.find(b => b.id === billId);
-  if (!bill) return null;
-
-  ensureBillDefaults(bill);
-  bill.amendments = Array.isArray(bill.amendments) ? bill.amendments : [];
-
-  updaterFn(bill, data);
-
-  // re-process after change
-  processAmendments(bill);
-
-  saveData(data);
-  return { data, bill };
-}
-
-function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
-  return rbUpdateBill(billId, (bill) => {
-    const amend = ensureAmendmentDefaults({
-      id: `amend-${Date.now()}`,
-      articleNumber: Number(articleNumber),
-      type,
-      text,
-      proposedBy,
-      submittedAt: new Date().toISOString(),
-      status: "proposed",
-      supporters: []
-    });
-
-    // set deadline immediately
-    amend.supportDeadlineAt = addActiveHoursSkippingSundays(Date.now(), 24);
-
-    bill.amendments.unshift(amend);
-  });
-}
-
-function rbSupportAmendment(billId, amendId, party){
-  return rbUpdateBill(billId, (bill) => {
-    const amend = bill.amendments.find(a => a.id === amendId);
-    if (!amend) return;
-
-    if (amend.status !== "proposed") return;
-    if (!Array.isArray(amend.supporters)) amend.supporters = [];
-    if (!amend.supporters.includes(party)) amend.supporters.push(party);
-  });
-}
-
-function rbVoteAmendment(billId, amendId, voterName, vote){
-  return rbUpdateBill(billId, (bill) => {
-    const amend = bill.amendments.find(a => a.id === amendId);
-    if (!amend || amend.status !== "division" || !amend.division || amend.division.closed) return;
-
-    amend.division.voters = Array.isArray(amend.division.voters) ? amend.division.voters : [];
-    if (amend.division.voters.includes(voterName)) return; // one vote per person
-
-    // count vote
-    if (!amend.division.votes) amend.division.votes = { aye:0, no:0, abstain:0 };
-    if (vote === "aye") amend.division.votes.aye++;
-    else if (vote === "no") amend.division.votes.no++;
-    else amend.division.votes.abstain++;
-
-    amend.division.voters.push(voterName);
-  });
-}
 
   /* =========================
-     Boot
+     Normalise live state
      ========================= */
-  fetch(DATA_URL)
-    .then(r => r.json())
-    .then((demo) => {
-      // Seed live state if missing
-      let data = getData();
-      if (!data) {
-        data = demo;
-        normaliseData(data);
-        saveData(data);
-      } else {
-        // Keep some "static tiles" updated from demo if you want
-        data.whatsGoingOn = data.whatsGoingOn || demo.whatsGoingOn || {};
-        data.liveDocket = data.liveDocket || demo.liveDocket || {};
-        normaliseData(data);
-        saveData(data);
-      }
-
-      // Render page parts (only where elements exist)
-initNavUI();
-renderSimDate(data);
-renderWhatsGoingOn(data);
-renderLiveDocket(data);
-renderOrderPaper(data);
-renderHansard(data);
-renderQuestionTime(data);
-renderSundayRollDisplay();
-renderAbsenceUI(data);
-
-initSubmitBillPage(data);
-initPartyDraftPage(data);
-initBillPage(data);
-
-
-      // Live refresh for countdowns / docket
-      startLiveRefresh();
-    })
-    .catch(err => console.error("Error loading demo.json:", err));
-
   function normaliseData(data) {
     data.players = Array.isArray(data.players) ? data.players : [];
     data.orderPaperCommons = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+    data.whatsGoingOn = data.whatsGoingOn || {};
+    data.liveDocket = data.liveDocket || {};
+
     data.gameState = data.gameState || {
       started: true,
       isPaused: false,
@@ -208,9 +105,11 @@ initBillPage(data);
       startSimMonth: 8,
       startSimYear: 1997
     };
+
     data.parliament = data.parliament || { totalSeats: 650, parties: [] };
     data.adminSettings = data.adminSettings || { monarchGender: "Queen" };
     data.oppositionTracker = data.oppositionTracker || {}; // simYear -> count
+
     data.currentPlayer = data.currentPlayer || {
       name: "Unknown MP",
       party: "Unknown",
@@ -218,283 +117,37 @@ initBillPage(data);
       office: null,
       isSpeaker: false
     };
-  }
 
-     /* =========================
-     QUESTION TIME (Tiles + Office view)
-     Renders into: #qt-root (questiontime.html)
-     Uses URL param: ?office=pmqs (etc)
-     ========================= */
-
-  function getQTOfficeParam(){
-    const p = new URLSearchParams(location.search);
-    return p.get("office");
-  }
-
-  // If demo.json later includes data.questionTime.offices, we’ll use it.
-  // For now we provide a solid default list so the UI is never “plain text”.
-  function getDefaultOffices(){
-    return [
-      {
-        id: "pmqs",
-        title: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service",
-        short: "PMQs",
-        rules: [
-          "Backbenchers: 1 outstanding question to the PM.",
-          "Backbenchers: 3 outstanding total across all ministers.",
-          "Leader of the Opposition: 3 follow-ups.",
-          "3rd/4th party leaders: 2 follow-ups.",
-          "Backbenchers: 1 follow-up."
-        ]
-      },
-      { id:"treasury", title:"Chancellor of the Exchequer, and Second Lord of the Treasury", short:"Treasury Questions", rules:["Standard Question Time rules apply."] },
-      { id:"fco", title:"Secretary of State for Foreign and Commonwealth Affairs", short:"FCO Questions", rules:["Standard Question Time rules apply."] },
-      { id:"trade", title:"Secretary of State for Business and Trade, and President of the Board of Trade", short:"Trade Questions", rules:["Standard Question Time rules apply."] },
-      { id:"defence", title:"Secretary of State for Defence", short:"Defence Questions", rules:["Standard Question Time rules apply."] },
-      { id:"welfare", title:"Secretary of State for Work and Pensions", short:"Welfare Questions", rules:["Standard Question Time rules apply."] },
-      { id:"education", title:"Secretary of State for Education", short:"Education Questions", rules:["Standard Question Time rules apply."] },
-      { id:"environment", title:"Secretary of State for the Environment and Agriculture", short:"Environment & Agriculture", rules:["Standard Question Time rules apply."] },
-      { id:"health", title:"Secretary of State for Health and Social Security", short:"Health Questions", rules:["Standard Question Time rules apply."] },
-      { id:"eti", title:"Secretary of State for the Environment, Transport and Infrastructure", short:"ETI Questions", rules:["Standard Question Time rules apply."] },
-      { id:"culture", title:"Secretary of State for Culture, Media and Sport", short:"Culture Questions", rules:["Standard Question Time rules apply."] },
-      { id:"homenations", title:"Secretary of State for the Home Nations", short:"Home Nations Questions", rules:["Standard Question Time rules apply."] },
-      { id:"commonsbiz", title:"Leader of the House of Commons", short:"Commons Business Questions", rules:["Standard Question Time rules apply."] }
-    ];
-  }
-
-  function getQuestionTimeState(data){
+    // Question Time state
     data.questionTime = data.questionTime || {};
+    data.questionTime.offices = Array.isArray(data.questionTime.offices) ? data.questionTime.offices : [];
     data.questionTime.questions = Array.isArray(data.questionTime.questions) ? data.questionTime.questions : [];
-    return data.questionTime;
+
+    return data;
   }
 
-  function renderQuestionTime(data){
-    const root = document.getElementById("qt-root");
-    if (!root) return;
-
-    const qt = getQuestionTimeState(data);
-
-    // Offices: prefer demo.json structure if it exists, else defaults
-    const offices =
-      Array.isArray(qt.offices) && qt.offices.length
-        ? qt.offices
-        : getDefaultOffices();
-
-    const officeId = getQTOfficeParam();
-    const selected = officeId ? offices.find(o => o.id === officeId) : null;
-
-    if (!selected){
-      // Tile hub
-      root.innerHTML = `
-        <div class="muted-block">
-          Choose an office to submit questions and view answered/closed questions.
-          (Moderators will validate and close questions.)
-        </div>
-
-        <div class="qt-grid">
-          ${offices.map(o => `
-            <div class="qt-card">
-              <div class="qt-title">${escapeHtml(o.short || o.title)}</div>
-              <div class="qt-sub">${escapeHtml(o.title)}</div>
-              <div class="qt-actions">
-                <a class="btn" href="questiontime.html?office=${encodeURIComponent(o.id)}">Open</a>
-              </div>
-            </div>
-          `).join("")}
-        </div>
-      `;
-      return;
+  /* =========================
+     Time helpers (skip Sundays)
+     ========================= */
+  function addActiveHoursSkippingSundays(startTs, hours) {
+    let t = startTs;
+    let remaining = hours;
+    while (remaining > 0) {
+      t += 3600000;
+      if (!isSunday(t)) remaining--;
     }
-/* =========================
-   QUESTION TIME (Tiles + Office view)
-   Renders into: #qt-root (questiontime.html)
-   Uses URL param: ?office=pmqs etc
-   ========================= */
-
-function getQTOfficeParam(){
-  const p = new URLSearchParams(location.search);
-  return p.get("office");
-}
-
-function getDefaultOffices(){
-  return [
-    { id:"pmqs", short:"PMQs", title:"Prime Minister, First Lord of the Treasury, and Minister for the Civil Service", type:"pmqs" },
-    { id:"treasury", short:"Treasury Questions", title:"Chancellor of the Exchequer, and Second Lord of the Treasury" },
-    { id:"fco", short:"FCO Questions", title:"Secretary of State for Foreign and Commonwealth Affairs" },
-    { id:"trade", short:"Trade Questions", title:"Secretary of State for Business and Trade, and President of the Board of Trade" },
-    { id:"defence", short:"Defence Questions", title:"Secretary of State for Defence" },
-    { id:"welfare", short:"Welfare Questions", title:"Secretary of State for Work and Pensions" },
-    { id:"education", short:"Education Questions", title:"Secretary of State for Education" },
-    { id:"environment", short:"Environment & Agriculture", title:"Secretary of State for the Environment and Agriculture" },
-    { id:"health", short:"Health Questions", title:"Secretary of State for Health and Social Security" },
-    { id:"eti", short:"ETI Questions", title:"Secretary of State for the Environment, Transport and Infrastructure" },
-    { id:"culture", short:"Culture Questions", title:"Secretary of State for Culture, Media and Sport" },
-    { id:"homenations", short:"Home Nations Questions", title:"Secretary of State for the Home Nations" },
-    { id:"commonsbiz", short:"Commons Business Questions", title:"Leader of the House of Commons" }
-  ];
-}
-
-function getQuestionTimeState(data){
-  data.questionTime = data.questionTime || {};
-  data.questionTime.offices = Array.isArray(data.questionTime.offices) ? data.questionTime.offices : [];
-  data.questionTime.questions = Array.isArray(data.questionTime.questions) ? data.questionTime.questions : [];
-  return data.questionTime;
-}
-
-function renderQuestionTime(data){
-  const root = document.getElementById("qt-root");
-  if (!root) return;
-
-  const qt = getQuestionTimeState(data);
-  const offices = qt.offices.length ? qt.offices : getDefaultOffices();
-
-  const officeId = getQTOfficeParam();
-  const selected = officeId ? offices.find(o => o.id === officeId) : null;
-
-  // === TILE HUB ===
-  if (!selected){
-    root.innerHTML = `
-      <div class="muted-block">
-        Choose an office to view questions and submit a new one.
-      </div>
-
-      <div class="qt-grid">
-        ${offices.map(o => `
-          <div class="qt-card">
-            <div class="qt-title">${escapeHtml(o.short || o.title)}</div>
-            <div class="qt-sub">${escapeHtml(o.title)}</div>
-            <div class="qt-actions">
-              <a class="btn" href="questiontime.html?office=${encodeURIComponent(o.id)}">Open</a>
-            </div>
-          </div>
-        `).join("")}
-      </div>
-    `;
-    return;
+    return t;
   }
 
-  // === OFFICE VIEW ===
-  const isPM = selected.type === "pmqs" || selected.id === "pmqs";
-
-  const rulesHtml = isPM ? `
-    <b>PMQs</b><br>
-    • Backbenchers: max <b>1</b> outstanding question to the PM.<br>
-    • Backbenchers: max <b>3</b> outstanding total across all ministers.<br>
-    • Leader of the Opposition: <b>3</b> follow-ups.<br>
-    • 3rd/4th party leaders: <b>2</b> follow-ups.<br>
-    • Backbenchers: <b>1</b> follow-up.
-  ` : `
-    <b>Departmental Questions</b><br>
-    • Shadows: <b>2</b> follow-ups (matching portfolio only).<br>
-    • Backbenchers: <b>1</b> follow-up.
-  `;
-
-  const list = qt.questions.filter(q => q.officeId === selected.id);
-
-  root.innerHTML = `
-    <div class="qt-office-header">
-      <div>
-        <div class="qt-kicker">Question Time</div>
-        <div class="qt-title">${escapeHtml(selected.title)}</div>
-      </div>
-      <div>
-        <a class="btn" href="questiontime.html">Back to Question Time</a>
-      </div>
-    </div>
-
-    <div class="muted-block">${rulesHtml}</div>
-
-    <div style="margin-top:12px;">
-      <h2 style="margin:0 0 10px;">Submit a Question</h2>
-      <div class="muted-block">Demo-only form (saved into localStorage).</div>
-
-      <form id="qtForm" class="qt-form" style="margin-top:12px;">
-        <div class="qt-field">
-          <label>Asked By</label>
-          <input id="qtAskedBy" type="text" value="${escapeHtml(safe(data.currentPlayer?.name,""))}" />
-        </div>
-
-        <div class="qt-field">
-          <label>Role</label>
-          <select id="qtRole">
-            <option value="backbencher">Backbencher</option>
-            <option value="leader-opposition">Leader of the Opposition</option>
-            <option value="party-leader-3rd-4th">3rd/4th Party Leader</option>
-            <option value="shadow">Shadow Secretary/Minister</option>
-          </select>
-        </div>
-
-        <div class="qt-field qt-wide">
-          <label>Question</label>
-          <textarea id="qtText" rows="4" placeholder="Type your question…"></textarea>
-        </div>
-
-        <div class="qt-wide" style="display:flex; justify-content:flex-end;">
-          <button class="btn" type="submit">Submit Question</button>
-        </div>
-      </form>
-    </div>
-
-    <div style="margin-top:12px;">
-      <h2 style="margin:0 0 10px;">Questions</h2>
-      ${!list.length ? `<div class="muted-block">No questions yet.</div>` : `
-        <div class="docket-list">
-          ${list.map(q => `
-            <div class="docket-item">
-              <div class="docket-left">
-                <div class="docket-icon">❓</div>
-                <div class="docket-text">
-                  <div class="docket-title"><b>${escapeHtml(safe(q.askedBy,"Unknown"))}</b></div>
-                  <div class="docket-detail">${escapeHtml(safe(q.text,""))}</div>
-                  ${q.answer ? `<div class="qt-answer" style="margin-top:8px;"><b>Answer:</b> ${escapeHtml(q.answer)}</div>` : ``}
-                </div>
-              </div>
-              <div class="docket-cta">
-                <span class="small">${escapeHtml(safe(q.status,"open"))}</span>
-              </div>
-            </div>
-          `).join("")}
-        </div>
-      `}
-    </div>
-  `;
-
-  // Save question into localStorage state
-  const form = document.getElementById("qtForm");
-  if (form){
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-
-      const latest = getData();
-      if (!latest) return;
-
-      const qtState = getQuestionTimeState(latest);
-
-      const askedBy = (document.getElementById("qtAskedBy")?.value || "").trim();
-      const role = (document.getElementById("qtRole")?.value || "backbencher").trim();
-      const text = (document.getElementById("qtText")?.value || "").trim();
-
-      if (!askedBy) return alert("Asked By is required.");
-      if (!text) return alert("Question text is required.");
-
-      qtState.questions.unshift({
-        id: "qt-" + nowTs(),
-        officeId: selected.id,
-        askedBy,
-        role,
-        text,
-        status: "open",
-        createdAt: nowTs()
-      });
-
-      latest.questionTime = qtState;
-      saveData(latest);
-
-      renderQuestionTime(latest);
-    });
+  function addValidDaysSkippingSundays(startTs, validDays) {
+    let t = startTs;
+    let remaining = validDays;
+    while (remaining > 0) {
+      t += 86400000;
+      if (!isSunday(t)) remaining--;
+    }
+    return t;
   }
-}
-
 
   /* =========================
      NAV
@@ -502,7 +155,6 @@ function renderQuestionTime(data){
   function initNavUI() {
     const current = location.pathname.split("/").pop() || "dashboard.html";
 
-    // Highlight active link (including dropdown children)
     document.querySelectorAll(".nav a").forEach(link => {
       const href = link.getAttribute("href");
       if (!href) return;
@@ -518,7 +170,6 @@ function renderQuestionTime(data){
       }
     });
 
-    // Dropdown open/close
     const groups = Array.from(document.querySelectorAll(".nav-group"));
     const toggles = Array.from(document.querySelectorAll(".nav-toggle"));
     if (!groups.length || !toggles.length) return;
@@ -601,29 +252,6 @@ function renderQuestionTime(data){
   }
 
   /* =========================
-     Time helpers (skip Sundays)
-     ========================= */
-  function addActiveHoursSkippingSundays(startTs, hours) {
-    let t = startTs;
-    let remaining = hours;
-    while (remaining > 0) {
-      t += 3600000;
-      if (!isSunday(t)) remaining--;
-    }
-    return t;
-  }
-
-  function addValidDaysSkippingSundays(startTs, validDays) {
-    let t = startTs;
-    let remaining = validDays;
-    while (remaining > 0) {
-      t += 86400000;
-      if (!isSunday(t)) remaining--;
-    }
-    return t;
-  }
-
-  /* =========================
      BILL ENGINE
      ========================= */
   const STAGE_ORDER = ["First Reading", "Second Reading", "Report Stage", "Division"];
@@ -689,7 +317,7 @@ function renderQuestionTime(data){
     // Pause while amendment division open
     if (billHasOpenAmendmentDivision(bill)) return bill;
 
-    // Defer-to-Monday rule
+    // Defer-to-Monday rule (if a bill was submitted on Sunday)
     if (bill.deferToMonday === true) {
       const today = new Date();
       if (today.getDay() === 0) return bill; // still Sunday
@@ -760,114 +388,179 @@ function renderQuestionTime(data){
     return { text: "PMB", cls: "badge-pmb" };
   }
 
- /* =========================
-   AMENDMENT ENGINE (core)
-   Rules:
-   - Proposed -> support window (24 active hours)
-   - If <2 party leaders support by deadline -> failed
-   - If >=2 support -> division opens (24 active hours)
-   - Division auto-closes on deadline (tie fails)
-   - Sunday freezes expiry/closure
-   - Logs to bill.hansard.amendments
-   ========================= */
+  /* =========================
+     AMENDMENT ENGINE (core)
+     Rules:
+     - Proposed -> support window (24 active hours)
+     - If <2 party leaders support by deadline -> failed
+     - If >=2 support -> division opens (24 active hours)
+     - Division auto-closes on deadline (tie fails)
+     - Sunday freezes expiry/closure
+     - Logs to bill.hansard.amendments
+     ========================= */
+  function ensureAmendmentDefaults(amend) {
+    if (!amend.id) amend.id = `amend-${Date.now()}`;
+    if (!amend.status) amend.status = "proposed";
+    if (!Array.isArray(amend.supporters)) amend.supporters = [];
+    if (!amend.submittedAt) amend.submittedAt = new Date().toISOString();
+    return amend;
+  }
 
-function ensureAmendmentDefaults(amend) {
-  if (!amend.id) amend.id = `amend-${Date.now()}`;
-  if (!amend.status) amend.status = "proposed";
-  if (!Array.isArray(amend.supporters)) amend.supporters = [];
-  if (!amend.submittedAt) amend.submittedAt = new Date().toISOString();
-  return amend;
-}
+  function logHansardAmendment(bill, amend, outcome) {
+    bill.hansard = bill.hansard || {};
+    bill.hansard.amendments = bill.hansard.amendments || [];
 
-function logHansardAmendment(bill, amend, outcome) {
-  bill.hansard = bill.hansard || {};
-  bill.hansard.amendments = bill.hansard.amendments || [];
+    const exists = bill.hansard.amendments.some(x => x.id === amend.id && x.outcome === outcome);
+    if (exists) return;
 
-  // prevent duplicates
-  const exists = bill.hansard.amendments.some(x => x.id === amend.id && x.outcome === outcome);
-  if (exists) return;
+    bill.hansard.amendments.push({
+      id: amend.id,
+      articleNumber: amend.articleNumber,
+      type: amend.type,
+      proposedBy: amend.proposedBy,
+      supporters: amend.supporters || [],
+      outcome, // "passed" | "failed"
+      timestamp: new Date().toISOString(),
+      failedReason: amend.failedReason || null
+    });
+  }
 
-  bill.hansard.amendments.push({
-    id: amend.id,
-    articleNumber: amend.articleNumber,
-    type: amend.type,
-    proposedBy: amend.proposedBy,
-    supporters: amend.supporters || [],
-    outcome, // "passed" | "failed"
-    timestamp: new Date().toISOString(),
-    failedReason: amend.failedReason || null
-  });
-}
+  function processAmendments(bill) {
+    if (!Array.isArray(bill.amendments)) bill.amendments = [];
 
+    // Sunday freeze: do not expire windows, do not close divisions
+    if (isSunday()) return bill;
 
-function processAmendments(bill) {
-  if (!Array.isArray(bill.amendments)) bill.amendments = [];
+    const now = Date.now();
 
-  // Sunday freeze: do not expire windows, do not close divisions
-  if (isSunday()) return bill;
+    bill.amendments.forEach(amend => {
+      ensureAmendmentDefaults(amend);
 
-  const now = Date.now();
-
-  bill.amendments.forEach(amend => {
-    ensureAmendmentDefaults(amend);
-
-    // Set support deadline once
-    if (!amend.supportDeadlineAt) {
-      const submitted = amend.submittedAt ? new Date(amend.submittedAt).getTime() : now;
-      amend.supportDeadlineAt = addActiveHoursSkippingSundays(submitted, 24);
-    }
-
-    // Proposed -> fail if deadline passes and <2 supporters
-    if (amend.status === "proposed") {
-      const supporters = amend.supporters || [];
-      if (now > amend.supportDeadlineAt && supporters.length < 2) {
-        amend.status = "failed";
-        amend.failedReason = "Insufficient leader support within 24 active hours.";
-        logHansardAmendment(bill, amend, "failed");
+      // Set support deadline once
+      if (!amend.supportDeadlineAt) {
+        const submitted = amend.submittedAt ? new Date(amend.submittedAt).getTime() : now;
+        amend.supportDeadlineAt = addActiveHoursSkippingSundays(submitted, 24);
       }
-    }
 
-    // Proposed -> if >=2 supporters -> open division
-    if (amend.status === "proposed" && (amend.supporters || []).length >= 2) {
-      amend.status = "division";
-      const opened = now;
-      amend.division = amend.division || {
-        openedAt: new Date(opened).toISOString(),
-        closesAt: addActiveHoursSkippingSundays(opened, 24),
-        votes: { aye: 0, no: 0, abstain: 0 },
-        voters: [],
-        closed: false,
-        result: null
-      };
-    }
-
-    // Division -> close if deadline passed
-    if (amend.status === "division" && amend.division && amend.division.closed !== true) {
-      if (now >= amend.division.closesAt) {
-        const aye = amend.division.votes?.aye || 0;
-        const no = amend.division.votes?.no || 0;
-
-        amend.division.closed = true;
-
-        if (aye > no) {
-          amend.division.result = "passed";
-          amend.status = "passed";
-          logHansardAmendment(bill, amend, "passed");
-        } else {
-          amend.division.result = "failed";
+      // Proposed -> fail if deadline passes and <2 supporters
+      if (amend.status === "proposed") {
+        const supporters = amend.supporters || [];
+        if (now > amend.supportDeadlineAt && supporters.length < 2) {
           amend.status = "failed";
-          amend.failedReason = (aye === no)
-            ? "Tie (Speaker maintains status quo)."
-            : "Majority against.";
+          amend.failedReason = "Insufficient leader support within 24 active hours.";
           logHansardAmendment(bill, amend, "failed");
         }
       }
-    }
-  });
 
-  return bill;
-}
+      // Proposed -> if >=2 supporters -> open division
+      if (amend.status === "proposed" && (amend.supporters || []).length >= 2) {
+        amend.status = "division";
+        const opened = now;
+        amend.division = amend.division || {
+          openedAt: new Date(opened).toISOString(),
+          closesAt: addActiveHoursSkippingSundays(opened, 24),
+          votes: { aye: 0, no: 0, abstain: 0 },
+          voters: [],
+          closed: false,
+          result: null
+        };
+      }
 
+      // Division -> close if deadline passed
+      if (amend.status === "division" && amend.division && amend.division.closed !== true) {
+        if (now >= amend.division.closesAt) {
+          const aye = amend.division.votes?.aye || 0;
+          const no = amend.division.votes?.no || 0;
+
+          amend.division.closed = true;
+
+          if (aye > no) {
+            amend.division.result = "passed";
+            amend.status = "passed";
+            logHansardAmendment(bill, amend, "passed");
+          } else {
+            amend.division.result = "failed";
+            amend.status = "failed";
+            amend.failedReason = (aye === no)
+              ? "Tie (Speaker maintains status quo)."
+              : "Majority against.";
+            logHansardAmendment(bill, amend, "failed");
+          }
+        }
+      }
+    });
+
+    return bill;
+  }
+
+  /* =========================
+     Amendment actions (mutate rb_full_data safely)
+     ========================= */
+  function rbUpdateBill(billId, updaterFn){
+    const data = getData();
+    if (!data) return null;
+
+    data.orderPaperCommons = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+    const bill = data.orderPaperCommons.find(b => b.id === billId);
+    if (!bill) return null;
+
+    ensureBillDefaults(bill);
+    bill.amendments = Array.isArray(bill.amendments) ? bill.amendments : [];
+
+    updaterFn(bill, data);
+
+    // Re-process after change
+    processAmendments(bill);
+
+    saveData(data);
+    return { data, bill };
+  }
+
+  function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
+    return rbUpdateBill(billId, (bill) => {
+      const amend = ensureAmendmentDefaults({
+        id: `amend-${Date.now()}`,
+        articleNumber: Number(articleNumber),
+        type,
+        text,
+        proposedBy,
+        submittedAt: new Date().toISOString(),
+        status: "proposed",
+        supporters: []
+      });
+
+      amend.supportDeadlineAt = addActiveHoursSkippingSundays(Date.now(), 24);
+      bill.amendments.unshift(amend);
+    });
+  }
+
+  function rbSupportAmendment(billId, amendId, party){
+    return rbUpdateBill(billId, (bill) => {
+      const amend = bill.amendments.find(a => a.id === amendId);
+      if (!amend) return;
+      if (amend.status !== "proposed") return;
+
+      if (!Array.isArray(amend.supporters)) amend.supporters = [];
+      if (!amend.supporters.includes(party)) amend.supporters.push(party);
+    });
+  }
+
+  function rbVoteAmendment(billId, amendId, voterName, vote){
+    return rbUpdateBill(billId, (bill) => {
+      const amend = bill.amendments.find(a => a.id === amendId);
+      if (!amend || amend.status !== "division" || !amend.division || amend.division.closed) return;
+
+      amend.division.voters = Array.isArray(amend.division.voters) ? amend.division.voters : [];
+      if (amend.division.voters.includes(voterName)) return; // one vote per person
+
+      if (!amend.division.votes) amend.division.votes = { aye:0, no:0, abstain:0 };
+      if (vote === "aye") amend.division.votes.aye++;
+      else if (vote === "no") amend.division.votes.no++;
+      else amend.division.votes.abstain++;
+
+      amend.division.voters.push(voterName);
+    });
+  }
 
   /* =========================
      Dashboard: What’s Going On
@@ -887,22 +580,22 @@ function processAmendments(bill) {
       .sort((a,b) => b.value - a.value);
 
     const pollingLines = polling.length
-      ? polling.map(p => `<div class="row"><span>${safe(p.party,"—")}</span><b>${Number(p.value).toFixed(1)}%</b></div>`).join("")
+      ? polling.map(p => `<div class="row"><span>${escapeHtml(safe(p.party,"—"))}</span><b>${Number(p.value).toFixed(1)}%</b></div>`).join("")
       : `<div class="wgo-strap">No polling yet.</div>`;
 
     el.innerHTML = `
       <div class="wgo-grid">
         <div class="wgo-tile">
           <div class="wgo-kicker">BBC News</div>
-          <div class="wgo-title">${safe(bbc.headline, "No headline yet.")}</div>
-          <div class="wgo-strap">${safe(bbc.strap, "")}</div>
+          <div class="wgo-title">${escapeHtml(safe(bbc.headline, "No headline yet."))}</div>
+          <div class="wgo-strap">${escapeHtml(safe(bbc.strap, ""))}</div>
           <div class="wgo-actions"><a class="btn" href="news.html">Open</a></div>
         </div>
 
         <div class="wgo-tile">
           <div class="wgo-kicker">Papers</div>
-          <div class="wgo-title">${safe(papers.paper, "Paper")}: ${safe(papers.headline, "No headline yet.")}</div>
-          <div class="wgo-strap">${safe(papers.strap, "")}</div>
+          <div class="wgo-title">${escapeHtml(safe(papers.paper, "Paper"))}: ${escapeHtml(safe(papers.headline, "No headline yet."))}</div>
+          <div class="wgo-strap">${escapeHtml(safe(papers.strap, ""))}</div>
           <div class="wgo-actions"><a class="btn" href="papers.html">View</a></div>
         </div>
 
@@ -926,8 +619,7 @@ function processAmendments(bill) {
   }
 
   /* =========================
-     Live Docket (personalised)
-     + adds amendment items automatically
+     Live Docket
      ========================= */
   function canSeeDocketItem(item, player) {
     const a = item.audience;
@@ -944,7 +636,7 @@ function processAmendments(bill) {
   }
 
   function isLeader(playerObj) {
-    return playerObj.partyLeader === true || playerObj.role === "leader-opposition" || playerObj.role === "prime-minister";
+    return playerObj?.partyLeader === true || playerObj?.role === "leader-opposition" || playerObj?.role === "prime-minister";
   }
 
   function generateAmendmentDocketItems(data) {
@@ -958,19 +650,6 @@ function processAmendments(bill) {
       processAmendments(bill);
 
       (bill.amendments || []).forEach(amend => {
-        // Author decision items (placeholder for when you wire accept/reject UI)
-        if (amend.status === "proposed" && bill.author === me.name) {
-          items.push({
-            type: "amendment",
-            title: "Amendment awaiting your decision",
-            detail: `Bill: ${bill.title}`,
-            ctaLabel: "Open",
-            href: `bill.html?id=${encodeURIComponent(bill.id)}`,
-            priority: "high"
-          });
-        }
-
-        // Leader support window
         if (
           amend.status === "proposed" &&
           isLeader(me) &&
@@ -988,7 +667,6 @@ function processAmendments(bill) {
           });
         }
 
-        // Amendment division open
         if (amend.status === "division" && amend.division && amend.division.closed !== true) {
           const ms = Math.max(0, amend.division.closesAt - nowTs());
           items.push({
@@ -1039,7 +717,7 @@ function processAmendments(bill) {
     el.innerHTML = `
       <div class="docket-top">
         <div class="docket-kicker">
-          As of: <b>${safe(docket.asOf, "now")}</b> · Logged in as: <b>${safe(player.name,"Unknown")}</b> (${safe(player.role,"—")})
+          As of: <b>${escapeHtml(safe(docket.asOf, "now"))}</b> · Logged in as: <b>${escapeHtml(safe(player.name,"Unknown"))}</b> (${escapeHtml(safe(player.role,"—"))})
         </div>
       </div>
 
@@ -1054,7 +732,7 @@ function processAmendments(bill) {
               </div>
             </div>
             <div class="docket-cta">
-              <a class="btn" href="${safe(it.href, "#")}">${escapeHtml(safe(it.ctaLabel, "Open"))}</a>
+              <a class="btn" href="${escapeHtml(safe(it.href, "#"))}">${escapeHtml(safe(it.ctaLabel, "Open"))}</a>
             </div>
           </div>
         `).join("")}
@@ -1065,82 +743,81 @@ function processAmendments(bill) {
   /* =========================
      Order Paper
      ========================= */
- function renderOrderPaper(data) {
-  const el = document.getElementById("order-paper");
-  if (!el) return;
+  function renderOrderPaper(data) {
+    const el = document.getElementById("order-paper");
+    if (!el) return;
 
-  let bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+    let bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
 
-  bills = bills.map(b => {
-    ensureBillDefaults(b);
-    processAmendments(b);
-    processBillLifecycle(data, b);
-    return b;
-  });
+    bills = bills.map(b => {
+      ensureBillDefaults(b);
+      processAmendments(b);
+      processBillLifecycle(data, b);
+      return b;
+    });
 
-  data.orderPaperCommons = bills;
-  saveData(data);
+    data.orderPaperCommons = bills;
+    saveData(data);
 
-  bills = bills.filter(b => !isCompleted(b) || !shouldArchiveOffOrderPaperToday(b));
+    bills = bills.filter(b => !isCompleted(b) || !shouldArchiveOffOrderPaperToday(b));
 
-  if (!bills.length) {
-    el.innerHTML = `<div class="muted-block">No bills on the Order Paper.</div>`;
-    return;
+    if (!bills.length) {
+      el.innerHTML = `<div class="muted-block">No bills on the Order Paper.</div>`;
+      return;
+    }
+
+    el.innerHTML = `
+      <div class="order-grid">
+        ${bills.map(b => {
+          const badge = getBillBadge(b);
+          const t = billStageCountdown(data, b);
+
+          const openAmends = (b.amendments || []).filter(x => x.status === "proposed").length;
+          const openDiv = (b.amendments || []).some(x => x.status === "division" && x.division && !x.division.closed);
+
+          const amendLine = (openAmends || openDiv)
+            ? `<div class="small" style="margin-top:8px;">
+                 Amendments: <b>${openAmends}</b> proposed${openDiv ? " · <b>Division open</b>" : ""}
+               </div>`
+            : ``;
+
+          const resultBlock = isCompleted(b)
+            ? `<div class="bill-result ${b.status === "passed" ? "passed" : "failed"}">
+                 ${b.status === "passed" ? "Royal Assent Granted" : "Bill Defeated"}
+               </div>`
+            : `<div class="bill-current">Current Stage: <b>${escapeHtml(b.stage)}</b></div>`;
+
+          const timerLine = (!isCompleted(b) && t.label)
+            ? `<div class="timer"><div class="kv"><span>${escapeHtml(t.label)}</span><b>${escapeHtml(msToDHM(t.msRemaining))}</b></div></div>`
+            : ``;
+
+          return `
+            <div class="bill-card ${escapeHtml(b.status)}">
+              <div class="bill-title">${escapeHtml(safe(b.title, "Untitled Bill"))}</div>
+              <div class="bill-sub">Author: ${escapeHtml(safe(b.author, "—"))} · ${escapeHtml(safe(b.department, "—"))}</div>
+
+              <div class="badges">
+                <span class="bill-badge ${badge.cls}">${escapeHtml(badge.text)}</span>
+              </div>
+
+              <div class="stage-track">
+                ${STAGE_ORDER.map(s => `<div class="stage ${b.stage === s ? "on" : ""}">${escapeHtml(s)}</div>`).join("")}
+              </div>
+
+              ${amendLine}
+              ${resultBlock}
+              ${timerLine}
+
+              <div class="bill-actions spaced">
+                <a class="btn" href="bill.html?id=${encodeURIComponent(safe(b.id,""))}">View Bill</a>
+                <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
   }
-
-  el.innerHTML = `
-    <div class="order-grid">
-      ${bills.map(b => {
-        const badge = getBillBadge(b);
-        const t = billStageCountdown(data, b);
-
-        const openAmends = (b.amendments || []).filter(x => x.status === "proposed").length;
-        const openDiv = (b.amendments || []).some(x => x.status === "division" && x.division && !x.division.closed);
-
-        const amendLine = (openAmends || openDiv)
-          ? `<div class="small" style="margin-top:8px;">
-               Amendments: <b>${openAmends}</b> proposed${openDiv ? " · <b>Division open</b>" : ""}
-             </div>`
-          : ``;
-
-        const resultBlock = isCompleted(b)
-          ? `<div class="bill-result ${b.status === "passed" ? "passed" : "failed"}">
-               ${b.status === "passed" ? "Royal Assent Granted" : "Bill Defeated"}
-             </div>`
-          : `<div class="bill-current">Current Stage: <b>${escapeHtml(b.stage)}</b></div>`;
-
-        const timerLine = (!isCompleted(b) && t.label)
-          ? `<div class="timer"><div class="kv"><span>${escapeHtml(t.label)}</span><b>${escapeHtml(msToDHM(t.msRemaining))}</b></div></div>`
-          : ``;
-
-        return `
-          <div class="bill-card ${escapeHtml(b.status)}">
-            <div class="bill-title">${escapeHtml(safe(b.title, "Untitled Bill"))}</div>
-            <div class="bill-sub">Author: ${escapeHtml(safe(b.author, "—"))} · ${escapeHtml(safe(b.department, "—"))}</div>
-
-            <div class="badges">
-              <span class="bill-badge ${badge.cls}">${escapeHtml(badge.text)}</span>
-            </div>
-
-            <div class="stage-track">
-              ${STAGE_ORDER.map(s => `<div class="stage ${b.stage === s ? "on" : ""}">${escapeHtml(s)}</div>`).join("")}
-            </div>
-
-            ${amendLine}
-            ${resultBlock}
-            ${timerLine}
-
-            <div class="bill-actions spaced">
-              <a class="btn" href="bill.html?id=${encodeURIComponent(safe(b.id,""))}">View Bill</a>
-              <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
-            </div>
-          </div>
-        `;
-      }).join("")}
-    </div>
-  `;
-}
-
 
   /* =========================
      Hansard
@@ -1180,6 +857,335 @@ function processAmendments(bill) {
   }
 
   /* =========================
+     Bill Page (Amendments panel)
+     Expects: <div id="bill-amendments"></div>
+     bill.html?id=bill-xxx
+     ========================= */
+  function initBillPage(data){
+    const el = document.getElementById("bill-amendments");
+    if (!el) return;
+
+    const params = new URLSearchParams(location.search);
+    const billId = params.get("id");
+    if (!billId) {
+      el.innerHTML = `<div class="muted-block">No bill selected.</div>`;
+      return;
+    }
+
+    const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
+    if (!bill) {
+      el.innerHTML = `<div class="muted-block">Bill not found.</div>`;
+      return;
+    }
+
+    ensureBillDefaults(bill);
+    processAmendments(bill);
+
+    const me = data.currentPlayer || {};
+    const myName = me.name || "Unknown";
+    const myParty = me.party || "Unknown";
+
+    const meObj = (data.players || []).find(p => p.name === myName) || me;
+    const leader = isLeader(meObj);
+
+    const amendments = Array.isArray(bill.amendments) ? bill.amendments : [];
+
+    el.innerHTML = `
+      <div class="muted-block">
+        <b>Amendment Rules:</b> 24 active hours for leader support (2 parties). If supported, 24 active hours division. Sundays frozen.
+      </div>
+
+      <div style="margin-top:12px;">
+        <h3 style="margin:0 0 8px;">Propose an Amendment</h3>
+        <div class="muted-block">Demo UI: this saves into localStorage for now.</div>
+
+        <form id="amendForm" style="margin-top:12px;">
+          <div class="form-grid">
+            <label>Article</label>
+            <input id="amArticle" type="number" min="1" value="1" />
+
+            <label>Type</label>
+            <select id="amType">
+              <option value="replace">Replace</option>
+              <option value="insert">Insert</option>
+              <option value="delete">Delete</option>
+            </select>
+
+            <label>Text</label>
+            <textarea id="amText" rows="4" placeholder="Write the amendment text…"></textarea>
+
+            <button class="btn" type="submit">Submit Amendment</button>
+          </div>
+        </form>
+      </div>
+
+      <div style="margin-top:18px;">
+        <h3 style="margin:0 0 8px;">Current Amendments</h3>
+        ${!amendments.length ? `<div class="muted-block">No amendments yet.</div>` : `
+          <div class="docket-list">
+            ${amendments.map(a => {
+              const supportLeft = a.supportDeadlineAt ? Math.max(0, a.supportDeadlineAt - Date.now()) : 0;
+              const divisionLeft = a.division?.closesAt ? Math.max(0, a.division.closesAt - Date.now()) : 0;
+              const supporters = (a.supporters || []).join(", ") || "None";
+
+              let actions = "";
+              if (a.status === "proposed"){
+                actions = `
+                  <div class="small">Supporters: <b>${escapeHtml(supporters)}</b></div>
+                  <div class="small">Support window: <b>${msToHMS(supportLeft)}</b></div>
+                  ${leader && !(a.supporters||[]).includes(myParty)
+                    ? `<div style="margin-top:10px;"><button class="btn" data-support="${escapeHtml(a.id)}">Support as ${escapeHtml(myParty)}</button></div>`
+                    : ``}
+                `;
+              } else if (a.status === "division" && a.division && !a.division.closed){
+                actions = `
+                  <div class="small">Division closes in: <b>${msToHMS(divisionLeft)}</b></div>
+                  <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+                    <button class="btn" data-vote="aye" data-am="${escapeHtml(a.id)}">Aye</button>
+                    <button class="btn" data-vote="no" data-am="${escapeHtml(a.id)}">No</button>
+                    <button class="btn" data-vote="abstain" data-am="${escapeHtml(a.id)}">Abstain</button>
+                  </div>
+                `;
+              } else {
+                actions = `
+                  <div class="small"><b>Status:</b> ${escapeHtml(String(a.status || "").toUpperCase())}</div>
+                  ${a.failedReason ? `<div class="small"><b>Reason:</b> ${escapeHtml(a.failedReason)}</div>` : ``}
+                `;
+              }
+
+              return `
+                <div class="docket-item ${a.status === "division" ? "high" : ""}">
+                  <div class="docket-left">
+                    <div class="docket-icon">🧾</div>
+                    <div class="docket-text">
+                      <div class="docket-title">Article ${escapeHtml(a.articleNumber)} · ${escapeHtml(a.type)}</div>
+                      <div class="docket-detail">${escapeHtml(a.text || "")}</div>
+                      <div class="small">Proposed by: <b>${escapeHtml(a.proposedBy || "—")}</b></div>
+                      ${actions}
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `}
+      </div>
+    `;
+
+    const form = document.getElementById("amendForm");
+    if (form){
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const articleNumber = document.getElementById("amArticle").value;
+        const type = document.getElementById("amType").value;
+        const text = (document.getElementById("amText").value || "").trim();
+        if (!text) return alert("Amendment text required.");
+
+        rbProposeAmendment(billId, { articleNumber, type, text, proposedBy: myName });
+        location.reload();
+      });
+    }
+
+    el.querySelectorAll("[data-support]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const amendId = btn.getAttribute("data-support");
+        rbSupportAmendment(billId, amendId, myParty);
+        location.reload();
+      });
+    });
+
+    el.querySelectorAll("[data-vote]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const vote = btn.getAttribute("data-vote");
+        const amendId = btn.getAttribute("data-am");
+        rbVoteAmendment(billId, amendId, myName, vote);
+        location.reload();
+      });
+    });
+  }
+
+  /* =========================
+     QUESTION TIME (Tiles + Office view)
+     Renders into: #qt-root (questiontime.html)
+     Uses URL param: ?office=pmqs etc
+     ========================= */
+  function getQTOfficeParam(){
+    const p = new URLSearchParams(location.search);
+    return p.get("office");
+  }
+
+  function getDefaultQOffices(){
+    return [
+      { id:"pmqs", short:"PMQs", title:"Prime Minister, First Lord of the Treasury, and Minister for the Civil Service", type:"pmqs" },
+      { id:"treasury", short:"Treasury Questions", title:"Chancellor of the Exchequer, and Second Lord of the Treasury" },
+      { id:"fco", short:"FCO Questions", title:"Secretary of State for Foreign and Commonwealth Affairs" },
+      { id:"trade", short:"Trade Questions", title:"Secretary of State for Business and Trade, and President of the Board of Trade" },
+      { id:"defence", short:"Defence Questions", title:"Secretary of State for Defence" },
+      { id:"welfare", short:"Welfare Questions", title:"Secretary of State for Work and Pensions" },
+      { id:"education", short:"Education Questions", title:"Secretary of State for Education" },
+      { id:"environment", short:"Environment & Agriculture", title:"Secretary of State for the Environment and Agriculture" },
+      { id:"health", short:"Health Questions", title:"Secretary of State for Health and Social Security" },
+      { id:"eti", short:"ETI Questions", title:"Secretary of State for the Environment, Transport and Infrastructure" },
+      { id:"culture", short:"Culture Questions", title:"Secretary of State for Culture, Media and Sport" },
+      { id:"homenations", short:"Home Nations Questions", title:"Secretary of State for the Home Nations" },
+      { id:"commonsbiz", short:"Commons Business Questions", title:"Leader of the House of Commons" }
+    ];
+  }
+
+  function renderQuestionTime(data){
+    const root = document.getElementById("qt-root");
+    if (!root) return;
+
+    data.questionTime = data.questionTime || {};
+    data.questionTime.offices = Array.isArray(data.questionTime.offices) ? data.questionTime.offices : [];
+    data.questionTime.questions = Array.isArray(data.questionTime.questions) ? data.questionTime.questions : [];
+
+    const qt = data.questionTime;
+    const offices = qt.offices.length ? qt.offices : getDefaultQOffices();
+
+    const officeId = getQTOfficeParam();
+    const selected = officeId ? offices.find(o => o.id === officeId) : null;
+
+    // Tile hub
+    if (!selected){
+      root.innerHTML = `
+        <div class="muted-block">
+          Choose an office to view questions and submit a new one.
+        </div>
+
+        <div class="qt-grid">
+          ${offices.map(o => `
+            <div class="qt-card">
+              <div class="qt-title">${escapeHtml(o.short || o.title)}</div>
+              <div class="qt-sub">${escapeHtml(o.title)}</div>
+              <div class="qt-actions">
+                <a class="btn" href="questiontime.html?office=${encodeURIComponent(o.id)}">Open</a>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+      return;
+    }
+
+    const isPM = selected.type === "pmqs" || selected.id === "pmqs";
+    const rulesHtml = isPM ? `
+      <b>PMQs</b><br>
+      • Backbenchers: max <b>1</b> outstanding question to the PM.<br>
+      • Backbenchers: max <b>3</b> outstanding total across all ministers.<br>
+      • Leader of the Opposition: <b>3</b> follow-ups.<br>
+      • 3rd/4th party leaders: <b>2</b> follow-ups.<br>
+      • Backbenchers: <b>1</b> follow-up.
+    ` : `
+      <b>Departmental Questions</b><br>
+      • Shadows: <b>2</b> follow-ups (matching portfolio only).<br>
+      • Backbenchers: <b>1</b> follow-up.
+    `;
+
+    const list = qt.questions.filter(q => q.officeId === selected.id);
+
+    root.innerHTML = `
+      <div class="qt-office-header">
+        <div>
+          <div class="qt-kicker">Question Time</div>
+          <div class="qt-title">${escapeHtml(selected.title)}</div>
+        </div>
+        <div>
+          <a class="btn" href="questiontime.html">Back to Question Time</a>
+        </div>
+      </div>
+
+      <div class="muted-block">${rulesHtml}</div>
+
+      <div style="margin-top:12px;">
+        <h2 style="margin:0 0 10px;">Submit a Question</h2>
+        <div class="muted-block">Demo-only form (saved into localStorage).</div>
+
+        <form id="qtForm" class="qt-form" style="margin-top:12px;">
+          <div class="qt-field">
+            <label>Asked By</label>
+            <input id="qtAskedBy" type="text" value="${escapeHtml(safe(data.currentPlayer?.name,""))}" />
+          </div>
+
+          <div class="qt-field">
+            <label>Role</label>
+            <select id="qtRole">
+              <option value="backbencher">Backbencher</option>
+              <option value="leader-opposition">Leader of the Opposition</option>
+              <option value="party-leader-3rd-4th">3rd/4th Party Leader</option>
+              <option value="shadow">Shadow Secretary/Minister</option>
+            </select>
+          </div>
+
+          <div class="qt-field qt-wide">
+            <label>Question</label>
+            <textarea id="qtText" rows="4" placeholder="Type your question…"></textarea>
+          </div>
+
+          <div class="qt-wide" style="display:flex; justify-content:flex-end;">
+            <button class="btn" type="submit">Submit Question</button>
+          </div>
+        </form>
+      </div>
+
+      <div style="margin-top:12px;">
+        <h2 style="margin:0 0 10px;">Questions</h2>
+        ${!list.length ? `<div class="muted-block">No questions yet.</div>` : `
+          <div class="docket-list">
+            ${list.map(q => `
+              <div class="docket-item">
+                <div class="docket-left">
+                  <div class="docket-icon">❓</div>
+                  <div class="docket-text">
+                    <div class="docket-title"><b>${escapeHtml(safe(q.askedBy,"Unknown"))}</b></div>
+                    <div class="docket-detail">${escapeHtml(safe(q.text,""))}</div>
+                    ${q.answer ? `<div class="qt-answer" style="margin-top:8px;"><b>Answer:</b> ${escapeHtml(q.answer)}</div>` : ``}
+                  </div>
+                </div>
+                <div class="docket-cta">
+                  <span class="small">${escapeHtml(safe(q.status,"open"))}</span>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        `}
+      </div>
+    `;
+
+    const form = document.getElementById("qtForm");
+    if (form){
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+
+        const latest = getData();
+        if (!latest) return;
+
+        normaliseData(latest);
+
+        const askedBy = (document.getElementById("qtAskedBy")?.value || "").trim();
+        const role = (document.getElementById("qtRole")?.value || "backbencher").trim();
+        const text = (document.getElementById("qtText")?.value || "").trim();
+
+        if (!askedBy) return alert("Asked By is required.");
+        if (!text) return alert("Question text is required.");
+
+        latest.questionTime.questions.unshift({
+          id: "qt-" + nowTs(),
+          officeId: selected.id,
+          askedBy,
+          role,
+          text,
+          status: "open",
+          createdAt: nowTs()
+        });
+
+        saveData(latest);
+        renderQuestionTime(latest);
+      });
+    }
+  }
+
+  /* =========================
      Sunday Roll Display (optional)
      ========================= */
   function renderSundayRollDisplay() {
@@ -1207,7 +1213,6 @@ function processAmendments(bill) {
   function initSubmitBillPage(data) {
     const builder = document.getElementById("legislation-builder");
     if (!builder) return;
-
     renderLegislationBuilder(data);
   }
 
@@ -1317,6 +1322,8 @@ function processAmendments(bill) {
     let data = getData();
     if (!data) return;
 
+    normaliseData(data);
+
     const current = data.currentPlayer || {};
     const sim = getCurrentSimDate(data);
     const year = sim.year;
@@ -1403,7 +1410,6 @@ ${articlesText}${finalArticle}
 
   /* =========================
      Party Draft Page
-     (requires specific HTML IDs)
      ========================= */
   function initPartyDraftPage(data) {
     const builder = document.getElementById("party-legislation-builder");
@@ -1553,7 +1559,7 @@ ${articlesText}${finalArticle}
           const id = btn.getAttribute("data-view");
           const d = getPartyDrafts().find(x => x.id === id);
           if (!d) return;
-          alert(d.billText); // novice-friendly phase 1: view in alert (next step: dedicated panel)
+          alert(d.billText);
         });
       });
 
@@ -1598,6 +1604,138 @@ ${articlesText}${finalArticle}
   }
 
   /* =========================
+     ABSENCE SYSTEM (WORKING)
+     - Renders into: <div id="absence-ui"></div>
+     - Stores changes in localStorage rb_full_data
+     ========================= */
+  function renderAbsenceUI(dataFromBoot) {
+    const container = document.getElementById("absence-ui");
+    if (!container) return;
+
+    const data = getData() || dataFromBoot || {};
+    normaliseData(data);
+
+    const players = Array.isArray(data.players) ? data.players : [];
+    const current = data.currentPlayer || {};
+
+    const me = players.find(p => p.name === current.name);
+    if (!me) {
+      container.innerHTML = `<div class="muted-block">No player profile loaded.</div>`;
+      return;
+    }
+
+    const party = me.party || "Unknown";
+    const partyLeader = players.find(p => p.party === party && p.partyLeader === true) || null;
+
+    const eligibleDelegates = players.filter(p =>
+      p.party === party &&
+      p.active !== false &&
+      p.name !== me.name
+    );
+
+    function saveAndRerender() {
+      saveData(data);
+      renderAbsenceUI(data);
+    }
+
+    function setAbsent(value) {
+      me.absent = !!value;
+
+      if (me.absent) {
+        if (!me.partyLeader && partyLeader) {
+          me.delegatedTo = partyLeader.name;
+        }
+        if (me.partyLeader) {
+          me.delegatedTo = me.delegatedTo || null;
+        }
+      } else {
+        me.delegatedTo = null;
+      }
+
+      saveAndRerender();
+    }
+
+    function setLeaderDelegation(name) {
+      me.delegatedTo = name || null;
+      saveAndRerender();
+    }
+
+    // Expose for inline onclick
+    window.rbSetAbsent = setAbsent;
+    window.rbSetLeaderDelegation = setLeaderDelegation;
+
+    const statusLine = me.absent ? "Absent" : "Active";
+
+    let delegationInfo = "";
+    if (me.absent) {
+      if (me.partyLeader) {
+        delegationInfo = `
+          <div class="muted-block" style="margin-top:12px;">
+            <b>You are the party leader.</b> While absent, you must choose who holds the party vote.
+          </div>
+        `;
+      } else {
+        const target = me.delegatedTo || (partyLeader ? partyLeader.name : null);
+        delegationInfo = `
+          <div class="muted-block" style="margin-top:12px;">
+            Your vote is delegated to: <b>${escapeHtml(target ? target : "No party leader set")}</b>
+          </div>
+        `;
+      }
+    }
+
+    let leaderControls = "";
+    if (me.absent && me.partyLeader) {
+      leaderControls = `
+        <div style="margin-top:12px;">
+          <label><b>Delegate party vote to:</b></label>
+          <select id="rbLeaderDelegateSelect">
+            <option value="">-- Select member --</option>
+            ${eligibleDelegates.map(p => `
+              <option value="${escapeHtml(p.name)}" ${me.delegatedTo === p.name ? "selected" : ""}>${escapeHtml(p.name)}</option>
+            `).join("")}
+          </select>
+
+          <div style="margin-top:10px;">
+            <button class="btn" type="button"
+              onclick="rbSetLeaderDelegation(document.getElementById('rbLeaderDelegateSelect').value)">
+              Save Delegate
+            </button>
+          </div>
+
+          ${eligibleDelegates.length === 0 ? `
+            <div class="small" style="margin-top:8px;">No eligible active members in your party right now.</div>
+          ` : ``}
+        </div>
+      `;
+    }
+
+    const leaderWarning =
+      (me.absent && me.partyLeader && !me.delegatedTo)
+        ? `<div class="bill-result failed" style="margin-top:12px;">
+             No delegate selected — your party vote will not be cast until you choose one.
+           </div>`
+        : "";
+
+    container.innerHTML = `
+      <div class="kv"><span>Status:</span><b>${escapeHtml(statusLine)}</b></div>
+      <div class="kv"><span>Party:</span><b>${escapeHtml(party)}</b></div>
+
+      <div style="margin-top:12px;">
+        ${
+          me.absent
+            ? `<button class="btn" type="button" onclick="rbSetAbsent(false)">Return to Active</button>`
+            : `<button class="btn" type="button" onclick="rbSetAbsent(true)">Mark as Absent</button>`
+        }
+      </div>
+
+      ${delegationInfo}
+      ${leaderControls}
+      ${leaderWarning}
+    `;
+  }
+
+  /* =========================
      Live refresh
      ========================= */
   function startLiveRefresh() {
@@ -1612,155 +1750,47 @@ ${articlesText}${finalArticle}
       const latest = getData();
       if (!latest) return;
 
+      normaliseData(latest);
+
       renderSimDate(latest);
       renderLiveDocket(latest);
       renderOrderPaper(latest);
     }, 1000);
   }
 
+  /* =========================
+     BOOT
+     ========================= */
+  fetch(DATA_URL)
+    .then(r => r.json())
+    .then((demo) => {
+      let data = getData();
+      if (!data) {
+        data = demo;
+      } else {
+        // keep some static demo tiles if missing
+        data.whatsGoingOn = data.whatsGoingOn || demo.whatsGoingOn || {};
+        data.liveDocket = data.liveDocket || demo.liveDocket || {};
+      }
+
+      normaliseData(data);
+      saveData(data);
+
+      // Render page parts (only where elements exist)
+      initNavUI();
+      renderSimDate(data);
+      renderWhatsGoingOn(data);
+      renderLiveDocket(data);
+      renderOrderPaper(data);
+      renderHansard(data);
+      renderQuestionTime(data);
+      renderSundayRollDisplay();
+      renderAbsenceUI(data);
+      initSubmitBillPage(data);
+      initPartyDraftPage(data);
+      initBillPage(data);
+
+      startLiveRefresh();
+    })
+    .catch(err => console.error("Error loading demo.json:", err));
 })();
-/* =========================
-   ABSENCE SYSTEM (WORKING)
-   - Renders into: <div id="absence-ui"></div>
-   - Stores changes in localStorage rb_full_data
-   ========================= */
-
-function rbGetData() {
-  const raw = localStorage.getItem("rb_full_data");
-  return raw ? JSON.parse(raw) : null;
-}
-
-function rbSaveData(data) {
-  localStorage.setItem("rb_full_data", JSON.stringify(data));
-}
-
-function renderAbsenceUI(dataFromBoot) {
-  const container = document.getElementById("absence-ui");
-  if (!container) return;
-
-  // Always prefer latest stored state
-  const data = rbGetData() || dataFromBoot || {};
-  const players = Array.isArray(data.players) ? data.players : [];
-  const current = data.currentPlayer || {};
-
-  const me = players.find(p => p.name === current.name);
-  if (!me) {
-    container.innerHTML = `<div class="muted-block">No player profile loaded.</div>`;
-    return;
-  }
-
-  const party = me.party || "Unknown";
-  const partyLeader = players.find(p => p.party === party && p.partyLeader === true) || null;
-
-  const eligibleDelegates = players.filter(p =>
-    p.party === party &&
-    p.active !== false &&
-    p.name !== me.name
-  );
-
-  function saveAndRerender() {
-    rbSaveData(data);
-    renderAbsenceUI(data);
-  }
-
-  function setAbsent(value) {
-    me.absent = !!value;
-
-    if (me.absent) {
-      // Non-leader auto delegates to party leader
-      if (!me.partyLeader && partyLeader) {
-        me.delegatedTo = partyLeader.name;
-      }
-
-      // Leader must choose manually
-      if (me.partyLeader) {
-        me.delegatedTo = me.delegatedTo || null;
-      }
-    } else {
-      // Returning active clears delegation
-      me.delegatedTo = null;
-    }
-
-    saveAndRerender();
-  }
-
-  function setLeaderDelegation(name) {
-    me.delegatedTo = name || null;
-    saveAndRerender();
-  }
-
-  // Expose for inline onclick (simple)
-  window.rbSetAbsent = setAbsent;
-  window.rbSetLeaderDelegation = setLeaderDelegation;
-
-  const statusLine = me.absent ? "Absent" : "Active";
-
-  let delegationInfo = "";
-  if (me.absent) {
-    if (me.partyLeader) {
-      delegationInfo = `
-        <div class="muted-block" style="margin-top:12px;">
-          <b>You are the party leader.</b> While absent, you must choose who holds the party vote.
-        </div>
-      `;
-    } else {
-      const target = me.delegatedTo || (partyLeader ? partyLeader.name : null);
-      delegationInfo = `
-        <div class="muted-block" style="margin-top:12px;">
-          Your vote is delegated to: <b>${target ? target : "No party leader set"}</b>
-        </div>
-      `;
-    }
-  }
-
-  let leaderControls = "";
-  if (me.absent && me.partyLeader) {
-    leaderControls = `
-      <div style="margin-top:12px;">
-        <label><b>Delegate party vote to:</b></label>
-        <select id="rbLeaderDelegateSelect">
-          <option value="">-- Select member --</option>
-          ${eligibleDelegates.map(p => `
-            <option value="${p.name}" ${me.delegatedTo === p.name ? "selected" : ""}>${p.name}</option>
-          `).join("")}
-        </select>
-
-        <div style="margin-top:10px;">
-          <button class="btn" type="button"
-            onclick="rbSetLeaderDelegation(document.getElementById('rbLeaderDelegateSelect').value)">
-            Save Delegate
-          </button>
-        </div>
-
-        ${eligibleDelegates.length === 0 ? `
-          <div class="small" style="margin-top:8px;">No eligible active members in your party right now.</div>
-        ` : ``}
-      </div>
-    `;
-  }
-
-  const leaderWarning =
-    (me.absent && me.partyLeader && !me.delegatedTo)
-      ? `<div class="bill-result failed" style="margin-top:12px;">
-           No delegate selected — your party vote will not be cast until you choose one.
-         </div>`
-      : "";
-
-  container.innerHTML = `
-    <div class="kv"><span>Status:</span><b>${statusLine}</b></div>
-    <div class="kv"><span>Party:</span><b>${party}</b></div>
-
-    <div style="margin-top:12px;">
-      ${
-        me.absent
-          ? `<button class="btn" type="button" onclick="rbSetAbsent(false)">Return to Active</button>`
-          : `<button class="btn" type="button" onclick="rbSetAbsent(true)">Mark as Absent</button>`
-      }
-    </div>
-
-    ${delegationInfo}
-    ${leaderControls}
-    ${leaderWarning}
-  `;
-}
-
