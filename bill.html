@@ -201,6 +201,113 @@ const countdownHtml = (b.status === "in-progress")
          ? `<div class="small">Sim months remaining: ${t.remainingSimMonths}</div>` : ``}
      </div>`
   : ``;
+<div id="division-voting"></div>
+function renderVotingUI(bill, data){
+
+  if (bill.stage !== "Division") return;
+
+  const players = data.players;
+  const parliament = data.parliament;
+  const current = data.currentPlayer;
+
+  const weights = calculateDivisionWeights(players, parliament);
+
+  const playerObj = players.find(p => p.name === current.name);
+
+  if (!playerObj || !playerObj.active) return;
+
+  const partyData = weights[playerObj.party];
+  if (!partyData) return;
+
+  let weight = 0;
+
+  const isFrontbench = getFrontbenchRoles().includes(playerObj.role);
+
+  if (isFrontbench) {
+    weight = partyData.weightPerFull;
+  } else if (playerObj.role === "backbencher" && playerObj.mature) {
+    weight = partyData.weightPerFull;
+  } else {
+    weight = 1; // immature backbenchers
+  }
+
+  const container = document.getElementById("division-voting");
+
+  container.innerHTML = `
+    <div class="panel">
+      <h3>Division</h3>
+      <div class="kv"><span>Your Vote Weight:</span><b>${weight.toFixed(2)}</b></div>
+      <div style="margin-top:12px;">
+        <button class="btn" onclick="castVote('aye', ${weight})">Aye</button>
+        <button class="btn" onclick="castVote('no', ${weight})">No</button>
+        <button class="btn" onclick="castVote('abstain', ${weight})">Abstain</button>
+      </div>
+      <div id="division-tally" style="margin-top:12px;"></div>
+    </div>
+  `;
+}
+renderVotingUI(b, data);
+function castVote(type, weight){
+
+  const params = new URLSearchParams(location.search);
+  const billId = params.get("id");
+
+  let bills = JSON.parse(localStorage.getItem("rb_custom_bills") || "[]");
+
+  let bill = bills.find(b => b.id === billId);
+
+  if (!bill.division) {
+    bill.division = {
+      votes: { aye: 0, no: 0, abstain: 0 },
+      voters: [],
+      closed: false
+    };
+  }
+
+  if (bill.division.voters.includes("currentUser")) return;
+
+  bill.division.votes[type] += weight;
+  bill.division.voters.push("currentUser");
+
+  localStorage.setItem("rb_custom_bills", JSON.stringify(bills));
+
+  updateTally(bill);
+}
+
+function updateTally(bill){
+  const tally = bill.division.votes;
+  document.getElementById("division-tally").innerHTML = `
+    <div class="kv"><span>Aye</span><b>${tally.aye.toFixed(2)}</b></div>
+    <div class="kv"><span>No</span><b>${tally.no.toFixed(2)}</b></div>
+    <div class="kv"><span>Abstain</span><b>${tally.abstain.toFixed(2)}</b></div>
+  `;
+}
+if (bill.stage === "Division" && bill.division){
+
+  const totalCast = bill.division.votes.aye +
+                    bill.division.votes.no +
+                    bill.division.votes.abstain;
+
+  const totalSeats = data.parliament.totalSeats;
+
+  if (totalCast >= totalSeats){
+    closeDivision(bill);
+  }
+}
+function closeDivision(bill){
+
+  const aye = bill.division.votes.aye;
+  const no = bill.division.votes.no;
+
+  if (aye > no){
+    autoCompleteBill(bill, true);
+  } else if (no > aye){
+    autoCompleteBill(bill, false);
+  } else {
+    // Speaker casting vote
+    autoCompleteBill(bill, false);
+  }
+}
 
 </script>
 </body>
