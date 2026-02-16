@@ -433,6 +433,8 @@ bills = [...customBills, ...bills];
   fetch("data/demo.json")
     .then(r => r.json())
     .then(data => {
+      loadGameState(data);
+
 
       const player = data.currentPlayer;
 
