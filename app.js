@@ -1235,8 +1235,8 @@ ${articlesText}${finalArticle}
 })();
 /* =========================
    ABSENCE SYSTEM (WORKING)
-   Renders into: <div id="absence-ui"></div>
-   Stores changes in localStorage rb_full_data
+   - Renders into: <div id="absence-ui"></div>
+   - Stores changes in localStorage rb_full_data
    ========================= */
 
 function rbGetData() {
@@ -1248,41 +1248,22 @@ function rbSaveData(data) {
   localStorage.setItem("rb_full_data", JSON.stringify(data));
 }
 
-function renderAbsenceUI(data) {
-  const el = document.getElementById("absence-ui");
-  if (!el) return;
+function renderAbsenceUI(dataFromBoot) {
+  const container = document.getElementById("absence-ui");
+  if (!container) return;
 
+  // Always prefer latest stored state
+  const data = rbGetData() || dataFromBoot || {};
   const players = Array.isArray(data.players) ? data.players : [];
   const current = data.currentPlayer || {};
+
   const me = players.find(p => p.name === current.name);
-
-  if (!me) {
-    el.innerHTML = `<div class="muted-block">No user profile found.</div>`;
-    return;
-  }
-
-  el.innerHTML = `
-    <div class="kv"><span>Status</span><b>${me.absent ? "Absent" : "Active"}</b></div>
-    <div class="small" style="margin-top:8px;">
-      (Next step: add the actual buttons to mark absent / return active / delegate if leader.)
-    </div>
-  `;
-}
-
-
-  // Always use latest stored state when clicking buttons
-  data = rbGetData() || data;
-
-  const players = Array.isArray(data.players) ? data.players : [];
-  const current = data.currentPlayer || {};
-  const me = players.find(p => p.name === current.name);
-
   if (!me) {
     container.innerHTML = `<div class="muted-block">No player profile loaded.</div>`;
     return;
   }
 
-  const party = me.party;
+  const party = me.party || "Unknown";
   const partyLeader = players.find(p => p.party === party && p.partyLeader === true) || null;
 
   const activePartyMembers = players.filter(p =>
@@ -1296,42 +1277,38 @@ function renderAbsenceUI(data) {
     renderAbsenceUI(data);
   }
 
-  // Toggle absence
   function setAbsent(value) {
-    me.absent = value;
+    me.absent = !!value;
 
-    if (value === true) {
-      // Non-leader: delegate automatically to party leader (if set)
+    if (me.absent) {
+      // Non-leader auto delegates to party leader
       if (!me.partyLeader && partyLeader) {
         me.delegatedTo = partyLeader.name;
       }
-
-      // Leader: must choose someone manually
+      // Leader must choose manually
       if (me.partyLeader) {
-        me.delegatedTo = null;
+        me.delegatedTo = me.delegatedTo || null;
       }
-    }
-
-    // Returning active clears delegation
-    if (value === false) {
+    } else {
+      // Returning active clears delegation
       me.delegatedTo = null;
     }
 
     saveAndRerender();
   }
 
-  // Leader sets delegate
   function setLeaderDelegation(name) {
     me.delegatedTo = name || null;
     saveAndRerender();
   }
 
-  // Make buttons work
+  // Expose for inline onclick handlers (simple + novice-friendly)
   window.rbSetAbsent = setAbsent;
   window.rbSetLeaderDelegation = setLeaderDelegation;
 
   const statusLine = me.absent ? "Absent" : "Active";
 
+  // Delegation message
   let delegationInfo = "";
   if (me.absent) {
     if (me.partyLeader) {
@@ -1350,6 +1327,7 @@ function renderAbsenceUI(data) {
     }
   }
 
+  // Leader delegation controls (only if leader is absent)
   let leaderDelegationControls = "";
   if (me.absent && me.partyLeader) {
     leaderDelegationControls = `
@@ -1384,7 +1362,7 @@ function renderAbsenceUI(data) {
 
   container.innerHTML = `
     <div class="kv"><span>Status:</span><b>${statusLine}</b></div>
-    <div class="kv"><span>Party:</span><b>${party || "Unknown"}</b></div>
+    <div class="kv"><span>Party:</span><b>${party}</b></div>
 
     <div style="margin-top:12px;">
       ${
