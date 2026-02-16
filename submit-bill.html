@@ -101,38 +101,11 @@
   <h1 class="page-title">Submit a Bill</h1>
 
   <section class="panel">
-    <div id="bill-permission"></div>
-
-    <form id="billForm">
-      <div class="form-group">
-        <label>Bill Title</label>
-        <input type="text" id="billTitleInput" required />
-      </div>
-
-      <div class="form-group">
-        <label>Department</label>
-        <select id="billDepartment">
-          <option value="General">General</option>
-          <option value="Health">Health</option>
-          <option value="Treasury">Treasury</option>
-          <option value="Transport">Transport</option>
-          <option value="Home Office">Home Office</option>
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label>Bill Text</label>
-        <textarea id="billTextInput" rows="10" required></textarea>
-      </div>
-
-      <button class="btn" type="submit">Submit to First Reading</button>
-    </form>
-
-    <div id="billSuccess" style="display:none; margin-top:12px;" class="bill-result passed">
-      Bill successfully submitted to the Order Paper (First Reading).
-    </div>
+    <h2>Bill Details</h2>
+    <div id="bill-form"></div>
   </section>
 </main>
+
 
 <script src="app.js"></script>
 </body>
