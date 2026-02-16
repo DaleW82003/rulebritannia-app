@@ -347,11 +347,34 @@ bills = [...customBills, ...bills];
   title,
   author,
   department,
-  type: "pmb",
-  stage: "First Reading",
-  status: "in-progress",
-  createdAt: Date.now(),
-  stageStartedAt: Date.now(),
+  type: "pmb" | "opposition" | "government",
+
+  stage: "First Reading" | "Second Reading" | "Report Stage" | "Division" | "Passed" | "Failed",
+
+  status: "in-progress" | "passed" | "failed",
+
+  createdAt,
+  stageStartedAt,
+
+  stagePaused: false,
+  pauseStartedAt: null,
+
   billText,
-  amendments: []
+
+  amendments: [
+    {
+      id,
+      text,
+      proposedBy,
+      createdAt,
+      status: "proposed" | "accepted" | "rejected" | "division" | "failed",
+      supporters: [],
+      divisionStartedAt
+    }
+  ],
+
+  votes: {
+    yes: [],
+    no: []
+  }
 }
