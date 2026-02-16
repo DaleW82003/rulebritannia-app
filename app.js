@@ -1250,108 +1250,98 @@ function openAmendmentModal({ billId, proposedBy }) {
     }
 
     // ========== Amendments UI ==========
-    const amendRoot =
-      document.getElementById("bill-amendments") ||
-      document.getElementById("amendmentsList");
+const hasActiveAmendment = (amendments || []).some(a =>
+  a.status === "proposed" ||
+  (a.status === "division" && a.division && a.division.closed !== true)
+);
 
-    if (!amendRoot) return;
+const proposeButton = hasActiveAmendment
+  ? `<div class="muted-block" style="margin-top:12px;">
+       An amendment is already live for this bill. Resolve it before proposing another.
+     </div>
+     <div style="margin-top:12px;">
+       <button class="btn" type="button" disabled>Propose Amendment</button>
+     </div>`
+  : `<div style="margin-top:12px;">
+       <button class="btn" type="button" id="rbOpenAmendModalBtn">Propose Amendment</button>
+     </div>`;
 
-    const me = data.currentPlayer || {};
-    const myName = me.name || "Unknown";
-    const myParty = me.party || "Unknown";
+amendRoot.innerHTML = `
+  <div class="muted-block">
+    <b>Amendments:</b> 24 active hours leader support (2 parties). If supported, 24 active hours division. Sundays frozen.
+  </div>
 
-    const meObj = (data.players || []).find(p => p.name === myName) || me;
-    const leader = isLeader(meObj);
+  const openBtn = document.getElementById("rbOpenAmendModalBtn");
+if (openBtn) {
+  openBtn.addEventListener("click", () => {
+    openAmendmentModal({ billId: bill.id, proposedBy: myName });
+  });
+}
 
-    const amendments = Array.isArray(bill.amendments) ? bill.amendments : [];
 
-    amendRoot.style.display = "block";
-    amendRoot.innerHTML = `
-      <div class="muted-block">
-        <b>Amendments:</b> 24 active hours leader support (2 parties). If supported, 24 active hours division. Sundays frozen.
-      </div>
+  ${proposeButton}
 
-      <div style="margin-top:12px;">
-        <h3 style="margin:0 0 8px;">Propose an Amendment</h3>
+  <div style="margin-top:18px;">
+    <h3 style="margin:0 0 8px;">Current Amendments</h3>
+    ${!amendments.length ? `<div class="muted-block">No amendments yet.</div>` : `
+      <div class="docket-list">
+        ${amendments.map(a => {
+          // ... keep your existing amendment cards exactly as they were ...
+          // (support button + vote buttons)
+          const supportLeft = a.supportDeadlineAt ? Math.max(0, a.supportDeadlineAt - Date.now()) : 0;
+          const divisionLeft = a.division?.closesAt ? Math.max(0, a.division.closesAt - Date.now()) : 0;
+          const supporters = (a.supporters || []).join(", ") || "None";
 
-        <form id="amendForm" style="margin-top:12px;">
-          <div class="form-grid">
-            <label>Article</label>
-            <input id="amArticle" type="number" min="1" value="1" />
-
-            <label>Type</label>
-            <select id="amType">
-              <option value="replace">Replace</option>
-              <option value="insert">Insert</option>
-              <option value="delete">Delete</option>
-            </select>
-
-            <label>Text</label>
-            <textarea id="amText" rows="4" placeholder="Write the amendment text…"></textarea>
-
-            <button class="btn" type="submit">Submit Amendment</button>
-          </div>
-        </form>
-      </div>
-
-      <div style="margin-top:18px;">
-        <h3 style="margin:0 0 8px;">Current Amendments</h3>
-        ${!amendments.length ? `<div class="muted-block">No amendments yet.</div>` : `
-          <div class="docket-list">
-            ${amendments.map(a => {
-              const supportLeft = a.supportDeadlineAt ? Math.max(0, a.supportDeadlineAt - Date.now()) : 0;
-              const divisionLeft = a.division?.closesAt ? Math.max(0, a.division.closesAt - Date.now()) : 0;
-              const supporters = (a.supporters || []).join(", ") || "None";
-
-              let actions = "";
-              if (a.status === "proposed"){
-                actions = `
-                  <div class="small">Supporters: <b>${escapeHtml(supporters)}</b></div>
-                  <div class="small">Support window: <b>${escapeHtml(msToHMS(supportLeft))}</b></div>
-                  ${leader && !(a.supporters||[]).includes(myParty)
-                    ? `<div style="margin-top:10px;"><button class="btn" data-support="${escapeHtml(a.id)}" type="button">Support as ${escapeHtml(myParty)}</button></div>`
-                    : ``}
-                `;
-              } else if (a.status === "division" && a.division && !a.division.closed){
-                const alreadyVoted = (a.division.voters || []).includes(myName);
-                actions = `
-                  <div class="small">Division closes in: <b>${escapeHtml(msToHMS(divisionLeft))}</b></div>
-                  <div class="small">Aye: <b>${a.division.votes?.aye || 0}</b> · No: <b>${a.division.votes?.no || 0}</b> · Abstain: <b>${a.division.votes?.abstain || 0}</b></div>
-                  ${alreadyVoted
-                    ? `<div class="muted-block" style="margin-top:10px;">You have already voted.</div>`
-                    : `
-                      <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-                        <button class="btn" data-vote="aye" data-am="${escapeHtml(a.id)}" type="button">Aye</button>
-                        <button class="btn" data-vote="no" data-am="${escapeHtml(a.id)}" type="button">No</button>
-                        <button class="btn" data-vote="abstain" data-am="${escapeHtml(a.id)}" type="button">Abstain</button>
-                      </div>
-                    `}
-                `;
-              } else {
-                actions = `
-                  <div class="small"><b>Status:</b> ${escapeHtml(String(a.status || "").toUpperCase())}</div>
-                  ${a.failedReason ? `<div class="small"><b>Reason:</b> ${escapeHtml(a.failedReason)}</div>` : ``}
-                `;
-              }
-
-              return `
-                <div class="docket-item ${a.status === "division" ? "high" : ""}">
-                  <div class="docket-left">
-                    <div class="docket-icon">🧾</div>
-                    <div class="docket-text">
-                      <div class="docket-title">Article ${escapeHtml(a.articleNumber)} · ${escapeHtml(a.type)}</div>
-                      <div class="docket-detail">${escapeHtml(a.text || "")}</div>
-                      <div class="small">Proposed by: <b>${escapeHtml(a.proposedBy || "—")}</b></div>
-                      ${actions}
-                    </div>
+          let actions = "";
+          if (a.status === "proposed"){
+            actions = `
+              <div class="small">Supporters: <b>${escapeHtml(supporters)}</b></div>
+              <div class="small">Support window: <b>${escapeHtml(msToHMS(supportLeft))}</b></div>
+              ${leader && !(a.supporters||[]).includes(myParty)
+                ? `<div style="margin-top:10px;"><button class="btn" data-support="${escapeHtml(a.id)}" type="button">Support as ${escapeHtml(myParty)}</button></div>`
+                : ``}
+            `;
+          } else if (a.status === "division" && a.division && !a.division.closed){
+            const alreadyVoted = (a.division.voters || []).includes(myName);
+            actions = `
+              <div class="small">Division closes in: <b>${escapeHtml(msToHMS(divisionLeft))}</b></div>
+              <div class="small">Aye: <b>${a.division.votes?.aye || 0}</b> · No: <b>${a.division.votes?.no || 0}</b> · Abstain: <b>${a.division.votes?.abstain || 0}</b></div>
+              ${alreadyVoted
+                ? `<div class="muted-block" style="margin-top:10px;">You have already voted.</div>`
+                : `
+                  <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+                    <button class="btn" data-vote="aye" data-am="${escapeHtml(a.id)}" type="button">Aye</button>
+                    <button class="btn" data-vote="no" data-am="${escapeHtml(a.id)}" type="button">No</button>
+                    <button class="btn" data-vote="abstain" data-am="${escapeHtml(a.id)}" type="button">Abstain</button>
                   </div>
+                `}
+            `;
+          } else {
+            actions = `
+              <div class="small"><b>Status:</b> ${escapeHtml(String(a.status || "").toUpperCase())}</div>
+              ${a.failedReason ? `<div class="small"><b>Reason:</b> ${escapeHtml(a.failedReason)}</div>` : ``}
+            `;
+          }
+
+          return `
+            <div class="docket-item ${a.status === "division" ? "high" : ""}">
+              <div class="docket-left">
+                <div class="docket-icon">🧾</div>
+                <div class="docket-text">
+                  <div class="docket-title">Article ${escapeHtml(a.articleNumber)} · ${escapeHtml(a.type)}</div>
+                  <div class="docket-detail">${escapeHtml(a.text || "")}</div>
+                  <div class="small">Proposed by: <b>${escapeHtml(a.proposedBy || "—")}</b></div>
+                  ${actions}
                 </div>
-              `;
-            }).join("")}
-          </div>
-        `}
+              </div>
+            </div>
+          `;
+        }).join("")}
       </div>
-    `;
+    `}
+  </div>
+`;
+
 
     const form = document.getElementById("amendForm");
     if (form){
