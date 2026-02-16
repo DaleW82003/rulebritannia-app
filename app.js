@@ -1,1373 +1,1137 @@
-fetch("data/demo.json")
-  .then((res) => res.json())
-  .then((data) => {
-    const safe = (v, fallback = "") => (v === null || v === undefined ? fallback : v);
+/* =========================================================
+   Rule Britannia — app.js (CLEAN BASELINE)
+   - Loads demo.json once
+   - Uses localStorage rb_full_data as the live state
+   - Dashboard tiles + Live Docket + Order Paper + Hansard
+   - Game Clock Engine (3 real days = 1 sim month, Sundays frozen)
+   - Bill lifecycle engine + countdown timers
+   - Amendment engine (support window, division, pause lifecycle)
+   - Nav highlighting + dropdown support
+   ========================================================= */
 
-    // ================= GAME CLOCK ENGINE =================
+(() => {
+  "use strict";
 
-let GAME_STATE = null;
+  const DATA_URL = "data/demo.json";
+  const LS_KEY = "rb_full_data";
 
-function loadGameState(data){
-  GAME_STATE = data.gameState;
-}
+  /* =========================
+     Small safe helpers
+     ========================= */
+  const safe = (v, fallback = "") => (v === null || v === undefined ? fallback : v);
+  const nowTs = () => Date.now();
 
-function isSunday(){
-  return new Date().getDay() === 0;
-}
-
-function isClockPaused(){
-  return GAME_STATE?.isPaused === true;
-}
-
-function getRealDaysSinceStart(){
-  if (!GAME_STATE?.started) return 0;
-
-  const start = new Date(GAME_STATE.startRealDate);
-  const now = new Date();
-
-  const diff = now - start;
-  return Math.floor(diff / 86400000);
-}
-
-function countSundaysSinceStart(){
-  if (!GAME_STATE?.started) return 0;
-
-  const start = new Date(GAME_STATE.startRealDate);
-  const now = new Date();
-
-  let count = 0;
-  let temp = new Date(start);
-
-  while (temp <= now) {
-    if (temp.getDay() === 0) count++;
-    temp.setDate(temp.getDate() + 1);
+  function isSunday(ts = nowTs()) {
+    return new Date(ts).getDay() === 0;
   }
 
-  return count;
-}
-
-function getSimMonthIndex(){
-  if (!GAME_STATE?.started) return 0;
-  if (isClockPaused()) return 0;
-
-  const realDays = getRealDaysSinceStart();
-  const sundays = countSundaysSinceStart();
-
-  const validDays = realDays - sundays;
-  return Math.floor(validDays / 3); // 3 real days per sim month
-}
-
-function getCurrentSimDate(){
-
-  const monthsPassed = getSimMonthIndex();
-
-  const startMonth = GAME_STATE.startSimMonth - 1; // zero indexed
-  const startYear = GAME_STATE.startSimYear;
-
-  const totalMonths = startMonth + monthsPassed;
-
-  const simYear = startYear + Math.floor(totalMonths / 12);
-  const simMonth = (totalMonths % 12) + 1;
-
-  return { month: simMonth, year: simYear };
-}
-
-function getMonthName(month){
-  const months = [
-    "January","February","March","April","May","June",
-    "July","August","September","October","November","December"
-  ];
-  return months[month - 1];
-}
-// ---------- Display Simulation Date ----------
-const simDisplay = document.getElementById("sim-date-display");
-if (simDisplay && GAME_STATE?.started) {
-  const sim = getCurrentSimDate();
-  simDisplay.textContent = `${getMonthName(sim.month)} ${sim.year}`;
-}
-
-function getSimMonthsSince(realTimestamp){
-  if (!GAME_STATE?.started) return 0;
-
-  const start = new Date(realTimestamp);
-  const now = new Date();
-
-  let days = Math.floor((now - start) / 86400000);
-
-  let temp = new Date(start);
-  let sundays = 0;
-
-  while (temp <= now){
-    if (temp.getDay() === 0) sundays++;
-    temp.setDate(temp.getDate() + 1);
+  function getMonthName(month) {
+    const months = [
+      "January","February","March","April","May","June",
+      "July","August","September","October","November","December"
+    ];
+    return months[month - 1] || "Unknown";
   }
 
-  const validDays = days - sundays;
-  return Math.floor(validDays / 3);
-}
-const STAGE_LENGTHS = {
-  "First Reading": 0, // handled by 1 real day rule
-  "Second Reading": 2,
-  "Report Stage": 1,
-  "Division": 1
-};
-getSimMonthsSince(bill.stageStartedAt) >= STAGE_LENGTHS[bill.stage]
-if (isSunday()) return;
+  function msToHMS(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    return `${h}h ${m}m ${sec}s`;
+  }
 
-    // ---------- What's Going On (dashboard only) ----------
-    const wgoEl = document.getElementById("whats-going-on");
-    if (wgoEl) {
-      const w = safe(data.whatsGoingOn, {});
-      const bbc = safe(w.bbc, {});
-      const papers = safe(w.papers, {});
-      const economy = safe(w.economy, {});
-      const pollingRaw = Array.isArray(w.polling) ? w.polling : [];
+  function msToDHM(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  }
 
-      // Polling: show parties >= 2%, always include SNP if present
-      const polling = pollingRaw
-        .filter((p) => (p.value >= 2) || p.party === "SNP")
-        .sort((a, b) => b.value - a.value);
-
-      const pollingLines = polling.length
-        ? polling
-            .map(
-              (p) =>
-                `<div class="row"><span>${safe(p.party, "—")}</span><b>${Number(p.value).toFixed(1)}%</b></div>`
-            )
-            .join("")
-        : `<div class="wgo-strap">No polling yet.</div>`;
-
-      wgoEl.innerHTML = `
-        <div class="wgo-grid">
-
-          <div class="wgo-tile">
-            <div class="wgo-kicker">BBC News</div>
-            <div class="wgo-title">${safe(bbc.headline, "No headline yet.")}</div>
-            <div class="wgo-strap">${safe(bbc.strap, "")}</div>
-            <div class="wgo-actions"><a class="btn" href="news.html">Open</a></div>
-          </div>
-
-          <div class="wgo-tile">
-            <div class="wgo-kicker">Papers</div>
-            <div class="wgo-title">${safe(papers.paper, "Paper")}: ${safe(papers.headline, "No headline yet.")}</div>
-            <div class="wgo-strap">${safe(papers.strap, "")}</div>
-            <div class="wgo-actions"><a class="btn" href="papers.html">View</a></div>
-          </div>
-
-          <div class="wgo-tile">
-            <div class="wgo-kicker">Economy</div>
-            <div class="wgo-metric">
-              <div class="row"><span>Growth</span><b>${Number(safe(economy.growth, 0)).toFixed(1)}%</b></div>
-              <div class="row"><span>Inflation</span><b>${Number(safe(economy.inflation, 0)).toFixed(1)}%</b></div>
-              <div class="row"><span>Unemployment</span><b>${Number(safe(economy.unemployment, 0)).toFixed(1)}%</b></div>
-            </div>
-            <div class="wgo-actions"><a class="btn" href="economy.html">Economy</a></div>
-          </div>
-
-          <div class="wgo-tile">
-            <div class="wgo-kicker">Polling</div>
-            <div class="wgo-metric">${pollingLines}</div>
-            <div class="wgo-actions"><a class="btn" href="polling.html">Polling</a></div>
-          </div>
-
-        </div>
-      `;
+  // Add hours while skipping ALL hours that fall on Sundays (Sunday is frozen)
+  function addActiveHoursSkippingSundays(startTs, hours) {
+    let t = startTs;
+    let remaining = hours;
+    while (remaining > 0) {
+      t += 3600000; // +1 hour
+      if (!isSunday(t)) remaining--;
     }
-// ---------- Live Docket (dashboard only) ----------
-const docketEl = document.getElementById("live-docket");
-if (docketEl) {
-  const player = data.currentPlayer || {
-    name: "Unknown",
-    party: "Unknown",
-    role: "backbencher",
-    office: null,
-    isSpeaker: false,
-    isMod: false
+    return t;
+  }
+
+  // Add valid days while skipping Sundays entirely
+  function addValidDaysSkippingSundays(startTs, validDays) {
+    let t = startTs;
+    let remaining = validDays;
+    while (remaining > 0) {
+      t += 86400000; // +1 day
+      if (!isSunday(t)) remaining--;
+    }
+    return t;
+  }
+
+  /* =========================
+     Storage helpers
+     ========================= */
+  function getData() {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }
+
+  function saveData(data) {
+    localStorage.setItem(LS_KEY, JSON.stringify(data));
+  }
+
+  /* =========================
+     Boot: fetch demo.json once,
+     seed localStorage if empty,
+     then render everything.
+     ========================= */
+  fetch(DATA_URL)
+    .then(r => r.json())
+    .then((demo) => {
+      // If we already have state in localStorage, prefer it.
+      // Otherwise seed it from demo.json.
+      let data = getData();
+      if (!data) {
+        data = demo;
+        // Ensure some keys exist so nothing breaks
+        data.players = Array.isArray(data.players) ? data.players : [];
+        data.orderPaperCommons = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+        data.gameState = data.gameState || {
+          started: true,
+          isPaused: false,
+          startRealDate: new Date().toISOString(),
+          startSimMonth: 8,
+          startSimYear: 1997
+        };
+        data.adminSettings = data.adminSettings || { monarchGender: "Queen" };
+        data.oppositionTracker = data.oppositionTracker || {}; // year -> count
+        saveData(data);
+      }
+
+      // Always keep current demo.json “static content” (like WhatsGoingOn) updated:
+      // Merge demo.whatsGoingOn into stored data if missing
+      data.whatsGoingOn = data.whatsGoingOn || demo.whatsGoingOn || {};
+      saveData(data);
+
+      /* =========================
+         Render all page components
+         ========================= */
+      initNavUI();
+      renderSimDate(data);
+      renderWhatsGoingOn(data);
+      renderLiveDocket(data);
+      renderOrderPaper(data);
+      renderHansard(data);
+
+      // Optional pages (only render if elements exist)
+      renderAbsenceUI(data);
+      initSubmitBillPage(data);
+
+      // On pages that should show live countdowns, refresh timers
+      startLiveRefresh(data);
+
+    })
+    .catch(err => console.error("Error loading data/demo.json:", err));
+
+  /* =========================
+     NAV: active highlight + dropdowns
+     ========================= */
+  function initNavUI() {
+    // Active link highlight
+    const current = location.pathname.split("/").pop() || "dashboard.html";
+    document.querySelectorAll(".nav a").forEach(link => {
+      const href = link.getAttribute("href");
+      if (!href) return;
+      if (href.startsWith("http")) return;
+      if (href === current) {
+        link.classList.add("active");
+        const group = link.closest(".nav-group");
+        if (group) {
+          const toggle = group.querySelector(".nav-toggle");
+          if (toggle) toggle.classList.add("active");
+        }
+      }
+    });
+
+    // Dropdown support (if you have grouped nav)
+    const groups = Array.from(document.querySelectorAll(".nav-group"));
+    const toggles = Array.from(document.querySelectorAll(".nav-toggle"));
+    if (!groups.length || !toggles.length) return;
+
+    toggles.forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        groups.forEach(g => { if (g !== btn.parentElement) g.classList.remove("open"); });
+        btn.parentElement.classList.toggle("open");
+      });
+    });
+
+    document.addEventListener("click", () => groups.forEach(g => g.classList.remove("open")));
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") groups.forEach(g => g.classList.remove("open"));
+    });
+  }
+
+  /* =========================
+     GAME CLOCK ENGINE
+     ========================= */
+  function getGameState(data) {
+    return data.gameState || { started: false };
+  }
+
+  function isClockPaused(data) {
+    const gs = getGameState(data);
+    return gs.isPaused === true;
+  }
+
+  function countSundaysBetween(startTs, endTs) {
+    let count = 0;
+    const t = new Date(startTs);
+    const end = new Date(endTs);
+    t.setHours(0,0,0,0);
+    end.setHours(0,0,0,0);
+    while (t <= end) {
+      if (t.getDay() === 0) count++;
+      t.setDate(t.getDate() + 1);
+    }
+    return count;
+  }
+
+  function getRealDaysSinceStart(data) {
+    const gs = getGameState(data);
+    if (!gs.started) return 0;
+    const start = new Date(gs.startRealDate).getTime();
+    const now = nowTs();
+    return Math.floor((now - start) / 86400000);
+  }
+
+  function getSimMonthIndex(data) {
+    const gs = getGameState(data);
+    if (!gs.started) return 0;
+    if (isClockPaused(data)) return 0;
+
+    const start = new Date(gs.startRealDate).getTime();
+    const now = nowTs();
+    const realDays = Math.floor((now - start) / 86400000);
+    const sundays = countSundaysBetween(start, now);
+    const validDays = Math.max(0, realDays - sundays);
+
+    // 3 valid days = 1 sim month
+    return Math.floor(validDays / 3);
+  }
+
+  function getCurrentSimDate(data) {
+    const gs = getGameState(data);
+    const monthsPassed = getSimMonthIndex(data);
+
+    const startMonthIndex = (gs.startSimMonth || 1) - 1; // 0-based
+    const startYear = gs.startSimYear || 1997;
+
+    const totalMonths = startMonthIndex + monthsPassed;
+    const year = startYear + Math.floor(totalMonths / 12);
+    const month = (totalMonths % 12) + 1;
+
+    return { month, year };
+  }
+
+  function renderSimDate(data) {
+    const el = document.getElementById("sim-date-display");
+    const gs = getGameState(data);
+    if (!el || !gs.started) return;
+
+    const sim = getCurrentSimDate(data);
+    el.textContent = `${getMonthName(sim.month)} ${sim.year}`;
+  }
+
+  /* =========================
+     BILL DEFAULTS + LIFECYCLE
+     Stages:
+       First Reading (1 real day)
+       Second Reading (2 sim months)
+       Report Stage (1 sim month)
+       Division (1 sim month unless 100% votes -> future)
+     Sunday freezes automatic movement.
+     Bills leave Order Paper on next Sunday after completion.
+     ========================= */
+
+  const STAGE_ORDER = ["First Reading", "Second Reading", "Report Stage", "Division"];
+  const STAGE_LENGTH_SIM_MONTHS = {
+    "Second Reading": 2,
+    "Report Stage": 1,
+    "Division": 1
   };
 
-  const docket = data.liveDocket || {};
-  const items = Array.isArray(docket.items) ? docket.items : [];
+  function ensureBillDefaults(bill) {
+    if (!bill.createdAt) bill.createdAt = nowTs();
+    if (!bill.stageStartedAt) bill.stageStartedAt = bill.createdAt;
+    if (!bill.stage) bill.stage = "First Reading";
+    if (!bill.status) bill.status = "in-progress";
+    if (!bill.billType) bill.billType = bill.type || "pmb"; // compatibility
+    if (!Array.isArray(bill.amendments)) bill.amendments = [];
+    if (!bill.hansard) bill.hansard = {};
+    if (!bill.completedAt && (bill.status === "passed" || bill.status === "failed")) {
+      bill.completedAt = nowTs();
+    }
+    return bill;
+  }
 
-  const canSee = (it) => {
-    const a = it.audience;
+  function isCompleted(bill) {
+    return bill.status === "passed" || bill.status === "failed";
+  }
+
+  function shouldArchiveOffOrderPaperToday(bill) {
+    // Bills move off Order Paper on the next Sunday after completion.
+    if (!isCompleted(bill)) return false;
+    if (!isSunday()) return false;
+
+    const done = bill.completedAt || bill.stageStartedAt || bill.createdAt;
+    if (!done) return true;
+
+    // Don’t hide something completed on the same Sunday; wait at least 1 real day.
+    const days = Math.floor((nowTs() - done) / 86400000);
+    return days >= 1;
+  }
+
+  function getSimMonthsSince(data, realTimestamp) {
+    const gs = getGameState(data);
+    if (!gs.started) return 0;
+
+    const start = new Date(realTimestamp).getTime();
+    const now = nowTs();
+
+    const realDays = Math.floor((now - start) / 86400000);
+    const sundays = countSundaysBetween(start, now);
+    const validDays = Math.max(0, realDays - sundays);
+
+    return Math.floor(validDays / 3);
+  }
+
+  function billHasOpenAmendmentDivision(bill) {
+    return (bill.amendments || []).some(a =>
+      a.status === "division" && a.division && a.division.closed !== true
+    );
+  }
+
+  function moveStage(bill, newStage) {
+    bill.stage = newStage;
+    bill.stageStartedAt = nowTs();
+  }
+
+  function processBillLifecycle(data, bill) {
+    ensureBillDefaults(bill);
+
+    // Sundays freeze all automatic progression
+    if (isSunday()) return bill;
+
+    // Completed bills do nothing
+    if (isCompleted(bill)) return bill;
+
+    // Pause progression while any amendment division is open
+    if (billHasOpenAmendmentDivision(bill)) return bill;
+
+    // If bill was submitted on Sunday: defer stage start to Monday 00:00
+    if (bill.deferToMonday === true) {
+      const today = new Date();
+      if (today.getDay() !== 0) bill.deferToMonday = false;
+      else return bill;
+    }
+
+    // First Reading: 1 real day (24 active hours skipping Sundays)
+    if (bill.stage === "First Reading") {
+      const end = addActiveHoursSkippingSundays(new Date(bill.stageStartedAt).getTime(), 24);
+      if (nowTs() >= end) {
+        moveStage(bill, "Second Reading");
+      }
+      return bill;
+    }
+
+    // Second Reading: 2 sim months
+    if (bill.stage === "Second Reading") {
+      const elapsed = getSimMonthsSince(data, bill.stageStartedAt);
+      if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Second Reading"]) {
+        moveStage(bill, "Report Stage");
+      }
+      return bill;
+    }
+
+    // Report Stage: 1 sim month
+    if (bill.stage === "Report Stage") {
+      const elapsed = getSimMonthsSince(data, bill.stageStartedAt);
+      if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Report Stage"]) {
+        moveStage(bill, "Division");
+        // Create division container if missing
+        if (!bill.division) {
+          bill.division = {
+            openedAt: new Date().toISOString(),
+            durationHours: 24,
+            votes: { aye: 0, no: 0, abstain: 0 },
+            voters: [],
+            closed: false,
+            result: null
+          };
+        }
+      }
+      return bill;
+    }
+
+    // Division: 1 sim month (closing logic later when full electorate is active)
+    if (bill.stage === "Division") {
+      // We do not auto-complete here yet (you asked that result is by votes).
+      // This stage is ready; voting UI will close it when implemented.
+      return bill;
+    }
+
+    return bill;
+  }
+
+  function billStageCountdown(data, bill) {
+    const now = nowTs();
+
+    if (bill.stage === "First Reading") {
+      const end = addActiveHoursSkippingSundays(new Date(bill.stageStartedAt).getTime(), 24);
+      return { label: isSunday() ? "Polling Day — clock frozen" : "First Reading ends in", msRemaining: end - now };
+    }
+
+    if (bill.stage === "Second Reading") {
+      // 2 sim months = 6 valid days
+      const end = addValidDaysSkippingSundays(new Date(bill.stageStartedAt).getTime(), 6);
+      return { label: isSunday() ? "Polling Day — clock frozen" : "Second Reading ends in", msRemaining: end - now };
+    }
+
+    if (bill.stage === "Report Stage") {
+      // 1 sim month = 3 valid days
+      const end = addValidDaysSkippingSundays(new Date(bill.stageStartedAt).getTime(), 3);
+      return { label: isSunday() ? "Polling Day — clock frozen" : "Report Stage ends in", msRemaining: end - now };
+    }
+
+    if (bill.stage === "Division") {
+      // 1 sim month = 3 valid days
+      const end = addValidDaysSkippingSundays(new Date(bill.stageStartedAt).getTime(), 3);
+      return { label: isSunday() ? "Polling Day — clock frozen" : "Division closes in", msRemaining: end - now };
+    }
+
+    return { label: "", msRemaining: 0 };
+  }
+
+  /* =========================
+     AMENDMENT ENGINE (core)
+     - Proposed -> support window (24 active hours)
+     - If <2 parties support by deadline -> failed
+     - If >=2 support -> division opens (24 active hours)
+     - Division auto-closes on deadline (tie fails)
+     - Logs to bill.hansard.amendments
+     ========================= */
+
+  function logHansardAmendment(bill, amend, outcome) {
+    bill.hansard = bill.hansard || {};
+    bill.hansard.amendments = bill.hansard.amendments || [];
+
+    const exists = bill.hansard.amendments.some(x => x.id === amend.id && x.outcome === outcome);
+    if (exists) return;
+
+    bill.hansard.amendments.push({
+      id: amend.id,
+      articleNumber: amend.articleNumber,
+      type: amend.type,
+      proposedBy: amend.proposedBy,
+      supporters: amend.supporters || [],
+      outcome,
+      timestamp: new Date().toISOString(),
+      failedReason: amend.failedReason || null
+    });
+  }
+
+  function processAmendments(bill) {
+    if (!Array.isArray(bill.amendments)) bill.amendments = [];
+    if (isSunday()) return bill; // Sunday freeze: no expiry/closure
+
+    const now = nowTs();
+
+    bill.amendments.forEach(amend => {
+      // Ensure support deadline exists
+      if (!amend.supportDeadlineAt) {
+        const submitted = amend.submittedAt ? new Date(amend.submittedAt).getTime() : now;
+        amend.supportDeadlineAt = addActiveHoursSkippingSundays(submitted, 24);
+      }
+
+      // Proposed -> if deadline passes without 2 supporters, fail
+      if (amend.status === "proposed") {
+        const supporters = amend.supporters || [];
+        if (now > amend.supportDeadlineAt && supporters.length < 2) {
+          amend.status = "failed";
+          amend.failedReason = "Insufficient leader support within 24 hours.";
+          logHansardAmendment(bill, amend, "failed");
+        }
+      }
+
+      // If 2 supporters -> open division
+      if (amend.status === "proposed" && (amend.supporters || []).length >= 2) {
+        amend.status = "division";
+        if (!amend.division) {
+          const opened = now;
+          amend.division = {
+            openedAt: new Date(opened).toISOString(),
+            closesAt: addActiveHoursSkippingSundays(opened, 24),
+            votes: { aye: 0, no: 0, abstain: 0 },
+            voters: [],
+            closed: false,
+            result: null
+          };
+        }
+      }
+
+      // Close division if deadline passed
+      if (amend.status === "division" && amend.division && amend.division.closed !== true) {
+        const closesAt = amend.division.closesAt;
+        if (now >= closesAt) {
+          const aye = amend.division.votes?.aye || 0;
+          const no = amend.division.votes?.no || 0;
+
+          amend.division.closed = true;
+
+          if (aye > no) {
+            amend.division.result = "passed";
+            amend.status = "passed";
+            logHansardAmendment(bill, amend, "passed");
+          } else {
+            amend.division.result = "failed";
+            amend.status = "failed";
+            amend.failedReason = (aye === no) ? "Tie (Speaker casting vote maintains status quo)." : "Majority against.";
+            logHansardAmendment(bill, amend, "failed");
+          }
+        }
+      }
+    });
+
+    return bill;
+  }
+
+  /* =========================
+     WHAT’S GOING ON (dashboard)
+     ========================= */
+  function renderWhatsGoingOn(data) {
+    const el = document.getElementById("whats-going-on");
+    if (!el) return;
+
+    const w = safe(data.whatsGoingOn, {});
+    const bbc = safe(w.bbc, {});
+    const papers = safe(w.papers, {});
+    const economy = safe(w.economy, {});
+    const pollingRaw = Array.isArray(w.polling) ? w.polling : [];
+
+    const polling = pollingRaw
+      .filter(p => (p.value >= 2) || p.party === "SNP")
+      .sort((a,b) => b.value - a.value);
+
+    const pollingLines = polling.length
+      ? polling.map(p => `<div class="row"><span>${safe(p.party,"—")}</span><b>${Number(p.value).toFixed(1)}%</b></div>`).join("")
+      : `<div class="wgo-strap">No polling yet.</div>`;
+
+    el.innerHTML = `
+      <div class="wgo-grid">
+        <div class="wgo-tile">
+          <div class="wgo-kicker">BBC News</div>
+          <div class="wgo-title">${safe(bbc.headline, "No headline yet.")}</div>
+          <div class="wgo-strap">${safe(bbc.strap, "")}</div>
+          <div class="wgo-actions"><a class="btn" href="news.html">Open</a></div>
+        </div>
+
+        <div class="wgo-tile">
+          <div class="wgo-kicker">Papers</div>
+          <div class="wgo-title">${safe(papers.paper, "Paper")}: ${safe(papers.headline, "No headline yet.")}</div>
+          <div class="wgo-strap">${safe(papers.strap, "")}</div>
+          <div class="wgo-actions"><a class="btn" href="papers.html">View</a></div>
+        </div>
+
+        <div class="wgo-tile">
+          <div class="wgo-kicker">Economy</div>
+          <div class="wgo-metric">
+            <div class="row"><span>Growth</span><b>${Number(safe(economy.growth, 0)).toFixed(1)}%</b></div>
+            <div class="row"><span>Inflation</span><b>${Number(safe(economy.inflation, 0)).toFixed(1)}%</b></div>
+            <div class="row"><span>Unemployment</span><b>${Number(safe(economy.unemployment, 0)).toFixed(1)}%</b></div>
+          </div>
+          <div class="wgo-actions"><a class="btn" href="economy.html">Economy</a></div>
+        </div>
+
+        <div class="wgo-tile">
+          <div class="wgo-kicker">Polling</div>
+          <div class="wgo-metric">${pollingLines}</div>
+          <div class="wgo-actions"><a class="btn" href="polling.html">Polling</a></div>
+        </div>
+      </div>
+    `;
+  }
+
+  /* =========================
+     LIVE DOCKET (personalised)
+     + Amendments wired in
+     ========================= */
+  function canSeeDocketItem(item, player) {
+    const a = item.audience;
     if (!a) return true;
 
-    // Speaker-only items
     if (a.speakerOnly) return !!player.isSpeaker;
 
-    // Role filter
     if (Array.isArray(a.roles) && a.roles.length) {
       if (!a.roles.includes(player.role)) return false;
     }
 
-    // Office filter (only relevant if you're a minister / office holder)
     if (Array.isArray(a.offices) && a.offices.length) {
       if (!player.office || !a.offices.includes(player.office)) return false;
     }
 
     return true;
-  };
+  }
 
-  const icon = (type) => {
-    switch (type) {
-      case "question": return "❓";
-      case "motion": return "📜";
-      case "edm": return "✍️";
-      case "statement": return "🗣️";
-      case "division": return "🗳️";
-      case "speaker": return "🔔";
-      default: return "•";
+  function canSeeLeaderSupportButton(playerObj) {
+    // For now: treat "leader-opposition" and partyLeader true as leaders
+    return playerObj.partyLeader === true || playerObj.role === "leader-opposition" || playerObj.role === "prime-minister";
+  }
+
+  function generateAmendmentDocketItems(data) {
+    const items = [];
+    const player = data.currentPlayer || {};
+    const me = (data.players || []).find(p => p.name === player.name);
+
+    if (!me) return items;
+
+    (data.orderPaperCommons || []).forEach(bill => {
+      ensureBillDefaults(bill);
+      processAmendments(bill);
+
+      (bill.amendments || []).forEach(amend => {
+        // Author: needs to accept/reject proposed amendment
+        if (amend.status === "proposed" && bill.author === me.name) {
+          items.push({
+            type: "amendment",
+            title: "Amendment awaiting your decision",
+            detail: `Bill: ${bill.title} · Article ${amend.articleNumber}`,
+            ctaLabel: "Open",
+            href: `bill.html?id=${encodeURIComponent(bill.id)}`,
+            priority: "high"
+          });
+        }
+
+        // Leader support: if leader and hasn't supported yet and still within window
+        if (
+          amend.status === "proposed" &&
+          canSeeLeaderSupportButton(me) &&
+          !(amend.supporters || []).includes(me.party) &&
+          nowTs() <= (amend.supportDeadlineAt || 0)
+        ) {
+          items.push({
+            type: "amendment",
+            title: "Leader support requested",
+            detail: `Amendment on: ${bill.title}`,
+            ctaLabel: "Open",
+            href: `bill.html?id=${encodeURIComponent(bill.id)}`,
+            priority: "normal"
+          });
+        }
+
+        // Amendment division open: everyone active can see (eligibility/vote weight handled on the bill page)
+        if (amend.status === "division" && amend.division && amend.division.closed !== true && me.active) {
+          const closesAt = amend.division.closesAt;
+          const ms = Math.max(0, closesAt - nowTs());
+          items.push({
+            type: "amendment-division",
+            title: "Amendment division open",
+            detail: `Vote on: ${bill.title} · closes in ${msToHMS(ms)}`,
+            ctaLabel: "Vote",
+            href: `bill.html?id=${encodeURIComponent(bill.id)}`,
+            priority: "high"
+          });
+        }
+      });
+    });
+
+    return items;
+  }
+
+  function renderLiveDocket(data) {
+    const el = document.getElementById("live-docket");
+    if (!el) return;
+
+    const player = data.currentPlayer || {
+      name: "Unknown",
+      party: "Unknown",
+      role: "backbencher",
+      office: null,
+      isSpeaker: false,
+      isMod: false
+    };
+
+    const docket = data.liveDocket || {};
+    const staticItems = Array.isArray(docket.items) ? docket.items : [];
+
+    // Filter static items based on audience
+    let items = staticItems.filter(it => canSeeDocketItem(it, player));
+
+    // Add amendment-generated items
+    const amendItems = generateAmendmentDocketItems(data);
+    items = items.concat(amendItems);
+
+    // If nothing to show
+    if (!items.length) {
+      el.innerHTML = `<div class="muted-block">No live items right now.</div>`;
+      return;
     }
-  };
 
-  const visible = items.filter(canSee);
+    // Icon
+    const icon = (type) => {
+      switch (type) {
+        case "question": return "❓";
+        case "motion": return "📜";
+        case "edm": return "✍️";
+        case "statement": return "🗣️";
+        case "division": return "🗳️";
+        case "speaker": return "🔔";
+        case "amendment": return "🧾";
+        case "amendment-division": return "🗳️";
+        default: return "•";
+      }
+    };
 
-  if (!visible.length) {
-    docketEl.innerHTML = `<div class="muted-block">No live items right now.</div>`;
-  } else {
-    docketEl.innerHTML = `
+    el.innerHTML = `
       <div class="docket-top">
         <div class="docket-kicker">
-          As of: <b>${docket.asOf || "now"}</b> ·
-          Logged in as: <b>${player.name}</b> (${player.role})
+          As of: <b>${safe(docket.asOf, "now")}</b> · Logged in as: <b>${player.name}</b> (${player.role})
         </div>
       </div>
 
       <div class="docket-list">
-        ${visible.map(it => `
+        ${items.map(it => `
           <div class="docket-item ${it.priority === "high" ? "high" : ""}">
             <div class="docket-left">
               <div class="docket-icon">${icon(it.type)}</div>
               <div class="docket-text">
-                <div class="docket-title">${it.title || "Item"}</div>
-                <div class="docket-detail">${it.detail || ""}</div>
+                <div class="docket-title">${safe(it.title, "Item")}</div>
+                <div class="docket-detail">${safe(it.detail, "")}</div>
               </div>
             </div>
             <div class="docket-cta">
-              <a class="btn" href="${it.href || "#"}">${it.ctaLabel || "Open"}</a>
+              <a class="btn" href="${safe(it.href, "#")}">${safe(it.ctaLabel, "Open")}</a>
             </div>
           </div>
         `).join("")}
       </div>
     `;
   }
-}
 
-function hoursBetween(a, b) {
-  return (b - a) / 3600000;
-}
+  /* =========================
+     BILL BADGES
+     ========================= */
+  function getBillBadge(bill) {
+    const t = String(bill.billType || bill.type || "pmb").toLowerCase();
+    if (t === "government") return { text: "Government Bill", cls: "badge-government" };
+    if (t === "opposition") return { text: "Opposition Day Bill", cls: "badge-opposition" };
+    return { text: "PMB", cls: "badge-pmb" };
+  }
 
-function getCompletedAt(bill) {
-  // Prefer completedAt if present; otherwise fallback to stageStartedAt/createdAt
-  return bill.completedAt || bill.stageStartedAt || bill.createdAt || null;
-}
+  /* =========================
+     ORDER PAPER render
+     ========================= */
+  function renderOrderPaper(data) {
+    const el = document.getElementById("order-paper");
+    if (!el) return;
 
-function isRecentCompletion(bill, hoursWindow = 120) {
-  if (bill.status !== "passed" && bill.status !== "failed") return false;
-  const done = getCompletedAt(bill);
-  if (!done) return true; // if unknown, keep visible rather than hiding
-  return hoursBetween(done, Date.now()) < hoursWindow;
-}
+    // Bills come from state
+    let bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
 
-    // ---------- Order Paper (dashboard only) ----------
-    const orderWrap = document.getElementById("order-paper");
-    if (orderWrap) {
-      const stageOrder = [
-        "First Reading",
-        "Second Reading",
-        "Committee Stage",
-        "Report Stage",
-        "Division",
-      ];
-
-let bills = data.orderPaperCommons || [];
-
-      // Keep in-progress bills always.
-// Keep passed/failed only for 120 hours after completion.
-bills = bills.filter(b =>
-  b.status === "in-progress" || isRecentCompletion(b, 120)
-);
-
-      // ---------- Hansard (passed/failed archive) ----------
-const hansardPassed = document.getElementById("hansard-passed");
-const hansardFailed = document.getElementById("hansard-failed");
-
-if (hansardPassed || hansardFailed) {
-  let allBills = data.orderPaperCommons || [];
-
-  // Include custom bills too (submitted locally)
-  const customBills = JSON.parse(localStorage.getItem("rb_custom_bills") || "[]");
-  allBills = [...customBills, ...allBills];
-
-  const passed = allBills.filter(b => b.status === "passed");
-  const failed = allBills.filter(b => b.status === "failed");
-
-  const renderList = (list, emptyText) => {
-    if (!list.length) return `<div class="muted-block">${emptyText}</div>`;
-
-    return `
-      <div class="order-grid">
-        ${list.map(b => `
-          <div class="bill-card ${b.status}">
-            <div class="bill-title">${b.title}</div>
-            <div class="bill-sub">Author: ${b.author} · ${b.department}</div>
-
-            <div class="bill-result ${b.status === "passed" ? "passed" : "failed"}">
-              ${b.status === "passed" ? "Passed (Royal Assent)" : "Defeated"}
-            </div>
-
-            <div class="bill-actions spaced">
-              <a class="btn" href="bill.html?id=${encodeURIComponent(b.id)}">View Bill</a>
-              <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
-            </div>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  };
-
-  if (hansardPassed) hansardPassed.innerHTML = renderList(passed, "No passed legislation yet.");
-  if (hansardFailed) hansardFailed.innerHTML = renderList(failed, "No defeated legislation yet.");
-}
-
-
-// Add locally submitted bills
-const customBills = JSON.parse(localStorage.getItem("rb_custom_bills") || "[]");
-bills = [...customBills, ...bills];
-
-
-      orderWrap.innerHTML = `
-        <div class="order-grid">
-          ${
-            bills.length
-              ? bills
-                  .map((b) => {
-                    const status = safe(b.status, "in-progress");
-                    const stage = safe(b.stage, "First Reading");
-
-                    const stageTrack = stageOrder
-                      .map((s) => `<div class="stage ${stage === s ? "on" : ""}">${s}</div>`)
-                      .join("");
-
-                    const resultBlock =
-                      status === "passed"
-                        ? `<div class="bill-result passed">Royal Assent Granted</div>`
-                        : status === "failed"
-                          ? `<div class="bill-result failed">Bill Defeated</div>`
-                          : `<div class="bill-current">Current Stage: <b>${stage}</b></div>`;
-
-                    return `
-                      <div class="bill-card ${status}">
-                        <div class="bill-title">${safe(b.title, "Untitled Bill")}</div>
-                        <div class="bill-sub">Author: ${safe(b.author, "—")} · ${safe(b.department, "—")}</div>
-
-                        <div class="stage-track">${stageTrack}</div>
-
-                        ${resultBlock}
-
-                        <div class="bill-actions spaced">
-                          <a class="btn" href="bill.html?id=${encodeURIComponent(safe(b.id, ""))}">View Bill</a>
-                          <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
-                        </div>
-                      </div>
-                    `;
-                  })
-                  .join("")
-              : `<div class="muted-block">No bills on the Order Paper.</div>`
-          }
-        </div>
-      `;
-    }
-  })
-  .catch((err) => console.error("Error loading data/demo.json:", err));
-// ===== NAV ACTIVE STATE =====
-(function(){
-  const current = window.location.pathname.split("/").pop();
-  const links = document.querySelectorAll(".nav a");
-
-  links.forEach(link => {
-    const href = link.getAttribute("href");
-
-    // Ignore external links
-    if (!href || href.startsWith("http")) return;
-
-    if (href === current) {
-      link.classList.add("active");
-    }
-
-    // Special case: dashboard.html is root sometimes
-    if (current === "" && href === "dashboard.html") {
-      link.classList.add("active");
-    }
-  });
-})();
-
-// ---------- Dropdown Nav ----------
-(function initNavDropdowns(){
-  const groups = Array.from(document.querySelectorAll(".nav-group"));
-  const toggles = Array.from(document.querySelectorAll(".nav-toggle"));
-
-  if (!groups.length || !toggles.length) return;
-
-  toggles.forEach(btn => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-
-      // close others
-      groups.forEach(g => {
-        if (g !== btn.parentElement) g.classList.remove("open");
-      });
-
-      btn.parentElement.classList.toggle("open");
-    });
-  });
-
-  // click outside closes all
-  document.addEventListener("click", () => {
-    groups.forEach(g => g.classList.remove("open"));
-  });
-
-  // escape closes all
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") groups.forEach(g => g.classList.remove("open"));
-  });
-})();
-
-// ---------- Active Page Highlight ----------
-(function highlightActiveNav(){
-  const current = location.pathname.split("/").pop() || "dashboard.html";
-
-  document.querySelectorAll(".nav a").forEach(link => {
-    const href = link.getAttribute("href");
-    if (!href) return;
-
-    // only match local pages (ignore https links)
-    if (href.startsWith("http")) return;
-
-    if (href === current) {
-      link.classList.add("active");
-      const group = link.closest(".nav-group");
-      if (group) {
-        const toggle = group.querySelector(".nav-toggle");
-        if (toggle) toggle.classList.add("active");
-      }
-    }
-  });
-})();
-// ---------- Submit Bill ----------
-(function initSubmitBill(){
-
-  const form = document.getElementById("billForm");
-  if (!form) return;
-
-  const permissionBox = document.getElementById("bill-permission");
-  const successBox = document.getElementById("billSuccess");
-
-  fetch("data/demo.json")
-    .then(r => r.json())
-    .then(data => {
-      loadGameState(data);
-
-
-      const player = data.currentPlayer;
-
-      // Only MPs allowed
-      const allowedRoles = [
-        "backbencher",
-        "minister",
-        "leader-opposition",
-        "prime-minister"
-      ];
-
-      if (!allowedRoles.includes(player.role)) {
-        form.style.display = "none";
-        permissionBox.innerHTML =
-          `<div class="bill-result failed">You are not eligible to submit legislation.</div>`;
-        return;
-      }
-
-      form.addEventListener("submit", (e) => {
-        e.preventDefault();
-
-        const title = document.getElementById("billTitleInput").value.trim();
-        const dept = document.getElementById("billDepartment").value;
-        const text = document.getElementById("billTextInput").value.trim();
-
-        if (!title || !text) return;
-
-        const newBill = {
-          id: "bill-" + Date.now(),
-          title: title,
-          author: player.name,
-          department: dept,
-          stage: "First Reading",
-          status: "in-progress",
-          billText: text,
-          amendments: []
-        };
-
-        // Store in localStorage (Phase 1 simulation)
-        const stored = JSON.parse(localStorage.getItem("rb_custom_bills") || "[]");
-        stored.push(newBill);
-        localStorage.setItem("rb_custom_bills", JSON.stringify(stored));
-
-        form.reset();
-        successBox.style.display = "block";
-      });
-
+    // Ensure defaults + run amendments + run lifecycle
+    bills = bills.map(b => {
+      ensureBillDefaults(b);
+      processAmendments(b);
+      processBillLifecycle(data, b);
+      return b;
     });
 
-})();
-
-{
-  id,
-  title,
-  author,
-  department,
-  type: "pmb" | "opposition" | "government",
-
-  stage: "First Reading" | "Second Reading" | "Report Stage" | "Division" | "Passed" | "Failed",
-
-  status: "in-progress" | "passed" | "failed",
-
-  createdAt,
-  stageStartedAt,
-
-  stagePaused: false,
-  pauseStartedAt: null,
-
-  billText,
-
-  amendments: [
-    {
-      id,
-      text,
-      proposedBy,
-      createdAt,
-      status: "proposed" | "accepted" | "rejected" | "division" | "failed",
-      supporters: [],
-      divisionStartedAt
-    }
-  ],
-
-  votes: {
-    yes: [],
-    no: []
-  }
-}
-function stageHoursElapsed(bill){
-  if (bill.stagePaused) {
-    return (bill.pauseStartedAt - bill.stageStartedAt) / 3600000;
-  }
-  return (Date.now() - bill.stageStartedAt) / 3600000;
-}
-// ================== LEGISLATION STAGE RULES ==================
-const STAGE_ORDER = ["First Reading", "Second Reading", "Report Stage", "Division"];
-const STAGE_LENGTH_SIM_MONTHS = {
-  "Second Reading": 2,
-  "Report Stage": 1,
-  "Division": 1
-};
-
-// First Reading is special (1 real day; and Sunday-start defers to Monday)
-const FIRST_READING_REAL_DAYS = 1;
-
-// Amendment windows (kept for later UI wiring; engine-ready now)
-const AMENDMENTS_SECOND_READING_OPEN_SIM_MONTHS = 1; // first 1 sim month of Second Reading
-const AMENDMENTS_REPORT_STAGE_OPEN_SIM_MONTHS = 0;   // we'll treat as first half via real-days later
-const AUTHOR_LOCK_FINAL_REAL_DAYS = 1;               // final 24h of a stage
-
-function getBillBadge(bill){
-  const t = (bill.type || "pmb").toLowerCase();
-  if (t === "government") return { text: "Government Bill", cls: "badge-government" };
-  if (t === "opposition") return { text: "Opposition Day Bill", cls: "badge-opposition" };
-  return { text: "PMB", cls: "badge-pmb" };
-}
-
-function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
-
-function msToParts(ms){
-  const s = Math.max(0, Math.floor(ms / 1000));
-  const days = Math.floor(s / 86400);
-  const hours = Math.floor((s % 86400) / 3600);
-  const mins = Math.floor((s % 3600) / 60);
-  return { days, hours, mins };
-}
-
-function formatCountdown(ms){
-  const p = msToParts(ms);
-  if (p.days > 0) return `${p.days}d ${p.hours}h ${p.mins}m`;
-  if (p.hours > 0) return `${p.hours}h ${p.mins}m`;
-  return `${p.mins}m`;
-}
-
-function realDaysBetween(aTs, bTs){
-  return Math.floor((bTs - aTs) / 86400000);
-}
-
-function isCompleted(bill){
-  return bill.status === "passed" || bill.status === "failed" || bill.stage === "Passed" || bill.stage === "Failed";
-}
-
-function ensureBillDefaults(bill){
-  if (!bill.createdAt) bill.createdAt = Date.now();
-  if (!bill.stageStartedAt) bill.stageStartedAt = bill.createdAt;
-  if (!bill.type) bill.type = "pmb";
-  if (!bill.stage) bill.stage = "First Reading";
-  if (!bill.status) bill.status = "in-progress";
-  if (!bill.amendments) bill.amendments = [];
-  if (!bill.division) bill.division = null; // later used in Division stage
-  if (!bill.completedAt && isCompleted(bill)) bill.completedAt = bill.completedAt || Date.now();
-  return bill;
-}
-function getSimMonthsSince(realTimestamp){
-  if (!GAME_STATE?.started) return 0;
-
-  const start = new Date(realTimestamp);
-  const now = new Date();
-
-  let days = Math.floor((now - start) / 86400000);
-
-  // Count Sundays between start and now (inclusive)
-  let temp = new Date(start);
-  let sundays = 0;
-  while (temp <= now) {
-    if (temp.getDay() === 0) sundays++;
-    temp.setDate(temp.getDate() + 1);
-  }
-
-  const validDays = days - sundays;
-  return Math.floor(validDays / 3); // 3 real days per sim month
-}
-function moveStage(bill, newStage){
-  bill.stage = newStage;
-  bill.stageStartedAt = Date.now();
-  bill.stagePaused = false;
-  bill.pauseStartedAt = null;
-
-  // If entering Division, create vote container if missing
-  if (newStage === "Division" && !bill.division) {
-    bill.division = {
-      openedAt: Date.now(),
-      votes: { aye: [], no: [], abstain: [] },
-      closed: false,
-      result: null
-    };
-  }
-}
-
-function autoCompleteBill(bill, passed){
-  bill.status = passed ? "passed" : "failed";
-  bill.stage = passed ? "Passed" : "Failed";
-  bill.completedAt = Date.now();
-  bill.division = bill.division || null;
-}
-
-function shouldArchiveOffOrderPaperToday(bill){
-  // Rule: bills move off Order Paper on the next Sunday after completion.
-  // So: if completed, AND today is Sunday, AND completion happened BEFORE today (not same-minute).
-  if (!isCompleted(bill)) return false;
-  if (!isSunday()) return false;
-
-  const done = bill.completedAt || bill.stageStartedAt || bill.createdAt;
-  if (!done) return true;
-
-  // Must be completed at least 1 real day ago, so Sunday isn't immediately hiding something finished on Sunday.
-  return realDaysBetween(done, Date.now()) >= 1;
-}
-
-function billStageCountdown(bill){
-  // Returns { label, msRemaining } for current stage
-  const now = Date.now();
-
-  // Sunday: show frozen status (we still show countdown based on real time, but no movement)
-  const sundayFrozen = isSunday();
-
-  if (bill.stage === "First Reading") {
-    // First Reading starts Monday if submitted Sunday
-    const end = bill.stageStartedAt + FIRST_READING_REAL_DAYS * 86400000;
-    return { label: sundayFrozen ? "Polling Day — clock frozen" : "First Reading ends in", msRemaining: end - now };
-  }
-
-  if (bill.stage === "Second Reading" || bill.stage === "Report Stage" || bill.stage === "Division") {
-    const needed = STAGE_LENGTH_SIM_MONTHS[bill.stage] || 1;
-
-    // Approx end based on sim months -> convert to real days (3 days per sim month) + Sundays excluded for month-counting.
-    // We can’t compute exact end timestamp without iterating days; so we present a “sim months remaining” + rough countdown.
-    const elapsed = getSimMonthsSince(bill.stageStartedAt);
-    const remainingSim = Math.max(0, needed - elapsed);
-
-    // Rough: remainingSim * 3 days (not exact because Sundays excluded, but good enough for UI).
-    const roughEnd = bill.stageStartedAt + (needed * 3 * 86400000);
-    return {
-      label: sundayFrozen ? "Polling Day — clock frozen" : `${bill.stage} ends in`,
-      msRemaining: roughEnd - now,
-      remainingSimMonths: remainingSim
-    };
-  }
-
-  return { label: "", msRemaining: 0 };
-}
-
-function processBillLifecycle(bill, context){
-  // context: { player, totalEligibleVoters } later
-  ensureBillDefaults(bill);
-
-  // Global freeze: Sundays are admin/polling day. No automatic stage movement.
-  if (isSunday()) return bill;
-
-  // If bill completed, do nothing (Hansard roll handled by Order Paper filter)
-  if (isCompleted(bill)) return bill;
-
-  // If bill submitted on Sunday, it should not enter First Reading until Monday.
-  // Implementation: when created on Sunday, set a flag and stageStartedAt to next Monday 00:00.
-  if (bill.stage === "First Reading" && bill.deferToMonday === true) {
-    const now = new Date();
-    if (now.getDay() !== 0) {
-      bill.deferToMonday = false;
-      // stageStartedAt already set to Monday start when created
-    } else {
-      return bill;
-    }
-  }
-
-  // First Reading auto-move after 1 real day (unless PMB refused etc.)
-  if (bill.stage === "First Reading") {
-    const days = realDaysBetween(bill.stageStartedAt, Date.now());
-    if (days >= FIRST_READING_REAL_DAYS) {
-      // If still in-progress and not explicitly blocked, move to Second Reading
-      moveStage(bill, "Second Reading");
-    }
-    return bill;
-  }
-
-  // Second Reading auto-move after 2 sim months (but must not have active amendment divisions; wiring later)
-  if (bill.stage === "Second Reading") {
-    const elapsed = getSimMonthsSince(bill.stageStartedAt);
-    if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Second Reading"]) {
-      moveStage(bill, "Report Stage");
-    }
-    return bill;
-  }
-
-  // Report Stage auto-move after 1 sim month
-  if (bill.stage === "Report Stage") {
-    const elapsed = getSimMonthsSince(bill.stageStartedAt);
-    if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Report Stage"]) {
-      moveStage(bill, "Division");
-    }
-    return bill;
-  }
-
-  // Division auto-close after 1 sim month OR early if 100% votes (we’ll enable 100% once we have electorate list)
-  if (bill.stage === "Division") {
-    const elapsed = getSimMonthsSince(bill.stageStartedAt);
-    if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Division"]) {
-      // For now, if no votes system is live, we mark "failed" by default? No—don’t.
-      // Instead, auto-close with placeholder result logic:
-      // If you haven't implemented voting UI yet, keep it "in-progress" but mark division closed? No—confusing.
-      // We'll leave it open until voting exists, but the stage engine is ready.
-      // (Once voting UI exists, this block will calculate result and complete the bill.)
-    }
-    return bill;
-  }
-
-  return bill;
-}
-const now = new Date();
-const submittedOnSunday = now.getDay() === 0;
-
-const newBill = {
-  id: "bill-" + Date.now(),
-  title: title,
-  author: player.name,
-  department: dept,
-
-  type: "pmb",
-  stage: "First Reading",
-  status: "in-progress",
-
-  createdAt: Date.now(),
-  stageStartedAt: Date.now(),
-
-  // if submitted Sunday, defer stage start to Monday 00:00
-  deferToMonday: submittedOnSunday,
-
-  billText: text,
-  amendments: []
-};
-
-// Set stageStartedAt to next Monday 00:00 if Sunday
-if (submittedOnSunday) {
-  const monday = new Date();
-  monday.setDate(monday.getDate() + 1);
-  monday.setHours(0,0,0,0);
-  newBill.stageStartedAt = monday.getTime();
-}
-// ===== Order Paper (ONLY if element exists) =====
-const orderWrap = document.getElementById("order-paper");
-if (orderWrap) {
-
-  let bills = data.orderPaperCommons || [];
-
-  // Include locally submitted bills
-  const customBills = JSON.parse(localStorage.getItem("rb_custom_bills") || "[]");
-  bills = [...customBills, ...bills];
-
-  // Ensure defaults + process lifecycle (Sunday freeze is inside processor)
-  bills = bills.map(b => processBillLifecycle(ensureBillDefaults(b), { player: data.currentPlayer }));
-
-  // Persist updated custom bills back to localStorage (only those that are custom)
-  const updatedCustom = bills.filter(b => String(b.id || "").startsWith("bill-"));
-  localStorage.setItem("rb_custom_bills", JSON.stringify(updatedCustom));
-
-  // Filter: show in-progress always.
-  // If completed, show ONLY until the next Sunday roll removes it.
-  bills = bills.filter(b => {
-    if (!isCompleted(b)) return true;
-    return !shouldArchiveOffOrderPaperToday(b);
-  });
-
-  orderWrap.innerHTML = `
-    <div class="order-grid">
-      ${bills.map(b => {
-        const badge = getBillBadge(b);
-        const t = billStageCountdown(b);
-        const timerLine = (b.status === "in-progress")
-          ? `<div class="timer">
-               <div class="kv"><span>${t.label}</span><b>${formatCountdown(t.msRemaining)}</b></div>
-               ${typeof t.remainingSimMonths !== "undefined"
-                 ? `<div class="small">Sim months remaining: ${t.remainingSimMonths}</div>` : ``}
-             </div>`
-          : ``;
-
-        const stageLabel = isCompleted(b)
-          ? (b.status === "passed" ? "Passed" : "Failed")
-          : b.stage;
-
-        const resultBlock = isCompleted(b)
-          ? `<div class="bill-result ${b.status === "passed" ? "passed" : "failed"}">
-               ${b.status === "passed" ? "Royal Assent Granted" : "Bill Defeated"}
-             </div>`
-          : `<div class="bill-current">Current Stage: <b>${stageLabel}</b></div>`;
-
-        return `
-          <div class="bill-card ${b.status}">
-            <div class="bill-title">${b.title}</div>
-            <div class="bill-sub">Author: ${b.author} · ${b.department}</div>
-
-            <div class="badges">
-              <span class="bill-badge ${badge.cls}">${badge.text}</span>
-            </div>
-
-            <div class="stage-track">
-              ${STAGE_ORDER.map(s => `
-                <div class="stage ${b.stage === s ? "on" : ""}">${s}</div>
-              `).join("")}
-            </div>
-
-            ${resultBlock}
-            ${timerLine}
-
-            <div class="bill-actions spaced">
-              <a class="btn" href="bill.html?id=${encodeURIComponent(b.id)}">View Bill</a>
-              <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
-            </div>
-          </div>
-        `;
-      }).join("")}
-    </div>
-  `;
-}
-// ================== SUNDAY ACTIVITY ROLL ==================
-
-function processSundayActivity(players){
-
-  if (!isSunday()) return players;
-
-  const now = Date.now();
-
-  return players.map(p => {
-
-    // Inactive if not logged in within 7 real days
-    const daysSinceLogin = Math.floor((now - new Date(p.lastLogin).getTime()) / 86400000);
-
-    if (daysSinceLogin > 7) {
-      p.active = false;
-    }
-
-    // Maturity check: must survive 2 Sundays since join
-    const joined = new Date(p.joinedAt);
-    const nowDate = new Date();
-
-    let sundays = 0;
-    let temp = new Date(joined);
-
-    while (temp <= nowDate) {
-      if (temp.getDay() === 0) sundays++;
-      temp.setDate(temp.getDate() + 1);
-    }
-
-    p.mature = sundays >= 2;
-
-    return p;
-  });
-}
-// ================== DIVISION WEIGHT ENGINE ==================
-
-function getFrontbenchRoles(){
-  return [
-    "prime-minister",
-    "leader-opposition",
-    "secretary",
-    "shadow-secretary",
-    "party-leader"
-  ];
-}
-
-function calculateDivisionWeights(players, parliament){
-
-  const processed = processSundayActivity(players);
-
-  const result = {};
-
-  parliament.parties.forEach(party => {
-
-    const partyPlayers = processed.filter(pl => pl.party === party.name && pl.active);
-
-    const fullEligible = partyPlayers.filter(pl => {
-
-      const isFrontbench = getFrontbenchRoles().includes(pl.role);
-
-      if (isFrontbench) return true;
-
-      // backbencher maturity rule
-      return pl.role === "backbencher" && pl.mature;
+    // Save updates back to storage
+    data.orderPaperCommons = bills;
+    saveData(data);
+
+    // Filter: show in-progress always; completed until next Sunday roll removes
+    bills = bills.filter(b => {
+      if (!isCompleted(b)) return true;
+      return !shouldArchiveOffOrderPaperToday(b);
     });
 
-    const seatCount = party.seats;
-
-    const weightPerFull = fullEligible.length > 0
-      ? seatCount / fullEligible.length
-      : 0;
-
-    result[party.name] = {
-      seatCount,
-      fullEligible,
-      weightPerFull
-    };
-  });
-
-  return result;
-}
-// ================== ABSENCE UI ==================
-
-function renderAbsenceUI(data){
-
-  const container = document.getElementById("absence-ui");
-  if (!container) return;
-
-  const players = data.players;
-  const current = data.currentPlayer;
-
-  const me = players.find(p => p.name === current.name);
-  if (!me) return;
-
-  let delegationBlock = "";
-
-  if (me.partyLeader && me.absent){
-
-    const eligible = players.filter(p =>
-      p.party === me.party &&
-      p.active &&
-      p.name !== me.name
-    );
-
-    delegationBlock = `
-      <div style="margin-top:12px;">
-        <label>Delegate Vote To:</label>
-        <select id="delegateSelect">
-          <option value="">-- Select Member --</option>
-          ${eligible.map(p =>
-            `<option value="${p.name}" ${me.delegatedTo === p.name ? "selected":""}>
-              ${p.name}
-            </option>`
-          ).join("")}
-        </select>
-        <button class="btn" onclick="setDelegation()">Save</button>
-      </div>
-    `;
-  }
-
-  container.innerHTML = `
-    <div class="kv">
-      <span>Status:</span>
-      <b>${me.absent ? "Absent" : "Active"}</b>
-    </div>
-
-    <div style="margin-top:12px;">
-      ${
-        me.absent
-          ? `<button class="btn" onclick="toggleAbsence(false)">Return to Active</button>`
-          : `<button class="btn" onclick="toggleAbsence(true)">Mark as Absent</button>`
-      }
-    </div>
-
-    ${delegationBlock}
-  `;
-}
-function getFullData(){
-  return JSON.parse(localStorage.getItem("rb_full_data"));
-}
-
-function saveFullData(data){
-  localStorage.setItem("rb_full_data", JSON.stringify(data));
-}
-voters.push(voteHolder.name)
-bill.division = {
-  openedAt: "2026-02-14T12:00:00Z",
-  durationHours: 24,
-  votes: {
-    aye: 0,
-    no: 0,
-    abstain: 0
-  },
-  voters: [],
-  closed: false,
-  result: null
-};
-if (bill.stage === "Division" && !bill.division){
-  bill.division = {
-    openedAt: new Date().toISOString(),
-    durationHours: 24,
-    votes: { aye:0, no:0, abstain:0 },
-    voters: [],
-    closed: false,
-    result: null
-  };
-}
-function renderSubmitBillForm(data){
-
-  const container = document.getElementById("bill-form");
-  if (!container) return;
-
-  const current = data.currentPlayer;
-
-  const isPM = current.role === "prime-minister";
-  const isLOTO = current.role === "leader-opposition";
-  const isLeaderOfHouse = current.office === "leader-commons";
-
-  container.innerHTML = `
-    <div class="form-grid">
-
-      <label>Short Title</label>
-      <input id="shortTitle" placeholder="e.g. Rail Safety Reform Act 2000" />
-
-      <label>Policy Area</label>
-      <select id="policyArea">
-        <option>Health</option>
-        <option>Defence</option>
-        <option>Home Affairs</option>
-        <option>Treasury</option>
-        <option>Education</option>
-        <option>Transport</option>
-        <option>Environment</option>
-        <option>Justice</option>
-        <option>Foreign Affairs</option>
-      </select>
-
-      <label>Purpose of the Bill</label>
-      <textarea id="purpose" rows="3" placeholder="Brief explanation of what the Bill does."></textarea>
-
-      <label>Extent</label>
-      <select id="extent">
-        <option>England</option>
-        <option>England and Wales</option>
-        <option>Great Britain</option>
-        <option>United Kingdom</option>
-      </select>
-
-      <label>Commencement</label>
-      <select id="commencement">
-        <option>On Royal Assent</option>
-        <option>After 3 months</option>
-        <option>By Regulations</option>
-      </select>
-
-      ${
-        isLOTO
-          ? `<div>
-               <label>
-                 <input type="checkbox" id="oppositionDay" />
-                 Opposition Day Bill
-               </label>
-             </div>`
-          : ""
-      }
-
-      ${
-        (isPM || isLeaderOfHouse)
-          ? `<div>
-               <label>
-                 <input type="checkbox" id="governmentBill" />
-                 Move as Government Bill
-               </label>
-             </div>`
-          : ""
-      }
-
-      <label>Main Clauses</label>
-      <textarea id="clauses" rows="8" placeholder="Enter clauses line by line..."></textarea>
-
-      <button class="btn" onclick="submitBill()">Submit Bill</button>
-
-    </div>
-  `;
-}
-function generateBillText(title, purpose, extent, commencement, clauses){
-
-  const clauseArray = clauses.split("\n").filter(c => c.trim());
-
-  let numberedClauses = clauseArray.map((c,i) =>
-    `${i+1}. ${c}`
-  ).join("\n");
-
-  return `
-A Bill to ${purpose.toLowerCase()}.
-
-BE IT ENACTED by the King's most Excellent Majesty, by and with the advice and consent of the Commons in this present Parliament assembled, and by the authority of the same, as follows:
-
-${numberedClauses}
-
-Extent:
-This Act extends to ${extent}.
-
-Commencement:
-This Act shall come into force ${commencement.toLowerCase()}.
-  `;
-}
-function submitStructuredBill(){
-
-  let data = getFullData();
-
-  const titleRaw = document.getElementById("billTitleInput").value.trim();
-  const purpose = document.getElementById("billPurpose").value.trim();
-  const articleCount = parseInt(document.getElementById("articleCount").value);
-  const extent = document.getElementById("extentSelect").value;
-  const commencement = document.getElementById("commencementSelect").value;
-
-  if (!titleRaw){
-    alert("Title is required.");
-    return;
-  }
-
-  if (!purpose){
-    alert("The 'A Bill to' section is required.");
-    return;
-  }
-
-  let articlesText = "";
-  let hasContent = false;
-
-  for (let i = 1; i <= articleCount; i++){
-
-    const heading = document.getElementById(`articleHeading${i}`).value.trim();
-    const body = document.getElementById(`articleBody${i}`).value.trim();
-
-    if (!heading || !body){
-      alert(`Article ${i} must have both heading and body.`);
+    if (!bills.length) {
+      el.innerHTML = `<div class="muted-block">No bills on the Order Paper.</div>`;
       return;
     }
 
-    hasContent = true;
+    el.innerHTML = `
+      <div class="order-grid">
+        ${bills.map(b => {
+          const badge = getBillBadge(b);
+          const t = billStageCountdown(data, b);
 
-    articlesText += `
-Article ${i} — ${heading}
-${body}
+          const resultBlock = isCompleted(b)
+            ? `<div class="bill-result ${b.status === "passed" ? "passed" : "failed"}">
+                 ${b.status === "passed" ? "Royal Assent Granted" : "Bill Defeated"}
+               </div>`
+            : `<div class="bill-current">Current Stage: <b>${b.stage}</b></div>`;
 
-`;
+          const timerLine = (!isCompleted(b) && t.label)
+            ? `<div class="timer"><div class="kv"><span>${t.label}</span><b>${msToDHM(t.msRemaining)}</b></div></div>`
+            : ``;
+
+          return `
+            <div class="bill-card ${b.status}">
+              <div class="bill-title">${safe(b.title, "Untitled Bill")}</div>
+              <div class="bill-sub">Author: ${safe(b.author, "—")} · ${safe(b.department, "—")}</div>
+
+              <div class="badges">
+                <span class="bill-badge ${badge.cls}">${badge.text}</span>
+              </div>
+
+              <div class="stage-track">
+                ${STAGE_ORDER.map(s => `<div class="stage ${b.stage === s ? "on" : ""}">${s}</div>`).join("")}
+              </div>
+
+              ${resultBlock}
+              ${timerLine}
+
+              <div class="bill-actions spaced">
+                <a class="btn" href="bill.html?id=${encodeURIComponent(safe(b.id,""))}">View Bill</a>
+                <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
   }
 
-  if (!hasContent){
-    alert("At least one article is required.");
-    return;
+  /* =========================
+     HANSARD render
+     ========================= */
+  function renderHansard(data) {
+    const passedEl = document.getElementById("hansard-passed");
+    const failedEl = document.getElementById("hansard-failed");
+    if (!passedEl && !failedEl) return;
+
+    const bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+    const passed = bills.filter(b => b.status === "passed");
+    const failed = bills.filter(b => b.status === "failed");
+
+    function renderList(list, emptyText) {
+      if (!list.length) return `<div class="muted-block">${emptyText}</div>`;
+      return `
+        <div class="order-grid">
+          ${list.map(b => `
+            <div class="bill-card ${b.status}">
+              <div class="bill-title">${safe(b.title, "Untitled")}</div>
+              <div class="bill-sub">Author: ${safe(b.author, "—")} · ${safe(b.department, "—")}</div>
+
+              <div class="bill-result ${b.status === "passed" ? "passed" : "failed"}">
+                ${b.status === "passed" ? "Passed (Royal Assent)" : "Defeated"}
+              </div>
+
+              <div class="bill-actions spaced">
+                <a class="btn" href="bill.html?id=${encodeURIComponent(b.id)}">View Bill</a>
+                <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    if (passedEl) passedEl.innerHTML = renderList(passed, "No passed legislation yet.");
+    if (failedEl) failedEl.innerHTML = renderList(failed, "No defeated legislation yet.");
   }
 
-  const year = data.simulation.currentYear;
-  const fullTitle = `${titleRaw} Bill ${year}`;
+  /* =========================
+     ABSENCE UI (safe renderer)
+     - This does not implement vote delegation logic fully;
+       it only renders current state without breaking.
+     ========================= */
+  function renderAbsenceUI(data) {
+    const container = document.getElementById("absence-ui");
+    if (!container) return;
 
-  const preamble = generatePreamble(data);
+    const players = Array.isArray(data.players) ? data.players : [];
+    const current = data.currentPlayer || {};
+    const me = players.find(p => p.name === current.name);
+    if (!me) {
+      container.innerHTML = `<div class="muted-block">No player profile loaded.</div>`;
+      return;
+    }
 
-  const finalArticleNumber = articleCount + 1;
+    container.innerHTML = `
+      <div class="kv">
+        <span>Status:</span>
+        <b>${me.absent ? "Absent" : "Active"}</b>
+      </div>
+      <div class="muted-block" style="margin-top:10px;">
+        Absence controls will live here (Mark absent / Return active / Delegate if leader).
+      </div>
+    `;
+  }
 
-  const finalArticle = `
-Article ${finalArticleNumber} — Extent, Commencement and Short Title
+  /* =========================
+     SUBMIT BILL PAGE (Phase 1)
+     - This only INITIALISES if the page contains
+       #legislation-builder or #billForm
+     - It saves bills into rb_full_data.orderPaperCommons
+     ========================= */
+  function initSubmitBillPage(data) {
+    const builder = document.getElementById("legislation-builder");
+    const simpleForm = document.getElementById("billForm");
 
+    if (!builder && !simpleForm) return;
+
+    // Ensure tracker exists
+    data.oppositionTracker = data.oppositionTracker || {};
+    saveData(data);
+
+    if (builder) {
+      renderLegislationBuilder(data);
+      generateArticles(); // initial
+    }
+
+    if (simpleForm) {
+      // If you still have an older simple form, keep it safe and working:
+      simpleForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        alert("This page uses the structured builder now. Use the fields provided.");
+      });
+    }
+  }
+
+  function generatePreamble(data) {
+    const gender = (data.adminSettings?.monarchGender || "Queen").toLowerCase();
+    const majesty = (gender === "queen") ? "the Queen’s" : "the King’s";
+    return `Be it enacted by ${majesty} most Excellent Majesty, by and with the advice and consent of the Lords Spiritual and Temporal, and Commons, in this present Parliament assembled, and by the authority of the same, as follows:—`;
+  }
+
+  // Renders the structured bill builder into #legislation-builder
+  function renderLegislationBuilder(data) {
+    const container = document.getElementById("legislation-builder");
+    if (!container) return;
+
+    const current = data.currentPlayer || {};
+    const sim = getCurrentSimDate(data);
+    const simYear = sim.year;
+
+    const isLOTO = current.role === "leader-opposition";
+    const usedOpp = Number(data.oppositionTracker[String(simYear)] || 0);
+    const oppAvailable = usedOpp < 3;
+
+    container.innerHTML = `
+      <div class="form-grid">
+
+        <label>Title of the Bill</label>
+        <input id="billTitleInput" placeholder="e.g. Rail Safety Reform" />
+
+        <label>A Bill to</label>
+        <textarea id="billPurpose" rows="2" placeholder="make provision for..."></textarea>
+
+        ${isLOTO ? `
+          <div style="margin-top:8px;">
+            <label>
+              <input type="checkbox" id="oppositionDay" ${oppAvailable ? "" : "disabled"} />
+              Opposition Day Bill (used ${usedOpp}/3 this year)
+            </label>
+            ${oppAvailable ? "" : `<div class="small">Limit reached for this simulation year.</div>`}
+          </div>
+        ` : ""}
+
+        <label>Number of Articles</label>
+        <select id="articleCount">
+          ${[1,2,3,4,5,6,7,8,9,10].map(n => `<option value="${n}">${n}</option>`).join("")}
+        </select>
+
+        <div id="articlesContainer" style="margin-top:10px;"></div>
+
+        <hr>
+
+        <h3>Final Article — Extent & Commencement</h3>
+
+        <label>Extent</label>
+        <select id="extentSelect">
+          <option>the United Kingdom</option>
+          <option>Great Britain</option>
+          <option>England and Wales</option>
+          <option>England</option>
+          <option>Wales</option>
+          <option>Scotland</option>
+          <option>Northern Ireland</option>
+        </select>
+
+        <label>Commencement</label>
+        <select id="commencementSelect">
+          <option>upon the day it is passed</option>
+          <option>in one month</option>
+          <option>in six months</option>
+          <option>in one year</option>
+          <option>on a date laid out in regulation by the Secretary of State</option>
+        </select>
+
+        <button class="btn" id="submitStructuredBillBtn" type="button">Submit Bill</button>
+      </div>
+    `;
+
+    // Generate articles on change
+    const articleCountEl = document.getElementById("articleCount");
+    if (articleCountEl) {
+      articleCountEl.addEventListener("change", generateArticles);
+    }
+
+    // Submit handler
+    const btn = document.getElementById("submitStructuredBillBtn");
+    if (btn) {
+      btn.addEventListener("click", () => submitStructuredBill());
+    }
+  }
+
+  // Expose generateArticles to this script scope safely
+  function generateArticles() {
+    const countEl = document.getElementById("articleCount");
+    const container = document.getElementById("articlesContainer");
+    if (!countEl || !container) return;
+
+    const count = parseInt(countEl.value, 10);
+    container.innerHTML = "";
+
+    for (let i = 1; i <= count; i++) {
+      container.innerHTML += `
+        <div class="article-block" style="margin-bottom:14px;">
+          <label>Article ${i} Heading</label>
+          <input id="articleHeading${i}" placeholder="Heading..." />
+
+          <label>Article ${i} Body</label>
+          <textarea id="articleBody${i}" rows="4" placeholder="Text of Article ${i}..."></textarea>
+        </div>
+      `;
+    }
+  }
+
+  // Create + store bill object into rb_full_data.orderPaperCommons
+  function submitStructuredBill() {
+    let data = getData();
+    if (!data) return;
+
+    const current = data.currentPlayer || {};
+    const sim = getCurrentSimDate(data);
+    const year = sim.year;
+
+    const titleRaw = (document.getElementById("billTitleInput")?.value || "").trim();
+    const purpose = (document.getElementById("billPurpose")?.value || "").trim();
+
+    const articleCount = parseInt(document.getElementById("articleCount")?.value || "0", 10);
+    const extent = document.getElementById("extentSelect")?.value || "the United Kingdom";
+    const commencement = document.getElementById("commencementSelect")?.value || "upon the day it is passed";
+
+    if (!titleRaw) return alert("Title is required.");
+    if (!purpose) return alert("The 'A Bill to' section is required.");
+    if (!articleCount || articleCount < 1) return alert("Please choose at least 1 article.");
+
+    // Collect articles
+    let articlesText = "";
+    for (let i = 1; i <= articleCount; i++) {
+      const heading = (document.getElementById(`articleHeading${i}`)?.value || "").trim();
+      const body = (document.getElementById(`articleBody${i}`)?.value || "").trim();
+      if (!heading || !body) return alert(`Article ${i} must have both heading and body.`);
+
+      articlesText += `Article ${i} — ${heading}\n${body}\n\n`;
+    }
+
+    // Opposition bill checkbox (LOTO only)
+    const isOpp = document.getElementById("oppositionDay")?.checked || false;
+
+    // Opposition quota
+    data.oppositionTracker = data.oppositionTracker || {};
+    const used = Number(data.oppositionTracker[String(year)] || 0);
+    if (isOpp && used >= 3) return alert("Opposition bill limit reached for this simulation year.");
+
+    const fullTitle = `${titleRaw} Bill ${year}`;
+    const preamble = generatePreamble(data);
+
+    const finalArticleNumber = articleCount + 1;
+    const finalArticle = `Article ${finalArticleNumber} — Extent, Commencement and Short Title
 1. This Act extends to ${extent}.
 2. This Act comes into force ${commencement}.
-3. This Act may be cited as the ${titleRaw} Act ${year}.
-`;
+3. This Act may be cited as the ${titleRaw} Act ${year}.`;
 
-  const fullBillText = `
-${fullTitle}
+    const fullBillText = `${fullTitle}
 
 A Bill to ${purpose}.
 
 ${preamble}
 
-${articlesText}
-${finalArticle}
+${articlesText}${finalArticle}
 `;
 
-  createBillObject(data, fullTitle, fullBillText);
+    // Sunday submission rule: if submitted Sunday, First Reading starts Monday 00:00
+    const submittedOnSunday = isSunday();
+    let stageStartedAt = nowTs();
+    let deferToMonday = false;
 
-}
-<div id="bill-type-controls"></div>
+    if (submittedOnSunday) {
+      deferToMonday = true;
+      const monday = new Date();
+      monday.setDate(monday.getDate() + 1);
+      monday.setHours(0,0,0,0);
+      stageStartedAt = monday.getTime();
+    }
 
+    const newBill = {
+      id: `bill-${nowTs()}`,
+      title: fullTitle,
+      author: safe(current.name, "Unknown MP"),
+      department: "Commons",
+      billType: isOpp ? "opposition" : "pmb",
+      stage: isOpp ? "Second Reading" : "First Reading",
+      status: "in-progress",
+      createdAt: nowTs(),
+      stageStartedAt,
+      deferToMonday,
+      billText: fullBillText,
+      amendments: [],
+      hansard: {}
+    };
 
-function renderLegislationBuilder(data){
-const current = data.currentPlayer;
+    // If opposition bill, increment quota usage
+    if (isOpp) {
+      data.oppositionTracker[String(year)] = used + 1;
+    }
 
-const isPM = current.role === "prime-minister";
-const isLOTO = current.role === "leader-opposition";
-const isLeaderOfHouse = current.office === "leader-commons";
+    data.orderPaperCommons = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+    data.orderPaperCommons.unshift(newBill);
 
-let typeControls = "";
+    saveData(data);
 
-if (isLOTO){
-  typeControls += `
-    <label>
-      <input type="checkbox" id="oppositionDay" />
-      Opposition Day Bill
-    </label>
-  `;
-}
-
-if (isPM || isLeaderOfHouse){
-  typeControls += `
-    <label>
-      <input type="checkbox" id="governmentBill" />
-      Move as Government Bill
-    </label>
-  `;
-}
-
-document.getElementById("bill-type-controls").innerHTML = typeControls;
-
-  const container = document.getElementById("legislation-builder");
-  if (!container) return;
-
-  const simYear = data.simulation?.currentYear || 1997;
-
-  container.innerHTML = `
-    <div class="form-grid">
-
-      <label>Title of the Bill</label>
-      <input id="billTitleInput" placeholder="e.g. Rail Safety Reform" />
-
-      <label>A Bill to</label>
-      <textarea id="billPurpose" rows="2"
-        placeholder="make provision for..."></textarea>
-
-      <label>Number of Articles</label>
-      <select id="articleCount" onchange="generateArticles()">
-        ${[1,2,3,4,5,6,7,8,9,10].map(n =>
-          `<option value="${n}">${n}</option>`
-        ).join("")}
-      </select>
-
-      <div id="articlesContainer"></div>
-
-      <hr>
-
-      <h3>Final Article — Extent & Commencement</h3>
-
-      <label>Extent</label>
-      <select id="extentSelect">
-        <option>the United Kingdom</option>
-        <option>Great Britain</option>
-        <option>England and Wales</option>
-        <option>England</option>
-        <option>Wales</option>
-        <option>Scotland</option>
-        <option>Northern Ireland</option>
-      </select>
-
-      <label>Commencement</label>
-      <select id="commencementSelect">
-        <option>upon the day it is passed</option>
-        <option>in one month</option>
-        <option>in six months</option>
-        <option>in one year</option>
-        <option>on a date laid out in regulation by the Secretary of State</option>
-      </select>
-
-      <button class="btn" onclick="submitStructuredBill()">Submit Bill</button>
-
-    </div>
-  `;
-}
-function generateArticles(){
-
-  const count = parseInt(document.getElementById("articleCount").value);
-  const container = document.getElementById("articlesContainer");
-
-  container.innerHTML = "";
-
-  for (let i = 1; i <= count; i++){
-    container.innerHTML += `
-      <div class="article-block">
-        <label>Article ${i} Heading</label>
-        <input id="articleHeading${i}" placeholder="Heading..." />
-
-        <label>Article ${i} Body</label>
-        <textarea id="articleBody${i}" rows="4"
-          placeholder="Text of Article ${i}..."></textarea>
-      </div>
-    `;
+    // Back to office
+    location.href = "dashboard.html";
   }
-}
-generateArticles();
-function generatePreamble(data){
 
-  const gender = data.adminSettings?.monarchGender || "King";
+  /* =========================
+     Live refresh for countdowns
+     ========================= */
+  function startLiveRefresh(data) {
+    // Only refresh if these parts exist
+    const hasOrder = !!document.getElementById("order-paper");
+    const hasDocket = !!document.getElementById("live-docket");
+    const hasSim = !!document.getElementById("sim-date-display");
 
-  const majesty = gender === "Queen"
-    ? "Her Majesty"
-    : "His Majesty";
+    if (!hasOrder && !hasDocket && !hasSim) return;
 
-  return `
-Be it enacted by ${majesty}'s most Excellent Majesty,
-by and with the advice and consent of the Lords Spiritual and Temporal,
-and Commons, in this present Parliament assembled,
-and by the authority of the same, as follows:—
-  `;
-}
-function createBillObject(data, fullTitle, fullBillText){
+    setInterval(() => {
+      const latest = getData();
+      if (!latest) return;
 
-  const isOpp = document.getElementById("oppositionDay")?.checked || false;
-  const isGov = document.getElementById("governmentBill")?.checked || false;
+      if (hasSim) renderSimDate(latest);
+      if (hasDocket) renderLiveDocket(latest);
+      if (hasOrder) renderOrderPaper(latest);
+    }, 1000);
+  }
 
-  const stage = (isOpp || isGov) ? "Second Reading" : "First Reading";
-
-  const billType = isGov ? "government"
-                   : isOpp ? "opposition"
-                   : "pmb";
-
-  const newBill = {
-    id: fullTitle.toLowerCase().replace(/\s/g,"-") + "-" + Date.now(),
-    title: fullTitle,
-    author: data.currentPlayer.name,
-    stage,
-    status: "in-progress",
-    billType,
-    billText: fullBillText,
-    amendments: [],
-    submittedAt: new Date().toISOString(),
-    stageStartedAt: new Date().toISOString()
-  };
-
-  data.orderPaperCommons.push(newBill);
-  saveFullData(data);
-  location.href = "dashboard.html";
-}
+})();
