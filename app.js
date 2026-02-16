@@ -960,3 +960,89 @@ function calculateDivisionWeights(players, parliament){
 
   return result;
 }
+// ================== ABSENCE UI ==================
+
+function renderAbsenceUI(data){
+
+  const container = document.getElementById("absence-ui");
+  if (!container) return;
+
+  const players = data.players;
+  const current = data.currentPlayer;
+
+  const me = players.find(p => p.name === current.name);
+  if (!me) return;
+
+  let delegationBlock = "";
+
+  if (me.partyLeader && me.absent){
+
+    const eligible = players.filter(p =>
+      p.party === me.party &&
+      p.active &&
+      p.name !== me.name
+    );
+
+    delegationBlock = `
+      <div style="margin-top:12px;">
+        <label>Delegate Vote To:</label>
+        <select id="delegateSelect">
+          <option value="">-- Select Member --</option>
+          ${eligible.map(p =>
+            `<option value="${p.name}" ${me.delegatedTo === p.name ? "selected":""}>
+              ${p.name}
+            </option>`
+          ).join("")}
+        </select>
+        <button class="btn" onclick="setDelegation()">Save</button>
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    <div class="kv">
+      <span>Status:</span>
+      <b>${me.absent ? "Absent" : "Active"}</b>
+    </div>
+
+    <div style="margin-top:12px;">
+      ${
+        me.absent
+          ? `<button class="btn" onclick="toggleAbsence(false)">Return to Active</button>`
+          : `<button class="btn" onclick="toggleAbsence(true)">Mark as Absent</button>`
+      }
+    </div>
+
+    ${delegationBlock}
+  `;
+}
+function getFullData(){
+  return JSON.parse(localStorage.getItem("rb_full_data"));
+}
+
+function saveFullData(data){
+  localStorage.setItem("rb_full_data", JSON.stringify(data));
+}
+voters.push(voteHolder.name)
+bill.division = {
+  openedAt: "2026-02-14T12:00:00Z",
+  durationHours: 24,
+  votes: {
+    aye: 0,
+    no: 0,
+    abstain: 0
+  },
+  voters: [],
+  closed: false,
+  result: null
+};
+if (bill.stage === "Division" && !bill.division){
+  bill.division = {
+    openedAt: new Date().toISOString(),
+    durationHours: 24,
+    votes: { aye:0, no:0, abstain:0 },
+    voters: [],
+    closed: false,
+    result: null
+  };
+}
