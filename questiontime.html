@@ -6,19 +6,18 @@
   <title>Rule Britannia — Question Time</title>
   <link rel="stylesheet" href="styles.css">
 </head>
-
 <body class="theme-commons">
+
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand">
       <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
     </div>
 
-<nav class="nav" aria-label="Main Navigation">
-
+    <!-- keep your standard nav here (same as dashboard) -->
+    <nav class="nav" aria-label="Main Navigation">
       <a href="dashboard.html" class="nav-link">Office</a>
 
-      <!-- The U.K -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">The U.K ▾</button>
         <div class="dropdown">
@@ -31,7 +30,6 @@
         </div>
       </div>
 
-      <!-- Parliament -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Parliament ▾</button>
         <div class="dropdown">
@@ -45,7 +43,6 @@
         </div>
       </div>
 
-      <!-- Politics -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Politics ▾</button>
         <div class="dropdown">
@@ -60,7 +57,6 @@
         </div>
       </div>
 
-      <!-- Policy -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Policy ▾</button>
         <div class="dropdown">
@@ -73,7 +69,6 @@
         </div>
       </div>
 
-      <!-- Personal -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Personal ▾</button>
         <div class="dropdown">
@@ -85,7 +80,6 @@
         </div>
       </div>
 
-      <!-- External -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">External ▾</button>
         <div class="dropdown">
@@ -93,8 +87,8 @@
           <a href="https://discord.com" target="_blank" rel="noopener">Discord</a>
         </div>
       </div>
-
     </nav>
+
   </div>
 </header>
 
@@ -102,38 +96,10 @@
   <h1 class="page-title">Question Time</h1>
 
   <section class="panel">
-    <h2>Select an Office</h2>
-    <div class="muted-block">
-      Choose an office to submit questions and view answered/closed questions.
-      (Moderators will validate and close questions.)
-    </div>
-    <div id="qt-grid" style="margin-top:12px;">Loading…</div>
+    <div id="qt-root">Loading…</div>
   </section>
 </main>
-<script>
-  fetch("data/demo.json")
-    .then(r => r.json())
-    .then(data => {
-      const offices = (data.questionTime && data.questionTime.cabinet) || [];
-      const grid = document.getElementById("qt-grid");
 
-      if (!offices.length) {
-        grid.innerHTML = `<div class="muted-block">No cabinet configured yet.</div>`;
-        return;
-      }
-
-      grid.innerHTML = `
-        <div class="qt-grid">
-          ${offices.map(o => `
-            <a class="qt-card" href="qt-office.html?office=${encodeURIComponent(o.slug)}">
-              <div class="qt-title">${o.title}</div>
-              <div class="qt-sub">${o.short || ""}</div>
-            </a>
-          `).join("")}
-        </div>
-      `;
-    });
-</script>
-    <script src="app.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
