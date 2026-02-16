@@ -1046,3 +1046,139 @@ if (bill.stage === "Division" && !bill.division){
     result: null
   };
 }
+function renderSubmitBillForm(data){
+
+  const container = document.getElementById("bill-form");
+  if (!container) return;
+
+  const current = data.currentPlayer;
+
+  const isPM = current.role === "prime-minister";
+  const isLOTO = current.role === "leader-opposition";
+  const isLeaderOfHouse = current.office === "leader-commons";
+
+  container.innerHTML = `
+    <div class="form-grid">
+
+      <label>Short Title</label>
+      <input id="shortTitle" placeholder="e.g. Rail Safety Reform Act 2000" />
+
+      <label>Policy Area</label>
+      <select id="policyArea">
+        <option>Health</option>
+        <option>Defence</option>
+        <option>Home Affairs</option>
+        <option>Treasury</option>
+        <option>Education</option>
+        <option>Transport</option>
+        <option>Environment</option>
+        <option>Justice</option>
+        <option>Foreign Affairs</option>
+      </select>
+
+      <label>Purpose of the Bill</label>
+      <textarea id="purpose" rows="3" placeholder="Brief explanation of what the Bill does."></textarea>
+
+      <label>Extent</label>
+      <select id="extent">
+        <option>England</option>
+        <option>England and Wales</option>
+        <option>Great Britain</option>
+        <option>United Kingdom</option>
+      </select>
+
+      <label>Commencement</label>
+      <select id="commencement">
+        <option>On Royal Assent</option>
+        <option>After 3 months</option>
+        <option>By Regulations</option>
+      </select>
+
+      ${
+        isLOTO
+          ? `<div>
+               <label>
+                 <input type="checkbox" id="oppositionDay" />
+                 Opposition Day Bill
+               </label>
+             </div>`
+          : ""
+      }
+
+      ${
+        (isPM || isLeaderOfHouse)
+          ? `<div>
+               <label>
+                 <input type="checkbox" id="governmentBill" />
+                 Move as Government Bill
+               </label>
+             </div>`
+          : ""
+      }
+
+      <label>Main Clauses</label>
+      <textarea id="clauses" rows="8" placeholder="Enter clauses line by line..."></textarea>
+
+      <button class="btn" onclick="submitBill()">Submit Bill</button>
+
+    </div>
+  `;
+}
+function generateBillText(title, purpose, extent, commencement, clauses){
+
+  const clauseArray = clauses.split("\n").filter(c => c.trim());
+
+  let numberedClauses = clauseArray.map((c,i) =>
+    `${i+1}. ${c}`
+  ).join("\n");
+
+  return `
+A Bill to ${purpose.toLowerCase()}.
+
+BE IT ENACTED by the King's most Excellent Majesty, by and with the advice and consent of the Commons in this present Parliament assembled, and by the authority of the same, as follows:
+
+${numberedClauses}
+
+Extent:
+This Act extends to ${extent}.
+
+Commencement:
+This Act shall come into force ${commencement.toLowerCase()}.
+  `;
+}
+function submitBill(){
+
+  let data = getFullData();
+
+  const title = document.getElementById("shortTitle").value;
+  const policy = document.getElementById("policyArea").value;
+  const purpose = document.getElementById("purpose").value;
+  const extent = document.getElementById("extent").value;
+  const commencement = document.getElementById("commencement").value;
+  const clauses = document.getElementById("clauses").value;
+
+  const isOpp = document.getElementById("oppositionDay")?.checked || false;
+  const isGov = document.getElementById("governmentBill")?.checked || false;
+
+  const billText = generateBillText(title, purpose, extent, commencement, clauses);
+
+  const newBill = {
+    id: title.toLowerCase().replace(/\s/g,"-") + "-" + Date.now(),
+    title,
+    author: data.currentPlayer.name,
+    department: policy,
+    stage: isOpp || isGov ? "Second Reading" : "First Reading",
+    status: "in-progress",
+    billType: isGov ? "government" : isOpp ? "opposition" : "pmb",
+    billText,
+    amendments: [],
+    submittedAt: new Date().toISOString(),
+    stageStartedAt: new Date().toISOString()
+  };
+
+  data.orderPaperCommons.push(newBill);
+
+  saveFullData(data);
+
+  location.href = "dashboard.html";
+}
