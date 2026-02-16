@@ -1266,7 +1266,7 @@ function renderAbsenceUI(dataFromBoot) {
   const party = me.party || "Unknown";
   const partyLeader = players.find(p => p.party === party && p.partyLeader === true) || null;
 
-  const activePartyMembers = players.filter(p =>
+  const eligibleDelegates = players.filter(p =>
     p.party === party &&
     p.active !== false &&
     p.name !== me.name
@@ -1285,6 +1285,7 @@ function renderAbsenceUI(dataFromBoot) {
       if (!me.partyLeader && partyLeader) {
         me.delegatedTo = partyLeader.name;
       }
+
       // Leader must choose manually
       if (me.partyLeader) {
         me.delegatedTo = me.delegatedTo || null;
@@ -1302,13 +1303,12 @@ function renderAbsenceUI(dataFromBoot) {
     saveAndRerender();
   }
 
-  // Expose for inline onclick handlers (simple + novice-friendly)
+  // Expose for inline onclick (simple)
   window.rbSetAbsent = setAbsent;
   window.rbSetLeaderDelegation = setLeaderDelegation;
 
   const statusLine = me.absent ? "Absent" : "Active";
 
-  // Delegation message
   let delegationInfo = "";
   if (me.absent) {
     if (me.partyLeader) {
@@ -1327,15 +1327,14 @@ function renderAbsenceUI(dataFromBoot) {
     }
   }
 
-  // Leader delegation controls (only if leader is absent)
-  let leaderDelegationControls = "";
+  let leaderControls = "";
   if (me.absent && me.partyLeader) {
-    leaderDelegationControls = `
+    leaderControls = `
       <div style="margin-top:12px;">
         <label><b>Delegate party vote to:</b></label>
         <select id="rbLeaderDelegateSelect">
           <option value="">-- Select member --</option>
-          ${activePartyMembers.map(p => `
+          ${eligibleDelegates.map(p => `
             <option value="${p.name}" ${me.delegatedTo === p.name ? "selected" : ""}>${p.name}</option>
           `).join("")}
         </select>
@@ -1347,18 +1346,19 @@ function renderAbsenceUI(dataFromBoot) {
           </button>
         </div>
 
-        ${activePartyMembers.length === 0 ? `
+        ${eligibleDelegates.length === 0 ? `
           <div class="small" style="margin-top:8px;">No eligible active members in your party right now.</div>
         ` : ``}
       </div>
     `;
   }
 
-  const leaderWarning = (me.absent && me.partyLeader && !me.delegatedTo)
-    ? `<div class="bill-result failed" style="margin-top:12px;">
-         No delegate selected — your party vote will not be cast until you choose one.
-       </div>`
-    : "";
+  const leaderWarning =
+    (me.absent && me.partyLeader && !me.delegatedTo)
+      ? `<div class="bill-result failed" style="margin-top:12px;">
+           No delegate selected — your party vote will not be cast until you choose one.
+         </div>`
+      : "";
 
   container.innerHTML = `
     <div class="kv"><span>Status:</span><b>${statusLine}</b></div>
@@ -1373,7 +1373,8 @@ function renderAbsenceUI(dataFromBoot) {
     </div>
 
     ${delegationInfo}
-    ${leaderDelegationControls}
+    ${leaderControls}
     ${leaderWarning}
   `;
 }
+
