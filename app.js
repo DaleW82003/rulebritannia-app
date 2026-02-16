@@ -1294,6 +1294,14 @@ processBillLifecycle(data, b);
 return b;
 
     });
+const openAmends = (b.amendments || []).filter(x => x.status === "proposed").length;
+const openDiv = (b.amendments || []).some(x => x.status === "division" && x.division && !x.division.closed);
+
+const amendLine = (openAmends || openDiv)
+  ? `<div class="small" style="margin-top:8px;">
+       Amendments: <b>${openAmends}</b> proposed${openDiv ? " · <b>Division open</b>" : ""}
+     </div>`
+  : "";
 
     // Save lifecycle/amendment changes
     data.orderPaperCommons = bills;
