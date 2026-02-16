@@ -745,3 +745,17 @@ textarea{
   color:#1f6d45;
 }
 
+.progress-bar{
+  height:10px;
+  border-radius:999px;
+  overflow:hidden;
+  background: rgba(1,33,105,.10);
+  border:1px solid rgba(1,33,105,.18);
+  margin-top:6px;
+}
+
+.progress-fill{
+  height:100%;
+  background: linear-gradient(90deg, var(--accent), rgba(1,33,105,.4));
+  transition: width 0.3s ease;
+}
