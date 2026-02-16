@@ -178,21 +178,20 @@ function rbVoteAmendment(billId, amendId, voterName, vote){
       }
 
       // Render page parts (only where elements exist)
-      initNavUI();
-      renderSimDate(data);
-      renderWhatsGoingOn(data);
-      renderLiveDocket(data);
-      renderOrderPaper(data);
-      renderHansard(data);
-      renderQuestionTime(data);
-      renderSundayRollDisplay();
-      renderAbsenceUI(data);
-      renderQuestionTime(data);
+initNavUI();
+renderSimDate(data);
+renderWhatsGoingOn(data);
+renderLiveDocket(data);
+renderOrderPaper(data);
+renderHansard(data);
+renderQuestionTime(data);
+renderSundayRollDisplay();
+renderAbsenceUI(data);
 
+initSubmitBillPage(data);
+initPartyDraftPage(data);
+initBillPage(data);
 
-      initSubmitBillPage(data);
-      initPartyDraftPage(data);
-      initBillPage(data);
 
       // Live refresh for countdowns / docket
       startLiveRefresh();
@@ -307,234 +306,96 @@ function rbVoteAmendment(billId, amendId, voterName, vote){
       return;
     }
 /* =========================
-   QUESTION TIME (tiles + office view)
-   Renders into: #qt-root
-   Uses rb_full_data.questionTime (falls back to demo-seeded state)
+   QUESTION TIME (Tiles + Office view)
+   Renders into: #qt-root (questiontime.html)
+   Uses URL param: ?office=pmqs etc
    ========================= */
+
+function getQTOfficeParam(){
+  const p = new URLSearchParams(location.search);
+  return p.get("office");
+}
+
+function getDefaultOffices(){
+  return [
+    { id:"pmqs", short:"PMQs", title:"Prime Minister, First Lord of the Treasury, and Minister for the Civil Service", type:"pmqs" },
+    { id:"treasury", short:"Treasury Questions", title:"Chancellor of the Exchequer, and Second Lord of the Treasury" },
+    { id:"fco", short:"FCO Questions", title:"Secretary of State for Foreign and Commonwealth Affairs" },
+    { id:"trade", short:"Trade Questions", title:"Secretary of State for Business and Trade, and President of the Board of Trade" },
+    { id:"defence", short:"Defence Questions", title:"Secretary of State for Defence" },
+    { id:"welfare", short:"Welfare Questions", title:"Secretary of State for Work and Pensions" },
+    { id:"education", short:"Education Questions", title:"Secretary of State for Education" },
+    { id:"environment", short:"Environment & Agriculture", title:"Secretary of State for the Environment and Agriculture" },
+    { id:"health", short:"Health Questions", title:"Secretary of State for Health and Social Security" },
+    { id:"eti", short:"ETI Questions", title:"Secretary of State for the Environment, Transport and Infrastructure" },
+    { id:"culture", short:"Culture Questions", title:"Secretary of State for Culture, Media and Sport" },
+    { id:"homenations", short:"Home Nations Questions", title:"Secretary of State for the Home Nations" },
+    { id:"commonsbiz", short:"Commons Business Questions", title:"Leader of the House of Commons" }
+  ];
+}
+
+function getQuestionTimeState(data){
+  data.questionTime = data.questionTime || {};
+  data.questionTime.offices = Array.isArray(data.questionTime.offices) ? data.questionTime.offices : [];
+  data.questionTime.questions = Array.isArray(data.questionTime.questions) ? data.questionTime.questions : [];
+  return data.questionTime;
+}
+
 function renderQuestionTime(data){
   const root = document.getElementById("qt-root");
   if (!root) return;
 
-  const params = new URLSearchParams(location.search);
-  const officeSlug = params.get("office"); // if present -> office view
+  const qt = getQuestionTimeState(data);
+  const offices = qt.offices.length ? qt.offices : getDefaultOffices();
 
-  const qt = data.questionTime || {};
-  const offices = Array.isArray(qt.cabinet) ? qt.cabinet : [];
-  const questions = Array.isArray(qt.questions) ? qt.questions : [];
+  const officeId = getQTOfficeParam();
+  const selected = officeId ? offices.find(o => o.id === officeId) : null;
 
-  // If no office specified, show entry tiles
-  if (!officeSlug){
-    if (!offices.length){
-      root.innerHTML = `<div class="muted-block">No offices configured yet.</div>`;
-      return;
-    }
-
-    root.innerHTML = `
-      <div class="qt-grid">
-        ${offices.map(o => {
-          const openCount = questions.filter(q => q.office === o.slug && q.status === "open").length;
-          const answeredCount = questions.filter(q => q.office === o.slug && q.status === "answered").length;
-
-          return `
-            <div class="qt-tile">
-              <div class="qt-kicker">${escapeHtml(o.type === "pmqs" ? "PMQs" : "Departmental Questions")}</div>
-              <div class="qt-title">${escapeHtml(o.title)}</div>
-              <div class="qt-strap">
-                Open: <b>${openCount}</b> · Answered: <b>${answeredCount}</b>
-              </div>
-              <div class="qt-actions">
-                <a class="btn" href="questiontime.html?office=${encodeURIComponent(o.slug)}">Open</a>
-              </div>
-            </div>
-          `;
-        }).join("")}
-      </div>
-    `;
-    return;
-  }
-function initBillPage(data){
-  const el = document.getElementById("bill-amendments");
-  if (!el) return;
-
-  const params = new URLSearchParams(location.search);
-  const billId = params.get("id");
-  if (!billId) {
-    el.innerHTML = `<div class="muted-block">No bill selected.</div>`;
-    return;
-  }
-
-  const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
-  if (!bill) {
-    el.innerHTML = `<div class="muted-block">Bill not found.</div>`;
-    return;
-  }
-
-  ensureBillDefaults(bill);
-  processAmendments(bill);
-
-  const me = data.currentPlayer || {};
-  const myName = me.name || "Unknown";
-  const myParty = me.party || "Unknown";
-
-  // simple leader detection (your existing rule)
-  const isLeader = (p) => p.partyLeader === true || p.role === "leader-opposition" || p.role === "prime-minister";
-  const meObj = (data.players || []).find(p => p.name === myName) || me;
-  const leader = isLeader(meObj);
-
-  // render propose form + list
-  const amendments = Array.isArray(bill.amendments) ? bill.amendments : [];
-
-  el.innerHTML = `
-    <div class="muted-block">
-      <b>Rules:</b> 24 active hours for leader support (2 parties). If supported, 24 active hours division. Sundays frozen.
-    </div>
-
-    <div style="margin-top:12px;">
-      <h3 style="margin:0 0 8px;">Propose an Amendment</h3>
-      <div class="muted-block">Demo UI: this saves into localStorage for now.</div>
-
-      <form id="amendForm" style="margin-top:12px;">
-        <div class="form-grid">
-          <label>Article</label>
-          <input id="amArticle" type="number" min="1" value="1" />
-
-          <label>Type</label>
-          <select id="amType">
-            <option value="replace">Replace</option>
-            <option value="insert">Insert</option>
-            <option value="delete">Delete</option>
-          </select>
-
-          <label>Text</label>
-          <textarea id="amText" rows="4" placeholder="Write the amendment text…"></textarea>
-
-          <button class="btn" type="submit">Submit Amendment</button>
-        </div>
-      </form>
-    </div>
-
-    <div style="margin-top:18px;">
-      <h3 style="margin:0 0 8px;">Current Amendments</h3>
-      ${!amendments.length ? `<div class="muted-block">No amendments yet.</div>` : `
-        <div class="docket-list">
-          ${amendments.map(a => {
-            const supportLeft = a.supportDeadlineAt ? Math.max(0, a.supportDeadlineAt - Date.now()) : 0;
-            const divisionLeft = a.division?.closesAt ? Math.max(0, a.division.closesAt - Date.now()) : 0;
-
-            const supporters = (a.supporters || []).join(", ") || "None";
-
-            let actions = "";
-            if (a.status === "proposed"){
-              actions = `
-                <div class="small">Supporters: <b>${supporters}</b></div>
-                <div class="small">Support window: <b>${msToHMS(supportLeft)}</b></div>
-                ${leader && !(a.supporters||[]).includes(myParty)
-                  ? `<div style="margin-top:10px;"><button class="btn" data-support="${a.id}">Support as ${myParty}</button></div>`
-                  : ``}
-              `;
-            } else if (a.status === "division" && a.division && !a.division.closed){
-              actions = `
-                <div class="small">Division closes in: <b>${msToHMS(divisionLeft)}</b></div>
-                <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-                  <button class="btn" data-vote="aye" data-am="${a.id}">Aye</button>
-                  <button class="btn" data-vote="no" data-am="${a.id}">No</button>
-                  <button class="btn" data-vote="abstain" data-am="${a.id}">Abstain</button>
-                </div>
-              `;
-            } else {
-              actions = `
-                <div class="small"><b>Status:</b> ${a.status.toUpperCase()}</div>
-                ${a.failedReason ? `<div class="small"><b>Reason:</b> ${a.failedReason}</div>` : ``}
-              `;
-            }
-
-            return `
-              <div class="docket-item ${a.status === "division" ? "high" : ""}">
-                <div class="docket-left">
-                  <div class="docket-icon">🧾</div>
-                  <div class="docket-text">
-                    <div class="docket-title">Article ${a.articleNumber} · ${a.type}</div>
-                    <div class="docket-detail">${escapeHtml(a.text || "")}</div>
-                    <div class="small">Proposed by: <b>${escapeHtml(a.proposedBy || "—")}</b></div>
-                    ${actions}
-                  </div>
-                </div>
-              </div>
-            `;
-          }).join("")}
-        </div>
-      `}
-    </div>
-  `;
-
-  // wire propose
-  const form = document.getElementById("amendForm");
-  if (form){
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const articleNumber = document.getElementById("amArticle").value;
-      const type = document.getElementById("amType").value;
-      const text = document.getElementById("amText").value.trim();
-      if (!text) return alert("Amendment text required.");
-
-      rbProposeAmendment(billId, { articleNumber, type, text, proposedBy: myName });
-      location.reload();
-    });
-  }
-
-  // wire support buttons
-  el.querySelectorAll("[data-support]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const amendId = btn.getAttribute("data-support");
-      rbSupportAmendment(billId, amendId, myParty);
-      location.reload();
-    });
-  });
-
-  // wire votes
-  el.querySelectorAll("[data-vote]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const vote = btn.getAttribute("data-vote");
-      const amendId = btn.getAttribute("data-am");
-      rbVoteAmendment(billId, amendId, myName, vote);
-      location.reload();
-    });
-  });
-}
-
-  // Office view
-  const officeObj = offices.find(o => o.slug === officeSlug) || null;
-  if (!officeObj){
+  // === TILE HUB ===
+  if (!selected){
     root.innerHTML = `
       <div class="muted-block">
-        Unknown office. <a class="btn" href="questiontime.html" style="margin-left:10px;">Back to Question Time</a>
+        Choose an office to view questions and submit a new one.
+      </div>
+
+      <div class="qt-grid">
+        ${offices.map(o => `
+          <div class="qt-card">
+            <div class="qt-title">${escapeHtml(o.short || o.title)}</div>
+            <div class="qt-sub">${escapeHtml(o.title)}</div>
+            <div class="qt-actions">
+              <a class="btn" href="questiontime.html?office=${encodeURIComponent(o.id)}">Open</a>
+            </div>
+          </div>
+        `).join("")}
       </div>
     `;
     return;
   }
 
-  const isPM = officeObj.slug === "prime-minister" || officeObj.type === "pmqs";
+  // === OFFICE VIEW ===
+  const isPM = selected.type === "pmqs" || selected.id === "pmqs";
 
   const rulesHtml = isPM ? `
     <b>PMQs</b><br>
-    • Backbenchers: max <b>1 outstanding</b> question to the PM.<br>
-    • Backbenchers: max <b>3 outstanding total</b> across all ministers.<br>
+    • Backbenchers: max <b>1</b> outstanding question to the PM.<br>
+    • Backbenchers: max <b>3</b> outstanding total across all ministers.<br>
     • Leader of the Opposition: <b>3</b> follow-ups.<br>
     • 3rd/4th party leaders: <b>2</b> follow-ups.<br>
     • Backbenchers: <b>1</b> follow-up.
   ` : `
     <b>Departmental Questions</b><br>
     • Shadows: <b>2</b> follow-ups (matching portfolio only).<br>
-    • Backbenchers: <b>1</b> follow-up to any Secretary/Minister.
+    • Backbenchers: <b>1</b> follow-up.
   `;
 
-  const list = questions.filter(q => q.office === officeObj.slug);
+  const list = qt.questions.filter(q => q.officeId === selected.id);
 
   root.innerHTML = `
     <div class="qt-office-header">
       <div>
         <div class="qt-kicker">Question Time</div>
-        <div class="qt-title">${escapeHtml(officeObj.title)}</div>
+        <div class="qt-title">${escapeHtml(selected.title)}</div>
       </div>
       <div>
         <a class="btn" href="questiontime.html">Back to Question Time</a>
@@ -543,19 +404,19 @@ function initBillPage(data){
 
     <div class="muted-block">${rulesHtml}</div>
 
-    <div class="panel" style="margin-top:12px;">
+    <div style="margin-top:12px;">
       <h2 style="margin:0 0 10px;">Submit a Question</h2>
-      <div class="muted-block">Demo-only form (no login yet). Later this will enforce limits automatically.</div>
+      <div class="muted-block">Demo-only form (saved into localStorage).</div>
 
-      <form id="qtForm" class="qt-form">
+      <form id="qtForm" class="qt-form" style="margin-top:12px;">
         <div class="qt-field">
           <label>Asked By</label>
-          <input id="askedBy" type="text" placeholder="e.g. Dale Weston MP" value="${escapeHtml(safe(data.currentPlayer?.name,""))}">
+          <input id="qtAskedBy" type="text" value="${escapeHtml(safe(data.currentPlayer?.name,""))}" />
         </div>
 
         <div class="qt-field">
           <label>Role</label>
-          <select id="askedRole">
+          <select id="qtRole">
             <option value="backbencher">Backbencher</option>
             <option value="leader-opposition">Leader of the Opposition</option>
             <option value="party-leader-3rd-4th">3rd/4th Party Leader</option>
@@ -565,148 +426,75 @@ function initBillPage(data){
 
         <div class="qt-field qt-wide">
           <label>Question</label>
-          <textarea id="questionText" rows="4" placeholder="Type your question…"></textarea>
+          <textarea id="qtText" rows="4" placeholder="Type your question…"></textarea>
         </div>
 
-        <div class="qt-wide" style="display:flex; gap:10px; justify-content:flex-end;">
+        <div class="qt-wide" style="display:flex; justify-content:flex-end;">
           <button class="btn" type="submit">Submit Question</button>
         </div>
       </form>
     </div>
 
-    <div class="panel" style="margin-top:12px;">
+    <div style="margin-top:12px;">
       <h2 style="margin:0 0 10px;">Questions</h2>
       ${!list.length ? `<div class="muted-block">No questions yet.</div>` : `
-        ${list.map(q => `
-          <div class="qt-q">
-            <div class="qt-qtop">
-              <div><b>${escapeHtml(safe(q.askedBy,"Unknown"))}</b></div>
-              <span class="tag ${escapeHtml(safe(q.status,"open"))}">${escapeHtml(safe(q.status,"open"))}</span>
-            </div>
-            <div class="qt-qtext">${escapeHtml(safe(q.text,""))}</div>
-            ${q.answer ? `<div class="qt-answer"><b>Answer:</b> ${escapeHtml(q.answer)}</div>` : ``}
-            <div class="qt-qmeta"><span>Office:</span> <b>${escapeHtml(officeObj.title)}</b></div>
-          </div>
-        `).join("")}
-      `}
-    </div>
-  `;
-
-  // Demo-only submit (no persistence yet)
-  const form = document.getElementById("qtForm");
-  if (form){
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      alert("Submitted (demo). Next step: save into rb_full_data.questionTime.questions.");
-    });
-  }
-}
-
-    // Office view
-    const questions = (qt.questions || []).filter(q => q.officeId === selected.id);
-
-    root.innerHTML = `
-      <div class="bill-actions" style="margin-bottom:10px;">
-        <a class="btn" href="questiontime.html">← Back to Question Time</a>
-      </div>
-
-      <h2 style="margin:0 0 10px;">${escapeHtml(selected.title)}</h2>
-
-      <div class="muted-block">
-        <b>Rules Summary</b>
-        <ul style="margin:8px 0 0; padding-left:18px;">
-          ${(selected.rules || ["Standard Question Time rules apply."]).map(r => `<li>${escapeHtml(r)}</li>`).join("")}
-        </ul>
-      </div>
-
-      <div style="height:12px"></div>
-
-      <div class="panel" style="margin:0; box-shadow:none;">
-        <h2>Submit a Question</h2>
-        <div class="muted-block">Demo-only form (no login yet). Later this will enforce eligibility and limits automatically.</div>
-
-        <div style="height:10px"></div>
-
-        <div class="form-grid">
-          <label>Asked By</label>
-          <input id="qtAskedBy" placeholder="e.g. Dale Weston MP" value="${escapeHtml(safe(data.currentPlayer?.name,""))}"/>
-
-          <label>Role</label>
-          <select id="qtRole">
-            <option value="backbencher">Backbencher</option>
-            <option value="leader-opposition">Leader of the Opposition</option>
-            <option value="party-leader">3rd/4th Party Leader</option>
-            <option value="minister">Minister</option>
-          </select>
-
-          <label>Question</label>
-          <textarea id="qtText" rows="4" placeholder="Type your question..."></textarea>
-
-          <button class="btn" id="qtSubmitBtn" type="button">Submit Question</button>
-        </div>
-      </div>
-
-      <div style="height:16px"></div>
-
-      <h2 style="margin:0 0 10px;">Questions</h2>
-      ${questions.length ? `
         <div class="docket-list">
-          ${questions.map(q => `
+          ${list.map(q => `
             <div class="docket-item">
               <div class="docket-left">
                 <div class="docket-icon">❓</div>
                 <div class="docket-text">
-                  <div class="docket-title">${escapeHtml(safe(q.askedBy,"Unknown"))} submitted</div>
+                  <div class="docket-title"><b>${escapeHtml(safe(q.askedBy,"Unknown"))}</b></div>
                   <div class="docket-detail">${escapeHtml(safe(q.text,""))}</div>
-                  <div class="small" style="margin-top:6px;">
-                    Status: <b>${escapeHtml(safe(q.status,"open"))}</b>
-                    ${q.createdAt ? ` · ${new Date(q.createdAt).toLocaleString()}` : ``}
-                  </div>
+                  ${q.answer ? `<div class="qt-answer" style="margin-top:8px;"><b>Answer:</b> ${escapeHtml(q.answer)}</div>` : ``}
                 </div>
               </div>
               <div class="docket-cta">
-                <span class="small">${escapeHtml(selected.short || "Question Time")}</span>
+                <span class="small">${escapeHtml(safe(q.status,"open"))}</span>
               </div>
             </div>
           `).join("")}
         </div>
-      ` : `<div class="muted-block">No questions for this office yet.</div>`}
-    `;
+      `}
+    </div>
+  `;
 
-    // Wire submit
-    const btn = document.getElementById("qtSubmitBtn");
-    if (btn){
-      btn.addEventListener("click", () => {
-        const latest = getData();
-        if (!latest) return;
+  // Save question into localStorage state
+  const form = document.getElementById("qtForm");
+  if (form){
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
 
-        const qtState = getQuestionTimeState(latest);
+      const latest = getData();
+      if (!latest) return;
 
-        const askedBy = (document.getElementById("qtAskedBy")?.value || "").trim();
-        const role = (document.getElementById("qtRole")?.value || "backbencher").trim();
-        const text = (document.getElementById("qtText")?.value || "").trim();
+      const qtState = getQuestionTimeState(latest);
 
-        if (!askedBy) return alert("Asked By is required.");
-        if (!text) return alert("Question text is required.");
+      const askedBy = (document.getElementById("qtAskedBy")?.value || "").trim();
+      const role = (document.getElementById("qtRole")?.value || "backbencher").trim();
+      const text = (document.getElementById("qtText")?.value || "").trim();
 
-        qtState.questions.unshift({
-          id: "qt-" + nowTs(),
-          officeId: selected.id,
-          askedBy,
-          role,
-          text,
-          status: "open",
-          createdAt: nowTs()
-        });
+      if (!askedBy) return alert("Asked By is required.");
+      if (!text) return alert("Question text is required.");
 
-        latest.questionTime = qtState;
-        saveData(latest);
-
-        // Re-render with updated state
-        renderQuestionTime(latest);
+      qtState.questions.unshift({
+        id: "qt-" + nowTs(),
+        officeId: selected.id,
+        askedBy,
+        role,
+        text,
+        status: "open",
+        createdAt: nowTs()
       });
-    }
+
+      latest.questionTime = qtState;
+      saveData(latest);
+
+      renderQuestionTime(latest);
+    });
   }
+}
+
 
   /* =========================
      NAV
@@ -1282,81 +1070,82 @@ function processAmendments(bill) {
   /* =========================
      Order Paper
      ========================= */
-  function renderOrderPaper(data) {
-    const el = document.getElementById("order-paper");
-    if (!el) return;
+ function renderOrderPaper(data) {
+  const el = document.getElementById("order-paper");
+  if (!el) return;
 
-    let bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
-    bills = bills.map(b => {
-ensureBillDefaults(b);
-processAmendments(b);         // ✅ must be here
-processBillLifecycle(data, b);
-return b;
+  let bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
 
-    });
-const openAmends = (b.amendments || []).filter(x => x.status === "proposed").length;
-const openDiv = (b.amendments || []).some(x => x.status === "division" && x.division && !x.division.closed);
+  bills = bills.map(b => {
+    ensureBillDefaults(b);
+    processAmendments(b);
+    processBillLifecycle(data, b);
+    return b;
+  });
 
-const amendLine = (openAmends || openDiv)
-  ? `<div class="small" style="margin-top:8px;">
-       Amendments: <b>${openAmends}</b> proposed${openDiv ? " · <b>Division open</b>" : ""}
-     </div>`
-  : "";
+  data.orderPaperCommons = bills;
+  saveData(data);
 
-    // Save lifecycle/amendment changes
-    data.orderPaperCommons = bills;
-    saveData(data);
+  bills = bills.filter(b => !isCompleted(b) || !shouldArchiveOffOrderPaperToday(b));
 
-    // Filter for Order Paper
-    bills = bills.filter(b => !isCompleted(b) || !shouldArchiveOffOrderPaperToday(b));
-
-    if (!bills.length) {
-      el.innerHTML = `<div class="muted-block">No bills on the Order Paper.</div>`;
-      return;
-    }
-
-    el.innerHTML = `
-      <div class="order-grid">
-        ${bills.map(b => {
-          const badge = getBillBadge(b);
-          const t = billStageCountdown(data, b);
-
-          const resultBlock = isCompleted(b)
-            ? `<div class="bill-result ${b.status === "passed" ? "passed" : "failed"}">
-                 ${b.status === "passed" ? "Royal Assent Granted" : "Bill Defeated"}
-               </div>`
-            : `<div class="bill-current">Current Stage: <b>${escapeHtml(b.stage)}</b></div>`;
-
-          const timerLine = (!isCompleted(b) && t.label)
-            ? `<div class="timer"><div class="kv"><span>${escapeHtml(t.label)}</span><b>${escapeHtml(msToDHM(t.msRemaining))}</b></div></div>`
-            : ``;
-
-          return `
-            <div class="bill-card ${escapeHtml(b.status)}">
-              <div class="bill-title">${escapeHtml(safe(b.title, "Untitled Bill"))}</div>
-              <div class="bill-sub">Author: ${escapeHtml(safe(b.author, "—"))} · ${escapeHtml(safe(b.department, "—"))}</div>
-
-              <div class="badges">
-                <span class="bill-badge ${badge.cls}">${escapeHtml(badge.text)}</span>
-              </div>
-
-              <div class="stage-track">
-                ${STAGE_ORDER.map(s => `<div class="stage ${b.stage === s ? "on" : ""}">${escapeHtml(s)}</div>`).join("")}
-              </div>
-
-              ${resultBlock}
-              ${timerLine}
-
-              <div class="bill-actions spaced">
-                <a class="btn" href="bill.html?id=${encodeURIComponent(safe(b.id,""))}">View Bill</a>
-                <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
-              </div>
-            </div>
-          `;
-        }).join("")}
-      </div>
-    `;
+  if (!bills.length) {
+    el.innerHTML = `<div class="muted-block">No bills on the Order Paper.</div>`;
+    return;
   }
+
+  el.innerHTML = `
+    <div class="order-grid">
+      ${bills.map(b => {
+        const badge = getBillBadge(b);
+        const t = billStageCountdown(data, b);
+
+        const openAmends = (b.amendments || []).filter(x => x.status === "proposed").length;
+        const openDiv = (b.amendments || []).some(x => x.status === "division" && x.division && !x.division.closed);
+
+        const amendLine = (openAmends || openDiv)
+          ? `<div class="small" style="margin-top:8px;">
+               Amendments: <b>${openAmends}</b> proposed${openDiv ? " · <b>Division open</b>" : ""}
+             </div>`
+          : ``;
+
+        const resultBlock = isCompleted(b)
+          ? `<div class="bill-result ${b.status === "passed" ? "passed" : "failed"}">
+               ${b.status === "passed" ? "Royal Assent Granted" : "Bill Defeated"}
+             </div>`
+          : `<div class="bill-current">Current Stage: <b>${escapeHtml(b.stage)}</b></div>`;
+
+        const timerLine = (!isCompleted(b) && t.label)
+          ? `<div class="timer"><div class="kv"><span>${escapeHtml(t.label)}</span><b>${escapeHtml(msToDHM(t.msRemaining))}</b></div></div>`
+          : ``;
+
+        return `
+          <div class="bill-card ${escapeHtml(b.status)}">
+            <div class="bill-title">${escapeHtml(safe(b.title, "Untitled Bill"))}</div>
+            <div class="bill-sub">Author: ${escapeHtml(safe(b.author, "—"))} · ${escapeHtml(safe(b.department, "—"))}</div>
+
+            <div class="badges">
+              <span class="bill-badge ${badge.cls}">${escapeHtml(badge.text)}</span>
+            </div>
+
+            <div class="stage-track">
+              ${STAGE_ORDER.map(s => `<div class="stage ${b.stage === s ? "on" : ""}">${escapeHtml(s)}</div>`).join("")}
+            </div>
+
+            ${amendLine}
+            ${resultBlock}
+            ${timerLine}
+
+            <div class="bill-actions spaced">
+              <a class="btn" href="bill.html?id=${encodeURIComponent(safe(b.id,""))}">View Bill</a>
+              <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
 
   /* =========================
      Hansard
