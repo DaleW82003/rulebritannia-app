@@ -3,6 +3,84 @@ fetch("data/demo.json")
   .then((data) => {
     const safe = (v, fallback = "") => (v === null || v === undefined ? fallback : v);
 
+    // ================= GAME CLOCK ENGINE =================
+
+let GAME_STATE = null;
+
+function loadGameState(data){
+  GAME_STATE = data.gameState;
+}
+
+function isSunday(){
+  return new Date().getDay() === 0;
+}
+
+function isClockPaused(){
+  return GAME_STATE?.isPaused === true;
+}
+
+function getRealDaysSinceStart(){
+  if (!GAME_STATE?.started) return 0;
+
+  const start = new Date(GAME_STATE.startRealDate);
+  const now = new Date();
+
+  const diff = now - start;
+  return Math.floor(diff / 86400000);
+}
+
+function countSundaysSinceStart(){
+  if (!GAME_STATE?.started) return 0;
+
+  const start = new Date(GAME_STATE.startRealDate);
+  const now = new Date();
+
+  let count = 0;
+  let temp = new Date(start);
+
+  while (temp <= now) {
+    if (temp.getDay() === 0) count++;
+    temp.setDate(temp.getDate() + 1);
+  }
+
+  return count;
+}
+
+function getSimMonthIndex(){
+  if (!GAME_STATE?.started) return 0;
+  if (isClockPaused()) return 0;
+
+  const realDays = getRealDaysSinceStart();
+  const sundays = countSundaysSinceStart();
+
+  const validDays = realDays - sundays;
+  return Math.floor(validDays / 3); // 3 real days per sim month
+}
+
+function getCurrentSimDate(){
+
+  const monthsPassed = getSimMonthIndex();
+
+  const startMonth = GAME_STATE.startSimMonth - 1; // zero indexed
+  const startYear = GAME_STATE.startSimYear;
+
+  const totalMonths = startMonth + monthsPassed;
+
+  const simYear = startYear + Math.floor(totalMonths / 12);
+  const simMonth = (totalMonths % 12) + 1;
+
+  return { month: simMonth, year: simYear };
+}
+
+function getMonthName(month){
+  const months = [
+    "January","February","March","April","May","June",
+    "July","August","September","October","November","December"
+  ];
+  return months[month - 1];
+}
+
+
     // ---------- What's Going On (dashboard only) ----------
     const wgoEl = document.getElementById("whats-going-on");
     if (wgoEl) {
