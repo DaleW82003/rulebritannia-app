@@ -31,13 +31,16 @@
   },
 
   "currentPlayer": {
-    "name": "Dale Weston MP",
-    "party": "Conservative",
-    "role": "minister",
-    "office": "prime-minister",
-    "isSpeaker": false,
-    "isMod": false
-  },
+"name": "Dale Weston MP",
+  "party": "Conservative",
+  "role": "prime-minister",
+  "office": "prime-minister",
+  "joinedAt": "2026-02-01T00:00:00Z",
+  "lastLogin": "2026-02-14T12:00:00Z",
+  "absent": false,
+  "delegatedTo": null,
+  "isSpeaker": false
+},
 
   "orderPaperCommons": [
     {
@@ -288,4 +291,25 @@
   "startSimMonth": 8,
   "startSimYear": 1997,
   "isPaused": false
+}
+"parliament": {
+  "totalSeats": 650,
+  "parties": [
+    {
+      "name": "Conservative",
+      "seats": 330
+    },
+    {
+      "name": "Labour",
+      "seats": 280
+    },
+    {
+      "name": "Liberal Democrat",
+      "seats": 25
+    },
+    {
+      "name": "SNP",
+      "seats": 15
+    }
+  ]
 }
