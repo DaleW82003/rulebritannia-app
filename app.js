@@ -274,3 +274,66 @@ if (docketEl) {
     }
   });
 })();
+// ---------- Submit Bill ----------
+(function initSubmitBill(){
+
+  const form = document.getElementById("billForm");
+  if (!form) return;
+
+  const permissionBox = document.getElementById("bill-permission");
+  const successBox = document.getElementById("billSuccess");
+
+  fetch("data/demo.json")
+    .then(r => r.json())
+    .then(data => {
+
+      const player = data.currentPlayer;
+
+      // Only MPs allowed
+      const allowedRoles = [
+        "backbencher",
+        "minister",
+        "leader-opposition",
+        "prime-minister"
+      ];
+
+      if (!allowedRoles.includes(player.role)) {
+        form.style.display = "none";
+        permissionBox.innerHTML =
+          `<div class="bill-result failed">You are not eligible to submit legislation.</div>`;
+        return;
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+
+        const title = document.getElementById("billTitleInput").value.trim();
+        const dept = document.getElementById("billDepartment").value;
+        const text = document.getElementById("billTextInput").value.trim();
+
+        if (!title || !text) return;
+
+        const newBill = {
+          id: "bill-" + Date.now(),
+          title: title,
+          author: player.name,
+          department: dept,
+          stage: "First Reading",
+          status: "in-progress",
+          billText: text,
+          amendments: []
+        };
+
+        // Store in localStorage (Phase 1 simulation)
+        const stored = JSON.parse(localStorage.getItem("rb_custom_bills") || "[]");
+        stored.push(newBill);
+        localStorage.setItem("rb_custom_bills", JSON.stringify(stored));
+
+        form.reset();
+        successBox.style.display = "block";
+      });
+
+    });
+
+})();
+
