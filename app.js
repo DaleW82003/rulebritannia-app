@@ -235,6 +235,152 @@
       `;
       return;
     }
+/* =========================
+   QUESTION TIME (tiles + office view)
+   Renders into: #qt-root
+   Uses rb_full_data.questionTime (falls back to demo-seeded state)
+   ========================= */
+function renderQuestionTime(data){
+  const root = document.getElementById("qt-root");
+  if (!root) return;
+
+  const params = new URLSearchParams(location.search);
+  const officeSlug = params.get("office"); // if present -> office view
+
+  const qt = data.questionTime || {};
+  const offices = Array.isArray(qt.cabinet) ? qt.cabinet : [];
+  const questions = Array.isArray(qt.questions) ? qt.questions : [];
+
+  // If no office specified, show entry tiles
+  if (!officeSlug){
+    if (!offices.length){
+      root.innerHTML = `<div class="muted-block">No offices configured yet.</div>`;
+      return;
+    }
+
+    root.innerHTML = `
+      <div class="qt-grid">
+        ${offices.map(o => {
+          const openCount = questions.filter(q => q.office === o.slug && q.status === "open").length;
+          const answeredCount = questions.filter(q => q.office === o.slug && q.status === "answered").length;
+
+          return `
+            <div class="qt-tile">
+              <div class="qt-kicker">${escapeHtml(o.type === "pmqs" ? "PMQs" : "Departmental Questions")}</div>
+              <div class="qt-title">${escapeHtml(o.title)}</div>
+              <div class="qt-strap">
+                Open: <b>${openCount}</b> · Answered: <b>${answeredCount}</b>
+              </div>
+              <div class="qt-actions">
+                <a class="btn" href="questiontime.html?office=${encodeURIComponent(o.slug)}">Open</a>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+    return;
+  }
+
+  // Office view
+  const officeObj = offices.find(o => o.slug === officeSlug) || null;
+  if (!officeObj){
+    root.innerHTML = `
+      <div class="muted-block">
+        Unknown office. <a class="btn" href="questiontime.html" style="margin-left:10px;">Back to Question Time</a>
+      </div>
+    `;
+    return;
+  }
+
+  const isPM = officeObj.slug === "prime-minister" || officeObj.type === "pmqs";
+
+  const rulesHtml = isPM ? `
+    <b>PMQs</b><br>
+    • Backbenchers: max <b>1 outstanding</b> question to the PM.<br>
+    • Backbenchers: max <b>3 outstanding total</b> across all ministers.<br>
+    • Leader of the Opposition: <b>3</b> follow-ups.<br>
+    • 3rd/4th party leaders: <b>2</b> follow-ups.<br>
+    • Backbenchers: <b>1</b> follow-up.
+  ` : `
+    <b>Departmental Questions</b><br>
+    • Shadows: <b>2</b> follow-ups (matching portfolio only).<br>
+    • Backbenchers: <b>1</b> follow-up to any Secretary/Minister.
+  `;
+
+  const list = questions.filter(q => q.office === officeObj.slug);
+
+  root.innerHTML = `
+    <div class="qt-office-header">
+      <div>
+        <div class="qt-kicker">Question Time</div>
+        <div class="qt-title">${escapeHtml(officeObj.title)}</div>
+      </div>
+      <div>
+        <a class="btn" href="questiontime.html">Back to Question Time</a>
+      </div>
+    </div>
+
+    <div class="muted-block">${rulesHtml}</div>
+
+    <div class="panel" style="margin-top:12px;">
+      <h2 style="margin:0 0 10px;">Submit a Question</h2>
+      <div class="muted-block">Demo-only form (no login yet). Later this will enforce limits automatically.</div>
+
+      <form id="qtForm" class="qt-form">
+        <div class="qt-field">
+          <label>Asked By</label>
+          <input id="askedBy" type="text" placeholder="e.g. Dale Weston MP" value="${escapeHtml(safe(data.currentPlayer?.name,""))}">
+        </div>
+
+        <div class="qt-field">
+          <label>Role</label>
+          <select id="askedRole">
+            <option value="backbencher">Backbencher</option>
+            <option value="leader-opposition">Leader of the Opposition</option>
+            <option value="party-leader-3rd-4th">3rd/4th Party Leader</option>
+            <option value="shadow">Shadow Secretary/Minister</option>
+          </select>
+        </div>
+
+        <div class="qt-field qt-wide">
+          <label>Question</label>
+          <textarea id="questionText" rows="4" placeholder="Type your question…"></textarea>
+        </div>
+
+        <div class="qt-wide" style="display:flex; gap:10px; justify-content:flex-end;">
+          <button class="btn" type="submit">Submit Question</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="panel" style="margin-top:12px;">
+      <h2 style="margin:0 0 10px;">Questions</h2>
+      ${!list.length ? `<div class="muted-block">No questions yet.</div>` : `
+        ${list.map(q => `
+          <div class="qt-q">
+            <div class="qt-qtop">
+              <div><b>${escapeHtml(safe(q.askedBy,"Unknown"))}</b></div>
+              <span class="tag ${escapeHtml(safe(q.status,"open"))}">${escapeHtml(safe(q.status,"open"))}</span>
+            </div>
+            <div class="qt-qtext">${escapeHtml(safe(q.text,""))}</div>
+            ${q.answer ? `<div class="qt-answer"><b>Answer:</b> ${escapeHtml(q.answer)}</div>` : ``}
+            <div class="qt-qmeta"><span>Office:</span> <b>${escapeHtml(officeObj.title)}</b></div>
+          </div>
+        `).join("")}
+      `}
+    </div>
+  `;
+
+  // Demo-only submit (no persistence yet)
+  const form = document.getElementById("qtForm");
+  if (form){
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      alert("Submitted (demo). Next step: save into rb_full_data.questionTime.questions.");
+    });
+  }
+}
 
     // Office view
     const questions = (qt.questions || []).filter(q => q.officeId === selected.id);
