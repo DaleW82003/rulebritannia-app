@@ -192,6 +192,7 @@ function rbVoteAmendment(billId, amendId, voterName, vote){
 
       initSubmitBillPage(data);
       initPartyDraftPage(data);
+      initBillPage(data);
 
       // Live refresh for countdowns / docket
       startLiveRefresh();
