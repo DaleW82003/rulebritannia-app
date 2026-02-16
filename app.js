@@ -114,6 +114,7 @@
       renderLiveDocket(data);
       renderOrderPaper(data);
       renderHansard(data);
+      renderQuestionTime(data);
       renderSundayRollDisplay();
       renderAbsenceUI(data);
 
