@@ -142,6 +142,21 @@ if (docketEl) {
   }
 }
 
+function hoursBetween(a, b) {
+  return (b - a) / 3600000;
+}
+
+function getCompletedAt(bill) {
+  // Prefer completedAt if present; otherwise fallback to stageStartedAt/createdAt
+  return bill.completedAt || bill.stageStartedAt || bill.createdAt || null;
+}
+
+function isRecentCompletion(bill, hoursWindow = 120) {
+  if (bill.status !== "passed" && bill.status !== "failed") return false;
+  const done = getCompletedAt(bill);
+  if (!done) return true; // if unknown, keep visible rather than hiding
+  return hoursBetween(done, Date.now()) < hoursWindow;
+}
 
     // ---------- Order Paper (dashboard only) ----------
     const orderWrap = document.getElementById("order-paper");
@@ -155,6 +170,55 @@ if (docketEl) {
       ];
 
 let bills = data.orderPaperCommons || [];
+
+      // Keep in-progress bills always.
+// Keep passed/failed only for 120 hours after completion.
+bills = bills.filter(b =>
+  b.status === "in-progress" || isRecentCompletion(b, 120)
+);
+
+      // ---------- Hansard (passed/failed archive) ----------
+const hansardPassed = document.getElementById("hansard-passed");
+const hansardFailed = document.getElementById("hansard-failed");
+
+if (hansardPassed || hansardFailed) {
+  let allBills = data.orderPaperCommons || [];
+
+  // Include custom bills too (submitted locally)
+  const customBills = JSON.parse(localStorage.getItem("rb_custom_bills") || "[]");
+  allBills = [...customBills, ...allBills];
+
+  const passed = allBills.filter(b => b.status === "passed");
+  const failed = allBills.filter(b => b.status === "failed");
+
+  const renderList = (list, emptyText) => {
+    if (!list.length) return `<div class="muted-block">${emptyText}</div>`;
+
+    return `
+      <div class="order-grid">
+        ${list.map(b => `
+          <div class="bill-card ${b.status}">
+            <div class="bill-title">${b.title}</div>
+            <div class="bill-sub">Author: ${b.author} · ${b.department}</div>
+
+            <div class="bill-result ${b.status === "passed" ? "passed" : "failed"}">
+              ${b.status === "passed" ? "Passed (Royal Assent)" : "Defeated"}
+            </div>
+
+            <div class="bill-actions spaced">
+              <a class="btn" href="bill.html?id=${encodeURIComponent(b.id)}">View Bill</a>
+              <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  };
+
+  if (hansardPassed) hansardPassed.innerHTML = renderList(passed, "No passed legislation yet.");
+  if (hansardFailed) hansardFailed.innerHTML = renderList(failed, "No defeated legislation yet.");
+}
+
 
 // Add locally submitted bills
 const customBills = JSON.parse(localStorage.getItem("rb_custom_bills") || "[]");
