@@ -16,11 +16,10 @@
       <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
     </div>
 
-<nav class="nav" aria-label="Main Navigation">
+    <nav class="nav" aria-label="Main Navigation">
 
       <a href="dashboard.html" class="nav-link">Office</a>
 
-      <!-- The U.K -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">The U.K ▾</button>
         <div class="dropdown">
@@ -33,7 +32,6 @@
         </div>
       </div>
 
-      <!-- Parliament -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Parliament ▾</button>
         <div class="dropdown">
@@ -47,7 +45,6 @@
         </div>
       </div>
 
-      <!-- Politics -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Politics ▾</button>
         <div class="dropdown">
@@ -62,7 +59,6 @@
         </div>
       </div>
 
-      <!-- Policy -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Policy ▾</button>
         <div class="dropdown">
@@ -75,7 +71,6 @@
         </div>
       </div>
 
-      <!-- Personal -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Personal ▾</button>
         <div class="dropdown">
@@ -87,7 +82,6 @@
         </div>
       </div>
 
-      <!-- External -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">External ▾</button>
         <div class="dropdown">
@@ -109,20 +103,11 @@
     Loading bill…
   </section>
 
-  <!-- First Reading Controls (PM / Leader of House only, later) -->
-  <section class="panel" id="first-reading-controls" style="display:none;">
-    <!-- Filled by JS later -->
-  </section>
+  <!-- Main Bill Division Voting (appears only at Division stage) -->
+  <section class="panel" id="division-voting" style="display:none;"></section>
 
-  <!-- Division Voting (only in Division stage, later) -->
-  <section class="panel" id="division-voting" style="display:none;">
-    <!-- Filled by JS later -->
-  </section>
-
-  <!-- Division Progress (countdown + turnout, later) -->
-  <section class="panel" id="division-progress" style="display:none;">
-    <!-- Filled by JS later -->
-  </section>
+  <!-- Main Bill Division Progress (countdown + tally) -->
+  <section class="panel" id="division-progress" style="display:none;"></section>
 
   <div class="bill-layout">
     <section class="panel">
@@ -133,13 +118,11 @@
     <section class="panel">
       <h2>Amendments</h2>
 
-      <div id="amendmentsList" class="muted-block">Loading…</div>
+      <!-- app.js will render a full amendment UI into this -->
+      <div id="bill-amendments"></div>
 
-      <div style="margin-top:12px;">
-        <a class="btn" href="#" onclick="alert('Amendment form comes next.'); return false;">
-          Propose Amendment
-        </a>
-      </div>
+      <!-- Back-compat: if any older code targets this, keep it present -->
+      <div id="amendmentsList" style="display:none;"></div>
     </section>
   </div>
 
@@ -156,177 +139,6 @@
   </section>
 
 </main>
-
-<script>
-  // ---------- helpers ----------
-  function escapeHtml(str) {
-    return String(str ?? "")
-      .replaceAll("&","&amp;")
-      .replaceAll("<","&lt;")
-      .replaceAll(">","&gt;")
-      .replaceAll('"',"&quot;")
-      .replaceAll("'","&#039;");
-  }
-
-  function getLocalBills() {
-    try {
-      return JSON.parse(localStorage.getItem("rb_custom_bills") || "[]");
-    } catch {
-      return [];
-    }
-  }
-
-  // ---------- load bill ----------
-  (function initBillPage(){
-    const params = new URLSearchParams(location.search);
-    const billId = params.get("id");
-
-    const stageOrder = ["First Reading", "Second Reading", "Report Stage", "Division"];
-
-    fetch("data/demo.json")
-      .then(r => r.json())
-      .then(data => {
-        const demoBills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
-        const localBills = getLocalBills();
-
-        // local bills first so if ids clash, local wins
-        const allBills = [...localBills, ...demoBills];
-
-        let b = null;
-        if (billId) b = allBills.find(x => x.id === billId);
-        if (!billId && allBills.length) b = allBills[0];
-
-        if (!b) {
-          document.getElementById("billTitle").textContent = "Bill not found";
-          document.getElementById("billMeta").innerHTML = `
-            <div class="muted-block">
-              This bill ID doesn’t exist. Go back to the dashboard and open a bill from the Order Paper.
-            </div>
-            <div style="margin-top:12px;">
-              <a class="btn" href="dashboard.html">Back to Dashboard</a>
-            </div>
-          `;
-          document.getElementById("billText").textContent = "";
-          document.getElementById("amendmentsList").textContent = "";
-          return;
-        }
-
-        // Title
-        document.getElementById("billTitle").textContent = b.title || "Bill";
-
-        // Stage chips
-        const stageChips = stageOrder.map(s => `
-          <div class="stage ${b.stage === s ? "on" : ""}">${escapeHtml(s)}</div>
-        `).join("");
-
-        // Result block
-        let resultBlock = "";
-        if (b.status === "passed") resultBlock = `<div class="bill-result passed">Royal Assent Granted</div>`;
-        else if (b.status === "failed") resultBlock = `<div class="bill-result failed">Bill Defeated</div>`;
-        else resultBlock = `<div class="bill-current">Current Stage: <b>${escapeHtml(b.stage || "—")}</b></div>`;
-
-        // Countdown (only if your app.js provides the functions)
-        let countdownBlock = "";
-        if (b.status === "in-progress" && typeof window.billStageCountdown === "function" && typeof window.formatCountdown === "function") {
-          const t = window.billStageCountdown(b);
-          if (t && typeof t.msRemaining === "number") {
-            countdownBlock = `
-              <div class="timer" style="margin-top:12px;">
-                <div class="kv"><span>${escapeHtml(t.label || "")}</span><b>${escapeHtml(window.formatCountdown(t.msRemaining))}</b></div>
-                ${typeof t.remainingSimMonths !== "undefined"
-                  ? `<div class="small">Sim months remaining: ${escapeHtml(t.remainingSimMonths)}</div>`
-                  : ``}
-              </div>
-            `;
-          }
-        }
-
-        // Meta panel
-        document.getElementById("billMeta").innerHTML = `
-          <div class="bill-title">${escapeHtml(b.title)}</div>
-          <div class="bill-sub">Author: ${escapeHtml(b.author || "—")} · ${escapeHtml(b.department || "—")}</div>
-
-          <div class="stage-track" style="margin-top:12px;">
-            ${stageChips}
-          </div>
-
-          ${resultBlock}
-          ${countdownBlock}
-
-          <div class="bill-actions spaced" style="margin-top:16px;">
-            <a class="btn" href="dashboard.html">Back to Dashboard</a>
-            <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
-          </div>
-        `;
-
-        // Bill text
-        const billTextEl = document.getElementById("billText");
-        billTextEl.textContent = b.billText || "(No bill text added yet.)";
-
-        // Amendments
-        const amendEl = document.getElementById("amendmentsList");
-        const ams = Array.isArray(b.amendments) ? b.amendments : [];
-
-        if (!ams.length) {
-          amendEl.textContent = "No amendments proposed.";
-        } else {
-          amendEl.innerHTML = ams.map(a => {
-            const status = String(a.status || "proposed").toLowerCase();
-            const supporters = Array.isArray(a.supporters) ? a.supporters.join(", ") : "None";
-
-            return `
-              <div class="amend">
-                <div class="amend-top">
-                  <b>${escapeHtml(a.id || "—")} — ${escapeHtml(a.title || "Untitled amendment")}</b>
-                  <span class="tag ${escapeHtml(status)}">${escapeHtml(status)}</span>
-                </div>
-                <div class="amend-sub">
-                  Proposed by: ${escapeHtml(a.proposedBy || "Unknown")}
-                  · Supporters: ${escapeHtml(supporters)}
-                </div>
-              </div>
-            `;
-          }).join("");
-        }
-
-        // Debate link (later you’ll set b.discourseTopicUrl)
-        const debateBtn = document.getElementById("debateBtn");
-        if (debateBtn) debateBtn.href = "https://forum.rulebritannia.org";
-
-        // Optional: show placeholders for future systems
-        // (We display them only when relevant stages exist)
-        if (b.stage === "Division") {
-          const voting = document.getElementById("division-voting");
-          const progress = document.getElementById("division-progress");
-          if (voting) voting.style.display = "block";
-          if (progress) progress.style.display = "block";
-
-          voting.innerHTML = `
-            <div class="muted-block">
-              Division voting UI will appear here next. (Aye / No / Abstain + your vote weight)
-            </div>
-          `;
-          progress.innerHTML = `
-            <div class="muted-block">
-              Division progress (turnout + countdown) will appear here next.
-            </div>
-          `;
-        }
-      })
-      .catch(err => {
-        console.error(err);
-        document.getElementById("billTitle").textContent = "Error loading bill";
-        document.getElementById("billMeta").innerHTML = `
-          <div class="muted-block">
-            Couldn’t load demo data. Check that <b>data/demo.json</b> is valid JSON.
-          </div>
-          <div style="margin-top:12px;">
-            <a class="btn" href="dashboard.html">Back to Dashboard</a>
-          </div>
-        `;
-      });
-  })();
-</script>
 
 <!-- Load app.js last so it can safely bind to DOM + nav -->
 <script src="app.js"></script>
