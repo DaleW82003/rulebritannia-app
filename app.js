@@ -84,6 +84,15 @@
   function saveData(data) {
     localStorage.setItem(LS_KEY, JSON.stringify(data));
   }
+   // ===== Party Drafts (localStorage) =====
+function getPartyDrafts(){
+  return JSON.parse(localStorage.getItem("rb_party_drafts") || "[]");
+}
+
+function savePartyDrafts(list){
+  localStorage.setItem("rb_party_drafts", JSON.stringify(list));
+}
+
 
   /* =========================
      Boot: fetch demo.json once,
