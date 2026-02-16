@@ -308,6 +308,78 @@ function closeDivision(bill){
     autoCompleteBill(bill, false);
   }
 }
+function renderDivisionProgress(bill, data){
+
+  if (!bill.division || bill.division.closed) return;
+
+  const container = document.getElementById("division-progress");
+  if (!container) return;
+
+  const parliament = data.parliament;
+
+  const totalSeats = parliament.totalSeats;
+
+  const aye = bill.division.votes.aye;
+  const no = bill.division.votes.no;
+  const abstain = bill.division.votes.abstain;
+
+  const totalCast = aye + no + abstain;
+
+  const percentCast = (totalCast / totalSeats) * 100;
+
+  const opened = new Date(bill.division.openedAt).getTime();
+  const durationMs = bill.division.durationHours * 3600000;
+  const now = Date.now();
+
+  const remaining = opened + durationMs - now;
+
+  const remainingMs = Math.max(0, remaining);
+
+  const hours = Math.floor(remainingMs / 3600000);
+  const mins = Math.floor((remainingMs % 3600000) / 60000);
+  const secs = Math.floor((remainingMs % 60000) / 1000);
+
+  const timeString = `${hours}h ${mins}m ${secs}s`;
+
+  container.innerHTML = `
+    <div style="margin-top:16px;">
+      <div class="kv">
+        <span>Votes Cast</span>
+        <b>${percentCast.toFixed(1)}%</b>
+      </div>
+
+      <div class="progress-bar">
+        <div class="progress-fill" style="width:${percentCast}%"></div>
+      </div>
+
+      <div class="kv" style="margin-top:8px;">
+        <span>Time Remaining</span>
+        <b>${timeString}</b>
+      </div>
+
+      <div class="kv" style="margin-top:8px;">
+        <span>Aye</span><b>${aye.toFixed(2)}</b>
+      </div>
+      <div class="kv">
+        <span>No</span><b>${no.toFixed(2)}</b>
+      </div>
+      <div class="kv">
+        <span>Abstain</span><b>${abstain.toFixed(2)}</b>
+      </div>
+    </div>
+  `;
+
+  // Auto-close checks
+  if (remaining <= 0 || percentCast >= 100){
+    closeDivision(bill);
+    location.reload();
+  }
+}
+if (b.stage === "Division"){
+  setInterval(() => {
+    renderDivisionProgress(b, data);
+  }, 1000);
+}
 
 </script>
 </body>
