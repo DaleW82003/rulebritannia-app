@@ -296,18 +296,26 @@ if (bill.stage === "Division" && bill.division){
 }
 function closeDivision(bill){
 
+  if (bill.division.closed) return;
+
   const aye = bill.division.votes.aye;
   const no = bill.division.votes.no;
 
+  bill.division.closed = true;
+
   if (aye > no){
+    bill.division.result = "passed";
     autoCompleteBill(bill, true);
   } else if (no > aye){
+    bill.division.result = "failed";
     autoCompleteBill(bill, false);
   } else {
-    // Speaker casting vote
+    // Speaker casting vote (status quo = No)
+    bill.division.result = "failed";
     autoCompleteBill(bill, false);
   }
 }
+
 function renderDivisionProgress(bill, data){
 
   if (!bill.division || bill.division.closed) return;
