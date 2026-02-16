@@ -547,16 +547,16 @@ a{ color:inherit; text-decoration:none; }
 .docket-cta{
   flex:0 0 auto;
 }
-/* ================== DROPDOWN NAV ================== */
+/* ================== NAV (CLICK DROPDOWNS) ================== */
 
-.nav {
+.nav{
   display:flex;
   gap:10px;
   flex-wrap:wrap;
   align-items:center;
 }
 
-.nav-link {
+.nav-link{
   color:white;
   padding:7px 12px;
   border-radius:12px;
@@ -565,15 +565,15 @@ a{ color:inherit; text-decoration:none; }
   background: rgba(255,255,255,.08);
 }
 
-.nav-link:hover {
+.nav-link:hover{
   background: rgba(255,255,255,.18);
 }
 
-.nav-group {
+.nav-group{
   position:relative;
 }
 
-.nav-toggle {
+.nav-toggle{
   cursor:pointer;
   color:white;
   padding:7px 12px;
@@ -583,16 +583,16 @@ a{ color:inherit; text-decoration:none; }
   background: rgba(255,255,255,.08);
 }
 
-.nav-toggle:hover {
+.nav-toggle:hover{
   background: rgba(255,255,255,.18);
 }
 
-.dropdown {
+.dropdown{
   display:none;
   position:absolute;
   top:110%;
   left:0;
-  min-width:180px;
+  min-width:220px;
   background: rgba(1,33,105,.98);
   border:1px solid rgba(255,255,255,.2);
   border-radius:12px;
@@ -601,26 +601,34 @@ a{ color:inherit; text-decoration:none; }
   box-shadow:0 12px 30px rgba(0,0,0,.25);
 }
 
-.dropdown a {
+.dropdown a{
   display:block;
   padding:8px 10px;
   border-radius:8px;
   font-size:13px;
   color:white;
+  white-space:nowrap;
 }
 
-.dropdown a:hover {
+.dropdown a:hover{
   background: rgba(255,255,255,.15);
 }
 
-.nav-group.open .dropdown {
+.nav-group.open .dropdown{
   display:block;
 }
 
-/* Active page highlight */
+/* Active highlight */
 .nav a.active,
-.dropdown a.active {
+.dropdown a.active{
   background: var(--accent);
   border-color: var(--accent);
+  font-weight:800;
+}
+
+/* When a dropdown item is active, highlight its parent toggle too */
+.nav-toggle.active{
+  background: rgba(255,255,255,.18);
+  border-color: rgba(255,255,255,.35);
   font-weight:800;
 }
