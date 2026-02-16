@@ -1003,6 +1003,107 @@ function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
     if (passedEl) passedEl.innerHTML = renderList(passed, "No passed legislation yet.");
     if (failedEl) failedEl.innerHTML = renderList(failed, "No defeated legislation yet.");
   }
+function ensureAmendmentModal() {
+  if (document.getElementById("rb-amend-modal")) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "rb-amend-modal";
+  wrap.style.display = "none";
+  wrap.innerHTML = `
+    <div class="rb-modal-backdrop" style="
+      position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9998;
+      display:flex; align-items:center; justify-content:center; padding:18px;
+    ">
+      <div class="panel rb-modal" style="
+        width:min(720px, 100%); max-height:85vh; overflow:auto; z-index:9999;
+      ">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+          <h2 style="margin:0;">Propose Amendment</h2>
+          <button class="btn" type="button" id="rbAmendCloseBtn">Close</button>
+        </div>
+
+        <div class="muted-block" style="margin-top:12px;">
+          One live amendment at a time per bill. After submission, party leader support runs for 24 active hours (Sundays frozen).
+        </div>
+
+        <form id="rbAmendForm" style="margin-top:12px;">
+          <div class="form-grid">
+            <label>Article</label>
+            <input id="rbAmArticle" type="number" min="1" value="1" />
+
+            <label>Type</label>
+            <select id="rbAmType">
+              <option value="replace">Replace</option>
+              <option value="insert">Insert</option>
+              <option value="delete">Delete</option>
+            </select>
+
+            <label>Text</label>
+            <textarea id="rbAmText" rows="6" placeholder="Write the amendment text…"></textarea>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
+              <button class="btn" type="button" id="rbAmendCancelBtn">Cancel</button>
+              <button class="btn" type="submit">Submit Amendment</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(wrap);
+
+  // close handlers
+  const close = () => { wrap.style.display = "none"; };
+  wrap.querySelector(".rb-modal-backdrop").addEventListener("click", (e) => {
+    if (e.target === wrap.querySelector(".rb-modal-backdrop")) close();
+  });
+
+  document.getElementById("rbAmendCloseBtn").addEventListener("click", close);
+  document.getElementById("rbAmendCancelBtn").addEventListener("click", close);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && wrap.style.display !== "none") close();
+  });
+}
+
+function openAmendmentModal({ billId, proposedBy }) {
+  ensureAmendmentModal();
+
+  const modal = document.getElementById("rb-amend-modal");
+  modal.style.display = "block";
+
+  // reset fields each time
+  document.getElementById("rbAmArticle").value = "1";
+  document.getElementById("rbAmType").value = "replace";
+  document.getElementById("rbAmText").value = "";
+
+  const form = document.getElementById("rbAmendForm");
+
+  // Replace any prior handler cleanly
+  form.onsubmit = (e) => {
+    e.preventDefault();
+
+    const articleNumber = Number(document.getElementById("rbAmArticle").value || 1);
+    const type = document.getElementById("rbAmType").value;
+    const text = (document.getElementById("rbAmText").value || "").trim();
+
+    if (!text) return alert("Amendment text is required.");
+
+    const res = rbProposeAmendment(billId, { articleNumber, type, text, proposedBy });
+
+    // If engine refused, try to read a friendly error from the bill state
+    if (!res) {
+      const latest = getData();
+      const b = (latest?.orderPaperCommons || []).find(x => x.id === billId);
+      const msg = b?._lastAmendmentError || "Could not submit amendment.";
+      return alert(msg);
+    }
+
+    modal.style.display = "none";
+    location.reload();
+  };
+}
 
   /* =========================
      Bill Page (Main division + Amendments)
