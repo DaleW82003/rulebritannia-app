@@ -149,6 +149,198 @@
     };
   }
 
+     /* =========================
+     QUESTION TIME (Tiles + Office view)
+     Renders into: #qt-root (questiontime.html)
+     Uses URL param: ?office=pmqs (etc)
+     ========================= */
+
+  function getQTOfficeParam(){
+    const p = new URLSearchParams(location.search);
+    return p.get("office");
+  }
+
+  // If demo.json later includes data.questionTime.offices, we’ll use it.
+  // For now we provide a solid default list so the UI is never “plain text”.
+  function getDefaultOffices(){
+    return [
+      {
+        id: "pmqs",
+        title: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service",
+        short: "PMQs",
+        rules: [
+          "Backbenchers: 1 outstanding question to the PM.",
+          "Backbenchers: 3 outstanding total across all ministers.",
+          "Leader of the Opposition: 3 follow-ups.",
+          "3rd/4th party leaders: 2 follow-ups.",
+          "Backbenchers: 1 follow-up."
+        ]
+      },
+      { id:"treasury", title:"Chancellor of the Exchequer, and Second Lord of the Treasury", short:"Treasury Questions", rules:["Standard Question Time rules apply."] },
+      { id:"fco", title:"Secretary of State for Foreign and Commonwealth Affairs", short:"FCO Questions", rules:["Standard Question Time rules apply."] },
+      { id:"trade", title:"Secretary of State for Business and Trade, and President of the Board of Trade", short:"Trade Questions", rules:["Standard Question Time rules apply."] },
+      { id:"defence", title:"Secretary of State for Defence", short:"Defence Questions", rules:["Standard Question Time rules apply."] },
+      { id:"welfare", title:"Secretary of State for Work and Pensions", short:"Welfare Questions", rules:["Standard Question Time rules apply."] },
+      { id:"education", title:"Secretary of State for Education", short:"Education Questions", rules:["Standard Question Time rules apply."] },
+      { id:"environment", title:"Secretary of State for the Environment and Agriculture", short:"Environment & Agriculture", rules:["Standard Question Time rules apply."] },
+      { id:"health", title:"Secretary of State for Health and Social Security", short:"Health Questions", rules:["Standard Question Time rules apply."] },
+      { id:"eti", title:"Secretary of State for the Environment, Transport and Infrastructure", short:"ETI Questions", rules:["Standard Question Time rules apply."] },
+      { id:"culture", title:"Secretary of State for Culture, Media and Sport", short:"Culture Questions", rules:["Standard Question Time rules apply."] },
+      { id:"homenations", title:"Secretary of State for the Home Nations", short:"Home Nations Questions", rules:["Standard Question Time rules apply."] },
+      { id:"commonsbiz", title:"Leader of the House of Commons", short:"Commons Business Questions", rules:["Standard Question Time rules apply."] }
+    ];
+  }
+
+  function getQuestionTimeState(data){
+    data.questionTime = data.questionTime || {};
+    data.questionTime.questions = Array.isArray(data.questionTime.questions) ? data.questionTime.questions : [];
+    return data.questionTime;
+  }
+
+  function renderQuestionTime(data){
+    const root = document.getElementById("qt-root");
+    if (!root) return;
+
+    const qt = getQuestionTimeState(data);
+
+    // Offices: prefer demo.json structure if it exists, else defaults
+    const offices =
+      Array.isArray(qt.offices) && qt.offices.length
+        ? qt.offices
+        : getDefaultOffices();
+
+    const officeId = getQTOfficeParam();
+    const selected = officeId ? offices.find(o => o.id === officeId) : null;
+
+    if (!selected){
+      // Tile hub
+      root.innerHTML = `
+        <div class="muted-block">
+          Choose an office to submit questions and view answered/closed questions.
+          (Moderators will validate and close questions.)
+        </div>
+
+        <div class="qt-grid">
+          ${offices.map(o => `
+            <div class="qt-card">
+              <div class="qt-title">${escapeHtml(o.short || o.title)}</div>
+              <div class="qt-sub">${escapeHtml(o.title)}</div>
+              <div class="qt-actions">
+                <a class="btn" href="questiontime.html?office=${encodeURIComponent(o.id)}">Open</a>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+      return;
+    }
+
+    // Office view
+    const questions = (qt.questions || []).filter(q => q.officeId === selected.id);
+
+    root.innerHTML = `
+      <div class="bill-actions" style="margin-bottom:10px;">
+        <a class="btn" href="questiontime.html">← Back to Question Time</a>
+      </div>
+
+      <h2 style="margin:0 0 10px;">${escapeHtml(selected.title)}</h2>
+
+      <div class="muted-block">
+        <b>Rules Summary</b>
+        <ul style="margin:8px 0 0; padding-left:18px;">
+          ${(selected.rules || ["Standard Question Time rules apply."]).map(r => `<li>${escapeHtml(r)}</li>`).join("")}
+        </ul>
+      </div>
+
+      <div style="height:12px"></div>
+
+      <div class="panel" style="margin:0; box-shadow:none;">
+        <h2>Submit a Question</h2>
+        <div class="muted-block">Demo-only form (no login yet). Later this will enforce eligibility and limits automatically.</div>
+
+        <div style="height:10px"></div>
+
+        <div class="form-grid">
+          <label>Asked By</label>
+          <input id="qtAskedBy" placeholder="e.g. Dale Weston MP" value="${escapeHtml(safe(data.currentPlayer?.name,""))}"/>
+
+          <label>Role</label>
+          <select id="qtRole">
+            <option value="backbencher">Backbencher</option>
+            <option value="leader-opposition">Leader of the Opposition</option>
+            <option value="party-leader">3rd/4th Party Leader</option>
+            <option value="minister">Minister</option>
+          </select>
+
+          <label>Question</label>
+          <textarea id="qtText" rows="4" placeholder="Type your question..."></textarea>
+
+          <button class="btn" id="qtSubmitBtn" type="button">Submit Question</button>
+        </div>
+      </div>
+
+      <div style="height:16px"></div>
+
+      <h2 style="margin:0 0 10px;">Questions</h2>
+      ${questions.length ? `
+        <div class="docket-list">
+          ${questions.map(q => `
+            <div class="docket-item">
+              <div class="docket-left">
+                <div class="docket-icon">❓</div>
+                <div class="docket-text">
+                  <div class="docket-title">${escapeHtml(safe(q.askedBy,"Unknown"))} submitted</div>
+                  <div class="docket-detail">${escapeHtml(safe(q.text,""))}</div>
+                  <div class="small" style="margin-top:6px;">
+                    Status: <b>${escapeHtml(safe(q.status,"open"))}</b>
+                    ${q.createdAt ? ` · ${new Date(q.createdAt).toLocaleString()}` : ``}
+                  </div>
+                </div>
+              </div>
+              <div class="docket-cta">
+                <span class="small">${escapeHtml(selected.short || "Question Time")}</span>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<div class="muted-block">No questions for this office yet.</div>`}
+    `;
+
+    // Wire submit
+    const btn = document.getElementById("qtSubmitBtn");
+    if (btn){
+      btn.addEventListener("click", () => {
+        const latest = getData();
+        if (!latest) return;
+
+        const qtState = getQuestionTimeState(latest);
+
+        const askedBy = (document.getElementById("qtAskedBy")?.value || "").trim();
+        const role = (document.getElementById("qtRole")?.value || "backbencher").trim();
+        const text = (document.getElementById("qtText")?.value || "").trim();
+
+        if (!askedBy) return alert("Asked By is required.");
+        if (!text) return alert("Question text is required.");
+
+        qtState.questions.unshift({
+          id: "qt-" + nowTs(),
+          officeId: selected.id,
+          askedBy,
+          role,
+          text,
+          status: "open",
+          createdAt: nowTs()
+        });
+
+        latest.questionTime = qtState;
+        saveData(latest);
+
+        // Re-render with updated state
+        renderQuestionTime(latest);
+      });
+    }
+  }
+
   /* =========================
      NAV
      ========================= */
