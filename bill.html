@@ -388,6 +388,17 @@ if (b.stage === "Division"){
     renderDivisionProgress(b, data);
   }, 1000);
 }
+if (b.stage === "First Reading"){
+  const current = data.currentPlayer;
+
+  const canControl =
+    current.role === "prime-minister" ||
+    current.office === "leader-commons";
+
+  if (canControl){
+    renderFirstReadingControls(b);
+  }
+}
 
 </script>
 </body>
