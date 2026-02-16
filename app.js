@@ -1249,8 +1249,26 @@ function rbSaveData(data) {
 }
 
 function renderAbsenceUI(data) {
-  const container = document.getElementById("absence-ui");
-  if (!container) return;
+  const el = document.getElementById("absence-ui");
+  if (!el) return;
+
+  const players = Array.isArray(data.players) ? data.players : [];
+  const current = data.currentPlayer || {};
+  const me = players.find(p => p.name === current.name);
+
+  if (!me) {
+    el.innerHTML = `<div class="muted-block">No user profile found.</div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="kv"><span>Status</span><b>${me.absent ? "Absent" : "Active"}</b></div>
+    <div class="small" style="margin-top:8px;">
+      (Next step: add the actual buttons to mark absent / return active / delegate if leader.)
+    </div>
+  `;
+}
+
 
   // Always use latest stored state when clicking buttons
   data = rbGetData() || data;
