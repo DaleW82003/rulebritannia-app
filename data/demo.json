@@ -99,6 +99,7 @@
       "department": "Treasury",
       "stage": "Division",
       "status": "passed",
+      "completedAt": 1739521200000
       "billText": "(Placeholder) Bill text not added yet.",
       "amendments": []
     }
