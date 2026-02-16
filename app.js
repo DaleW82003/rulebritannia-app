@@ -351,6 +351,155 @@ function renderQuestionTime(data){
     `;
     return;
   }
+function initBillPage(data){
+  const el = document.getElementById("bill-amendments");
+  if (!el) return;
+
+  const params = new URLSearchParams(location.search);
+  const billId = params.get("id");
+  if (!billId) {
+    el.innerHTML = `<div class="muted-block">No bill selected.</div>`;
+    return;
+  }
+
+  const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
+  if (!bill) {
+    el.innerHTML = `<div class="muted-block">Bill not found.</div>`;
+    return;
+  }
+
+  ensureBillDefaults(bill);
+  processAmendments(bill);
+
+  const me = data.currentPlayer || {};
+  const myName = me.name || "Unknown";
+  const myParty = me.party || "Unknown";
+
+  // simple leader detection (your existing rule)
+  const isLeader = (p) => p.partyLeader === true || p.role === "leader-opposition" || p.role === "prime-minister";
+  const meObj = (data.players || []).find(p => p.name === myName) || me;
+  const leader = isLeader(meObj);
+
+  // render propose form + list
+  const amendments = Array.isArray(bill.amendments) ? bill.amendments : [];
+
+  el.innerHTML = `
+    <div class="muted-block">
+      <b>Rules:</b> 24 active hours for leader support (2 parties). If supported, 24 active hours division. Sundays frozen.
+    </div>
+
+    <div style="margin-top:12px;">
+      <h3 style="margin:0 0 8px;">Propose an Amendment</h3>
+      <div class="muted-block">Demo UI: this saves into localStorage for now.</div>
+
+      <form id="amendForm" style="margin-top:12px;">
+        <div class="form-grid">
+          <label>Article</label>
+          <input id="amArticle" type="number" min="1" value="1" />
+
+          <label>Type</label>
+          <select id="amType">
+            <option value="replace">Replace</option>
+            <option value="insert">Insert</option>
+            <option value="delete">Delete</option>
+          </select>
+
+          <label>Text</label>
+          <textarea id="amText" rows="4" placeholder="Write the amendment text…"></textarea>
+
+          <button class="btn" type="submit">Submit Amendment</button>
+        </div>
+      </form>
+    </div>
+
+    <div style="margin-top:18px;">
+      <h3 style="margin:0 0 8px;">Current Amendments</h3>
+      ${!amendments.length ? `<div class="muted-block">No amendments yet.</div>` : `
+        <div class="docket-list">
+          ${amendments.map(a => {
+            const supportLeft = a.supportDeadlineAt ? Math.max(0, a.supportDeadlineAt - Date.now()) : 0;
+            const divisionLeft = a.division?.closesAt ? Math.max(0, a.division.closesAt - Date.now()) : 0;
+
+            const supporters = (a.supporters || []).join(", ") || "None";
+
+            let actions = "";
+            if (a.status === "proposed"){
+              actions = `
+                <div class="small">Supporters: <b>${supporters}</b></div>
+                <div class="small">Support window: <b>${msToHMS(supportLeft)}</b></div>
+                ${leader && !(a.supporters||[]).includes(myParty)
+                  ? `<div style="margin-top:10px;"><button class="btn" data-support="${a.id}">Support as ${myParty}</button></div>`
+                  : ``}
+              `;
+            } else if (a.status === "division" && a.division && !a.division.closed){
+              actions = `
+                <div class="small">Division closes in: <b>${msToHMS(divisionLeft)}</b></div>
+                <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+                  <button class="btn" data-vote="aye" data-am="${a.id}">Aye</button>
+                  <button class="btn" data-vote="no" data-am="${a.id}">No</button>
+                  <button class="btn" data-vote="abstain" data-am="${a.id}">Abstain</button>
+                </div>
+              `;
+            } else {
+              actions = `
+                <div class="small"><b>Status:</b> ${a.status.toUpperCase()}</div>
+                ${a.failedReason ? `<div class="small"><b>Reason:</b> ${a.failedReason}</div>` : ``}
+              `;
+            }
+
+            return `
+              <div class="docket-item ${a.status === "division" ? "high" : ""}">
+                <div class="docket-left">
+                  <div class="docket-icon">🧾</div>
+                  <div class="docket-text">
+                    <div class="docket-title">Article ${a.articleNumber} · ${a.type}</div>
+                    <div class="docket-detail">${escapeHtml(a.text || "")}</div>
+                    <div class="small">Proposed by: <b>${escapeHtml(a.proposedBy || "—")}</b></div>
+                    ${actions}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `}
+    </div>
+  `;
+
+  // wire propose
+  const form = document.getElementById("amendForm");
+  if (form){
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const articleNumber = document.getElementById("amArticle").value;
+      const type = document.getElementById("amType").value;
+      const text = document.getElementById("amText").value.trim();
+      if (!text) return alert("Amendment text required.");
+
+      rbProposeAmendment(billId, { articleNumber, type, text, proposedBy: myName });
+      location.reload();
+    });
+  }
+
+  // wire support buttons
+  el.querySelectorAll("[data-support]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const amendId = btn.getAttribute("data-support");
+      rbSupportAmendment(billId, amendId, myParty);
+      location.reload();
+    });
+  });
+
+  // wire votes
+  el.querySelectorAll("[data-vote]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const vote = btn.getAttribute("data-vote");
+      const amendId = btn.getAttribute("data-am");
+      rbVoteAmendment(billId, amendId, myName, vote);
+      location.reload();
+    });
+  });
+}
 
   // Office view
   const officeObj = offices.find(o => o.slug === officeSlug) || null;
