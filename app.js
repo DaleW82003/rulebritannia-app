@@ -378,3 +378,9 @@ bills = [...customBills, ...bills];
     no: []
   }
 }
+function stageHoursElapsed(bill){
+  if (bill.stagePaused) {
+    return (bill.pauseStartedAt - bill.stageStartedAt) / 3600000;
+  }
+  return (Date.now() - bill.stageStartedAt) / 3600000;
+}
