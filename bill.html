@@ -97,47 +97,6 @@
 
 <main class="wrap">
 
-  <h1 class="page-title" id="billTitle">Loading…</h1>
-
-  <section class="panel" id="billMeta">
-    Loading bill…
-  </section>
-
-  <!-- Main Bill Division Voting (appears only at Division stage) -->
-  <section class="panel" id="division-voting" style="display:none;"></section>
-
-  <!-- Main Bill Division Progress (countdown + tally) -->
-  <section class="panel" id="division-progress" style="display:none;"></section>
-
-  <div class="bill-layout">
-    <section class="panel">
-      <h2>Bill Text</h2>
-      <div class="legislation-text" id="billText"></div>
-    </section>
-
-    <section class="panel">
-      <h2>Amendments</h2>
-
-      <!-- app.js will render a full amendment UI into this -->
-      <div id="bill-amendments"></div>
-
-      <!-- Back-compat: if any older code targets this, keep it present -->
-      <div id="amendmentsList" style="display:none;"></div>
-    </section>
-  </div>
-
-  <section class="panel">
-    <h2>Debate</h2>
-    <div class="muted-block">
-      Debate happens on the forum. Next step we’ll link each bill to a specific Discourse topic and embed it.
-    </div>
-    <div style="margin-top:12px;">
-      <a class="btn" id="debateBtn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">
-        Open Debate
-      </a>
-    </div>
-  </section>
-
 </main>
 
 <!-- Load app.js last so it can safely bind to DOM + nav -->
