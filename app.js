@@ -154,7 +154,12 @@ if (docketEl) {
         "Division",
       ];
 
-      const bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+let bills = data.orderPaperCommons || [];
+
+// Add locally submitted bills
+const customBills = JSON.parse(localStorage.getItem("rb_custom_bills") || "[]");
+bills = [...customBills, ...bills];
+
 
       orderWrap.innerHTML = `
         <div class="order-grid">
