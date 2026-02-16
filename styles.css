@@ -685,3 +685,63 @@ textarea{
   background: linear-gradient(135deg, var(--accent), rgba(255,255,255,.2));
   display:inline-block;
 }
+/* ================== COUNTDOWN / META ================== */
+
+.small{
+  font-size:12px;
+  color:var(--muted);
+}
+
+.timer{
+  margin-top:8px;
+  padding:8px 10px;
+  border-radius:12px;
+  border:1px dashed rgba(1,33,105,.20);
+  background: rgba(1,33,105,.04);
+  font-size:12px;
+  color:var(--muted);
+}
+
+.kv{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  font-size:12px;
+  color:var(--muted);
+}
+.kv b{ color:var(--text); }
+
+.badges{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-top:8px;
+}
+
+.bill-badge{
+  display:inline-flex;
+  padding:4px 8px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:800;
+  border:1px solid rgba(1,33,105,.18);
+  background: rgba(1,33,105,.06);
+}
+
+.badge-pmb{
+  background: rgba(1,33,105,.10);
+  border-color: rgba(1,33,105,.22);
+}
+
+.badge-opposition{
+  background: rgba(200,16,46,.14);
+  border-color: rgba(200,16,46,.35);
+  color:#9b0d23;
+}
+
+.badge-government{
+  background: rgba(46,139,87,.20);
+  border-color: rgba(46,139,87,.40);
+  color:#1f6d45;
+}
+
