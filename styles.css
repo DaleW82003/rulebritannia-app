@@ -632,3 +632,22 @@ a{ color:inherit; text-decoration:none; }
   border-color: rgba(255,255,255,.35);
   font-weight:800;
 }
+/* ================== FORM ================== */
+
+.form-group{
+  margin-bottom:14px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+input, textarea, select{
+  padding:8px;
+  border-radius:10px;
+  border:1px solid rgba(1,33,105,.25);
+  font-family:inherit;
+}
+
+textarea{
+  resize:vertical;
+}
