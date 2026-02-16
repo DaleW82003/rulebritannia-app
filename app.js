@@ -86,6 +86,76 @@
   function savePartyDrafts(list) {
     localStorage.setItem(LS_PARTY_DRAFTS, JSON.stringify(list));
   }
+// ===== Amendment actions (mutate rb_full_data safely) =====
+
+function rbUpdateBill(billId, updaterFn){
+  const data = getData();
+  if (!data) return null;
+
+  data.orderPaperCommons = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+  const bill = data.orderPaperCommons.find(b => b.id === billId);
+  if (!bill) return null;
+
+  ensureBillDefaults(bill);
+  bill.amendments = Array.isArray(bill.amendments) ? bill.amendments : [];
+
+  updaterFn(bill, data);
+
+  // re-process after change
+  processAmendments(bill);
+
+  saveData(data);
+  return { data, bill };
+}
+
+function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
+  return rbUpdateBill(billId, (bill) => {
+    const amend = ensureAmendmentDefaults({
+      id: `amend-${Date.now()}`,
+      articleNumber: Number(articleNumber),
+      type,
+      text,
+      proposedBy,
+      submittedAt: new Date().toISOString(),
+      status: "proposed",
+      supporters: []
+    });
+
+    // set deadline immediately
+    amend.supportDeadlineAt = addActiveHoursSkippingSundays(Date.now(), 24);
+
+    bill.amendments.unshift(amend);
+  });
+}
+
+function rbSupportAmendment(billId, amendId, party){
+  return rbUpdateBill(billId, (bill) => {
+    const amend = bill.amendments.find(a => a.id === amendId);
+    if (!amend) return;
+
+    if (amend.status !== "proposed") return;
+    if (!Array.isArray(amend.supporters)) amend.supporters = [];
+    if (!amend.supporters.includes(party)) amend.supporters.push(party);
+  });
+}
+
+function rbVoteAmendment(billId, amendId, voterName, vote){
+  return rbUpdateBill(billId, (bill) => {
+    const amend = bill.amendments.find(a => a.id === amendId);
+    if (!amend || amend.status !== "division" || !amend.division || amend.division.closed) return;
+
+    amend.division.voters = Array.isArray(amend.division.voters) ? amend.division.voters : [];
+    if (amend.division.voters.includes(voterName)) return; // one vote per person
+
+    // count vote
+    if (!amend.division.votes) amend.division.votes = { aye:0, no:0, abstain:0 };
+    if (vote === "aye") amend.division.votes.aye++;
+    else if (vote === "no") amend.division.votes.no++;
+    else amend.division.votes.abstain++;
+
+    amend.division.voters.push(voterName);
+  });
+}
 
   /* =========================
      Boot
