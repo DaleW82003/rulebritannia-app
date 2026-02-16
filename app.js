@@ -1182,3 +1182,94 @@ function submitBill(){
 
   location.href = "dashboard.html";
 }
+function renderLegislationBuilder(data){
+
+  const container = document.getElementById("legislation-builder");
+  if (!container) return;
+
+  const simYear = data.simulation?.currentYear || 1997;
+
+  container.innerHTML = `
+    <div class="form-grid">
+
+      <label>Title of the Bill</label>
+      <input id="billTitleInput" placeholder="e.g. Rail Safety Reform" />
+
+      <label>A Bill to</label>
+      <textarea id="billPurpose" rows="2"
+        placeholder="make provision for..."></textarea>
+
+      <label>Number of Articles</label>
+      <select id="articleCount" onchange="generateArticles()">
+        ${[1,2,3,4,5,6,7,8,9,10].map(n =>
+          `<option value="${n}">${n}</option>`
+        ).join("")}
+      </select>
+
+      <div id="articlesContainer"></div>
+
+      <hr>
+
+      <h3>Final Article — Extent & Commencement</h3>
+
+      <label>Extent</label>
+      <select id="extentSelect">
+        <option>the United Kingdom</option>
+        <option>Great Britain</option>
+        <option>England and Wales</option>
+        <option>England</option>
+        <option>Wales</option>
+        <option>Scotland</option>
+        <option>Northern Ireland</option>
+      </select>
+
+      <label>Commencement</label>
+      <select id="commencementSelect">
+        <option>upon the day it is passed</option>
+        <option>in one month</option>
+        <option>in six months</option>
+        <option>in one year</option>
+        <option>on a date laid out in regulation by the Secretary of State</option>
+      </select>
+
+      <button class="btn" onclick="submitStructuredBill()">Submit Bill</button>
+
+    </div>
+  `;
+}
+function generateArticles(){
+
+  const count = parseInt(document.getElementById("articleCount").value);
+  const container = document.getElementById("articlesContainer");
+
+  container.innerHTML = "";
+
+  for (let i = 1; i <= count; i++){
+    container.innerHTML += `
+      <div class="article-block">
+        <label>Article ${i} Heading</label>
+        <input id="articleHeading${i}" placeholder="Heading..." />
+
+        <label>Article ${i} Body</label>
+        <textarea id="articleBody${i}" rows="4"
+          placeholder="Text of Article ${i}..."></textarea>
+      </div>
+    `;
+  }
+}
+generateArticles();
+function generatePreamble(data){
+
+  const gender = data.adminSettings?.monarchGender || "King";
+
+  const majesty = gender === "Queen"
+    ? "Her Majesty"
+    : "His Majesty";
+
+  return `
+Be it enacted by ${majesty}'s most Excellent Majesty,
+by and with the advice and consent of the Lords Spiritual and Temporal,
+and Commons, in this present Parliament assembled,
+and by the authority of the same, as follows:—
+  `;
+}
