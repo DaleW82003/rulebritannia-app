@@ -11,10 +11,10 @@
     #e9edf7 100%
   );
 
-  --nav-bg: rgba(1,33,105,.92);
+  --nav-bg: rgba(1,33,105,.95);
   --nav-border: rgba(255,255,255,.25);
 
-  --panel-bg: rgba(255,255,255,.85);
+  --panel-bg: rgba(255,255,255,.90);
   --panel-border: rgba(1,33,105,.18);
 
   --text:#0b1b3a;
@@ -44,7 +44,7 @@ body.theme-union{
     var(--bg-main);
 }
 
-/* ================== BASE LAYOUT ================== */
+/* ================== BASE ================== */
 *{ box-sizing:border-box; }
 
 body{
@@ -70,7 +70,7 @@ a{ color:inherit; text-decoration:none; }
 .topbar{
   position:sticky;
   top:0;
-  z-index:10;
+  z-index:100;
   backdrop-filter: blur(8px);
   background: var(--nav-bg);
   border-bottom:1px solid var(--nav-border);
@@ -84,12 +84,7 @@ a{ color:inherit; text-decoration:none; }
   justify-content:space-between;
   align-items:center;
   gap:12px;
-}
-
-.brand{
-  display:flex;
-  align-items:center;
-  flex: 0 0 auto;
+  flex-wrap:wrap;
 }
 
 .logo{
@@ -99,54 +94,91 @@ a{ color:inherit; text-decoration:none; }
   border-radius:8px;
 }
 
-/* Long nav: wrap nicely */
+/* ================== NAVIGATION ================== */
 .nav{
   display:flex;
   gap:10px;
   flex-wrap:wrap;
-  justify-content:flex-end;
+  align-items:center;
 }
 
-.nav a{
-  color:var(--union-white);
+.nav a,
+.nav-toggle{
+  cursor:pointer;
+  color:white;
   padding:7px 12px;
   border-radius:12px;
   border:1px solid rgba(255,255,255,.25);
   font-size:13px;
   background: rgba(255,255,255,.08);
+  transition:.15s ease;
 }
 
-.nav a:hover{
+.nav a:hover,
+.nav-toggle:hover{
   background: rgba(255,255,255,.18);
 }
 
-.nav a.active{
-  background: var(--union-white);
-  color: var(--union-navy);
-  font-weight:700;
-  border-color: var(--union-white);
+.nav a.active,
+.dropdown a.active{
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight:800;
 }
 
-
-/* Mobile: reduce padding so nav fits */
-@media (max-width: 700px){
-  .topbar-inner{ align-items:flex-start; }
-  .nav a{ padding:6px 10px; font-size:12px; }
+.nav-group{
+  position:relative;
 }
 
-/* ================== PANELS + BUTTONS ================== */
+.dropdown{
+  display:none;
+  position:absolute;
+  top:110%;
+  left:0;
+  min-width:220px;
+  background: rgba(1,33,105,.98);
+  border:1px solid rgba(255,255,255,.2);
+  border-radius:12px;
+  padding:8px;
+  z-index:200;
+  box-shadow:0 12px 30px rgba(0,0,0,.25);
+}
+
+.dropdown a{
+  display:block;
+  padding:8px 10px;
+  border-radius:8px;
+  font-size:13px;
+  color:white;
+}
+
+.dropdown a:hover{
+  background: rgba(255,255,255,.15);
+}
+
+.nav-group.open .dropdown{
+  display:block;
+}
+
+.nav-toggle.active{
+  background: rgba(255,255,255,.18);
+  border-color: rgba(255,255,255,.35);
+  font-weight:800;
+}
+
+/* ================== PANELS ================== */
 .panel{
   background:var(--panel-bg);
   border:1px solid var(--panel-border);
   border-radius:18px;
   padding:16px;
   margin-bottom:18px;
-  box-shadow:0 10px 40px rgba(1,33,105,.12);
+  box-shadow:0 10px 40px rgba(1,33,105,.10);
 }
 
 .panel h2{ margin:0 0 10px; }
 
-/* Shared button */
+/* ================== BUTTONS ================== */
 .btn{
   display:inline-flex;
   align-items:center;
@@ -156,11 +188,14 @@ a{ color:inherit; text-decoration:none; }
   border:1px solid rgba(1,33,105,.22);
   background: rgba(1,33,105,.06);
   font-size:13px;
+  transition:.15s ease;
 }
 
-.btn:hover{ background: rgba(1,33,105,.10); }
+.btn:hover{
+  background: rgba(1,33,105,.12);
+}
 
-/* Shared muted block */
+/* ================== MUTED BLOCK ================== */
 .muted-block{
   color: var(--muted);
   background: rgba(1,33,105,.04);
@@ -170,14 +205,14 @@ a{ color:inherit; text-decoration:none; }
   line-height:1.55;
 }
 
-/* ================== WHAT'S GOING ON (5 tiles) ================== */
+/* ================== WGO GRID ================== */
 .wgo-grid{
   display:grid;
   grid-template-columns: repeat(4, 1fr);
   gap:12px;
 }
 
-@media (max-width: 1200px){
+@media (max-width: 1100px){
   .wgo-grid{ grid-template-columns: repeat(2, 1fr); }
 }
 
@@ -186,14 +221,13 @@ a{ color:inherit; text-decoration:none; }
 }
 
 .wgo-tile{
-  background: rgba(255,255,255,.92);
+  background: rgba(255,255,255,.95);
   border:1px solid var(--panel-border);
   border-radius:18px;
   padding:12px;
-  min-height: 170px;
+  min-height:170px;
   display:flex;
   flex-direction:column;
-  box-shadow: 0 10px 40px rgba(1,33,105,.10);
 }
 
 .wgo-kicker{
@@ -207,14 +241,12 @@ a{ color:inherit; text-decoration:none; }
   margin-top:6px;
   font-weight:900;
   font-size:14px;
-  line-height:1.2;
 }
 
 .wgo-strap{
   margin-top:8px;
   color: var(--muted);
   font-size:13px;
-  line-height:1.45;
 }
 
 .wgo-metric{
@@ -227,19 +259,12 @@ a{ color:inherit; text-decoration:none; }
 .row{
   display:flex;
   justify-content:space-between;
-  gap:10px;
   font-size:13px;
-  color: var(--muted);
 }
 
-.row b{ color: var(--text); }
+.row b{ color:var(--text); }
 
-.wgo-actions{
-  margin-top:auto;
-  padding-top:10px;
-}
-
-/* ================== ORDER PAPER (COMMONS) ================== */
+/* ================== ORDER PAPER ================== */
 .order-grid{
   display:grid;
   grid-template-columns: repeat(2, 1fr);
@@ -247,15 +272,14 @@ a{ color:inherit; text-decoration:none; }
 }
 
 @media (max-width: 980px){
-  .order-grid{ grid-template-columns: 1fr; }
+  .order-grid{ grid-template-columns:1fr; }
 }
 
 .bill-card{
-  background: rgba(255,255,255,.92);
+  background:white;
   border:1px solid var(--panel-border);
   border-radius:18px;
   padding:14px;
-  box-shadow:0 10px 40px rgba(1,33,105,.10);
 }
 
 .bill-title{
@@ -286,16 +310,9 @@ a{ color:inherit; text-decoration:none; }
 }
 
 .stage.on{
-  color: #062018;
-  border-color: rgba(0,0,0,.12);
-  background: linear-gradient(135deg, var(--accent), rgba(255,255,255,.20));
+  color:#062018;
+  background: linear-gradient(135deg, var(--accent), rgba(255,255,255,.25));
   font-weight:800;
-}
-
-.bill-current{
-  margin-top:10px;
-  font-size:13px;
-  color:var(--muted);
 }
 
 .bill-result{
@@ -323,394 +340,10 @@ a{ color:inherit; text-decoration:none; }
   display:flex;
   gap:10px;
   flex-wrap:wrap;
-}
-
-/* Wider spacing when you want the two buttons apart */
-.bill-actions.spaced{
   justify-content:space-between;
-  gap:12px;
 }
 
-/* ================== BILL PAGE LAYOUT ================== */
-.bill-layout{
-  display:grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap:16px;
-}
-
-@media (max-width: 980px){
-  .bill-layout{ grid-template-columns: 1fr; }
-}
-
-/* ================== AMENDMENTS ================== */
-.amend{
-  background: rgba(255,255,255,.75);
-  border:1px solid rgba(1,33,105,.14);
-  border-radius:14px;
-  padding:10px;
-  margin-bottom:10px;
-}
-
-.amend-top{
-  display:flex;
-  justify-content:space-between;
-  gap:10px;
-}
-
-.amend-sub{
-  margin-top:6px;
-  color:var(--muted);
-  font-size:13px;
-}
-
-.tag{
-  padding:4px 8px;
-  border-radius:999px;
-  font-size:12px;
-  font-weight:800;
-  text-transform:capitalize;
-  border:1px solid rgba(1,33,105,.18);
-  background: rgba(1,33,105,.06);
-}
-
-.tag.proposed{ background: rgba(1,33,105,.06); }
-.tag.friendly{ background: rgba(46,139,87,.18); border-color: rgba(46,139,87,.35); }
-.tag.accepted{ background: rgba(46,139,87,.22); border-color: rgba(46,139,87,.45); }
-.tag.rejected{ background: rgba(200,16,46,.16); border-color: rgba(200,16,46,.35); }
-.tag.division{ background: rgba(200,16,46,.10); border-color: rgba(200,16,46,.25); }
-/* ================== QUESTION TIME ================== */
-.qt-grid{
-  margin-top:12px;
-  display:grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap:12px;
-}
-@media (max-width: 980px){
-  .qt-grid{ grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 700px){
-  .qt-grid{ grid-template-columns: 1fr; }
-}
-
-.qt-card{
-  display:block;
-  background: rgba(255,255,255,.92);
-  border:1px solid var(--panel-border);
-  border-radius:18px;
-  padding:12px;
-  box-shadow: 0 10px 40px rgba(1,33,105,.10);
-}
-
-.qt-title{
-  font-weight:900;
-  font-size:14px;
-  line-height:1.25;
-}
-
-.qt-sub{
-  margin-top:8px;
-  color:var(--muted);
-  font-size:13px;
-}
-
-.qt-form{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap:12px;
-  margin-top:12px;
-}
-
-.qt-field label{
-  display:block;
-  font-size:12px;
-  color:var(--muted);
-  margin-bottom:6px;
-}
-
-.qt-field input,
-.qt-field select,
-.qt-field textarea{
-  width:100%;
-  border-radius:12px;
-  border:1px solid rgba(1,33,105,.18);
-  padding:10px;
-  font-size:14px;
-  background: rgba(255,255,255,.95);
-}
-
-.qt-wide{
-  grid-column: 1 / -1;
-}
-
-.qt-q{
-  background: rgba(255,255,255,.75);
-  border:1px solid rgba(1,33,105,.14);
-  border-radius:14px;
-  padding:10px;
-  margin-bottom:10px;
-}
-
-.qt-qtop{
-  display:flex;
-  justify-content:space-between;
-  gap:10px;
-}
-
-.qt-qtext{
-  margin-top:8px;
-  color:var(--text);
-  line-height:1.5;
-}
-
-.qt-answer{
-  margin-top:10px;
-  color:var(--muted);
-  line-height:1.5;
-}
-
-.qt-qmeta{
-  margin-top:8px;
-  color:var(--muted);
-  font-size:12px;
-}
-/* ================== LIVE DOCKET ================== */
-.docket-top{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:10px;
-}
-
-.docket-kicker{
-  font-size:12px;
-  color:var(--muted);
-}
-
-.docket-list{
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-}
-
-.docket-item{
-  display:flex;
-  justify-content:space-between;
-  gap:12px;
-  align-items:center;
-  padding:12px;
-  border-radius:16px;
-  border:1px solid rgba(1,33,105,.14);
-  background: rgba(255,255,255,.88);
-}
-
-.docket-item.high{
-  border-color: rgba(200,16,46,.30);
-  box-shadow: 0 10px 30px rgba(200,16,46,.10);
-}
-
-.docket-left{
-  display:flex;
-  align-items:flex-start;
-  gap:10px;
-  min-width:0;
-}
-
-.docket-icon{
-  width:34px;
-  height:34px;
-  border-radius:12px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background: rgba(1,33,105,.06);
-  border:1px solid rgba(1,33,105,.12);
-  flex:0 0 auto;
-}
-
-.docket-text{
-  min-width:0;
-}
-
-.docket-title{
-  font-weight:900;
-  font-size:14px;
-  line-height:1.25;
-}
-
-.docket-detail{
-  margin-top:4px;
-  color:var(--muted);
-  font-size:13px;
-  line-height:1.35;
-}
-
-.docket-cta{
-  flex:0 0 auto;
-}
-/* ================== NAV (CLICK DROPDOWNS) ================== */
-
-.nav{
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-  align-items:center;
-}
-
-.nav-link{
-  color:white;
-  padding:7px 12px;
-  border-radius:12px;
-  border:1px solid rgba(255,255,255,.25);
-  font-size:13px;
-  background: rgba(255,255,255,.08);
-}
-
-.nav-link:hover{
-  background: rgba(255,255,255,.18);
-}
-
-.nav-group{
-  position:relative;
-}
-
-.nav-toggle{
-  cursor:pointer;
-  color:white;
-  padding:7px 12px;
-  border-radius:12px;
-  border:1px solid rgba(255,255,255,.25);
-  font-size:13px;
-  background: rgba(255,255,255,.08);
-}
-
-.nav-toggle:hover{
-  background: rgba(255,255,255,.18);
-}
-
-.dropdown{
-  display:none;
-  position:absolute;
-  top:110%;
-  left:0;
-  min-width:220px;
-  background: rgba(1,33,105,.98);
-  border:1px solid rgba(255,255,255,.2);
-  border-radius:12px;
-  padding:8px;
-  z-index:100;
-  box-shadow:0 12px 30px rgba(0,0,0,.25);
-}
-
-.dropdown a{
-  display:block;
-  padding:8px 10px;
-  border-radius:8px;
-  font-size:13px;
-  color:white;
-  white-space:nowrap;
-}
-
-.dropdown a:hover{
-  background: rgba(255,255,255,.15);
-}
-
-.nav-group.open .dropdown{
-  display:block;
-}
-
-/* Active highlight */
-.nav a.active,
-.dropdown a.active{
-  background: var(--accent);
-  border-color: var(--accent);
-  font-weight:800;
-}
-
-/* When a dropdown item is active, highlight its parent toggle too */
-.nav-toggle.active{
-  background: rgba(255,255,255,.18);
-  border-color: rgba(255,255,255,.35);
-  font-weight:800;
-}
-/* ================== FORM ================== */
-
-.form-group{
-  margin-bottom:14px;
-  display:flex;
-  flex-direction:column;
-  gap:6px;
-}
-
-input, textarea, select{
-  padding:8px;
-  border-radius:10px;
-  border:1px solid rgba(1,33,105,.25);
-  font-family:inherit;
-}
-
-textarea{
-  resize:vertical;
-}
-.bill-badge{
-  display:inline-block;
-  padding:4px 8px;
-  border-radius:999px;
-  font-size:11px;
-  font-weight:800;
-  margin-bottom:6px;
-}
-
-.badge-pmb{
-  background: rgba(1,33,105,.12);
-  border:1px solid rgba(1,33,105,.25);
-}
-
-.badge-opposition{
-  background: rgba(200,16,46,.15);
-  border:1px solid rgba(200,16,46,.45);
-  color:#9b0d23;
-}
-
-.badge-government{
-  background: rgba(46,139,87,.20);
-  border:1px solid rgba(46,139,87,.45);
-  color:#1f6d45;
-}
-.sim-date{
-  font-size:20px;
-  font-weight:900;
-  margin-bottom:16px;
-  padding:10px 14px;
-  border-radius:14px;
-  background: linear-gradient(135deg, var(--accent), rgba(255,255,255,.2));
-  display:inline-block;
-}
-/* ================== COUNTDOWN / META ================== */
-
-.small{
-  font-size:12px;
-  color:var(--muted);
-}
-
-.timer{
-  margin-top:8px;
-  padding:8px 10px;
-  border-radius:12px;
-  border:1px dashed rgba(1,33,105,.20);
-  background: rgba(1,33,105,.04);
-  font-size:12px;
-  color:var(--muted);
-}
-
-.kv{
-  display:flex;
-  justify-content:space-between;
-  gap:10px;
-  font-size:12px;
-  color:var(--muted);
-}
-.kv b{ color:var(--text); }
-
+/* ================== BADGES ================== */
 .badges{
   display:flex;
   gap:8px;
@@ -725,12 +358,10 @@ textarea{
   font-size:11px;
   font-weight:800;
   border:1px solid rgba(1,33,105,.18);
-  background: rgba(1,33,105,.06);
 }
 
 .badge-pmb{
   background: rgba(1,33,105,.10);
-  border-color: rgba(1,33,105,.22);
 }
 
 .badge-opposition{
@@ -743,6 +374,39 @@ textarea{
   background: rgba(46,139,87,.20);
   border-color: rgba(46,139,87,.40);
   color:#1f6d45;
+}
+
+/* ================== SIM DATE ================== */
+.sim-date{
+  font-size:20px;
+  font-weight:900;
+  margin-bottom:16px;
+  padding:10px 14px;
+  border-radius:14px;
+  background: linear-gradient(135deg, var(--accent), rgba(255,255,255,.25));
+  display:inline-block;
+  color:white;
+}
+
+/* ================== TIMER ================== */
+.timer{
+  margin-top:8px;
+  padding:8px 10px;
+  border-radius:12px;
+  border:1px dashed rgba(1,33,105,.20);
+  background: rgba(1,33,105,.04);
+  font-size:12px;
+}
+
+.small{
+  font-size:12px;
+  color:var(--muted);
+}
+
+.kv{
+  display:flex;
+  justify-content:space-between;
+  font-size:12px;
 }
 
 .progress-bar{
@@ -759,6 +423,8 @@ textarea{
   background: linear-gradient(90deg, var(--accent), rgba(1,33,105,.4));
   transition: width 0.3s ease;
 }
+
+/* ================== BILL TEXT ================== */
 .legislation-text{
   font-family: Georgia, serif;
   line-height:1.6;
