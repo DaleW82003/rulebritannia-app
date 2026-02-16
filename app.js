@@ -561,3 +561,321 @@ function stageHoursElapsed(bill){
   }
   return (Date.now() - bill.stageStartedAt) / 3600000;
 }
+// ================== LEGISLATION STAGE RULES ==================
+const STAGE_ORDER = ["First Reading", "Second Reading", "Report Stage", "Division"];
+const STAGE_LENGTH_SIM_MONTHS = {
+  "Second Reading": 2,
+  "Report Stage": 1,
+  "Division": 1
+};
+
+// First Reading is special (1 real day; and Sunday-start defers to Monday)
+const FIRST_READING_REAL_DAYS = 1;
+
+// Amendment windows (kept for later UI wiring; engine-ready now)
+const AMENDMENTS_SECOND_READING_OPEN_SIM_MONTHS = 1; // first 1 sim month of Second Reading
+const AMENDMENTS_REPORT_STAGE_OPEN_SIM_MONTHS = 0;   // we'll treat as first half via real-days later
+const AUTHOR_LOCK_FINAL_REAL_DAYS = 1;               // final 24h of a stage
+
+function getBillBadge(bill){
+  const t = (bill.type || "pmb").toLowerCase();
+  if (t === "government") return { text: "Government Bill", cls: "badge-government" };
+  if (t === "opposition") return { text: "Opposition Day Bill", cls: "badge-opposition" };
+  return { text: "PMB", cls: "badge-pmb" };
+}
+
+function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+function msToParts(ms){
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(s / 86400);
+  const hours = Math.floor((s % 86400) / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  return { days, hours, mins };
+}
+
+function formatCountdown(ms){
+  const p = msToParts(ms);
+  if (p.days > 0) return `${p.days}d ${p.hours}h ${p.mins}m`;
+  if (p.hours > 0) return `${p.hours}h ${p.mins}m`;
+  return `${p.mins}m`;
+}
+
+function realDaysBetween(aTs, bTs){
+  return Math.floor((bTs - aTs) / 86400000);
+}
+
+function isCompleted(bill){
+  return bill.status === "passed" || bill.status === "failed" || bill.stage === "Passed" || bill.stage === "Failed";
+}
+
+function ensureBillDefaults(bill){
+  if (!bill.createdAt) bill.createdAt = Date.now();
+  if (!bill.stageStartedAt) bill.stageStartedAt = bill.createdAt;
+  if (!bill.type) bill.type = "pmb";
+  if (!bill.stage) bill.stage = "First Reading";
+  if (!bill.status) bill.status = "in-progress";
+  if (!bill.amendments) bill.amendments = [];
+  if (!bill.division) bill.division = null; // later used in Division stage
+  if (!bill.completedAt && isCompleted(bill)) bill.completedAt = bill.completedAt || Date.now();
+  return bill;
+}
+function getSimMonthsSince(realTimestamp){
+  if (!GAME_STATE?.started) return 0;
+
+  const start = new Date(realTimestamp);
+  const now = new Date();
+
+  let days = Math.floor((now - start) / 86400000);
+
+  // Count Sundays between start and now (inclusive)
+  let temp = new Date(start);
+  let sundays = 0;
+  while (temp <= now) {
+    if (temp.getDay() === 0) sundays++;
+    temp.setDate(temp.getDate() + 1);
+  }
+
+  const validDays = days - sundays;
+  return Math.floor(validDays / 3); // 3 real days per sim month
+}
+function moveStage(bill, newStage){
+  bill.stage = newStage;
+  bill.stageStartedAt = Date.now();
+  bill.stagePaused = false;
+  bill.pauseStartedAt = null;
+
+  // If entering Division, create vote container if missing
+  if (newStage === "Division" && !bill.division) {
+    bill.division = {
+      openedAt: Date.now(),
+      votes: { aye: [], no: [], abstain: [] },
+      closed: false,
+      result: null
+    };
+  }
+}
+
+function autoCompleteBill(bill, passed){
+  bill.status = passed ? "passed" : "failed";
+  bill.stage = passed ? "Passed" : "Failed";
+  bill.completedAt = Date.now();
+  bill.division = bill.division || null;
+}
+
+function shouldArchiveOffOrderPaperToday(bill){
+  // Rule: bills move off Order Paper on the next Sunday after completion.
+  // So: if completed, AND today is Sunday, AND completion happened BEFORE today (not same-minute).
+  if (!isCompleted(bill)) return false;
+  if (!isSunday()) return false;
+
+  const done = bill.completedAt || bill.stageStartedAt || bill.createdAt;
+  if (!done) return true;
+
+  // Must be completed at least 1 real day ago, so Sunday isn't immediately hiding something finished on Sunday.
+  return realDaysBetween(done, Date.now()) >= 1;
+}
+
+function billStageCountdown(bill){
+  // Returns { label, msRemaining } for current stage
+  const now = Date.now();
+
+  // Sunday: show frozen status (we still show countdown based on real time, but no movement)
+  const sundayFrozen = isSunday();
+
+  if (bill.stage === "First Reading") {
+    // First Reading starts Monday if submitted Sunday
+    const end = bill.stageStartedAt + FIRST_READING_REAL_DAYS * 86400000;
+    return { label: sundayFrozen ? "Polling Day — clock frozen" : "First Reading ends in", msRemaining: end - now };
+  }
+
+  if (bill.stage === "Second Reading" || bill.stage === "Report Stage" || bill.stage === "Division") {
+    const needed = STAGE_LENGTH_SIM_MONTHS[bill.stage] || 1;
+
+    // Approx end based on sim months -> convert to real days (3 days per sim month) + Sundays excluded for month-counting.
+    // We can’t compute exact end timestamp without iterating days; so we present a “sim months remaining” + rough countdown.
+    const elapsed = getSimMonthsSince(bill.stageStartedAt);
+    const remainingSim = Math.max(0, needed - elapsed);
+
+    // Rough: remainingSim * 3 days (not exact because Sundays excluded, but good enough for UI).
+    const roughEnd = bill.stageStartedAt + (needed * 3 * 86400000);
+    return {
+      label: sundayFrozen ? "Polling Day — clock frozen" : `${bill.stage} ends in`,
+      msRemaining: roughEnd - now,
+      remainingSimMonths: remainingSim
+    };
+  }
+
+  return { label: "", msRemaining: 0 };
+}
+
+function processBillLifecycle(bill, context){
+  // context: { player, totalEligibleVoters } later
+  ensureBillDefaults(bill);
+
+  // Global freeze: Sundays are admin/polling day. No automatic stage movement.
+  if (isSunday()) return bill;
+
+  // If bill completed, do nothing (Hansard roll handled by Order Paper filter)
+  if (isCompleted(bill)) return bill;
+
+  // If bill submitted on Sunday, it should not enter First Reading until Monday.
+  // Implementation: when created on Sunday, set a flag and stageStartedAt to next Monday 00:00.
+  if (bill.stage === "First Reading" && bill.deferToMonday === true) {
+    const now = new Date();
+    if (now.getDay() !== 0) {
+      bill.deferToMonday = false;
+      // stageStartedAt already set to Monday start when created
+    } else {
+      return bill;
+    }
+  }
+
+  // First Reading auto-move after 1 real day (unless PMB refused etc.)
+  if (bill.stage === "First Reading") {
+    const days = realDaysBetween(bill.stageStartedAt, Date.now());
+    if (days >= FIRST_READING_REAL_DAYS) {
+      // If still in-progress and not explicitly blocked, move to Second Reading
+      moveStage(bill, "Second Reading");
+    }
+    return bill;
+  }
+
+  // Second Reading auto-move after 2 sim months (but must not have active amendment divisions; wiring later)
+  if (bill.stage === "Second Reading") {
+    const elapsed = getSimMonthsSince(bill.stageStartedAt);
+    if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Second Reading"]) {
+      moveStage(bill, "Report Stage");
+    }
+    return bill;
+  }
+
+  // Report Stage auto-move after 1 sim month
+  if (bill.stage === "Report Stage") {
+    const elapsed = getSimMonthsSince(bill.stageStartedAt);
+    if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Report Stage"]) {
+      moveStage(bill, "Division");
+    }
+    return bill;
+  }
+
+  // Division auto-close after 1 sim month OR early if 100% votes (we’ll enable 100% once we have electorate list)
+  if (bill.stage === "Division") {
+    const elapsed = getSimMonthsSince(bill.stageStartedAt);
+    if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Division"]) {
+      // For now, if no votes system is live, we mark "failed" by default? No—don’t.
+      // Instead, auto-close with placeholder result logic:
+      // If you haven't implemented voting UI yet, keep it "in-progress" but mark division closed? No—confusing.
+      // We'll leave it open until voting exists, but the stage engine is ready.
+      // (Once voting UI exists, this block will calculate result and complete the bill.)
+    }
+    return bill;
+  }
+
+  return bill;
+}
+const now = new Date();
+const submittedOnSunday = now.getDay() === 0;
+
+const newBill = {
+  id: "bill-" + Date.now(),
+  title: title,
+  author: player.name,
+  department: dept,
+
+  type: "pmb",
+  stage: "First Reading",
+  status: "in-progress",
+
+  createdAt: Date.now(),
+  stageStartedAt: Date.now(),
+
+  // if submitted Sunday, defer stage start to Monday 00:00
+  deferToMonday: submittedOnSunday,
+
+  billText: text,
+  amendments: []
+};
+
+// Set stageStartedAt to next Monday 00:00 if Sunday
+if (submittedOnSunday) {
+  const monday = new Date();
+  monday.setDate(monday.getDate() + 1);
+  monday.setHours(0,0,0,0);
+  newBill.stageStartedAt = monday.getTime();
+}
+// ===== Order Paper (ONLY if element exists) =====
+const orderWrap = document.getElementById("order-paper");
+if (orderWrap) {
+
+  let bills = data.orderPaperCommons || [];
+
+  // Include locally submitted bills
+  const customBills = JSON.parse(localStorage.getItem("rb_custom_bills") || "[]");
+  bills = [...customBills, ...bills];
+
+  // Ensure defaults + process lifecycle (Sunday freeze is inside processor)
+  bills = bills.map(b => processBillLifecycle(ensureBillDefaults(b), { player: data.currentPlayer }));
+
+  // Persist updated custom bills back to localStorage (only those that are custom)
+  const updatedCustom = bills.filter(b => String(b.id || "").startsWith("bill-"));
+  localStorage.setItem("rb_custom_bills", JSON.stringify(updatedCustom));
+
+  // Filter: show in-progress always.
+  // If completed, show ONLY until the next Sunday roll removes it.
+  bills = bills.filter(b => {
+    if (!isCompleted(b)) return true;
+    return !shouldArchiveOffOrderPaperToday(b);
+  });
+
+  orderWrap.innerHTML = `
+    <div class="order-grid">
+      ${bills.map(b => {
+        const badge = getBillBadge(b);
+        const t = billStageCountdown(b);
+        const timerLine = (b.status === "in-progress")
+          ? `<div class="timer">
+               <div class="kv"><span>${t.label}</span><b>${formatCountdown(t.msRemaining)}</b></div>
+               ${typeof t.remainingSimMonths !== "undefined"
+                 ? `<div class="small">Sim months remaining: ${t.remainingSimMonths}</div>` : ``}
+             </div>`
+          : ``;
+
+        const stageLabel = isCompleted(b)
+          ? (b.status === "passed" ? "Passed" : "Failed")
+          : b.stage;
+
+        const resultBlock = isCompleted(b)
+          ? `<div class="bill-result ${b.status === "passed" ? "passed" : "failed"}">
+               ${b.status === "passed" ? "Royal Assent Granted" : "Bill Defeated"}
+             </div>`
+          : `<div class="bill-current">Current Stage: <b>${stageLabel}</b></div>`;
+
+        return `
+          <div class="bill-card ${b.status}">
+            <div class="bill-title">${b.title}</div>
+            <div class="bill-sub">Author: ${b.author} · ${b.department}</div>
+
+            <div class="badges">
+              <span class="bill-badge ${badge.cls}">${badge.text}</span>
+            </div>
+
+            <div class="stage-track">
+              ${STAGE_ORDER.map(s => `
+                <div class="stage ${b.stage === s ? "on" : ""}">${s}</div>
+              `).join("")}
+            </div>
+
+            ${resultBlock}
+            ${timerLine}
+
+            <div class="bill-actions spaced">
+              <a class="btn" href="bill.html?id=${encodeURIComponent(b.id)}">View Bill</a>
+              <a class="btn" href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Debate</a>
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
