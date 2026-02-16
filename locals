@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rule Britannia — Locals</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="theme-commons">
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
+    </div>
+
+    <!-- paste the new nav here -->
+  </div>
+</header>
+
+<main class="wrap">
+  <h1 class="page-title">Locals</h1>
+
+  <section class="panel">
+    <div class="muted-block">Coming soon.</div>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
