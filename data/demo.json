@@ -25,22 +25,77 @@
     ],
     "commonsLegislation": [
       { "title": "Bill A", "stage": "Second Reading" },
-      { "title": "Bill B", "stage": "Committee Stage" },
-      { "title": "Bill C", "stage": "Report Stage" }
+      { "title": "Bill B", "stage": "Report Stage" },
+      { "title": "Bill C", "stage": "Division" }
     ]
   },
 
+  "adminSettings": {
+    "monarchGender": "Queen"
+  },
+
+  "gameState": {
+    "started": true,
+    "startRealDate": "2026-02-16T00:00:00Z",
+    "startSimMonth": 8,
+    "startSimYear": 1997,
+    "isPaused": false
+  },
+
+  "parliament": {
+    "totalSeats": 650,
+    "parties": [
+      { "name": "Conservative", "seats": 330 },
+      { "name": "Labour", "seats": 280 },
+      { "name": "Liberal Democrat", "seats": 25 },
+      { "name": "SNP", "seats": 15 }
+    ]
+  },
+
+  "players": [
+    {
+      "name": "Dale Weston MP",
+      "party": "Conservative",
+      "role": "prime-minister",
+      "office": "prime-minister",
+      "partyLeader": true,
+      "joinedAt": "2026-01-01T00:00:00Z",
+      "lastLogin": "2026-02-14T10:00:00Z",
+      "absent": false,
+      "delegatedTo": null,
+      "isSpeaker": false,
+      "active": true,
+      "mature": true
+    },
+    {
+      "name": "John Shade MP",
+      "party": "Labour",
+      "role": "leader-opposition",
+      "office": null,
+      "partyLeader": true,
+      "joinedAt": "2026-01-01T00:00:00Z",
+      "lastLogin": "2026-02-14T10:00:00Z",
+      "absent": false,
+      "delegatedTo": null,
+      "isSpeaker": false,
+      "active": true,
+      "mature": true
+    }
+  ],
+
   "currentPlayer": {
-"name": "Dale Weston MP",
-  "party": "Conservative",
-  "role": "prime-minister",
-  "office": "prime-minister",
-  "joinedAt": "2026-02-01T00:00:00Z",
-  "lastLogin": "2026-02-14T12:00:00Z",
-  "absent": false,
-  "delegatedTo": null,
-  "isSpeaker": false
-},
+    "name": "Dale Weston MP",
+    "party": "Conservative",
+    "role": "prime-minister",
+    "office": "prime-minister",
+    "joinedAt": "2026-02-01T00:00:00Z",
+    "lastLogin": "2026-02-14T12:00:00Z",
+    "absent": false,
+    "delegatedTo": null,
+    "isSpeaker": false
+  },
+
+  "oppositionTracker": {},
 
   "orderPaperCommons": [
     {
@@ -48,63 +103,88 @@
       "title": "National Health Service Foundation Trusts Act 2000",
       "author": "Dale Weston MP",
       "department": "Health",
-      "stage": "Committee Stage",
+      "billType": "government",
+      "stage": "Second Reading",
       "status": "in-progress",
+      "createdAt": 1739491200000,
+      "stageStartedAt": 1739491200000,
       "billText": "A Bill to make provision about NHS Foundation Trusts; to establish governance and financial duties; and for connected purposes.\n\nPART 1 — FOUNDATION TRUST STATUS\n1. Eligibility and designation.\n2. Governance requirements.\n\nPART 2 — FINANCE AND ACCOUNTABILITY\n3. Accounts and reporting.\n4. Oversight and intervention powers.\n\nPART 3 — GENERAL\n5. Commencement and extent.",
       "amendments": [
         {
           "id": "A1",
+          "articleNumber": 2,
+          "type": "insert",
           "title": "Duty to publish quarterly performance data",
           "proposedBy": "Labour",
           "status": "proposed",
-          "supporters": ["Labour"]
+          "supporters": ["Labour"],
+          "submittedAt": "2026-02-14T09:00:00Z"
         },
         {
           "id": "A2",
+          "articleNumber": 3,
+          "type": "insert",
           "title": "Ring-fence capital spend for maintenance backlog",
           "proposedBy": "Conservative",
-          "status": "friendly",
-          "supporters": ["Conservative", "Liberal Democrat"]
+          "status": "proposed",
+          "supporters": ["Conservative", "Liberal Democrat"],
+          "submittedAt": "2026-02-14T09:30:00Z"
         },
         {
           "id": "A3",
+          "articleNumber": 4,
+          "type": "delete",
           "title": "Remove Clause 4 intervention power",
           "proposedBy": "SNP",
-          "status": "rejected",
-          "supporters": ["SNP"]
+          "status": "proposed",
+          "supporters": ["SNP"],
+          "submittedAt": "2026-02-14T10:00:00Z"
         }
-      ]
+      ],
+      "hansard": {}
     },
     {
       "id": "rail-safety-2000",
       "title": "Rail Safety Reform Act 2000",
       "author": "Grant Kingston MP",
       "department": "Transport",
+      "billType": "pmb",
       "stage": "Report Stage",
       "status": "in-progress",
+      "createdAt": 1739318400000,
+      "stageStartedAt": 1739448000000,
       "billText": "(Placeholder) Bill text not added yet.",
-      "amendments": []
+      "amendments": [],
+      "hansard": {}
     },
     {
       "id": "age-consent-2000",
       "title": "Sexual Offences (Age of Consent Equality) Act 2000",
       "author": "John Shade MP",
       "department": "Home Office",
+      "billType": "opposition",
       "stage": "First Reading",
       "status": "in-progress",
+      "createdAt": 1739494800000,
+      "stageStartedAt": 1739494800000,
       "billText": "(Placeholder) Bill text not added yet.",
-      "amendments": []
+      "amendments": [],
+      "hansard": {}
     },
     {
       "id": "finance-2000",
       "title": "Finance Act 2000",
       "author": "Dylan Macmillan MP",
       "department": "Treasury",
+      "billType": "government",
       "stage": "Division",
       "status": "passed",
-      "completedAt": 1739521200000
+      "createdAt": 1738886400000,
+      "stageStartedAt": 1739448000000,
+      "completedAt": 1739521200000,
       "billText": "(Placeholder) Bill text not added yet.",
-      "amendments": []
+      "amendments": [],
+      "hansard": {}
     }
   ],
 
@@ -284,67 +364,4 @@
       }
     ]
   }
-}
-"gameState": {
-  "started": true,
-  "startRealDate": "2026-02-16T00:00:00Z",
-  "startSimMonth": 8,
-  "startSimYear": 1997,
-  "isPaused": false
-}
-"parliament": {
-  "totalSeats": 650,
-  "parties": [
-    {
-      "name": "Conservative",
-      "seats": 330
-    },
-    {
-      "name": "Labour",
-      "seats": 280
-    },
-    {
-      "name": "Liberal Democrat",
-      "seats": 25
-    },
-    {
-      "name": "SNP",
-      "seats": 15
-    }
-  ]
-}
-"players": [
-  {
-{
-  "name": "Dale Weston MP",
-  "party": "Conservative",
-  "role": "prime-minister",
-  "office": "prime-minister",
-  "partyLeader": true,
-  "joinedAt": "2026-01-01T00:00:00Z",
-  "lastLogin": "2026-02-14T10:00:00Z",
-  "absent": false,
-  "delegatedTo": null,
-  "isSpeaker": false,
-  "active": true,
-  "mature": true
-}
-
-  },
-  {
-    "name": "John Shade MP",
-    "party": "Labour",
-    "role": "leader-opposition",
-    "office": null,
-  "joinedAt": "2026-01-01T00:00:00Z",
-  "lastLogin": "2026-02-14T10:00:00Z",
-  "absent": false,
-  "delegatedTo": null,
-  "isSpeaker": false,
-  "active": true,
-  "mature": true
-  }
-]
-"adminSettings": {
-  "monarchGender": "Queen"
 }
