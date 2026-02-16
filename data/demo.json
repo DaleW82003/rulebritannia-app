@@ -313,3 +313,31 @@
     }
   ]
 }
+"players": [
+  {
+    "name": "Dale Weston MP",
+    "party": "Conservative",
+    "role": "prime-minister",
+    "office": "prime-minister",
+    "joinedAt": "2026-01-01T00:00:00Z",
+    "lastLogin": "2026-02-14T10:00:00Z",
+    "absent": false,
+    "delegatedTo": null,
+    "isSpeaker": false,
+    "active": true,
+    "mature": true
+  },
+  {
+    "name": "John Shade MP",
+    "party": "Labour",
+    "role": "leader-opposition",
+    "office": null,
+    "joinedAt": "2026-01-01T00:00:00Z",
+    "lastLogin": "2026-02-13T10:00:00Z",
+    "absent": false,
+    "delegatedTo": null,
+    "isSpeaker": false,
+    "active": true,
+    "mature": true
+  }
+]
