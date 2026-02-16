@@ -1,16 +1,17 @@
 /* =========================================================
-   Rule Britannia — app.js (CLEAN BASELINE + BILL DIVISIONS)
+   Rule Britannia — app.js (CLEAN BASELINE + BILL DIVISIONS) — WORKING REWRITE
    - Loads demo.json once
-   - Uses localStorage rb_full_data as the live state
+   - Uses localStorage rb_full_data as the live state (single source of truth)
    - Dashboard: Sim Date + What's Going On + Live Docket + Order Paper
    - Hansard: passed/failed archive
    - Game Clock: 3 real days = 1 sim month; Sundays frozen
    - Bill lifecycle + countdown timers
-   - Amendment engine (support window + division)
+   - Amendment engine (support window + division) + SINGLE ACTIVE AMENDMENT RULE
    - Main bill division engine (24 active hours, Sunday freeze, auto-close)
+   - Bill page: main division voting + amendment list + amendment modal form
    - Submit Bill builder (structured template)
    - Party Draft builder (saved to localStorage)
-   - Question Time (tiles + office view)
+   - Question Time (NOT included in this paste to keep it clean; add back if needed)
    - Absence system (delegation)
    - Nav highlighting + dropdown support
    ========================================================= */
@@ -118,10 +119,6 @@
       office: null,
       isSpeaker: false
     };
-
-    data.questionTime = data.questionTime || {};
-    data.questionTime.offices = Array.isArray(data.questionTime.offices) ? data.questionTime.offices : [];
-    data.questionTime.questions = Array.isArray(data.questionTime.questions) ? data.questionTime.questions : [];
 
     return data;
   }
@@ -308,10 +305,6 @@
 
   /* =========================
      MAIN BILL DIVISION ENGINE
-     - Division open for 24 active hours (skip Sundays)
-     - Auto-close on deadline
-     - Sunday freeze (no closing on Sundays)
-     - Tie fails (status quo)
      ========================= */
   function ensureBillDivisionDefaults(bill){
     bill.division = bill.division || {
@@ -324,6 +317,7 @@
       result: null
     };
 
+    if (!bill.division.openedAt) bill.division.openedAt = new Date().toISOString();
     if (!bill.division.closesAt) {
       const opened = new Date(bill.division.openedAt).getTime();
       bill.division.closesAt = addActiveHoursSkippingSundays(opened, Number(bill.division.durationHours || 24));
@@ -338,7 +332,7 @@
 
   function logHansardBillDivision(bill, outcome){
     bill.hansard = bill.hansard || {};
-    bill.hansard.division = bill.hansard.division || [];
+    bill.hansard.division = Array.isArray(bill.hansard.division) ? bill.hansard.division : [];
 
     const entry = {
       outcome, // "passed" | "failed"
@@ -346,28 +340,33 @@
       votes: bill.division?.votes || { aye:0, no:0, abstain:0 }
     };
 
-    // prevent duplicates (same outcome when already final)
     const last = bill.hansard.division[bill.hansard.division.length - 1];
-    if (last && last.outcome === entry.outcome && last.votes?.aye === entry.votes.aye && last.votes?.no === entry.votes.no) return;
+    if (last && last.outcome === entry.outcome &&
+        last.votes?.aye === entry.votes.aye &&
+        last.votes?.no === entry.votes.no &&
+        last.votes?.abstain === entry.votes.abstain) {
+      return;
+    }
 
     bill.hansard.division.push(entry);
   }
 
   function processBillDivision(bill){
-    if (!bill || bill.stage !== "Division") return;
+    if (!bill) return;
     ensureBillDefaults(bill);
-    const div = ensureBillDivisionDefaults(bill);
 
+    if (bill.stage !== "Division") return;
     if (isCompleted(bill)) return;
+
+    const div = ensureBillDivisionDefaults(bill);
     if (div.closed) return;
 
-    // Sunday freeze: do not auto-close
+    // Sunday freeze
     if (isSunday()) return;
 
-    const now = Date.now();
+    const now = nowTs();
     if (now >= div.closesAt) {
       div.closed = true;
-
       const aye = div.votes?.aye || 0;
       const no = div.votes?.no || 0;
 
@@ -375,7 +374,7 @@
         div.result = "passed";
         bill.status = "passed";
       } else {
-        div.result = "failed";
+        div.result = "failed"; // tie fails
         bill.status = "failed";
       }
 
@@ -389,28 +388,26 @@
     if (!data) return null;
 
     normaliseData(data);
-
     const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
     if (!bill) return null;
 
     ensureBillDefaults(bill);
-
-    // only when in Division stage and not completed
     if (bill.stage !== "Division" || isCompleted(bill)) return null;
 
     const div = ensureBillDivisionDefaults(bill);
     if (div.closed) return null;
 
-    // one vote per voterName
-    if (div.voters.includes(voterName)) return null;
+    const name = String(voterName || "").trim();
+    if (!name) return null;
+
+    if (div.voters.includes(name)) return null;
 
     if (vote === "aye") div.votes.aye++;
     else if (vote === "no") div.votes.no++;
     else div.votes.abstain++;
 
-    div.voters.push(voterName);
+    div.voters.push(name);
 
-    // allow immediate processing if deadline has passed (not Sunday)
     processBillDivision(bill);
 
     saveData(data);
@@ -431,10 +428,10 @@
     // Pause while amendment division open
     if (billHasOpenAmendmentDivision(bill)) return bill;
 
-    // Defer-to-Monday rule (if a bill was submitted on Sunday)
+    // Defer-to-Monday rule
     if (bill.deferToMonday === true) {
       const today = new Date();
-      if (today.getDay() === 0) return bill; // still Sunday
+      if (today.getDay() === 0) return bill;
       bill.deferToMonday = false;
     }
 
@@ -460,7 +457,6 @@
     }
 
     if (bill.stage === "Division") {
-      // Division closes automatically based on real time
       processBillDivision(bill);
       return bill;
     }
@@ -476,18 +472,17 @@
       return { label: isSunday() ? "Polling Day — clock frozen" : "First Reading ends in", msRemaining: end - now };
     }
     if (bill.stage === "Second Reading") {
-      const end = addValidDaysSkippingSundays(new Date(bill.stageStartedAt).getTime(), 6); // 2 sim months
+      const end = addValidDaysSkippingSundays(new Date(bill.stageStartedAt).getTime(), 6);
       return { label: isSunday() ? "Polling Day — clock frozen" : "Second Reading ends in", msRemaining: end - now };
     }
     if (bill.stage === "Report Stage") {
-      const end = addValidDaysSkippingSundays(new Date(bill.stageStartedAt).getTime(), 3); // 1 sim month
+      const end = addValidDaysSkippingSundays(new Date(bill.stageStartedAt).getTime(), 3);
       return { label: isSunday() ? "Polling Day — clock frozen" : "Report Stage ends in", msRemaining: end - now };
     }
     if (bill.stage === "Division") {
       const div = ensureBillDivisionDefaults(bill);
       return { label: isSunday() ? "Polling Day — clock frozen" : "Division closes in", msRemaining: (div.closesAt || 0) - now };
     }
-
     return { label: "", msRemaining: 0 };
   }
 
@@ -511,7 +506,7 @@
 
   function logHansardAmendment(bill, amend, outcome) {
     bill.hansard = bill.hansard || {};
-    bill.hansard.amendments = bill.hansard.amendments || [];
+    bill.hansard.amendments = Array.isArray(bill.hansard.amendments) ? bill.hansard.amendments : [];
 
     const exists = bill.hansard.amendments.some(x => x.id === amend.id && x.outcome === outcome);
     if (exists) return;
@@ -522,7 +517,7 @@
       type: amend.type,
       proposedBy: amend.proposedBy,
       supporters: amend.supporters || [],
-      outcome, // "passed" | "failed"
+      outcome,
       timestamp: new Date().toISOString(),
       failedReason: amend.failedReason || null
     });
@@ -534,7 +529,7 @@
     // Sunday freeze
     if (isSunday()) return bill;
 
-    const now = Date.now();
+    const now = nowTs();
 
     bill.amendments.forEach(amend => {
       ensureAmendmentDefaults(amend);
@@ -544,6 +539,7 @@
         amend.supportDeadlineAt = addActiveHoursSkippingSundays(submitted, 24);
       }
 
+      // fail if deadline passes without support
       if (amend.status === "proposed") {
         const supporters = amend.supporters || [];
         if (now > amend.supportDeadlineAt && supporters.length < 2) {
@@ -553,6 +549,7 @@
         }
       }
 
+      // open division if supported
       if (amend.status === "proposed" && (amend.supporters || []).length >= 2) {
         amend.status = "division";
         const opened = now;
@@ -566,6 +563,7 @@
         };
       }
 
+      // close division if deadline passes
       if (amend.status === "division" && amend.division && amend.division.closed !== true) {
         if (now >= amend.division.closesAt) {
           const aye = amend.division.votes?.aye || 0;
@@ -616,68 +614,167 @@
     return { data, bill };
   }
 
-function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
-  return rbUpdateBill(billId, (bill) => {
-    // Enforce: ONLY ONE active amendment at a time (support window OR division)
-    const active = (bill.amendments || []).some(a =>
-      a.status === "proposed" ||
-      (a.status === "division" && a.division && a.division.closed !== true)
-    );
+  function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
+    return rbUpdateBill(billId, (bill) => {
+      // single live amendment per bill
+      const active = (bill.amendments || []).some(a =>
+        a.status === "proposed" ||
+        (a.status === "division" && a.division && a.division.closed !== true)
+      );
 
-    if (active) {
-      // hard refuse — UI will show alert based on null return
-      bill._lastAmendmentError = "Only one live amendment may run at a time for this bill. Resolve the current amendment first.";
-      return;
-    }
+      if (active) {
+        bill._lastAmendmentError = "Only one live amendment may run at a time for this bill. Resolve the current amendment first.";
+        return;
+      }
 
-    const amend = ensureAmendmentDefaults({
-      id: `amend-${Date.now()}`,
-      articleNumber: Number(articleNumber),
-      type,
-      text,
-      proposedBy,
-      submittedAt: new Date().toISOString(),
-      status: "proposed",
-      supporters: []
+      const amend = ensureAmendmentDefaults({
+        id: `amend-${Date.now()}`,
+        articleNumber: Number(articleNumber),
+        type,
+        text,
+        proposedBy,
+        submittedAt: new Date().toISOString(),
+        status: "proposed",
+        supporters: []
+      });
+
+      amend.supportDeadlineAt = addActiveHoursSkippingSundays(nowTs(), 24);
+
+      bill.amendments.unshift(amend);
+      delete bill._lastAmendmentError;
     });
-
-    // set deadline immediately
-    amend.supportDeadlineAt = addActiveHoursSkippingSundays(Date.now(), 24);
-
-    bill.amendments.unshift(amend);
-
-    // clear any previous error
-    delete bill._lastAmendmentError;
-  });
-}
-
+  }
 
   function rbSupportAmendment(billId, amendId, party){
     return rbUpdateBill(billId, (bill) => {
-      const amend = bill.amendments.find(a => a.id === amendId);
+      const amend = (bill.amendments || []).find(a => a.id === amendId);
       if (!amend) return;
       if (amend.status !== "proposed") return;
 
-      if (!Array.isArray(amend.supporters)) amend.supporters = [];
+      amend.supporters = Array.isArray(amend.supporters) ? amend.supporters : [];
       if (!amend.supporters.includes(party)) amend.supporters.push(party);
     });
   }
 
   function rbVoteAmendment(billId, amendId, voterName, vote){
     return rbUpdateBill(billId, (bill) => {
-      const amend = bill.amendments.find(a => a.id === amendId);
+      const amend = (bill.amendments || []).find(a => a.id === amendId);
       if (!amend || amend.status !== "division" || !amend.division || amend.division.closed) return;
 
-      amend.division.voters = Array.isArray(amend.division.voters) ? amend.division.voters : [];
-      if (amend.division.voters.includes(voterName)) return;
+      const name = String(voterName || "").trim();
+      if (!name) return;
 
-      if (!amend.division.votes) amend.division.votes = { aye:0, no:0, abstain:0 };
+      amend.division.voters = Array.isArray(amend.division.voters) ? amend.division.voters : [];
+      if (amend.division.voters.includes(name)) return;
+
+      amend.division.votes = amend.division.votes || { aye:0, no:0, abstain:0 };
       if (vote === "aye") amend.division.votes.aye++;
       else if (vote === "no") amend.division.votes.no++;
       else amend.division.votes.abstain++;
 
-      amend.division.voters.push(voterName);
+      amend.division.voters.push(name);
     });
+  }
+
+  /* =========================
+     Amendment modal (Bill page)
+     ========================= */
+  function ensureAmendmentModal() {
+    if (document.getElementById("rb-amend-modal")) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "rb-amend-modal";
+    wrap.style.display = "none";
+    wrap.innerHTML = `
+      <div class="rb-modal-backdrop" style="
+        position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9998;
+        display:flex; align-items:center; justify-content:center; padding:18px;
+      ">
+        <div class="panel rb-modal" style="
+          width:min(720px, 100%); max-height:85vh; overflow:auto; z-index:9999;
+        ">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+            <h2 style="margin:0;">Propose Amendment</h2>
+            <button class="btn" type="button" id="rbAmendCloseBtn">Close</button>
+          </div>
+
+          <div class="muted-block" style="margin-top:12px;">
+            One live amendment at a time per bill. After submission, party leader support runs for 24 active hours (Sundays frozen).
+          </div>
+
+          <form id="rbAmendForm" style="margin-top:12px;">
+            <div class="form-grid">
+              <label>Article</label>
+              <input id="rbAmArticle" type="number" min="1" value="1" />
+
+              <label>Type</label>
+              <select id="rbAmType">
+                <option value="replace">Replace</option>
+                <option value="insert">Insert</option>
+                <option value="delete">Delete</option>
+              </select>
+
+              <label>Text</label>
+              <textarea id="rbAmText" rows="6" placeholder="Write the amendment text…"></textarea>
+
+              <div style="display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
+                <button class="btn" type="button" id="rbAmendCancelBtn">Cancel</button>
+                <button class="btn" type="submit">Submit Amendment</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(wrap);
+
+    const close = () => { wrap.style.display = "none"; };
+
+    wrap.querySelector(".rb-modal-backdrop").addEventListener("click", (e) => {
+      if (e.target === wrap.querySelector(".rb-modal-backdrop")) close();
+    });
+
+    document.getElementById("rbAmendCloseBtn").addEventListener("click", close);
+    document.getElementById("rbAmendCancelBtn").addEventListener("click", close);
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && wrap.style.display !== "none") close();
+    });
+  }
+
+  function openAmendmentModal({ billId, proposedBy }) {
+    ensureAmendmentModal();
+
+    const modal = document.getElementById("rb-amend-modal");
+    modal.style.display = "block";
+
+    document.getElementById("rbAmArticle").value = "1";
+    document.getElementById("rbAmType").value = "replace";
+    document.getElementById("rbAmText").value = "";
+
+    const form = document.getElementById("rbAmendForm");
+    form.onsubmit = (e) => {
+      e.preventDefault();
+
+      const articleNumber = Number(document.getElementById("rbAmArticle").value || 1);
+      const type = document.getElementById("rbAmType").value;
+      const text = (document.getElementById("rbAmText").value || "").trim();
+
+      if (!text) return alert("Amendment text is required.");
+
+      const res = rbProposeAmendment(billId, { articleNumber, type, text, proposedBy });
+
+      if (!res) {
+        const latest = getData();
+        const b = (latest?.orderPaperCommons || []).find(x => x.id === billId);
+        const msg = b?._lastAmendmentError || "Could not submit amendment.";
+        return alert(msg);
+      }
+
+      modal.style.display = "none";
+      location.reload();
+    };
   }
 
   /* =========================
@@ -754,14 +851,13 @@ function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
   }
 
   function isLeader(playerObj) {
-    return playerObj?.partyLeader === true || playerObj?.role === "leader-opposition" || playerObj?.role === "prime-minister";
+    return playerObj?.partyLeader === true ||
+           playerObj?.role === "leader-opposition" ||
+           playerObj?.role === "prime-minister";
   }
 
   function generateBillDivisionDocketItems(data){
     const items = [];
-    const current = data.currentPlayer || {};
-    const me = (data.players || []).find(p => p.name === current.name) || current;
-
     (data.orderPaperCommons || []).forEach(bill => {
       ensureBillDefaults(bill);
       if (bill.stage !== "Division") return;
@@ -780,22 +876,19 @@ function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
         priority: "high"
       });
     });
-
     return items;
   }
 
   function generateAmendmentDocketItems(data) {
     const items = [];
     const current = data.currentPlayer || {};
-    const me = (data.players || []).find(p => p.name === current.name);
-    if (!me) return items;
+    const me = (data.players || []).find(p => p.name === current.name) || current;
 
     (data.orderPaperCommons || []).forEach(bill => {
       ensureBillDefaults(bill);
       processAmendments(bill);
 
       (bill.amendments || []).forEach(amend => {
-        // Leader support window
         if (
           amend.status === "proposed" &&
           isLeader(me) &&
@@ -813,7 +906,6 @@ function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
           });
         }
 
-        // Amendment division open
         if (amend.status === "division" && amend.division && amend.division.closed !== true) {
           const ms = Math.max(0, amend.division.closesAt - nowTs());
           items.push({
@@ -1003,119 +1095,19 @@ function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
     if (passedEl) passedEl.innerHTML = renderList(passed, "No passed legislation yet.");
     if (failedEl) failedEl.innerHTML = renderList(failed, "No defeated legislation yet.");
   }
-function ensureAmendmentModal() {
-  if (document.getElementById("rb-amend-modal")) return;
-
-  const wrap = document.createElement("div");
-  wrap.id = "rb-amend-modal";
-  wrap.style.display = "none";
-  wrap.innerHTML = `
-    <div class="rb-modal-backdrop" style="
-      position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9998;
-      display:flex; align-items:center; justify-content:center; padding:18px;
-    ">
-      <div class="panel rb-modal" style="
-        width:min(720px, 100%); max-height:85vh; overflow:auto; z-index:9999;
-      ">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
-          <h2 style="margin:0;">Propose Amendment</h2>
-          <button class="btn" type="button" id="rbAmendCloseBtn">Close</button>
-        </div>
-
-        <div class="muted-block" style="margin-top:12px;">
-          One live amendment at a time per bill. After submission, party leader support runs for 24 active hours (Sundays frozen).
-        </div>
-
-        <form id="rbAmendForm" style="margin-top:12px;">
-          <div class="form-grid">
-            <label>Article</label>
-            <input id="rbAmArticle" type="number" min="1" value="1" />
-
-            <label>Type</label>
-            <select id="rbAmType">
-              <option value="replace">Replace</option>
-              <option value="insert">Insert</option>
-              <option value="delete">Delete</option>
-            </select>
-
-            <label>Text</label>
-            <textarea id="rbAmText" rows="6" placeholder="Write the amendment text…"></textarea>
-
-            <div style="display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
-              <button class="btn" type="button" id="rbAmendCancelBtn">Cancel</button>
-              <button class="btn" type="submit">Submit Amendment</button>
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(wrap);
-
-  // close handlers
-  const close = () => { wrap.style.display = "none"; };
-  wrap.querySelector(".rb-modal-backdrop").addEventListener("click", (e) => {
-    if (e.target === wrap.querySelector(".rb-modal-backdrop")) close();
-  });
-
-  document.getElementById("rbAmendCloseBtn").addEventListener("click", close);
-  document.getElementById("rbAmendCancelBtn").addEventListener("click", close);
-
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && wrap.style.display !== "none") close();
-  });
-}
-
-function openAmendmentModal({ billId, proposedBy }) {
-  ensureAmendmentModal();
-
-  const modal = document.getElementById("rb-amend-modal");
-  modal.style.display = "block";
-
-  // reset fields each time
-  document.getElementById("rbAmArticle").value = "1";
-  document.getElementById("rbAmType").value = "replace";
-  document.getElementById("rbAmText").value = "";
-
-  const form = document.getElementById("rbAmendForm");
-
-  // Replace any prior handler cleanly
-  form.onsubmit = (e) => {
-    e.preventDefault();
-
-    const articleNumber = Number(document.getElementById("rbAmArticle").value || 1);
-    const type = document.getElementById("rbAmType").value;
-    const text = (document.getElementById("rbAmText").value || "").trim();
-
-    if (!text) return alert("Amendment text is required.");
-
-    const res = rbProposeAmendment(billId, { articleNumber, type, text, proposedBy });
-
-    // If engine refused, try to read a friendly error from the bill state
-    if (!res) {
-      const latest = getData();
-      const b = (latest?.orderPaperCommons || []).find(x => x.id === billId);
-      const msg = b?._lastAmendmentError || "Could not submit amendment.";
-      return alert(msg);
-    }
-
-    modal.style.display = "none";
-    location.reload();
-  };
-}
 
   /* =========================
      Bill Page (Main division + Amendments)
      Expects bill.html IDs:
        - #billTitle, #billMeta, #billText
        - #division-voting, #division-progress
-       - #bill-amendments (preferred)
+       - #amendmentsList
      ========================= */
   function initBillPage(data){
     const titleEl = document.getElementById("billTitle");
     const metaEl = document.getElementById("billMeta");
     const textEl = document.getElementById("billText");
+    const amendRoot = document.getElementById("amendmentsList");
     if (!titleEl || !metaEl || !textEl) return;
 
     const params = new URLSearchParams(location.search);
@@ -1136,14 +1128,14 @@ function openAmendmentModal({ billId, proposedBy }) {
         </div>
       `;
       textEl.textContent = "";
+      if (amendRoot) amendRoot.textContent = "";
       return;
     }
 
     ensureBillDefaults(bill);
     processAmendments(bill);
-    processBillLifecycle(data, bill); // will also process division if stage is Division
+    processBillLifecycle(data, bill);
 
-    // persist any auto-changes
     saveData(data);
 
     titleEl.textContent = bill.title || "Bill";
@@ -1184,7 +1176,7 @@ function openAmendmentModal({ billId, proposedBy }) {
 
     textEl.textContent = bill.billText || "(No bill text added yet.)";
 
-    // ========== Main Division UI ==========
+    // ===== Main Division UI =====
     const votingEl = document.getElementById("division-voting");
     const progressEl = document.getElementById("division-progress");
 
@@ -1194,12 +1186,11 @@ function openAmendmentModal({ billId, proposedBy }) {
         progressEl.style.display = "block";
 
         const me = data.currentPlayer || {};
-        const voterName = me.name || "Unknown MP";
+        const voterName = String(me.name || "Unknown MP");
 
         ensureBillDivisionDefaults(bill);
-
         const div = bill.division;
-        const msLeft = Math.max(0, (div.closesAt || 0) - Date.now());
+        const msLeft = Math.max(0, (div.closesAt || 0) - nowTs());
         const alreadyVoted = (div.voters || []).includes(voterName);
 
         votingEl.innerHTML = `
@@ -1249,111 +1240,102 @@ function openAmendmentModal({ billId, proposedBy }) {
       }
     }
 
-    // ========== Amendments UI ==========
-const hasActiveAmendment = (amendments || []).some(a =>
-  a.status === "proposed" ||
-  (a.status === "division" && a.division && a.division.closed !== true)
-);
+    // ===== Amendments UI =====
+    if (!amendRoot) return;
 
-const proposeButton = hasActiveAmendment
-  ? `<div class="muted-block" style="margin-top:12px;">
-       An amendment is already live for this bill. Resolve it before proposing another.
-     </div>
-     <div style="margin-top:12px;">
-       <button class="btn" type="button" disabled>Propose Amendment</button>
-     </div>`
-  : `<div style="margin-top:12px;">
-       <button class="btn" type="button" id="rbOpenAmendModalBtn">Propose Amendment</button>
-     </div>`;
+    const me = data.currentPlayer || {};
+    const myName = String(me.name || "Unknown MP");
+    const myParty = String(me.party || "Unknown");
+    const leader = isLeader(me);
 
-amendRoot.innerHTML = `
-  <div class="muted-block">
-    <b>Amendments:</b> 24 active hours leader support (2 parties). If supported, 24 active hours division. Sundays frozen.
-  </div>
+    const amendments = Array.isArray(bill.amendments) ? bill.amendments : [];
 
-  const openBtn = document.getElementById("rbOpenAmendModalBtn");
-if (openBtn) {
-  openBtn.addEventListener("click", () => {
-    openAmendmentModal({ billId: bill.id, proposedBy: myName });
-  });
-}
+    const hasActiveAmendment = amendments.some(a =>
+      a.status === "proposed" ||
+      (a.status === "division" && a.division && a.division.closed !== true)
+    );
 
+    const proposeButtonHtml = hasActiveAmendment
+      ? `<div class="muted-block" style="margin-top:12px;">
+           An amendment is already live for this bill. Resolve it before proposing another.
+         </div>
+         <div style="margin-top:12px;">
+           <button class="btn" type="button" disabled>Propose Amendment</button>
+         </div>`
+      : `<div style="margin-top:12px;">
+           <button class="btn" type="button" id="rbOpenAmendModalBtn">Propose Amendment</button>
+         </div>`;
 
-  ${proposeButton}
-
-  <div style="margin-top:18px;">
-    <h3 style="margin:0 0 8px;">Current Amendments</h3>
-    ${!amendments.length ? `<div class="muted-block">No amendments yet.</div>` : `
-      <div class="docket-list">
-        ${amendments.map(a => {
-          // ... keep your existing amendment cards exactly as they were ...
-          // (support button + vote buttons)
-          const supportLeft = a.supportDeadlineAt ? Math.max(0, a.supportDeadlineAt - Date.now()) : 0;
-          const divisionLeft = a.division?.closesAt ? Math.max(0, a.division.closesAt - Date.now()) : 0;
-          const supporters = (a.supporters || []).join(", ") || "None";
-
-          let actions = "";
-          if (a.status === "proposed"){
-            actions = `
-              <div class="small">Supporters: <b>${escapeHtml(supporters)}</b></div>
-              <div class="small">Support window: <b>${escapeHtml(msToHMS(supportLeft))}</b></div>
-              ${leader && !(a.supporters||[]).includes(myParty)
-                ? `<div style="margin-top:10px;"><button class="btn" data-support="${escapeHtml(a.id)}" type="button">Support as ${escapeHtml(myParty)}</button></div>`
-                : ``}
-            `;
-          } else if (a.status === "division" && a.division && !a.division.closed){
-            const alreadyVoted = (a.division.voters || []).includes(myName);
-            actions = `
-              <div class="small">Division closes in: <b>${escapeHtml(msToHMS(divisionLeft))}</b></div>
-              <div class="small">Aye: <b>${a.division.votes?.aye || 0}</b> · No: <b>${a.division.votes?.no || 0}</b> · Abstain: <b>${a.division.votes?.abstain || 0}</b></div>
-              ${alreadyVoted
-                ? `<div class="muted-block" style="margin-top:10px;">You have already voted.</div>`
-                : `
-                  <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-                    <button class="btn" data-vote="aye" data-am="${escapeHtml(a.id)}" type="button">Aye</button>
-                    <button class="btn" data-vote="no" data-am="${escapeHtml(a.id)}" type="button">No</button>
-                    <button class="btn" data-vote="abstain" data-am="${escapeHtml(a.id)}" type="button">Abstain</button>
-                  </div>
-                `}
-            `;
-          } else {
-            actions = `
-              <div class="small"><b>Status:</b> ${escapeHtml(String(a.status || "").toUpperCase())}</div>
-              ${a.failedReason ? `<div class="small"><b>Reason:</b> ${escapeHtml(a.failedReason)}</div>` : ``}
-            `;
-          }
-
-          return `
-            <div class="docket-item ${a.status === "division" ? "high" : ""}">
-              <div class="docket-left">
-                <div class="docket-icon">🧾</div>
-                <div class="docket-text">
-                  <div class="docket-title">Article ${escapeHtml(a.articleNumber)} · ${escapeHtml(a.type)}</div>
-                  <div class="docket-detail">${escapeHtml(a.text || "")}</div>
-                  <div class="small">Proposed by: <b>${escapeHtml(a.proposedBy || "—")}</b></div>
-                  ${actions}
-                </div>
-              </div>
-            </div>
-          `;
-        }).join("")}
+    amendRoot.innerHTML = `
+      <div class="muted-block">
+        <b>Amendments:</b> 24 active hours leader support (2 parties). If supported, 24 active hours division. Sundays frozen.
       </div>
-    `}
-  </div>
-`;
 
+      ${proposeButtonHtml}
 
-    const form = document.getElementById("amendForm");
-    if (form){
-      form.addEventListener("submit", (e) => {
-        e.preventDefault();
-        const articleNumber = document.getElementById("amArticle").value;
-        const type = document.getElementById("amType").value;
-        const text = (document.getElementById("amText").value || "").trim();
-        if (!text) return alert("Amendment text required.");
+      <div style="margin-top:18px;">
+        <h3 style="margin:0 0 8px;">Current Amendments</h3>
+        ${!amendments.length ? `<div class="muted-block">No amendments yet.</div>` : `
+          <div class="docket-list">
+            ${amendments.map(a => {
+              const supportLeft = a.supportDeadlineAt ? Math.max(0, a.supportDeadlineAt - nowTs()) : 0;
+              const divisionLeft = a.division?.closesAt ? Math.max(0, a.division.closesAt - nowTs()) : 0;
+              const supporters = (a.supporters || []).join(", ") || "None";
 
-        rbProposeAmendment(bill.id, { articleNumber, type, text, proposedBy: myName });
-        location.reload();
+              let actions = "";
+              if (a.status === "proposed"){
+                actions = `
+                  <div class="small">Supporters: <b>${escapeHtml(supporters)}</b></div>
+                  <div class="small">Support window: <b>${escapeHtml(msToHMS(supportLeft))}</b></div>
+                  ${leader && !(a.supporters||[]).includes(myParty)
+                    ? `<div style="margin-top:10px;"><button class="btn" data-support="${escapeHtml(a.id)}" type="button">Support as ${escapeHtml(myParty)}</button></div>`
+                    : ``}
+                `;
+              } else if (a.status === "division" && a.division && !a.division.closed){
+                const alreadyVoted = (a.division.voters || []).includes(myName);
+                actions = `
+                  <div class="small">Division closes in: <b>${escapeHtml(msToHMS(divisionLeft))}</b></div>
+                  <div class="small">Aye: <b>${a.division.votes?.aye || 0}</b> · No: <b>${a.division.votes?.no || 0}</b> · Abstain: <b>${a.division.votes?.abstain || 0}</b></div>
+                  ${alreadyVoted
+                    ? `<div class="muted-block" style="margin-top:10px;">You have already voted.</div>`
+                    : `
+                      <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+                        <button class="btn" data-vote="aye" data-am="${escapeHtml(a.id)}" type="button">Aye</button>
+                        <button class="btn" data-vote="no" data-am="${escapeHtml(a.id)}" type="button">No</button>
+                        <button class="btn" data-vote="abstain" data-am="${escapeHtml(a.id)}" type="button">Abstain</button>
+                      </div>
+                    `}
+                `;
+              } else {
+                actions = `
+                  <div class="small"><b>Status:</b> ${escapeHtml(String(a.status || "").toUpperCase())}</div>
+                  ${a.failedReason ? `<div class="small"><b>Reason:</b> ${escapeHtml(a.failedReason)}</div>` : ``}
+                `;
+              }
+
+              return `
+                <div class="docket-item ${a.status === "division" ? "high" : ""}">
+                  <div class="docket-left">
+                    <div class="docket-icon">🧾</div>
+                    <div class="docket-text">
+                      <div class="docket-title">Article ${escapeHtml(a.articleNumber)} · ${escapeHtml(a.type)}</div>
+                      <div class="docket-detail">${escapeHtml(a.text || "")}</div>
+                      <div class="small">Proposed by: <b>${escapeHtml(a.proposedBy || "—")}</b></div>
+                      ${actions}
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `}
+      </div>
+    `;
+
+    const openBtn = document.getElementById("rbOpenAmendModalBtn");
+    if (openBtn) {
+      openBtn.addEventListener("click", () => {
+        openAmendmentModal({ billId: bill.id, proposedBy: myName });
       });
     }
 
@@ -1398,8 +1380,7 @@ if (openBtn) {
   }
 
   /* =========================
-     Submit Bill Page + Party Draft
-     (unchanged from your baseline)
+     Submit Bill Page (structured builder)
      ========================= */
   function initSubmitBillPage(data) {
     const builder = document.getElementById("legislation-builder");
@@ -1411,6 +1392,27 @@ if (openBtn) {
     const gender = (data.adminSettings?.monarchGender || "Queen").toLowerCase();
     const majesty = (gender === "queen") ? "the Queen’s" : "the King’s";
     return `Be it enacted by ${majesty} most Excellent Majesty, by and with the advice and consent of the Lords Spiritual and Temporal, and Commons, in this present Parliament assembled, and by the authority of the same, as follows:—`;
+  }
+
+  function generateArticles(countId, containerId, headingPrefix, bodyPrefix) {
+    const countEl = document.getElementById(countId);
+    const container = document.getElementById(containerId);
+    if (!countEl || !container) return;
+
+    const count = parseInt(countEl.value, 10);
+    container.innerHTML = "";
+
+    for (let i = 1; i <= count; i++) {
+      container.innerHTML += `
+        <div class="article-block" style="margin-bottom:14px;">
+          <label>Article ${i} Heading</label>
+          <input id="${headingPrefix}${i}" placeholder="Heading..." />
+
+          <label>Article ${i} Body</label>
+          <textarea id="${bodyPrefix}${i}" rows="4" placeholder="Text of Article ${i}..."></textarea>
+        </div>
+      `;
+    }
   }
 
   function renderLegislationBuilder(data) {
@@ -1482,31 +1484,12 @@ if (openBtn) {
     const articleCountEl = document.getElementById("articleCount");
     const submitBtn = document.getElementById("submitStructuredBillBtn");
 
-    articleCountEl.addEventListener("change", () => generateArticles("articleCount", "articlesContainer", "articleHeading", "articleBody"));
+    articleCountEl.addEventListener("change", () =>
+      generateArticles("articleCount", "articlesContainer", "articleHeading", "articleBody")
+    );
     generateArticles("articleCount", "articlesContainer", "articleHeading", "articleBody");
 
     submitBtn.addEventListener("click", () => submitStructuredBill());
-  }
-
-  function generateArticles(countId, containerId, headingPrefix, bodyPrefix) {
-    const countEl = document.getElementById(countId);
-    const container = document.getElementById(containerId);
-    if (!countEl || !container) return;
-
-    const count = parseInt(countEl.value, 10);
-    container.innerHTML = "";
-
-    for (let i = 1; i <= count; i++) {
-      container.innerHTML += `
-        <div class="article-block" style="margin-bottom:14px;">
-          <label>Article ${i} Heading</label>
-          <input id="${headingPrefix}${i}" placeholder="Heading..." />
-
-          <label>Article ${i} Body</label>
-          <textarea id="${bodyPrefix}${i}" rows="4" placeholder="Text of Article ${i}..."></textarea>
-        </div>
-      `;
-    }
   }
 
   function submitStructuredBill() {
@@ -1592,12 +1575,16 @@ ${articlesText}${finalArticle}
 
     if (isOpp) data.oppositionTracker[String(year)] = used + 1;
 
+    data.orderPaperCommons = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
     data.orderPaperCommons.unshift(newBill);
 
     saveData(data);
     location.href = "dashboard.html";
   }
 
+  /* =========================
+     Party Draft Page (kept)
+     ========================= */
   function initPartyDraftPage(data) {
     const builder = document.getElementById("party-legislation-builder");
     const controls = document.getElementById("party-draft-controls");
@@ -1612,6 +1599,7 @@ ${articlesText}${finalArticle}
     const controls = document.getElementById("party-draft-controls");
     const listEl = document.getElementById("party-drafts-list");
     const success = document.getElementById("party-draft-success");
+    if (!builder || !controls || !listEl) return;
 
     const player = data.currentPlayer || {};
     const party = player.party || "Unknown Party";
@@ -1628,7 +1616,6 @@ ${articlesText}${finalArticle}
 
     builder.innerHTML = `
       <div class="form-grid">
-
         <label>Title of the Bill</label>
         <input id="partyBillTitleInput" placeholder="e.g. Rail Safety Reform" />
 
@@ -1667,7 +1654,6 @@ ${articlesText}${finalArticle}
         </select>
 
         <button class="btn" id="savePartyDraftBtn" type="button">Save Draft</button>
-
       </div>
     `;
 
@@ -1730,7 +1716,6 @@ ${articlesText}${finalArticle}
             <div class="bill-card">
               <div class="bill-title">${escapeHtml(d.title)}</div>
               <div class="bill-sub">Created by: ${escapeHtml(d.createdBy)} · Updated: ${new Date(d.updatedAt).toLocaleString()}</div>
-
               <div class="bill-actions spaced">
                 <a class="btn" href="#" data-view="${escapeHtml(d.id)}">View</a>
                 <a class="btn" href="#" data-delete="${escapeHtml(d.id)}">Delete</a>
@@ -1791,7 +1776,7 @@ ${articlesText}${finalArticle}
   }
 
   /* =========================
-     ABSENCE UI (as in your working version)
+     ABSENCE UI
      ========================= */
   function renderAbsenceUI(dataFromBoot) {
     const container = document.getElementById("absence-ui");
@@ -1827,12 +1812,8 @@ ${articlesText}${finalArticle}
       me.absent = !!value;
 
       if (me.absent) {
-        if (!me.partyLeader && partyLeader) {
-          me.delegatedTo = partyLeader.name;
-        }
-        if (me.partyLeader) {
-          me.delegatedTo = me.delegatedTo || null;
-        }
+        if (!me.partyLeader && partyLeader) me.delegatedTo = partyLeader.name;
+        if (me.partyLeader) me.delegatedTo = me.delegatedTo || null;
       } else {
         me.delegatedTo = null;
       }
@@ -1927,7 +1908,7 @@ ${articlesText}${finalArticle}
       document.getElementById("order-paper") ||
       document.getElementById("live-docket") ||
       document.getElementById("sim-date-display") ||
-      document.getElementById("billMeta"); // bill page
+      document.getElementById("billMeta");
 
     if (!needsRefresh) return;
 
@@ -1940,7 +1921,7 @@ ${articlesText}${finalArticle}
       renderSimDate(latest);
       renderLiveDocket(latest);
       renderOrderPaper(latest);
-      initBillPage(latest); // keeps bill division/amendments fresh
+      initBillPage(latest);
     }, 1000);
   }
 
