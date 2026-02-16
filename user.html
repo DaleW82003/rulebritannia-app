@@ -99,10 +99,21 @@
 <main class="wrap">
   <h1 class="page-title">User</h1>
 
-  <section class="panel">
-    <div class="muted-block">Coming soon.</div>
-  </section>
-</main>
+<section class="panel">
+  <h2>Absence</h2>
+
+  <!-- app.js renders the absence controls into this -->
+  <div id="absence-ui">Loading…</div>
+
+  <div class="muted-block" style="margin-top:12px;">
+    If you mark yourself absent, your voting weight will be delegated:
+    <ul>
+      <li><b>Normal member:</b> delegated to your party leader automatically.</li>
+      <li><b>Party leader:</b> you must choose a delegate from active members of your party.</li>
+    </ul>
+  </div>
+</section>
+
 
 <script src="app.js"></script>
 </body>
