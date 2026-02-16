@@ -759,3 +759,9 @@ textarea{
   background: linear-gradient(90deg, var(--accent), rgba(1,33,105,.4));
   transition: width 0.3s ease;
 }
+.legislation-text{
+  font-family: Georgia, serif;
+  line-height:1.6;
+  white-space:pre-wrap;
+  font-size:15px;
+}
