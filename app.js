@@ -799,11 +799,6 @@ function logHansardAmendment(bill, amend, outcome) {
   });
 }
 
-function billHasOpenAmendmentDivision(bill) {
-  return (bill.amendments || []).some(a =>
-    a.status === "division" && a.division && a.division.closed !== true
-  );
-}
 
 function processAmendments(bill) {
   if (!Array.isArray(bill.amendments)) bill.amendments = [];
