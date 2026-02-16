@@ -1068,10 +1068,11 @@ function processAmendments(bill) {
 
     let bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
     bills = bills.map(b => {
-      ensureBillDefaults(b);
-      processAmendments(b);
-      processBillLifecycle(data, b);
-      return b;
+ensureBillDefaults(b);
+processAmendments(b);         // ✅ must be here
+processBillLifecycle(data, b);
+return b;
+
     });
 
     // Save lifecycle/amendment changes
