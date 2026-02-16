@@ -117,6 +117,7 @@
       renderQuestionTime(data);
       renderSundayRollDisplay();
       renderAbsenceUI(data);
+      renderQuestionTime(data);
 
 
       initSubmitBillPage(data);
