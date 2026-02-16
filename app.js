@@ -79,6 +79,12 @@ function getMonthName(month){
   ];
   return months[month - 1];
 }
+// ---------- Display Simulation Date ----------
+const simDisplay = document.getElementById("sim-date-display");
+if (simDisplay && GAME_STATE?.started) {
+  const sim = getCurrentSimDate();
+  simDisplay.textContent = `${getMonthName(sim.month)} ${sim.year}`;
+}
 
 
     // ---------- What's Going On (dashboard only) ----------
