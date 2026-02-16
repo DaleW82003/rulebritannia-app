@@ -342,3 +342,16 @@ bills = [...customBills, ...bills];
 
 })();
 
+{
+  id,
+  title,
+  author,
+  department,
+  type: "pmb",
+  stage: "First Reading",
+  status: "in-progress",
+  createdAt: Date.now(),
+  stageStartedAt: Date.now(),
+  billText,
+  amendments: []
+}
