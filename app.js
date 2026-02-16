@@ -616,23 +616,41 @@
     return { data, bill };
   }
 
-  function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
-    return rbUpdateBill(billId, (bill) => {
-      const amend = ensureAmendmentDefaults({
-        id: `amend-${Date.now()}`,
-        articleNumber: Number(articleNumber),
-        type,
-        text,
-        proposedBy,
-        submittedAt: new Date().toISOString(),
-        status: "proposed",
-        supporters: []
-      });
+function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
+  return rbUpdateBill(billId, (bill) => {
+    // Enforce: ONLY ONE active amendment at a time (support window OR division)
+    const active = (bill.amendments || []).some(a =>
+      a.status === "proposed" ||
+      (a.status === "division" && a.division && a.division.closed !== true)
+    );
 
-      amend.supportDeadlineAt = addActiveHoursSkippingSundays(Date.now(), 24);
-      bill.amendments.unshift(amend);
+    if (active) {
+      // hard refuse — UI will show alert based on null return
+      bill._lastAmendmentError = "Only one live amendment may run at a time for this bill. Resolve the current amendment first.";
+      return;
+    }
+
+    const amend = ensureAmendmentDefaults({
+      id: `amend-${Date.now()}`,
+      articleNumber: Number(articleNumber),
+      type,
+      text,
+      proposedBy,
+      submittedAt: new Date().toISOString(),
+      status: "proposed",
+      supporters: []
     });
-  }
+
+    // set deadline immediately
+    amend.supportDeadlineAt = addActiveHoursSkippingSundays(Date.now(), 24);
+
+    bill.amendments.unshift(amend);
+
+    // clear any previous error
+    delete bill._lastAmendmentError;
+  });
+}
+
 
   function rbSupportAmendment(billId, amendId, party){
     return rbUpdateBill(billId, (bill) => {
