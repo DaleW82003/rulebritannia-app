@@ -651,3 +651,28 @@ input, textarea, select{
 textarea{
   resize:vertical;
 }
+.bill-badge{
+  display:inline-block;
+  padding:4px 8px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:800;
+  margin-bottom:6px;
+}
+
+.badge-pmb{
+  background: rgba(1,33,105,.12);
+  border:1px solid rgba(1,33,105,.25);
+}
+
+.badge-opposition{
+  background: rgba(200,16,46,.15);
+  border:1px solid rgba(200,16,46,.45);
+  color:#9b0d23;
+}
+
+.badge-government{
+  background: rgba(46,139,87,.20);
+  border:1px solid rgba(46,139,87,.45);
+  color:#1f6d45;
+}
