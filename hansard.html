@@ -104,11 +104,17 @@
 <main class="wrap">
   <h1 class="page-title">Hansard</h1>
 
-  <!-- Optional: show sim date on every page -->
+  <!-- Simulation Date -->
   <div id="sim-date-display" class="sim-date"></div>
 
+  <!-- Sunday Roll Display -->
+  <div id="sunday-roll-display" class="muted-block" style="margin-bottom:18px;">
+    Loading Sunday roll…
+  </div>
+
   <div class="muted-block" style="margin-bottom:18px;">
-    Archive of completed legislation (passed or defeated). Bills remain on the Order Paper until the next Sunday roll,
+    Archive of completed legislation (passed or defeated). 
+    Bills remain on the Order Paper until the next Sunday roll,
     then appear here.
   </div>
 
@@ -122,6 +128,7 @@
     <div id="hansard-failed">Loading…</div>
   </section>
 </main>
+
 
 <!-- Load last so nav dropdown + active highlighting always works -->
 <script src="app.js"></script>
