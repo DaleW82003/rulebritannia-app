@@ -1135,3 +1135,25 @@ ${articlesText}${finalArticle}
   }
 
 })();
+// ---------- Sunday Roll Display ----------
+const sundayDisplay = document.getElementById("sunday-roll-display");
+if (sundayDisplay) {
+
+  const now = new Date();
+  const lastSunday = new Date(now);
+
+  // Move back to most recent Sunday
+  lastSunday.setDate(now.getDate() - now.getDay());
+  lastSunday.setHours(0,0,0,0);
+
+  const formatted = lastSunday.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  });
+
+  sundayDisplay.innerHTML = `
+    <b>Last Sunday Roll:</b> ${formatted}
+  `;
+}
