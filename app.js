@@ -2324,43 +2324,54 @@ function initPapersPage(data){
 }
 
 
-  /* =========================================================
-     BOOT (means: "when the app first loads")
-     ========================================================= */
-  fetch(DATA_URL)
-    .then(r => r.json())
-    .then((demo) => {
-      let data = getData();
-      if (!data) data = demo;
+/* =========================================================
+   BOOT (means: "when the app first loads")
+   ========================================================= */
+fetch(DATA_URL)
+  .then(r => r.json())
+  .then((demo) => {
+    let data = getData();
+    if (!data) data = demo;
 
-      normaliseData(data);
-      saveData(data);
+    normaliseData(data);
+    saveData(data);
 
-      initNavUI();
+    initNavUI();
 
-      // Dashboard
-      renderSimDate(data);
-      renderWhatsGoingOn(data);
-      renderLiveDocket(data);
-      renderOrderPaper(data);
+    // Helper: run a function without killing the entire app if it errors
+    const safeRun = (label, fn) => {
+      try { fn(); }
+      catch (e) { console.error(`[BOOT] ${label} failed:`, e); }
+    };
 
-      // Pages
-      initBillPage(data);
-      renderNewsPage(data);
-      renderPapersPage(data);
-      renderQuestionTimePage(data);
-      renderConstituenciesPage(data);
-      renderBodiesPage(data);
-      renderUserPage(data);
+    // Dashboard (only renders if the IDs exist on the page)
+    safeRun("renderSimDate",        () => renderSimDate(data));
+    safeRun("renderWhatsGoingOn",   () => renderWhatsGoingOn(data));
+    safeRun("renderLiveDocket",     () => renderLiveDocket(data));
+    safeRun("renderOrderPaper",     () => renderOrderPaper(data));
+    safeRun("renderHansard",        () => renderHansard(data));
+    safeRun("renderSundayRollDisplay", () => renderSundayRollDisplay());
+    safeRun("renderAbsenceUI",      () => renderAbsenceUI(data));
 
-      // Builders
-      initSubmitBillPage(data);
-      initPartyDraftPage(data);
-      initEconomyPage(data);
-      initQuestionTimePage(data);
-      initPapersPage(data);
+    // Core pages (ONLY call the versions you actually have)
+    safeRun("initBillPage",         () => initBillPage(data));
 
-      startLiveRefresh();
-    })
-    .catch(err => console.error("Error loading demo.json:", err));
+    // ✅ Use THESE newer init functions (and remove the older render* calls)
+    safeRun("initNewsPage",         () => initNewsPage?.(data) || renderNewsPage?.(data));
+    safeRun("initPapersPage",       () => initPapersPage(data));
+    safeRun("initQuestionTimePage", () => initQuestionTimePage(data));
+    safeRun("initEconomyPage",      () => initEconomyPage(data));
+
+    // If you have these functions, keep them; if not, they won't crash
+    safeRun("initConstituenciesPage", () => initConstituenciesPage?.(data) || renderConstituenciesPage?.(data));
+    safeRun("initBodiesPage",         () => initBodiesPage?.(data) || renderBodiesPage?.(data));
+    safeRun("initUserPage",           () => initUserPage?.(data) || renderUserPage?.(data));
+
+    // Builders (safe)
+    safeRun("initSubmitBillPage",   () => initSubmitBillPage(data));
+    safeRun("initPartyDraftPage",   () => initPartyDraftPage(data));
+
+    startLiveRefresh();
+  })
+  .catch(err => console.error("Error loading demo.json:", err));
 })();
