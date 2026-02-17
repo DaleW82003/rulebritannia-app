@@ -11,7 +11,6 @@
 
 <header class="topbar">
   <div class="topbar-inner">
-
     <div class="brand">
       <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
     </div>
@@ -23,7 +22,7 @@
         <button class="nav-toggle" type="button">The U.K ▾</button>
         <div class="dropdown">
           <a href="news.html">News</a>
-          <a href="papers.html">Papers</a>
+          <a href="papers.html" class="active">Papers</a>
           <a href="economy.html">Economy</a>
           <a href="constituencies.html">Constituencies</a>
           <a href="bodies.html">Bodies</a>
@@ -32,86 +31,29 @@
       </div>
 
       <div class="nav-group">
-        <button class="nav-toggle" type="button">Parliament ▾</button>
-        <div class="dropdown">
-          <a href="submit-bill.html">Submit a Bill</a>
-          <a href="questiontime.html">Question Time</a>
-          <a href="statements.html">Statements</a>
-          <a href="motions.html">Motions</a>
-          <a href="regulations.html">Regulations</a>
-          <a href="redlion.html">Red Lion</a>
-          <a href="hansard.html">Hansard</a>
-        </div>
-      </div>
-
-      <div class="nav-group">
-        <button class="nav-toggle" type="button">Politics ▾</button>
-        <div class="dropdown">
-          <a href="press.html">Press</a>
-          <a href="party.html">Party</a>
-          <a href="polling.html">Polling</a>
-          <a href="elections.html">Elections</a>
-          <a href="constituency-work.html">Constituency Work</a>
-          <a href="events.html">Events</a>
-          <a href="fundraising.html">Fundraising</a>
-          <a href="online.html">Online</a>
-        </div>
-      </div>
-
-      <div class="nav-group">
-        <button class="nav-toggle" type="button">Policy ▾</button>
-        <div class="dropdown">
-          <a href="government.html">Government</a>
-          <a href="opposition.html">Opposition</a>
-          <a href="budget.html">Budget</a>
-          <a href="civilservice.html">Civil Service</a>
-          <a href="cabinet.html">Cabinet</a>
-          <a href="shadowcabinet.html">Shadow Cabinet</a>
-        </div>
-      </div>
-
-      <div class="nav-group">
         <button class="nav-toggle" type="button">Personal ▾</button>
         <div class="dropdown">
-          <a href="personal.html">Personal</a>
           <a href="user.html">User</a>
-          <a href="team.html">A Team</a>
-          <a href="rules.html">Rules</a>
-          <a href="guides.html">Guides</a>
-        </div>
-      </div>
-
-      <div class="nav-group">
-        <button class="nav-toggle" type="button">External ▾</button>
-        <div class="dropdown">
-          <a href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Discourse Forum</a>
-          <a href="https://discord.com" target="_blank" rel="noopener">Discord</a>
+          <a href="control-panel.html">Control Panel</a>
         </div>
       </div>
     </nav>
-
   </div>
 </header>
 
 <main class="wrap">
 
-  <h1 class="page-title">Papers</h1>
-
-  <section class="panel" id="papers-controls">
-    Loading controls…
-  </section>
-
-  <section class="panel">
-    <h2>Today’s Front Pages</h2>
-    <div id="papers-tiles" class="papers-grid">Loading…</div>
-  </section>
+  <div class="bbc-masthead">
+    <div class="bbc-title">National Papers</div>
+    <div class="bbc-sub" id="papersSimDate">Loading…</div>
+  </div>
 
   <section class="panel">
-    <h2>Read</h2>
-    <div class="muted-block">
-      Click <b>Read this paper</b> on any tile to see the current front page and all previous issues.
-    </div>
-    <div id="paper-reader" style="margin-top:12px;">Select a paper to read.</div>
+    <div id="papersGrid" class="muted-block">Loading…</div>
+  </section>
+
+  <section class="panel" id="paperReaderPanel" style="display:none;">
+    <div id="paperReader"></div>
   </section>
 
 </main>
