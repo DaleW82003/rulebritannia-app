@@ -1155,210 +1155,334 @@ function canSpeak(data){
     if (failedEl) failedEl.innerHTML = renderList(failed, "No defeated legislation yet.");
   }
 /* =========================
-   NEWS PAGE
+   NEWS (BBC STYLE)
+   - main tiles + flavour tiles
+   - breaking ticker
+   - auto sim date stamp (Month Year)
+   - auto archive after 14 real days
    ========================= */
+
+const NEWS_CATEGORIES = [
+  "Politics",
+  "Economy",
+  "Security",
+  "Health",
+  "World",
+  "Environment",
+  "Culture",
+  "Sport",
+  "Parliament",
+  "Local"
+];
+
+function getSimStamp(data){
+  const sim = getCurrentSimDate(data);
+  return `${getMonthName(sim.month)} ${sim.year}`;
+}
+
+function processNewsLifecycle(data){
+  data.news = data.news || { items: [], archive: [] };
+  data.news.items = Array.isArray(data.news.items) ? data.news.items : [];
+  data.news.archive = Array.isArray(data.news.archive) ? data.news.archive : [];
+
+  const now = nowTs();
+  const TWO_WEEKS = 14 * 86400000;
+
+  // move old items to archive
+  const stillLive = [];
+  data.news.items.forEach(item => {
+    const created = Number(item.createdAt || now);
+    if ((now - created) >= TWO_WEEKS) {
+      const archived = { ...item, isLive: false, archivedAt: now };
+      data.news.archive.unshift(archived);
+    } else {
+      stillLive.push(item);
+    }
+  });
+
+  data.news.items = stillLive;
+
+  // keep archive newest-first
+  data.news.archive.sort((a,b) => (b.archivedAt || b.createdAt || 0) - (a.archivedAt || a.createdAt || 0));
+
+  saveData(data);
+}
+
 function renderNewsPage(data){
-  const topEl = document.getElementById("news-top");
-  const listEl = document.getElementById("news-list");
+  const tickerEl = document.getElementById("news-ticker");
+  const mainEl = document.getElementById("news-main");
+  const flavourEl = document.getElementById("news-flavour");
   const deskEl = document.getElementById("news-desk");
   const archEl = document.getElementById("news-archive");
-  if (!topEl && !listEl && !deskEl && !archEl) return;
+  if (!tickerEl && !mainEl && !flavourEl && !deskEl && !archEl) return;
 
-  const news = data.news || { items: [], archive: [] };
-  const items = Array.isArray(news.items) ? news.items : [];
-  const archive = Array.isArray(news.archive) ? news.archive : [];
+  // ensure + lifecycle
+  data.news = data.news || { items: [], archive: [] };
+  processNewsLifecycle(data);
 
-  const pinned = items.find(x => x.pinned) || items[0] || null;
-  const latest = items.filter(x => !pinned || x.id !== pinned.id).slice(0, 10);
+  const items = Array.isArray(data.news.items) ? data.news.items : [];
+  const archive = Array.isArray(data.news.archive) ? data.news.archive : [];
 
-  // Top story
-  if (topEl) {
-    if (!pinned) {
-      topEl.innerHTML = `No news yet.`;
+  // split types
+  const main = items.filter(x => (x.kind || "main") === "main");
+  const flavour = items.filter(x => (x.kind || "main") === "flavour");
+
+  // breaking ticker = live breaking items (most recent first)
+  const breaking = items
+    .filter(x => !!x.breaking)
+    .sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .slice(0, 8);
+
+  // --- TICKER ---
+  if (tickerEl) {
+    if (!breaking.length) {
+      tickerEl.innerHTML = `<b>BREAKING</b> · No breaking headlines at the moment.`;
     } else {
-      topEl.innerHTML = `
-        <div class="bill-title">${escapeHtml(pinned.headline)}</div>
-        <div class="small">Source: <b>${escapeHtml(pinned.source || "News Desk")}</b> · Category: <b>${escapeHtml(pinned.category || "General")}</b></div>
-        ${pinned.strap ? `<div class="muted-block" style="margin-top:10px;">${escapeHtml(pinned.strap)}</div>` : ``}
-        ${pinned.body ? `<div class="muted-block" style="margin-top:10px; white-space:pre-wrap;">${escapeHtml(pinned.body)}</div>` : ``}
-      `;
-    }
-  }
-
-  // Latest headlines
-  if (listEl) {
-    if (!latest.length) {
-      listEl.innerHTML = `<div class="muted-block">No additional headlines yet.</div>`;
-    } else {
-      listEl.innerHTML = `
-        <div class="docket-list">
-          ${latest.map(n => `
-            <div class="docket-item">
-              <div class="docket-left">
-                <div class="docket-icon">📰</div>
-                <div class="docket-text">
-                  <div class="docket-title">${escapeHtml(n.headline)}</div>
-                  <div class="docket-detail">${escapeHtml(n.strap || "")}</div>
-                  <div class="small">Source: <b>${escapeHtml(n.source || "News Desk")}</b> · ${new Date(n.createdAt || Date.now()).toLocaleString()}</div>
-                </div>
-              </div>
-              ${canModerate(data) ? `
-                <div class="docket-cta" style="display:flex; gap:8px;">
-                  <button class="btn" type="button" data-pin="${escapeHtml(n.id)}">Pin</button>
-                  <button class="btn" type="button" data-archive="${escapeHtml(n.id)}">Archive</button>
-                </div>
-              ` : ``}
-            </div>
-          `).join("")}
+      tickerEl.innerHTML = `
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <div class="bill-badge badge-opposition" style="padding:6px 10px;">BREAKING</div>
+          <div style="display:flex; gap:18px; flex-wrap:wrap;">
+            ${breaking.map(n => `
+              <span><b>${escapeHtml(n.headline)}</b> <span class="small">(${escapeHtml(n.simStamp || getSimStamp(data))})</span></span>
+            `).join("")}
+          </div>
         </div>
       `;
     }
   }
 
-  // News desk (create story)
+  // helper: render tile
+  function renderTile(n, options = {}){
+    const showControls = !!options.showControls;
+    const isArchive = !!options.isArchive;
+
+    const stamp = escapeHtml(n.simStamp || getSimStamp(data));
+    const cat = escapeHtml(n.category || "Politics");
+    const breakingTag = n.breaking ? `<span class="bill-badge badge-opposition" style="margin-left:8px;">BREAKING</span>` : ``;
+
+    const photo = (n.photoUrl || "").trim();
+    const photoBlock = photo
+      ? `<div style="margin-top:10px;">
+           <img src="${escapeHtml(photo)}" alt="" style="width:100%; border-radius:10px; display:block;">
+         </div>`
+      : ``;
+
+    const body = (n.body || "").trim();
+    const strap = (n.strap || "").trim();
+
+    return `
+      <div class="bill-card" style="margin-bottom:14px;">
+        <div class="bill-title">${escapeHtml(n.headline)} ${breakingTag}</div>
+        <div class="small" style="margin-top:6px;">
+          <b>${escapeHtml("BBC News")}</b> · <b>${cat}</b> · <span>${stamp}</span>
+          ${isArchive ? `<span class="small"> · Archived</span>` : ``}
+        </div>
+
+        ${photoBlock}
+
+        ${strap ? `<div class="muted-block" style="margin-top:10px;">${escapeHtml(strap)}</div>` : ``}
+        ${body ? `<div class="muted-block" style="margin-top:10px; white-space:pre-wrap;">${escapeHtml(body)}</div>` : ``}
+
+        ${showControls ? `
+          <div class="bill-actions spaced" style="margin-top:12px;">
+            <button class="btn" type="button" data-news-togglebreaking="${escapeHtml(n.id)}">
+              ${n.breaking ? "Unmark Breaking" : "Mark Breaking"}
+            </button>
+            <button class="btn" type="button" data-news-archive="${escapeHtml(n.id)}">Move to Archive</button>
+          </div>
+        ` : ``}
+      </div>
+    `;
+  }
+
+  // --- MAIN STORIES ---
+  if (mainEl) {
+    if (!main.length) {
+      mainEl.innerHTML = `<div class="muted-block">No main stories yet.</div>`;
+    } else {
+      mainEl.innerHTML = main
+        .sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0))
+        .slice(0, 12)
+        .map(n => renderTile(n, { showControls: canModerate(data) }))
+        .join("");
+    }
+  }
+
+  // --- FLAVOUR ---
+  if (flavourEl) {
+    if (!flavour.length) {
+      flavourEl.innerHTML = `<div class="muted-block">No flavour items yet.</div>`;
+    } else {
+      // smaller feel = shorter preview
+      flavourEl.innerHTML = `
+        <div class="docket-list">
+          ${flavour
+            .sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0))
+            .slice(0, 20)
+            .map(n => {
+              const stamp = escapeHtml(n.simStamp || getSimStamp(data));
+              const cat = escapeHtml(n.category || "Politics");
+              const photo = (n.photoUrl || "").trim();
+
+              return `
+                <div class="docket-item">
+                  <div class="docket-left">
+                    <div class="docket-icon">📰</div>
+                    <div class="docket-text">
+                      <div class="docket-title">
+                        ${escapeHtml(n.headline)}
+                        ${n.breaking ? `<span class="bill-badge badge-opposition" style="margin-left:8px;">BREAKING</span>` : ``}
+                      </div>
+                      <div class="small"><b>BBC News</b> · <b>${cat}</b> · ${stamp}</div>
+                      ${photo ? `<div style="margin-top:8px;"><img src="${escapeHtml(photo)}" alt="" style="width:100%; border-radius:10px; display:block;"></div>` : ``}
+                      ${(n.strap || n.body) ? `<div class="docket-detail">${escapeHtml((n.strap || n.body || "").slice(0, 220))}${(String(n.strap||n.body||"").length>220)?"…":""}</div>` : ``}
+                      ${canModerate(data) ? `
+                        <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+                          <button class="btn" type="button" data-news-togglebreaking="${escapeHtml(n.id)}">
+                            ${n.breaking ? "Unmark Breaking" : "Mark Breaking"}
+                          </button>
+                          <button class="btn" type="button" data-news-archive="${escapeHtml(n.id)}">Move to Archive</button>
+                        </div>
+                      ` : ``}
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+        </div>
+      `;
+    }
+  }
+
+  // --- NEWS DESK (posting) ---
   if (deskEl) {
     if (!canModerate(data)) {
       deskEl.innerHTML = `
         <div class="muted-block">
-          Only <b>Admin</b> and <b>Moderators</b> can publish news.
+          Only <b>Admin</b> and <b>Moderators</b> can post news.
         </div>
       `;
     } else {
       deskEl.innerHTML = `
         <div class="muted-block">
-          Publish a news item. (This is the base system — later we can add “scheduled”, “embargoed”, “regional”, etc.)
+          Post a BBC News item. It automatically stamps the simulation date (<b>${escapeHtml(getSimStamp(data))}</b>).
         </div>
 
-        <form id="newsForm" style="margin-top:12px;">
+        <form id="rbNewsForm" style="margin-top:12px;">
           <div class="form-grid">
-            <label>Source</label>
-            <input id="newsSource" placeholder="BBC / ITV / Reuters / News Desk" value="BBC" />
+
+            <label>Type</label>
+            <select id="rbNewsKind">
+              <option value="main">Main story</option>
+              <option value="flavour">Flavour (small)</option>
+            </select>
 
             <label>Category</label>
-            <input id="newsCategory" placeholder="Top Story / Politics / Economy / Security" value="Politics" />
+            <select id="rbNewsCategory">
+              ${NEWS_CATEGORIES.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("")}
+            </select>
 
             <label>Headline</label>
-            <input id="newsHeadline" placeholder="Headline..." />
+            <input id="rbNewsHeadline" placeholder="Headline..." />
 
-            <label>Strap</label>
-            <textarea id="newsStrap" rows="2" placeholder="One-paragraph strap (optional)"></textarea>
+            <label>Photo URL (optional)</label>
+            <input id="rbNewsPhoto" placeholder="https://..." />
 
-            <label>Body</label>
-            <textarea id="newsBody" rows="6" placeholder="Main story text (optional)"></textarea>
+            <label>Article Text</label>
+            <textarea id="rbNewsBody" rows="7" placeholder="Write the article text…"></textarea>
 
-            <div style="display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">
+            <div style="display:flex; justify-content:flex-end; gap:14px; flex-wrap:wrap; align-items:center;">
               <label style="display:flex; align-items:center; gap:8px;">
-                <input type="checkbox" id="newsPinned" />
-                Pin as top story
+                <input type="checkbox" id="rbNewsBreaking" />
+                Breaking News
               </label>
               <button class="btn" type="submit">Publish</button>
             </div>
+
           </div>
         </form>
       `;
     }
   }
 
-  // Archive
+  // --- ARCHIVE ---
   if (archEl) {
     if (!archive.length) {
       archEl.innerHTML = `<div class="muted-block">Archive is empty.</div>`;
     } else {
-      archEl.innerHTML = `
-        <div class="docket-list">
-          ${archive.slice(0, 20).map(n => `
-            <div class="docket-item">
-              <div class="docket-left">
-                <div class="docket-icon">🗃️</div>
-                <div class="docket-text">
-                  <div class="docket-title">${escapeHtml(n.headline)}</div>
-                  <div class="docket-detail">${escapeHtml(n.strap || "")}</div>
-                  <div class="small">Source: <b>${escapeHtml(n.source || "News Desk")}</b> · Archived</div>
-                </div>
-              </div>
-            </div>
-          `).join("")}
-        </div>
-      `;
+      archEl.innerHTML = archive
+        .slice(0, 40)
+        .map(n => renderTile(n, { showControls: false, isArchive: true }))
+        .join("");
     }
   }
 
-  // Bind actions
+  // bind posting
   if (canModerate(data)) {
-    document.querySelectorAll("[data-pin]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-pin");
-        rbPinNewsItem(id);
-        location.reload();
-      });
-    });
+    const form = document.getElementById("rbNewsForm");
+    if (form) {
+      form.onsubmit = (e) => {
+        e.preventDefault();
+        const kind = document.getElementById("rbNewsKind")?.value || "main";
+        const category = document.getElementById("rbNewsCategory")?.value || "Politics";
+        const headline = (document.getElementById("rbNewsHeadline")?.value || "").trim();
+        const photoUrl = (document.getElementById("rbNewsPhoto")?.value || "").trim();
+        const body = (document.getElementById("rbNewsBody")?.value || "").trim();
+        const breaking = !!document.getElementById("rbNewsBreaking")?.checked;
 
-    document.querySelectorAll("[data-archive]").forEach(btn => {
+        if (!headline) return alert("Headline is required.");
+        if (!body) return alert("Article text is required.");
+
+        rbPublishNewsBBC({ kind, category, headline, photoUrl, body, breaking });
+        location.reload();
+      };
+    }
+
+    // bind archive + breaking toggle
+    document.querySelectorAll("[data-news-archive]").forEach(btn => {
       btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-archive");
+        const id = btn.getAttribute("data-news-archive");
         rbArchiveNewsItem(id);
         location.reload();
       });
     });
 
-    const form = document.getElementById("newsForm");
-    if (form) {
-      form.onsubmit = (e) => {
-        e.preventDefault();
-        const source = (document.getElementById("newsSource")?.value || "").trim() || "News Desk";
-        const category = (document.getElementById("newsCategory")?.value || "").trim() || "General";
-        const headline = (document.getElementById("newsHeadline")?.value || "").trim();
-        const strap = (document.getElementById("newsStrap")?.value || "").trim();
-        const body = (document.getElementById("newsBody")?.value || "").trim();
-        const pinnedFlag = !!document.getElementById("newsPinned")?.checked;
-
-        if (!headline) return alert("Headline is required.");
-
-        rbPublishNews({ source, category, headline, strap, body, pinned: pinnedFlag });
+    document.querySelectorAll("[data-news-togglebreaking]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-news-togglebreaking");
+        rbToggleBreakingNews(id);
         location.reload();
-      };
-    }
+      });
+    });
   }
 }
 
-// News actions
-function rbPublishNews({ source, category, headline, strap, body, pinned }){
+// publish BBC item
+function rbPublishNewsBBC({ kind, category, headline, photoUrl, body, breaking }){
   const data = getData();
   if (!data) return;
   normaliseData(data);
-
   if (!canModerate(data)) return;
 
-  const user = data.currentUser?.username || "unknown";
-  const item = {
-    id: `news-${Date.now()}`,
-    createdAt: Date.now(),
-    createdBy: user,
-    source: source || "News Desk",
-    category: category || "General",
-    headline,
-    strap: strap || "",
-    body: body || "",
-    pinned: !!pinned
-  };
-
+  data.news = data.news || { items: [], archive: [] };
   data.news.items = Array.isArray(data.news.items) ? data.news.items : [];
 
-  // If pinned, unpin others
-  if (item.pinned) data.news.items.forEach(x => x.pinned = false);
+  const item = {
+    id: `news-${nowTs()}`,
+    createdAt: nowTs(),
+    createdBy: data.currentUser?.username || "unknown",
+    source: "BBC",
+    kind: (kind === "flavour" ? "flavour" : "main"),
+    category: NEWS_CATEGORIES.includes(category) ? category : "Politics",
+    headline: String(headline),
+    photoUrl: String(photoUrl || ""),
+    body: String(body || ""),
+    breaking: !!breaking,
+    simStamp: getSimStamp(data),
+    isLive: true
+  };
 
   data.news.items.unshift(item);
-  saveData(data);
-}
-
-function rbPinNewsItem(id){
-  const data = getData();
-  if (!data) return;
-  normaliseData(data);
-  if (!canModerate(data)) return;
-
-  const items = Array.isArray(data.news.items) ? data.news.items : [];
-  items.forEach(x => x.pinned = (x.id === id));
   saveData(data);
 }
 
@@ -1368,6 +1492,7 @@ function rbArchiveNewsItem(id){
   normaliseData(data);
   if (!canModerate(data)) return;
 
+  data.news = data.news || { items: [], archive: [] };
   data.news.items = Array.isArray(data.news.items) ? data.news.items : [];
   data.news.archive = Array.isArray(data.news.archive) ? data.news.archive : [];
 
@@ -1375,11 +1500,28 @@ function rbArchiveNewsItem(id){
   if (idx === -1) return;
 
   const [item] = data.news.items.splice(idx, 1);
-  item.pinned = false;
-  data.news.archive.unshift(item);
+  const archived = { ...item, isLive: false, archivedAt: nowTs() };
+  data.news.archive.unshift(archived);
 
   saveData(data);
 }
+
+function rbToggleBreakingNews(id){
+  const data = getData();
+  if (!data) return;
+  normaliseData(data);
+  if (!canModerate(data)) return;
+
+  data.news = data.news || { items: [], archive: [] };
+  data.news.items = Array.isArray(data.news.items) ? data.news.items : [];
+
+  const item = data.news.items.find(x => x.id === id);
+  if (!item) return;
+
+  item.breaking = !item.breaking;
+  saveData(data);
+}
+
 
 /* =========================
    USER PAGE (CONTROL PANEL BASE)
