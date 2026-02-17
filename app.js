@@ -2708,6 +2708,7 @@ ${articlesText}${finalArticle}
       renderAbsenceUI(data);
       renderNewsPage(data);
       renderUserPage(data);
+      renderPapersPage(data);
       initSubmitBillPage(data);
       initPartyDraftPage(data);
       initBillPage(data);
@@ -2715,6 +2716,8 @@ ${articlesText}${finalArticle}
       startLiveRefresh();
       renderNewsPage(latest);
       renderUserPage(latest);
+      renderPapersPage(latest);
+
 
     })
     .catch(err => console.error("Error loading demo.json:", err));
