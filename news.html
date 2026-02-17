@@ -92,27 +92,38 @@
 </header>
 
 <main class="wrap">
-  <h1 class="page-title">News</h1>
+  <h1 class="page-title">BBC News</h1>
 
-  <section class="panel">
-    <h2>Top Story</h2>
-    <div id="news-top" class="muted-block">Loading…</div>
+  <!-- Breaking ticker -->
+  <section class="panel" style="padding:14px;">
+    <div id="news-ticker" class="muted-block">Loading…</div>
   </section>
 
+  <!-- Main + Flavour -->
   <div class="bill-layout">
     <section class="panel">
-      <h2>Latest Headlines</h2>
-      <div id="news-list" class="muted-block">Loading…</div>
+      <h2>Main Stories</h2>
+      <div id="news-main" class="muted-block">Loading…</div>
     </section>
 
     <section class="panel">
-      <h2>News Desk</h2>
-      <div id="news-desk" class="muted-block">Loading…</div>
+      <h2>More News</h2>
+      <div id="news-flavour" class="muted-block">Loading…</div>
     </section>
   </div>
 
+  <!-- Posting tools (admin/mod only) -->
+  <section class="panel">
+    <h2>News Desk</h2>
+    <div id="news-desk" class="muted-block">Loading…</div>
+  </section>
+
+  <!-- Archive -->
   <section class="panel">
     <h2>Archive</h2>
+    <div class="muted-block" style="margin-bottom:12px;">
+      Items move here automatically after <b>2 real-life weeks</b>. They remain fully readable, but are no longer “live”.
+    </div>
     <div id="news-archive" class="muted-block">Loading…</div>
   </section>
 </main>
