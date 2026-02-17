@@ -111,6 +111,20 @@ function normaliseData(data) {
   data.parliament = data.parliament || { totalSeats: 650, parties: [] };
   data.adminSettings = data.adminSettings || { monarchGender: "Queen" };
   data.oppositionTracker = data.oppositionTracker || {};
+   
+// --- News + Papers base state ---
+data.news = data.news || { stories: [] };
+
+data.papers = data.papers || {
+  sun: { name: "The Sun", mastheadClass: "masthead-sun", issues: [] },
+  telegraph: { name: "The Daily Telegraph", mastheadClass: "masthead-telegraph", issues: [] },
+  mail: { name: "The Daily Mail", mastheadClass: "masthead-mail", issues: [] },
+  mirror: { name: "The Daily Mirror", mastheadClass: "masthead-mirror", issues: [] },
+  times: { name: "The Times", mastheadClass: "masthead-times", issues: [] },
+  ft: { name: "Financial Times", mastheadClass: "masthead-ft", issues: [] },
+  guardian: { name: "The Guardian", mastheadClass: "masthead-guardian", issues: [] },
+  independent: { name: "The Independent", mastheadClass: "masthead-independent", issues: [] }
+};
 
   // --- NEW: currentUser + character model ---
   // Migrate from old currentPlayer if it exists.
@@ -2685,6 +2699,473 @@ ${articlesText}${finalArticle}
       initBillPage(latest);
     }, 1000);
   }
+/* =========================
+   NEWS + PAPERS (Base pages)
+   - 14 real-day archive rule
+   - simple mod/admin posting via modal
+   ========================= */
+
+function isStaff(user) {
+  const role = String(user?.role || "").toLowerCase();
+  return role === "admin" || role === "mod" || role === "moderator";
+}
+
+function simStamp(data) {
+  const sim = getCurrentSimDate(data);
+  return { simMonth: sim.month, simYear: sim.year };
+}
+
+function isArchivedBy14Days(createdAtMs) {
+  const ageMs = nowTs() - Number(createdAtMs || 0);
+  return ageMs >= (14 * 86400000);
+}
+
+/* ---------- NEWS: add story ---------- */
+function rbAddNewsStory({ headline, body, category, photoUrl, isBreaking, isFlavour }) {
+  const data = getData();
+  if (!data) return null;
+  normaliseData(data);
+
+  const me = data.currentPlayer || {};
+  if (!isStaff(me)) return null;
+
+  const stamp = simStamp(data);
+
+  const story = {
+    id: `news-${nowTs()}`,
+    headline: String(headline || "").trim(),
+    body: String(body || "").trim(),
+    category: String(category || "Politics"),
+    photoUrl: String(photoUrl || "").trim(),
+    isBreaking: !!isBreaking,
+    isFlavour: !!isFlavour,
+    createdAt: nowTs(),
+    postedBy: String(me.name || "Staff"),
+    ...stamp
+  };
+
+  if (!story.headline || !story.body) return null;
+
+  data.news.stories.unshift(story);
+  saveData(data);
+  return story;
+}
+
+/* ---------- PAPERS: add issue ---------- */
+function rbAddPaperIssue(paperKey, { headline, body, byline, photoUrl }) {
+  const data = getData();
+  if (!data) return null;
+  normaliseData(data);
+
+  const me = data.currentPlayer || {};
+  if (!isStaff(me)) return null;
+
+  const paper = data.papers?.[paperKey];
+  if (!paper) return null;
+
+  const stamp = simStamp(data);
+
+  const issue = {
+    id: `issue-${nowTs()}`,
+    headline: String(headline || "").trim(),
+    body: String(body || "").trim(),
+    byline: String(byline || "").trim(),
+    photoUrl: String(photoUrl || "").trim(),
+    createdAt: nowTs(),
+    postedBy: String(me.name || "Staff"),
+    ...stamp
+  };
+
+  if (!issue.headline || !issue.body) return null;
+
+  paper.issues.unshift(issue);
+  saveData(data);
+  return issue;
+}
+
+/* ---------- News modal ---------- */
+function ensureNewsModal() {
+  if (document.getElementById("rb-news-modal")) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "rb-news-modal";
+  wrap.style.display = "none";
+  wrap.innerHTML = `
+    <div class="rb-modal-backdrop" style="
+      position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9998;
+      display:flex; align-items:center; justify-content:center; padding:18px;
+    ">
+      <div class="panel rb-modal" style="width:min(760px,100%); max-height:85vh; overflow:auto; z-index:9999;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+          <h2 style="margin:0;">Post News Story</h2>
+          <button class="btn" type="button" id="rbNewsCloseBtn">Close</button>
+        </div>
+
+        <form id="rbNewsForm" style="margin-top:12px;">
+          <div class="form-grid">
+            <label>Headline</label>
+            <input id="rbNewsHeadline" placeholder="Headline..." />
+
+            <label>Category</label>
+            <select id="rbNewsCategory">
+              <option>Politics</option>
+              <option>Economy</option>
+              <option>World</option>
+              <option>Security</option>
+              <option>Health</option>
+              <option>Justice</option>
+              <option>Environment</option>
+              <option>Culture</option>
+              <option>Sport</option>
+            </select>
+
+            <label>Photo URL (optional)</label>
+            <input id="rbNewsPhoto" placeholder="https://..." />
+
+            <label>Story Text</label>
+            <textarea id="rbNewsBody" rows="8" placeholder="Write the article..."></textarea>
+
+            <label>
+              <input type="checkbox" id="rbNewsBreaking" />
+              Flag as BREAKING NEWS
+            </label>
+
+            <label>
+              <input type="checkbox" id="rbNewsFlavour" />
+              This is “flavour news” (smaller item)
+            </label>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
+              <button class="btn" type="button" id="rbNewsCancelBtn">Cancel</button>
+              <button class="btn" type="submit">Post</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(wrap);
+
+  const close = () => (wrap.style.display = "none");
+  wrap.querySelector(".rb-modal-backdrop").addEventListener("click", (e) => {
+    if (e.target === wrap.querySelector(".rb-modal-backdrop")) close();
+  });
+
+  document.getElementById("rbNewsCloseBtn").addEventListener("click", close);
+  document.getElementById("rbNewsCancelBtn").addEventListener("click", close);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && wrap.style.display !== "none") close();
+  });
+}
+
+function openNewsModal() {
+  ensureNewsModal();
+  const modal = document.getElementById("rb-news-modal");
+  modal.style.display = "block";
+
+  // reset
+  document.getElementById("rbNewsHeadline").value = "";
+  document.getElementById("rbNewsCategory").value = "Politics";
+  document.getElementById("rbNewsPhoto").value = "";
+  document.getElementById("rbNewsBody").value = "";
+  document.getElementById("rbNewsBreaking").checked = false;
+  document.getElementById("rbNewsFlavour").checked = false;
+
+  const form = document.getElementById("rbNewsForm");
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const headline = document.getElementById("rbNewsHeadline").value;
+    const category = document.getElementById("rbNewsCategory").value;
+    const photoUrl = document.getElementById("rbNewsPhoto").value;
+    const body = document.getElementById("rbNewsBody").value;
+    const isBreaking = document.getElementById("rbNewsBreaking").checked;
+    const isFlavour = document.getElementById("rbNewsFlavour").checked;
+
+    const res = rbAddNewsStory({ headline, body, category, photoUrl, isBreaking, isFlavour });
+    if (!res) return alert("Could not post. (Are you logged in as an admin/mod?)");
+
+    modal.style.display = "none";
+    location.reload();
+  };
+}
+
+/* ---------- Papers modal ---------- */
+function ensurePaperModal() {
+  if (document.getElementById("rb-paper-modal")) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "rb-paper-modal";
+  wrap.style.display = "none";
+  wrap.innerHTML = `
+    <div class="rb-modal-backdrop" style="
+      position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9998;
+      display:flex; align-items:center; justify-content:center; padding:18px;
+    ">
+      <div class="panel rb-modal" style="width:min(760px,100%); max-height:85vh; overflow:auto; z-index:9999;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+          <h2 style="margin:0;">Post Paper Front Page</h2>
+          <button class="btn" type="button" id="rbPaperCloseBtn">Close</button>
+        </div>
+
+        <form id="rbPaperForm" style="margin-top:12px;">
+          <div class="form-grid">
+            <label>Paper</label>
+            <select id="rbPaperKey">
+              <option value="sun">The Sun</option>
+              <option value="telegraph">The Daily Telegraph</option>
+              <option value="mail">The Daily Mail</option>
+              <option value="mirror">The Daily Mirror</option>
+              <option value="times">The Times</option>
+              <option value="ft">Financial Times</option>
+              <option value="guardian">The Guardian</option>
+              <option value="independent">The Independent</option>
+            </select>
+
+            <label>Headline</label>
+            <input id="rbPaperHeadline" placeholder="Headline..." />
+
+            <label>Byline (optional)</label>
+            <input id="rbPaperByline" placeholder="e.g. James Smith, Political Correspondent" />
+
+            <label>Photo URL (optional)</label>
+            <input id="rbPaperPhoto" placeholder="https://..." />
+
+            <label>Front Page Text</label>
+            <textarea id="rbPaperBody" rows="8" placeholder="Write the front page article..."></textarea>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
+              <button class="btn" type="button" id="rbPaperCancelBtn">Cancel</button>
+              <button class="btn" type="submit">Post</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(wrap);
+
+  const close = () => (wrap.style.display = "none");
+  wrap.querySelector(".rb-modal-backdrop").addEventListener("click", (e) => {
+    if (e.target === wrap.querySelector(".rb-modal-backdrop")) close();
+  });
+
+  document.getElementById("rbPaperCloseBtn").addEventListener("click", close);
+  document.getElementById("rbPaperCancelBtn").addEventListener("click", close);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && wrap.style.display !== "none") close();
+  });
+}
+
+function openPaperModal() {
+  ensurePaperModal();
+  const modal = document.getElementById("rb-paper-modal");
+  modal.style.display = "block";
+
+  document.getElementById("rbPaperKey").value = "sun";
+  document.getElementById("rbPaperHeadline").value = "";
+  document.getElementById("rbPaperByline").value = "";
+  document.getElementById("rbPaperPhoto").value = "";
+  document.getElementById("rbPaperBody").value = "";
+
+  const form = document.getElementById("rbPaperForm");
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const key = document.getElementById("rbPaperKey").value;
+    const headline = document.getElementById("rbPaperHeadline").value;
+    const byline = document.getElementById("rbPaperByline").value;
+    const photoUrl = document.getElementById("rbPaperPhoto").value;
+    const body = document.getElementById("rbPaperBody").value;
+
+    const res = rbAddPaperIssue(key, { headline, body, byline, photoUrl });
+    if (!res) return alert("Could not post. (Are you logged in as an admin/mod?)");
+
+    modal.style.display = "none";
+    location.reload();
+  };
+}
+
+/* ---------- Render News page ---------- */
+function initNewsPage(data) {
+  const breakingEl = document.getElementById("news-breaking");
+  const controlsEl = document.getElementById("news-controls");
+  const mainEl = document.getElementById("news-main");
+  const flavourEl = document.getElementById("news-flavour");
+  const archiveEl = document.getElementById("news-archive");
+  if (!breakingEl || !controlsEl || !mainEl || !flavourEl || !archiveEl) return;
+
+  const me = data.currentPlayer || {};
+  const staff = isStaff(me);
+
+  const stories = Array.isArray(data.news?.stories) ? data.news.stories : [];
+
+  const live = stories.filter(s => !isArchivedBy14Days(s.createdAt));
+  const archived = stories.filter(s => isArchivedBy14Days(s.createdAt));
+
+  const breaking = live.filter(s => s.isBreaking === true).slice(0, 10);
+
+  breakingEl.innerHTML = `
+    <div class="breaking-bar">
+      <div class="breaking-pill">Breaking</div>
+      <div class="breaking-items">
+        ${breaking.length ? breaking.map(s => escapeHtml(s.headline)).join(" · ") : "No breaking headlines right now."}
+      </div>
+    </div>
+  `;
+
+  controlsEl.innerHTML = staff
+    ? `
+      <div class="muted-block">
+        You are logged in as <b>${escapeHtml(me.name || "Staff")}</b> (${escapeHtml(me.role || "staff")}).
+        You can post stories to RB News.
+      </div>
+      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn" type="button" id="rbPostNewsBtn">Post News Story</button>
+      </div>
+    `
+    : `
+      <div class="muted-block">
+        You are logged in as <b>${escapeHtml(me.name || "Player")}</b>.
+        News is posted by the simulation staff.
+      </div>
+    `;
+
+  if (staff) {
+    const btn = document.getElementById("rbPostNewsBtn");
+    if (btn) btn.addEventListener("click", openNewsModal);
+  }
+
+  const mainStories = live.filter(s => !s.isFlavour).slice(0, 12);
+  const flavourStories = live.filter(s => s.isFlavour).slice(0, 20);
+
+  mainEl.innerHTML = mainStories.length
+    ? mainStories.map(s => `
+      <div class="news-card">
+        <h3>
+          ${escapeHtml(s.headline)}
+          ${s.isBreaking ? `<span class="tag">BREAKING</span>` : ``}
+        </h3>
+        <div class="news-meta">
+          ${escapeHtml(s.category || "News")} ·
+          ${escapeHtml(getMonthName(Number(s.simMonth || 1)))} ${escapeHtml(String(s.simYear || ""))} ·
+          Posted by ${escapeHtml(s.postedBy || "Staff")}
+        </div>
+        ${s.photoUrl ? `<img class="news-photo" src="${escapeHtml(s.photoUrl)}" alt="">` : ``}
+        <div class="news-body">${escapeHtml(s.body)}</div>
+      </div>
+    `).join("")
+    : `<div class="muted-block">No main stories posted yet.</div>`;
+
+  flavourEl.innerHTML = `
+    <div class="flavour-list">
+      ${flavourStories.length ? flavourStories.map(s => `
+        <div class="flavour-item">
+          <div style="font-weight:800;">${escapeHtml(s.headline)}</div>
+          <div class="news-meta">
+            ${escapeHtml(s.category || "News")} ·
+            ${escapeHtml(getMonthName(Number(s.simMonth || 1)))} ${escapeHtml(String(s.simYear || ""))}
+          </div>
+          ${s.photoUrl ? `<img class="news-photo" src="${escapeHtml(s.photoUrl)}" alt="">` : ``}
+          <div class="news-body">${escapeHtml(s.body)}</div>
+        </div>
+      `).join("") : `<div class="muted-block">No flavour items yet.</div>`}
+    </div>
+  `;
+
+  archiveEl.innerHTML = archived.length
+    ? archived.map(s => `
+      <div class="news-card" style="opacity:.85;">
+        <h3>${escapeHtml(s.headline)} <span class="tag">ARCHIVED</span></h3>
+        <div class="news-meta">
+          ${escapeHtml(s.category || "News")} ·
+          ${escapeHtml(getMonthName(Number(s.simMonth || 1)))} ${escapeHtml(String(s.simYear || ""))}
+        </div>
+        ${s.photoUrl ? `<img class="news-photo" src="${escapeHtml(s.photoUrl)}" alt="">` : ``}
+        <div class="news-body">${escapeHtml(s.body)}</div>
+      </div>
+    `).join("")
+    : `<div class="muted-block">Archive is empty.</div>`;
+}
+
+/* ---------- Render Papers page ---------- */
+function initPapersPage(data) {
+  const controlsEl = document.getElementById("papers-controls");
+  const tilesEl = document.getElementById("papers-tiles");
+  const readerEl = document.getElementById("paper-reader");
+  if (!controlsEl || !tilesEl || !readerEl) return;
+
+  const me = data.currentPlayer || {};
+  const staff = isStaff(me);
+
+  controlsEl.innerHTML = staff
+    ? `
+      <div class="muted-block">
+        You are logged in as <b>${escapeHtml(me.name || "Staff")}</b> (${escapeHtml(me.role || "staff")}).
+        You can post new front pages.
+      </div>
+      <div style="margin-top:12px;">
+        <button class="btn" type="button" id="rbPostPaperBtn">Post Front Page</button>
+      </div>
+    `
+    : `
+      <div class="muted-block">
+        Papers are posted by the simulation staff.
+      </div>
+    `;
+
+  if (staff) {
+    const btn = document.getElementById("rbPostPaperBtn");
+    if (btn) btn.addEventListener("click", openPaperModal);
+  }
+
+  const papers = data.papers || {};
+  const keys = Object.keys(papers);
+
+  tilesEl.innerHTML = keys.map(key => {
+    const p = papers[key];
+    const latest = (p.issues || [])[0];
+    const headline = latest ? latest.headline : "No issue posted yet.";
+    return `
+      <div class="paper-tile">
+        <div class="masthead small ${escapeHtml(p.mastheadClass || "")}">${escapeHtml(p.name || key)}</div>
+        <div class="paper-headline">${escapeHtml(headline)}</div>
+        <div style="margin-top:12px;">
+          <a class="btn" href="papers.html?paper=${encodeURIComponent(key)}">Read this paper</a>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const params = new URLSearchParams(location.search);
+  const selectedKey = params.get("paper");
+
+  if (!selectedKey || !papers[selectedKey]) {
+    readerEl.innerHTML = `<div class="muted-block">Select a paper above to read it.</div>`;
+    return;
+  }
+
+  const paper = papers[selectedKey];
+  const issues = Array.isArray(paper.issues) ? paper.issues : [];
+
+  readerEl.innerHTML = `
+    <div class="masthead ${escapeHtml(paper.mastheadClass || "")}">${escapeHtml(paper.name || selectedKey)}</div>
+
+    ${!issues.length ? `<div class="muted-block">No issues posted yet.</div>` : `
+      ${issues.map((iss, idx) => `
+        <div class="paper-reader-issue">
+          <h3>${escapeHtml(iss.headline)} ${idx === 0 ? `<span class="tag">FRONT PAGE</span>` : ``}</h3>
+          <div class="news-meta">
+            ${escapeHtml(getMonthName(Number(iss.simMonth || 1)))} ${escapeHtml(String(iss.simYear || ""))}
+            ${iss.byline ? ` · ${escapeHtml(iss.byline)}` : ``}
+          </div>
+          ${iss.photoUrl ? `<img class="news-photo" src="${escapeHtml(iss.photoUrl)}" alt="">` : ``}
+          <div class="news-body">${escapeHtml(iss.body)}</div>
+        </div>
+      `).join("")}
+    `}
+  `;
+}
 
   /* =========================
      BOOT
@@ -2712,11 +3193,17 @@ ${articlesText}${finalArticle}
       initSubmitBillPage(data);
       initPartyDraftPage(data);
       initBillPage(data);
+      initNewsPage(data);
+      initPapersPage(data);
+
 
       startLiveRefresh();
       renderNewsPage(latest);
       renderUserPage(latest);
       renderPapersPage(latest);
+      initNewsPage(latest);
+      initPapersPage(latest);
+
 
 
     })
