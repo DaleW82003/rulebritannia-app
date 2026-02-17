@@ -3713,6 +3713,120 @@ function renderControlPanel(data){
 
   roleEl.innerHTML = panelHtml;
 }
+function ensurePapersDefaults(data){
+  data.papers = data.papers || {};
+  data.papers.frontPages = data.papers.frontPages || {}; 
+  return data;
+}
+
+function renderPapersPage(data){
+  const gridEl = document.getElementById("papersGrid");
+  const readerPanel = document.getElementById("paperReaderPanel");
+  const readerEl = document.getElementById("paperReader");
+  const simDateEl = document.getElementById("papersSimDate");
+
+  if (!gridEl) return;
+
+  ensurePapersDefaults(data);
+
+  const sim = getCurrentSimDate(data);
+  if (simDateEl) simDateEl.textContent = `${getMonthName(sim.month)} ${sim.year}`;
+
+  const papers = [
+    { id:"sun", name:"The Sun", cls:"paper-sun" },
+    { id:"telegraph", name:"The Daily Telegraph", cls:"paper-telegraph" },
+    { id:"mail", name:"The Daily Mail", cls:"paper-mail" },
+    { id:"mirror", name:"The Daily Mirror", cls:"paper-mirror" },
+    { id:"times", name:"The Times", cls:"paper-times" },
+    { id:"ft", name:"The Financial Times", cls:"paper-ft" },
+    { id:"guardian", name:"The Guardian", cls:"paper-guardian" },
+    { id:"independent", name:"The Independent", cls:"paper-independent" }
+  ];
+
+  gridEl.innerHTML = `
+    <div class="papers-grid">
+      ${papers.map(p => `
+        <div class="paper-tile ${p.cls}" data-paper="${p.id}">
+          <div class="paper-title">${p.name}</div>
+          <div class="paper-read-btn">
+            <button class="btn" type="button">Read this Paper</button>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+
+  gridEl.querySelectorAll("[data-paper]").forEach(tile => {
+    tile.addEventListener("click", () => {
+      const id = tile.getAttribute("data-paper");
+      openPaperReader(data, id);
+    });
+  });
+
+  function openPaperReader(data, paperId){
+    const frontPages = data.papers.frontPages[paperId] || [];
+    readerPanel.style.display = "block";
+
+    if (!frontPages.length){
+      readerEl.innerHTML = `
+        <div class="muted-block">
+          No front page published yet.
+        </div>
+      `;
+      return;
+    }
+
+    const current = frontPages[0];
+
+    readerEl.innerHTML = `
+      <div class="paper-front">
+        <div class="paper-headline">${escapeHtml(current.headline)}</div>
+        <div class="paper-byline">
+          ${escapeHtml(current.byline || "Political Correspondent")} · ${escapeHtml(current.simMonthName)} ${escapeHtml(current.simYear)}
+        </div>
+        ${current.photoUrl ? `<img class="paper-photo" src="${escapeHtml(current.photoUrl)}">` : ``}
+        <div class="news-text">${escapeHtml(current.body)}</div>
+      </div>
+
+      <div class="paper-archive">
+        <h3>Previous Front Pages</h3>
+        ${
+          frontPages.slice(1).length
+            ? frontPages.slice(1).map(fp => `
+              <div style="margin-bottom:12px;">
+                <b>${escapeHtml(fp.headline)}</b><br>
+                <span class="small">${escapeHtml(fp.simMonthName)} ${escapeHtml(fp.simYear)}</span>
+              </div>
+            `).join("")
+            : `<div class="muted-block">No previous editions.</div>`
+        }
+      </div>
+    `;
+  }
+}
+function publishFrontPage(data, paperId, {headline, body, photoUrl, byline}){
+  ensurePapersDefaults(data);
+
+  const sim = getCurrentSimDate(data);
+
+  const entry = {
+    id: `paper-${nowTs()}`,
+    headline,
+    body,
+    photoUrl: photoUrl || null,
+    byline: byline || "Political Correspondent",
+    createdAt: nowTs(),
+    simMonth: sim.month,
+    simYear: sim.year,
+    simMonthName: getMonthName(sim.month)
+  };
+
+  if (!data.papers.frontPages[paperId])
+    data.papers.frontPages[paperId] = [];
+
+  data.papers.frontPages[paperId].unshift(entry);
+  saveData(data);
+}
 
   /* =========================
      BOOT
@@ -3737,15 +3851,13 @@ function renderControlPanel(data){
       renderNewsPage(data);
       renderUserPage(data);
       renderPapersPage(data);
-      renderNewsPage(data);
       renderControlPanel(data);
-
       initSubmitBillPage(data);
       initPartyDraftPage(data);
       initBillPage(data);
       initNewsPage(data);
       initPapersPage(data);
-       ensureUserAndSimBase(demo);
+      ensureUserAndSimBase(demo);
 
 
 
