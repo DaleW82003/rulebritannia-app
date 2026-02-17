@@ -2062,6 +2062,255 @@ ${articlesText}${finalArticle}
       renderPapersPage(latest);
     }, 1000);
   }
+/* =========================
+   Economy Page
+   Expects economy.html IDs:
+     - #econ-topline
+     - #econ-tiles
+     - #econ-surveys
+   ========================= */
+function initEconomyPage(data){
+  const toplineEl = document.getElementById("econ-topline");
+  const tilesEl = document.getElementById("econ-tiles");
+  const surveysEl = document.getElementById("econ-surveys");
+  if (!toplineEl || !tilesEl || !surveysEl) return;
+
+  normaliseData(data);
+
+  // Prefer economyPage.topline, fallback to whatsGoingOn.economy
+  const tl = data.economyPage?.topline || data.whatsGoingOn?.economy || {};
+  const g = Number(tl.gdpGrowth ?? tl.growth ?? 0);
+  const i = Number(tl.inflation ?? 0);
+  const u = Number(tl.unemployment ?? 0);
+
+  toplineEl.innerHTML = `
+    <div class="kv"><span>GDP Growth</span><b>${g.toFixed(1)}%</b></div>
+    <div class="kv"><span>Inflation</span><b>${i.toFixed(1)}%</b></div>
+    <div class="kv"><span>Unemployment</span><b>${u.toFixed(1)}%</b></div>
+  `;
+
+  const tiles = Array.isArray(data.economyPage?.ukInfoTiles) ? data.economyPage.ukInfoTiles : [];
+  if (!tiles.length){
+    tilesEl.innerHTML = `<div class="muted-block">No UK Information tiles configured yet.</div>`;
+  } else {
+    tilesEl.classList.remove("muted-block");
+    tilesEl.innerHTML = `
+      <div class="paper-grid">
+        ${tiles.map(t => `
+          <div class="paper-tile card-flex" data-econ-tile="${escapeHtml(t.id)}">
+            <div class="paper-masthead">${escapeHtml(t.title)}</div>
+            <div class="paper-strap">${escapeHtml(t.subtitle || "")}</div>
+            <div class="tile-bottom">
+              <button class="btn" type="button">Open</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  const surveys = Array.isArray(data.economyPage?.surveys) ? data.economyPage.surveys : [];
+  if (!surveys.length){
+    surveysEl.innerHTML = `<div class="muted-block">No surveys configured yet.</div>`;
+  } else {
+    surveysEl.classList.remove("muted-block");
+    surveysEl.innerHTML = `
+      <div class="paper-grid">
+        ${surveys.map(s => `
+          <div class="paper-tile card-flex" data-econ-survey="${escapeHtml(s.id)}">
+            <div class="paper-masthead">${escapeHtml(s.title)}</div>
+            <div class="paper-strap">Briefing table</div>
+            <div class="tile-bottom">
+              <button class="btn" type="button">Open</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  // Modal helpers (simple, self-contained)
+  function ensureModal(){
+    if (document.getElementById("rb-econ-modal")) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "rb-econ-modal";
+    wrap.style.display = "none";
+    wrap.innerHTML = `
+      <div style="position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9998; display:flex; align-items:center; justify-content:center; padding:18px;">
+        <div class="panel" style="width:min(860px, 100%); max-height:85vh; overflow:auto; z-index:9999;">
+          <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
+            <h2 id="rbEconModalTitle" style="margin:0;">Details</h2>
+            <button class="btn" id="rbEconModalClose" type="button">Close</button>
+          </div>
+          <div id="rbEconModalBody" style="margin-top:12px;"></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(wrap);
+
+    const close = () => (wrap.style.display = "none");
+    wrap.addEventListener("click", (e) => {
+      if (e.target === wrap.firstElementChild) close();
+    });
+    document.getElementById("rbEconModalClose").addEventListener("click", close);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && wrap.style.display !== "none") close();
+    });
+  }
+
+  function openModal(title, rows){
+    ensureModal();
+    const modal = document.getElementById("rb-econ-modal");
+    document.getElementById("rbEconModalTitle").textContent = title;
+
+    // rows is an array of arrays (table)
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const table = safeRows.length
+      ? `
+        <div class="panel" style="background:rgba(255,255,255,.04);">
+          ${safeRows.map((r, idx) => {
+            const cells = Array.isArray(r) ? r : [String(r)];
+            return `
+              <div class="kv">
+                <span>${escapeHtml(String(cells[0] ?? ""))}</span>
+                <b>${escapeHtml(String(cells[1] ?? ""))}</b>
+                ${cells.length > 2 ? `<b>${escapeHtml(String(cells[2] ?? ""))}</b>` : ``}
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `
+      : `<div class="muted-block">No data.</div>`;
+
+    document.getElementById("rbEconModalBody").innerHTML = table;
+    modal.style.display = "block";
+  }
+
+  // Bind clicks
+  document.querySelectorAll("[data-econ-tile]").forEach(el => {
+    el.addEventListener("click", () => {
+      const id = el.getAttribute("data-econ-tile");
+      const tile = tiles.find(x => x.id === id);
+      if (!tile) return;
+      openModal(tile.title, tile.rows);
+    });
+  });
+
+  document.querySelectorAll("[data-econ-survey]").forEach(el => {
+    el.addEventListener("click", () => {
+      const id = el.getAttribute("data-econ-survey");
+      const s = surveys.find(x => x.id === id);
+      if (!s) return;
+      openModal(s.title, s.rows);
+    });
+  });
+}
+
+/* =========================
+   QUICK FIXES: Question Time + Papers ID mismatches
+   ========================= */
+function initQuestionTimePage(data){
+  // Your HTML currently uses: #question-time-root
+  const root = document.getElementById("question-time-root") || document.getElementById("qt-root");
+  if (!root) return;
+
+  const cabinet = Array.isArray(data.questionTime?.cabinet) ? data.questionTime.cabinet : [];
+  if (!cabinet.length){
+    root.innerHTML = `<div class="muted-block">No Question Time offices configured yet.</div>`;
+    return;
+  }
+
+  root.classList.remove("muted-block");
+  root.innerHTML = `
+    <div class="qt-grid">
+      ${cabinet.map(o => `
+        <div class="qt-tile card-flex">
+          <div class="qt-office">${escapeHtml(o.short || o.slug)}</div>
+          <div class="small" style="margin-top:8px;">${escapeHtml(o.title || "")}</div>
+          <div class="tile-bottom">
+            <a class="btn" href="qt-office.html?office=${encodeURIComponent(o.slug)}">Open</a>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function initPapersPage(data){
+  // Your papers.html uses: #papersGrid, #papersSimDate, #paperReaderPanel, #paperReader
+  const grid = document.getElementById("papersGrid");
+  const simDateEl = document.getElementById("papersSimDate");
+  if (!grid || !simDateEl) return;
+
+  const sim = getCurrentSimDate(data);
+  simDateEl.textContent = `${getMonthName(sim.month)} ${sim.year}`;
+
+  const papers = [
+    { id:"sun", name:"The Sun", cls:"paper-sun" },
+    { id:"telegraph", name:"The Daily Telegraph", cls:"paper-telegraph" },
+    { id:"mail", name:"The Daily Mail", cls:"paper-mail" },
+    { id:"mirror", name:"The Daily Mirror", cls:"paper-mirror" },
+    { id:"times", name:"The Times", cls:"paper-times" },
+    { id:"ft", name:"The Financial Times", cls:"paper-ft" },
+    { id:"guardian", name:"The Guardian", cls:"paper-guardian" },
+    { id:"independent", name:"The Independent", cls:"paper-independent" }
+  ];
+
+  // headlines can come from data.whatsGoingOn.papers as a simple fallback
+  const fallbackHeadline = data.whatsGoingOn?.papers?.headline || "Front Page Headline";
+
+  grid.classList.remove("muted-block");
+  grid.innerHTML = `
+    <div class="paper-grid">
+      ${papers.map(p => `
+        <div class="paper-tile ${p.cls} card-flex">
+          <div class="paper-masthead">${escapeHtml(p.name)}</div>
+          <div class="paper-headline">${escapeHtml(p.name)} — ${escapeHtml(fallbackHeadline)}</div>
+          <div class="tile-bottom">
+            <button class="btn" type="button" data-read-paper="${escapeHtml(p.id)}">Read this Paper</button>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+
+  // simple reader placeholder (we’ll flesh it out properly next)
+  const readerPanel = document.getElementById("paperReaderPanel");
+  const reader = document.getElementById("paperReader");
+
+  document.querySelectorAll("[data-read-paper]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-read-paper");
+      const p = papers.find(x => x.id === id);
+      if (!p || !readerPanel || !reader) return;
+
+      readerPanel.style.display = "block";
+      reader.innerHTML = `
+        <div class="paper-reader-header">
+          <div>
+            <div class="paper-reader-title">${escapeHtml(p.name)}</div>
+            <div class="small">Showing front page + archive (coming next)</div>
+          </div>
+          <div>
+            <button class="btn" type="button" onclick="document.getElementById('paperReaderPanel').style.display='none'">Close</button>
+          </div>
+        </div>
+
+        <div class="paper-issue">
+          <div class="paper-issue-top">
+            <div class="paper-issue-masthead">${escapeHtml(p.name)}</div>
+            <div class="paper-issue-date">${escapeHtml(simDateEl.textContent)}</div>
+          </div>
+          <div class="paper-issue-headline">${escapeHtml(fallbackHeadline)}</div>
+          <div class="paper-issue-byline">Political Correspondent</div>
+          <div class="paper-issue-text">Paper front page text will appear here (Mods will edit this later).</div>
+        </div>
+      `;
+      window.scrollTo({ top: readerPanel.offsetTop - 10, behavior: "smooth" });
+    });
+  });
+}
 
   /* =========================================================
      BOOT (means: "when the app first loads")
@@ -2095,6 +2344,9 @@ ${articlesText}${finalArticle}
       // Builders
       initSubmitBillPage(data);
       initPartyDraftPage(data);
+      initEconomyPage(data);
+      initQuestionTimePage(data);
+      initPapersPage(data);
 
       startLiveRefresh();
     })
