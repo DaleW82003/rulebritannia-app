@@ -208,6 +208,52 @@ data.papers = data.papers || {
       pinned: true
     });
   }
+// ===== NEW: users + currentUser + characters =====
+data.users = Array.isArray(data.users) ? data.users : [];
+data.characters = Array.isArray(data.characters) ? data.characters : [];
+data.auditLog = Array.isArray(data.auditLog) ? data.auditLog : [];
+
+data.currentUser = data.currentUser || null;
+
+// Back-compat: if you still have currentPlayer, convert into currentUser+character if needed
+if (!data.currentUser && data.currentPlayer) {
+  const uId = `user-${Date.now()}`;
+  const cId = `char-${Date.now()}`;
+
+  data.users.unshift({
+    id: uId,
+    username: data.currentPlayer.name || "Admin",
+    role: "admin" // safest default while migrating
+  });
+
+  data.characters.unshift({
+    id: cId,
+    ownerUserId: uId,
+    name: data.currentPlayer.name || "Admin MP",
+    party: data.currentPlayer.party || "Unknown",
+    role: data.currentPlayer.role || "backbencher",
+    office: data.currentPlayer.office || null,
+    isSpeaker: !!data.currentPlayer.isSpeaker,
+    partyLeader: !!data.currentPlayer.partyLeader,
+    active: true
+  });
+
+  data.currentUser = { id: uId, username: "Admin", role: "admin", activeCharacterId: cId };
+}
+
+// Ensure currentUser exists (first-time installs)
+if (!data.currentUser) {
+  const uId = `user-${Date.now()}`;
+  data.users.unshift({ id: uId, username: "Admin", role: "admin" });
+  data.currentUser = { id: uId, username: "Admin", role: "admin", activeCharacterId: null };
+}
+
+// Speaker controls store (NPC votes / rebellions / overrides)
+data.speakerControls = data.speakerControls || {
+  npcVoteAllocations: {},     // billId -> { partyVotes: {party: {aye,no,abstain}}, rebels: {party: number}}
+  divisionOverrides: {},      // billId -> { forcedResult: "passed"|"failed"|null }
+  notes: ""
+};
 
   return data;
 }
@@ -5077,6 +5123,429 @@ function bindControlPanelActions(data){
       if (!confirm("Reset Parliament to August 1997?")) return;
 
       localStorage.removeItem("rb_full_data");
+      location.reload();
+    });
+  }
+}
+function logAudit(data, action, details = {}) {
+  const user = data.currentUser || { username: "Unknown", role: "unknown" };
+  data.auditLog = Array.isArray(data.auditLog) ? data.auditLog : [];
+  data.auditLog.unshift({
+    at: new Date().toISOString(),
+    by: user.username,
+    role: user.role,
+    action,
+    details
+  });
+  // keep log sane
+  if (data.auditLog.length > 200) data.auditLog.length = 200;
+}
+
+function getActiveCharacter(data) {
+  const u = data.currentUser;
+  if (!u || !u.activeCharacterId) return null;
+  return (data.characters || []).find(c => c.id === u.activeCharacterId) || null;
+}
+
+// For older code that still reads data.currentPlayer
+function syncCurrentPlayerFromCharacter(data) {
+  const c = getActiveCharacter(data);
+  if (!c) return;
+
+  data.currentPlayer = {
+    name: c.name,
+    party: c.party,
+    role: c.role,
+    office: c.office,
+    isSpeaker: !!c.isSpeaker,
+    partyLeader: !!c.partyLeader
+  };
+}
+function renderControlPanel(data) {
+  const root = document.getElementById("control-root");
+  if (!root) return;
+
+  const user = data.currentUser || { username: "Unknown", role: "player" };
+  const role = user.role || "player";
+
+  // Keep legacy currentPlayer updated for existing pages
+  syncCurrentPlayerFromCharacter(data);
+
+  // Helper UI builders
+  const section = (title, inner) => `
+    <div class="panel" style="margin-bottom:16px;">
+      <h2 style="margin:0 0 10px;">${escapeHtml(title)}</h2>
+      ${inner}
+    </div>
+  `;
+
+  const badge = (t) => `<span class="bill-badge badge-pmb" style="margin-left:8px;">${escapeHtml(t)}</span>`;
+
+  if (role === "player") {
+    root.innerHTML = `
+      <div class="muted-block">
+        You are logged in as <b>${escapeHtml(user.username)}</b> (Player).  
+        Players do not have access to the Control Panel.
+      </div>
+    `;
+    return;
+  }
+
+  // Build the page content
+  let html = `
+    <div class="muted-block" style="margin-bottom:14px;">
+      Logged in as <b>${escapeHtml(user.username)}</b> — Role: <b>${escapeHtml(role.toUpperCase())}</b>
+    </div>
+  `;
+
+  /* =========================================================
+     1) USER MANAGEMENT (Admin)
+     ========================================================= */
+  if (role === "admin") {
+    const users = Array.isArray(data.users) ? data.users : [];
+    html += section("1) User Management " + badge("Admin"), `
+      <div class="muted-block">Create users, assign roles, and pick their active character. (Local-only for now.)</div>
+
+      <div style="margin-top:12px;" class="form-grid">
+        <label>New username</label>
+        <input id="cpNewUsername" placeholder="e.g. Dale" />
+
+        <label>Role</label>
+        <select id="cpNewRole">
+          <option value="player">player</option>
+          <option value="mod">mod</option>
+          <option value="speaker">speaker</option>
+          <option value="admin">admin</option>
+        </select>
+
+        <button class="btn" id="cpCreateUserBtn" type="button">Create User</button>
+      </div>
+
+      <div style="margin-top:14px;">
+        <h3 style="margin:0 0 8px;">Existing Users</h3>
+        ${users.length ? `
+          <div class="docket-list">
+            ${users.map(u => `
+              <div class="docket-item">
+                <div class="docket-left">
+                  <div class="docket-icon">👤</div>
+                  <div class="docket-text">
+                    <div class="docket-title">${escapeHtml(u.username)} <span class="small">(${escapeHtml(u.role)})</span></div>
+                    <div class="small">User ID: ${escapeHtml(u.id)}</div>
+                  </div>
+                </div>
+                <div class="docket-cta">
+                  <button class="btn" type="button" data-login-user="${escapeHtml(u.id)}">Log in</button>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        ` : `<div class="muted-block">No users created yet.</div>`}
+      </div>
+    `);
+  }
+
+  /* =========================================================
+     2) SPEAKER PANEL (NPC votes / rebellions / override)
+     ========================================================= */
+  if (role === "admin" || role === "speaker") {
+    const bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+    const openDivBills = bills.filter(b => (b.stage === "Division" && b.status === "in-progress"));
+
+    html += section("2) Speaker Panel (NPC Votes / Rebellions / Overrides) " + badge("Speaker"), `
+      <div class="muted-block">
+        Speaker controls NPC parties (and optional rebellions for Labour/Conservative/Lib Dem), and can force-close or override a division result.
+      </div>
+
+      <div style="margin-top:12px;" class="form-grid">
+        <label>Pick an open division bill</label>
+        <select id="cpSpeakerBillSelect">
+          ${openDivBills.length
+            ? openDivBills.map(b => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.title)}</option>`).join("")
+            : `<option value="">No open divisions</option>`
+          }
+        </select>
+
+        <button class="btn" id="cpLoadSpeakerBillBtn" type="button">Load</button>
+      </div>
+
+      <div id="cpSpeakerBillTools" style="margin-top:14px;"></div>
+    `);
+  }
+
+  /* =========================================================
+     3) MOD PANEL: News
+     ========================================================= */
+  if (role === "admin" || role === "mod") {
+    html += section("3) Manage News " + badge("Mod"), `
+      <div class="muted-block">Create BBC-style news tiles, breaking ticker, archives.</div>
+      <a class="btn" href="news.html">Open News Editor</a>
+    `);
+
+    /* =========================================================
+       4) MOD PANEL: Papers
+       ========================================================= */
+    html += section("4) Manage Papers " + badge("Mod"), `
+      <div class="muted-block">Manage front pages + archive for the 8 papers with custom mastheads.</div>
+      <a class="btn" href="papers.html">Open Papers Editor</a>
+    `);
+
+    /* =========================================================
+       5) MOD PANEL: Bodies
+       ========================================================= */
+    html += section("5) Manage Bodies " + badge("Mod"), `
+      <div class="muted-block">Manage Scottish Parliament / Senedd / NI Assembly / European Parliament seat numbers + graphics.</div>
+      <a class="btn" href="bodies.html">Open Bodies Editor</a>
+    `);
+
+    /* =========================================================
+       6) MOD PANEL: Constituencies
+       ========================================================= */
+    html += section("6) Manage Constituencies + Parliament State " + badge("Mod"), `
+      <div class="muted-block">Seat totals, constituency holders, by-elections, defections. (This will drive vote-weighting.)</div>
+      <a class="btn" href="constituencies.html">Open Constituencies</a>
+    `);
+  }
+
+  /* =========================================================
+     7) ELECTION ENGINE (Foundation)
+     ========================================================= */
+  if (role === "admin" || role === "mod") {
+    html += section("7) Election Engine (Foundation) " + badge("Mod"), `
+      <div class="muted-block">
+        Create an election event and apply seat totals. (We will flesh this out into a full engine next.)
+      </div>
+
+      <div class="form-grid" style="margin-top:12px;">
+        <label>Election Name</label>
+        <input id="cpElectionName" placeholder="e.g. 1997 General Election" />
+
+        <label>Notes</label>
+        <textarea id="cpElectionNotes" rows="2" placeholder="Optional…"></textarea>
+
+        <button class="btn" id="cpCreateElectionBtn" type="button">Create Election Record</button>
+      </div>
+
+      <div id="cpElectionResult" style="margin-top:12px;"></div>
+    `);
+  }
+
+  /* =========================================================
+     8) TIMELINE / MULTI-SIM (Foundation)
+     ========================================================= */
+  if (role === "admin") {
+    html += section("8) Timeline / Multi-Sim (Foundation) " + badge("Admin"), `
+      <div class="muted-block">
+        This stores which timeline is active. Later this will switch datasets, forums, and character pools.
+      </div>
+
+      <div class="form-grid" style="margin-top:12px;">
+        <label>Active Timeline Key</label>
+        <select id="cpTimelineKey">
+          <option value="UK-1997">UK-1997 (Aug 1997)</option>
+          <option value="UK-1999">UK-1999</option>
+          <option value="UK-2010">UK-2010</option>
+          <option value="UK-2024">UK-2024</option>
+        </select>
+
+        <button class="btn" id="cpSetTimelineBtn" type="button">Save Timeline</button>
+      </div>
+
+      <div class="muted-block" style="margin-top:12px;">
+        Current timeline: <b>${escapeHtml(data.simConfig?.timelineKey || "UK-1997")}</b>
+      </div>
+    `);
+  }
+
+  root.innerHTML = html;
+
+  bindControlPanelActions(data);
+}
+function bindControlPanelActions(data) {
+  const user = data.currentUser || { role: "player" };
+  const role = user.role || "player";
+
+  /* ===== 1) Create user (Admin) ===== */
+  const createBtn = document.getElementById("cpCreateUserBtn");
+  if (createBtn && role === "admin") {
+    createBtn.addEventListener("click", () => {
+      const name = (document.getElementById("cpNewUsername")?.value || "").trim();
+      const r = document.getElementById("cpNewRole")?.value || "player";
+      if (!name) return alert("Enter a username.");
+
+      const id = `user-${Date.now()}`;
+      data.users.unshift({ id, username: name, role: r });
+      logAudit(data, "USER_CREATE", { id, username: name, role: r });
+      saveData(data);
+      location.reload();
+    });
+  }
+
+  document.querySelectorAll("[data-login-user]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (role !== "admin") return;
+      const id = btn.getAttribute("data-login-user");
+      const u = (data.users || []).find(x => x.id === id);
+      if (!u) return;
+
+      data.currentUser = {
+        id: u.id,
+        username: u.username,
+        role: u.role,
+        activeCharacterId: data.currentUser?.activeCharacterId || null
+      };
+
+      logAudit(data, "USER_SWITCH", { toUserId: u.id, username: u.username });
+      saveData(data);
+      alert(`Now logged in as ${u.username} (${u.role}).`);
+      location.reload();
+    });
+  });
+
+  /* ===== 2) Speaker bill tools ===== */
+  const loadSpeakerBillBtn = document.getElementById("cpLoadSpeakerBillBtn");
+  if (loadSpeakerBillBtn && (role === "admin" || role === "speaker")) {
+    loadSpeakerBillBtn.addEventListener("click", () => {
+      const billId = document.getElementById("cpSpeakerBillSelect")?.value || "";
+      const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
+      const wrap = document.getElementById("cpSpeakerBillTools");
+      if (!wrap) return;
+      if (!bill) return (wrap.innerHTML = `<div class="muted-block">No bill loaded.</div>`);
+
+      // Defaults
+      data.speakerControls = data.speakerControls || {};
+      data.speakerControls.npcVoteAllocations = data.speakerControls.npcVoteAllocations || {};
+      data.speakerControls.divisionOverrides = data.speakerControls.divisionOverrides || {};
+
+      const alloc = data.speakerControls.npcVoteAllocations[billId] || {
+        // Speaker allocates NPC party votes here:
+        partyVotes: {},
+        // Optional rebellions for playable parties:
+        rebels: { Labour: 0, Conservative: 0, "Liberal Democrat": 0 }
+      };
+
+      const override = data.speakerControls.divisionOverrides[billId] || { forcedResult: "" };
+
+      // Define NPC parties (you can expand later)
+      const npcParties = ["SNP", "Plaid Cymru", "DUP", "UUP", "SDLP", "Alliance", "Green", "Sinn Fein", "Others"];
+
+      wrap.innerHTML = `
+        <div class="muted-block">
+          <b>${escapeHtml(bill.title)}</b><br>
+          Speaker can allocate NPC votes and rebellions. NPC parties are locked to Speaker only.
+        </div>
+
+        <h3 style="margin-top:12px; margin-bottom:6px;">NPC Party Votes</h3>
+        <div class="small">Enter how many NPC MPs vote Aye/No/Abstain. Sinn Fein will not count toward majority.</div>
+
+        <div class="form-grid" style="margin-top:10px;">
+          ${npcParties.map(p => {
+            const pv = alloc.partyVotes[p] || { aye: 0, no: 0, abstain: 0 };
+            return `
+              <label>${escapeHtml(p)} — Aye</label>
+              <input type="number" min="0" data-npc-party="${escapeHtml(p)}" data-npc-field="aye" value="${pv.aye}" />
+
+              <label>${escapeHtml(p)} — No</label>
+              <input type="number" min="0" data-npc-party="${escapeHtml(p)}" data-npc-field="no" value="${pv.no}" />
+
+              <label>${escapeHtml(p)} — Abstain</label>
+              <input type="number" min="0" data-npc-party="${escapeHtml(p)}" data-npc-field="abstain" value="${pv.abstain}" />
+            `;
+          }).join("")}
+        </div>
+
+        <h3 style="margin-top:14px; margin-bottom:6px;">Playable Party Rebellions (Optional)</h3>
+        <div class="small">Rebels are removed from the party seat pool before weighting.</div>
+
+        <div class="form-grid" style="margin-top:10px;">
+          <label>Labour rebels</label>
+          <input id="cpRebLab" type="number" min="0" value="${alloc.rebels?.Labour || 0}" />
+
+          <label>Conservative rebels</label>
+          <input id="cpRebCon" type="number" min="0" value="${alloc.rebels?.Conservative || 0}" />
+
+          <label>Liberal Democrat rebels</label>
+          <input id="cpRebLD" type="number" min="0" value="${alloc.rebels?.["Liberal Democrat"] || 0}" />
+        </div>
+
+        <h3 style="margin-top:14px; margin-bottom:6px;">Division Override (Emergency)</h3>
+        <div class="form-grid">
+          <label>Forced Result</label>
+          <select id="cpOverrideResult">
+            <option value="" ${!override.forcedResult ? "selected" : ""}>None</option>
+            <option value="passed" ${override.forcedResult === "passed" ? "selected" : ""}>Force PASSED</option>
+            <option value="failed" ${override.forcedResult === "failed" ? "selected" : ""}>Force FAILED</option>
+          </select>
+        </div>
+
+        <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn" id="cpSaveSpeakerAllocBtn" type="button">Save Speaker Settings</button>
+        </div>
+      `;
+
+      const saveBtn = document.getElementById("cpSaveSpeakerAllocBtn");
+      if (saveBtn) {
+        saveBtn.addEventListener("click", () => {
+          // read npc inputs
+          const partyVotes = {};
+          wrap.querySelectorAll("[data-npc-party]").forEach(inp => {
+            const party = inp.getAttribute("data-npc-party");
+            const field = inp.getAttribute("data-npc-field");
+            const v = Math.max(0, Number(inp.value || 0));
+            partyVotes[party] = partyVotes[party] || { aye: 0, no: 0, abstain: 0 };
+            partyVotes[party][field] = v;
+          });
+
+          const rebels = {
+            Labour: Math.max(0, Number(document.getElementById("cpRebLab")?.value || 0)),
+            Conservative: Math.max(0, Number(document.getElementById("cpRebCon")?.value || 0)),
+            "Liberal Democrat": Math.max(0, Number(document.getElementById("cpRebLD")?.value || 0))
+          };
+
+          data.speakerControls.npcVoteAllocations[billId] = { partyVotes, rebels };
+
+          const forcedResult = document.getElementById("cpOverrideResult")?.value || "";
+          data.speakerControls.divisionOverrides[billId] = { forcedResult };
+
+          logAudit(data, "SPEAKER_SAVE_DIVISION_SETTINGS", { billId, rebels, forcedResult });
+          saveData(data);
+
+          alert("Saved Speaker settings.");
+        });
+      }
+    });
+  }
+
+  /* ===== 7) Election record ===== */
+  const createElectionBtn = document.getElementById("cpCreateElectionBtn");
+  if (createElectionBtn && (role === "admin" || role === "mod")) {
+    createElectionBtn.addEventListener("click", () => {
+      data.elections = Array.isArray(data.elections) ? data.elections : [];
+
+      const name = (document.getElementById("cpElectionName")?.value || "").trim();
+      const notes = (document.getElementById("cpElectionNotes")?.value || "").trim();
+      if (!name) return alert("Enter an election name.");
+
+      const rec = { id: `election-${Date.now()}`, name, notes, createdAt: new Date().toISOString() };
+      data.elections.unshift(rec);
+
+      logAudit(data, "ELECTION_CREATE_RECORD", rec);
+      saveData(data);
+
+      const out = document.getElementById("cpElectionResult");
+      if (out) out.innerHTML = `<div class="muted-block">Election record created: <b>${escapeHtml(name)}</b></div>`;
+    });
+  }
+
+  /* ===== 8) Timeline save ===== */
+  const setTimelineBtn = document.getElementById("cpSetTimelineBtn");
+  if (setTimelineBtn && role === "admin") {
+    setTimelineBtn.addEventListener("click", () => {
+      data.simConfig = data.simConfig || {};
+      data.simConfig.timelineKey = document.getElementById("cpTimelineKey")?.value || "UK-1997";
+      logAudit(data, "TIMELINE_SET", { timelineKey: data.simConfig.timelineKey });
+      saveData(data);
+      alert("Timeline saved.");
       location.reload();
     });
   }
