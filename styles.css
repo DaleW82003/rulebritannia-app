@@ -1,463 +1,374 @@
 /* =========================================================
-   Rule Britannia — Master Stylesheet
-   Clean Baseline — Scalable for Admin / Mod / Speaker
-   BBC-inspired neutral political UI
+   Rule Britannia — styles.css (CONSOLIDATED)
    ========================================================= */
 
-/* =========================
-   Reset & Base
-   ========================= */
+:root{
+  --bg:#0b1020;
+  --panel:#111a33;
+  --panel2:#0f1830;
+  --text:#eaf0ff;
+  --muted:#b5c2e6;
+  --line:rgba(255,255,255,.10);
 
-* {
-  box-sizing: border-box;
+  --btn:#1f3bff;
+  --btnText:#ffffff;
+
+  --good:#2ecc71;
+  --bad:#ff4d4d;
+  --warn:#ffcc00;
+
+  --radius:14px;
 }
 
-html, body {
-  margin: 0;
-  padding: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-  background: #f3f5f7;
-  color: #1a1a1a;
-  line-height: 1.45;
+*{ box-sizing:border-box; }
+html,body{ margin:0; padding:0; background:var(--bg); color:var(--text); font-family:system-ui,Segoe UI,Arial; }
+a{ color:inherit; text-decoration:none; }
+img{ max-width:100%; display:block; }
+
+.wrap{ width:min(1100px, calc(100% - 32px)); margin:22px auto 60px; }
+.page-title{ margin:14px 0 16px; font-size:28px; letter-spacing:.2px; }
+
+.panel{
+  background:linear-gradient(180deg, var(--panel), var(--panel2));
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:16px;
+  box-shadow:0 10px 30px rgba(0,0,0,.25);
 }
 
-/* =========================
-   Layout
-   ========================= */
-
-.wrap {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 24px;
+.muted-block{
+  background:rgba(255,255,255,.06);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:12px;
+  color:var(--muted);
 }
 
-.page-title {
-  font-size: 28px;
-  font-weight: 700;
-  margin: 0 0 20px 0;
-}
+.small{ font-size:12.5px; color:var(--muted); }
+.muted{ color:var(--muted); }
 
-/* =========================
-   Top Bar / Navigation
-   ========================= */
+.kv{ display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.06); }
+.kv:last-child{ border-bottom:none; }
 
-.topbar {
-  background: #0b1c2d;
-  color: #fff;
-  padding: 10px 0;
-  border-bottom: 4px solid #c8102e;
-}
+.row{ display:flex; justify-content:space-between; gap:10px; padding:4px 0; }
 
-.topbar-inner {
-  max-width: 1300px;
-  margin: 0 auto;
-  padding: 0 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:10px 14px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.15);
+  background:rgba(255,255,255,.06);
+  color:var(--text);
+  cursor:pointer;
+  user-select:none;
 }
+.btn:hover{ background:rgba(255,255,255,.10); }
+.btn:disabled{ opacity:.5; cursor:not-allowed; }
 
-.logo {
-  height: 42px;
-}
-
-.nav {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
-.nav a,
-.nav-toggle {
-  color: #ffffff;
-  text-decoration: none;
-  font-size: 14px;
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-
-.nav a.active,
-.nav-toggle.active {
-  font-weight: 600;
-  border-bottom: 2px solid #ffffff;
-}
-
-.nav-group {
-  position: relative;
-}
-
-.dropdown {
-  display: none;
-  position: absolute;
-  top: 28px;
-  left: 0;
-  background: #ffffff;
-  color: #000;
-  min-width: 180px;
-  border-radius: 6px;
-  box-shadow: 0 8px 18px rgba(0,0,0,0.15);
-  padding: 8px 0;
-  z-index: 999;
-}
-
-.dropdown a {
-  display: block;
-  padding: 8px 12px;
-  color: #111;
-  text-decoration: none;
-  font-size: 14px;
-}
-
-.dropdown a:hover {
-  background: #f0f0f0;
-}
-
-.nav-group.open .dropdown {
-  display: block;
-}
+/* Make cards consistently place buttons at bottom */
+.card-flex{ display:flex; flex-direction:column; min-height: 230px; }
+.tile-bottom{ margin-top:auto; padding-top:12px; display:flex; gap:10px; flex-wrap:wrap; }
 
 /* =========================
-   Panels
+   Topbar + Nav
    ========================= */
+.topbar{ position:sticky; top:0; z-index:50; background:rgba(9,14,30,.85); backdrop-filter: blur(10px); border-bottom:1px solid var(--line); }
+.topbar-inner{ width:min(1100px, calc(100% - 32px)); margin:0 auto; display:flex; align-items:center; gap:14px; padding:10px 0; }
+.brand{ display:flex; align-items:center; gap:10px; }
+.logo{ height:34px; width:auto; }
 
-.panel {
-  background: #ffffff;
-  border-radius: 10px;
-  padding: 18px;
-  margin-bottom: 22px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
-}
+.nav{ display:flex; gap:12px; flex-wrap:wrap; margin-left:auto; align-items:center; }
+.nav-link{ padding:8px 10px; border-radius:10px; }
+.nav-link.active{ background:rgba(255,255,255,.10); }
 
-.panel h2 {
-  margin: 0 0 12px 0;
-  font-size: 18px;
+.nav-group{ position:relative; }
+.nav-toggle{ padding:8px 10px; border-radius:10px; background:transparent; border:1px solid transparent; color:var(--text); cursor:pointer; }
+.nav-toggle.active{ background:rgba(255,255,255,.10); }
+.nav-group.open .dropdown{ display:block; }
+
+.dropdown{
+  display:none;
+  position:absolute;
+  top:42px; right:0;
+  min-width:220px;
+  background:rgba(17,26,51,.95);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:8px;
+  box-shadow:0 20px 40px rgba(0,0,0,.35);
 }
+.dropdown a{ display:block; padding:10px 10px; border-radius:10px; color:var(--text); }
+.dropdown a:hover{ background:rgba(255,255,255,.08); }
 
 /* =========================
-   Buttons
+   Dashboard tiles
    ========================= */
-
-.btn {
-  background: #0b1c2d;
-  color: #ffffff;
-  border: none;
-  padding: 8px 14px;
-  font-size: 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-block;
+.wgo-grid{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap:14px;
+}
+@media (max-width: 980px){
+  .wgo-grid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+@media (max-width: 560px){
+  .wgo-grid{ grid-template-columns: 1fr; }
 }
 
-.btn:hover {
-  background: #163a5c;
+.wgo-tile{
+  background:rgba(255,255,255,.05);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
 }
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+.wgo-kicker{ font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.12em; }
+.wgo-title{ font-size:16px; margin-top:6px; }
+.wgo-strap{ font-size:13px; color:var(--muted); margin-top:6px; }
 
 /* =========================
-   Muted Blocks
+   BBC masthead + breaking strip
    ========================= */
+.bbc-masthead{
+  border-radius:16px;
+  padding:16px;
+  border:1px solid var(--line);
+  background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+  margin-bottom:14px;
+}
+.bbc-title{ font-size:22px; font-weight:700; }
+.bbc-sub{ margin-top:6px; color:var(--muted); }
 
-.muted-block {
-  background: #f4f6f8;
-  padding: 12px;
-  border-radius: 6px;
-  font-size: 14px;
+.bbc-boxes{ display:inline-flex; gap:4px; }
+.bbc-boxes span{
+  display:inline-flex;
+  width:24px; height:24px;
+  border-radius:6px;
+  background:#ffffff;
+  color:#000;
+  font-weight:800;
+  align-items:center;
+  justify-content:center;
+  font-size:14px;
 }
 
-.small {
-  font-size: 13px;
-  opacity: 0.85;
+.breaking-strip{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  border-radius:14px;
+  padding:10px 12px;
+  border:1px solid rgba(255,0,0,.35);
+  background:rgba(255,0,0,.08);
+  margin-bottom:14px;
 }
+.breaking-label{
+  font-weight:800;
+  color:#fff;
+  background:#ff0000;
+  border-radius:10px;
+  padding:6px 10px;
+  letter-spacing:.08em;
+}
+.breaking-line{ color:var(--text); opacity:.95; }
 
 /* =========================
-   Key/Value Rows
+   News cards
    ========================= */
-
-.kv {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 6px;
+.news-grid{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap:14px;
 }
+@media (max-width: 760px){ .news-grid{ grid-template-columns: 1fr; } }
+
+.news-card{
+  background:rgba(255,255,255,.05);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
+}
+.news-card.small .news-text{ font-size:13px; }
+.news-brand{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.news-date{ color:var(--muted); font-size:12px; }
+.breaking-tag{
+  background:#ff0000;
+  color:#fff;
+  font-weight:800;
+  border-radius:10px;
+  padding:6px 10px;
+  font-size:12px;
+}
+.news-headline{ font-size:18px; font-weight:700; margin-bottom:10px; }
+.news-category{ display:inline-block; margin-bottom:8px; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.08); color:var(--muted); font-size:12px; }
+.news-text{ color:var(--text); line-height:1.45; white-space:pre-wrap; }
+.news-imagewrap{ border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,.10); margin-bottom:10px; }
 
 /* =========================
-   Bill Cards & Order Paper
+   Papers tiles
    ========================= */
-
-.order-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 18px;
+.paper-grid{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap:14px;
 }
+@media (max-width: 980px){ .paper-grid{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 560px){ .paper-grid{ grid-template-columns: 1fr; } }
 
-.bill-card {
-  background: #ffffff;
-  border-radius: 10px;
-  padding: 16px;
-  border-left: 6px solid #0b1c2d;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+.paper-tile{
+  background:rgba(255,255,255,.05);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
 }
+.paper-masthead{ font-size:18px; font-weight:800; letter-spacing:.02em; }
+.paper-headline{ margin-top:10px; font-size:14px; }
+.paper-strap{ margin-top:8px; color:var(--muted); font-size:13px; }
 
-.bill-card.passed {
-  border-left-color: #2e7d32;
+.paper-reader-header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+  flex-wrap:wrap;
+  margin-bottom:10px;
 }
+.paper-reader-title{ font-size:20px; font-weight:800; }
 
-.bill-card.failed {
-  border-left-color: #b71c1c;
+.paper-issue{
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:rgba(255,255,255,.05);
+  padding:14px;
+  margin-bottom:14px;
 }
+.paper-issue-top{ display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:10px; }
+.paper-issue-masthead{ font-weight:900; font-size:18px; }
+.paper-issue-date{ color:var(--muted); font-size:12px; }
+.paper-issue-headline{ font-size:18px; font-weight:800; margin-bottom:10px; }
+.paper-issue-byline{ color:var(--muted); font-size:12px; margin:8px 0; }
+.paper-issue-text{ white-space:pre-wrap; line-height:1.5; }
+.paper-issue-imagewrap{ border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,.10); margin-bottom:10px; }
 
-.bill-title {
-  font-weight: 700;
-  font-size: 16px;
-  margin-bottom: 6px;
-}
-
-.bill-sub {
-  font-size: 13px;
-  opacity: 0.85;
-  margin-bottom: 10px;
-}
-
-.bill-actions {
-  margin-top: 12px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.spaced {
-  justify-content: space-between;
-}
+/* “Own mastheads” via colour only */
+.paper-sun .paper-masthead{ color:#ff3b3b; }
+.paper-telegraph .paper-masthead{ color:#7fd1ff; }
+.paper-mail .paper-masthead{ color:#6ea2ff; }
+.paper-mirror .paper-masthead{ color:#ff4d4d; }
+.paper-times .paper-masthead{ color:#ffffff; }
+.paper-ft .paper-masthead{ color:#ffb3d1; }
+.paper-guardian .paper-masthead{ color:#a8ffdc; }
+.paper-independent .paper-masthead{ color:#d3b3ff; }
 
 /* =========================
-   Stage Track
+   Question Time tiles
    ========================= */
-
-.stage-track {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
+.qt-grid{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap:14px;
 }
+@media (max-width: 980px){ .qt-grid{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 560px){ .qt-grid{ grid-template-columns: 1fr; } }
 
-.stage {
-  background: #e3e7eb;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
+.qt-tile{
+  background:rgba(255,255,255,.05);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
 }
-
-.stage.on {
-  background: #0b1c2d;
-  color: #fff;
-}
+.qt-office{ font-size:16px; font-weight:800; }
 
 /* =========================
-   Results & Status
+   Bodies page
    ========================= */
-
-.bill-result {
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-weight: 600;
-  margin-top: 8px;
+.body-grid{
+  display:grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap:14px;
 }
+@media (max-width: 760px){ .body-grid{ grid-template-columns: 1fr; } }
 
-.bill-result.passed {
-  background: #e8f5e9;
-  color: #1b5e20;
+.body-tile{
+  background:rgba(255,255,255,.05);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
 }
-
-.bill-result.failed {
-  background: #ffebee;
-  color: #b71c1c;
-}
-
-.bill-current {
-  margin-top: 8px;
-  font-size: 14px;
-}
+.body-head{ display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+.body-name{ font-size:18px; font-weight:900; }
+.body-desc{ margin-top:8px; color:var(--muted); }
+.body-seats{ margin-top:10px; }
 
 /* =========================
-   Timer
+   Constituencies hero
    ========================= */
-
-.timer {
-  margin-top: 10px;
-  font-size: 14px;
+.commons-hero{
+  border-radius:16px;
+  border:1px solid var(--line);
+  padding:16px;
+  margin-bottom:14px;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255,255,255,.10), transparent 35%),
+    linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
 }
+.commons-badge{
+  display:inline-flex;
+  padding:6px 10px;
+  border-radius:999px;
+  background:rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.12);
+  font-weight:800;
+}
+.commons-sub{ margin-top:10px; color:var(--muted); }
+
+.party-grid{
+  display:grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap:14px;
+}
+@media (max-width: 980px){ .party-grid{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 560px){ .party-grid{ grid-template-columns: 1fr; } }
+
+.party-tile{
+  background:rgba(255,255,255,.05);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
+}
+.party-name{ font-size:16px; font-weight:900; }
+.party-seats{ margin-top:8px; color:var(--muted); }
 
 /* =========================
-   Live Docket
+   User page
    ========================= */
-
-.docket-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.user-card{
+  background:rgba(255,255,255,.05);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
 }
-
-.docket-item {
-  background: #ffffff;
-  padding: 12px;
-  border-radius: 8px;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
-}
-
-.docket-item.high {
-  border-left: 4px solid #c8102e;
-}
-
-.docket-left {
-  display: flex;
-  gap: 10px;
-}
-
-.docket-icon {
-  font-size: 18px;
-}
-
-.docket-title {
-  font-weight: 600;
-}
-
-.docket-detail {
-  font-size: 13px;
-  opacity: 0.85;
-}
+.user-top{ display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; }
+.user-name{ font-size:20px; font-weight:900; }
+.user-actions{ display:flex; gap:10px; flex-wrap:wrap; }
 
 /* =========================
-   Forms
+   Docket (generic)
    ========================= */
-
-.form-grid {
-  display: grid;
-  gap: 10px;
+.docket-list{ display:flex; flex-direction:column; gap:10px; }
+.docket-item{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.05);
 }
-
-input,
-textarea,
-select {
-  width: 100%;
-  padding: 8px;
-  border-radius: 6px;
-  border: 1px solid #d3d9df;
-  font-size: 14px;
-}
-
-textarea {
-  resize: vertical;
-}
-
-/* =========================
-   Legislation Text
-   ========================= */
-
-.legislation-text {
-  white-space: pre-wrap;
-  font-family: "Courier New", monospace;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-/* =========================
-   News Tiles
-   ========================= */
-
-.news-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 18px;
-}
-
-.news-tile {
-  background: #ffffff;
-  border-radius: 10px;
-  padding: 16px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-}
-
-.news-tile.breaking {
-  border-left: 6px solid #c8102e;
-}
-
-.news-headline {
-  font-size: 18px;
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-
-.news-meta {
-  font-size: 12px;
-  opacity: 0.7;
-  margin-bottom: 8px;
-}
-
-.news-image {
-  width: 100%;
-  border-radius: 6px;
-  margin-bottom: 10px;
-}
-
-.news-body {
-  font-size: 14px;
-}
-
-/* =========================
-   Papers Tiles
-   ========================= */
-
-.paper-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 18px;
-}
-
-.paper-tile {
-  background: #ffffff;
-  border-radius: 10px;
-  padding: 16px;
-  text-align: center;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-}
-
-.paper-masthead {
-  font-size: 20px;
-  font-weight: 800;
-  margin-bottom: 8px;
-}
-
-.paper-headline {
-  font-size: 14px;
-  margin-bottom: 10px;
-}
-
-/* =========================
-   Responsive
-   ========================= */
-
-@media (max-width: 768px) {
-
-  .nav {
-    display: none;
-  }
-
-  .wrap {
-    padding: 16px;
-  }
-
-  .order-grid,
-  .news-grid,
-  .paper-grid {
-    grid-template-columns: 1fr;
-  }
-
-}
+.docket-left{ display:flex; gap:12px; align-items:flex-start; }
+.docket-icon{ width:28px; height:28px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.08); }
+.docket-title{ font-weight:800; }
+.docket-detail{ color:var(--muted); margin-top:4px; }
+.docket-cta{ display:flex; align-items:center; }
