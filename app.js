@@ -1,9 +1,15 @@
 /* =========================================================
-   Rule Britannia — app.js (STABLE FULL BASE)
-   - Single data source: localStorage rb_full_data
-   - Loads demo.json once (BOOT at bottom)
-   - Renders: Dashboard, News, Papers, Constituencies, Bodies, User, Question Time, Bill
-   - Keeps: bill stages, amendments (single live), bill division (basic)
+   Rule Britannia — app.js (STABLE + MATCHES YOUR HTML IDS)
+   - Loads demo.json once, then stores/uses localStorage rb_full_data
+   - Renders into YOUR IDs:
+     News: bbcSimDate, bbcBreakingPanel, bbcBreakingTicker, bbcMainNews, bbcFlavourNews, bbcArchive, bbcNewStoryBtn
+     Dashboard: sim-date-display, whats-going-on, live-docket, order-paper
+     Question Time: question-time-root (also supports qt-root)
+     Papers: papersSimDate, papersGrid, paperReaderPanel, paperReader
+     Constituencies: parliament-summary, party-constituencies (also supports constituenciesRoot)
+     Bodies: bodies-root (also supports bodiesRoot)
+     User: user-account, user-controlpanel (also supports userRoot)
+     Bills: bill.html elements (billTitle, billMeta, billText, bill-amendments)
    ========================================================= */
 
 (() => {
@@ -11,9 +17,8 @@
 
   const DATA_URL = "data/demo.json";
   const LS_KEY = "rb_full_data";
-  const LS_PARTY_DRAFTS = "rb_party_drafts";
 
-  /* ---------- tiny helpers ---------- */
+  /* ---------- helpers ---------- */
   const nowTs = () => Date.now();
   const safe = (v, fallback = "") => (v === null || v === undefined ? fallback : v);
 
@@ -65,115 +70,7 @@
     localStorage.setItem(LS_KEY, JSON.stringify(data));
   }
 
-  function getPartyDrafts() {
-    return JSON.parse(localStorage.getItem(LS_PARTY_DRAFTS) || "[]");
-  }
-  function savePartyDrafts(list) {
-    localStorage.setItem(LS_PARTY_DRAFTS, JSON.stringify(list));
-  }
-
-  /* ---------- normalise ---------- */
-  function normaliseData(data) {
-    data.players = Array.isArray(data.players) ? data.players : [];
-    data.orderPaperCommons = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
-
-    data.whatsGoingOn = data.whatsGoingOn || {};
-    data.liveDocket = data.liveDocket || {};
-
-    data.gameState = data.gameState || {
-      started: true,
-      isPaused: false,
-      startRealDate: new Date().toISOString(),
-      startSimMonth: 8,
-      startSimYear: 1997
-    };
-
-    // Parliament seat totals (used by constituencies/bodies)
-    data.parliament = data.parliament || {
-      totalSeats: 650,
-      parties: [
-        { name: "Labour", seats: 418 },
-        { name: "Conservative", seats: 165 },
-        { name: "Liberal Democrat", seats: 46 },
-        { name: "SNP", seats: 6 },
-        { name: "Plaid Cymru", seats: 4 },
-        { name: "DUP", seats: 2 },
-        { name: "Sinn Féin", seats: 2 },
-        { name: "SDLP", seats: 3 },
-        { name: "UUP", seats: 10 }
-      ]
-    };
-
-    data.adminSettings = data.adminSettings || { monarchGender: "Queen" };
-
-    // Current player/character (kept for now)
-    data.currentPlayer = data.currentPlayer || {
-      name: "Unknown MP",
-      party: "Unknown",
-      role: "backbencher",
-      office: null,
-      isSpeaker: false,
-      partyLeader: false
-    };
-
-    // News
-    data.news = data.news || { items: [] };
-
-    // Papers
-    data.papers = data.papers || { fronts: {}, archive: {} };
-
-    // Question Time
-    data.questionTime = data.questionTime || {
-      offices: [
-        { id:"pm", title:"Prime Minister" },
-        { id:"chancellor", title:"Chancellor of the Exchequer" },
-        { id:"foreign", title:"Foreign Secretary" },
-        { id:"home", title:"Home Secretary" }
-      ],
-      questions: []
-    };
-
-    // Constituencies (for demo we allow party->regions->list)
-    data.constituencies = data.constituencies || {
-      lastUpdated: "August 1997",
-      byParty: {
-        "Labour": { "England": [], "Scotland": [], "Wales": [], "Northern Ireland": [] },
-        "Conservative": { "England": [], "Scotland": [], "Wales": [], "Northern Ireland": [] },
-        "Liberal Democrat": { "England": [], "Scotland": [], "Wales": [], "Northern Ireland": [] }
-      }
-    };
-
-    // Bodies
-    data.bodies = data.bodies || {
-      items: [
-        {
-          id: "lords",
-          name: "House of Lords",
-          subtitle: "1997 (demo)",
-          seats: [
-            { name: "Conservative", seats: 300 },
-            { name: "Labour", seats: 180 },
-            { name: "Liberal Democrat", seats: 70 },
-            { name: "Crossbench", seats: 220 },
-            { name: "Bishops", seats: 26 }
-          ]
-        },
-        {
-          id: "holrood",
-          name: "Scottish Parliament",
-          subtitle: "Flavour body (no voting system)",
-          seats: []
-        }
-      ]
-    };
-
-    // User (control panel later)
-    data.users = data.users || { list: [] };
-
-    return data;
-  }
-
-  /* ---------- time helpers (skip Sundays) ---------- */
+  /* ---------- time: skip Sundays; 3 valid days = 1 sim month ---------- */
   function countSundaysBetween(startTs, endTs) {
     let count = 0;
     const t = new Date(startTs);
@@ -198,7 +95,6 @@
     const sundays = countSundaysBetween(start, now);
     const validDays = Math.max(0, realDays - sundays);
 
-    // 3 valid days = 1 sim month
     return Math.floor(validDays / 3);
   }
 
@@ -206,7 +102,7 @@
     const gs = data.gameState || {};
     const monthsPassed = getSimMonthIndex(data);
 
-    const startMonthIndex = (gs.startSimMonth || 1) - 1;
+    const startMonthIndex = (gs.startSimMonth || 8) - 1;
     const startYear = gs.startSimYear || 1997;
 
     const totalMonths = startMonthIndex + monthsPassed;
@@ -241,7 +137,7 @@
     return t;
   }
 
-  /* ---------- NAV ---------- */
+  /* ---------- NAV dropdowns ---------- */
   function initNavUI() {
     const current = location.pathname.split("/").pop() || "dashboard.html";
 
@@ -269,7 +165,102 @@
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") groups.forEach(g => g.classList.remove("open")); });
   }
 
-  /* ---------- Dashboard bits ---------- */
+  /* ---------- normalise base data so pages never go blank ---------- */
+  function normaliseData(data) {
+    data.players = Array.isArray(data.players) ? data.players : [];
+    data.orderPaperCommons = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+    data.whatsGoingOn = data.whatsGoingOn || {};
+    data.liveDocket = data.liveDocket || { items: [] };
+
+    data.gameState = data.gameState || {
+      started: true,
+      isPaused: false,
+      startRealDate: new Date().toISOString(),
+      startSimMonth: 8,
+      startSimYear: 1997
+    };
+
+    data.currentPlayer = data.currentPlayer || {
+      name: "Unknown MP",
+      party: "Labour",
+      role: "backbencher",
+      office: null,
+      isSpeaker: false,
+      partyLeader: false,
+      permissions: { admin:false, mod:false, speaker:false }
+    };
+
+    data.parliament = data.parliament || {
+      totalSeats: 650,
+      parties: [
+        { name: "Labour", seats: 418 },
+        { name: "Conservative", seats: 165 },
+        { name: "Liberal Democrat", seats: 46 },
+        { name: "SNP", seats: 6 },
+        { name: "Plaid Cymru", seats: 4 },
+        { name: "DUP", seats: 2 },
+        { name: "Sinn Féin", seats: 2 },
+        { name: "SDLP", seats: 3 },
+        { name: "UUP", seats: 10 }
+      ]
+    };
+
+    // NEWS
+    data.news = data.news || { items: [] };
+    if (!Array.isArray(data.news.items)) data.news.items = [];
+    // expected fields: headline, text, photo(optional), breaking(bool), category(str), flavour(bool), createdAt(ms), postedBy
+
+    // PAPERS
+    data.papers = data.papers || { fronts: {}, archive: {} };
+    data.papers.fronts = data.papers.fronts || {};
+    data.papers.archive = data.papers.archive || {};
+
+    // QUESTION TIME
+    data.questionTime = data.questionTime || {
+      offices: [
+        { id:"pm", title:"Prime Minister" },
+        { id:"chancellor", title:"Chancellor of the Exchequer" },
+        { id:"foreign", title:"Foreign Secretary" },
+        { id:"home", title:"Home Secretary" }
+      ],
+      questions: []
+    };
+
+    // CONSTITUENCIES
+    data.constituencies = data.constituencies || {
+      lastUpdated: "August 1997",
+      byParty: {
+        "Labour": { "England": [], "Scotland": [], "Wales": [], "Northern Ireland": [] },
+        "Conservative": { "England": [], "Scotland": [], "Wales": [], "Northern Ireland": [] },
+        "Liberal Democrat": { "England": [], "Scotland": [], "Wales": [], "Northern Ireland": [] }
+      }
+    };
+
+    // BODIES
+    data.bodies = data.bodies || {
+      items: [
+        {
+          id: "lords",
+          name: "House of Lords",
+          subtitle: "1997 (demo)",
+          seats: [
+            { name: "Conservative", seats: 300 },
+            { name: "Labour", seats: 180 },
+            { name: "Liberal Democrat", seats: 70 },
+            { name: "Crossbench", seats: 220 },
+            { name: "Bishops", seats: 26 }
+          ]
+        }
+      ]
+    };
+
+    return data;
+  }
+
+  /* =========================================================
+     DASHBOARD
+     ========================================================= */
+
   function renderSimDate(data) {
     const el = document.getElementById("sim-date-display");
     if (!el) return;
@@ -287,8 +278,8 @@
     const pollingRaw = Array.isArray(w.polling) ? w.polling : [];
 
     const polling = pollingRaw
-      .filter(p => (p.value >= 2) || p.party === "SNP")
-      .sort((a,b) => b.value - a.value);
+      .filter(p => (Number(p.value) >= 2) || p.party === "SNP")
+      .sort((a,b) => Number(b.value) - Number(a.value));
 
     const pollingLines = polling.length
       ? polling.map(p => `<div class="row"><span>${escapeHtml(p.party)}</span><b>${Number(p.value).toFixed(1)}%</b></div>`).join("")
@@ -329,85 +320,214 @@
     `;
   }
 
-  /* ---------- NEWS ---------- */
-  function getDefaultNewsMasthead() {
-    return `
-      <div class="bbc-masthead">
-        <div class="bbc-blocks">
-          <span class="bbc-block">B</span><span class="bbc-block">B</span><span class="bbc-block">C</span>
-        </div>
-        <div class="bbc-title">News</div>
+  function renderLiveDocket(data) {
+    const el = document.getElementById("live-docket");
+    if (!el) return;
+
+    const items = Array.isArray(data.liveDocket?.items) ? data.liveDocket.items : [];
+
+    if (!items.length) {
+      el.innerHTML = `<div class="muted-block">No live items right now.</div>`;
+      return;
+    }
+
+    el.innerHTML = `
+      <div class="docket-list">
+        ${items.map(x => `
+          <div class="docket-item ${x.priority ? "high" : ""}">
+            <div class="docket-left">
+              <div class="docket-icon">${escapeHtml(safe(x.icon,"📌"))}</div>
+              <div class="docket-text">
+                <div class="docket-title">${escapeHtml(safe(x.title,"Untitled"))}</div>
+                <div class="docket-detail">${escapeHtml(safe(x.detail,""))}</div>
+              </div>
+            </div>
+            <div class="docket-actions">
+              ${x.href ? `<a class="btn" href="${escapeHtml(x.href)}">Open</a>` : ``}
+            </div>
+          </div>
+        `).join("")}
       </div>
     `;
   }
 
-  function renderNewsPage(data) {
-    const root = document.getElementById("newsRoot");
-    const ticker = document.getElementById("breakingTicker");
-    const simDateEl = document.getElementById("newsSimDate");
+  function renderOrderPaper(data) {
+    const el = document.getElementById("order-paper");
+    if (!el) return;
 
-    if (!root && !ticker && !simDateEl) return;
+    const bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
 
-    const simLabel = getSimMonthYearLabel(data);
-    if (simDateEl) simDateEl.textContent = simLabel;
-
-    const items = Array.isArray(data.news?.items) ? data.news.items : [];
-    const now = nowTs();
-
-    // archive after 2 real weeks
-    const LIVE_WINDOW_MS = 14 * 86400000;
-
-    const breaking = items
-      .filter(x => x.breaking === true)
-      .sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
-
-    if (ticker) {
-      ticker.innerHTML = breaking.length
-        ? `<div class="ticker-inner">
-             <span class="ticker-tag">BREAKING</span>
-             <span class="ticker-items">${breaking.map(b => escapeHtml(b.headline)).join(" • ")}</span>
-           </div>`
-        : `<div class="ticker-inner"><span class="ticker-tag muted">LIVE</span><span class="ticker-items">No breaking news.</span></div>`;
-    }
-
-    if (!root) return;
-
-    if (!items.length) {
-      root.innerHTML = `
-        ${getDefaultNewsMasthead()}
-        <div class="muted-block" style="margin-top:12px;">No news has been posted yet.</div>
-      `;
+    if (!bills.length) {
+      el.innerHTML = `<div class="muted-block">No bills on the Order Paper yet.</div>`;
       return;
     }
 
-    const renderCard = (n) => {
-      const age = now - (n.createdAt || now);
-      const isLive = age <= LIVE_WINDOW_MS;
-      const status = isLive ? `<span class="tag live">LIVE</span>` : `<span class="tag archived">ARCHIVE</span>`;
+    el.innerHTML = `
+      <div class="docket-list">
+        ${bills.map(b => {
+          const stage = safe(b.stage, "First Reading");
+          const status = safe(b.status, "in-progress");
+          const tag = status === "passed" ? "PASSED" : status === "failed" ? "FAILED" : stage.toUpperCase();
+          return `
+            <div class="docket-item">
+              <div class="docket-left">
+                <div class="docket-icon">📜</div>
+                <div class="docket-text">
+                  <div class="docket-title">${escapeHtml(safe(b.title,"Untitled Bill"))}</div>
+                  <div class="docket-detail">${escapeHtml(safe(b.department,""))}</div>
+                  <div class="small"><span class="tag cat">${escapeHtml(tag)}</span></div>
+                </div>
+              </div>
+              <div class="docket-actions">
+                <a class="btn" href="bill.html?id=${encodeURIComponent(b.id)}">Open</a>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  /* =========================================================
+     NEWS (matches your news.html IDs)
+     ========================================================= */
+
+  function renderNewsPage(data) {
+    const simEl = document.getElementById("bbcSimDate") || document.getElementById("newsSimDate");
+    const breakingPanel = document.getElementById("bbcBreakingPanel");
+    const breakingTicker = document.getElementById("bbcBreakingTicker") || document.getElementById("breakingTicker");
+    const mainEl = document.getElementById("bbcMainNews");
+    const flavourEl = document.getElementById("bbcFlavourNews");
+    const archiveEl = document.getElementById("bbcArchive");
+    const newBtn = document.getElementById("bbcNewStoryBtn");
+
+    const isNewsPage = !!(simEl || breakingTicker || mainEl || flavourEl || archiveEl);
+    if (!isNewsPage) return;
+
+    const simLabel = getSimMonthYearLabel(data);
+    if (simEl) simEl.textContent = simLabel;
+
+    // show Post Story only for mods/admin/speaker (future)
+    if (newBtn) {
+      const p = data.currentPlayer || {};
+      const perms = p.permissions || {};
+      const canPost = perms.admin || perms.mod || perms.speaker;
+      newBtn.style.display = canPost ? "inline-flex" : "none";
+      if (canPost) {
+        newBtn.onclick = () => alert("Posting UI comes next (Control Panel). For now, stories live in data.news.items.");
+      }
+    }
+
+    const items = Array.isArray(data.news?.items) ? data.news.items : [];
+    const now = nowTs();
+    const LIVE_WINDOW_MS = 14 * 86400000;
+
+    // split
+    const live = [];
+    const archive = [];
+    for (const n of items) {
+      const created = Number(n.createdAt || now);
+      const age = now - created;
+      (age <= LIVE_WINDOW_MS ? live : archive).push(n);
+    }
+
+    const breaking = live
+      .filter(x => x.breaking === true)
+      .sort((a,b) => Number(b.createdAt||0) - Number(a.createdAt||0));
+
+    if (breakingTicker) {
+      breakingTicker.textContent = breaking.length
+        ? breaking.map(b => b.headline).join(" • ")
+        : "No breaking news.";
+    }
+    if (breakingPanel) {
+      breakingPanel.style.display = breaking.length ? "block" : "none";
+    }
+
+    const main = live
+      .filter(x => x.flavour !== true)
+      .sort((a,b) => Number(b.createdAt||0) - Number(a.createdAt||0));
+
+    const flavour = live
+      .filter(x => x.flavour === true)
+      .sort((a,b) => Number(b.createdAt||0) - Number(a.createdAt||0));
+
+    const renderCard = (n, mode="main") => {
       const cat = n.category ? `<span class="tag cat">${escapeHtml(n.category)}</span>` : ``;
+      const br = n.breaking ? `<span class="tag breaking">BREAKING</span>` : ``;
+      const posted = safe(n.postedBy, "BBC Newsdesk");
+      const text = escapeHtml(safe(n.text,"")).replaceAll("\n","<br>");
+
+      if (mode === "flavour") {
+        return `
+          <div class="flavour-card">
+            <div class="flavour-head">
+              <div class="flavour-title">${escapeHtml(safe(n.headline,"Untitled"))}</div>
+              <div class="news-tags">${br}${cat}</div>
+            </div>
+            <div class="news-meta">${escapeHtml(simLabel)} · ${escapeHtml(posted)}</div>
+            <div class="flavour-body">${text}</div>
+          </div>
+        `;
+      }
 
       return `
         <div class="news-card ${n.breaking ? "breaking" : ""}">
           <div class="news-top">
             <div class="news-headline">${escapeHtml(safe(n.headline,"Untitled"))}</div>
-            <div class="news-tags">${n.breaking ? `<span class="tag breaking">BREAKING</span>` : ""}${cat}${status}</div>
+            <div class="news-tags">${br}${cat}<span class="tag live">LIVE</span></div>
           </div>
           ${n.photo ? `<img class="news-photo" src="${escapeHtml(n.photo)}" alt="">` : ""}
-          <div class="news-meta">${escapeHtml(simLabel)} · Posted by ${escapeHtml(safe(n.postedBy,"BBC Newsdesk"))}</div>
-          <div class="news-body">${escapeHtml(safe(n.text,"")).replaceAll("\n","<br>")}</div>
+          <div class="news-meta">${escapeHtml(simLabel)} · Posted by ${escapeHtml(posted)}</div>
+          <div class="news-body">${text}</div>
         </div>
       `;
     };
 
-    root.innerHTML = `
-      ${getDefaultNewsMasthead()}
-      <div class="news-grid" style="margin-top:12px;">
-        ${items.sort((a,b)=> (b.createdAt||0)-(a.createdAt||0)).map(renderCard).join("")}
-      </div>
-    `;
+    const renderArchiveCard = (n) => {
+      const cat = n.category ? `<span class="tag cat">${escapeHtml(n.category)}</span>` : ``;
+      const br = n.breaking ? `<span class="tag breaking">BREAKING</span>` : ``;
+      const posted = safe(n.postedBy, "BBC Newsdesk");
+      const text = escapeHtml(safe(n.text,"")).replaceAll("\n","<br>");
+      return `
+        <div class="news-card">
+          <div class="news-top">
+            <div class="news-headline">${escapeHtml(safe(n.headline,"Untitled"))}</div>
+            <div class="news-tags">${br}${cat}<span class="tag archived">ARCHIVE</span></div>
+          </div>
+          ${n.photo ? `<img class="news-photo" src="${escapeHtml(n.photo)}" alt="">` : ""}
+          <div class="news-meta">${escapeHtml(simLabel)} · Posted by ${escapeHtml(posted)}</div>
+          <div class="news-body">${text}</div>
+        </div>
+      `;
+    };
+
+    if (mainEl) {
+      mainEl.classList.remove("muted-block");
+      mainEl.innerHTML = main.length
+        ? `<div class="news-grid">${main.map(n => renderCard(n,"main")).join("")}</div>`
+        : `<div class="muted-block">No main stories have been posted yet.</div>`;
+    }
+
+    if (flavourEl) {
+      flavourEl.classList.remove("muted-block");
+      flavourEl.innerHTML = flavour.length
+        ? `<div class="flavour-grid">${flavour.map(n => renderCard(n,"flavour")).join("")}</div>`
+        : `<div class="muted-block">No flavour stories yet.</div>`;
+    }
+
+    if (archiveEl) {
+      archiveEl.classList.remove("muted-block");
+      archiveEl.innerHTML = archive.length
+        ? `<div class="news-grid">${archive.sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0)).map(renderArchiveCard).join("")}</div>`
+        : `<div class="muted-block">No archived stories yet.</div>`;
+    }
   }
 
-  /* ---------- PAPERS ---------- */
+  /* =========================================================
+     PAPERS (matches your papers.html)
+     ========================================================= */
+
   const PAPER_LIST = [
     { id:"sun", name:"The Sun", cls:"paper-sun" },
     { id:"telegraph", name:"The Daily Telegraph", cls:"paper-telegraph" },
@@ -432,8 +552,7 @@
 
     if (!gridEl) return;
 
-    // Ensure every paper has at least a stub front page
-    data.papers.fronts = data.papers.fronts || {};
+    // Ensure each paper has a stub front
     PAPER_LIST.forEach(p => {
       if (!data.papers.fronts[p.id]) {
         data.papers.fronts[p.id] = {
@@ -444,6 +563,7 @@
           photo: ""
         };
       }
+      if (!Array.isArray(data.papers.archive[p.id])) data.papers.archive[p.id] = [];
     });
     saveData(data);
 
@@ -474,7 +594,6 @@
       });
     });
 
-    // open reader if URL param
     const params = new URLSearchParams(location.search);
     const openId = params.get("paper");
     if (openId) openPaperReader(data, openId);
@@ -526,133 +645,14 @@
     `;
   }
 
-  /* ---------- CONSTITUENCIES ---------- */
-  function renderConstituenciesPage(data) {
-    const root = document.getElementById("constituenciesRoot");
-    if (!root) return;
-
-    const parties = Array.isArray(data.parliament?.parties) ? data.parliament.parties : [];
-    const total = Number(data.parliament?.totalSeats || 650);
-
-    const partyTiles = parties.map(p => {
-      const name = p.name;
-      const seats = Number(p.seats || 0);
-      return `<div class="seat-row"><span>${escapeHtml(name)}</span><b>${seats}</b></div>`;
-    }).join("");
-
-    // per-party expandable list (regions)
-    const byParty = data.constituencies?.byParty || {};
-    const playable = ["Labour","Conservative","Liberal Democrat"];
-
-    const renderPartyBlock = (partyName) => {
-      const regions = byParty[partyName] || {};
-      const regionNames = ["England","Scotland","Wales","Northern Ireland"];
-
-      return `
-        <details class="party-block">
-          <summary>
-            <span class="party-name">${escapeHtml(partyName)}</span>
-            <span class="tag cat">Open</span>
-          </summary>
-
-          <div class="party-regions">
-            ${regionNames.map(r => {
-              const list = Array.isArray(regions[r]) ? regions[r] : [];
-              return `
-                <div class="region-block">
-                  <div class="region-title">${escapeHtml(r)}</div>
-                  ${list.length
-                    ? `<ul class="clean-list">${list.map(c => `<li>${escapeHtml(c)}</li>`).join("")}</ul>`
-                    : `<div class="muted small">No constituencies listed yet.</div>`
-                  }
-                </div>
-              `;
-            }).join("")}
-          </div>
-        </details>
-      `;
-    };
-
-    root.innerHTML = `
-      <div class="commons-header">
-        <div class="commons-badge">House of Commons</div>
-        <div class="commons-sub">${escapeHtml(safe(data.constituencies?.lastUpdated,"Demo"))}</div>
-      </div>
-
-      <div class="panel" style="margin-top:12px;">
-        <h2 style="margin:0 0 10px;">State of Parliament</h2>
-        <div class="seat-summary">
-          <div class="seat-row"><span>Total Seats</span><b>${total}</b></div>
-          ${partyTiles}
-        </div>
-      </div>
-
-      <div class="panel" style="margin-top:12px;">
-        <h2 style="margin:0 0 10px;">Constituencies by Party</h2>
-        <div class="muted-block" style="margin-bottom:12px;">
-          Mods can edit this at any time for by-elections, defections, time periods, etc.
-        </div>
-        ${playable.map(renderPartyBlock).join("")}
-      </div>
-    `;
-  }
-
-  /* ---------- BODIES ---------- */
-  function renderBodiesPage(data) {
-    const root = document.getElementById("bodiesRoot");
-    if (!root) return;
-
-    const items = Array.isArray(data.bodies?.items) ? data.bodies.items : [];
-
-    if (!items.length) {
-      root.innerHTML = `<div class="muted-block">No bodies configured yet.</div>`;
-      return;
-    }
-
-    root.innerHTML = `
-      <div class="bodies-grid">
-        ${items.map(b => `
-          <div class="body-card">
-            <div class="body-top">
-              <div class="body-name">${escapeHtml(b.name)}</div>
-              <div class="body-sub">${escapeHtml(safe(b.subtitle,""))}</div>
-            </div>
-            ${Array.isArray(b.seats) && b.seats.length ? `
-              <div class="seat-summary" style="margin-top:10px;">
-                ${b.seats.map(s => `<div class="seat-row"><span>${escapeHtml(s.name)}</span><b>${Number(s.seats||0)}</b></div>`).join("")}
-              </div>
-            ` : `<div class="muted-block" style="margin-top:10px;">Seat breakdown not set (flavour body).</div>`}
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  /* ---------- USER ---------- */
-  function renderUserPage(data) {
-    const root = document.getElementById("userRoot");
-    if (!root) return;
-
-    const p = data.currentPlayer || {};
-    root.innerHTML = `
-      <div class="panel">
-        <h2 style="margin:0 0 10px;">User</h2>
-        <div class="muted-block">
-          This will become your full control panel (Player / Speaker / Mod / Admin). For now it shows your current character.
-        </div>
-        <div style="margin-top:12px;" class="seat-summary">
-          <div class="seat-row"><span>Name</span><b>${escapeHtml(safe(p.name,"Unknown"))}</b></div>
-          <div class="seat-row"><span>Party</span><b>${escapeHtml(safe(p.party,"Unknown"))}</b></div>
-          <div class="seat-row"><span>Role</span><b>${escapeHtml(safe(p.role,"backbencher"))}</b></div>
-          <div class="seat-row"><span>Speaker</span><b>${p.isSpeaker ? "Yes" : "No"}</b></div>
-        </div>
-      </div>
-    `;
-  }
-
-  /* ---------- QUESTION TIME ---------- */
+  /* =========================================================
+     QUESTION TIME (matches your questiontime.html id)
+     ========================================================= */
   function renderQuestionTimePage(data) {
-    const root = document.getElementById("qt-root");
+    const root =
+      document.getElementById("question-time-root") ||
+      document.getElementById("qt-root");
+
     if (!root) return;
 
     const offices = Array.isArray(data.questionTime?.offices) ? data.questionTime.offices : [];
@@ -679,25 +679,204 @@
         }).join("")}
       </div>
 
-      <div class="panel" style="margin-top:12px;">
-        <h2 style="margin:0 0 10px;">How this will work</h2>
-        <div class="muted-block">
-          Players will submit questions. Office holders (or mods) will post answers. This page is now “real” so we can build the full feature next.
-        </div>
+      <div class="muted-block" style="margin-top:12px;">
+        Next step: submission + threaded answers per office (Speaker/mod tools later).
       </div>
     `;
 
     root.querySelectorAll("[data-qt-open]").forEach(btn => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-qt-open");
-        alert(`Question Time office opened: ${id}\n\nNext step: show questions + submit form here.`);
+        alert(`Office opened: ${id}\n\nNext step: show questions + submit form in-page.`);
       });
     });
   }
 
   /* =========================================================
-     BILL + AMENDMENTS (keeps your logic, fixes rendering target)
+     CONSTITUENCIES (matches your constituencies.html IDs)
      ========================================================= */
+  function renderConstituenciesPage(data) {
+    const summaryEl = document.getElementById("parliament-summary");
+    const partyEl = document.getElementById("party-constituencies");
+    const altRoot = document.getElementById("constituenciesRoot"); // support older builds
+
+    if (!summaryEl && !partyEl && !altRoot) return;
+
+    const parties = Array.isArray(data.parliament?.parties) ? data.parliament.parties : [];
+    const total = Number(data.parliament?.totalSeats || 650);
+
+    const seatRows = parties
+      .slice()
+      .sort((a,b)=>Number(b.seats||0)-Number(a.seats||0))
+      .map(p => `<div class="seat-row"><span>${escapeHtml(p.name)}</span><b>${Number(p.seats||0)}</b></div>`)
+      .join("");
+
+    const summaryHtml = `
+      <div class="commons-header">
+        <div class="commons-badge">House of Commons</div>
+        <div class="commons-sub">${escapeHtml(safe(data.constituencies?.lastUpdated,"Demo"))}</div>
+      </div>
+
+      <div class="seat-summary" style="margin-top:12px;">
+        <div class="seat-row"><span>Total Seats</span><b>${total}</b></div>
+        ${seatRows}
+      </div>
+    `;
+
+    if (summaryEl) summaryEl.innerHTML = summaryHtml;
+
+    const byParty = data.constituencies?.byParty || {};
+    const playable = ["Labour","Conservative","Liberal Democrat"];
+    const regions = ["England","Scotland","Wales","Northern Ireland"];
+
+    const partyBlocks = playable.map(partyName => {
+      const r = byParty[partyName] || {};
+      return `
+        <details class="party-block">
+          <summary>
+            <span class="party-name">${escapeHtml(partyName)}</span>
+            <span class="tag cat">Open</span>
+          </summary>
+          <div class="party-regions">
+            ${regions.map(region => {
+              const list = Array.isArray(r[region]) ? r[region] : [];
+              return `
+                <div class="region-block">
+                  <div class="region-title">${escapeHtml(region)}</div>
+                  ${list.length
+                    ? `<ul class="clean-list">${list.map(c=>`<li>${escapeHtml(c)}</li>`).join("")}</ul>`
+                    : `<div class="muted small">No constituencies listed yet.</div>`
+                  }
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </details>
+      `;
+    }).join("");
+
+    const partyHtml = `
+      <div class="muted-block" style="margin-bottom:12px;">
+        Mods can amend this for any period, by-elections, defections, etc.
+      </div>
+      ${partyBlocks}
+    `;
+
+    if (partyEl) partyEl.innerHTML = partyHtml;
+
+    // older page support (if ever used)
+    if (altRoot) {
+      altRoot.innerHTML = `
+        <div class="panel">${summaryHtml}</div>
+        <div class="panel" style="margin-top:12px;">${partyHtml}</div>
+      `;
+    }
+  }
+
+  /* =========================================================
+     BODIES (matches your bodies.html id)
+     ========================================================= */
+  function renderBodiesPage(data) {
+    const root = document.getElementById("bodies-root") || document.getElementById("bodiesRoot");
+    if (!root) return;
+
+    const items = Array.isArray(data.bodies?.items) ? data.bodies.items : [];
+    if (!items.length) {
+      root.innerHTML = `<div class="muted-block">No bodies configured yet.</div>`;
+      return;
+    }
+
+    root.innerHTML = `
+      <div class="bodies-grid">
+        ${items.map(b => `
+          <div class="body-card">
+            <div class="body-top">
+              <div class="body-name">${escapeHtml(b.name)}</div>
+              <div class="body-sub">${escapeHtml(safe(b.subtitle,""))}</div>
+            </div>
+            ${Array.isArray(b.seats) && b.seats.length ? `
+              <div class="seat-summary" style="margin-top:10px;">
+                ${b.seats.map(s => `<div class="seat-row"><span>${escapeHtml(s.name)}</span><b>${Number(s.seats||0)}</b></div>`).join("")}
+              </div>
+            ` : `<div class="muted-block" style="margin-top:10px;">Seat breakdown not set (flavour body).</div>`}
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  /* =========================================================
+     USER (matches your user.html IDs)
+     ========================================================= */
+  function renderUserPage(data) {
+    const accountEl = document.getElementById("user-account");
+    const cpEl = document.getElementById("user-controlpanel");
+    const altRoot = document.getElementById("userRoot");
+    if (!accountEl && !cpEl && !altRoot) return;
+
+    const p = data.currentPlayer || {};
+    const perms = p.permissions || { admin:false, mod:false, speaker:false };
+
+    const accountHtml = `
+      <div class="seat-summary">
+        <div class="seat-row"><span>Character</span><b>${escapeHtml(safe(p.name,"Unknown"))}</b></div>
+        <div class="seat-row"><span>Party</span><b>${escapeHtml(safe(p.party,"Unknown"))}</b></div>
+        <div class="seat-row"><span>Role</span><b>${escapeHtml(safe(p.role,"backbencher"))}</b></div>
+        <div class="seat-row"><span>Speaker</span><b>${p.isSpeaker ? "Yes" : "No"}</b></div>
+      </div>
+      <div class="muted-block" style="margin-top:12px;">
+        This will evolve into: Player panel + Speaker panel + Mod panel + Admin panel (no coding required).
+      </div>
+    `;
+
+    const controlHtml = `
+      <div class="control-grid">
+        <div class="control-tile">
+          <div class="control-title">Character</div>
+          <div class="muted small">Create / edit your character (coming next).</div>
+          <div class="control-actions"><button class="btn" type="button">Open</button></div>
+        </div>
+
+        <div class="control-tile ${perms.speaker ? "" : "locked"}">
+          <div class="control-title">Speaker Controls</div>
+          <div class="muted small">NPC votes, rebellions, divisions, order.</div>
+          <div class="control-actions"><button class="btn" type="button" ${perms.speaker ? "" : "disabled"}>Open</button></div>
+        </div>
+
+        <div class="control-tile ${perms.mod ? "" : "locked"}">
+          <div class="control-title">Moderator Controls</div>
+          <div class="muted small">News, papers, events, settings.</div>
+          <div class="control-actions"><button class="btn" type="button" ${perms.mod ? "" : "disabled"}>Open</button></div>
+        </div>
+
+        <div class="control-tile ${perms.admin ? "" : "locked"}">
+          <div class="control-title">Admin Controls</div>
+          <div class="muted small">Users, permissions, timelines.</div>
+          <div class="control-actions"><button class="btn" type="button" ${perms.admin ? "" : "disabled"}>Open</button></div>
+        </div>
+      </div>
+
+      ${(!perms.admin && !perms.mod && !perms.speaker)
+        ? `<div class="muted-block" style="margin-top:12px;">You’re currently a player account (no staff permissions).</div>`
+        : `<div class="muted-block" style="margin-top:12px;">Staff permissions detected — panels will become functional as we build control-panel.html.</div>`
+      }
+    `;
+
+    if (accountEl) accountEl.innerHTML = accountHtml;
+    if (cpEl) cpEl.innerHTML = controlHtml;
+
+    if (altRoot) {
+      altRoot.innerHTML = `
+        <div class="panel">${accountHtml}</div>
+        <div class="panel" style="margin-top:12px;">${controlHtml}</div>
+      `;
+    }
+  }
+
+  /* =========================================================
+     BILL + AMENDMENTS (kept working, unchanged behaviour)
+     ========================================================= */
+
   const STAGE_ORDER = ["First Reading", "Second Reading", "Report Stage", "Division"];
   const STAGE_LENGTH_SIM_MONTHS = { "Second Reading": 2, "Report Stage": 1 };
 
@@ -706,9 +885,7 @@
     if (!bill.stageStartedAt) bill.stageStartedAt = bill.createdAt;
     if (!bill.stage) bill.stage = "First Reading";
     if (!bill.status) bill.status = "in-progress";
-    if (!bill.billType) bill.billType = (bill.type || "pmb");
     if (!Array.isArray(bill.amendments)) bill.amendments = [];
-    if (!bill.hansard) bill.hansard = {};
     if (!bill.completedAt && (bill.status === "passed" || bill.status === "failed")) bill.completedAt = nowTs();
     return bill;
   }
@@ -788,77 +965,6 @@
       }
       bill.completedAt = nowTs();
     }
-  }
-
-  function rbVoteBillDivision(billId, voterName, vote){
-    const data = getData();
-    if (!data) return null;
-
-    normaliseData(data);
-    const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
-    if (!bill) return null;
-
-    ensureBillDefaults(bill);
-    if (bill.stage !== "Division" || isCompleted(bill)) return null;
-
-    const div = ensureBillDivisionDefaults(bill);
-    if (div.closed) return null;
-
-    const name = String(voterName || "").trim();
-    if (!name) return null;
-    if (div.voters.includes(name)) return null;
-
-    if (vote === "aye") div.votes.aye++;
-    else if (vote === "no") div.votes.no++;
-    else div.votes.abstain++;
-
-    div.voters.push(name);
-
-    processBillDivision(bill);
-    saveData(data);
-    return { data, bill };
-  }
-
-  function processBillLifecycle(data, bill) {
-    ensureBillDefaults(bill);
-
-    if (isSunday()) return bill;
-    if (isCompleted(bill)) return bill;
-    if (billHasOpenAmendmentDivision(bill)) return bill;
-
-    if (bill.deferToMonday === true) {
-      const today = new Date();
-      if (today.getDay() === 0) return bill;
-      bill.deferToMonday = false;
-    }
-
-    if (bill.stage === "First Reading") {
-      const end = addActiveHoursSkippingSundays(new Date(bill.stageStartedAt).getTime(), 24);
-      if (nowTs() >= end) moveStage(bill, "Second Reading");
-      return bill;
-    }
-
-    if (bill.stage === "Second Reading") {
-      const elapsed = getSimMonthsSince(data, bill.stageStartedAt);
-      if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Second Reading"]) moveStage(bill, "Report Stage");
-      return bill;
-    }
-
-    if (bill.stage === "Report Stage") {
-      const elapsed = getSimMonthsSince(data, bill.stageStartedAt);
-      if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Report Stage"]) {
-        moveStage(bill, "Division");
-        ensureBillDivisionDefaults(bill);
-      }
-      return bill;
-    }
-
-    if (bill.stage === "Division") {
-      processBillDivision(bill);
-      return bill;
-    }
-
-    return bill;
   }
 
   function billStageCountdown(data, bill) {
@@ -948,12 +1054,76 @@
     return bill;
   }
 
+  function processBillLifecycle(data, bill) {
+    ensureBillDefaults(bill);
+
+    if (isSunday()) return bill;
+    if (isCompleted(bill)) return bill;
+    if (billHasOpenAmendmentDivision(bill)) return bill;
+
+    if (bill.stage === "First Reading") {
+      const end = addActiveHoursSkippingSundays(new Date(bill.stageStartedAt).getTime(), 24);
+      if (nowTs() >= end) moveStage(bill, "Second Reading");
+      return bill;
+    }
+
+    if (bill.stage === "Second Reading") {
+      const elapsed = getSimMonthsSince(data, bill.stageStartedAt);
+      if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Second Reading"]) moveStage(bill, "Report Stage");
+      return bill;
+    }
+
+    if (bill.stage === "Report Stage") {
+      const elapsed = getSimMonthsSince(data, bill.stageStartedAt);
+      if (elapsed >= STAGE_LENGTH_SIM_MONTHS["Report Stage"]) {
+        moveStage(bill, "Division");
+        ensureBillDivisionDefaults(bill);
+      }
+      return bill;
+    }
+
+    if (bill.stage === "Division") {
+      processBillDivision(bill);
+      return bill;
+    }
+
+    return bill;
+  }
+
+  function rbVoteBillDivision(billId, voterName, vote){
+    const data = getData();
+    if (!data) return null;
+
+    normaliseData(data);
+    const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
+    if (!bill) return null;
+
+    ensureBillDefaults(bill);
+    if (bill.stage !== "Division" || isCompleted(bill)) return null;
+
+    const div = ensureBillDivisionDefaults(bill);
+    if (div.closed) return null;
+
+    const name = String(voterName || "").trim();
+    if (!name) return null;
+    if (div.voters.includes(name)) return null;
+
+    if (vote === "aye") div.votes.aye++;
+    else if (vote === "no") div.votes.no++;
+    else div.votes.abstain++;
+
+    div.voters.push(name);
+
+    processBillDivision(bill);
+    saveData(data);
+    return { data, bill };
+  }
+
   function rbUpdateBill(billId, updaterFn){
     const data = getData();
     if (!data) return null;
 
     normaliseData(data);
-
     const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
     if (!bill) return null;
 
@@ -964,8 +1134,8 @@
 
     processAmendments(bill);
     processBillDivision(bill);
-
     saveData(data);
+
     return { data, bill };
   }
 
@@ -975,7 +1145,6 @@
         a.status === "proposed" ||
         (a.status === "division" && a.division && a.division.closed !== true)
       );
-
       if (active) {
         bill._lastAmendmentError = "Only one live amendment may run at a time for this bill. Resolve the current amendment first.";
         return;
@@ -1123,8 +1292,6 @@
     const titleEl = document.getElementById("billTitle");
     const metaEl = document.getElementById("billMeta");
     const textEl = document.getElementById("billText");
-
-    // IMPORTANT: bill.html now uses #bill-amendments (and also has #amendmentsList hidden)
     const amendRoot = document.getElementById("bill-amendments") || document.getElementById("amendmentsList");
 
     if (!titleEl || !metaEl || !textEl) return;
@@ -1194,7 +1361,6 @@
 
     textEl.textContent = bill.billText || "(No bill text added yet.)";
 
-    // Main Division UI
     const votingEl = document.getElementById("division-voting");
     const progressEl = document.getElementById("division-progress");
 
@@ -1259,7 +1425,6 @@
       }
     }
 
-    // Amendments UI
     if (!amendRoot) return;
 
     const me = data.currentPlayer || {};
@@ -1268,7 +1433,6 @@
     const leader = (me.partyLeader === true || me.role === "leader-opposition" || me.role === "prime-minister");
 
     const amendments = Array.isArray(bill.amendments) ? bill.amendments : [];
-
     const hasActiveAmendment = amendments.some(a =>
       a.status === "proposed" ||
       (a.status === "division" && a.division && a.division.closed !== true)
@@ -1376,19 +1540,23 @@
     });
   }
 
-  /* ---------- Live refresh (safe) ---------- */
+  /* =========================================================
+     LIVE REFRESH (safe)
+     ========================================================= */
   function startLiveRefresh() {
     const needsRefresh =
-      document.getElementById("order-paper") ||
-      document.getElementById("live-docket") ||
       document.getElementById("sim-date-display") ||
-      document.getElementById("billMeta") ||
+      document.getElementById("whats-going-on") ||
+      document.getElementById("live-docket") ||
+      document.getElementById("order-paper") ||
+      document.getElementById("bbcSimDate") ||
+      document.getElementById("bbcMainNews") ||
       document.getElementById("papersGrid") ||
-      document.getElementById("qt-root") ||
-      document.getElementById("constituenciesRoot") ||
-      document.getElementById("bodiesRoot") ||
-      document.getElementById("userRoot") ||
-      document.getElementById("newsRoot");
+      document.getElementById("question-time-root") ||
+      document.getElementById("parliament-summary") ||
+      document.getElementById("bodies-root") ||
+      document.getElementById("user-account") ||
+      document.getElementById("billMeta");
 
     if (!needsRefresh) return;
 
@@ -1399,22 +1567,23 @@
 
       renderSimDate(latest);
       renderWhatsGoingOn(latest);
+      renderLiveDocket(latest);
+      renderOrderPaper(latest);
+
+      renderNewsPage(latest);
       renderPapersPage(latest);
       renderQuestionTimePage(latest);
       renderConstituenciesPage(latest);
       renderBodiesPage(latest);
       renderUserPage(latest);
-      renderNewsPage(latest);
+
       initBillPage(latest);
     }, 1000);
   }
 
   /* =========================================================
-     BOOT
-     =========================================================
-     “BOOT” just means: the code that runs first when the page loads.
-     It loads demo.json once, then calls all the page render functions.
-  */
+     BOOT (runs on every page load)
+     ========================================================= */
   fetch(DATA_URL)
     .then(r => r.json())
     .then((demo) => {
@@ -1425,16 +1594,22 @@
       saveData(data);
 
       initNavUI();
+
+      // dashboard
       renderSimDate(data);
       renderWhatsGoingOn(data);
+      renderLiveDocket(data);
+      renderOrderPaper(data);
 
-      // Page renderers (only do anything if the page has those IDs)
+      // pages
       renderNewsPage(data);
       renderPapersPage(data);
       renderQuestionTimePage(data);
       renderConstituenciesPage(data);
       renderBodiesPage(data);
       renderUserPage(data);
+
+      // bill page
       initBillPage(data);
 
       startLiveRefresh();
