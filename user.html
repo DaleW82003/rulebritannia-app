@@ -6,18 +6,18 @@
   <title>Rule Britannia — User</title>
   <link rel="stylesheet" href="styles.css">
 </head>
+
 <body class="theme-commons">
+
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand">
       <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
     </div>
 
-<nav class="nav" aria-label="Main Navigation">
-
+    <nav class="nav" aria-label="Main Navigation">
       <a href="dashboard.html" class="nav-link">Office</a>
 
-      <!-- The U.K -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">The U.K ▾</button>
         <div class="dropdown">
@@ -30,7 +30,6 @@
         </div>
       </div>
 
-      <!-- Parliament -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Parliament ▾</button>
         <div class="dropdown">
@@ -44,7 +43,6 @@
         </div>
       </div>
 
-      <!-- Politics -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Politics ▾</button>
         <div class="dropdown">
@@ -59,7 +57,6 @@
         </div>
       </div>
 
-      <!-- Policy -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Policy ▾</button>
         <div class="dropdown">
@@ -72,7 +69,6 @@
         </div>
       </div>
 
-      <!-- Personal -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Personal ▾</button>
         <div class="dropdown">
@@ -84,7 +80,6 @@
         </div>
       </div>
 
-      <!-- External -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">External ▾</button>
         <div class="dropdown">
@@ -92,7 +87,6 @@
           <a href="https://discord.com" target="_blank" rel="noopener">Discord</a>
         </div>
       </div>
-
     </nav>
   </div>
 </header>
@@ -100,21 +94,16 @@
 <main class="wrap">
   <h1 class="page-title">User</h1>
 
-<section class="panel">
-  <h2>Absence</h2>
+  <section class="panel">
+    <h2>Account</h2>
+    <div id="user-account" class="muted-block">Loading…</div>
+  </section>
 
-  <!-- app.js renders the absence controls into this -->
-  <div id="absence-ui">Loading…</div>
-
-  <div class="muted-block" style="margin-top:12px;">
-    If you mark yourself absent, your voting weight will be delegated:
-    <ul>
-      <li><b>Normal member:</b> delegated to your party leader automatically.</li>
-      <li><b>Party leader:</b> you must choose a delegate from active members of your party.</li>
-    </ul>
-  </div>
-</section>
-
+  <section class="panel">
+    <h2>Control Panel</h2>
+    <div id="user-controlpanel" class="muted-block">Loading…</div>
+  </section>
+</main>
 
 <script src="app.js"></script>
 </body>
