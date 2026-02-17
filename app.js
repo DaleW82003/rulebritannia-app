@@ -3184,6 +3184,302 @@ function initPapersPage(data) {
     `}
   `;
 }
+function getUsers(){
+  return JSON.parse(localStorage.getItem(LS_USERS) || "[]");
+}
+function saveUsers(list){
+  localStorage.setItem(LS_USERS, JSON.stringify(list));
+}
+function getCurrentUser(){
+  return JSON.parse(localStorage.getItem(LS_CURRENT_USER) || "null");
+}
+function setCurrentUser(userId){
+  localStorage.setItem(LS_CURRENT_USER, JSON.stringify({ userId }));
+}
+function getSims(){
+  return JSON.parse(localStorage.getItem(LS_SIMS) || "[]");
+}
+function saveSims(list){
+  localStorage.setItem(LS_SIMS, JSON.stringify(list));
+}
+
+function ensureUserAndSimBase(demo){
+  // Sims list
+  let sims = getSims();
+  if (!sims.length) {
+    sims = [{ id:"sim-default", name:"United Kingdom — 1997", createdAt: nowTs() }];
+    saveSims(sims);
+  }
+
+  // Active sim
+  const active = getActiveSimId();
+  const exists = sims.some(s => s.id === active);
+  if (!exists) setActiveSimId(sims[0].id);
+
+  // Users (ensure an admin exists)
+  let users = getUsers();
+  if (!users.length) {
+    users = [{
+      id: "user-admin",
+      username: "Admin",
+      role: "admin", // admin | mod | speaker | player
+      activeCharacterId: null,
+      characters: []
+    }];
+    saveUsers(users);
+    setCurrentUser("user-admin");
+  }
+
+  // Sim data: migrate old rb_full_data into sim-default if present
+  const simId = getActiveSimId();
+  const key = simDataKey(simId);
+
+  if (!localStorage.getItem(key)) {
+    // if your old storage existed, try to pull it once
+    const old = localStorage.getItem("rb_full_data");
+    if (old) {
+      localStorage.setItem(key, old);
+      // optional: leave old in place so nothing breaks if other pages still reference it
+    } else {
+      localStorage.setItem(key, JSON.stringify(demo));
+    }
+  }
+}
+
+function getMyUser(){
+  const cu = getCurrentUser();
+  const users = getUsers();
+  if (!cu?.userId) return null;
+  return users.find(u => u.id === cu.userId) || null;
+}
+
+function canPostNews(user){
+  if (!user) return false;
+  return user.role === "admin" || user.role === "mod";
+}
+function ensureNewsDefaults(data){
+  data.news = data.news || {};
+  data.news.stories = Array.isArray(data.news.stories) ? data.news.stories : [];
+  return data;
+}
+
+function renderNewsPage(data){
+  const mainEl = document.getElementById("bbcMainNews");
+  const flavEl = document.getElementById("bbcFlavourNews");
+  const archEl = document.getElementById("bbcArchive");
+  const simDateEl = document.getElementById("bbcSimDate");
+  const breakPanel = document.getElementById("bbcBreakingPanel");
+  const tickerEl = document.getElementById("bbcBreakingTicker");
+  const newBtn = document.getElementById("bbcNewStoryBtn");
+
+  if (!mainEl || !flavEl || !archEl) return;
+
+  ensureNewsDefaults(data);
+
+  // Sim date line
+  const sim = getCurrentSimDate(data);
+  if (simDateEl) simDateEl.textContent = `${getMonthName(sim.month)} ${sim.year}`;
+
+  const meUser = getMyUser();
+  if (newBtn) newBtn.style.display = canPostNews(meUser) ? "inline-flex" : "none";
+
+  const TWO_WEEKS_MS = 14 * 86400000;
+  const now = nowTs();
+
+  const stories = data.news.stories
+    .slice()
+    .sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+
+  const live = stories.filter(s => (now - (s.createdAt||0)) < TWO_WEEKS_MS);
+  const archive = stories.filter(s => (now - (s.createdAt||0)) >= TWO_WEEKS_MS);
+
+  const breaking = live.filter(s => s.isBreaking === true);
+  if (breakPanel && tickerEl) {
+    if (!breaking.length) {
+      breakPanel.style.display = "none";
+    } else {
+      breakPanel.style.display = "block";
+      const line = breaking.map(s => s.headline).join(" • ");
+      tickerEl.innerHTML = `<div class="ticker-line">${escapeHtml(line)}</div>`;
+    }
+  }
+
+  const renderTile = (s) => {
+    const kickerParts = [];
+    kickerParts.push(`<span class="news-category">${escapeHtml(s.category || "General")}</span>`);
+    if (s.isBreaking) kickerParts.push(`<span class="news-breaking-pill">BREAKING</span>`);
+    kickerParts.push(`<span>${escapeHtml(s.simMonthName || "")} ${escapeHtml(String(s.simYear || ""))}</span>`);
+
+    const img = s.photoUrl ? `<img class="news-photo" src="${escapeHtml(s.photoUrl)}" alt="">` : ``;
+
+    return `
+      <div class="news-tile">
+        ${img}
+        <div class="news-body">
+          <div class="news-kicker">${kickerParts.join(" ")}</div>
+          <div class="news-headline">${escapeHtml(s.headline || "Untitled")}</div>
+          <div class="news-text">${escapeHtml(s.body || "")}</div>
+          <div class="news-meta">
+            Posted by: <b>${escapeHtml(s.postedBy || "BBC Newsroom")}</b>
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  const mainLive = live.filter(s => s.kind !== "flavour");
+  const flavLive = live.filter(s => s.kind === "flavour");
+
+  mainEl.innerHTML = mainLive.length
+    ? `<div class="news-grid">${mainLive.map(renderTile).join("")}</div>`
+    : `<div class="muted-block">No main stories yet.</div>`;
+
+  flavEl.innerHTML = flavLive.length
+    ? `<div class="news-grid">${flavLive.map(renderTile).join("")}</div>`
+    : `<div class="muted-block">No flavour stories yet.</div>`;
+
+  archEl.innerHTML = archive.length
+    ? `<div class="news-grid">${archive.map(renderTile).join("")}</div>`
+    : `<div class="muted-block">Nothing in the archive yet.</div>`;
+
+  if (newBtn) {
+    newBtn.onclick = () => openNewsPostModal(data);
+  }
+}
+
+function ensureNewsModal(){
+  if (document.getElementById("rb-news-modal")) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "rb-news-modal";
+  wrap.style.display = "none";
+  wrap.innerHTML = `
+    <div class="rb-modal-backdrop" style="
+      position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:9998;
+      display:flex; align-items:center; justify-content:center; padding:18px;">
+      <div class="panel rb-modal" style="width:min(760px,100%); max-height:85vh; overflow:auto; z-index:9999;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+          <h2 style="margin:0;">Post BBC Story</h2>
+          <button class="btn" type="button" id="rbNewsClose">Close</button>
+        </div>
+
+        <div class="muted-block" style="margin-top:12px;">
+          Mods/Admins can post. Date auto-fills from the simulation clock.
+        </div>
+
+        <form id="rbNewsForm" style="margin-top:12px;">
+          <div class="form-grid">
+            <label>Headline</label>
+            <input id="rbNewsHeadline" placeholder="Headline…" />
+
+            <label>Category</label>
+            <select id="rbNewsCategory">
+              <option>Politics</option>
+              <option>Parliament</option>
+              <option>Economy</option>
+              <option>Justice</option>
+              <option>Health</option>
+              <option>Transport</option>
+              <option>Security</option>
+              <option>International</option>
+              <option>Local</option>
+              <option>General</option>
+            </select>
+
+            <label>Photo URL (optional)</label>
+            <input id="rbNewsPhoto" placeholder="https://…" />
+
+            <label>Story text</label>
+            <textarea id="rbNewsBody" rows="8" placeholder="Article text…"></textarea>
+
+            <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+              <label style="display:flex; gap:8px; align-items:center;">
+                <input type="checkbox" id="rbNewsBreaking" />
+                <b>Breaking News</b>
+              </label>
+
+              <label style="display:flex; gap:8px; align-items:center;">
+                <input type="checkbox" id="rbNewsFlavour" />
+                <b>Flavour (smaller story)</b>
+              </label>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; flex-wrap:wrap;">
+              <button class="btn" type="button" id="rbNewsCancel">Cancel</button>
+              <button class="btn" type="submit">Publish</button>
+            </div>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+
+  const close = () => { wrap.style.display = "none"; };
+  wrap.querySelector(".rb-modal-backdrop").addEventListener("click", (e) => {
+    if (e.target === wrap.querySelector(".rb-modal-backdrop")) close();
+  });
+  document.getElementById("rbNewsClose").addEventListener("click", close);
+  document.getElementById("rbNewsCancel").addEventListener("click", close);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && wrap.style.display !== "none") close();
+  });
+}
+
+function openNewsPostModal(data){
+  const meUser = getMyUser();
+  if (!canPostNews(meUser)) return alert("Only Admins/Mods can post BBC stories.");
+
+  ensureNewsModal();
+  const modal = document.getElementById("rb-news-modal");
+  modal.style.display = "block";
+
+  document.getElementById("rbNewsHeadline").value = "";
+  document.getElementById("rbNewsCategory").value = "Politics";
+  document.getElementById("rbNewsPhoto").value = "";
+  document.getElementById("rbNewsBody").value = "";
+  document.getElementById("rbNewsBreaking").checked = false;
+  document.getElementById("rbNewsFlavour").checked = false;
+
+  const form = document.getElementById("rbNewsForm");
+  form.onsubmit = (e) => {
+    e.preventDefault();
+
+    const headline = (document.getElementById("rbNewsHeadline").value || "").trim();
+    const category = document.getElementById("rbNewsCategory").value || "General";
+    const photoUrl = (document.getElementById("rbNewsPhoto").value || "").trim();
+    const body = (document.getElementById("rbNewsBody").value || "").trim();
+    const isBreaking = document.getElementById("rbNewsBreaking").checked;
+    const isFlavour = document.getElementById("rbNewsFlavour").checked;
+
+    if (!headline) return alert("Headline is required.");
+    if (!body) return alert("Story text is required.");
+
+    const sim = getCurrentSimDate(data);
+
+    ensureNewsDefaults(data);
+
+    data.news.stories.unshift({
+      id: `news-${nowTs()}`,
+      headline,
+      body,
+      category,
+      photoUrl: photoUrl || null,
+      isBreaking,
+      kind: isFlavour ? "flavour" : "main",
+      createdAt: nowTs(),
+      simMonth: sim.month,
+      simYear: sim.year,
+      simMonthName: getMonthName(sim.month),
+      postedBy: meUser.username || "BBC Newsroom"
+    });
+
+    saveData(data);
+    modal.style.display = "none";
+    location.reload();
+  };
+}
 
   /* =========================
      BOOT
