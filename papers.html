@@ -7,18 +7,17 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 
-<body class="theme-union">
+<body class="theme-commons">
+
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand">
       <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
     </div>
 
-<nav class="nav" aria-label="Main Navigation">
-
+    <nav class="nav" aria-label="Main Navigation">
       <a href="dashboard.html" class="nav-link">Office</a>
 
-      <!-- The U.K -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">The U.K ▾</button>
         <div class="dropdown">
@@ -31,7 +30,6 @@
         </div>
       </div>
 
-      <!-- Parliament -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Parliament ▾</button>
         <div class="dropdown">
@@ -45,7 +43,6 @@
         </div>
       </div>
 
-      <!-- Politics -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Politics ▾</button>
         <div class="dropdown">
@@ -60,7 +57,6 @@
         </div>
       </div>
 
-      <!-- Policy -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Policy ▾</button>
         <div class="dropdown">
@@ -73,7 +69,6 @@
         </div>
       </div>
 
-      <!-- Personal -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Personal ▾</button>
         <div class="dropdown">
@@ -84,28 +79,32 @@
           <a href="guides.html">Guides</a>
         </div>
       </div>
-
-      <!-- External -->
-      <div class="nav-group">
-        <button class="nav-toggle" type="button">External ▾</button>
-        <div class="dropdown">
-          <a href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Discourse Forum</a>
-          <a href="https://discord.com" target="_blank" rel="noopener">Discord</a>
-        </div>
-      </div>
-
     </nav>
   </div>
 </header>
 
 <main class="wrap">
-  <h1 class="page-title">Papers</h1>
 
+  <h1 class="page-title">British Newspapers</h1>
+
+  <!-- Newspaper grid -->
   <section class="panel">
-    <h2>Status</h2>
-    <div class="muted-block">Coming soon.</div>
+    <div id="papers-grid" class="muted-block">Loading…</div>
   </section>
+
+  <!-- Paper reader -->
+  <section class="panel" id="paper-reader" style="display:none;">
+    <div id="paper-reader-content"></div>
+  </section>
+
+  <!-- Moderator publishing panel -->
+  <section class="panel">
+    <h2>Press Desk</h2>
+    <div id="papers-desk" class="muted-block">Loading…</div>
+  </section>
+
 </main>
-  <script src="app.js"></script>
+
+<script src="app.js"></script>
 </body>
 </html>
