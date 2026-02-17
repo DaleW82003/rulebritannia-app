@@ -4871,6 +4871,7 @@ data.bodies = Array.isArray(data.bodies) ? data.bodies : [
     parties: []
   }
 ];
+
 function renderBodiesPage(data) {
   const root = document.getElementById("bodies-root");
   if (!root) return;
@@ -4883,68 +4884,85 @@ function renderBodiesPage(data) {
 
   function bodyColour(type) {
     if (type === "westminster") return "#1f3a5f";
-    if (type === "devolved") return "#6a1b1b";
+    if (type === "devolved") return "#7a1f1f";
     if (type === "europe") return "#003399";
     return "#333";
+  }
+
+  function renderSeatBar(body) {
+    const total = body.totalSeats;
+    if (!body.parties || !body.parties.length) return "";
+
+    return `
+      <div style="margin-top:12px;">
+        ${body.parties.map(p => {
+          const pct = ((p.seats / total) * 100).toFixed(1);
+          return `
+            <div style="margin-bottom:6px;">
+              <div class="kv">
+                <span>${escapeHtml(p.name)}</span>
+                <b>${p.seats}</b>
+              </div>
+              <div style="
+                height:8px;
+                background:#ddd;
+                border-radius:4px;
+                overflow:hidden;
+              ">
+                <div style="
+                  width:${pct}%;
+                  height:100%;
+                  background:#444;
+                "></div>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
   }
 
   root.innerHTML = `
     <div class="panel">
       <h1 style="margin:0;">Legislative Bodies</h1>
       <div class="muted-block">
-        Overview of all elected legislative institutions within the simulation.
+        These bodies provide political context only.  
+        No voting or character mechanics apply outside Westminster.
       </div>
     </div>
 
     <div class="order-grid" style="margin-top:16px;">
-      ${bodies.map(body => {
+      ${bodies.map(body => `
+        <div class="bill-card">
 
-        const maj = majorityMark(body.totalSeats);
-        const partyRows = (body.parties || []).map(p => `
+          <div style="
+            background:${bodyColour(body.type)};
+            color:white;
+            padding:10px;
+            font-weight:600;
+            margin:-16px -16px 12px -16px;
+          ">
+            ${escapeHtml(body.name)}
+          </div>
+
           <div class="kv">
-            <span>${escapeHtml(p.name)}</span>
-            <b>${p.seats}</b>
+            <span>Total Seats</span>
+            <b>${body.totalSeats}</b>
           </div>
-        `).join("");
 
-        return `
-          <div class="bill-card">
-            <div style="
-              background:${bodyColour(body.type)};
-              color:white;
-              padding:10px;
-              font-weight:600;
-              margin:-16px -16px 12px -16px;
-            ">
-              ${escapeHtml(body.name)}
-            </div>
-
-            <div class="kv">
-              <span>Total Seats</span>
-              <b>${body.totalSeats}</b>
-            </div>
-
-            <div class="kv">
-              <span>Majority Mark</span>
-              <b>${maj}</b>
-            </div>
-
-            ${partyRows ? `
-              <div style="margin-top:12px;">
-                <div class="small" style="margin-bottom:6px;">Party Breakdown</div>
-                ${partyRows}
-              </div>
-            ` : `
-              <div class="muted-block" style="margin-top:12px;">
-                No seat allocation configured.
-              </div>
-            `}
+          <div class="kv">
+            <span>Majority Mark</span>
+            <b>${majorityMark(body.totalSeats)}</b>
           </div>
-        `;
-      }).join("")}
+
+          ${renderSeatBar(body)}
+
+        </div>
+      `).join("")}
     </div>
   `;
 }
+
 
   /* =========================
      BOOT
