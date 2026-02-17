@@ -118,11 +118,13 @@
     <section class="panel">
       <h2>Amendments</h2>
 
-      <!-- app.js will render a full amendment UI into this -->
-      <div id="bill-amendments"></div>
+      <!-- IMPORTANT:
+           Your current app.js renders the full amendment UI into #amendmentsList.
+           So this MUST be present and MUST NOT be display:none. -->
+      <div id="amendmentsList" class="muted-block">Loading amendments…</div>
 
-      <!-- Back-compat: if any older code targets this, keep it present -->
-      <div id="amendmentsList" style="display:none;"></div>
+      <!-- Optional back-compat / future use (not used by your current app.js) -->
+      <div id="bill-amendments" style="display:none;"></div>
     </section>
   </div>
 
@@ -137,7 +139,6 @@
       </a>
     </div>
   </section>
-
 
 </main>
 
