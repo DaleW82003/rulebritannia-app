@@ -287,6 +287,94 @@
     ]
   },
 
+  "economyPage": {
+  "topline": {
+    "gdpGrowth": 1.8,
+    "inflation": 2.6,
+    "unemployment": 4.3
+  },
+  "ukInfoTiles": [
+    {
+      "id": "econ-indicators",
+      "title": "Economic Indicators",
+      "subtitle": "Headline macro + output",
+      "rows": [
+        ["Economic Growth", "1.8%", "—"],
+        ["Inflation", "2.6%", "—"],
+        ["Unemployment", "4.3%", "—"],
+        ["GDP", "£0.9tn", "—"],
+        ["GDP per capita", "£15,500", "—"]
+      ]
+    },
+    {
+      "id": "public-finance",
+      "title": "Public Finance (snapshot)",
+      "subtitle": "Budget context",
+      "rows": [
+        ["Public Sector Net Borrowing", "£28.0bn", "—"],
+        ["Debt Interest", "£23.0bn", "—"]
+      ]
+    },
+    {
+      "id": "demographics",
+      "title": "Demographics",
+      "subtitle": "Population & structure",
+      "rows": [
+        ["Population", "58.6m", "—"],
+        ["Net migration", "+50k", "—"]
+      ]
+    }
+  ],
+  "surveys": [
+    {
+      "id": "british-crime-survey",
+      "title": "The British Crime Survey",
+      "rows": [
+        ["Crime type", "Level", "Change"],
+        ["Burglary", "Medium", "Down"],
+        ["Vehicle crime", "High", "Flat"],
+        ["Violence", "Rising", "Up"]
+      ]
+    },
+    {
+      "id": "nhs-waiting",
+      "title": "NHS Waiting Lists",
+      "rows": [
+        ["Measure", "Level", "Change"],
+        ["Total waiting list", "High", "Up"],
+        ["12+ months", "Concerning", "Up"]
+      ]
+    },
+    {
+      "id": "detection-rates",
+      "title": "Crime Detection Rates",
+      "rows": [
+        ["Category", "Rate", "Change"],
+        ["Overall", "Low", "Flat"],
+        ["Violence", "Medium", "Up"]
+      ]
+    },
+    {
+      "id": "immigration",
+      "title": "Immigration & Asylum Figures",
+      "rows": [
+        ["Measure", "Level", "Change"],
+        ["Asylum applications", "Rising", "Up"],
+        ["Net migration", "Moderate", "Up"]
+      ]
+    },
+    {
+      "id": "labour-survey",
+      "title": "The UK Labour Survey",
+      "rows": [
+        ["Measure", "Level", "Change"],
+        ["Employment", "Strong", "Up"],
+        ["Inactivity", "Moderate", "Flat"]
+      ]
+    }
+  ]
+}
+
   "bodies": {
     "list": [
       {
