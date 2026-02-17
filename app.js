@@ -10,6 +10,7 @@
 (() => {
   "use strict";
 
+   
   /* =========================
      Config
      ========================= */
@@ -278,6 +279,26 @@
     if (!el || !gs.started) return;
     el.textContent = simMonthYearLabel(data);
   }
+
+   function fmtNumber(n){
+  if (n === null || n === undefined || n === "") return "—";
+  const num = Number(n);
+  if (!Number.isFinite(num)) return String(n);
+  return num.toLocaleString("en-GB");
+}
+function fmtPct(n){
+  if (n === null || n === undefined || n === "") return "—";
+  const num = Number(n);
+  if (!Number.isFinite(num)) return String(n);
+  return `${num.toFixed(1)}%`;
+}
+function fmtPctSigned(n){
+  if (n === null || n === undefined || n === "") return "—";
+  const num = Number(n);
+  if (!Number.isFinite(num)) return String(n);
+  const sign = num > 0 ? "+" : "";
+  return `${sign}${num.toFixed(2)}%`;
+}
 
   /* =========================================================
      BILL ENGINE (your existing working logic kept)
@@ -2070,164 +2091,148 @@ ${articlesText}${finalArticle}
      - #econ-surveys
    ========================= */
 function initEconomyPage(data){
-  const toplineEl = document.getElementById("econ-topline");
-  const tilesEl = document.getElementById("econ-tiles");
-  const surveysEl = document.getElementById("econ-surveys");
-  if (!toplineEl || !tilesEl || !surveysEl) return;
+  const keyEl = document.getElementById("economyKeyLines");
+  const tilesEl = document.getElementById("economyTiles");
+  const reportsEl = document.getElementById("economyReportsTiles");
+  const detailPanel = document.getElementById("economyDetailPanel");
+  const detailEl = document.getElementById("economyDetail");
 
-  normaliseData(data);
+  if (!keyEl || !tilesEl || !reportsEl) return;
 
-  // Prefer economyPage.topline, fallback to whatsGoingOn.economy
-  const tl = data.economyPage?.topline || data.whatsGoingOn?.economy || {};
-  const g = Number(tl.gdpGrowth ?? tl.growth ?? 0);
-  const i = Number(tl.inflation ?? 0);
-  const u = Number(tl.unemployment ?? 0);
+  const econ = data.economyPage || {};
+  const key = econ.keyLines || {};
 
-  toplineEl.innerHTML = `
-    <div class="kv"><span>GDP Growth</span><b>${g.toFixed(1)}%</b></div>
-    <div class="kv"><span>Inflation</span><b>${i.toFixed(1)}%</b></div>
-    <div class="kv"><span>Unemployment</span><b>${u.toFixed(1)}%</b></div>
+  keyEl.innerHTML = `
+    <div class="muted-block">
+      <div class="kv"><span>Inflation</span><b>${fmtPct(key.inflation)}</b></div>
+      <div class="kv"><span>Unemployment</span><b>${fmtPct(key.unemployment)}</b></div>
+      <div class="kv"><span>GDP Growth</span><b>${fmtPct(key.gdpGrowth)}</b></div>
+    </div>
   `;
 
-  const tiles = Array.isArray(data.economyPage?.ukInfoTiles) ? data.economyPage.ukInfoTiles : [];
+  function openDetail(title, rows){
+    if (!detailPanel || !detailEl) return;
+    detailPanel.style.display = "block";
+
+    // rows can be: {label, value} OR {label, ly, ty, pct}
+    const isLyTy = rows.some(r => ("ly" in r) || ("ty" in r));
+
+    detailEl.innerHTML = `
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+        <div>
+          <h2 style="margin:0;">${escapeHtml(title)}</h2>
+          <div class="small" style="margin-top:6px;">Values come from <b>data/demo.json</b> (mods/admins can edit).</div>
+        </div>
+        <button class="btn" type="button" id="econCloseDetail">Close</button>
+      </div>
+
+      <div class="muted-block" style="margin-top:12px;">
+        ${
+          isLyTy
+            ? rows.map(r => `
+                <div class="kv">
+                  <span>${escapeHtml(r.label || "—")}</span>
+                  <b>
+                    LY ${fmtNumber(r.ly)} · TY ${fmtNumber(r.ty)} · ${fmtPctSigned(r.pct)}
+                  </b>
+                </div>
+              `).join("")
+            : rows.map(r => `
+                <div class="kv">
+                  <span>${escapeHtml(r.label || "—")}</span>
+                  <b>${fmtNumber(r.value)}</b>
+                </div>
+              `).join("")
+        }
+      </div>
+    `;
+
+    const closeBtn = document.getElementById("econCloseDetail");
+    if (closeBtn) closeBtn.addEventListener("click", () => {
+      detailPanel.style.display = "none";
+    });
+
+    detailPanel.scrollIntoView({ behavior:"smooth", block:"start" });
+  }
+
+  const tiles = Array.isArray(econ.tiles) ? econ.tiles : [];
+  const reports = Array.isArray(econ.reports) ? econ.reports : [];
+
   if (!tiles.length){
-    tilesEl.innerHTML = `<div class="muted-block">No UK Information tiles configured yet.</div>`;
+    tilesEl.innerHTML = `<div class="muted-block">No economy tiles configured yet.</div>`;
   } else {
-    tilesEl.classList.remove("muted-block");
-    tilesEl.innerHTML = `
-      <div class="paper-grid">
-        ${tiles.map(t => `
-          <div class="paper-tile card-flex" data-econ-tile="${escapeHtml(t.id)}">
-            <div class="paper-masthead">${escapeHtml(t.title)}</div>
-            <div class="paper-strap">${escapeHtml(t.subtitle || "")}</div>
-            <div class="tile-bottom">
-              <button class="btn" type="button">Open</button>
-            </div>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  const surveys = Array.isArray(data.economyPage?.surveys) ? data.economyPage.surveys : [];
-  if (!surveys.length){
-    surveysEl.innerHTML = `<div class="muted-block">No surveys configured yet.</div>`;
-  } else {
-    surveysEl.classList.remove("muted-block");
-    surveysEl.innerHTML = `
-      <div class="paper-grid">
-        ${surveys.map(s => `
-          <div class="paper-tile card-flex" data-econ-survey="${escapeHtml(s.id)}">
-            <div class="paper-masthead">${escapeHtml(s.title)}</div>
-            <div class="paper-strap">Briefing table</div>
-            <div class="tile-bottom">
-              <button class="btn" type="button">Open</button>
-            </div>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }
-
-  // Modal helpers (simple, self-contained)
-  function ensureModal(){
-    if (document.getElementById("rb-econ-modal")) return;
-
-    const wrap = document.createElement("div");
-    wrap.id = "rb-econ-modal";
-    wrap.style.display = "none";
-    wrap.innerHTML = `
-      <div style="position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9998; display:flex; align-items:center; justify-content:center; padding:18px;">
-        <div class="panel" style="width:min(860px, 100%); max-height:85vh; overflow:auto; z-index:9999;">
-          <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
-            <h2 id="rbEconModalTitle" style="margin:0;">Details</h2>
-            <button class="btn" id="rbEconModalClose" type="button">Close</button>
-          </div>
-          <div id="rbEconModalBody" style="margin-top:12px;"></div>
+    tilesEl.className = "paper-grid"; // reuse a nice grid you already have
+    tilesEl.innerHTML = tiles.map(t => `
+      <div class="paper-tile card-flex">
+        <div class="paper-masthead">${escapeHtml(t.title || "Tile")}</div>
+        <div class="paper-strap">${escapeHtml(t.summary || "")}</div>
+        <div class="tile-bottom">
+          <button class="btn" type="button" data-econ-tile="${escapeHtml(t.id)}">Open</button>
         </div>
       </div>
-    `;
-    document.body.appendChild(wrap);
+    `).join("");
 
-    const close = () => (wrap.style.display = "none");
-    wrap.addEventListener("click", (e) => {
-      if (e.target === wrap.firstElementChild) close();
-    });
-    document.getElementById("rbEconModalClose").addEventListener("click", close);
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && wrap.style.display !== "none") close();
+    tilesEl.querySelectorAll("[data-econ-tile]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-econ-tile");
+        const t = tiles.find(x => x.id === id);
+        if (!t) return;
+        openDetail(t.title || "Detail", Array.isArray(t.rows) ? t.rows : []);
+      });
     });
   }
 
-  function openModal(title, rows){
-    ensureModal();
-    const modal = document.getElementById("rb-econ-modal");
-    document.getElementById("rbEconModalTitle").textContent = title;
-
-    // rows is an array of arrays (table)
-    const safeRows = Array.isArray(rows) ? rows : [];
-    const table = safeRows.length
-      ? `
-        <div class="panel" style="background:rgba(255,255,255,.04);">
-          ${safeRows.map((r, idx) => {
-            const cells = Array.isArray(r) ? r : [String(r)];
-            return `
-              <div class="kv">
-                <span>${escapeHtml(String(cells[0] ?? ""))}</span>
-                <b>${escapeHtml(String(cells[1] ?? ""))}</b>
-                ${cells.length > 2 ? `<b>${escapeHtml(String(cells[2] ?? ""))}</b>` : ``}
-              </div>
-            `;
-          }).join("")}
+  if (!reports.length){
+    reportsEl.innerHTML = `<div class="muted-block">No surveys/reports configured yet.</div>`;
+  } else {
+    reportsEl.className = "paper-grid";
+    reportsEl.innerHTML = reports.map(r => `
+      <div class="paper-tile card-flex">
+        <div class="paper-masthead">${escapeHtml(r.title || "Report")}</div>
+        <div class="paper-strap">${escapeHtml(r.summary || "")}</div>
+        <div class="tile-bottom">
+          <button class="btn" type="button" data-econ-report="${escapeHtml(r.id)}">Open</button>
         </div>
-      `
-      : `<div class="muted-block">No data.</div>`;
+      </div>
+    `).join("");
 
-    document.getElementById("rbEconModalBody").innerHTML = table;
-    modal.style.display = "block";
+    reportsEl.querySelectorAll("[data-econ-report]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-econ-report");
+        const r = reports.find(x => x.id === id);
+        if (!r) return;
+        openDetail(r.title || "Report", Array.isArray(r.rows) ? r.rows : []);
+      });
+    });
   }
-
-  // Bind clicks
-  document.querySelectorAll("[data-econ-tile]").forEach(el => {
-    el.addEventListener("click", () => {
-      const id = el.getAttribute("data-econ-tile");
-      const tile = tiles.find(x => x.id === id);
-      if (!tile) return;
-      openModal(tile.title, tile.rows);
-    });
-  });
-
-  document.querySelectorAll("[data-econ-survey]").forEach(el => {
-    el.addEventListener("click", () => {
-      const id = el.getAttribute("data-econ-survey");
-      const s = surveys.find(x => x.id === id);
-      if (!s) return;
-      openModal(s.title, s.rows);
-    });
-  });
 }
+
 
 /* =========================
    QUICK FIXES: Question Time + Papers ID mismatches
    ========================= */
 function initQuestionTimePage(data){
-  // Your HTML currently uses: #question-time-root
-  const root = document.getElementById("question-time-root") || document.getElementById("qt-root");
+  const root =
+    document.getElementById("question-time-root") ||
+    document.getElementById("qt-root");
+
   if (!root) return;
 
-  const cabinet = Array.isArray(data.questionTime?.cabinet) ? data.questionTime.cabinet : [];
-  if (!cabinet.length){
+  const qt = data.questionTime || {};
+  const offices = Array.isArray(qt.cabinet) ? qt.cabinet : [];
+
+  if (!offices.length){
     root.innerHTML = `<div class="muted-block">No Question Time offices configured yet.</div>`;
     return;
   }
 
-  root.classList.remove("muted-block");
   root.innerHTML = `
     <div class="qt-grid">
-      ${cabinet.map(o => `
+      ${offices.map(o => `
         <div class="qt-tile card-flex">
-          <div class="qt-office">${escapeHtml(o.short || o.slug)}</div>
+          <div class="qt-office">${escapeHtml(o.short || o.title || "Office")}</div>
           <div class="small" style="margin-top:8px;">${escapeHtml(o.title || "")}</div>
+
           <div class="tile-bottom">
             <a class="btn" href="qt-office.html?office=${encodeURIComponent(o.slug)}">Open</a>
           </div>
@@ -2237,80 +2242,87 @@ function initQuestionTimePage(data){
   `;
 }
 
+
 function initPapersPage(data){
-  // Your papers.html uses: #papersGrid, #papersSimDate, #paperReaderPanel, #paperReader
   const grid = document.getElementById("papersGrid");
   const simDateEl = document.getElementById("papersSimDate");
+  const readerPanel = document.getElementById("paperReaderPanel");
+  const reader = document.getElementById("paperReader");
+
   if (!grid || !simDateEl) return;
 
   const sim = getCurrentSimDate(data);
   simDateEl.textContent = `${getMonthName(sim.month)} ${sim.year}`;
 
-  const papers = [
+  // You can move this list into demo.json later if you want total mod control.
+  const PAPERS = [
     { id:"sun", name:"The Sun", cls:"paper-sun" },
     { id:"telegraph", name:"The Daily Telegraph", cls:"paper-telegraph" },
     { id:"mail", name:"The Daily Mail", cls:"paper-mail" },
     { id:"mirror", name:"The Daily Mirror", cls:"paper-mirror" },
     { id:"times", name:"The Times", cls:"paper-times" },
-    { id:"ft", name:"The Financial Times", cls:"paper-ft" },
+    { id:"ft", name:"Financial Times", cls:"paper-ft" },
     { id:"guardian", name:"The Guardian", cls:"paper-guardian" },
     { id:"independent", name:"The Independent", cls:"paper-independent" }
   ];
 
-  // headlines can come from data.whatsGoingOn.papers as a simple fallback
-  const fallbackHeadline = data.whatsGoingOn?.papers?.headline || "Front Page Headline";
+  // Minimal “front page” source: use whatsGoingOn.papers as a stand-in headline.
+  const front = data.whatsGoingOn?.papers || {};
+  const defaultHeadline = front.headline || "Front Page Headline";
 
-  grid.classList.remove("muted-block");
-  grid.innerHTML = `
-    <div class="paper-grid">
-      ${papers.map(p => `
-        <div class="paper-tile ${p.cls} card-flex">
-          <div class="paper-masthead">${escapeHtml(p.name)}</div>
-          <div class="paper-headline">${escapeHtml(p.name)} — ${escapeHtml(fallbackHeadline)}</div>
-          <div class="tile-bottom">
-            <button class="btn" type="button" data-read-paper="${escapeHtml(p.id)}">Read this Paper</button>
-          </div>
-        </div>
-      `).join("")}
+  grid.className = "paper-grid";
+  grid.innerHTML = PAPERS.map(p => `
+    <div class="paper-tile ${p.cls} card-flex">
+      <div class="paper-masthead">${escapeHtml(p.name)}</div>
+      <div class="paper-headline">${escapeHtml(p.name)} — ${escapeHtml(defaultHeadline)}</div>
+      <div class="tile-bottom">
+        <button class="btn" type="button" data-paper="${escapeHtml(p.id)}">Read this Paper</button>
+      </div>
     </div>
-  `;
+  `).join("");
 
-  // simple reader placeholder (we’ll flesh it out properly next)
-  const readerPanel = document.getElementById("paperReaderPanel");
-  const reader = document.getElementById("paperReader");
-
-  document.querySelectorAll("[data-read-paper]").forEach(btn => {
+  grid.querySelectorAll("[data-paper]").forEach(btn => {
     btn.addEventListener("click", () => {
-      const id = btn.getAttribute("data-read-paper");
-      const p = papers.find(x => x.id === id);
-      if (!p || !readerPanel || !reader) return;
+      const pid = btn.getAttribute("data-paper");
+      if (!readerPanel || !reader) return;
 
       readerPanel.style.display = "block";
+
+      const p = PAPERS.find(x => x.id === pid);
       reader.innerHTML = `
         <div class="paper-reader-header">
           <div>
-            <div class="paper-reader-title">${escapeHtml(p.name)}</div>
-            <div class="small">Showing front page + archive (coming next)</div>
+            <div class="paper-reader-title">${escapeHtml(p?.name || "Paper")}</div>
+            <div class="small">${escapeHtml(getMonthName(sim.month))} ${sim.year}</div>
           </div>
-          <div>
-            <button class="btn" type="button" onclick="document.getElementById('paperReaderPanel').style.display='none'">Close</button>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn" type="button" id="paperCloseBtn">Close</button>
           </div>
         </div>
 
-        <div class="paper-issue">
+        <div class="paper-issue ${escapeHtml(p?.cls || "")}">
           <div class="paper-issue-top">
-            <div class="paper-issue-masthead">${escapeHtml(p.name)}</div>
-            <div class="paper-issue-date">${escapeHtml(simDateEl.textContent)}</div>
+            <div class="paper-issue-masthead">${escapeHtml(p?.name || "")}</div>
+            <div class="paper-issue-date">${escapeHtml(getMonthName(sim.month))} ${sim.year}</div>
           </div>
-          <div class="paper-issue-headline">${escapeHtml(fallbackHeadline)}</div>
+
+          <div class="paper-issue-headline">${escapeHtml(defaultHeadline)}</div>
           <div class="paper-issue-byline">Political Correspondent</div>
-          <div class="paper-issue-text">Paper front page text will appear here (Mods will edit this later).</div>
+          <div class="paper-issue-text">${escapeHtml(front.strap || "One-sentence front page standfirst.")}</div>
         </div>
       `;
-      window.scrollTo({ top: readerPanel.offsetTop - 10, behavior: "smooth" });
+
+      const closeBtn = document.getElementById("paperCloseBtn");
+      if (closeBtn) closeBtn.addEventListener("click", () => {
+        readerPanel.style.display = "none";
+      });
+
+      // scroll into view nicely
+      readerPanel.scrollIntoView({ behavior:"smooth", block:"start" });
     });
   });
 }
+
 
   /* =========================================================
      BOOT (means: "when the app first loads")
