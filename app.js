@@ -94,34 +94,70 @@
   /* =========================
      Normalise live state
      ========================= */
-  function normaliseData(data) {
-    data.players = Array.isArray(data.players) ? data.players : [];
-    data.orderPaperCommons = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
-    data.whatsGoingOn = data.whatsGoingOn || {};
-    data.liveDocket = data.liveDocket || {};
+function normaliseData(data) {
+  data.players = Array.isArray(data.players) ? data.players : [];
+  data.orderPaperCommons = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+  data.whatsGoingOn = data.whatsGoingOn || {};
+  data.liveDocket = data.liveDocket || {};
 
-    data.gameState = data.gameState || {
-      started: true,
-      isPaused: false,
-      startRealDate: new Date().toISOString(),
-      startSimMonth: 8,
-      startSimYear: 1997
-    };
+  data.gameState = data.gameState || {
+    started: true,
+    isPaused: false,
+    startRealDate: new Date().toISOString(),
+    startSimMonth: 8,
+    startSimYear: 1997
+  };
 
-    data.parliament = data.parliament || { totalSeats: 650, parties: [] };
-    data.adminSettings = data.adminSettings || { monarchGender: "Queen" };
-    data.oppositionTracker = data.oppositionTracker || {}; // simYear -> count
+  data.parliament = data.parliament || { totalSeats: 650, parties: [] };
+  data.adminSettings = data.adminSettings || { monarchGender: "Queen" };
+  data.oppositionTracker = data.oppositionTracker || {};
 
-    data.currentPlayer = data.currentPlayer || {
-      name: "Unknown MP",
-      party: "Unknown",
-      role: "backbencher",
-      office: null,
-      isSpeaker: false
-    };
+  // --- NEW: currentUser + character model ---
+  // Migrate from old currentPlayer if it exists.
+  const legacy = data.currentPlayer || null;
 
-    return data;
+  data.currentUser = data.currentUser || {
+    username: legacy?.name ? String(legacy.name).toLowerCase().replace(/\s+/g, "_") : "guest",
+    systemRole: "player", // admin | moderator | speaker | player
+    character: {
+      name: legacy?.name || "Unknown MP",
+      party: legacy?.party || "Unknown",
+      parliamentaryRole: legacy?.role || "backbencher",
+      office: legacy?.office || null,
+      isSpeaker: !!legacy?.isSpeaker
+    }
+  };
+
+  // Keep currentPlayer for backwards compatibility (so existing parts of app.js don’t break)
+  data.currentPlayer = data.currentPlayer || {
+    name: data.currentUser.character.name,
+    party: data.currentUser.character.party,
+    role: data.currentUser.character.parliamentaryRole,
+    office: data.currentUser.character.office,
+    isSpeaker: data.currentUser.character.isSpeaker
+  };
+
+  // --- News storage base ---
+  data.news = data.news || { items: [], archive: [] };
+
+  // If no news exists, seed from whatsGoingOn.bbc (so News page isn’t empty)
+  if (!data.news.items.length && data.whatsGoingOn?.bbc?.headline) {
+    data.news.items.unshift({
+      id: `news-${Date.now()}`,
+      createdAt: Date.now(),
+      createdBy: "system",
+      source: "BBC",
+      category: "Top Story",
+      headline: data.whatsGoingOn.bbc.headline,
+      strap: data.whatsGoingOn.bbc.strap || "",
+      body: data.whatsGoingOn.bbc.body || "",
+      pinned: true
+    });
   }
+
+  return data;
+}
+
 
   /* =========================
      Time helpers (skip Sundays)
