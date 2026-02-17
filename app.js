@@ -1154,6 +1154,367 @@ function canSpeak(data){
     if (passedEl) passedEl.innerHTML = renderList(passed, "No passed legislation yet.");
     if (failedEl) failedEl.innerHTML = renderList(failed, "No defeated legislation yet.");
   }
+/* =========================
+   NEWS PAGE
+   ========================= */
+function renderNewsPage(data){
+  const topEl = document.getElementById("news-top");
+  const listEl = document.getElementById("news-list");
+  const deskEl = document.getElementById("news-desk");
+  const archEl = document.getElementById("news-archive");
+  if (!topEl && !listEl && !deskEl && !archEl) return;
+
+  const news = data.news || { items: [], archive: [] };
+  const items = Array.isArray(news.items) ? news.items : [];
+  const archive = Array.isArray(news.archive) ? news.archive : [];
+
+  const pinned = items.find(x => x.pinned) || items[0] || null;
+  const latest = items.filter(x => !pinned || x.id !== pinned.id).slice(0, 10);
+
+  // Top story
+  if (topEl) {
+    if (!pinned) {
+      topEl.innerHTML = `No news yet.`;
+    } else {
+      topEl.innerHTML = `
+        <div class="bill-title">${escapeHtml(pinned.headline)}</div>
+        <div class="small">Source: <b>${escapeHtml(pinned.source || "News Desk")}</b> · Category: <b>${escapeHtml(pinned.category || "General")}</b></div>
+        ${pinned.strap ? `<div class="muted-block" style="margin-top:10px;">${escapeHtml(pinned.strap)}</div>` : ``}
+        ${pinned.body ? `<div class="muted-block" style="margin-top:10px; white-space:pre-wrap;">${escapeHtml(pinned.body)}</div>` : ``}
+      `;
+    }
+  }
+
+  // Latest headlines
+  if (listEl) {
+    if (!latest.length) {
+      listEl.innerHTML = `<div class="muted-block">No additional headlines yet.</div>`;
+    } else {
+      listEl.innerHTML = `
+        <div class="docket-list">
+          ${latest.map(n => `
+            <div class="docket-item">
+              <div class="docket-left">
+                <div class="docket-icon">📰</div>
+                <div class="docket-text">
+                  <div class="docket-title">${escapeHtml(n.headline)}</div>
+                  <div class="docket-detail">${escapeHtml(n.strap || "")}</div>
+                  <div class="small">Source: <b>${escapeHtml(n.source || "News Desk")}</b> · ${new Date(n.createdAt || Date.now()).toLocaleString()}</div>
+                </div>
+              </div>
+              ${canModerate(data) ? `
+                <div class="docket-cta" style="display:flex; gap:8px;">
+                  <button class="btn" type="button" data-pin="${escapeHtml(n.id)}">Pin</button>
+                  <button class="btn" type="button" data-archive="${escapeHtml(n.id)}">Archive</button>
+                </div>
+              ` : ``}
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+  }
+
+  // News desk (create story)
+  if (deskEl) {
+    if (!canModerate(data)) {
+      deskEl.innerHTML = `
+        <div class="muted-block">
+          Only <b>Admin</b> and <b>Moderators</b> can publish news.
+        </div>
+      `;
+    } else {
+      deskEl.innerHTML = `
+        <div class="muted-block">
+          Publish a news item. (This is the base system — later we can add “scheduled”, “embargoed”, “regional”, etc.)
+        </div>
+
+        <form id="newsForm" style="margin-top:12px;">
+          <div class="form-grid">
+            <label>Source</label>
+            <input id="newsSource" placeholder="BBC / ITV / Reuters / News Desk" value="BBC" />
+
+            <label>Category</label>
+            <input id="newsCategory" placeholder="Top Story / Politics / Economy / Security" value="Politics" />
+
+            <label>Headline</label>
+            <input id="newsHeadline" placeholder="Headline..." />
+
+            <label>Strap</label>
+            <textarea id="newsStrap" rows="2" placeholder="One-paragraph strap (optional)"></textarea>
+
+            <label>Body</label>
+            <textarea id="newsBody" rows="6" placeholder="Main story text (optional)"></textarea>
+
+            <div style="display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">
+              <label style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="newsPinned" />
+                Pin as top story
+              </label>
+              <button class="btn" type="submit">Publish</button>
+            </div>
+          </div>
+        </form>
+      `;
+    }
+  }
+
+  // Archive
+  if (archEl) {
+    if (!archive.length) {
+      archEl.innerHTML = `<div class="muted-block">Archive is empty.</div>`;
+    } else {
+      archEl.innerHTML = `
+        <div class="docket-list">
+          ${archive.slice(0, 20).map(n => `
+            <div class="docket-item">
+              <div class="docket-left">
+                <div class="docket-icon">🗃️</div>
+                <div class="docket-text">
+                  <div class="docket-title">${escapeHtml(n.headline)}</div>
+                  <div class="docket-detail">${escapeHtml(n.strap || "")}</div>
+                  <div class="small">Source: <b>${escapeHtml(n.source || "News Desk")}</b> · Archived</div>
+                </div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+  }
+
+  // Bind actions
+  if (canModerate(data)) {
+    document.querySelectorAll("[data-pin]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-pin");
+        rbPinNewsItem(id);
+        location.reload();
+      });
+    });
+
+    document.querySelectorAll("[data-archive]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-archive");
+        rbArchiveNewsItem(id);
+        location.reload();
+      });
+    });
+
+    const form = document.getElementById("newsForm");
+    if (form) {
+      form.onsubmit = (e) => {
+        e.preventDefault();
+        const source = (document.getElementById("newsSource")?.value || "").trim() || "News Desk";
+        const category = (document.getElementById("newsCategory")?.value || "").trim() || "General";
+        const headline = (document.getElementById("newsHeadline")?.value || "").trim();
+        const strap = (document.getElementById("newsStrap")?.value || "").trim();
+        const body = (document.getElementById("newsBody")?.value || "").trim();
+        const pinnedFlag = !!document.getElementById("newsPinned")?.checked;
+
+        if (!headline) return alert("Headline is required.");
+
+        rbPublishNews({ source, category, headline, strap, body, pinned: pinnedFlag });
+        location.reload();
+      };
+    }
+  }
+}
+
+// News actions
+function rbPublishNews({ source, category, headline, strap, body, pinned }){
+  const data = getData();
+  if (!data) return;
+  normaliseData(data);
+
+  if (!canModerate(data)) return;
+
+  const user = data.currentUser?.username || "unknown";
+  const item = {
+    id: `news-${Date.now()}`,
+    createdAt: Date.now(),
+    createdBy: user,
+    source: source || "News Desk",
+    category: category || "General",
+    headline,
+    strap: strap || "",
+    body: body || "",
+    pinned: !!pinned
+  };
+
+  data.news.items = Array.isArray(data.news.items) ? data.news.items : [];
+
+  // If pinned, unpin others
+  if (item.pinned) data.news.items.forEach(x => x.pinned = false);
+
+  data.news.items.unshift(item);
+  saveData(data);
+}
+
+function rbPinNewsItem(id){
+  const data = getData();
+  if (!data) return;
+  normaliseData(data);
+  if (!canModerate(data)) return;
+
+  const items = Array.isArray(data.news.items) ? data.news.items : [];
+  items.forEach(x => x.pinned = (x.id === id));
+  saveData(data);
+}
+
+function rbArchiveNewsItem(id){
+  const data = getData();
+  if (!data) return;
+  normaliseData(data);
+  if (!canModerate(data)) return;
+
+  data.news.items = Array.isArray(data.news.items) ? data.news.items : [];
+  data.news.archive = Array.isArray(data.news.archive) ? data.news.archive : [];
+
+  const idx = data.news.items.findIndex(x => x.id === id);
+  if (idx === -1) return;
+
+  const [item] = data.news.items.splice(idx, 1);
+  item.pinned = false;
+  data.news.archive.unshift(item);
+
+  saveData(data);
+}
+
+/* =========================
+   USER PAGE (CONTROL PANEL BASE)
+   ========================= */
+function renderUserPage(data){
+  const accEl = document.getElementById("user-account");
+  const cpEl = document.getElementById("user-controlpanel");
+  if (!accEl && !cpEl) return;
+
+  const role = getSystemRole(data);
+  const ch = getCharacter(data);
+  const username = data.currentUser?.username || "guest";
+
+  if (accEl) {
+    accEl.innerHTML = `
+      <div class="kv"><span>Username:</span><b>${escapeHtml(username)}</b></div>
+      <div class="kv"><span>System Role:</span><b>${escapeHtml(role)}</b></div>
+      <hr style="margin:12px 0;">
+      <div class="kv"><span>Character:</span><b>${escapeHtml(ch.name)}</b></div>
+      <div class="kv"><span>Party:</span><b>${escapeHtml(ch.party)}</b></div>
+      <div class="kv"><span>Parliamentary Role:</span><b>${escapeHtml(ch.parliamentaryRole)}</b></div>
+      <div class="kv"><span>Office:</span><b>${escapeHtml(ch.office || "—")}</b></div>
+    `;
+  }
+
+  if (cpEl) {
+    // Basic tab layout (simple, buildable)
+    const tabs = [];
+
+    tabs.push({ id: "tab-character", label: "Character", show: true });
+    tabs.push({ id: "tab-speaker", label: "Speaker", show: (role === "admin" || role === "speaker") });
+    tabs.push({ id: "tab-moderator", label: "Moderator", show: (role === "admin" || role === "moderator") });
+    tabs.push({ id: "tab-admin", label: "Admin", show: (role === "admin") });
+
+    cpEl.innerHTML = `
+      <div class="muted-block">
+        This is your control centre. Tabs appear based on your role.
+      </div>
+
+      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+        ${tabs.filter(t => t.show).map(t => `
+          <button class="btn" type="button" data-user-tab="${escapeHtml(t.id)}">${escapeHtml(t.label)}</button>
+        `).join("")}
+      </div>
+
+      <div id="user-tab-root" style="margin-top:14px;"></div>
+    `;
+
+    const root = document.getElementById("user-tab-root");
+
+    function setTab(id){
+      if (!root) return;
+
+      if (id === "tab-character") {
+        root.innerHTML = `
+          <div class="panel">
+            <h2>Character</h2>
+            <div class="muted-block">
+              This is where we will later add:
+              <ul>
+                <li>Create / edit character (for new players)</li>
+                <li>Character biography</li>
+                <li>Constituency assignment</li>
+              </ul>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      if (id === "tab-speaker") {
+        root.innerHTML = `
+          <div class="panel">
+            <h2>Speaker Controls</h2>
+            <div class="muted-block">
+              Base speaker tools will go here next:
+              <ul>
+                <li>Manage Order Paper</li>
+                <li>Manage divisions</li>
+                <li>Amendment selection / tie-break</li>
+                <li>Question Time queue</li>
+              </ul>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      if (id === "tab-moderator") {
+        root.innerHTML = `
+          <div class="panel">
+            <h2>Moderator Controls</h2>
+            <div class="muted-block">
+              Base moderator tools will go here next:
+              <ul>
+                <li>Publish news</li>
+                <li>Publish papers</li>
+                <li>Update economy tiles</li>
+                <li>Moderate behaviour / warnings</li>
+              </ul>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      if (id === "tab-admin") {
+        root.innerHTML = `
+          <div class="panel">
+            <h2>Admin Controls</h2>
+            <div class="muted-block">
+              Base admin tools will go here next:
+              <ul>
+                <li>Assign roles (admin/mod/speaker)</li>
+                <li>Create timelines</li>
+                <li>Reset / backup simulation state</li>
+                <li>Global settings</li>
+              </ul>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      root.innerHTML = `<div class="muted-block">Tab not found.</div>`;
+    }
+
+    // default tab
+    setTab("tab-character");
+
+    cpEl.querySelectorAll("[data-user-tab]").forEach(btn => {
+      btn.addEventListener("click", () => setTab(btn.getAttribute("data-user-tab")));
+    });
+  }
+}
 
   /* =========================
      Bill Page (Main division + Amendments)
