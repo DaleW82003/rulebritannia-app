@@ -1,16 +1,13 @@
 /* =========================================================
    Rule Britannia — app.js (STABLE CONSOLIDATED BUILD)
    - Keeps ALL prior bill/amendment/division logic
-   - Restores light UI expectation (CSS handles visuals)
-   - FIXES: News / Papers / Question Time / User / Bodies / Constituencies
-   - Supports multiple HTML IDs (qt-root OR question-time-root, etc.)
-   - Adds safe defaults so pages never sit on "Loading…" if data missing
+   - FIXES: Question Time Open buttons, Economy wiring, User page typo
+   - Supports multiple HTML IDs across pages (qt-root OR question-time-root, etc.)
    ========================================================= */
 
 (() => {
   "use strict";
 
-   
   /* =========================
      Config
      ========================= */
@@ -61,6 +58,26 @@
       .replaceAll(">","&gt;")
       .replaceAll('"',"&quot;")
       .replaceAll("'","&#039;");
+  }
+
+  function fmtNumber(n){
+    if (n === null || n === undefined || n === "") return "—";
+    const num = Number(n);
+    if (!Number.isFinite(num)) return String(n);
+    return num.toLocaleString("en-GB");
+  }
+  function fmtPct(n){
+    if (n === null || n === undefined || n === "") return "—";
+    const num = Number(n);
+    if (!Number.isFinite(num)) return String(n);
+    return `${num.toFixed(1)}%`;
+  }
+  function fmtPctSigned(n){
+    if (n === null || n === undefined || n === "") return "—";
+    const num = Number(n);
+    if (!Number.isFinite(num)) return String(n);
+    const sign = num > 0 ? "+" : "";
+    return `${sign}${num.toFixed(2)}%`;
   }
 
   /* =========================
@@ -119,40 +136,34 @@
       startSimYear: 1997
     };
 
-    data.parliament = data.parliament || {
-      totalSeats: 650,
-      parties: [
-        { name:"Labour", seats:418 },
-        { name:"Conservative", seats:165 },
-        { name:"Liberal Democrat", seats:46 },
-        { name:"SNP", seats:6 },
-        { name:"Plaid Cymru", seats:4 },
-        { name:"DUP", seats:2 },
-        { name:"SDLP", seats:3 },
-        { name:"UUP", seats:10 },
-        { name:"Sinn Féin", seats:2 },
-        { name:"Others", seats: -1 } // will be recomputed
-      ]
-    };
+    data.parliament = data.parliament || { totalSeats: 650, parties: [] };
+    data.parliament.parties = Array.isArray(data.parliament.parties) ? data.parliament.parties : [];
 
-    // Constituencies dataset (mods can replace later)
     data.constituencies = Array.isArray(data.constituencies) ? data.constituencies : [];
 
-    // BBC News dataset
     data.news = data.news || { stories: [] };
+    data.news.stories = Array.isArray(data.news.stories) ? data.news.stories : [];
 
-    // Papers dataset
     data.papers = data.papers || { papers: [] };
+    data.papers.papers = Array.isArray(data.papers.papers) ? data.papers.papers : [];
 
-    // Question Time offices dataset
-    data.questionTime = data.questionTime || { offices: [] };
+    // Question Time: your demo.json uses questionTime.cabinet + questionTime.questions
+    data.questionTime = data.questionTime || {};
+    data.questionTime.cabinet = Array.isArray(data.questionTime.cabinet) ? data.questionTime.cabinet : [];
+    data.questionTime.questions = Array.isArray(data.questionTime.questions) ? data.questionTime.questions : [];
+    data.questionTime.offices = Array.isArray(data.questionTime.offices) ? data.questionTime.offices : [];
 
-    // Bodies dataset
     data.bodies = data.bodies || { list: [] };
+    data.bodies.list = Array.isArray(data.bodies.list) ? data.bodies.list : [];
 
-    // Admin settings
     data.adminSettings = data.adminSettings || { monarchGender: "Queen" };
     data.oppositionTracker = data.oppositionTracker || {};
+
+    // Economy page (your demo.json)
+    data.economyPage = data.economyPage || {};
+    data.economyPage.topline = data.economyPage.topline || {};
+    data.economyPage.ukInfoTiles = Array.isArray(data.economyPage.ukInfoTiles) ? data.economyPage.ukInfoTiles : [];
+    data.economyPage.surveys = Array.isArray(data.economyPage.surveys) ? data.economyPage.surveys : [];
 
     return data;
   }
@@ -280,28 +291,8 @@
     el.textContent = simMonthYearLabel(data);
   }
 
-   function fmtNumber(n){
-  if (n === null || n === undefined || n === "") return "—";
-  const num = Number(n);
-  if (!Number.isFinite(num)) return String(n);
-  return num.toLocaleString("en-GB");
-}
-function fmtPct(n){
-  if (n === null || n === undefined || n === "") return "—";
-  const num = Number(n);
-  if (!Number.isFinite(num)) return String(n);
-  return `${num.toFixed(1)}%`;
-}
-function fmtPctSigned(n){
-  if (n === null || n === undefined || n === "") return "—";
-  const num = Number(n);
-  if (!Number.isFinite(num)) return String(n);
-  const sign = num > 0 ? "+" : "";
-  return `${sign}${num.toFixed(2)}%`;
-}
-
   /* =========================================================
-     BILL ENGINE (your existing working logic kept)
+     BILL ENGINE (existing logic kept)
      ========================================================= */
   const STAGE_ORDER = ["First Reading", "Second Reading", "Report Stage", "Division"];
   const STAGE_LENGTH_SIM_MONTHS = { "Second Reading": 2, "Report Stage": 1 };
@@ -347,9 +338,6 @@ function fmtPctSigned(n){
     return Math.floor(validDays / 3);
   }
 
-  /* =========================
-     MAIN BILL DIVISION ENGINE
-     ========================= */
   function ensureBillDivisionDefaults(bill){
     bill.division = bill.division || {
       openedAt: new Date().toISOString(),
@@ -384,7 +372,6 @@ function fmtPctSigned(n){
     const div = ensureBillDivisionDefaults(bill);
     if (div.closed) return;
 
-    // Sunday freeze
     if (isSunday()) return;
 
     const now = nowTs();
@@ -439,11 +426,9 @@ function fmtPctSigned(n){
   function processBillLifecycle(data, bill) {
     ensureBillDefaults(bill);
 
-    // Sundays freeze auto progression
     if (isSunday()) return bill;
     if (isCompleted(bill)) return bill;
 
-    // Pause while amendment division open
     if (billHasOpenAmendmentDivision(bill)) return bill;
 
     if (bill.stage === "First Reading") {
@@ -517,8 +502,6 @@ function fmtPctSigned(n){
 
   function processAmendments(bill) {
     if (!Array.isArray(bill.amendments)) bill.amendments = [];
-
-    // Sunday freeze
     if (isSunday()) return bill;
 
     const now = nowTs();
@@ -531,7 +514,6 @@ function fmtPctSigned(n){
         amend.supportDeadlineAt = addActiveHoursSkippingSundays(submitted, 24);
       }
 
-      // fail if deadline passes without support
       if (amend.status === "proposed") {
         const supporters = amend.supporters || [];
         if (now > amend.supportDeadlineAt && supporters.length < 2) {
@@ -540,7 +522,6 @@ function fmtPctSigned(n){
         }
       }
 
-      // open division if supported
       if (amend.status === "proposed" && (amend.supporters || []).length >= 2) {
         amend.status = "division";
         const opened = now;
@@ -554,7 +535,6 @@ function fmtPctSigned(n){
         };
       }
 
-      // close division if deadline passes
       if (amend.status === "division" && amend.division && amend.division.closed !== true) {
         if (now >= amend.division.closesAt) {
           const aye = amend.division.votes?.aye || 0;
@@ -600,9 +580,14 @@ function fmtPctSigned(n){
     return { data, bill };
   }
 
+  function isLeader(playerObj) {
+    return playerObj?.partyLeader === true ||
+           playerObj?.role === "leader-opposition" ||
+           playerObj?.role === "prime-minister";
+  }
+
   function rbProposeAmendment(billId, { articleNumber, type, text, proposedBy }){
     return rbUpdateBill(billId, (bill) => {
-      // single live amendment per bill
       const active = (bill.amendments || []).some(a =>
         a.status === "proposed" ||
         (a.status === "division" && a.division && a.division.closed !== true)
@@ -716,12 +701,6 @@ function fmtPctSigned(n){
         </div>
       </div>
     `;
-  }
-
-  function isLeader(playerObj) {
-    return playerObj?.partyLeader === true ||
-           playerObj?.role === "leader-opposition" ||
-           playerObj?.role === "prime-minister";
   }
 
   function generateBillDivisionDocketItems(data){
@@ -905,7 +884,7 @@ function fmtPctSigned(n){
   }
 
   /* =========================================================
-     BILL PAGE (kept — minimal, your bill.html uses it)
+     BILL PAGE (kept)
      ========================================================= */
   function initBillPage(data){
     const titleEl = document.getElementById("billTitle");
@@ -1043,7 +1022,7 @@ function fmtPctSigned(n){
       }
     }
 
-    // Amendments UI (only if root exists; keep minimal stable)
+    // Amendments UI (only if root exists; stable)
     if (!amendRoot) return;
 
     const me = data.currentPlayer || {};
@@ -1170,279 +1149,38 @@ function fmtPctSigned(n){
   }
 
   /* =========================================================
-     NEWS PAGE
+     QUESTION TIME PAGE (FIXED: Open works again)
+     Uses your demo.json: questionTime.cabinet[]
      ========================================================= */
-  function ensureNewsDefaults(data){
-    data.news = data.news || { stories: [] };
-    data.news.stories = Array.isArray(data.news.stories) ? data.news.stories : [];
+  function initQuestionTimePage(data){
+    const root =
+      document.getElementById("question-time-root") ||
+      document.getElementById("qt-root");
 
-    // If empty, add a couple of starter placeholders
-    if (data.news.stories.length === 0) {
-      const sim = simMonthYearLabel(data);
-      data.news.stories.push(
-        {
-          id:`news-${nowTs()}`,
-          createdAt: nowTs(),
-          simDate: sim,
-          isBreaking: true,
-          category: "Politics",
-          headline: "BBC: Top political story headline goes here",
-          imageUrl: "",
-          text: "Write the main story text here.",
-          flavour: false
-        },
-        {
-          id:`news-${nowTs()+1}`,
-          createdAt: nowTs(),
-          simDate: sim,
-          isBreaking: false,
-          category: "Economy",
-          headline: "Smaller flavour headline goes here",
-          imageUrl: "",
-          text: "This is the smaller BBC-app style flavour item.",
-          flavour: true
-        }
-      );
-    }
-  }
-
-  function renderNewsPage(data){
-    const mast = document.getElementById("bbcSimDate");
-    const mainEl = document.getElementById("bbcMainNews");
-    const flavEl = document.getElementById("bbcFlavourNews");
-    const archEl = document.getElementById("bbcArchive");
-    const breakingPanel = document.getElementById("bbcBreakingPanel");
-    const breakingTicker = document.getElementById("bbcBreakingTicker");
-
-    if (!mast || !mainEl || !flavEl || !archEl) return;
-
-    ensureNewsDefaults(data);
-    mast.textContent = simMonthYearLabel(data);
-
-    const stories = data.news.stories.slice().sort((a,b)=> (b.createdAt||0)-(a.createdAt||0));
-    const TWO_WEEKS_MS = 14 * 86400000;
-
-    const live = stories.filter(s => (nowTs() - (s.createdAt||nowTs())) <= TWO_WEEKS_MS);
-    const archive = stories.filter(s => (nowTs() - (s.createdAt||nowTs())) > TWO_WEEKS_MS);
-
-    const breaking = live.filter(s => s.isBreaking && !s.flavour);
-    if (breakingPanel && breakingTicker) {
-      if (breaking.length) {
-        breakingPanel.style.display = "block";
-        breakingTicker.textContent = breaking.map(s => s.headline).slice(0, 6).join("  •  ");
-      } else {
-        breakingPanel.style.display = "none";
-      }
-    }
-
-    const card = (s, small=false) => `
-      <div class="news-card ${small ? "small" : ""} card-flex">
-        <div class="news-brand">
-          <div class="news-date">${escapeHtml(s.simDate || simMonthYearLabel(data))}</div>
-          ${s.isBreaking ? `<div class="breaking-tag">BREAKING</div>` : ``}
-        </div>
-        ${s.category ? `<div class="news-category">${escapeHtml(s.category)}</div>` : ``}
-        <div class="news-headline">${escapeHtml(s.headline || "Untitled")}</div>
-        ${s.imageUrl ? `<div class="news-imagewrap"><img alt="" src="${escapeHtml(s.imageUrl)}"></div>` : ``}
-        <div class="news-text">${escapeHtml(s.text || "")}</div>
-      </div>
-    `;
-
-    const mainNews = live.filter(s => !s.flavour);
-    const flavour = live.filter(s => s.flavour);
-
-    mainEl.innerHTML = mainNews.length
-      ? `<div class="news-grid">${mainNews.map(s => card(s,false)).join("")}</div>`
-      : `<div class="muted-block">No main news stories yet.</div>`;
-
-    flavEl.innerHTML = flavour.length
-      ? `<div class="news-grid">${flavour.map(s => card(s,true)).join("")}</div>`
-      : `<div class="muted-block">No flavour items yet.</div>`;
-
-    archEl.innerHTML = archive.length
-      ? `<div class="news-grid">${archive.map(s => card(s,true)).join("")}</div>`
-      : `<div class="muted-block">No archived stories yet.</div>`;
-  }
-
-  /* =========================================================
-     PAPERS PAGE
-     ========================================================= */
-  function ensurePapersDefaults(data){
-    const defaults = [
-      { key:"sun", name:"The Sun", cls:"paper-sun" },
-      { key:"telegraph", name:"The Daily Telegraph", cls:"paper-telegraph" },
-      { key:"mail", name:"The Daily Mail", cls:"paper-mail" },
-      { key:"mirror", name:"The Daily Mirror", cls:"paper-mirror" },
-      { key:"times", name:"The Times", cls:"paper-times" },
-      { key:"ft", name:"Financial Times", cls:"paper-ft" },
-      { key:"guardian", name:"The Guardian", cls:"paper-guardian" },
-      { key:"independent", name:"The Independent", cls:"paper-independent" },
-    ];
-
-    data.papers = data.papers || { papers: [] };
-    data.papers.papers = Array.isArray(data.papers.papers) ? data.papers.papers : [];
-
-    // If missing, create papers + one issue each
-    if (data.papers.papers.length === 0) {
-      const sim = simMonthYearLabel(data);
-      data.papers.papers = defaults.map(p => ({
-        ...p,
-        issues: [
-          {
-            id:`issue-${p.key}-${nowTs()}`,
-            createdAt: nowTs(),
-            simDate: sim,
-            headline: `${p.name} — Front Page Headline`,
-            imageUrl: "",
-            bylineName: "Political Correspondent",
-            text: "Front page story text goes here."
-          }
-        ]
-      }));
-    } else {
-      // ensure each has cls + issues array
-      data.papers.papers.forEach(p => {
-        const match = defaults.find(d => d.key === p.key || d.name === p.name);
-        if (match) {
-          p.key = p.key || match.key;
-          p.name = p.name || match.name;
-          p.cls = p.cls || match.cls;
-        }
-        p.issues = Array.isArray(p.issues) ? p.issues : [];
-        if (p.issues.length === 0) {
-          p.issues.push({
-            id:`issue-${p.key || "paper"}-${nowTs()}`,
-            createdAt: nowTs(),
-            simDate: simMonthYearLabel(data),
-            headline: `${p.name || "Paper"} — Front Page Headline`,
-            imageUrl: "",
-            bylineName: "Political Correspondent",
-            text: "Front page story text goes here."
-          });
-        }
-      });
-    }
-  }
-
-  function renderPapersPage(data){
-    const dateEl = document.getElementById("papersSimDate");
-    const gridEl = document.getElementById("papersGrid");
-    const readerPanel = document.getElementById("paperReaderPanel");
-    const readerEl = document.getElementById("paperReader");
-
-    if (!dateEl || !gridEl) return;
-
-    ensurePapersDefaults(data);
-    dateEl.textContent = simMonthYearLabel(data);
-
-    const papers = data.papers.papers;
-
-    // reader mode by query
-    const params = new URLSearchParams(location.search);
-    const paperKey = params.get("paper"); // e.g. ?paper=times
-    const selected = paperKey ? papers.find(p => p.key === paperKey) : null;
-
-    // Grid always visible
-    gridEl.classList.remove("muted-block");
-    gridEl.innerHTML = `
-      <div class="paper-grid">
-        ${papers.map(p => {
-          const issue = (p.issues || []).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0];
-          return `
-            <div class="paper-tile ${escapeHtml(p.cls || "")} card-flex">
-              <div class="paper-masthead">${escapeHtml(p.name || "Paper")}</div>
-              <div class="paper-headline">${escapeHtml(issue?.headline || "Front Page Headline")}</div>
-              <div class="tile-bottom">
-                <a class="btn" href="papers.html?paper=${encodeURIComponent(p.key)}">Read this Paper</a>
-              </div>
-            </div>
-          `;
-        }).join("")}
-      </div>
-    `;
-
-    // Reader panel
-    if (readerPanel && readerEl) {
-      if (!selected) {
-        readerPanel.style.display = "none";
-      } else {
-        readerPanel.style.display = "block";
-        const issues = (selected.issues || []).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-
-        readerEl.innerHTML = `
-          <div class="paper-reader-header">
-            <div>
-              <div class="paper-reader-title">${escapeHtml(selected.name)}</div>
-              <div class="small">Newest issue first · click back to return to the grid.</div>
-            </div>
-            <div style="display:flex; gap:10px; flex-wrap:wrap;">
-              <a class="btn" href="papers.html">Back to Papers</a>
-            </div>
-          </div>
-
-          ${issues.map(i => `
-            <div class="paper-issue ${escapeHtml(selected.cls || "")}">
-              <div class="paper-issue-top">
-                <div class="paper-issue-masthead">${escapeHtml(selected.name)}</div>
-                <div class="paper-issue-date">${escapeHtml(i.simDate || simMonthYearLabel(data))}</div>
-              </div>
-
-              <div class="paper-issue-headline">${escapeHtml(i.headline || "Front Page")}</div>
-
-              ${i.imageUrl ? `<div class="paper-issue-imagewrap"><img alt="" src="${escapeHtml(i.imageUrl)}"></div>` : ``}
-
-              <div class="paper-issue-byline">${escapeHtml(i.bylineName || "Political Correspondent")}</div>
-              <div class="paper-issue-text">${escapeHtml(i.text || "")}</div>
-            </div>
-          `).join("")}
-        `;
-      }
-    }
-  }
-
-  /* =========================================================
-     QUESTION TIME PAGE
-     ========================================================= */
-  function ensureQuestionTimeDefaults(data){
-    data.questionTime = data.questionTime || { offices: [] };
-    data.questionTime.offices = Array.isArray(data.questionTime.offices) ? data.questionTime.offices : [];
-
-    // If empty, restore the tiles (this is why you saw "No offices configured")
-    if (data.questionTime.offices.length === 0) {
-      data.questionTime.offices = [
-        { id:"pmq", title:"Prime Minister", holder: safe(data.currentPlayer?.name, "Prime Minister") },
-        { id:"chancellor", title:"Chancellor of the Exchequer", holder:"—" },
-        { id:"foreign", title:"Foreign Secretary", holder:"—" },
-        { id:"home", title:"Home Secretary", holder:"—" },
-        { id:"defence", title:"Defence Secretary", holder:"—" },
-        { id:"health", title:"Health Secretary", holder:"—" },
-        { id:"education", title:"Education Secretary", holder:"—" },
-        { id:"transport", title:"Transport Secretary", holder:"—" },
-      ];
-    }
-  }
-
-  function renderQuestionTimePage(data){
-    const root = document.getElementById("question-time-root") || document.getElementById("qt-root");
     if (!root) return;
 
-    ensureQuestionTimeDefaults(data);
+    const qt = data.questionTime || {};
+    const offices = Array.isArray(qt.cabinet) ? qt.cabinet : [];
 
-    const offices = data.questionTime.offices;
+    if (!offices.length){
+      root.innerHTML = `<div class="muted-block">No Question Time offices configured yet.</div>`;
+      return;
+    }
 
     root.innerHTML = `
       <div class="muted-block" style="margin-bottom:14px;">
         <b>Question Time</b><br>
-        Office tiles are shown here. Mods/Admin can change the list later in the control panel.
+        Click an office to view questions and answers.
       </div>
 
       <div class="qt-grid">
         ${offices.map(o => `
           <div class="qt-tile card-flex">
-            <div class="qt-office">${escapeHtml(o.title || "Office")}</div>
-            <div class="qt-holder">Holder: <b>${escapeHtml(o.holder || "—")}</b></div>
+            <div class="qt-office">${escapeHtml(o.short || "Office")}</div>
+            <div class="small" style="margin-top:8px;">${escapeHtml(o.title || "")}</div>
+
             <div class="tile-bottom">
-              <button class="btn" type="button" disabled>Ask a Question (soon)</button>
+              <a class="btn" href="qt-office.html?office=${encodeURIComponent(o.slug)}">Open</a>
             </div>
           </div>
         `).join("")}
@@ -1451,178 +1189,141 @@ function fmtPctSigned(n){
   }
 
   /* =========================================================
-     CONSTITUENCIES PAGE
+     ECONOMY PAGE (FIXED to match your demo.json)
+     Expects economy.html IDs:
+       - #economyKeyLines
+       - #economyTiles
+       - #economyReportsTiles
+       - #economyDetailPanel (optional)
+       - #economyDetail (optional)
      ========================================================= */
-  function ensureConstituenciesDefaults(data){
-    // If mods haven’t loaded a full list yet, at least show party totals from parliament.parties
-    data.parliament = data.parliament || { totalSeats: 650, parties: [] };
-    data.parliament.parties = Array.isArray(data.parliament.parties) ? data.parliament.parties : [];
+  function initEconomyPage(data){
+    const keyEl = document.getElementById("economyKeyLines");
+    const tilesEl = document.getElementById("economyTiles");
+    const reportsEl = document.getElementById("economyReportsTiles");
+    const detailPanel = document.getElementById("economyDetailPanel");
+    const detailEl = document.getElementById("economyDetail");
 
-    // Clean party totals if "Others" is negative or missing
-    const total = Number(data.parliament.totalSeats || 650);
-    const known = data.parliament.parties.filter(p => p.name !== "Others");
-    const sumKnown = known.reduce((a,p)=>a+Number(p.seats||0),0);
-    const othersSeats = Math.max(0, total - sumKnown);
+    if (!keyEl || !tilesEl || !reportsEl) return;
 
-    const hasOthers = data.parliament.parties.some(p => p.name === "Others");
-    if (!hasOthers) data.parliament.parties.push({ name:"Others", seats: othersSeats });
-    else {
-      data.parliament.parties = data.parliament.parties.map(p => p.name === "Others" ? ({...p, seats: othersSeats}) : p);
-    }
+    const econ = data.economyPage || {};
+    const top = econ.topline || {};
 
-    // Constituency list optional; if empty, we still render a useful page
-    data.constituencies = Array.isArray(data.constituencies) ? data.constituencies : [];
-  }
-
-  function renderConstituenciesPage(data){
-    const summaryEl = document.getElementById("parliament-summary");
-    const partyEl = document.getElementById("party-constituencies");
-    if (!summaryEl || !partyEl) return;
-
-    ensureConstituenciesDefaults(data);
-
-    const total = Number(data.parliament.totalSeats || 650);
-    const parties = data.parliament.parties.slice().sort((a,b)=> (b.seats||0)-(a.seats||0));
-
-    summaryEl.innerHTML = `
-      <div class="commons-hero">
-        <div class="commons-badge">House of Commons</div>
-        <div class="commons-sub">Total seats: <b>${total}</b> · Snapshot: <b>${escapeHtml(simMonthYearLabel(data))}</b></div>
-        <div style="margin-top:10px;" class="muted-block">
-          ${parties.map(p => `<div class="row"><span>${escapeHtml(p.name)}</span><b>${Number(p.seats||0)}</b></div>`).join("")}
-        </div>
+    // KEY LINES: always Inflation, Unemployment, GDP Growth (your instruction)
+    keyEl.innerHTML = `
+      <div class="muted-block">
+        <div class="kv"><span>Inflation</span><b>${fmtPct(top.inflation)}</b></div>
+        <div class="kv"><span>Unemployment</span><b>${fmtPct(top.unemployment)}</b></div>
+        <div class="kv"><span>GDP Growth</span><b>${fmtPct(top.gdpGrowth)}</b></div>
       </div>
     `;
 
-    // If we have full constituency data, show by party and region. If not, show “ready for mod data”.
-    const list = data.constituencies;
-    if (!list.length) {
-      partyEl.innerHTML = `
-        <div class="muted-block">
-          Constituency lists are not loaded yet (this is fine for now).<br>
-          The party totals above are live and will feed into divisions later.
-        </div>
+    function openDetail(title, rows){
+      if (!detailPanel || !detailEl) return;
 
-        <div class="party-grid" style="margin-top:14px;">
-          ${parties.map(p => `
-            <div class="party-tile card-flex">
-              <div class="party-name">${escapeHtml(p.name)}</div>
-              <div class="party-seats">${Number(p.seats||0)} seats</div>
-              <div class="tile-bottom"><button class="btn" type="button" disabled>Open seats (soon)</button></div>
+      detailPanel.style.display = "block";
+
+      // Your demo.json rows are array-arrays, first row is headers
+      const isArrayRows = Array.isArray(rows) && rows.length && Array.isArray(rows[0]);
+
+      if (!isArrayRows) {
+        detailEl.innerHTML = `
+          <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+            <div>
+              <h2 style="margin:0;">${escapeHtml(title)}</h2>
+              <div class="small" style="margin-top:6px;">No data for this tile yet.</div>
             </div>
-          `).join("")}
-        </div>
-      `;
-      return;
-    }
-
-    // Group constituencies by party -> region
-    const byParty = new Map();
-    list.forEach(c => {
-      const party = c.party || "Unknown";
-      const region = c.region || "UK";
-      if (!byParty.has(party)) byParty.set(party, new Map());
-      const m = byParty.get(party);
-      if (!m.has(region)) m.set(region, []);
-      m.get(region).push(c);
-    });
-
-    partyEl.innerHTML = `
-      <div class="party-grid">
-        ${parties.map(p => {
-          const regions = byParty.get(p.name);
-          const seatListHtml = regions
-            ? Array.from(regions.entries()).map(([region, seats]) => `
-                <div class="muted-block" style="margin-top:10px;">
-                  <b>${escapeHtml(region)}</b><br>
-                  <span class="small">${seats.map(s => escapeHtml(s.name)).join(", ")}</span>
-                </div>
-              `).join("")
-            : `<div class="muted-block" style="margin-top:10px;">No constituencies listed for this party yet.</div>`;
-
-          return `
-            <div class="party-tile">
-              <div class="party-name">${escapeHtml(p.name)}</div>
-              <div class="party-seats">${Number(p.seats||0)} seats</div>
-              ${seatListHtml}
-            </div>
-          `;
-        }).join("")}
-      </div>
-    `;
-  }
-
-  /* =========================================================
-     BODIES PAGE (must not be empty)
-     ========================================================= */
-  function ensureBodiesDefaults(data){
-    data.bodies = data.bodies || { list: [] };
-    data.bodies.list = Array.isArray(data.bodies.list) ? data.bodies.list : [];
-
-    if (data.bodies.list.length === 0) {
-      // Minimal 1997-ish defaults (mods can edit later)
-      data.bodies.list = [
-        {
-          id:"lords",
-          name:"House of Lords",
-          desc:"Non-elected chamber. Composition is flavour (no player voting).",
-          totalSeats: 1200,
-          parties: [
-            { name:"Conservative", seats: 450 },
-            { name:"Labour", seats: 200 },
-            { name:"Liberal Democrat", seats: 70 },
-            { name:"Crossbench", seats: 350 },
-            { name:"Bishops/Other", seats: 130 }
-          ]
-        },
-        {
-          id:"europarl",
-          name:"European Parliament (UK delegation)",
-          desc:"Flavour body for Europe-wide context.",
-          totalSeats: 87,
-          parties: [
-            { name:"Labour", seats: 62 },
-            { name:"Conservative", seats: 18 },
-            { name:"Liberal Democrat", seats: 2 },
-            { name:"SNP/Plaid/Other", seats: 5 }
-          ]
-        }
-      ];
-    }
-  }
-
-  function renderBodiesPage(data){
-    const root = document.getElementById("bodies-root");
-    if (!root) return;
-
-    ensureBodiesDefaults(data);
-
-    root.innerHTML = `
-      <h1 class="page-title">Bodies</h1>
-      <div class="muted-block" style="margin-bottom:14px;">
-        These are non-Commons bodies (flavour only). Mods can change seats and composition for any time period.
-      </div>
-
-      <div class="body-grid">
-        ${data.bodies.list.map(b => `
-          <div class="body-tile">
-            <div class="body-head">
-              <div class="body-name">${escapeHtml(b.name)}</div>
-              <div class="small">Seats: <b>${Number(b.totalSeats||0)}</b></div>
-            </div>
-            <div class="body-desc">${escapeHtml(b.desc || "")}</div>
-
-            <div class="body-seats muted-block" style="margin-top:12px;">
-              ${(b.parties||[]).map(p => `<div class="row"><span>${escapeHtml(p.name)}</span><b>${Number(p.seats||0)}</b></div>`).join("")}
-            </div>
+            <button class="btn" type="button" id="econCloseDetail">Close</button>
           </div>
-        `).join("")}
-      </div>
-    `;
+          <div class="muted-block" style="margin-top:12px;">—</div>
+        `;
+      } else {
+        const [header, ...body] = rows;
+
+        detailEl.innerHTML = `
+          <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+            <div>
+              <h2 style="margin:0;">${escapeHtml(title)}</h2>
+              <div class="small" style="margin-top:6px;">Values come from <b>data/demo.json</b> (mods/admins can edit).</div>
+            </div>
+            <button class="btn" type="button" id="econCloseDetail">Close</button>
+          </div>
+
+          <div class="muted-block" style="margin-top:12px;">
+            ${body.map(r => `
+              <div class="kv">
+                <span>${escapeHtml(r[0] ?? "—")}</span>
+                <b>${escapeHtml(String(r[1] ?? "—"))}${header[2] ? ` · ${escapeHtml(String(r[2] ?? "—"))}` : ""}</b>
+              </div>
+            `).join("")}
+          </div>
+        `;
+      }
+
+      const closeBtn = document.getElementById("econCloseDetail");
+      if (closeBtn) closeBtn.addEventListener("click", () => {
+        detailPanel.style.display = "none";
+      });
+
+      detailPanel.scrollIntoView({ behavior:"smooth", block:"start" });
+    }
+
+    const tiles = Array.isArray(econ.ukInfoTiles) ? econ.ukInfoTiles : [];
+    const surveys = Array.isArray(econ.surveys) ? econ.surveys : [];
+
+    // UK INFO tiles
+    if (!tiles.length){
+      tilesEl.innerHTML = `<div class="muted-block">No UK information tiles configured yet.</div>`;
+    } else {
+      tilesEl.className = "paper-grid";
+      tilesEl.innerHTML = tiles.map(t => `
+        <div class="paper-tile card-flex">
+          <div class="paper-masthead">${escapeHtml(t.title || "Tile")}</div>
+          <div class="paper-strap">${escapeHtml(t.subtitle || "")}</div>
+          <div class="tile-bottom">
+            <button class="btn" type="button" data-econ-tile="${escapeHtml(t.id)}">Open</button>
+          </div>
+        </div>
+      `).join("");
+
+      tilesEl.querySelectorAll("[data-econ-tile]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-econ-tile");
+          const t = tiles.find(x => x.id === id);
+          if (!t) return;
+          openDetail(t.title || "Detail", Array.isArray(t.rows) ? t.rows : []);
+        });
+      });
+    }
+
+    // Surveys & reports tiles
+    if (!surveys.length){
+      reportsEl.innerHTML = `<div class="muted-block">No surveys/reports configured yet.</div>`;
+    } else {
+      reportsEl.className = "paper-grid";
+      reportsEl.innerHTML = surveys.map(r => `
+        <div class="paper-tile card-flex">
+          <div class="paper-masthead">${escapeHtml(r.title || "Report")}</div>
+          <div class="paper-strap">Survey / report</div>
+          <div class="tile-bottom">
+            <button class="btn" type="button" data-econ-report="${escapeHtml(r.id)}">Open</button>
+          </div>
+        </div>
+      `).join("");
+
+      reportsEl.querySelectorAll("[data-econ-report]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-econ-report");
+          const r = surveys.find(x => x.id === id);
+          if (!r) return;
+          openDetail(r.title || "Report", Array.isArray(r.rows) ? r.rows : []);
+        });
+      });
+    }
   }
 
   /* =========================================================
-     USER PAGE (must not be empty)
+     USER PAGE (FIXED typo that could break JS)
      ========================================================= */
   function renderUserPage(data){
     const accountEl = document.getElementById("user-account");
@@ -1642,7 +1343,7 @@ function fmtPctSigned(n){
       <div class="muted-block">
         <div class="kv"><span>Username</span><b>${escapeHtml(user.username || "User")}</b></div>
         <div class="kv"><span>Role</span><b>${escapeHtml(roles.join(", "))}</b></div>
-        <div class ⚠️= "kv"><span>Active Character</span><b>${escapeHtml(char.name || "None")}</b></div>
+        <div class="kv"><span>Active Character</span><b>${escapeHtml(char.name || "None")}</b></div>
         <div class="kv"><span>Party</span><b>${escapeHtml(char.party || "—")}</b></div>
       </div>
     `;
@@ -1653,7 +1354,7 @@ function fmtPctSigned(n){
       ? `
         <div class="muted-block">
           <b>Control Panel (Base)</b><br>
-          This is where Admin/Mods/Speaker controls will live (no coding rewrites needed later).
+          This is where Admin/Mods/Speaker controls will live later.
           <hr>
           <div class="small"><b>Planned:</b> edit Parliament seats, manage NPC votes, manage Question Time offices, post BBC News, post Papers.</div>
           <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
@@ -1666,7 +1367,7 @@ function fmtPctSigned(n){
   }
 
   /* =========================================================
-     SUBMIT BILL PAGE (fix "Loading...")
+     Builders (kept from your previous)
      ========================================================= */
   function initSubmitBillPage(data) {
     const builder = document.getElementById("legislation-builder");
@@ -1715,7 +1416,6 @@ function fmtPctSigned(n){
 
     container.innerHTML = `
       <div class="form-grid">
-
         <label>Title of the Bill</label>
         <input id="billTitleInput" placeholder="e.g. Rail Safety Reform" />
 
@@ -1856,9 +1556,6 @@ ${articlesText}${finalArticle}
     location.href = "dashboard.html";
   }
 
-  /* =========================================================
-     PARTY DRAFT PAGE (fix "Loading...")
-     ========================================================= */
   function initPartyDraftPage(data) {
     const builder = document.getElementById("party-legislation-builder");
     const controls = document.getElementById("party-draft-controls");
@@ -2058,9 +1755,7 @@ ${articlesText}${finalArticle}
       document.getElementById("order-paper") ||
       document.getElementById("live-docket") ||
       document.getElementById("sim-date-display") ||
-      document.getElementById("billMeta") ||
-      document.getElementById("bbcMainNews") ||
-      document.getElementById("papersGrid");
+      document.getElementById("billMeta");
 
     if (!needsRefresh) return;
 
@@ -2069,309 +1764,50 @@ ${articlesText}${finalArticle}
       if (!latest) return;
       normaliseData(latest);
 
-      // Dashboard
       renderSimDate(latest);
       renderWhatsGoingOn(latest);
       renderLiveDocket(latest);
       renderOrderPaper(latest);
-
-      // Bill page
       initBillPage(latest);
-
-      // News/Papers
-      renderNewsPage(latest);
-      renderPapersPage(latest);
     }, 1000);
   }
-/* =========================
-   Economy Page
-   Expects economy.html IDs:
-     - #econ-topline
-     - #econ-tiles
-     - #econ-surveys
-   ========================= */
-function initEconomyPage(data){
-  const keyEl = document.getElementById("economyKeyLines");
-  const tilesEl = document.getElementById("economyTiles");
-  const reportsEl = document.getElementById("economyReportsTiles");
-  const detailPanel = document.getElementById("economyDetailPanel");
-  const detailEl = document.getElementById("economyDetail");
 
-  if (!keyEl || !tilesEl || !reportsEl) return;
+  /* =========================================================
+     BOOT
+     ========================================================= */
+  fetch(DATA_URL)
+    .then(r => r.json())
+    .then((demo) => {
+      let data = getData();
+      if (!data) data = demo;
 
-  const econ = data.economyPage || {};
-  const key = econ.keyLines || {};
+      normaliseData(data);
+      saveData(data);
 
-  keyEl.innerHTML = `
-    <div class="muted-block">
-      <div class="kv"><span>Inflation</span><b>${fmtPct(key.inflation)}</b></div>
-      <div class="kv"><span>Unemployment</span><b>${fmtPct(key.unemployment)}</b></div>
-      <div class="kv"><span>GDP Growth</span><b>${fmtPct(key.gdpGrowth)}</b></div>
-    </div>
-  `;
+      initNavUI();
 
-  function openDetail(title, rows){
-    if (!detailPanel || !detailEl) return;
-    detailPanel.style.display = "block";
+      const safeRun = (label, fn) => {
+        try { fn(); }
+        catch (e) { console.error(`[BOOT] ${label} failed:`, e); }
+      };
 
-    // rows can be: {label, value} OR {label, ly, ty, pct}
-    const isLyTy = rows.some(r => ("ly" in r) || ("ty" in r));
+      // Dashboard (renders only if IDs exist)
+      safeRun("renderSimDate",        () => renderSimDate(data));
+      safeRun("renderWhatsGoingOn",   () => renderWhatsGoingOn(data));
+      safeRun("renderLiveDocket",     () => renderLiveDocket(data));
+      safeRun("renderOrderPaper",     () => renderOrderPaper(data));
 
-    detailEl.innerHTML = `
-      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
-        <div>
-          <h2 style="margin:0;">${escapeHtml(title)}</h2>
-          <div class="small" style="margin-top:6px;">Values come from <b>data/demo.json</b> (mods/admins can edit).</div>
-        </div>
-        <button class="btn" type="button" id="econCloseDetail">Close</button>
-      </div>
+      // Pages
+      safeRun("initBillPage",         () => initBillPage(data));
+      safeRun("initQuestionTimePage", () => initQuestionTimePage(data));
+      safeRun("initEconomyPage",      () => initEconomyPage(data));
+      safeRun("renderUserPage",       () => renderUserPage(data));
 
-      <div class="muted-block" style="margin-top:12px;">
-        ${
-          isLyTy
-            ? rows.map(r => `
-                <div class="kv">
-                  <span>${escapeHtml(r.label || "—")}</span>
-                  <b>
-                    LY ${fmtNumber(r.ly)} · TY ${fmtNumber(r.ty)} · ${fmtPctSigned(r.pct)}
-                  </b>
-                </div>
-              `).join("")
-            : rows.map(r => `
-                <div class="kv">
-                  <span>${escapeHtml(r.label || "—")}</span>
-                  <b>${fmtNumber(r.value)}</b>
-                </div>
-              `).join("")
-        }
-      </div>
-    `;
+      // Builders
+      safeRun("initSubmitBillPage",   () => initSubmitBillPage(data));
+      safeRun("initPartyDraftPage",   () => initPartyDraftPage(data));
 
-    const closeBtn = document.getElementById("econCloseDetail");
-    if (closeBtn) closeBtn.addEventListener("click", () => {
-      detailPanel.style.display = "none";
-    });
-
-    detailPanel.scrollIntoView({ behavior:"smooth", block:"start" });
-  }
-
-  const tiles = Array.isArray(econ.tiles) ? econ.tiles : [];
-  const reports = Array.isArray(econ.reports) ? econ.reports : [];
-
-  if (!tiles.length){
-    tilesEl.innerHTML = `<div class="muted-block">No economy tiles configured yet.</div>`;
-  } else {
-    tilesEl.className = "paper-grid"; // reuse a nice grid you already have
-    tilesEl.innerHTML = tiles.map(t => `
-      <div class="paper-tile card-flex">
-        <div class="paper-masthead">${escapeHtml(t.title || "Tile")}</div>
-        <div class="paper-strap">${escapeHtml(t.summary || "")}</div>
-        <div class="tile-bottom">
-          <button class="btn" type="button" data-econ-tile="${escapeHtml(t.id)}">Open</button>
-        </div>
-      </div>
-    `).join("");
-
-    tilesEl.querySelectorAll("[data-econ-tile]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-econ-tile");
-        const t = tiles.find(x => x.id === id);
-        if (!t) return;
-        openDetail(t.title || "Detail", Array.isArray(t.rows) ? t.rows : []);
-      });
-    });
-  }
-
-  if (!reports.length){
-    reportsEl.innerHTML = `<div class="muted-block">No surveys/reports configured yet.</div>`;
-  } else {
-    reportsEl.className = "paper-grid";
-    reportsEl.innerHTML = reports.map(r => `
-      <div class="paper-tile card-flex">
-        <div class="paper-masthead">${escapeHtml(r.title || "Report")}</div>
-        <div class="paper-strap">${escapeHtml(r.summary || "")}</div>
-        <div class="tile-bottom">
-          <button class="btn" type="button" data-econ-report="${escapeHtml(r.id)}">Open</button>
-        </div>
-      </div>
-    `).join("");
-
-    reportsEl.querySelectorAll("[data-econ-report]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const id = btn.getAttribute("data-econ-report");
-        const r = reports.find(x => x.id === id);
-        if (!r) return;
-        openDetail(r.title || "Report", Array.isArray(r.rows) ? r.rows : []);
-      });
-    });
-  }
-}
-
-
-/* =========================
-   QUICK FIXES: Question Time + Papers ID mismatches
-   ========================= */
-function initQuestionTimePage(data){
-  const root =
-    document.getElementById("question-time-root") ||
-    document.getElementById("qt-root");
-
-  if (!root) return;
-
-  const qt = data.questionTime || {};
-  const offices = Array.isArray(qt.cabinet) ? qt.cabinet : [];
-
-  if (!offices.length){
-    root.innerHTML = `<div class="muted-block">No Question Time offices configured yet.</div>`;
-    return;
-  }
-
-  root.innerHTML = `
-    <div class="qt-grid">
-      ${offices.map(o => `
-        <div class="qt-tile card-flex">
-          <div class="qt-office">${escapeHtml(o.short || o.title || "Office")}</div>
-          <div class="small" style="margin-top:8px;">${escapeHtml(o.title || "")}</div>
-
-          <div class="tile-bottom">
-            <a class="btn" href="qt-office.html?office=${encodeURIComponent(o.slug)}">Open</a>
-          </div>
-        </div>
-      `).join("")}
-    </div>
-  `;
-}
-
-
-function initPapersPage(data){
-  const grid = document.getElementById("papersGrid");
-  const simDateEl = document.getElementById("papersSimDate");
-  const readerPanel = document.getElementById("paperReaderPanel");
-  const reader = document.getElementById("paperReader");
-
-  if (!grid || !simDateEl) return;
-
-  const sim = getCurrentSimDate(data);
-  simDateEl.textContent = `${getMonthName(sim.month)} ${sim.year}`;
-
-  // You can move this list into demo.json later if you want total mod control.
-  const PAPERS = [
-    { id:"sun", name:"The Sun", cls:"paper-sun" },
-    { id:"telegraph", name:"The Daily Telegraph", cls:"paper-telegraph" },
-    { id:"mail", name:"The Daily Mail", cls:"paper-mail" },
-    { id:"mirror", name:"The Daily Mirror", cls:"paper-mirror" },
-    { id:"times", name:"The Times", cls:"paper-times" },
-    { id:"ft", name:"Financial Times", cls:"paper-ft" },
-    { id:"guardian", name:"The Guardian", cls:"paper-guardian" },
-    { id:"independent", name:"The Independent", cls:"paper-independent" }
-  ];
-
-  // Minimal “front page” source: use whatsGoingOn.papers as a stand-in headline.
-  const front = data.whatsGoingOn?.papers || {};
-  const defaultHeadline = front.headline || "Front Page Headline";
-
-  grid.className = "paper-grid";
-  grid.innerHTML = PAPERS.map(p => `
-    <div class="paper-tile ${p.cls} card-flex">
-      <div class="paper-masthead">${escapeHtml(p.name)}</div>
-      <div class="paper-headline">${escapeHtml(p.name)} — ${escapeHtml(defaultHeadline)}</div>
-      <div class="tile-bottom">
-        <button class="btn" type="button" data-paper="${escapeHtml(p.id)}">Read this Paper</button>
-      </div>
-    </div>
-  `).join("");
-
-  grid.querySelectorAll("[data-paper]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const pid = btn.getAttribute("data-paper");
-      if (!readerPanel || !reader) return;
-
-      readerPanel.style.display = "block";
-
-      const p = PAPERS.find(x => x.id === pid);
-      reader.innerHTML = `
-        <div class="paper-reader-header">
-          <div>
-            <div class="paper-reader-title">${escapeHtml(p?.name || "Paper")}</div>
-            <div class="small">${escapeHtml(getMonthName(sim.month))} ${sim.year}</div>
-          </div>
-          <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <button class="btn" type="button" id="paperCloseBtn">Close</button>
-          </div>
-        </div>
-
-        <div class="paper-issue ${escapeHtml(p?.cls || "")}">
-          <div class="paper-issue-top">
-            <div class="paper-issue-masthead">${escapeHtml(p?.name || "")}</div>
-            <div class="paper-issue-date">${escapeHtml(getMonthName(sim.month))} ${sim.year}</div>
-          </div>
-
-          <div class="paper-issue-headline">${escapeHtml(defaultHeadline)}</div>
-          <div class="paper-issue-byline">Political Correspondent</div>
-          <div class="paper-issue-text">${escapeHtml(front.strap || "One-sentence front page standfirst.")}</div>
-        </div>
-      `;
-
-      const closeBtn = document.getElementById("paperCloseBtn");
-      if (closeBtn) closeBtn.addEventListener("click", () => {
-        readerPanel.style.display = "none";
-      });
-
-      // scroll into view nicely
-      readerPanel.scrollIntoView({ behavior:"smooth", block:"start" });
-    });
-  });
-}
-
-
-/* =========================================================
-   BOOT (means: "when the app first loads")
-   ========================================================= */
-fetch(DATA_URL)
-  .then(r => r.json())
-  .then((demo) => {
-    let data = getData();
-    if (!data) data = demo;
-
-    normaliseData(data);
-    saveData(data);
-
-    initNavUI();
-
-    // Helper: run a function without killing the entire app if it errors
-    const safeRun = (label, fn) => {
-      try { fn(); }
-      catch (e) { console.error(`[BOOT] ${label} failed:`, e); }
-    };
-
-    // Dashboard (only renders if the IDs exist on the page)
-    safeRun("renderSimDate",        () => renderSimDate(data));
-    safeRun("renderWhatsGoingOn",   () => renderWhatsGoingOn(data));
-    safeRun("renderLiveDocket",     () => renderLiveDocket(data));
-    safeRun("renderOrderPaper",     () => renderOrderPaper(data));
-    safeRun("renderHansard",        () => renderHansard(data));
-    safeRun("renderSundayRollDisplay", () => renderSundayRollDisplay());
-    safeRun("renderAbsenceUI",      () => renderAbsenceUI(data));
-
-    // Core pages (ONLY call the versions you actually have)
-    safeRun("initBillPage",         () => initBillPage(data));
-
-    // ✅ Use THESE newer init functions (and remove the older render* calls)
-    safeRun("initNewsPage",         () => initNewsPage?.(data) || renderNewsPage?.(data));
-    safeRun("initPapersPage",       () => initPapersPage(data));
-    safeRun("initQuestionTimePage", () => initQuestionTimePage(data));
-    safeRun("initEconomyPage",      () => initEconomyPage(data));
-
-    // If you have these functions, keep them; if not, they won't crash
-    safeRun("initConstituenciesPage", () => initConstituenciesPage?.(data) || renderConstituenciesPage?.(data));
-    safeRun("initBodiesPage",         () => initBodiesPage?.(data) || renderBodiesPage?.(data));
-    safeRun("initUserPage",           () => initUserPage?.(data) || renderUserPage?.(data));
-
-    // Builders (safe)
-    safeRun("initSubmitBillPage",   () => initSubmitBillPage(data));
-    safeRun("initPartyDraftPage",   () => initPartyDraftPage(data));
-
-    startLiveRefresh();
-  })
-  .catch(err => console.error("Error loading demo.json:", err));
+      startLiveRefresh();
+    })
+    .catch(err => console.error("Error loading demo.json:", err));
 })();
