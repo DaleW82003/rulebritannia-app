@@ -4963,6 +4963,124 @@ function renderBodiesPage(data) {
   `;
 }
 
+function renderControlPanel(data){
+  const root = document.getElementById("control-root");
+  if (!root) return;
+
+  const user = data.currentUser || {};
+  const role = user.role || "player";
+
+  if (role === "player"){
+    root.innerHTML = `
+      <div class="panel">
+        <div class="muted-block">
+          You do not have access to the control panel.
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  function section(title, content){
+    return `
+      <div class="panel" style="margin-bottom:16px;">
+        <h2 style="margin:0 0 10px;">${title}</h2>
+        ${content}
+      </div>
+    `;
+  }
+
+  let output = "";
+
+  /* ================= ADMIN ================= */
+  if (role === "admin"){
+
+    output += section("User & Role Management", `
+      <div class="muted-block">
+        (Future) Create users, assign Admin / Mod / Speaker roles.
+      </div>
+    `);
+
+    output += section("Game Clock", `
+      <button class="btn" id="pauseClockBtn">Pause Clock</button>
+      <button class="btn" id="resumeClockBtn">Resume Clock</button>
+    `);
+
+    output += section("Bodies Editor", `
+      <div id="admin-bodies-editor"></div>
+    `);
+
+    output += section("Constituency Reset", `
+      <button class="btn" id="resetParliamentBtn">Reset Parliament to 1997</button>
+    `);
+  }
+
+  /* ================= MOD ================= */
+  if (role === "admin" || role === "mod"){
+
+    output += section("News Control", `
+      <a class="btn" href="news.html">Manage News</a>
+    `);
+
+    output += section("Papers Control", `
+      <a class="btn" href="papers.html">Manage Papers</a>
+    `);
+
+    output += section("Bodies Control", `
+      <a class="btn" href="bodies.html">Manage Bodies</a>
+    `);
+
+    output += section("Constituencies Control", `
+      <a class="btn" href="constituencies.html">Manage Constituencies</a>
+    `);
+  }
+
+  /* ================= SPEAKER ================= */
+  if (role === "admin" || role === "speaker"){
+
+    output += section("Division Controls", `
+      <div class="muted-block">
+        Allocate NPC votes, apply rebellions, override division results.
+      </div>
+      <a class="btn" href="constituencies.html">Manage Votes</a>
+    `);
+  }
+
+  root.innerHTML = output;
+
+  bindControlPanelActions(data);
+}
+function bindControlPanelActions(data){
+
+  const pause = document.getElementById("pauseClockBtn");
+  const resume = document.getElementById("resumeClockBtn");
+
+  if (pause){
+    pause.addEventListener("click", () => {
+      data.gameState.isPaused = true;
+      saveData(data);
+      alert("Game clock paused.");
+    });
+  }
+
+  if (resume){
+    resume.addEventListener("click", () => {
+      data.gameState.isPaused = false;
+      saveData(data);
+      alert("Game clock resumed.");
+    });
+  }
+
+  const resetBtn = document.getElementById("resetParliamentBtn");
+  if (resetBtn){
+    resetBtn.addEventListener("click", () => {
+      if (!confirm("Reset Parliament to August 1997?")) return;
+
+      localStorage.removeItem("rb_full_data");
+      location.reload();
+    });
+  }
+}
 
   /* =========================
      BOOT
@@ -4991,6 +5109,7 @@ function renderBodiesPage(data) {
       renderUserPage(data);
       renderPapersPage(data);
       renderBodiesPage(data);
+      renderControlPanel(data);
       renderControlPanel(data);
       initSubmitBillPage(data);
       initPartyDraftPage(data);
