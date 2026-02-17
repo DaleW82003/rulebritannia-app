@@ -81,14 +81,25 @@ function simDataKey(simId){ return `rb_full_data__${simId}`; }
   /* =========================
      Storage
      ========================= */
-  function getData() {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? JSON.parse(raw) : null;
-  }
+function getActiveSimId() {
+  return localStorage.getItem(LS_ACTIVE_SIM) || "sim-default";
+}
 
-  function saveData(data) {
-    localStorage.setItem(LS_KEY, JSON.stringify(data));
-  }
+function setActiveSimId(simId) {
+  localStorage.setItem(LS_ACTIVE_SIM, simId);
+}
+
+function getData() {
+  const simId = getActiveSimId();
+  const raw = localStorage.getItem(simDataKey(simId));
+  return raw ? JSON.parse(raw) : null;
+}
+
+function saveData(data) {
+  const simId = getActiveSimId();
+  localStorage.setItem(simDataKey(simId), JSON.stringify(data));
+}
+
 
   function getPartyDrafts() {
     return JSON.parse(localStorage.getItem(LS_PARTY_DRAFTS) || "[]");
