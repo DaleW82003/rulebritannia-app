@@ -23,7 +23,14 @@
      Config
      ========================= */
   const DATA_URL = "data/demo.json";
-  const LS_KEY = "rb_full_data";
+const LS_USERS = "rb_users";
+const LS_CURRENT_USER = "rb_current_user";
+const LS_SIMS = "rb_sims";
+const LS_ACTIVE_SIM = "rb_active_sim";
+
+// each sim stores its world state under: rb_full_data__<simId>
+function simDataKey(simId){ return `rb_full_data__${simId}`; }
+
   const LS_PARTY_DRAFTS = "rb_party_drafts";
 
   /* =========================
