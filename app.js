@@ -32,6 +32,28 @@ const LS_ACTIVE_SIM = "rb_active_sim";
 function simDataKey(simId){ return `rb_full_data__${simId}`; }
 
   const LS_PARTY_DRAFTS = "rb_party_drafts";
+// Playable parties (only these parties may vote as players)
+const PLAYABLE_PARTIES = ["Labour", "Conservative", "Liberal Democrat"];
+
+// Parties excluded from voting/majority entirely (Sinn Féin don't take seats)
+function isSinnFeinParty(partyName){
+  return String(partyName || "").toLowerCase().includes("sinn");
+}
+
+function isPlayableParty(partyName){
+  return PLAYABLE_PARTIES.includes(String(partyName || ""));
+}
+
+function isSpeakerPlayer(playerObj){
+  return playerObj?.isSpeaker === true;
+}
+
+// Look up a player record by name
+function findPlayerByName(data, name){
+  const n = String(name || "").trim();
+  if (!n) return null;
+  return (Array.isArray(data.players) ? data.players : []).find(p => p.name === n) || null;
+}
 
   /* =========================
      Helpers
@@ -498,26 +520,282 @@ function getVotingSeatCount(data) {
     return true;
   }).length;
 }
+/**
+ * Total effective voting weight currently in the House
+ * Excludes:
+ * - Speaker
+ * - Sinn Féin
+ * - Absent MPs with no valid delegate
+ */
+function getTotalEligibleVoteWeight(data) {
+  const players = Array.isArray(data.players) ? data.players : [];
+  let total = 0;
+
+  for (const p of players) {
+    if (!p) continue;
+
+    if (isSpeakerPlayer(p)) continue;
+    if (isSinnFeinParty(p.party)) continue;
+
+    const weight = Number.isFinite(Number(p.voteWeight)) && Number(p.voteWeight) > 0
+      ? Number(p.voteWeight)
+      : 1;
+
+    // if present, they vote directly
+    if (p.absent !== true) {
+      total += weight;
+      continue;
+    }
+
+    // if absent, check delegation
+    let delegate = p.delegatedTo || null;
+
+    if (!delegate && p.partyLeader !== true) {
+      delegate = getPartyLeaderName(data, p.party);
+    }
+
+    if (delegate) {
+      total += weight;
+    }
+    // if no delegate → vote not counted
+  }
+const division = data.orderPaperCommons.find(b => b.stage === "Division")?.divisionControl;
+const rebels = division?.rebellions?.[p.party] || 0;
+let adjustedWeight = weight;
+
+if (rebels > 0) {
+  adjustedWeight = Math.max(0, weight - rebels);
+}
+
+  return total;
+}
+function rbSetNpcVotes(billId, partyName, aye, no, abstain){
+  const data = getData();
+  if (!data) return;
+
+  normaliseData(data);
+
+  const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
+  if (!bill) return;
+
+  ensureBillDefaults(bill);
+  ensureBillDivisionDefaults(bill);
+
+  const limit = getNpcVoteLimit(data, partyName);
+
+  const totalRequested =
+    Number(aye || 0) +
+    Number(no || 0) +
+    Number(abstain || 0);
+
+  if (totalRequested > limit){
+    alert(`Cannot allocate ${totalRequested} votes. ${partyName} only has ${limit} seats.`);
+    return;
+  }
+
+  bill.divisionControl = bill.divisionControl || {};
+  bill.divisionControl.npcVotes = bill.divisionControl.npcVotes || {};
+
+  bill.divisionControl.npcVotes[partyName] = {
+    aye: Number(aye || 0),
+    no: Number(no || 0),
+    abstain: Number(abstain || 0)
+  };
+
+  saveData(data);
+  location.reload();
+}
+const limit = getNpcVoteLimit(data, partyName);
+// =========================
+// Vote pool + weighting engine
+// =========================
+function getRebelCount(bill, partyName){
+  const n = Number(bill?.divisionControl?.rebels?.[partyName] || 0);
+  return Math.max(0, Math.floor(n));
+}
+
+function getNpcVoteLimit(data, bill, partyName){
+  // Sinn Féin never votes
+  if (isSinnFeinParty(partyName)) return 0;
+
+  // NPC parties = any non-playable party (plus playable if no characters exist)
+  const seats = getPartySeatTotal(data, partyName);
+  if (seats <= 0) return 0;
+
+  // Rebels are only for playable parties (but if you set it for others, still subtract)
+  const rebels = getRebelCount(bill, partyName);
+
+  // Speaker seat should NOT count towards majorities or "all votes cast"
+  // (so we remove 1 seat from the Speaker's own party)
+  let speakerSeat = 0;
+  const spParty = getSpeakerParty(data);
+  if (spParty && spParty === partyName) speakerSeat = 1;
+
+  return Math.max(0, seats - rebels - speakerSeat);
+}
+
+function getPlayableCharacters(data, partyName){
+  const players = Array.isArray(data.players) ? data.players : [];
+  return players.filter(p =>
+    p &&
+    p.active !== false &&
+    p.isSpeaker !== true &&
+    String(p.party || "") === String(partyName || "")
+  );
+}
+
+function getVoteWeightsForParty(data, bill, partyName){
+  const chars = getPlayableCharacters(data, partyName);
+  const available = getNpcVoteLimit(data, bill, partyName); // same “pool” rule
+  if (!chars.length || available <= 0) return { weights: {}, available, chars: [] };
+
+  const n = chars.length;
+  const base = Math.floor(available / n);
+  const remainder = available % n;
+
+  // assign remainder to party leader if found, else first alphabetically
+  let leader = chars.find(p => p.partyLeader === true) || chars[0];
+  if (!leader) leader = chars[0];
+
+  const weights = {};
+  chars.forEach(p => { weights[p.name] = base; });
+  weights[leader.name] = (weights[leader.name] || 0) + remainder;
+
+  // Absence delegation (simple): if absent, their weight transfers to delegatedTo
+  chars.forEach(p => {
+    if (p.absent === true && p.delegatedTo) {
+      const w = weights[p.name] || 0;
+      if (w > 0) {
+        weights[p.name] = 0;
+        weights[p.delegatedTo] = (weights[p.delegatedTo] || 0) + w;
+      }
+    }
+  });
+
+  return { weights, available, chars };
+}
+
+function getNpcAllocatedTotals(bill, partyName){
+  const row = bill?.divisionControl?.npcVotes?.[partyName];
+  const aye = Number(row?.aye || 0);
+  const no = Number(row?.no || 0);
+  const abstain = Number(row?.abstain || 0);
+  return {
+    aye: Math.max(0, Math.floor(aye)),
+    no: Math.max(0, Math.floor(no)),
+    abstain: Math.max(0, Math.floor(abstain)),
+    total: Math.max(0, Math.floor(aye)) + Math.max(0, Math.floor(no)) + Math.max(0, Math.floor(abstain))
+  };
+}
+
+function getAllPartiesInParliament(data){
+  return (data.parliament?.parties || []).map(p => p.name).filter(Boolean);
+}
+
+function getEligibleVoteTotal(data, bill){
+  // total eligible votes across all parties (after Sinn Féin + Speaker seat + rebels removed)
+  const parties = getAllPartiesInParliament(data);
+  return parties.reduce((sum, partyName) => sum + getNpcVoteLimit(data, bill, partyName), 0);
+}
+
+function getPlayerCastTotal(bill){
+  const voters = Array.isArray(bill?.division?.voters) ? bill.division.voters : [];
+  return voters.reduce((sum, v) => sum + Number(v.weight || 0), 0);
+}
+
+function getNpcCastTotal(data, bill){
+  const parties = getAllPartiesInParliament(data);
+  return parties.reduce((sum, partyName) => sum + getNpcAllocatedTotals(bill, partyName).total, 0);
+}
+
+function getCombinedDivisionTotals(data, bill){
+  // player tallies
+  const div = bill.division || { votes:{aye:0,no:0,abstain:0} };
+
+  // npc tallies
+  const parties = getAllPartiesInParliament(data);
+  let npcAye = 0, npcNo = 0, npcAbstain = 0;
+
+  parties.forEach(partyName => {
+    const t = getNpcAllocatedTotals(bill, partyName);
+    const row = bill.divisionControl?.npcVotes?.[partyName] || {};
+    npcAye += Number(row.aye || 0);
+    npcNo += Number(row.no || 0);
+    npcAbstain += Number(row.abstain || 0);
+  });
+
+  return {
+    aye: (div.votes?.aye || 0) + npcAye,
+    no: (div.votes?.no || 0) + npcNo,
+    abstain: (div.votes?.abstain || 0) + npcAbstain
+  };
+}
+
+function closeDivisionNow(data, bill, reason){
+  const div = ensureBillDivisionDefaults(bill);
+  if (div.closed) return;
+
+  div.closed = true;
+  div.closedReason = reason || "Closed";
+
+  const totals = getCombinedDivisionTotals(data, bill);
+  const aye = totals.aye || 0;
+  const no = totals.no || 0;
+
+  if (aye > no) {
+    div.result = "passed";
+    bill.status = "passed";
+  } else {
+    div.result = "failed"; // tie fails
+    bill.status = "failed";
+  }
+
+  bill.completedAt = nowTs();
+  logHansardBillDivision(bill, bill.status);
+}
 
   /* =========================
      MAIN BILL DIVISION ENGINE
      ========================= */
-  function ensureBillDivisionDefaults(bill){
-    bill.division = bill.division || {
-      openedAt: new Date().toISOString(),
-      durationHours: 24,
-      closesAt: null,
-      votes: { aye: 0, no: 0, abstain: 0 },
-      voters: [],
-      closed: false,
-      result: null
-    };
+function ensureBillDivisionDefaults(bill){
+  bill.division = bill.division || {
+    openedAt: new Date().toISOString(),
+    durationHours: 24,
+    closesAt: null,
 
-    if (!bill.division.openedAt) bill.division.openedAt = new Date().toISOString();
-    if (!bill.division.closesAt) {
-      const opened = new Date(bill.division.openedAt).getTime();
-      bill.division.closesAt = addActiveHoursSkippingSundays(opened, Number(bill.division.durationHours || 24));
-    }
+    // tallies are STILL stored here, but now they can be weighted
+    votes: { aye: 0, no: 0, abstain: 0 },
+
+    // voters now stored as objects (for weights)
+    voters: [], // [{ name, vote, weight, party }]
+
+    closed: false,
+    result: null,
+    closedReason: null
+  };
+
+  if (!bill.division.openedAt) bill.division.openedAt = new Date().toISOString();
+  if (!bill.division.closesAt) {
+    const opened = new Date(bill.division.openedAt).getTime();
+    bill.division.closesAt = addActiveHoursSkippingSundays(opened, Number(bill.division.durationHours || 24));
+  }
+
+  bill.division.votes = bill.division.votes || { aye:0, no:0, abstain:0 };
+  bill.division.voters = Array.isArray(bill.division.voters) ? bill.division.voters : [];
+  if (typeof bill.division.closed !== "boolean") bill.division.closed = false;
+
+  // Speaker control area for NPC votes + rebels
+  bill.divisionControl = bill.divisionControl || {
+    npcVotes: {},   // partyName -> { aye, no, abstain }
+    rebels: {}      // partyName -> number
+  };
+
+  bill.divisionControl.npcVotes = bill.divisionControl.npcVotes || {};
+  bill.divisionControl.rebels = bill.divisionControl.rebels || {};
+
+  return bill.division;
+}
+
 
     bill.division.votes = bill.division.votes || { aye:0, no:0, abstain:0 };
     bill.division.voters = Array.isArray(bill.division.voters) ? bill.division.voters : [];
@@ -546,38 +824,63 @@ function getVotingSeatCount(data) {
 
     bill.hansard.division.push(entry);
   }
+function getNpcTotalsFromBill(bill){
+const npcParties = (data.parliament?.parties || [])
+  .map(p => p.name)
+  .filter(name => name && !isPlayableParty(name) && !isSinnFeinParty(name));
 
-  function processBillDivision(bill){
-    if (!bill) return;
-    ensureBillDefaults(bill);
+const partiesToControl = npcParties.length ? npcParties : ["SNP","Plaid Cymru","DUP","UUP","SDLP","Green","Others"];
 
-    if (bill.stage !== "Division") return;
-    if (isCompleted(bill)) return;
 
-    const div = ensureBillDivisionDefaults(bill);
-    if (div.closed) return;
+  Object.values(npc).forEach(row => {
+    aye += Number(row?.aye || 0);
+    no += Number(row?.no || 0);
+    abstain += Number(row?.abstain || 0);
+  });
 
-    // Sunday freeze
-    if (isSunday()) return;
+  return { aye, no, abstain };
+}
 
-    const now = nowTs();
-    if (now >= div.closesAt) {
-      div.closed = true;
-      const aye = div.votes?.aye || 0;
-      const no = div.votes?.no || 0;
+function getCombinedDivisionTotals(bill){
+  const pv = bill?.division?.votes || { aye:0, no:0, abstain:0 };
+  const nv = getNpcTotalsFromBill(bill);
 
-      if (aye > no) {
-        div.result = "passed";
-        bill.status = "passed";
-      } else {
-        div.result = "failed"; // tie fails
-        bill.status = "failed";
-      }
+  return {
+    aye: (pv.aye || 0) + nv.aye,
+    no: (pv.no || 0) + nv.no,
+    abstain: (pv.abstain || 0) + nv.abstain
+  };
+}
 
-      bill.completedAt = nowTs();
-      logHansardBillDivision(bill, bill.status);
-    }
+function processBillDivision(data, bill){
+  if (!bill) return;
+  ensureBillDefaults(bill);
+
+  if (bill.stage !== "Division") return;
+  if (isCompleted(bill)) return;
+
+  const div = ensureBillDivisionDefaults(bill);
+  if (div.closed) return;
+
+  // EARLY CLOSE: if all eligible votes have been cast, close immediately (even on Sunday)
+  const eligible = getEligibleVoteTotal(data, bill);
+  const cast = getPlayerCastTotal(bill) + getNpcCastTotal(data, bill);
+  if (eligible > 0 && cast >= eligible) {
+    closeDivisionNow(data, bill, "All eligible votes cast");
+    return;
   }
+
+  // Sunday freeze for deadline-based auto close
+  if (isSunday()) return;
+
+  const now = nowTs();
+  if (now >= div.closesAt) {
+    closeDivisionNow(data, bill, "Time expired");
+  }
+}
+
+
+
 
 function rbVoteBillDivision(billId, voterName, vote){
   const data = getData();
@@ -597,26 +900,131 @@ function rbVoteBillDivision(billId, voterName, vote){
   const name = String(voterName || "").trim();
   if (!name) return null;
 
-  // one vote per named voter
-  if (div.voters.includes(name)) return null;
+  // one vote per name
+  if ((div.voters || []).some(v => v.name === name)) return null;
 
-  // weight (includes delegation + your voteWeight rules)
-  const weight = getEffectiveVoteWeight(data, name);
+  // find player's party (so we can apply correct weighting)
+  const players = Array.isArray(data.players) ? data.players : [];
+  const me = players.find(p => p.name === name) || data.currentPlayer || {};
+  const party = String(me.party || "");
 
-  // Speaker / Sinn Féin / absent voters will have weight 0
-  if (!weight || weight <= 0) return null;
+  // Speaker cannot vote
+  if (me.isSpeaker === true) return null;
 
+  // Sinn Féin characters (if you ever allow them) should also be blocked from voting
+  if (isSinnFeinParty(party)) return null;
+
+  // Weighting:
+  // - playable parties use distributed weights
+  // - non-playable parties are NPC-only (Speaker allocates), so block here
+  let weight = 0;
+
+  if (isPlayableParty(party)) {
+    const w = getVoteWeightsForParty(data, bill, party).weights;
+    weight = Number(w[name] || 0);
+  } else {
+    // NPC parties locked to Speaker control
+    return null;
+  }
+
+  // If weight is 0 (e.g. delegated away), do nothing
+  if (weight <= 0) return null;
+
+  // apply weighted vote to the tally
   if (vote === "aye") div.votes.aye += weight;
   else if (vote === "no") div.votes.no += weight;
   else div.votes.abstain += weight;
 
-  div.voters.push(name);
+  div.voters.push({ name, party, vote, weight });
 
-  processBillDivision(bill);
+  // After casting: check early-close logic
+  processBillDivision(data, bill);
 
   saveData(data);
   return { data, bill };
 }
+function rbSetNpcVotes(billId, partyName, aye, no, abstain){
+  const data = getData();
+  if (!data) return null;
+
+  normaliseData(data);
+
+  // Speaker-only
+  if (!(data.currentPlayer?.isSpeaker === true)) return null;
+
+  const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
+  if (!bill) return null;
+
+  ensureBillDefaults(bill);
+  ensureBillDivisionDefaults(bill);
+
+  const party = String(partyName || "");
+  if (!party) return null;
+
+  // NPC parties ONLY (non playable)
+  if (isPlayableParty(party)) return null;
+  if (isSinnFeinParty(party)) return null;
+
+  const limit = getNpcVoteLimit(data, bill, party);
+
+  const a = Math.max(0, Math.floor(Number(aye || 0)));
+  const n = Math.max(0, Math.floor(Number(no || 0)));
+  const ab = Math.max(0, Math.floor(Number(abstain || 0)));
+  const totalRequested = a + n + ab;
+
+  if (totalRequested > limit) {
+    alert(`Cannot allocate ${totalRequested}. ${party} only has ${limit} votes available.`);
+    return null;
+  }
+
+  bill.divisionControl.npcVotes[party] = { aye: a, no: n, abstain: ab };
+
+  processBillDivision(data, bill);
+
+  saveData(data);
+  return { data, bill };
+}
+
+function rbSetRebels(billId, partyName, rebelCount){
+  const data = getData();
+  if (!data) return null;
+
+  normaliseData(data);
+
+  // Speaker-only
+  if (!(data.currentPlayer?.isSpeaker === true)) return null;
+
+  const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
+  if (!bill) return null;
+
+  ensureBillDefaults(bill);
+  ensureBillDivisionDefaults(bill);
+
+  const party = String(partyName || "");
+  if (!party) return null;
+  if (!isPlayableParty(party)) return null; // rebels only for playable parties
+
+  const seats = getPartySeatTotal(data, party);
+  const spParty = getSpeakerParty(data);
+  const speakerSeat = (spParty === party) ? 1 : 0;
+
+  const maxRebels = Math.max(0, seats - speakerSeat);
+
+  let r = Math.max(0, Math.floor(Number(rebelCount || 0)));
+  if (r > maxRebels) r = maxRebels;
+
+  bill.divisionControl.rebels[party] = r;
+
+  // NOTE: changing rebels changes weights; do NOT auto-change past votes.
+  // This is fine as long as Speaker sets rebels BEFORE voting starts.
+  // If needed later, we can add "rebels locked once first vote is cast".
+
+  processBillDivision(data, bill);
+
+  saveData(data);
+  return { data, bill };
+}
+
 
 
 
@@ -663,7 +1071,7 @@ function rbVoteBillDivision(billId, voterName, vote){
     }
 
     if (bill.stage === "Division") {
-      processBillDivision(bill);
+processBillDivision(data, bill);
       return bill;
     }
 
@@ -814,7 +1222,8 @@ function rbVoteBillDivision(billId, voterName, vote){
     updaterFn(bill, data);
 
     processAmendments(bill);
-    processBillDivision(bill);
+processBillDivision(data, bill);
+
 
     saveData(data);
     return { data, bill };
@@ -1043,6 +1452,35 @@ function rbVoteAmendment(billId, amendId, voterName, vote){
       </div>
     `;
   }
+// =========================
+// Parties + voting rules
+// =========================
+const PLAYABLE_PARTIES = ["Labour", "Conservative", "Liberal Democrat"];
+
+function isPlayableParty(partyName){
+  return PLAYABLE_PARTIES.includes(String(partyName || ""));
+}
+
+function isSinnFeinParty(partyName){
+  const p = String(partyName || "").toLowerCase();
+  return p.includes("sinn") && p.includes("féin") || p.includes("fein");
+}
+
+function getPartySeatTotal(data, partyName){
+  const parties = data.parliament?.parties || [];
+  const row = parties.find(p => p.name === partyName);
+  return row ? Number(row.seats || 0) : 0;
+}
+
+function getSpeakerPlayer(data){
+  const players = Array.isArray(data.players) ? data.players : [];
+  return players.find(p => p.isSpeaker === true) || null;
+}
+
+function getSpeakerParty(data){
+  const sp = getSpeakerPlayer(data);
+  return sp?.party ? String(sp.party) : null;
+}
 
   /* =========================
      Live Docket
@@ -2135,15 +2573,147 @@ function renderUserPage(data){
 
         `;
 
-        progressEl.innerHTML = `
-          <h2 style="margin:0 0 10px;">Division Progress</h2>
-          <div class="muted-block">
-            <div class="kv"><span>Aye</span><b>${div.votes?.aye || 0}</b></div>
-            <div class="kv"><span>No</span><b>${div.votes?.no || 0}</b></div>
-            <div class="kv"><span>Abstain</span><b>${div.votes?.abstain || 0}</b></div>
-            <div class="kv"><span>Turnout</span><b>${(div.voters || []).length}</b></div>
-          </div>
-        `;
+const totals = getCombinedDivisionTotals(bill);
+const aye = totals.aye;
+const no = totals.no;
+const abstain = div.votes?.abstain || 0;
+
+const votingTotal = aye + no;
+const majorityNeeded = Math.floor(votingTotal / 2) + 1;
+const majoritySecured = aye >= majorityNeeded;
+
+const totalEligible = getTotalEligibleVoteWeight(data);
+const totalCast = aye + no + abstain;
+const votesRemaining = Math.max(0, totalEligible - totalCast);
+
+const eligible = getEligibleVoteTotal(data, bill);
+const playerCast = getPlayerCastTotal(bill);
+const npcCast = getNpcCastTotal(data, bill);
+const totalCast = playerCast + npcCast;
+
+const totals = getCombinedDivisionTotals(data, bill);
+
+// Majority excludes Speaker + Sinn Féin automatically via eligible pool;
+// abstentions excluded from majority by using aye vs no
+const majorityNeeded = Math.floor((eligible - (totals.abstain || 0)) / 2) + 1; // informational only
+
+// Speaker panel: show remaining NPC pools
+const isSpeakerUser = (data.currentPlayer?.isSpeaker === true);
+
+let npcPanelHtml = "";
+if (isSpeakerUser) {
+  const parties = getAllPartiesInParliament(data).filter(p => !isPlayableParty(p) && !isSinnFeinParty(p));
+
+  npcPanelHtml = `
+    <div class="panel" style="margin-top:12px;">
+      <h3 style="margin:0 0 8px;">Speaker Controls</h3>
+
+      <div class="muted-block">
+        <b>NPC Votes:</b> You can allocate votes for all non-playable parties, up to their total seats (minus Speaker seat if relevant).
+      </div>
+
+      ${parties.length ? `
+        <div style="margin-top:12px;" class="docket-list">
+          ${parties.map(party => {
+            const limit = getNpcVoteLimit(data, bill, party);
+            const cur = getNpcAllocatedTotals(bill, party);
+            const remaining = Math.max(0, limit - cur.total);
+
+            const row = bill.divisionControl?.npcVotes?.[party] || { aye:0, no:0, abstain:0 };
+
+            return `
+              <div class="docket-item">
+                <div class="docket-left">
+                  <div class="docket-icon">🎛️</div>
+                  <div class="docket-text">
+                    <div class="docket-title">${escapeHtml(party)}</div>
+                    <div class="small">Available: <b>${limit}</b> · Allocated: <b>${cur.total}</b> · Remaining: <b>${remaining}</b></div>
+
+                    <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+                      <div>
+                        <label class="small">Aye</label>
+                        <input type="number" min="0" id="npc_${escapeHtml(party)}_aye" value="${Number(row.aye||0)}" style="width:90px;">
+                      </div>
+                      <div>
+                        <label class="small">No</label>
+                        <input type="number" min="0" id="npc_${escapeHtml(party)}_no" value="${Number(row.no||0)}" style="width:90px;">
+                      </div>
+                      <div>
+                        <label class="small">Abstain</label>
+                        <input type="number" min="0" id="npc_${escapeHtml(party)}_ab" value="${Number(row.abstain||0)}" style="width:90px;">
+                      </div>
+                      <button class="btn" type="button" data-save-npc="${escapeHtml(party)}">Save</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      ` : `<div class="muted-block" style="margin-top:12px;">No NPC parties in parliament data.</div>`}
+
+      <div class="muted-block" style="margin-top:14px;">
+        <b>Rebels:</b> Set rebels for playable parties (reduces the party seat pool before weighting).
+      </div>
+
+      <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+        ${PLAYABLE_PARTIES.map(party => {
+          const current = Number(bill.divisionControl?.rebels?.[party] || 0);
+          return `
+            <div>
+              <label class="small">${escapeHtml(party)} rebels</label>
+              <input type="number" min="0" id="rebels_${escapeHtml(party)}" value="${current}" style="width:140px;">
+              <button class="btn" type="button" data-save-rebels="${escapeHtml(party)}" style="margin-top:6px;">Save</button>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+progressEl.innerHTML = `
+  <h2 style="margin:0 0 10px;">Division Progress</h2>
+
+  <div class="muted-block">
+    <div class="kv"><span>Aye</span><b>${totals.aye || 0}</b></div>
+    <div class="kv"><span>No</span><b>${totals.no || 0}</b></div>
+    <div class="kv"><span>Abstain</span><b>${totals.abstain || 0}</b></div>
+
+    <div style="margin-top:10px;" class="kv"><span>Eligible votes</span><b>${eligible}</b></div>
+    <div class="kv"><span>Cast votes</span><b>${totalCast}</b></div>
+    <div class="kv"><span>Remaining</span><b>${Math.max(0, eligible - totalCast)}</b></div>
+
+    <div class="small" style="margin-top:10px;">
+      Majority is based on <b>Aye vs No</b>. Speaker + Sinn Féin excluded. Abstentions don’t count to majority.
+    </div>
+  </div>
+
+  ${npcPanelHtml}
+`;
+// Speaker NPC save buttons
+if (isSpeakerUser) {
+  progressEl.querySelectorAll("[data-save-npc]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const party = btn.getAttribute("data-save-npc");
+      const aye = document.getElementById(`npc_${party}_aye`)?.value;
+      const no = document.getElementById(`npc_${party}_no`)?.value;
+      const ab = document.getElementById(`npc_${party}_ab`)?.value;
+      rbSetNpcVotes(bill.id, party, aye, no, ab);
+    });
+  });
+
+  progressEl.querySelectorAll("[data-save-rebels]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const party = btn.getAttribute("data-save-rebels");
+      const val = document.getElementById(`rebels_${party}`)?.value;
+      rbSetRebels(bill.id, party, val);
+    });
+  });
+}
+
+
+
 
 if (!alreadyVoted && myWeight > 0) {
           const bind = (id, v) => {
@@ -2220,22 +2790,36 @@ if (!alreadyVoted && myWeight > 0) {
                 actions = `
                   <div class="small">Division closes in: <b>${escapeHtml(msToHMS(divisionLeft))}</b></div>
                   <div class="small">Aye: <b>${a.division.votes?.aye || 0}</b> · No: <b>${a.division.votes?.no || 0}</b> · Abstain: <b>${a.division.votes?.abstain || 0}</b></div>
-                  ${alreadyVoted
-                    ? `<div class="muted-block" style="margin-top:10px;">You have already voted.</div>`
-                    : `
-                      <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-                        <button class="btn" data-vote="aye" data-am="${escapeHtml(a.id)}" type="button">Aye</button>
-                        <button class="btn" data-vote="no" data-am="${escapeHtml(a.id)}" type="button">No</button>
-                        <button class="btn" data-vote="abstain" data-am="${escapeHtml(a.id)}" type="button">Abstain</button>
-                      </div>
-                    `}
-                `;
-              } else {
-                actions = `
-                  <div class="small"><b>Status:</b> ${escapeHtml(String(a.status || "").toUpperCase())}</div>
-                  ${a.failedReason ? `<div class="small"><b>Reason:</b> ${escapeHtml(a.failedReason)}</div>` : ``}
-                `;
-              }
+${alreadyVoted
+  ? `<div class="muted-block" style="margin-top:12px;">You have already voted in this division.</div>`
+  : (() => {
+      const myPlayer = findPlayerByName(data, voterName);
+      const myParty = myPlayer?.party || me.party;
+
+      if (myPlayer?.isSpeaker) {
+        return `<div class="muted-block" style="margin-top:12px;">The Speaker does not vote.</div>`;
+      }
+
+      if (isSinnFeinParty(myParty)) {
+        return `<div class="muted-block" style="margin-top:12px;">Sinn Féin do not take their seats — no vote is cast.</div>`;
+      }
+
+      if (!isPlayableParty(myParty)) {
+        return `<div class="muted-block" style="margin-top:12px;">
+          NPC party voting is controlled by the Speaker. Your character cannot vote.
+        </div>`;
+      }
+
+      return `
+        <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn" id="billVoteAye" type="button">Aye</button>
+          <button class="btn" id="billVoteNo" type="button">No</button>
+          <button class="btn" id="billVoteAbstain" type="button">Abstain</button>
+        </div>
+      `;
+    })()
+}
+
 
               return `
                 <div class="docket-item ${a.status === "division" ? "high" : ""}">
@@ -4133,6 +4717,234 @@ window.toggleParty = function(party) {
   if (!el) return;
   el.style.display = el.style.display === "none" ? "block" : "none";
 };
+function calculatePartyBreakdown(data, division){
+  const players = Array.isArray(data.players) ? data.players : [];
+  const result = {};
+
+  players.forEach(p => {
+    if (isSpeakerPlayer(p)) return;
+    if (isSinnFeinParty(p.party)) return;
+
+    result[p.party] = result[p.party] || { seats:0 };
+    result[p.party].seats += Number(p.voteWeight || 1);
+  });
+
+  return `
+    <div class="muted-block">
+      ${Object.entries(result).map(([party, info]) => `
+        <div class="kv">
+          <span>${escapeHtml(party)}</span>
+          <b>${info.seats}</b>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+function renderSpeakerDivisionControls(bill, data){
+
+  const progressEl = document.getElementById("division-progress");
+  if (!progressEl) return;
+
+  bill.divisionControl = bill.divisionControl || {
+    npcVotes: {},
+    rebellions: {}
+  };
+
+  const playableParties = ["Labour", "Conservative", "Liberal Democrat"];
+
+  progressEl.innerHTML += `
+    <div style="margin-top:30px; border-top:1px solid #444; padding-top:20px;">
+      <h3>Speaker Controls</h3>
+      <div class="muted-block">
+        Allocate NPC votes and rebellions manually.
+      </div>
+
+      ${renderNPCControls(bill, playableParties)}
+      ${renderRebellionControls(bill, playableParties)}
+
+      <div style="margin-top:12px;">
+        <button class="btn" onclick="rbSaveDivisionControl('${bill.id}')">
+          Save Speaker Changes
+        </button>
+      </div>
+    </div>
+  `;
+}
+function renderNPCControls(bill, parties){
+  return `
+    <h4>NPC Votes</h4>
+    ${parties.map(p => `
+      <div class="kv">
+        <span>${p}</span>
+        Aye <input type="number" min="0" data-npc="${p}-aye" style="width:60px;">
+        No <input type="number" min="0" data-npc="${p}-no" style="width:60px;">
+        Abstain <input type="number" min="0" data-npc="${p}-abstain" style="width:60px;">
+      </div>
+    `).join("")}
+  `;
+}
+function renderRebellionControls(bill, parties){
+  return `
+    <h4 style="margin-top:16px;">Rebellions</h4>
+    ${parties.map(p => `
+      <div class="kv">
+        <span>${p} rebels</span>
+        <input type="number" min="0" data-rebel="${p}" style="width:80px;">
+      </div>
+    `).join("")}
+  `;
+}
+window.rbSaveDivisionControl = function(billId){
+  const data = getData();
+  if (!data) return;
+
+  const bill = data.orderPaperCommons.find(b => b.id === billId);
+  if (!bill) return;
+
+  bill.divisionControl = bill.divisionControl || { npcVotes:{}, rebellions:{} };
+
+  document.querySelectorAll("[data-npc]").forEach(input => {
+    const [party, type] = input.getAttribute("data-npc").split("-");
+    bill.divisionControl.npcVotes[party] = bill.divisionControl.npcVotes[party] || {};
+    bill.divisionControl.npcVotes[party][type] = Number(input.value || 0);
+  });
+
+  document.querySelectorAll("[data-rebel]").forEach(input => {
+    const party = input.getAttribute("data-rebel");
+    bill.divisionControl.rebellions[party] = Number(input.value || 0);
+  });
+
+  saveData(data);
+  location.reload();
+};
+function getPartySeatTotal(data, partyName){
+  const parties = data.parliament?.parties || [];
+  const row = parties.find(p => p.name === partyName);
+  return row ? Number(row.seats || 0) : 0;
+}
+function getNpcVoteLimit(data, partyName){
+  if (isSinnFeinParty(partyName)) return 0;
+  return getPartySeatTotal(data, partyName);
+}
+// --- Legislative Bodies ---
+data.bodies = Array.isArray(data.bodies) ? data.bodies : [
+  {
+    id: "commons",
+    name: "House of Commons",
+    type: "westminster",
+    totalSeats: 650,
+    parties: [
+      { name: "Labour", seats: 418 },
+      { name: "Conservative", seats: 165 },
+      { name: "Liberal Democrat", seats: 46 },
+      { name: "SNP", seats: 6 },
+      { name: "Plaid Cymru", seats: 4 },
+      { name: "Others", seats: 11 }
+    ]
+  },
+  {
+    id: "scotland",
+    name: "Scottish Parliament",
+    type: "devolved",
+    totalSeats: 129,
+    parties: []
+  },
+  {
+    id: "wales",
+    name: "Senedd Cymru",
+    type: "devolved",
+    totalSeats: 60,
+    parties: []
+  },
+  {
+    id: "ni",
+    name: "Northern Ireland Assembly",
+    type: "devolved",
+    totalSeats: 90,
+    parties: []
+  },
+  {
+    id: "europe",
+    name: "European Parliament (UK Seats)",
+    type: "europe",
+    totalSeats: 87,
+    parties: []
+  }
+];
+function renderBodiesPage(data) {
+  const root = document.getElementById("bodies-root");
+  if (!root) return;
+
+  const bodies = data.bodies || [];
+
+  function majorityMark(total) {
+    return Math.floor(total / 2) + 1;
+  }
+
+  function bodyColour(type) {
+    if (type === "westminster") return "#1f3a5f";
+    if (type === "devolved") return "#6a1b1b";
+    if (type === "europe") return "#003399";
+    return "#333";
+  }
+
+  root.innerHTML = `
+    <div class="panel">
+      <h1 style="margin:0;">Legislative Bodies</h1>
+      <div class="muted-block">
+        Overview of all elected legislative institutions within the simulation.
+      </div>
+    </div>
+
+    <div class="order-grid" style="margin-top:16px;">
+      ${bodies.map(body => {
+
+        const maj = majorityMark(body.totalSeats);
+        const partyRows = (body.parties || []).map(p => `
+          <div class="kv">
+            <span>${escapeHtml(p.name)}</span>
+            <b>${p.seats}</b>
+          </div>
+        `).join("");
+
+        return `
+          <div class="bill-card">
+            <div style="
+              background:${bodyColour(body.type)};
+              color:white;
+              padding:10px;
+              font-weight:600;
+              margin:-16px -16px 12px -16px;
+            ">
+              ${escapeHtml(body.name)}
+            </div>
+
+            <div class="kv">
+              <span>Total Seats</span>
+              <b>${body.totalSeats}</b>
+            </div>
+
+            <div class="kv">
+              <span>Majority Mark</span>
+              <b>${maj}</b>
+            </div>
+
+            ${partyRows ? `
+              <div style="margin-top:12px;">
+                <div class="small" style="margin-bottom:6px;">Party Breakdown</div>
+                ${partyRows}
+              </div>
+            ` : `
+              <div class="muted-block" style="margin-top:12px;">
+                No seat allocation configured.
+              </div>
+            `}
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
 
   /* =========================
      BOOT
@@ -4160,6 +4972,7 @@ window.toggleParty = function(party) {
       renderNewsPage(data);
       renderUserPage(data);
       renderPapersPage(data);
+      renderBodiesPage(data);
       renderControlPanel(data);
       initSubmitBillPage(data);
       initPartyDraftPage(data);
@@ -4172,6 +4985,7 @@ window.toggleParty = function(party) {
 
       startLiveRefresh();
       renderNewsPage(latest);
+      renderBodiesPage(latest);
       renderUserPage(latest);
       renderPapersPage(latest);
       initNewsPage(latest);
