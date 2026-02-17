@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Rule Britannia — News</title>
+  <title>Rule Britannia — BBC News</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 
@@ -11,12 +11,11 @@
 
 <header class="topbar">
   <div class="topbar-inner">
-
     <div class="brand">
       <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
     </div>
 
-    <nav class="nav" aria-label="Main Navigation">
+<nav class="nav" aria-label="Main Navigation">
       <a href="dashboard.html" class="nav-link">Office</a>
 
       <div class="nav-group">
@@ -95,36 +94,48 @@
 
 <main class="wrap">
 
-  <div class="masthead masthead-bbc">RB NEWS</div>
+  <div class="bbc-masthead">
+    <div class="bbc-boxes"><span>B</span><span>B</span><span>C</span></div>
+    <div class="bbc-title">News</div>
+    <div class="bbc-sub" id="bbcSimDate">Loading…</div>
+  </div>
 
-  <!-- Breaking ticker -->
-  <section class="panel" id="news-breaking">
-    Loading breaking news…
+  <section class="panel" id="bbcBreakingPanel" style="display:none;">
+    <div class="bbc-breaking">
+      <div class="bbc-breaking-tag">BREAKING</div>
+      <div class="bbc-breaking-ticker" id="bbcBreakingTicker">Loading…</div>
+    </div>
   </section>
 
-  <!-- Controls (admin/mod will see post buttons) -->
-  <section class="panel" id="news-controls">
-    Loading controls…
+  <section class="panel">
+    <div class="spaced" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+      <div class="muted-block" style="margin:0;">
+        <b>BBC Rule Britannia News</b><br>
+        Tiles are live for <b>14 real-life days</b>, then move to the archive (still visible).
+      </div>
+      <div>
+        <button class="btn" type="button" id="bbcNewStoryBtn" style="display:none;">Post Story</button>
+      </div>
+    </div>
   </section>
 
-  <div class="two-col">
+  <div class="bill-layout">
     <section class="panel">
-      <h2>Main Stories</h2>
-      <div id="news-main" class="news-grid">Loading stories…</div>
+      <h2>Main News</h2>
+      <div id="bbcMainNews" class="muted-block">Loading…</div>
     </section>
 
     <section class="panel">
-      <h2>More News</h2>
-      <div id="news-flavour">Loading…</div>
+      <h2>Flavour</h2>
+      <div class="muted-block">Smaller stories (like lower down the BBC app).</div>
+      <div id="bbcFlavourNews" class="muted-block" style="margin-top:12px;">Loading…</div>
     </section>
   </div>
 
   <section class="panel">
     <h2>Archive</h2>
-    <div class="muted-block">
-      Stories move into the archive after <b>14 real-life days</b>. They remain visible, but are not “live”.
-    </div>
-    <div id="news-archive" style="margin-top:12px;">Loading…</div>
+    <div class="muted-block">Stories older than 14 real-life days.</div>
+    <div id="bbcArchive" class="muted-block" style="margin-top:12px;">Loading…</div>
   </section>
 
 </main>
