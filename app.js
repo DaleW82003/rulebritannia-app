@@ -2365,11 +2365,16 @@ ${articlesText}${finalArticle}
       renderHansard(data);
       renderSundayRollDisplay();
       renderAbsenceUI(data);
+      renderNewsPage(data);
+      renderUserPage(data);
       initSubmitBillPage(data);
       initPartyDraftPage(data);
       initBillPage(data);
 
       startLiveRefresh();
+      renderNewsPage(latest);
+      renderUserPage(latest);
+
     })
     .catch(err => console.error("Error loading demo.json:", err));
 })();
