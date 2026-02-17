@@ -158,6 +158,29 @@ function normaliseData(data) {
   return data;
 }
 
+function getSystemRole(data){
+  return String(data?.currentUser?.systemRole || "player");
+}
+
+function getCharacter(data){
+  return data?.currentUser?.character || {
+    name: "Unknown MP",
+    party: "Unknown",
+    parliamentaryRole: "backbencher",
+    office: null,
+    isSpeaker: false
+  };
+}
+
+function canModerate(data){
+  const r = getSystemRole(data);
+  return (r === "admin" || r === "moderator");
+}
+
+function canSpeak(data){
+  const r = getSystemRole(data);
+  return (r === "admin" || r === "speaker");
+}
 
   /* =========================
      Time helpers (skip Sundays)
