@@ -615,3 +615,88 @@ textarea{ resize:vertical; }
   line-height:1.45;
 }
 .qt-actions{ margin-top:auto; padding-top:10px; }
+/* ================== PRESS MASTHEADS ================== */
+
+.masthead {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+  font-size:26px;
+  font-weight:900;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  border-radius:12px;
+  margin-bottom:14px;
+}
+
+.masthead.small {
+  font-size:18px;
+  padding:10px;
+  border-radius:10px;
+}
+
+/* Sun */
+.masthead-sun {
+  background:#C8102E;
+  color:white;
+  font-family:Arial, sans-serif;
+}
+
+/* Telegraph */
+.masthead-telegraph {
+  background:#012169;
+  color:white;
+  font-family:Georgia, serif;
+}
+
+/* Mail */
+.masthead-mail {
+  background:#1a1f2b;
+  color:white;
+  font-family:Georgia, serif;
+}
+
+/* Mirror */
+.masthead-mirror {
+  background:#C8102E;
+  color:white;
+  font-family:Arial, sans-serif;
+}
+
+/* Times */
+.masthead-times {
+  background:#000;
+  color:white;
+  font-family:Georgia, serif;
+}
+
+/* FT */
+.masthead-ft {
+  background:#f4e1d2;
+  color:#6a1a1a;
+  font-family:Georgia, serif;
+}
+
+/* Guardian */
+.masthead-guardian {
+  background:#004d40;
+  color:white;
+  font-family:Arial, sans-serif;
+}
+
+/* Independent */
+.masthead-independent {
+  background:#ffffff;
+  color:#000;
+  font-family:Georgia, serif;
+  border:2px solid #000;
+}
+
+/* BBC */
+.masthead-bbc {
+  background:#B80000;
+  color:white;
+  font-family:Arial, sans-serif;
+  letter-spacing:.15em;
+}
