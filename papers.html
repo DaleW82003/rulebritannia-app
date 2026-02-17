@@ -11,6 +11,7 @@
 
 <header class="topbar">
   <div class="topbar-inner">
+
     <div class="brand">
       <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
     </div>
@@ -79,28 +80,38 @@
           <a href="guides.html">Guides</a>
         </div>
       </div>
+
+      <div class="nav-group">
+        <button class="nav-toggle" type="button">External ▾</button>
+        <div class="dropdown">
+          <a href="https://forum.rulebritannia.org" target="_blank" rel="noopener">Discourse Forum</a>
+          <a href="https://discord.com" target="_blank" rel="noopener">Discord</a>
+        </div>
+      </div>
     </nav>
+
   </div>
 </header>
 
 <main class="wrap">
 
-  <h1 class="page-title">British Newspapers</h1>
+  <h1 class="page-title">Papers</h1>
 
-  <!-- Newspaper grid -->
-  <section class="panel">
-    <div id="papers-grid" class="muted-block">Loading…</div>
+  <section class="panel" id="papers-controls">
+    Loading controls…
   </section>
 
-  <!-- Paper reader -->
-  <section class="panel" id="paper-reader" style="display:none;">
-    <div id="paper-reader-content"></div>
+  <section class="panel">
+    <h2>Today’s Front Pages</h2>
+    <div id="papers-tiles" class="papers-grid">Loading…</div>
   </section>
 
-  <!-- Moderator publishing panel -->
   <section class="panel">
-    <h2>Press Desk</h2>
-    <div id="papers-desk" class="muted-block">Loading…</div>
+    <h2>Read</h2>
+    <div class="muted-block">
+      Click <b>Read this paper</b> on any tile to see the current front page and all previous issues.
+    </div>
+    <div id="paper-reader" style="margin-top:12px;">Select a paper to read.</div>
   </section>
 
 </main>
