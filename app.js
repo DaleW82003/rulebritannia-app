@@ -1152,41 +1152,108 @@
      QUESTION TIME PAGE (FIXED: Open works again)
      Uses your demo.json: questionTime.cabinet[]
      ========================================================= */
-  function initQuestionTimePage(data){
-    const root =
-      document.getElementById("question-time-root") ||
-      document.getElementById("qt-root");
+function initQuestionTimePage(data){
+  const root =
+    document.getElementById("question-time-root") ||
+    document.getElementById("qt-root");
 
-    if (!root) return;
+  if (!root) return;
 
-    const qt = data.questionTime || {};
-    const offices = Array.isArray(qt.cabinet) ? qt.cabinet : [];
+  const params = new URLSearchParams(location.search);
+  const officeSlug = params.get("office");
 
-    if (!offices.length){
-      root.innerHTML = `<div class="muted-block">No Question Time offices configured yet.</div>`;
+  const qt = data.questionTime || {};
+  const offices = Array.isArray(qt.cabinet) ? qt.cabinet : [];
+  const questions = Array.isArray(qt.questions) ? qt.questions : [];
+
+  // --------------------------------------------------
+  // OFFICE VIEW
+  // --------------------------------------------------
+  if (officeSlug){
+    const office = offices.find(o => o.slug === officeSlug);
+
+    if (!office){
+      root.innerHTML = `<div class="muted-block">Office not found.</div>`;
       return;
     }
 
+    const officeQuestions = questions.filter(q => q.office === officeSlug);
+
     root.innerHTML = `
       <div class="muted-block" style="margin-bottom:14px;">
-        <b>Question Time</b><br>
-        Click an office to view questions and answers.
+        <b>${office.title}</b><br>
+        ${office.short}
       </div>
 
-      <div class="qt-grid">
-        ${offices.map(o => `
-          <div class="qt-tile card-flex">
-            <div class="qt-office">${escapeHtml(o.short || "Office")}</div>
-            <div class="small" style="margin-top:8px;">${escapeHtml(o.title || "")}</div>
+      <div style="margin-bottom:14px;">
+        <a class="btn" href="questiontime.html">Back to Offices</a>
+      </div>
 
-            <div class="tile-bottom">
-              <a class="btn" href="qt-office.html?office=${encodeURIComponent(o.slug)}">Open</a>
+      ${
+        !officeQuestions.length
+          ? `<div class="muted-block">No questions submitted for this office yet.</div>`
+          : `
+            <div class="docket-list">
+              ${officeQuestions.map(q => `
+                <div class="docket-item">
+                  <div class="docket-left">
+                    <div class="docket-text">
+                      <div class="docket-title">${escapeHtml(q.askedBy)}</div>
+                      <div class="docket-detail">${escapeHtml(q.text)}</div>
+
+                      <div class="small" style="margin-top:6px;">
+                        Status: <b>${escapeHtml(q.status)}</b>
+                      </div>
+
+                      ${
+                        q.status === "answered"
+                          ? `<div class="muted-block" style="margin-top:8px;">
+                               <b>Answer:</b><br>${escapeHtml(q.answer)}
+                             </div>`
+                          : ``
+                      }
+                    </div>
+                  </div>
+                </div>
+              `).join("")}
             </div>
-          </div>
-        `).join("")}
-      </div>
+          `
+      }
     `;
+
+    return;
   }
+
+  // --------------------------------------------------
+  // TILE VIEW
+  // --------------------------------------------------
+
+  if (!offices.length){
+    root.innerHTML = `<div class="muted-block">No Question Time offices configured yet.</div>`;
+    return;
+  }
+
+  root.innerHTML = `
+    <div class="muted-block" style="margin-bottom:14px;">
+      <b>Question Time</b><br>
+      Click an office to view questions and answers.
+    </div>
+
+    <div class="qt-grid">
+      ${offices.map(o => `
+        <div class="qt-tile card-flex">
+          <div class="qt-office">${escapeHtml(o.short || "Office")}</div>
+          <div class="small" style="margin-top:8px;">${escapeHtml(o.title || "")}</div>
+
+          <div class="tile-bottom">
+            <a class="btn" href="questiontime.html?office=${encodeURIComponent(o.slug)}">Open</a>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 
   /* =========================================================
      ECONOMY PAGE (FIXED to match your demo.json)
