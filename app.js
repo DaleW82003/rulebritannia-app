@@ -393,6 +393,111 @@ function canSpeak(data){
 
     return Math.floor(validDays / 3);
   }
+/* =========================
+   VOTE WEIGHT + EXCLUSIONS
+   - Speaker never votes
+   - Sinn Féin never votes
+   - Supports your weighting system:
+     * player.voteWeight (if you set it)
+     * absence delegation: absent votes transfer to delegatedTo
+     * if absent + not leader and no delegatedTo set, defaults to party leader
+   ========================= */
+
+function normParty(p) {
+  return String(p || "").trim().toLowerCase();
+}
+
+function isSinnFeinParty(party) {
+  return normParty(party) === "sinn féin" || normParty(party) === "sinn fein";
+}
+
+function isSpeakerPlayer(player) {
+  if (!player) return false;
+  if (player.isSpeaker === true) return true;
+  return String(player.role || "").toLowerCase() === "speaker";
+}
+
+// Find party leader name for a party (if present)
+function getPartyLeaderName(data, party) {
+  const players = Array.isArray(data.players) ? data.players : [];
+  const leader = players.find(p => normParty(p.party) === normParty(party) && p.partyLeader === true);
+  return leader ? leader.name : null;
+}
+
+/**
+ * Returns the weight a *named voter* should cast RIGHT NOW,
+ * including delegated weights from absent players.
+ *
+ * Rules:
+ * - Speaker => 0
+ * - Sinn Féin => 0
+ * - If player has voteWeight (number), we use it; otherwise default 1
+ * - If player is absent, they do NOT vote directly; their weight transfers:
+ *    - to player.delegatedTo if set
+ *    - else, if they are not leader: to party leader (if exists)
+ */
+function getEffectiveVoteWeight(data, voterName) {
+  const players = Array.isArray(data.players) ? data.players : [];
+  const voter = players.find(p => String(p.name) === String(voterName));
+  if (!voter) return 0;
+
+  // hard exclusions
+  if (isSpeakerPlayer(voter)) return 0;
+  if (isSinnFeinParty(voter.party)) return 0;
+
+  // base weight for each player (default 1)
+  const baseWeight = (p) => {
+    const w = Number(p.voteWeight);
+    return Number.isFinite(w) && w > 0 ? w : 1;
+  };
+
+  // If voter themselves are absent, they cast nothing directly
+  if (voter.absent === true) return 0;
+
+  // Start with voter's own base weight
+  let total = baseWeight(voter);
+
+  // Add any weights delegated TO this voterName
+  for (const p of players) {
+    if (!p || p.absent !== true) continue;
+
+    // excluded people don't contribute votes at all
+    if (isSpeakerPlayer(p)) continue;
+    if (isSinnFeinParty(p.party)) continue;
+
+    // who receives their vote?
+    let delegate = p.delegatedTo || null;
+
+    // if no delegate set and they are not leader, default to party leader
+    if (!delegate && p.party && p.partyLeader !== true) {
+      delegate = getPartyLeaderName(data, p.party);
+    }
+
+    if (String(delegate) === String(voterName)) {
+      total += baseWeight(p);
+    }
+  }
+
+  return total;
+}
+
+/**
+ * For Parliament summary / majorities:
+ * count "voting seats" excluding:
+ * - Sinn Féin constituencies
+ * - Speaker seat (we treat any constituency with party === "Speaker" as speaker-held)
+ *
+ * If you later model Speaker differently, we can adjust this in one place.
+ */
+function getVotingSeatCount(data) {
+  const seats = Array.isArray(data.constituencies) ? data.constituencies : [];
+  return seats.filter(c => {
+    const p = normParty(c.party);
+    if (p === "speaker") return false;
+    if (p === "sinn féin" || p === "sinn fein") return false;
+    return true;
+  }).length;
+}
 
   /* =========================
      MAIN BILL DIVISION ENGINE
@@ -474,36 +579,46 @@ function canSpeak(data){
     }
   }
 
-  function rbVoteBillDivision(billId, voterName, vote){
-    const data = getData();
-    if (!data) return null;
+function rbVoteBillDivision(billId, voterName, vote){
+  const data = getData();
+  if (!data) return null;
 
-    normaliseData(data);
-    const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
-    if (!bill) return null;
+  normaliseData(data);
 
-    ensureBillDefaults(bill);
-    if (bill.stage !== "Division" || isCompleted(bill)) return null;
+  const bill = (data.orderPaperCommons || []).find(b => b.id === billId);
+  if (!bill) return null;
 
-    const div = ensureBillDivisionDefaults(bill);
-    if (div.closed) return null;
+  ensureBillDefaults(bill);
+  if (bill.stage !== "Division" || isCompleted(bill)) return null;
 
-    const name = String(voterName || "").trim();
-    if (!name) return null;
+  const div = ensureBillDivisionDefaults(bill);
+  if (div.closed) return null;
 
-    if (div.voters.includes(name)) return null;
+  const name = String(voterName || "").trim();
+  if (!name) return null;
 
-    if (vote === "aye") div.votes.aye++;
-    else if (vote === "no") div.votes.no++;
-    else div.votes.abstain++;
+  // one vote per named voter
+  if (div.voters.includes(name)) return null;
 
-    div.voters.push(name);
+  // weight (includes delegation + your voteWeight rules)
+  const weight = getEffectiveVoteWeight(data, name);
 
-    processBillDivision(bill);
+  // Speaker / Sinn Féin / absent voters will have weight 0
+  if (!weight || weight <= 0) return null;
 
-    saveData(data);
-    return { data, bill };
-  }
+  if (vote === "aye") div.votes.aye += weight;
+  else if (vote === "no") div.votes.no += weight;
+  else div.votes.abstain += weight;
+
+  div.voters.push(name);
+
+  processBillDivision(bill);
+
+  saveData(data);
+  return { data, bill };
+}
+
+
 
   /* =========================
      BILL LIFECYCLE
@@ -747,25 +862,30 @@ function canSpeak(data){
     });
   }
 
-  function rbVoteAmendment(billId, amendId, voterName, vote){
-    return rbUpdateBill(billId, (bill) => {
-      const amend = (bill.amendments || []).find(a => a.id === amendId);
-      if (!amend || amend.status !== "division" || !amend.division || amend.division.closed) return;
+function rbVoteAmendment(billId, amendId, voterName, vote){
+  return rbUpdateBill(billId, (bill, data) => {
+    const amend = (bill.amendments || []).find(a => a.id === amendId);
+    if (!amend || amend.status !== "division" || !amend.division || amend.division.closed) return;
 
-      const name = String(voterName || "").trim();
-      if (!name) return;
+    const name = String(voterName || "").trim();
+    if (!name) return;
 
-      amend.division.voters = Array.isArray(amend.division.voters) ? amend.division.voters : [];
-      if (amend.division.voters.includes(name)) return;
+    amend.division.voters = Array.isArray(amend.division.voters) ? amend.division.voters : [];
+    if (amend.division.voters.includes(name)) return;
 
-      amend.division.votes = amend.division.votes || { aye:0, no:0, abstain:0 };
-      if (vote === "aye") amend.division.votes.aye++;
-      else if (vote === "no") amend.division.votes.no++;
-      else amend.division.votes.abstain++;
+    const weight = getEffectiveVoteWeight(data, name);
+    if (!weight || weight <= 0) return;
 
-      amend.division.voters.push(name);
-    });
-  }
+    amend.division.votes = amend.division.votes || { aye:0, no:0, abstain:0 };
+
+    if (vote === "aye") amend.division.votes.aye += weight;
+    else if (vote === "no") amend.division.votes.no += weight;
+    else amend.division.votes.abstain += weight;
+
+    amend.division.voters.push(name);
+  });
+}
+
 
   /* =========================
      Amendment modal (Bill page)
@@ -1980,6 +2100,8 @@ function renderUserPage(data){
 
         const me = data.currentPlayer || {};
         const voterName = String(me.name || "Unknown MP");
+         const myWeight = getEffectiveVoteWeight(data, voterName);
+
 
         ensureBillDivisionDefaults(bill);
         const div = bill.division;
@@ -1992,16 +2114,25 @@ function renderUserPage(data){
             Vote closes in <b>${escapeHtml(msToHMS(msLeft))}</b>${isSunday() ? " (Sunday freeze)" : ""}.
           </div>
 
-          ${alreadyVoted
-            ? `<div class="muted-block" style="margin-top:12px;">You have already voted in this division.</div>`
-            : `
-              <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
-                <button class="btn" id="billVoteAye" type="button">Aye</button>
-                <button class="btn" id="billVoteNo" type="button">No</button>
-                <button class="btn" id="billVoteAbstain" type="button">Abstain</button>
-              </div>
-            `
-          }
+   ${
+  myWeight <= 0
+    ? `<div class="muted-block" style="margin-top:12px;">
+         You cannot vote in this division (Speaker, Sinn Féin, or you are marked Absent).
+       </div>`
+    : alreadyVoted
+      ? `<div class="muted-block" style="margin-top:12px;">You have already voted in this division.</div>`
+      : `
+        <div class="muted-block" style="margin-top:12px;">
+          Your vote weight: <b>${myWeight}</b>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn" id="billVoteAye" type="button">Aye</button>
+          <button class="btn" id="billVoteNo" type="button">No</button>
+          <button class="btn" id="billVoteAbstain" type="button">Abstain</button>
+        </div>
+      `
+}
+
         `;
 
         progressEl.innerHTML = `
@@ -2014,7 +2145,7 @@ function renderUserPage(data){
           </div>
         `;
 
-        if (!alreadyVoted) {
+if (!alreadyVoted && myWeight > 0) {
           const bind = (id, v) => {
             const btn = document.getElementById(id);
             if (!btn) return;
@@ -2692,6 +2823,60 @@ ${articlesText}${finalArticle}
       ${leaderWarning}
     `;
   }
+function renderParliamentSummary(data) {
+  const el = document.getElementById("parliament-summary");
+  if (!el) return;
+
+  const seats = data.constituencies || [];
+  const totals = {};
+
+  seats.forEach(c => {
+    totals[c.party] = (totals[c.party] || 0) + 1;
+  });
+
+  const totalSeats = seats.length;
+  const majorityThreshold = Math.floor(totalSeats / 2) + 1;
+
+  // Determine largest party
+  let largestParty = null;
+  let largestSeats = 0;
+
+  Object.entries(totals).forEach(([party, count]) => {
+    if (count > largestSeats) {
+      largestSeats = count;
+      largestParty = party;
+    }
+  });
+
+  const hasMajority = largestSeats >= majorityThreshold;
+  const workingMajority = largestSeats - (majorityThreshold - 1);
+
+  el.innerHTML = `
+    <div class="wgo-grid">
+      ${Object.entries(totals).map(([party, count]) => `
+        <div class="wgo-tile">
+          <div class="wgo-title">${party}</div>
+          <div class="wgo-strap">${count} seats</div>
+        </div>
+      `).join("")}
+    </div>
+
+    <div style="margin-top:18px; padding:12px; border-radius:12px;
+                background:${hasMajority ? "rgba(46,139,87,.15)" : "rgba(200,16,46,.15)"};
+                border:1px solid ${hasMajority ? "rgba(46,139,87,.35)" : "rgba(200,16,46,.35)"};">
+      <div><b>Total Seats:</b> ${totalSeats}</div>
+      <div><b>Majority Threshold:</b> ${majorityThreshold}</div>
+      <div><b>Largest Party:</b> ${largestParty} (${largestSeats})</div>
+      <div style="margin-top:6px;">
+        ${
+          hasMajority
+            ? `<b>Government Majority:</b> ${workingMajority}`
+            : `<b>Hung Parliament</b>`
+        }
+      </div>
+    </div>
+  `;
+}
 
   /* =========================
      Live refresh
