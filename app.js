@@ -1726,6 +1726,9 @@ function initPapersPage(data){
 
       // bill page
       initBillPage(data);
+      initSubmitBillPage(data);
+      initPartyDraftPage(data);
+      initPapersPage(data);
 
       startLiveRefresh();
     })
