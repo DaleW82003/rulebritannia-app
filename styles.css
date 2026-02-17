@@ -1,199 +1,463 @@
-/* =========================================
-   BBC-style masthead + breaking ticker
-   ========================================= */
-.bbc-masthead{
-  display:flex;
-  align-items:baseline;
-  gap:12px;
-  margin: 6px 0 14px;
-  flex-wrap:wrap;
-}
-.bbc-boxes{
-  display:flex; gap:4px; align-items:center;
-}
-.bbc-boxes span{
-  display:inline-flex;
-  width:28px; height:28px;
-  align-items:center; justify-content:center;
-  font-weight:800;
-  background:#111;
-  color:#fff;
-  border-radius:2px;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-}
-.bbc-title{
-  font-size:28px;
-  font-weight:800;
-  letter-spacing:-0.02em;
-}
-.bbc-sub{
-  color: rgba(255,255,255,.7);
-  font-size:14px;
+/* =========================================================
+   Rule Britannia — Master Stylesheet
+   Clean Baseline — Scalable for Admin / Mod / Speaker
+   BBC-inspired neutral political UI
+   ========================================================= */
+
+/* =========================
+   Reset & Base
+   ========================= */
+
+* {
+  box-sizing: border-box;
 }
 
-.bbc-breaking{
-  display:flex;
-  gap:12px;
-  align-items:center;
-}
-.bbc-breaking-tag{
-  background:#c00;
-  color:#fff;
-  font-weight:800;
-  padding:6px 10px;
-  border-radius:3px;
-}
-.bbc-breaking-ticker{
-  overflow:hidden;
-  white-space:nowrap;
-  width:100%;
-}
-.bbc-breaking-ticker .ticker-line{
-  display:inline-block;
-  padding-left:100%;
-  animation: rbTicker 20s linear infinite;
-}
-@keyframes rbTicker {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-100%); }
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  background: #f3f5f7;
+  color: #1a1a1a;
+  line-height: 1.45;
 }
 
-/* =========================================
-   News tiles
-   ========================================= */
-.news-grid{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap:12px;
+/* =========================
+   Layout
+   ========================= */
+
+.wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
 }
-@media (min-width: 980px){
-  .news-grid{
-    grid-template-columns: 1fr 1fr;
+
+.page-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 20px 0;
+}
+
+/* =========================
+   Top Bar / Navigation
+   ========================= */
+
+.topbar {
+  background: #0b1c2d;
+  color: #fff;
+  padding: 10px 0;
+  border-bottom: 4px solid #c8102e;
+}
+
+.topbar-inner {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo {
+  height: 42px;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.nav a,
+.nav-toggle {
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.nav a.active,
+.nav-toggle.active {
+  font-weight: 600;
+  border-bottom: 2px solid #ffffff;
+}
+
+.nav-group {
+  position: relative;
+}
+
+.dropdown {
+  display: none;
+  position: absolute;
+  top: 28px;
+  left: 0;
+  background: #ffffff;
+  color: #000;
+  min-width: 180px;
+  border-radius: 6px;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.15);
+  padding: 8px 0;
+  z-index: 999;
+}
+
+.dropdown a {
+  display: block;
+  padding: 8px 12px;
+  color: #111;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.dropdown a:hover {
+  background: #f0f0f0;
+}
+
+.nav-group.open .dropdown {
+  display: block;
+}
+
+/* =========================
+   Panels
+   ========================= */
+
+.panel {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 22px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+}
+
+.panel h2 {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+}
+
+/* =========================
+   Buttons
+   ========================= */
+
+.btn {
+  background: #0b1c2d;
+  color: #ffffff;
+  border: none;
+  padding: 8px 14px;
+  font-size: 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btn:hover {
+  background: #163a5c;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* =========================
+   Muted Blocks
+   ========================= */
+
+.muted-block {
+  background: #f4f6f8;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.small {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+/* =========================
+   Key/Value Rows
+   ========================= */
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+/* =========================
+   Bill Cards & Order Paper
+   ========================= */
+
+.order-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 18px;
+}
+
+.bill-card {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 16px;
+  border-left: 6px solid #0b1c2d;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+.bill-card.passed {
+  border-left-color: #2e7d32;
+}
+
+.bill-card.failed {
+  border-left-color: #b71c1c;
+}
+
+.bill-title {
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+
+.bill-sub {
+  font-size: 13px;
+  opacity: 0.85;
+  margin-bottom: 10px;
+}
+
+.bill-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.spaced {
+  justify-content: space-between;
+}
+
+/* =========================
+   Stage Track
+   ========================= */
+
+.stage-track {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.stage {
+  background: #e3e7eb;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.stage.on {
+  background: #0b1c2d;
+  color: #fff;
+}
+
+/* =========================
+   Results & Status
+   ========================= */
+
+.bill-result {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.bill-result.passed {
+  background: #e8f5e9;
+  color: #1b5e20;
+}
+
+.bill-result.failed {
+  background: #ffebee;
+  color: #b71c1c;
+}
+
+.bill-current {
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+/* =========================
+   Timer
+   ========================= */
+
+.timer {
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+/* =========================
+   Live Docket
+   ========================= */
+
+.docket-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.docket-item {
+  background: #ffffff;
+  padding: 12px;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+
+.docket-item.high {
+  border-left: 4px solid #c8102e;
+}
+
+.docket-left {
+  display: flex;
+  gap: 10px;
+}
+
+.docket-icon {
+  font-size: 18px;
+}
+
+.docket-title {
+  font-weight: 600;
+}
+
+.docket-detail {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+/* =========================
+   Forms
+   ========================= */
+
+.form-grid {
+  display: grid;
+  gap: 10px;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #d3d9df;
+  font-size: 14px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+/* =========================
+   Legislation Text
+   ========================= */
+
+.legislation-text {
+  white-space: pre-wrap;
+  font-family: "Courier New", monospace;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* =========================
+   News Tiles
+   ========================= */
+
+.news-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 18px;
+}
+
+.news-tile {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+.news-tile.breaking {
+  border-left: 6px solid #c8102e;
+}
+
+.news-headline {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.news-meta {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-bottom: 8px;
+}
+
+.news-image {
+  width: 100%;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.news-body {
+  font-size: 14px;
+}
+
+/* =========================
+   Papers Tiles
+   ========================= */
+
+.paper-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+.paper-tile {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+.paper-masthead {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.paper-headline {
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+/* =========================
+   Responsive
+   ========================= */
+
+@media (max-width: 768px) {
+
+  .nav {
+    display: none;
   }
-}
 
-.news-tile{
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:10px;
-  overflow:hidden;
-  background: rgba(255,255,255,.02);
-}
-.news-photo{
-  width:100%;
-  height:190px;
-  object-fit:cover;
-  display:block;
-  background: rgba(255,255,255,.06);
-}
-.news-body{
-  padding:12px;
-}
-.news-kicker{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  flex-wrap:wrap;
-  color: rgba(255,255,255,.75);
-  font-size:12px;
-  margin-bottom:6px;
-}
-.news-category{
-  display:inline-flex;
-  padding:3px 8px;
-  border-radius:999px;
-  border:1px solid rgba(255,255,255,.18);
-}
-.news-breaking-pill{
-  display:inline-flex;
-  padding:3px 8px;
-  border-radius:999px;
-  background:#c00;
-  color:#fff;
-  font-weight:800;
-}
-.news-headline{
-  font-size:18px;
-  font-weight:800;
-  margin: 0 0 8px;
-}
-.news-text{
-  white-space:pre-wrap;
-  color: rgba(255,255,255,.85);
-  line-height:1.45;
-}
-.news-meta{
-  margin-top:10px;
-  color: rgba(255,255,255,.65);
-  font-size:12px;
-}
-/* =========================================
-   Paper masthead tiles
-   ========================================= */
-.papers-grid{
-  display:grid;
-  grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
-  gap:14px;
-}
+  .wrap {
+    padding: 16px;
+  }
 
-.paper-tile{
-  border-radius:10px;
-  padding:18px;
-  text-align:center;
-  color:#fff;
-  font-weight:800;
-  cursor:pointer;
-  transition:transform .15s ease;
-}
-.paper-tile:hover{
-  transform:translateY(-4px);
-}
+  .order-grid,
+  .news-grid,
+  .paper-grid {
+    grid-template-columns: 1fr;
+  }
 
-.paper-sun{ background:#d80000; }
-.paper-telegraph{ background:#001a33; }
-.paper-mail{ background:#002a5e; }
-.paper-mirror{ background:#b30000; }
-.paper-times{ background:#111; }
-.paper-ft{ background:#f5e6c8; color:#111; }
-.paper-guardian{ background:#052962; }
-.paper-independent{ background:#333; }
-
-.paper-title{
-  font-size:22px;
-  letter-spacing:-0.02em;
 }
-
-.paper-read-btn{
-  margin-top:12px;
-}
-
-/* Reader */
-.paper-front{
-  border-top:4px solid #fff;
-  padding-top:12px;
-}
-
-.paper-headline{
-  font-size:22px;
-  font-weight:800;
-  margin-bottom:8px;
-}
-
-.paper-byline{
-  font-size:13px;
-  color:rgba(255,255,255,.7);
-  margin-bottom:8px;
-}
-
-.paper-photo{
-  width:100%;
-  max-height:240px;
-  object-fit:cover;
-  margin-bottom:12px;
-}
-
-.paper-archive{
-  margin-top:20px;
-  border-top:1px solid rgba(255,255,255,.15);
-  padding-top:12px;
-}
-
