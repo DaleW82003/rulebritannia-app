@@ -88,33 +88,35 @@
         </div>
       </div>
     </nav>
+
   </div>
 </header>
 
 <main class="wrap">
-
   <h1 class="page-title">Economy</h1>
 
   <section class="panel">
     <div class="muted-block">
-      <b>Top line (always)</b>: Inflation · Unemployment · GDP Growth.
-      Click a tile to view full detail. Mods/Admins can edit everything via <code>demo.json</code> later.
+      <b>Key lines</b> always show at the top. Everything else is in tiles — click a tile to open the detail.
+      Mods/Admins can edit the values in <b>data/demo.json</b>.
     </div>
 
-    <div id="econ-topline" style="margin-top:12px;">Loading…</div>
+    <div id="economyKeyLines" style="margin-top:12px;">Loading…</div>
   </section>
 
   <section class="panel" style="margin-top:14px;">
     <h2>UK Information (Econ & Demo)</h2>
-    <div id="econ-tiles" class="muted-block">Loading…</div>
+    <div id="economyTiles" class="muted-block">Loading…</div>
   </section>
 
   <section class="panel" style="margin-top:14px;">
     <h2>Surveys & Reports</h2>
-    <div class="muted-block">These are “briefing pack” style tables. Click to view.</div>
-    <div id="econ-surveys" class="muted-block" style="margin-top:12px;">Loading…</div>
+    <div id="economyReportsTiles" class="muted-block">Loading…</div>
   </section>
 
+  <section class="panel" id="economyDetailPanel" style="display:none; margin-top:14px;">
+    <div id="economyDetail"></div>
+  </section>
 </main>
 
 <script src="app.js"></script>
