@@ -126,3 +126,74 @@
   color: rgba(255,255,255,.65);
   font-size:12px;
 }
+/* =========================================
+   Paper masthead tiles
+   ========================================= */
+.papers-grid{
+  display:grid;
+  grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+  gap:14px;
+}
+
+.paper-tile{
+  border-radius:10px;
+  padding:18px;
+  text-align:center;
+  color:#fff;
+  font-weight:800;
+  cursor:pointer;
+  transition:transform .15s ease;
+}
+.paper-tile:hover{
+  transform:translateY(-4px);
+}
+
+.paper-sun{ background:#d80000; }
+.paper-telegraph{ background:#001a33; }
+.paper-mail{ background:#002a5e; }
+.paper-mirror{ background:#b30000; }
+.paper-times{ background:#111; }
+.paper-ft{ background:#f5e6c8; color:#111; }
+.paper-guardian{ background:#052962; }
+.paper-independent{ background:#333; }
+
+.paper-title{
+  font-size:22px;
+  letter-spacing:-0.02em;
+}
+
+.paper-read-btn{
+  margin-top:12px;
+}
+
+/* Reader */
+.paper-front{
+  border-top:4px solid #fff;
+  padding-top:12px;
+}
+
+.paper-headline{
+  font-size:22px;
+  font-weight:800;
+  margin-bottom:8px;
+}
+
+.paper-byline{
+  font-size:13px;
+  color:rgba(255,255,255,.7);
+  margin-bottom:8px;
+}
+
+.paper-photo{
+  width:100%;
+  max-height:240px;
+  object-fit:cover;
+  margin-bottom:12px;
+}
+
+.paper-archive{
+  margin-top:20px;
+  border-top:1px solid rgba(255,255,255,.15);
+  padding-top:12px;
+}
+
