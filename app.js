@@ -1366,6 +1366,258 @@
       : `<div class="muted-block">No control access on this account.</div>`;
   }
 
+  function initConstituenciesPage(data) {
+    const summaryEl = document.getElementById("parliament-summary");
+    const partyEl = document.getElementById("party-constituencies");
+    if (!summaryEl && !partyEl) return;
+
+    const parliament = data.parliament || {};
+    const parties = Array.isArray(parliament.parties) ? parliament.parties : [];
+    const totalSeats = Number(parliament.totalSeats || 650);
+    const listedSeats = parties.reduce((n, p) => n + Number(p.seats || 0), 0);
+    const constituencyCount = Array.isArray(data.constituencies) ? data.constituencies.length : 0;
+
+    if (summaryEl) {
+      summaryEl.innerHTML = `
+        <div class="muted-block">
+          <div class="kv"><span>Total House seats</span><b>${escapeHtml(fmtNumber(totalSeats))}</b></div>
+          <div class="kv"><span>Seats currently listed by party</span><b>${escapeHtml(fmtNumber(listedSeats))}</b></div>
+          <div class="kv"><span>Constituencies in data</span><b>${escapeHtml(fmtNumber(constituencyCount))}</b></div>
+        </div>
+      `;
+    }
+
+    if (partyEl) {
+      if (!parties.length) {
+        partyEl.innerHTML = `<div class="muted-block">No party data available yet.</div>`;
+        return;
+      }
+      partyEl.innerHTML = `
+        <div class="body-grid">
+          ${parties.map((p) => {
+            const seats = Number(p.seats || 0);
+            const pct = totalSeats > 0 ? (seats / totalSeats) * 100 : 0;
+            return `
+              <article class="body-tile">
+                <div class="wgo-title">${escapeHtml(safe(p.name, "Party"))}</div>
+                <div class="row"><span class="muted">Seats</span><b>${escapeHtml(fmtNumber(seats))}</b></div>
+                <div class="row"><span class="muted">Share</span><b>${escapeHtml(fmtPct(pct))}</b></div>
+              </article>
+            `;
+          }).join("")}
+        </div>
+      `;
+    }
+  }
+
+  function initNewsPage(data) {
+    const simEl = document.getElementById("bbcSimDate");
+    const mainEl = document.getElementById("bbcMainNews");
+    const flavourEl = document.getElementById("bbcFlavourNews");
+    const archiveEl = document.getElementById("bbcArchive");
+    const breakingPanel = document.getElementById("bbcBreakingPanel");
+    const breakingTicker = document.getElementById("bbcBreakingTicker");
+    if (!simEl && !mainEl && !flavourEl && !archiveEl) return;
+
+    const sim = getCurrentSimDate(data);
+    if (simEl) simEl.textContent = `${getMonthName(sim.month)} ${sim.year}`;
+
+    const now = nowTs();
+    const fourteenDays = 14 * 24 * 60 * 60 * 1000;
+    const stories = [...(data.news?.stories || [])].sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+    const fresh = stories.filter(s => now - Number(s.createdAt || 0) <= fourteenDays);
+    const archive = stories.filter(s => now - Number(s.createdAt || 0) > fourteenDays);
+    const main = fresh.filter(s => !s.flavour);
+    const flavour = fresh.filter(s => !!s.flavour);
+    const breaking = fresh.find(s => s.isBreaking);
+
+    if (breakingPanel && breakingTicker) {
+      if (breaking) {
+        breakingPanel.style.display = "block";
+        breakingTicker.textContent = safe(breaking.headline, "Breaking update");
+      } else {
+        breakingPanel.style.display = "none";
+      }
+    }
+
+    const renderStories = (list, small = false) => {
+      if (!list.length) return `<div class="muted">No stories to show yet.</div>`;
+      return `<div class="news-grid">${list.map(s => `
+        <article class="news-card ${small ? "small" : ""}">
+          <div class="news-brand">
+            <div class="news-date">${escapeHtml(safe(s.simDate, "Unknown date"))}</div>
+            ${s.isBreaking ? `<span class="breaking-tag">BREAKING</span>` : ""}
+          </div>
+          <div class="news-category">${escapeHtml(safe(s.category, "General"))}</div>
+          <div class="news-headline">${escapeHtml(safe(s.headline, "Untitled"))}</div>
+          ${s.imageUrl ? `<div class="news-imagewrap"><img src="${escapeHtml(s.imageUrl)}" alt="${escapeHtml(s.headline || "News image")}"></div>` : ""}
+          <div class="news-text">${escapeHtml(safe(s.text, ""))}</div>
+        </article>
+      `).join("")}</div>`;
+    };
+
+    if (mainEl) mainEl.innerHTML = renderStories(main);
+    if (flavourEl) flavourEl.innerHTML = renderStories(flavour, true);
+    if (archiveEl) archiveEl.innerHTML = renderStories(archive, true);
+  }
+
+  function initPapersPage(data) {
+    const simEl = document.getElementById("papersSimDate");
+    const gridEl = document.getElementById("papersGrid");
+    const panelEl = document.getElementById("paperReaderPanel");
+    const readerEl = document.getElementById("paperReader");
+    if (!simEl && !gridEl) return;
+
+    const sim = getCurrentSimDate(data);
+    if (simEl) simEl.textContent = `${getMonthName(sim.month)} ${sim.year}`;
+
+    const papers = data.papers?.papers || [];
+    if (!gridEl) return;
+    if (!papers.length) {
+      gridEl.innerHTML = `<div class="muted">No papers configured yet.</div>`;
+      return;
+    }
+
+    gridEl.classList.remove("muted-block");
+    gridEl.innerHTML = `
+      <div class="paper-grid">
+        ${papers.map((p) => {
+          const latest = (p.issues || []).slice().sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0))[0];
+          return `
+            <article class="paper-tile ${escapeHtml(safe(p.cls, ""))}">
+              <div class="paper-masthead">${escapeHtml(safe(p.name, "Unnamed Paper"))}</div>
+              <div class="paper-headline">${escapeHtml(safe(latest?.headline, "No issue published yet"))}</div>
+              <div class="paper-strap">${escapeHtml(safe(latest?.simDate, ""))}</div>
+              <div class="tile-bottom"><button class="btn" type="button" data-paper="${escapeHtml(safe(p.key, ""))}">Open</button></div>
+            </article>
+          `;
+        }).join("")}
+      </div>
+    `;
+
+    const renderPaper = (paper) => {
+      if (!panelEl || !readerEl) return;
+      panelEl.style.display = "block";
+      const issues = (paper.issues || []).slice().sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
+      readerEl.innerHTML = `
+        <div class="paper-reader-header ${escapeHtml(safe(paper.cls, ""))}">
+          <div>
+            <div class="paper-reader-title">${escapeHtml(safe(paper.name, "Paper"))}</div>
+            <div class="small">Latest and recent issues</div>
+          </div>
+          <button class="btn" type="button" id="paperReaderClose">Close</button>
+        </div>
+        ${issues.length ? issues.map(issue => `
+          <article class="paper-issue ${escapeHtml(safe(paper.cls, ""))}">
+            <div class="paper-issue-top">
+              <div class="paper-issue-masthead">${escapeHtml(safe(paper.name, "Paper"))}</div>
+              <div class="paper-issue-date">${escapeHtml(safe(issue.simDate, "Unknown date"))}</div>
+            </div>
+            <div class="paper-issue-headline">${escapeHtml(safe(issue.headline, "Untitled"))}</div>
+            ${issue.imageUrl ? `<div class="paper-issue-imagewrap"><img src="${escapeHtml(issue.imageUrl)}" alt="${escapeHtml(issue.headline || "Paper image")}"></div>` : ""}
+            <div class="paper-issue-byline">By ${escapeHtml(safe(issue.bylineName, "Staff Reporter"))}</div>
+            <div class="paper-issue-text">${escapeHtml(safe(issue.text, ""))}</div>
+          </article>
+        `).join("") : `<div class="muted-block">No issues published yet.</div>`}
+      `;
+      document.getElementById("paperReaderClose")?.addEventListener("click", () => {
+        panelEl.style.display = "none";
+      });
+    };
+
+    gridEl.querySelectorAll("[data-paper]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const key = btn.getAttribute("data-paper");
+        const paper = papers.find(x => x.key === key);
+        if (paper) renderPaper(paper);
+      });
+    });
+  }
+
+  function initHansardPage(data) {
+    const sundayEl = document.getElementById("sunday-roll-display");
+    const passedEl = document.getElementById("hansard-passed");
+    const failedEl = document.getElementById("hansard-failed");
+    if (!sundayEl && !passedEl && !failedEl) return;
+
+    const gs = getGameState(data);
+    const start = new Date(gs.startRealDate).getTime();
+    const now = nowTs();
+    const nextSunday = new Date(now);
+    while (nextSunday.getDay() !== 0) nextSunday.setDate(nextSunday.getDate() + 1);
+    nextSunday.setHours(0, 0, 0, 0);
+    const SundaysElapsed = countSundaysBetween(start, now);
+
+    if (sundayEl) {
+      sundayEl.innerHTML = `<b>Sunday roll:</b> ${SundaysElapsed} completed since sim start. Next roll in <b>${escapeHtml(msToDHM(nextSunday.getTime() - now))}</b>.`;
+    }
+
+    const bills = data.orderPaperCommons || [];
+    const passed = bills.filter(b => b.status === "passed" || b.division?.result === "passed");
+    const failed = bills.filter(b => b.status === "failed" || b.division?.result === "failed");
+    const render = (list, emptyMsg) => list.length ? `<div class="order-grid">${list.map(b => `
+      <article class="wgo-tile">
+        <div class="wgo-title">${escapeHtml(safe(b.title, "Untitled Bill"))}</div>
+        <div class="wgo-strap">${escapeHtml(safe(b.department, "No department"))}</div>
+        <div class="small">Author: ${escapeHtml(safe(b.author, "Unknown"))}</div>
+      </article>
+    `).join("")}</div>` : `<div class="muted-block">${escapeHtml(emptyMsg)}</div>`;
+
+    if (passedEl) passedEl.innerHTML = render(passed, "No passed legislation archived yet.");
+    if (failedEl) failedEl.innerHTML = render(failed, "No defeated legislation archived yet.");
+  }
+
+  function initControlPanelPage(data) {
+    const simEl = document.getElementById("rbCpSimDate");
+    const loginEl = document.getElementById("rbLoginBlock");
+    const simBlock = document.getElementById("rbSimBlock");
+    const charEl = document.getElementById("rbCharBlock");
+    const rolesEl = document.getElementById("rbRolePanels");
+    if (!simEl && !loginEl && !simBlock && !charEl && !rolesEl) return;
+
+    const sim = getCurrentSimDate(data);
+    if (simEl) simEl.textContent = `${getMonthName(sim.month)} ${sim.year}`;
+
+    const user = data.currentUser || {};
+    const player = data.currentCharacter || data.currentPlayer || {};
+    if (loginEl) {
+      loginEl.innerHTML = `
+        <div class="kv"><span>Username</span><b>${escapeHtml(safe(user.username, "User"))}</b></div>
+        <div class="kv"><span>Admin</span><b>${user.isAdmin ? "Yes" : "No"}</b></div>
+        <div class="kv"><span>Moderator</span><b>${user.isMod ? "Yes" : "No"}</b></div>
+      `;
+    }
+
+    if (simBlock) {
+      const gs = getGameState(data);
+      simBlock.innerHTML = `
+        <div class="kv"><span>Simulation started</span><b>${gs.started ? "Yes" : "No"}</b></div>
+        <div class="kv"><span>Clock paused</span><b>${gs.isPaused ? "Yes" : "No"}</b></div>
+        <div class="kv"><span>Current sim date</span><b>${escapeHtml(getMonthName(sim.month))} ${escapeHtml(String(sim.year))}</b></div>
+      `;
+    }
+
+    if (charEl) {
+      charEl.innerHTML = `
+        <div class="kv"><span>Name</span><b>${escapeHtml(safe(player.name, "Unknown MP"))}</b></div>
+        <div class="kv"><span>Party</span><b>${escapeHtml(safe(player.party, "Unknown"))}</b></div>
+        <div class="kv"><span>Role</span><b>${escapeHtml(safe(player.role, "backbencher"))}</b></div>
+      `;
+    }
+
+    if (rolesEl) {
+      const roles = Array.isArray(user.roles) ? user.roles : [];
+      rolesEl.innerHTML = `
+        <h2>Controls</h2>
+        <div class="muted-block">
+          ${roles.length
+            ? `<div class="small">Role controls coming next. Active roles: <b>${escapeHtml(roles.join(", "))}</b>.</div>`
+            : `<div class="small">No special role controls active for this account.</div>`}
+        </div>
+      `;
+    }
+  }
+
   /* =========================================================
      Builders (kept from your previous)
      ========================================================= */
@@ -1718,7 +1970,9 @@ ${articlesText}${finalArticle}
       });
     }
 
-    document.getElementById("savePartyDraftBtn").addEventListener("click", () => {
+    const saveBtn = document.getElementById("savePartyDraftBtn");
+    if (!saveBtn) return;
+    saveBtn.addEventListener("click", () => {
       const built = buildDraftText();
       if (built.error) return alert(built.error);
 
@@ -1755,7 +2009,12 @@ ${articlesText}${finalArticle}
       document.getElementById("order-paper") ||
       document.getElementById("live-docket") ||
       document.getElementById("sim-date-display") ||
-      document.getElementById("billMeta");
+      document.getElementById("billMeta") ||
+      document.getElementById("bbcSimDate") ||
+      document.getElementById("papersSimDate") ||
+      document.getElementById("rbCpSimDate") ||
+      document.getElementById("parliament-summary") ||
+      document.getElementById("hansard-passed");
 
     if (!needsRefresh) return;
 
@@ -1769,6 +2028,11 @@ ${articlesText}${finalArticle}
       renderLiveDocket(latest);
       renderOrderPaper(latest);
       initBillPage(latest);
+      initConstituenciesPage(latest);
+      initNewsPage(latest);
+      initPapersPage(latest);
+      initHansardPage(latest);
+      initControlPanelPage(latest);
     }, 1000);
   }
 
@@ -1802,6 +2066,11 @@ ${articlesText}${finalArticle}
       safeRun("initQuestionTimePage", () => initQuestionTimePage(data));
       safeRun("initEconomyPage",      () => initEconomyPage(data));
       safeRun("renderUserPage",       () => renderUserPage(data));
+      safeRun("initConstituenciesPage",() => initConstituenciesPage(data));
+      safeRun("initNewsPage",         () => initNewsPage(data));
+      safeRun("initPapersPage",       () => initPapersPage(data));
+      safeRun("initHansardPage",      () => initHansardPage(data));
+      safeRun("initControlPanelPage", () => initControlPanelPage(data));
 
       // Builders
       safeRun("initSubmitBillPage",   () => initSubmitBillPage(data));
