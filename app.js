@@ -1522,6 +1522,205 @@ function rbToggleBreakingNews(id){
   saveData(data);
 }
 
+/* =========================
+   PAPERS (British Press)
+   - Tile per newspaper
+   - Each paper has front pages (history)
+   - Click to read
+   ========================= */
+
+const BRITISH_PAPERS = [
+  "The Sun",
+  "The Daily Telegraph",
+  "The Daily Mail",
+  "The Daily Mirror",
+  "The Times",
+  "The Financial Times",
+  "The Guardian",
+  "The Independent"
+];
+
+function ensurePapersData(data){
+  data.papers = data.papers || {};
+  BRITISH_PAPERS.forEach(name => {
+    data.papers[name] = Array.isArray(data.papers[name]) ? data.papers[name] : [];
+  });
+}
+
+function renderPapersPage(data){
+  const gridEl = document.getElementById("papers-grid");
+  const readerEl = document.getElementById("paper-reader");
+  const readerContent = document.getElementById("paper-reader-content");
+  const deskEl = document.getElementById("papers-desk");
+  if (!gridEl && !deskEl) return;
+
+  ensurePapersData(data);
+
+  // ---- GRID ----
+  if (gridEl){
+    gridEl.innerHTML = `
+      <div class="order-grid">
+        ${BRITISH_PAPERS.map(paper => {
+          const editions = data.papers[paper];
+          const latest = editions[0];
+
+          return `
+            <div class="bill-card">
+              <div class="bill-title">${escapeHtml(paper)}</div>
+              <div class="muted-block" style="margin-top:10px;">
+                ${latest
+                  ? `<b>${escapeHtml(latest.headline)}</b><br>
+                     <span class="small">${escapeHtml(latest.simStamp)}</span>`
+                  : `<span class="small">No editions published yet.</span>`
+                }
+              </div>
+              <div class="bill-actions spaced" style="margin-top:14px;">
+                <button class="btn" data-open-paper="${escapeHtml(paper)}" type="button">
+                  Read this Paper
+                </button>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  // ---- OPEN PAPER ----
+  document.querySelectorAll("[data-open-paper]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const paper = btn.getAttribute("data-open-paper");
+      openPaperReader(data, paper);
+    });
+  });
+
+  // ---- PRESS DESK ----
+  if (deskEl){
+    if (!canModerate(data)){
+      deskEl.innerHTML = `
+        <div class="muted-block">
+          Only <b>Admin</b> and <b>Moderators</b> can publish front pages.
+        </div>
+      `;
+    } else {
+      deskEl.innerHTML = `
+        <div class="muted-block">
+          Publish a new front page. This automatically stamps the simulation date.
+        </div>
+
+        <form id="rbPaperForm" style="margin-top:12px;">
+          <div class="form-grid">
+
+            <label>Paper</label>
+            <select id="rbPaperSelect">
+              ${BRITISH_PAPERS.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("")}
+            </select>
+
+            <label>Headline</label>
+            <input id="rbPaperHeadline" placeholder="Front page headline..." />
+
+            <label>Photo URL (optional)</label>
+            <input id="rbPaperPhoto" placeholder="https://..." />
+
+            <label>Byline (optional)</label>
+            <input id="rbPaperByline" placeholder="Jane Smith, Political Correspondent" />
+
+            <label>Article Text</label>
+            <textarea id="rbPaperBody" rows="8" placeholder="Write full front page article..."></textarea>
+
+            <div style="display:flex; justify-content:flex-end;">
+              <button class="btn" type="submit">Publish Front Page</button>
+            </div>
+
+          </div>
+        </form>
+      `;
+
+      const form = document.getElementById("rbPaperForm");
+      form.onsubmit = (e) => {
+        e.preventDefault();
+
+        const paper = document.getElementById("rbPaperSelect").value;
+        const headline = (document.getElementById("rbPaperHeadline").value || "").trim();
+        const photoUrl = (document.getElementById("rbPaperPhoto").value || "").trim();
+        const byline = (document.getElementById("rbPaperByline").value || "").trim();
+        const body = (document.getElementById("rbPaperBody").value || "").trim();
+
+        if (!headline) return alert("Headline is required.");
+        if (!body) return alert("Article text is required.");
+
+        rbPublishFrontPage(paper, { headline, photoUrl, byline, body });
+        location.reload();
+      };
+    }
+  }
+}
+
+function rbPublishFrontPage(paper, { headline, photoUrl, byline, body }){
+  const data = getData();
+  if (!data) return;
+  normaliseData(data);
+  if (!canModerate(data)) return;
+
+  ensurePapersData(data);
+
+  const edition = {
+    id: `paper-${nowTs()}`,
+    createdAt: nowTs(),
+    simStamp: getSimStamp(data),
+    headline,
+    photoUrl,
+    byline,
+    body
+  };
+
+  data.papers[paper].unshift(edition);
+  saveData(data);
+}
+
+function openPaperReader(data, paper){
+  const readerEl = document.getElementById("paper-reader");
+  const contentEl = document.getElementById("paper-reader-content");
+  if (!readerEl || !contentEl) return;
+
+  const editions = data.papers[paper] || [];
+
+  readerEl.style.display = "block";
+
+  contentEl.innerHTML = `
+    <h2 style="margin-top:0;">${escapeHtml(paper)}</h2>
+
+    ${!editions.length
+      ? `<div class="muted-block">No editions yet.</div>`
+      : editions.map((ed, index) => `
+          <div class="bill-card" style="margin-bottom:20px;">
+            <div class="bill-title">
+              ${escapeHtml(index === 0 ? "Current Front Page" : "Previous Front Page")}
+            </div>
+
+            <div style="margin-top:10px;">
+              <h3 style="margin:0 0 6px;">${escapeHtml(ed.headline)}</h3>
+              <div class="small">
+                ${escapeHtml(ed.simStamp)}
+                ${ed.byline ? ` · <i>${escapeHtml(ed.byline)}</i>` : ``}
+              </div>
+            </div>
+
+            ${ed.photoUrl
+              ? `<div style="margin-top:10px;">
+                   <img src="${escapeHtml(ed.photoUrl)}" alt="" style="width:100%; border-radius:10px;">
+                 </div>`
+              : ``}
+
+            <div class="muted-block" style="margin-top:10px; white-space:pre-wrap;">
+              ${escapeHtml(ed.body)}
+            </div>
+          </div>
+        `).join("")}
+  `;
+
+  readerEl.scrollIntoView({ behavior: "smooth" });
+}
 
 /* =========================
    USER PAGE (CONTROL PANEL BASE)
