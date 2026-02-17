@@ -1287,6 +1287,121 @@
       location.reload();
     };
   }
+function initPapersPage(data){
+  const grid = document.getElementById("papersGrid");
+  const dateEl = document.getElementById("papersSimDate");
+  const readerPanel = document.getElementById("paperReaderPanel");
+  const reader = document.getElementById("paperReader");
+  if (!grid || !dateEl || !readerPanel || !reader) return;
+
+  // Sim date in header
+  const sim = getCurrentSimDate(data);
+  dateEl.textContent = `${getMonthName(sim.month)} ${sim.year}`;
+
+  // Define the 8 papers + the CSS class that gives the masthead its colour
+  const PAPERS = [
+    { key:"sun",         name:"The Sun",            cls:"paper-sun" },
+    { key:"telegraph",   name:"The Daily Telegraph",cls:"paper-telegraph" },
+    { key:"mail",        name:"The Daily Mail",     cls:"paper-mail" },
+    { key:"mirror",      name:"The Daily Mirror",   cls:"paper-mirror" },
+    { key:"times",       name:"The Times",          cls:"paper-times" },
+    { key:"ft",          name:"Financial Times",    cls:"paper-ft" },
+    { key:"guardian",    name:"The Guardian",       cls:"paper-guardian" },
+    { key:"independent", name:"The Independent",    cls:"paper-independent" },
+  ];
+
+  // Ensure storage exists
+  data.papers = data.papers || {};
+  PAPERS.forEach(p => {
+    data.papers[p.key] = data.papers[p.key] || [];
+    // If completely empty, give each paper a simple demo front page so it doesn’t look broken
+    if (data.papers[p.key].length === 0) {
+      data.papers[p.key].unshift({
+        id: `paper-${p.key}-${Date.now()}`,
+        headline: `${p.name} — Front Page Headline`,
+        byline: "Political Correspondent",
+        body: "Front page story text goes here.",
+        imageUrl: "",
+        createdAt: Date.now()
+      });
+    }
+  });
+
+  saveData(data);
+
+  const mostRecentIssue = (paperKey) => (data.papers?.[paperKey] || [])[0];
+
+  // Render grid (WITH mastheads)
+  grid.classList.remove("muted-block");
+  grid.classList.add("paper-grid");
+
+  grid.innerHTML = PAPERS.map(p => {
+    const issue = mostRecentIssue(p.key);
+    const headline = issue?.headline || `${p.name} — Front Page Headline`;
+
+    return `
+      <div class="paper-tile card-flex ${p.cls}">
+        <div class="paper-masthead">${escapeHtml(p.name)}</div>
+        <div class="paper-headline">${escapeHtml(headline)}</div>
+
+        <div class="tile-bottom">
+          <button class="btn" type="button" data-open-paper="${escapeHtml(p.key)}">Read this Paper</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  // Open a paper reader
+  function openPaper(paperKey){
+    const paperMeta = PAPERS.find(x => x.key === paperKey);
+    const issues = (data.papers?.[paperKey] || []);
+
+    readerPanel.style.display = "block";
+
+    reader.innerHTML = `
+      <div class="paper-reader-header">
+        <div>
+          <div class="paper-reader-title">${escapeHtml(paperMeta?.name || "Paper")}</div>
+          <div class="small">Showing latest issue first · ${escapeHtml(`${getMonthName(sim.month)} ${sim.year}`)}</div>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn" type="button" id="paperCloseBtn">Close</button>
+        </div>
+      </div>
+
+      ${issues.map(issue => {
+        const when = issue.createdAt ? new Date(issue.createdAt).toLocaleString() : "";
+        return `
+          <div class="paper-issue ${paperMeta?.cls || ""}">
+            <div class="paper-issue-top">
+              <div class="paper-issue-masthead">${escapeHtml(paperMeta?.name || "")}</div>
+              <div class="paper-issue-date">${escapeHtml(when)}</div>
+            </div>
+
+            <div class="paper-issue-headline">${escapeHtml(issue.headline || "")}</div>
+            ${issue.byline ? `<div class="paper-issue-byline">${escapeHtml(issue.byline)}</div>` : ``}
+
+            ${issue.imageUrl
+              ? `<div class="paper-issue-imagewrap"><img src="${escapeHtml(issue.imageUrl)}" alt=""></div>`
+              : ``}
+
+            <div class="paper-issue-text">${escapeHtml(issue.body || "")}</div>
+          </div>
+        `;
+      }).join("")}
+    `;
+
+    document.getElementById("paperCloseBtn")?.addEventListener("click", () => {
+      readerPanel.style.display = "none";
+      reader.innerHTML = "";
+    });
+  }
+
+  // Bind buttons
+  grid.querySelectorAll("[data-open-paper]").forEach(btn => {
+    btn.addEventListener("click", () => openPaper(btn.getAttribute("data-open-paper")));
+  });
+}
 
   function initBillPage(data){
     const titleEl = document.getElementById("billTitle");
