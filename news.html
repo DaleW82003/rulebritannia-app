@@ -11,6 +11,7 @@
 
 <header class="topbar">
   <div class="topbar-inner">
+
     <div class="brand">
       <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
     </div>
@@ -88,44 +89,44 @@
         </div>
       </div>
     </nav>
+
   </div>
 </header>
 
 <main class="wrap">
-  <h1 class="page-title">BBC News</h1>
+
+  <div class="masthead masthead-bbc">RB NEWS</div>
 
   <!-- Breaking ticker -->
-  <section class="panel" style="padding:14px;">
-    <div id="news-ticker" class="muted-block">Loading…</div>
+  <section class="panel" id="news-breaking">
+    Loading breaking news…
   </section>
 
-  <!-- Main + Flavour -->
-  <div class="bill-layout">
+  <!-- Controls (admin/mod will see post buttons) -->
+  <section class="panel" id="news-controls">
+    Loading controls…
+  </section>
+
+  <div class="two-col">
     <section class="panel">
       <h2>Main Stories</h2>
-      <div id="news-main" class="muted-block">Loading…</div>
+      <div id="news-main" class="news-grid">Loading stories…</div>
     </section>
 
     <section class="panel">
       <h2>More News</h2>
-      <div id="news-flavour" class="muted-block">Loading…</div>
+      <div id="news-flavour">Loading…</div>
     </section>
   </div>
 
-  <!-- Posting tools (admin/mod only) -->
-  <section class="panel">
-    <h2>News Desk</h2>
-    <div id="news-desk" class="muted-block">Loading…</div>
-  </section>
-
-  <!-- Archive -->
   <section class="panel">
     <h2>Archive</h2>
-    <div class="muted-block" style="margin-bottom:12px;">
-      Items move here automatically after <b>2 real-life weeks</b>. They remain fully readable, but are no longer “live”.
+    <div class="muted-block">
+      Stories move into the archive after <b>14 real-life days</b>. They remain visible, but are not “live”.
     </div>
-    <div id="news-archive" class="muted-block">Loading…</div>
+    <div id="news-archive" style="margin-top:12px;">Loading…</div>
   </section>
+
 </main>
 
 <script src="app.js"></script>
