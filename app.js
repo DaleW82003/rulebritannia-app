@@ -3827,6 +3827,127 @@ function publishFrontPage(data, paperId, {headline, body, photoUrl, byline}){
   data.papers.frontPages[paperId].unshift(entry);
   saveData(data);
 }
+function ensureConstituencyData(data) {
+  if (Array.isArray(data.constituencies) && data.constituencies.length) return;
+
+  const parties = {
+    "Labour": 418,
+    "Conservative": 165,
+    "Liberal Democrat": 46,
+    "SNP": 6,
+    "Plaid Cymru": 4,
+    "DUP": 2,
+    "SDLP": 3,
+    "UUP": 10,
+    "Sinn Féin": 2,
+    "Others": 4
+  };
+
+  const regions = [
+    "North East","North West","Yorkshire","East Midlands","West Midlands",
+    "East of England","South East","South West",
+    "Scotland","Wales","Northern Ireland"
+  ];
+
+  data.constituencies = [];
+  let regionIndex = 0;
+
+  Object.entries(parties).forEach(([party, seats]) => {
+    for (let i = 1; i <= seats; i++) {
+      const region = regions[regionIndex % regions.length];
+      data.constituencies.push({
+        name: `${party} Seat ${i}`,
+        region,
+        party,
+        mp: `MP ${i} (${party})`,
+        majority: Math.floor(Math.random() * 20000)
+      });
+      regionIndex++;
+    }
+  });
+
+  saveData(data);
+}
+function renderParliamentSummary(data) {
+  const el = document.getElementById("parliament-summary");
+  if (!el) return;
+
+  const seats = data.constituencies || [];
+
+  const totals = {};
+  seats.forEach(c => {
+    totals[c.party] = (totals[c.party] || 0) + 1;
+  });
+
+  const totalSeats = seats.length;
+
+  el.innerHTML = `
+    <div class="wgo-grid">
+      ${Object.entries(totals).map(([party, count]) => `
+        <div class="wgo-tile">
+          <div class="wgo-title">${party}</div>
+          <div class="wgo-strap">${count} seats</div>
+        </div>
+      `).join("")}
+    </div>
+
+    <div style="margin-top:14px;">
+      <b>Total Seats:</b> ${totalSeats}
+    </div>
+  `;
+}
+function renderPartyConstituencies(data) {
+  const el = document.getElementById("party-constituencies");
+  if (!el) return;
+
+  const seats = data.constituencies || [];
+
+  const grouped = {};
+  seats.forEach(c => {
+    if (!grouped[c.party]) grouped[c.party] = [];
+    grouped[c.party].push(c);
+  });
+
+  el.innerHTML = Object.entries(grouped).map(([party, list]) => `
+    <div class="bill-card" style="margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div class="bill-title">${party}</div>
+        <button class="btn" onclick="toggleParty('${party.replace(/'/g,"")}')">
+          View Seats (${list.length})
+        </button>
+      </div>
+
+      <div id="party-${party.replace(/[^a-z0-9]/gi,'')}" style="display:none; margin-top:10px;">
+        ${renderConstituencyRegions(list)}
+      </div>
+    </div>
+  `).join("");
+}
+
+function renderConstituencyRegions(list) {
+  const regions = {};
+  list.forEach(c => {
+    if (!regions[c.region]) regions[c.region] = [];
+    regions[c.region].push(c);
+  });
+
+  return Object.entries(regions).map(([region, seats]) => `
+    <div style="margin-bottom:10px;">
+      <b>${region}</b>
+      <ul style="margin-top:6px;">
+        ${seats.map(c => `
+          <li>${c.name} — ${c.mp} (Maj: ${c.majority})</li>
+        `).join("")}
+      </ul>
+    </div>
+  `).join("");
+}
+
+window.toggleParty = function(party) {
+  const el = document.getElementById("party-" + party.replace(/[^a-z0-9]/gi,''));
+  if (!el) return;
+  el.style.display = el.style.display === "none" ? "block" : "none";
+};
 
   /* =========================
      BOOT
@@ -3842,6 +3963,9 @@ function publishFrontPage(data, paperId, {headline, body, photoUrl, byline}){
 
       initNavUI();
       renderSimDate(data);
+      ensureConstituencyData(data);
+      renderParliamentSummary(data);
+      renderPartyConstituencies(data);
       renderWhatsGoingOn(data);
       renderLiveDocket(data);
       renderOrderPaper(data);
