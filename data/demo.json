@@ -1,35 +1,5 @@
 {
-  "whatsGoingOn": {
-    "bbc": {
-      "headline": "BBC: Top political story headline goes here",
-      "strap": "One-sentence summary of the lead story."
-    },
-    "papers": {
-      "paper": "The Times",
-      "headline": "Front page headline goes here",
-      "strap": "One-sentence front page standfirst."
-    },
-    "economy": {
-      "growth": 1.8,
-      "inflation": 2.6,
-      "unemployment": 4.3
-    },
-    "polling": [
-      { "party": "Labour", "value": 34.1 },
-      { "party": "Conservative", "value": 31.7 },
-      { "party": "Liberal Democrat", "value": 11.2 },
-      { "party": "Green", "value": 5.4 },
-      { "party": "SNP", "value": 3.2 },
-      { "party": "Reform", "value": 2.4 },
-      { "party": "Others", "value": 11.0 }
-    ],
-    "commonsLegislation": [
-      { "title": "Bill A", "stage": "Second Reading" },
-      { "title": "Bill B", "stage": "Report Stage" },
-      { "title": "Bill C", "stage": "Division" }
-    ]
-  },
-
+  "version": "demo-1.0",
   "adminSettings": {
     "monarchGender": "Queen"
   },
@@ -44,11 +14,16 @@
 
   "parliament": {
     "totalSeats": 650,
+    "speakerExcludedFromMajority": true,
+    "excludeSinnFeinFromMajority": true,
+    "excludeAbstentionsFromMajority": true,
     "parties": [
-      { "name": "Conservative", "seats": 330 },
-      { "name": "Labour", "seats": 280 },
-      { "name": "Liberal Democrat", "seats": 25 },
-      { "name": "SNP", "seats": 15 }
+      { "name": "Conservative", "seats": 330, "playable": true },
+      { "name": "Labour", "seats": 280, "playable": true },
+      { "name": "Liberal Democrat", "seats": 25, "playable": true },
+      { "name": "SNP", "seats": 15, "playable": false },
+      { "name": "Sinn Féin", "seats": 0, "playable": false },
+      { "name": "Others", "seats": 0, "playable": false }
     ]
   },
 
@@ -87,6 +62,7 @@
     "username": "Dale",
     "isAdmin": true,
     "isMod": false,
+    "isSpeaker": false,
     "roles": ["admin"]
   },
 
@@ -115,6 +91,37 @@
   },
 
   "oppositionTracker": {},
+
+  "whatsGoingOn": {
+    "bbc": {
+      "headline": "BBC: Top political story headline goes here",
+      "strap": "One-sentence summary of the lead story."
+    },
+    "papers": {
+      "paper": "The Times",
+      "headline": "Front page headline goes here",
+      "strap": "One-sentence front page standfirst."
+    },
+    "economy": {
+      "growth": 1.8,
+      "inflation": 2.6,
+      "unemployment": 4.3
+    },
+    "polling": [
+      { "party": "Labour", "value": 34.1 },
+      { "party": "Conservative", "value": 31.7 },
+      { "party": "Liberal Democrat", "value": 11.2 },
+      { "party": "Green", "value": 5.4 },
+      { "party": "SNP", "value": 3.2 },
+      { "party": "Reform", "value": 2.4 },
+      { "party": "Others", "value": 11.0 }
+    ],
+    "commonsLegislation": [
+      { "title": "Bill A", "stage": "Second Reading" },
+      { "title": "Bill B", "stage": "Report Stage" },
+      { "title": "Bill C", "stage": "Division" }
+    ]
+  },
 
   "news": {
     "stories": [
@@ -151,7 +158,8 @@
         "text": "Campaigners have renewed calls for reforms to oversight following recent service disruption and safety concerns.",
         "flavour": true
       }
-    ]
+    ],
+    "categories": ["Politics", "Economy", "Health", "Transport", "World", "Home", "Culture", "Sport"]
   },
 
   "papers": {
@@ -287,7 +295,7 @@
     ]
   },
 
-   "economyPage": {
+  "economyPage": {
     "topline": {
       "gdpGrowth": 1.8,
       "inflation": 2.6,
@@ -305,6 +313,24 @@
           ["GDP", "£0.9tn", "—"],
           ["GDP per capita", "£15,500", "—"]
         ]
+      },
+      {
+        "id": "public-finance",
+        "title": "Public Finance (snapshot)",
+        "subtitle": "Budget context",
+        "rows": [
+          ["Public Sector Net Borrowing", "£28.0bn", "—"],
+          ["Debt Interest", "£23.0bn", "—"]
+        ]
+      },
+      {
+        "id": "demographics",
+        "title": "Demographics",
+        "subtitle": "Population & structure",
+        "rows": [
+          ["Population", "58.6m", "—"],
+          ["Net migration", "+50k", "—"]
+        ]
       }
     ],
     "surveys": [
@@ -317,12 +343,42 @@
           ["Vehicle crime", "High", "Flat"],
           ["Violence", "Rising", "Up"]
         ]
+      },
+      {
+        "id": "nhs-waiting",
+        "title": "NHS Waiting Lists",
+        "rows": [
+          ["Measure", "Level", "Change"],
+          ["Total waiting list", "High", "Up"],
+          ["12+ months", "Concerning", "Up"]
+        ]
+      },
+      {
+        "id": "labour-survey",
+        "title": "The UK Labour Survey",
+        "rows": [
+          ["Measure", "Level", "Change"],
+          ["Employment", "Strong", "Up"],
+          ["Inactivity", "Moderate", "Flat"]
+        ]
       }
     ]
   },
 
   "bodies": {
     "list": [
+      {
+        "id": "commons",
+        "name": "House of Commons",
+        "desc": "Elected chamber. This is your active game parliament (voting occurs here).",
+        "totalSeats": 650,
+        "parties": [
+          { "name": "Conservative", "seats": 330 },
+          { "name": "Labour", "seats": 280 },
+          { "name": "Liberal Democrat", "seats": 25 },
+          { "name": "SNP", "seats": 15 }
+        ]
+      },
       {
         "id": "lords",
         "name": "House of Lords",
@@ -335,12 +391,66 @@
           { "name": "Crossbench", "seats": 350 },
           { "name": "Bishops/Other", "seats": 130 }
         ]
+      },
+      {
+        "id": "europarl",
+        "name": "European Parliament (UK delegation)",
+        "desc": "Flavour body for Europe-wide context.",
+        "totalSeats": 87,
+        "parties": [
+          { "name": "Labour", "seats": 62 },
+          { "name": "Conservative", "seats": 18 },
+          { "name": "Liberal Democrat", "seats": 2 },
+          { "name": "SNP/Plaid/Other", "seats": 5 }
+        ]
       }
     ]
   },
 
-
-  "constituencies": [],
+  "constituencies": [
+    {
+      "id": "kensington-chelsea",
+      "name": "Kensington & Chelsea",
+      "region": "London",
+      "nation": "England",
+      "party": "Conservative"
+    },
+    {
+      "id": "islington-north",
+      "name": "Islington North",
+      "region": "London",
+      "nation": "England",
+      "party": "Labour"
+    },
+    {
+      "id": "sheffield-hallam",
+      "name": "Sheffield Hallam",
+      "region": "Yorkshire & the Humber",
+      "nation": "England",
+      "party": "Liberal Democrat"
+    },
+    {
+      "id": "glasgow-kelvin",
+      "name": "Glasgow Kelvin",
+      "region": "Strathclyde",
+      "nation": "Scotland",
+      "party": "SNP"
+    },
+    {
+      "id": "cardiff-central",
+      "name": "Cardiff Central",
+      "region": "South Wales",
+      "nation": "Wales",
+      "party": "Labour"
+    },
+    {
+      "id": "belfast-south",
+      "name": "Belfast South",
+      "region": "Belfast",
+      "nation": "Northern Ireland",
+      "party": "Others"
+    }
+  ],
 
   "orderPaperCommons": [
     {
@@ -456,33 +566,6 @@
         "href": "qt-office.html?office=prime-minister",
         "priority": "normal",
         "audience": { "roles": ["leader-opposition", "party-leader-3rd-4th", "backbencher"] }
-      },
-      {
-        "type": "question",
-        "title": "Health Questions: Awaiting ministerial answer",
-        "detail": "A question is awaiting an answer from the Health Secretary.",
-        "ctaLabel": "Open",
-        "href": "qt-office.html?office=health",
-        "priority": "high",
-        "audience": { "roles": ["minister"], "offices": ["health"] }
-      },
-      {
-        "type": "motion",
-        "title": "Motion: Rail Reform Timetable",
-        "detail": "Debate open — division scheduled after close.",
-        "ctaLabel": "Debate",
-        "href": "motions.html",
-        "priority": "high",
-        "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
-      },
-      {
-        "type": "edm",
-        "title": "EDM 14: Protect Coastal Communities",
-        "detail": "Signatures open (opt-in).",
-        "ctaLabel": "Sign",
-        "href": "motions.html",
-        "priority": "normal",
-        "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
       },
       {
         "type": "statement",
