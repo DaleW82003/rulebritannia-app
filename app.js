@@ -3480,6 +3480,239 @@ function openNewsPostModal(data){
     location.reload();
   };
 }
+function renderControlPanel(data){
+  const loginEl = document.getElementById("rbLoginBlock");
+  const simEl = document.getElementById("rbSimBlock");
+  const charEl = document.getElementById("rbCharBlock");
+  const roleEl = document.getElementById("rbRolePanels");
+  const simDateEl = document.getElementById("rbCpSimDate");
+
+  if (!loginEl || !simEl || !charEl || !roleEl) return;
+
+  const sims = getSims();
+  const activeSimId = getActiveSimId();
+  const me = getMyUser();
+  const sim = getCurrentSimDate(data);
+
+  if (simDateEl) simDateEl.textContent = `${getMonthName(sim.month)} ${sim.year}`;
+
+  // LOGIN
+  const users = getUsers();
+  loginEl.innerHTML = `
+    <div class="kv"><span>Logged in as</span><b>${escapeHtml(me?.username || "None")}</b></div>
+    <div class="kv"><span>Role</span><b>${escapeHtml(me?.role || "—")}</b></div>
+
+    <div style="margin-top:12px;">
+      <label><b>Switch user:</b></label>
+      <select id="rbUserSelect">
+        ${users.map(u => `<option value="${escapeHtml(u.id)}" ${me?.id===u.id?"selected":""}>${escapeHtml(u.username)} (${escapeHtml(u.role)})</option>`).join("")}
+      </select>
+      <div style="margin-top:10px;">
+        <button class="btn" type="button" id="rbSwitchUserBtn">Switch</button>
+      </div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <label><b>Create new user:</b></label>
+      <input id="rbNewUsername" placeholder="Username…" />
+      <select id="rbNewRole">
+        <option value="player">player</option>
+        <option value="speaker">speaker</option>
+        <option value="mod">mod</option>
+        <option value="admin">admin</option>
+      </select>
+      <div style="margin-top:10px;">
+        <button class="btn" type="button" id="rbCreateUserBtn">Create</button>
+      </div>
+      <div class="small">Note: this is local-only for now (localStorage). Later we can move it to a real database.</div>
+    </div>
+  `;
+
+  document.getElementById("rbSwitchUserBtn").onclick = () => {
+    const id = document.getElementById("rbUserSelect").value;
+    setCurrentUser(id);
+    location.reload();
+  };
+
+  document.getElementById("rbCreateUserBtn").onclick = () => {
+    const uname = (document.getElementById("rbNewUsername").value || "").trim();
+    const role = document.getElementById("rbNewRole").value || "player";
+    if (!uname) return alert("Username required.");
+
+    const list = getUsers();
+    if (list.some(u => u.username.toLowerCase() === uname.toLowerCase())) {
+      return alert("That username already exists.");
+    }
+
+    const nu = { id:`user-${nowTs()}`, username: uname, role, activeCharacterId:null, characters:[] };
+    list.unshift(nu);
+    saveUsers(list);
+    setCurrentUser(nu.id);
+    location.reload();
+  };
+
+  // SIMULATIONS
+  simEl.innerHTML = `
+    <div class="kv"><span>Active simulation</span><b>${escapeHtml((sims.find(s=>s.id===activeSimId)?.name) || activeSimId)}</b></div>
+    <div style="margin-top:12px;">
+      <label><b>Switch simulation:</b></label>
+      <select id="rbSimSelect">
+        ${sims.map(s => `<option value="${escapeHtml(s.id)}" ${s.id===activeSimId?"selected":""}>${escapeHtml(s.name)}</option>`).join("")}
+      </select>
+      <div style="margin-top:10px;">
+        <button class="btn" type="button" id="rbSwitchSimBtn">Switch Simulation</button>
+      </div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <label><b>Create new simulation:</b></label>
+      <input id="rbNewSimName" placeholder="e.g. United Kingdom — 1999" />
+      <div style="margin-top:10px;">
+        <button class="btn" type="button" id="rbCreateSimBtn">Create Simulation</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById("rbSwitchSimBtn").onclick = () => {
+    const sid = document.getElementById("rbSimSelect").value;
+    setActiveSimId(sid);
+    location.reload();
+  };
+
+  document.getElementById("rbCreateSimBtn").onclick = () => {
+    const name = (document.getElementById("rbNewSimName").value || "").trim();
+    if (!name) return alert("Simulation name required.");
+
+    const list = getSims();
+    const simId = `sim-${nowTs()}`;
+    list.unshift({ id: simId, name, createdAt: nowTs() });
+    saveSims(list);
+
+    // clone current sim data as a starting point
+    const currentSimData = getData();
+    localStorage.setItem(simDataKey(simId), JSON.stringify(currentSimData || {}));
+
+    setActiveSimId(simId);
+    location.reload();
+  };
+
+  // CHARACTER (simple starter)
+  const chars = Array.isArray(data.characters) ? data.characters : [];
+  const myChar = me?.activeCharacterId ? chars.find(c => c.id === me.activeCharacterId) : null;
+
+  charEl.innerHTML = `
+    <div class="kv"><span>Active character</span><b>${escapeHtml(myChar?.name || "None")}</b></div>
+
+    <div style="margin-top:12px;">
+      <label><b>Select character:</b></label>
+      <select id="rbCharSelect">
+        <option value="">-- None --</option>
+        ${chars.map(c => `<option value="${escapeHtml(c.id)}" ${me?.activeCharacterId===c.id?"selected":""}>${escapeHtml(c.name)} (${escapeHtml(c.party || "—")})</option>`).join("")}
+      </select>
+      <div style="margin-top:10px;">
+        <button class="btn" type="button" id="rbSetCharBtn">Set Active Character</button>
+      </div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <label><b>Create character:</b></label>
+      <input id="rbCharName" placeholder="Character name…" />
+      <input id="rbCharParty" placeholder="Party…" />
+      <div style="margin-top:10px;">
+        <button class="btn" type="button" id="rbCreateCharBtn">Create</button>
+      </div>
+      <div class="small">Later we’ll add seat, role, offices, etc.</div>
+    </div>
+  `;
+
+  document.getElementById("rbSetCharBtn").onclick = () => {
+    const id = document.getElementById("rbCharSelect").value || null;
+    const users2 = getUsers();
+    const idx = users2.findIndex(u => u.id === me.id);
+    if (idx === -1) return;
+
+    users2[idx].activeCharacterId = id;
+    saveUsers(users2);
+
+    // ALSO set data.currentPlayer so your existing pages work immediately
+    if (id) {
+      const ch = chars.find(c => c.id === id);
+      if (ch) {
+        data.currentPlayer = data.currentPlayer || {};
+        data.currentPlayer.name = ch.name;
+        data.currentPlayer.party = ch.party || "Unknown";
+        data.currentPlayer.role = ch.role || "backbencher";
+        saveData(data);
+      }
+    }
+
+    location.reload();
+  };
+
+  document.getElementById("rbCreateCharBtn").onclick = () => {
+    const name = (document.getElementById("rbCharName").value || "").trim();
+    const party = (document.getElementById("rbCharParty").value || "").trim();
+    if (!name) return alert("Character name required.");
+
+    data.characters = Array.isArray(data.characters) ? data.characters : [];
+    const id = `char-${nowTs()}`;
+    data.characters.unshift({ id, name, party: party || "Independent" });
+    saveData(data);
+
+    // auto-set active
+    const users2 = getUsers();
+    const idx = users2.findIndex(u => u.id === me.id);
+    if (idx !== -1) {
+      users2[idx].activeCharacterId = id;
+      saveUsers(users2);
+    }
+
+    // keep compatibility with existing app
+    data.currentPlayer = data.currentPlayer || {};
+    data.currentPlayer.name = name;
+    data.currentPlayer.party = party || "Independent";
+    data.currentPlayer.role = "backbencher";
+    saveData(data);
+
+    location.reload();
+  };
+
+  // ROLE PANELS (scaffold only, but real and expandable)
+  let panelHtml = `
+    <div class="muted-block">
+      <b>Player</b> controls live here (your character, personal tools).
+    </div>
+  `;
+
+  if (me?.role === "speaker" || me?.role === "admin") {
+    panelHtml += `
+      <div class="muted-block" style="margin-top:12px;">
+        <b>Speaker Panel</b><br>
+        Coming next: manage divisions, certify amendments, agenda control.
+      </div>
+    `;
+  }
+
+  if (me?.role === "mod" || me?.role === "admin") {
+    panelHtml += `
+      <div class="muted-block" style="margin-top:12px;">
+        <b>Moderator Panel</b><br>
+        Coming next: post BBC news, manage papers, moderate content, set “What’s Going On”.
+      </div>
+    `;
+  }
+
+  if (me?.role === "admin") {
+    panelHtml += `
+      <div class="muted-block" style="margin-top:12px;">
+        <b>Admin Panel</b><br>
+        Coming next: manage users/roles, reset simulations, create countries/timelines, global settings.
+      </div>
+    `;
+  }
+
+  roleEl.innerHTML = panelHtml;
+}
 
   /* =========================
      BOOT
@@ -3504,11 +3737,16 @@ function openNewsPostModal(data){
       renderNewsPage(data);
       renderUserPage(data);
       renderPapersPage(data);
+      renderNewsPage(data);
+      renderControlPanel(data);
+
       initSubmitBillPage(data);
       initPartyDraftPage(data);
       initBillPage(data);
       initNewsPage(data);
       initPapersPage(data);
+       ensureUserAndSimBase(demo);
+
 
 
       startLiveRefresh();
