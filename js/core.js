@@ -1,5 +1,5 @@
 // js/core.js
-export const DATA_URL = "./demo.json";
+export const DATA_URL = "./data/demo.json";
 export const STORAGE_KEY = "rb_data_v1";
 
 export async function loadDemoJson() {
