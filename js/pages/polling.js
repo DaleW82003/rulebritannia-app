@@ -1,4 +1,10 @@
-// js/pages/polling.js
 export function initPollingPage(data) {
-  console.log("Polling page booted", { sim: data?.gameState });
+  const host = document.getElementById("polling-root") || document.querySelector("main.wrap");
+  if (!host) return;
+  host.innerHTML = `
+    <section class="panel">
+      <h1 class="page-title">Polling</h1>
+      <div class="muted-block">Stub loaded ✅ (Sunday poll + trend + seat projection next)</div>
+    </section>
+  `;
 }
