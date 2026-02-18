@@ -1,4 +1,10 @@
-// js/pages/fundraising.js
 export function initFundraisingPage(data) {
-  console.log("Fundraising page booted", { sim: data?.gameState });
+  const host = document.getElementById("fundraising-root") || document.querySelector("main.wrap");
+  if (!host) return;
+  host.innerHTML = `
+    <section class="panel">
+      <h1 class="page-title">Fundraising</h1>
+      <div class="muted-block">Stub loaded ✅ (Host templates + mod approve + private revenue next)</div>
+    </section>
+  `;
 }
