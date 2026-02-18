@@ -1,8 +1,31 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta http-equiv="refresh" content="0; url=questiontime.html">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rule Britannia – Question Time</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script defer src="app.js"></script>
 </head>
-<body></body>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="assets/RB%20Logo.png" alt="Rule Britannia" />
+        <div>
+          <div class="brand-title">Rule Britannia</div>
+          <div class="brand-sub">Political Simulator</div>
+        </div>
+      </div>
+
+      <!-- Nav is injected by app.js -->
+      <nav id="navRoot" class="nav"></nav>
+    </header>
+
+    <main class="page" id="qtOfficePage">
+      <h1 class="page-title">Question Time</h1>
+      <div id="qt-office-root"></div>
+    </main>
+  </div>
+</body>
 </html>

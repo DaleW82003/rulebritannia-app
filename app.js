@@ -1189,6 +1189,188 @@
   }
 
   /* =========================================================
+     QUESTION TIME – OFFICE DETAIL (qt-office.html)
+     Expects: <div id="qt-office-root"></div>
+     URL: qt-office.html?office=<slug>
+     Data: data.questionTime.offices + data.questionTime.questions
+     ========================================================= */
+  function initQuestionTimeOfficePage(data){
+    const root = document.getElementById("qt-office-root");
+    if (!root) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const slug = params.get("office") || "";
+
+    const qt = data.questionTime || {};
+    const offices = Array.isArray(qt.offices) ? qt.offices : [];
+    const questions = Array.isArray(qt.questions) ? qt.questions : [];
+
+    const office = offices.find(o => String(o.id) === String(slug));
+    const officeTitle = office?.title || "Office";
+    const holder = office?.holder || "—";
+
+    // Permissions (simple, deterministic, matches your current data model)
+    // - Holder of that office can answer
+    // - Prime Minister can answer anything
+    // - Leader of the House (leader-commons) can answer anything
+    const current = data.currentCharacter || data.currentPlayer || {};
+    const currentOffice = current.office || "";
+    const canAnswer = (
+      String(currentOffice) === String(slug) ||
+      String(currentOffice) === "prime-minister" ||
+      String(currentOffice) === "leader-commons"
+    );
+
+    const list = questions
+      .filter(q => String(q.office) === String(slug))
+      .slice()
+      .sort((a,b) => String(a.id).localeCompare(String(b.id)));
+
+    const openQs = list.filter(q => q.status !== "closed");
+    const closedQs = list.filter(q => q.status === "closed");
+
+    const rulesHtml = `
+      <div class="muted-block">
+        <b>${escapeHtml(officeTitle)}</b><br>
+        Office holder: <b>${escapeHtml(holder)}</b>
+        <div class="small" style="margin-top:10px;">
+          <b>Rules (Phase 1):</b>
+          <ul style="margin:6px 0 0 18px; padding:0;">
+            <li>Ministers have <b>1 simulation month</b> to answer; Speaker may demand an answer within a further month.</li>
+            <li>Follow-ups are allowed when eligible; Speaker may close threads when complete.</li>
+            <li>Prime Minister and Leader of the House can answer any office.</li>
+          </ul>
+        </div>
+      </div>
+    `;
+
+    root.innerHTML = `
+      <div class="card" style="margin-bottom:14px;">
+        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
+          <div>
+            <div class="small">Office</div>
+            <h2 style="margin:4px 0 0 0;">${escapeHtml(officeTitle)}</h2>
+            <div class="small" style="margin-top:6px;">Holder: <b>${escapeHtml(holder)}</b></div>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <a class="btn" href="questiontime.html">Back to Question Time</a>
+          </div>
+        </div>
+      </div>
+
+      ${rulesHtml}
+
+      <div class="card" style="margin-top:14px;">
+        <h3 style="margin:0 0 10px 0;">Submit a question</h3>
+        <div class="small" style="margin-bottom:10px;">Ask a question to this office. Keep it short and specific.</div>
+        <textarea id="qtAskText" class="input" rows="4" placeholder="Type your question..."></textarea>
+        <div style="display:flex; justify-content:flex-end; margin-top:10px;">
+          <button class="btn" id="qtAskBtn" type="button">Submit Question</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <h3 style="margin:0 0 10px 0;">Open questions</h3>
+        ${openQs.length ? openQs.map(q => renderQtQuestionCard(q, canAnswer)).join("") : `<div class="muted-block">No open questions for this office.</div>`}
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <h3 style="margin:0 0 10px 0;">Archived questions</h3>
+        ${closedQs.length ? closedQs.map(q => renderQtQuestionCard(q, false, true)).join("") : `<div class="muted-block">No archived questions yet.</div>`}
+      </div>
+    `;
+
+    // Submit question
+    const askBtn = document.getElementById("qtAskBtn");
+    const askText = document.getElementById("qtAskText");
+    if (askBtn && askText){
+      askBtn.addEventListener("click", () => {
+        const text = String(askText.value || "").trim();
+        if (!text) return;
+
+        const nextId = nextQtId(data);
+        const askedBy = (data.currentCharacter?.name || data.currentPlayer?.name || data.currentUser?.username || "Anonymous");
+
+        const q = {
+          id: nextId,
+          office: slug,
+          askedBy,
+          askedRole: "backbencher",
+          text,
+          status: "submitted",
+          answer: ""
+        };
+
+        data.questionTime = data.questionTime || {};
+        data.questionTime.questions = Array.isArray(data.questionTime.questions) ? data.questionTime.questions : [];
+        data.questionTime.questions.push(q);
+        saveData(data);
+        window.location.reload();
+      });
+    }
+
+    // Answer buttons (if allowed)
+    if (canAnswer){
+      document.querySelectorAll("[data-qt-answer-id]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-qt-answer-id");
+          const ta = document.querySelector(`[data-qt-answer-text='${CSS.escape(id)}']`);
+          const ans = String(ta?.value || "").trim();
+          if (!ans) return;
+
+          const q = (data.questionTime?.questions || []).find(x => String(x.id) === String(id));
+          if (!q) return;
+          q.answer = ans;
+          q.status = "answered";
+          saveData(data);
+          window.location.reload();
+        });
+      });
+    }
+  }
+
+  function nextQtId(data){
+    const qs = data.questionTime?.questions;
+    const ids = Array.isArray(qs) ? qs.map(q => String(q.id || "")) : [];
+    // Expect format qt-###
+    let max = 0;
+    for (const id of ids){
+      const m = id.match(/qt-(\d+)/i);
+      if (m) max = Math.max(max, parseInt(m[1],10) || 0);
+    }
+    const n = max + 1;
+    return `qt-${String(n).padStart(3,"0")}`;
+  }
+
+  function renderQtQuestionCard(q, canAnswer, isArchived=false){
+    const status = q.status || "submitted";
+    const statusLabel = isArchived ? "closed" : status;
+    const hasAnswer = String(q.answer || "").trim().length > 0;
+
+    return `
+      <div class="muted-block" style="margin-top:10px;">
+        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <div>
+            <div class="small"><b>${escapeHtml(q.id || "—")}</b> · ${escapeHtml(statusLabel)}</div>
+            <div style="margin-top:8px;"><b>Q:</b> ${escapeHtml(q.text || "")}</div>
+            <div class="small" style="margin-top:6px;">Asked by: ${escapeHtml(q.askedBy || "—")}</div>
+            ${hasAnswer ? `<div style="margin-top:10px;"><b>A:</b> ${escapeHtml(q.answer)}</div>` : ``}
+          </div>
+        </div>
+
+        ${(!hasAnswer && canAnswer && !isArchived) ? `
+          <div style="margin-top:10px;">
+            <textarea class="input" rows="3" data-qt-answer-text="${escapeHtml(q.id)}" placeholder="Type the ministerial answer..."></textarea>
+            <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+              <button class="btn" type="button" data-qt-answer-id="${escapeHtml(q.id)}">Submit Answer</button>
+            </div>
+          </div>
+        ` : ``}
+      </div>
+    `;
+  }
+
+  /* =========================================================
      ECONOMY PAGE (FIXED to match your demo.json)
      Expects economy.html IDs:
        - #economyKeyLines
@@ -2064,6 +2246,7 @@ ${articlesText}${finalArticle}
       // Pages
       safeRun("initBillPage",         () => initBillPage(data));
       safeRun("initQuestionTimePage", () => initQuestionTimePage(data));
+      safeRun("initQuestionTimeOfficePage", () => initQuestionTimeOfficePage(data));
       safeRun("initEconomyPage",      () => initEconomyPage(data));
       safeRun("renderUserPage",       () => renderUserPage(data));
       safeRun("initConstituenciesPage",() => initConstituenciesPage(data));
