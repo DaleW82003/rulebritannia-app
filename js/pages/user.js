@@ -201,6 +201,7 @@ function render(data, state) {
             ${openConstituencyOptions(data).map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("") || `<option value="">No open constituencies available</option>`}
           </select>
           <input class="input" name="party" placeholder="Party" required>
+          <input class="input" name="avatar" placeholder="Avatar URL (optional)">
           <input class="input" name="yearFirstElected" placeholder="Year first elected" required>
           <input class="input" name="personalBackground" placeholder="Personal background" required>
           <input class="input" name="financialBackgroundLevel" type="number" min="1" max="10" placeholder="Financial background level (1-10)" required>
@@ -378,7 +379,8 @@ function render(data, state) {
         constituency: candidate.constituency,
         yearFirstElected: candidate.yearFirstElected,
         personalBackground: candidate.personalBackground,
-        financialBackgroundLevel: Number(candidate.financialBackgroundLevel || 1)
+        financialBackgroundLevel: Number(candidate.financialBackgroundLevel || 1),
+        avatar: String(candidate.avatar || "").trim()
       };
       data.players ??= [];
       data.players.push(player);

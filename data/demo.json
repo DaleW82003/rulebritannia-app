@@ -177,31 +177,31 @@
     "polling": [
       {
         "party": "Labour",
-        "value": 34.1
+        "value": 32.4
       },
       {
         "party": "Conservative",
-        "value": 31.7
+        "value": 34.0
       },
       {
         "party": "Liberal Democrat",
-        "value": 11.2
+        "value": 11.4
       },
       {
         "party": "Green",
-        "value": 5.4
+        "value": 6.0
       },
       {
         "party": "SNP",
-        "value": 3.2
+        "value": 2.9
       },
       {
         "party": "Reform",
-        "value": 2.4
+        "value": 2.7
       },
       {
         "party": "Others",
-        "value": 12.0
+        "value": 10.6
       }
     ],
     "commonsLegislation": [
@@ -7983,7 +7983,7 @@
         "title": "Finance (Tax Administration) Act 1997",
         "author": "Alice Thorne MP",
         "department": "HM Treasury",
-        "finalStage": "Third Reading Division",
+        "finalStage": "Passed - Awaiting Assent",
         "archivedAtSim": "August 1997",
         "billText": "A Bill to modernise tax administration procedures and improve quarterly reporting standards for VAT-registered businesses.",
         "debateUrl": "https://forum.rulebritannia.org/t/finance-tax-administration-act-1997",
@@ -8017,6 +8017,52 @@
             "Leah Cunningham MP": {
               "choice": "aye",
               "weight": 46
+            }
+          }
+        },
+        "status": "awaiting-assent",
+        "assented": false
+      },
+      {
+        "id": "hansard-nhs-waiting-times-1997",
+        "title": "NHS Waiting Time Guarantees Bill 1997",
+        "author": "Leah Cunningham MP",
+        "department": "Department of Health",
+        "finalStage": "Third Reading Division",
+        "legislationKind": "Public Bill",
+        "archivedAtSim": "September 1997",
+        "billText": "A Bill to set enforceable waiting time guarantees for elective treatment and diagnostics across England.",
+        "debateUrl": "https://forum.rulebritannia.org/t/nhs-waiting-time-guarantees-bill-1997",
+        "amendments": [
+          {
+            "id": "C1",
+            "articleNumber": 3,
+            "status": "passed",
+            "proposedBy": "Rina Patel MP",
+            "text": "Add quarterly publication of trust-level compliance data."
+          },
+          {
+            "id": "C2",
+            "articleNumber": 5,
+            "status": "failed",
+            "proposedBy": "Grant Kingston MP",
+            "text": "Delay commencement until April 1999."
+          }
+        ],
+        "division": {
+          "status": "closed",
+          "votes": {
+            "Dale Weston MP": {
+              "choice": "aye",
+              "weight": 314
+            },
+            "Grant Kingston MP": {
+              "choice": "no",
+              "weight": 271
+            },
+            "Leah Cunningham MP": {
+              "choice": "aye",
+              "weight": 49
             }
           }
         }
@@ -8062,6 +8108,42 @@
             "Leah Cunningham MP": {
               "choice": "aye",
               "weight": 46
+            }
+          }
+        }
+      },
+      {
+        "id": "hansard-rail-privatisation-repeal-1997",
+        "title": "Rail Privatisation Repeal Bill 1997",
+        "author": "Tom Barlow MP",
+        "department": "Department for Transport",
+        "finalStage": "Second Reading Division",
+        "archivedAtSim": "September 1997",
+        "billText": "A Bill to repeal the rail privatisation framework and return passenger operations to a single public corporation.",
+        "debateUrl": "https://forum.rulebritannia.org/t/rail-privatisation-repeal-bill-1997",
+        "amendments": [
+          {
+            "id": "D1",
+            "articleNumber": 2,
+            "status": "failed",
+            "proposedBy": "Alice Thorne MP",
+            "text": "Retain open-access licensing under an independent regulator."
+          }
+        ],
+        "division": {
+          "status": "closed",
+          "votes": {
+            "Dale Weston MP": {
+              "choice": "no",
+              "weight": 332
+            },
+            "Grant Kingston MP": {
+              "choice": "no",
+              "weight": 255
+            },
+            "Leah Cunningham MP": {
+              "choice": "aye",
+              "weight": 47
             }
           }
         }
@@ -8268,7 +8350,7 @@
     }
   },
   "polling": {
-    "nextId": 4,
+    "nextId": 7,
     "polls": [
       {
         "id": 1,
@@ -8304,7 +8386,7 @@
           }
         ],
         "createdAt": "03/08/1997, 18:00:00",
-        "createdTs": 1769626575721
+        "createdTs": 870631200000
       },
       {
         "id": 2,
@@ -8340,7 +8422,7 @@
           }
         ],
         "createdAt": "10/08/1997, 18:00:00",
-        "createdTs": 1770231375721
+        "createdTs": 871236000000
       },
       {
         "id": 3,
@@ -8376,7 +8458,428 @@
           }
         ],
         "createdAt": "17/08/1997, 18:00:00",
-        "createdTs": 1770836175721
+        "createdTs": 871840800000
+      },
+      {
+        "id": 4,
+        "simDate": "September 1997",
+        "results": [
+          {
+            "party": "Labour",
+            "value": 33.6
+          },
+          {
+            "party": "Conservative",
+            "value": 32.2
+          },
+          {
+            "party": "Liberal Democrat",
+            "value": 11.5
+          },
+          {
+            "party": "Green",
+            "value": 5.6
+          },
+          {
+            "party": "SNP",
+            "value": 3.1
+          },
+          {
+            "party": "Reform",
+            "value": 2.5
+          },
+          {
+            "party": "Others",
+            "value": 11.5
+          }
+        ],
+        "createdAt": "07/09/1997, 18:00:00",
+        "createdTs": 873655200000
+      },
+      {
+        "id": 5,
+        "simDate": "September 1997",
+        "results": [
+          {
+            "party": "Labour",
+            "value": 33.0
+          },
+          {
+            "party": "Conservative",
+            "value": 33.1
+          },
+          {
+            "party": "Liberal Democrat",
+            "value": 11.7
+          },
+          {
+            "party": "Green",
+            "value": 5.8
+          },
+          {
+            "party": "SNP",
+            "value": 3.0
+          },
+          {
+            "party": "Reform",
+            "value": 2.6
+          },
+          {
+            "party": "Others",
+            "value": 10.8
+          }
+        ],
+        "createdAt": "21/09/1997, 18:00:00",
+        "createdTs": 874864800000
+      },
+      {
+        "id": 6,
+        "simDate": "October 1997",
+        "results": [
+          {
+            "party": "Labour",
+            "value": 32.4
+          },
+          {
+            "party": "Conservative",
+            "value": 34.0
+          },
+          {
+            "party": "Liberal Democrat",
+            "value": 11.4
+          },
+          {
+            "party": "Green",
+            "value": 6.0
+          },
+          {
+            "party": "SNP",
+            "value": 2.9
+          },
+          {
+            "party": "Reform",
+            "value": 2.7
+          },
+          {
+            "party": "Others",
+            "value": 10.6
+          }
+        ],
+        "createdAt": "05/10/1997, 18:00:00",
+        "createdTs": 876074400000
+      }
+    ],
+    "tracker": [
+      {
+        "party": "Labour",
+        "value": 32.4
+      },
+      {
+        "party": "Conservative",
+        "value": 34.0
+      },
+      {
+        "party": "Liberal Democrat",
+        "value": 11.4
+      },
+      {
+        "party": "Green",
+        "value": 6.0
+      },
+      {
+        "party": "SNP",
+        "value": 2.9
+      },
+      {
+        "party": "Reform",
+        "value": 2.7
+      },
+      {
+        "party": "Others",
+        "value": 10.6
+      }
+    ],
+    "current": {
+      "id": 6,
+      "simDate": "October 1997",
+      "publishedAt": "05/10/1997, 18:00:00",
+      "results": [
+        {
+          "party": "Labour",
+          "value": 32.4
+        },
+        {
+          "party": "Conservative",
+          "value": 34.0
+        },
+        {
+          "party": "Liberal Democrat",
+          "value": 11.4
+        },
+        {
+          "party": "Green",
+          "value": 6.0
+        },
+        {
+          "party": "SNP",
+          "value": 2.9
+        },
+        {
+          "party": "Reform",
+          "value": 2.7
+        },
+        {
+          "party": "Others",
+          "value": 10.6
+        }
+      ],
+      "trendFromLast": [
+        {
+          "party": "Conservative",
+          "value": 34.0,
+          "delta": 0.9
+        },
+        {
+          "party": "Labour",
+          "value": 32.4,
+          "delta": -0.6
+        },
+        {
+          "party": "Liberal Democrat",
+          "value": 11.4,
+          "delta": -0.3
+        },
+        {
+          "party": "Others",
+          "value": 10.6,
+          "delta": -0.2
+        },
+        {
+          "party": "Green",
+          "value": 6.0,
+          "delta": 0.2
+        },
+        {
+          "party": "SNP",
+          "value": 2.9,
+          "delta": -0.1
+        },
+        {
+          "party": "Reform",
+          "value": 2.7,
+          "delta": 0.1
+        }
+      ],
+      "seatProjectionGB": {
+        "model": "uniform-gb-swing-basic",
+        "totalSeats": 650,
+        "projected": [
+          {
+            "party": "Conservative",
+            "seats": 221
+          },
+          {
+            "party": "Labour",
+            "seats": 211
+          },
+          {
+            "party": "Liberal Democrat",
+            "seats": 74
+          },
+          {
+            "party": "Others",
+            "seats": 69
+          },
+          {
+            "party": "Green",
+            "seats": 39
+          },
+          {
+            "party": "SNP",
+            "seats": 19
+          },
+          {
+            "party": "Reform",
+            "seats": 17
+          }
+        ]
+      }
+    },
+    "archive": [
+      {
+        "id": 1,
+        "simDate": "August 1997",
+        "publishedAt": "03/08/1997, 18:00:00",
+        "results": [
+          {
+            "party": "Labour",
+            "value": 35.2
+          },
+          {
+            "party": "Conservative",
+            "value": 30.4
+          },
+          {
+            "party": "Liberal Democrat",
+            "value": 11.0
+          },
+          {
+            "party": "Green",
+            "value": 4.0
+          },
+          {
+            "party": "SNP",
+            "value": 3.4
+          },
+          {
+            "party": "Reform",
+            "value": 2.3
+          },
+          {
+            "party": "Others",
+            "value": 13.7
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "simDate": "August 1997",
+        "publishedAt": "10/08/1997, 18:00:00",
+        "results": [
+          {
+            "party": "Labour",
+            "value": 34.6
+          },
+          {
+            "party": "Conservative",
+            "value": 31.0
+          },
+          {
+            "party": "Liberal Democrat",
+            "value": 11.4
+          },
+          {
+            "party": "Green",
+            "value": 4.8
+          },
+          {
+            "party": "SNP",
+            "value": 3.2
+          },
+          {
+            "party": "Reform",
+            "value": 2.1
+          },
+          {
+            "party": "Others",
+            "value": 12.9
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "simDate": "August 1997",
+        "publishedAt": "17/08/1997, 18:00:00",
+        "results": [
+          {
+            "party": "Labour",
+            "value": 34.1
+          },
+          {
+            "party": "Conservative",
+            "value": 31.7
+          },
+          {
+            "party": "Liberal Democrat",
+            "value": 11.2
+          },
+          {
+            "party": "Green",
+            "value": 5.4
+          },
+          {
+            "party": "SNP",
+            "value": 3.2
+          },
+          {
+            "party": "Reform",
+            "value": 2.4
+          },
+          {
+            "party": "Others",
+            "value": 12.0
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "simDate": "September 1997",
+        "publishedAt": "07/09/1997, 18:00:00",
+        "results": [
+          {
+            "party": "Labour",
+            "value": 33.6
+          },
+          {
+            "party": "Conservative",
+            "value": 32.2
+          },
+          {
+            "party": "Liberal Democrat",
+            "value": 11.5
+          },
+          {
+            "party": "Green",
+            "value": 5.6
+          },
+          {
+            "party": "SNP",
+            "value": 3.1
+          },
+          {
+            "party": "Reform",
+            "value": 2.5
+          },
+          {
+            "party": "Others",
+            "value": 11.5
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "simDate": "September 1997",
+        "publishedAt": "21/09/1997, 18:00:00",
+        "results": [
+          {
+            "party": "Labour",
+            "value": 33.0
+          },
+          {
+            "party": "Conservative",
+            "value": 33.1
+          },
+          {
+            "party": "Liberal Democrat",
+            "value": 11.7
+          },
+          {
+            "party": "Green",
+            "value": 5.8
+          },
+          {
+            "party": "SNP",
+            "value": 3.0
+          },
+          {
+            "party": "Reform",
+            "value": 2.6
+          },
+          {
+            "party": "Others",
+            "value": 10.8
+          }
+        ]
       }
     ]
   },
@@ -8421,105 +8924,145 @@
           },
           {
             "party": "Labour",
-            "seats": 35,
-            "vote": 33.0
+            "seats": 38,
+            "vote": 32.2
           },
           {
             "party": "Liberal Democrat",
             "seats": 8,
-            "vote": 10.0
+            "vote": 16.4
+          },
+          {
+            "party": "Green",
+            "seats": 1,
+            "vote": 6.1
+          },
+          {
+            "party": "Others",
+            "seats": 0,
+            "vote": 10.3
           }
         ],
-        "createdAt": "10/06/1994, 20:00:00",
-        "createdTs": 1771392194349
+        "createdAt": "12/06/1994, 21:00:00",
+        "createdTs": 1718226000000
       },
       "scottish-parliament": {
         "date": "May 1995",
         "results": [
           {
             "party": "Labour",
-            "seats": 58,
-            "vote": 39.4
+            "seats": 64,
+            "vote": 36.1
+          },
+          {
+            "party": "SNP",
+            "seats": 43,
+            "vote": 29.5
           },
           {
             "party": "Conservative",
-            "seats": 44,
-            "vote": 31.8
+            "seats": 11,
+            "vote": 15.8
           },
           {
             "party": "Liberal Democrat",
-            "seats": 16,
-            "vote": 11.4
+            "seats": 9,
+            "vote": 12.2
+          },
+          {
+            "party": "Green",
+            "seats": 2,
+            "vote": 3.1
           }
         ],
-        "createdAt": "15/05/1995, 20:00:00",
-        "createdTs": 1771393194349
+        "createdAt": "07/05/1995, 22:00:00",
+        "createdTs": 1736037600000
       },
       "welsh-senedd": {
         "date": "May 1995",
         "results": [
           {
             "party": "Labour",
-            "seats": 34,
-            "vote": 37.0
+            "seats": 28,
+            "vote": 39.8
           },
           {
             "party": "Conservative",
-            "seats": 20,
-            "vote": 30.0
+            "seats": 15,
+            "vote": 27.2
+          },
+          {
+            "party": "Plaid Cymru",
+            "seats": 12,
+            "vote": 22.0
           },
           {
             "party": "Liberal Democrat",
-            "seats": 6,
-            "vote": 12.0
+            "seats": 5,
+            "vote": 8.6
           }
         ],
-        "createdAt": "15/05/1995, 20:00:00",
-        "createdTs": 1771394194349
+        "createdAt": "07/05/1995, 22:15:00",
+        "createdTs": 1736038500000
       },
       "ni-assembly": {
         "date": "May 1996",
         "results": [
           {
-            "party": "UUP",
-            "seats": 28,
-            "vote": 28.0
+            "party": "DUP",
+            "seats": 34,
+            "vote": 28.1
           },
           {
             "party": "SDLP",
-            "seats": 24,
-            "vote": 22.0
+            "seats": 26,
+            "vote": 21.4
           },
           {
-            "party": "DUP",
+            "party": "UUP",
+            "seats": 24,
+            "vote": 20.2
+          },
+          {
+            "party": "Sinn F\u00e9in",
             "seats": 20,
-            "vote": 18.0
+            "vote": 18.6
+          },
+          {
+            "party": "Alliance",
+            "seats": 4,
+            "vote": 7.0
           }
         ],
-        "createdAt": "18/05/1996, 20:00:00",
-        "createdTs": 1771395194349
+        "createdAt": "16/05/1996, 23:00:00",
+        "createdTs": 1747436400000
       },
       "english-locals": {
         "date": "May 1997",
         "results": [
           {
             "party": "Conservative",
-            "seats": 6200,
-            "vote": 39.0
+            "seats": 3900,
+            "vote": 38.7
           },
           {
             "party": "Labour",
-            "seats": 5900,
-            "vote": 37.0
+            "seats": 3450,
+            "vote": 35.2
           },
           {
             "party": "Liberal Democrat",
-            "seats": 1700,
-            "vote": 12.0
+            "seats": 1350,
+            "vote": 18.1
+          },
+          {
+            "party": "Green",
+            "seats": 180,
+            "vote": 4.4
           }
         ],
         "createdAt": "09/05/1997, 20:00:00",
-        "createdTs": 1771396194349
+        "createdTs": 1771824000000
       },
       "scottish-locals": {
         "date": "May 1997",
@@ -8527,65 +9070,80 @@
           {
             "party": "Labour",
             "seats": 520,
-            "vote": 36.0
+            "vote": 34.2
+          },
+          {
+            "party": "SNP",
+            "seats": 430,
+            "vote": 30.6
           },
           {
             "party": "Conservative",
-            "seats": 380,
-            "vote": 28.0
+            "seats": 230,
+            "vote": 19.7
           },
           {
             "party": "Liberal Democrat",
-            "seats": 180,
-            "vote": 14.0
+            "seats": 210,
+            "vote": 13.1
           }
         ],
-        "createdAt": "09/05/1997, 20:00:00",
-        "createdTs": 1771397194349
+        "createdAt": "09/05/1997, 20:10:00",
+        "createdTs": 1771824600000
       },
       "welsh-locals": {
         "date": "May 1997",
         "results": [
           {
             "party": "Labour",
-            "seats": 410,
-            "vote": 38.0
+            "seats": 540,
+            "vote": 40.1
           },
           {
             "party": "Conservative",
+            "seats": 290,
+            "vote": 25.8
+          },
+          {
+            "party": "Plaid Cymru",
             "seats": 250,
-            "vote": 29.0
+            "vote": 23.4
           },
           {
             "party": "Liberal Democrat",
             "seats": 110,
-            "vote": 13.0
+            "vote": 8.0
           }
         ],
-        "createdAt": "09/05/1997, 20:00:00",
-        "createdTs": 1771398194349
+        "createdAt": "09/05/1997, 20:20:00",
+        "createdTs": 1771825200000
       },
       "ni-locals": {
         "date": "May 1997",
         "results": [
           {
+            "party": "DUP",
+            "seats": 140,
+            "vote": 26.9
+          },
+          {
             "party": "UUP",
-            "seats": 210,
-            "vote": 30.0
+            "seats": 132,
+            "vote": 24.7
           },
           {
             "party": "SDLP",
-            "seats": 170,
-            "vote": 24.0
+            "seats": 126,
+            "vote": 22.6
           },
           {
-            "party": "DUP",
-            "seats": 160,
-            "vote": 22.0
+            "party": "Sinn F\u00e9in",
+            "seats": 118,
+            "vote": 20.8
           }
         ],
-        "createdAt": "09/05/1997, 20:00:00",
-        "createdTs": 1771399194349
+        "createdAt": "09/05/1997, 20:30:00",
+        "createdTs": 1771825800000
       }
     },
     "archive": [
@@ -8613,7 +9171,42 @@
         "createdAt": "10/04/1992, 20:00:00",
         "createdTs": 1771361194349
       }
-    ]
+    ],
+    "pendingGeneral": {
+      "type": "general",
+      "date": "May 2001",
+      "liveCampaignUrl": "https://forum.rulebritannia.org/c/elections/general-election-2001",
+      "results": [
+        {
+          "party": "Labour",
+          "seats": 318,
+          "vote": 40.2
+        },
+        {
+          "party": "Conservative",
+          "seats": 272,
+          "vote": 35.6
+        },
+        {
+          "party": "Liberal Democrat",
+          "seats": 36,
+          "vote": 14.1
+        },
+        {
+          "party": "SNP",
+          "seats": 14,
+          "vote": 3.2
+        },
+        {
+          "party": "Others",
+          "seats": 10,
+          "vote": 6.9
+        }
+      ],
+      "submittedBy": "Moderator",
+      "createdAt": "18/02/2026, 21:00:00",
+      "createdTs": 1771534800000
+    }
   },
   "constituencyWork": {
     "plansByCharacter": {
@@ -8636,7 +9229,7 @@
     }
   },
   "events": {
-    "nextId": 4,
+    "nextId": 7,
     "items": [
       {
         "id": 1,
@@ -8651,9 +9244,14 @@
         "status": "approved",
         "speeches": [
           {
-            "author": "Leah Cunningham MP",
-            "body": "Our local priorities begin with policing and housing delivery.",
+            "author": "Alice Thorne MP",
+            "body": "We will keep inflation controlled while supporting enterprise.",
             "createdAt": "17/02/2026, 11:20:00"
+          },
+          {
+            "author": "Graham Pike MP",
+            "body": "Transport investment must deliver in every region, not just London.",
+            "createdAt": "17/02/2026, 14:05:00"
           },
           {
             "author": "Dale Weston MP",
@@ -8668,6 +9266,34 @@
       },
       {
         "id": 2,
+        "type": "conference",
+        "party": "Labour",
+        "hostName": "John Shade MP",
+        "hostId": "John Shade MP",
+        "location": "Liverpool Arena",
+        "reason": "",
+        "openingSpeech": "Our conference will focus on living standards, schools, and constitutional renewal.",
+        "guestSpeaker": "Leah Cunningham MP",
+        "status": "approved",
+        "speeches": [
+          {
+            "author": "Leah Cunningham MP",
+            "body": "Conference speech: we need practical reforms for NHS waiting times.",
+            "createdAt": "18/02/2026, 09:15:00"
+          },
+          {
+            "author": "Tom Barlow MP",
+            "body": "Local transport inequality is still holding communities back.",
+            "createdAt": "18/02/2026, 10:40:00"
+          }
+        ],
+        "createdAt": "17/02/2026, 08:30:00",
+        "createdTs": 1771528200000,
+        "approvedAt": "17/02/2026, 10:00:00",
+        "closesAtSimIndex": 23973
+      },
+      {
+        "id": 3,
         "type": "event",
         "party": "Conservative",
         "hostName": "Tom Barlow MP",
@@ -8677,25 +9303,14 @@
         "openingSpeech": "Today we met local employers to discuss practical support and skills investment.",
         "guestSpeaker": "West of England Mayor",
         "status": "closed",
-        "speeches": [
-          {
-            "by": "Dale Weston MP",
-            "role": "prime-minister",
-            "text": "This event reflects our commitment to practical reform and delivery."
-          },
-          {
-            "by": "John Shade MP",
-            "role": "leader-opposition",
-            "text": "We welcome ambition, but ministers must prove they can meet their promises."
-          }
-        ],
+        "speeches": [],
         "createdAt": "10/02/2026, 14:00:00",
         "createdTs": 1771432596164,
         "approvedAt": "10/02/2026, 17:00:00",
         "closesAtSimIndex": 23973
       },
       {
-        "id": 3,
+        "id": 4,
         "type": "event",
         "party": "Conservative",
         "hostName": "Grant Kingston MP",
@@ -8705,38 +9320,81 @@
         "openingSpeech": "I want to outline our local plan on antisocial behaviour and town-centre policing.",
         "guestSpeaker": "",
         "status": "cancelled",
-        "speeches": [
-          {
-            "by": "Dale Weston MP",
-            "role": "prime-minister",
-            "text": "This event reflects our commitment to practical reform and delivery."
-          },
-          {
-            "by": "John Shade MP",
-            "role": "leader-opposition",
-            "text": "We welcome ambition, but ministers must prove they can meet their promises."
-          }
-        ],
+        "speeches": [],
         "createdAt": "08/02/2026, 09:00:00",
         "createdTs": 1771429596164,
         "approvedAt": null,
         "closesAtSimIndex": null
+      },
+      {
+        "id": 5,
+        "type": "conference",
+        "party": "Liberal Democrat",
+        "hostName": "Lydia Hart MP",
+        "hostId": "Lydia Hart MP",
+        "location": "Bournemouth Conference Centre",
+        "reason": "",
+        "openingSpeech": "Our members will debate local power, climate transition, and civil liberties.",
+        "guestSpeaker": "",
+        "status": "pending",
+        "speeches": [],
+        "createdAt": "19/02/2026, 09:00:00",
+        "createdTs": 1771606800000,
+        "approvedAt": null,
+        "closesAtSimIndex": null
+      },
+      {
+        "id": 6,
+        "type": "event",
+        "party": "Labour",
+        "hostName": "Harriet Cole MP",
+        "hostId": "Harriet Cole MP",
+        "location": "Sheffield City Hall",
+        "reason": "Cost of living town-hall",
+        "openingSpeech": "Families are asking for certainty on bills and housing costs, and we must answer that.",
+        "guestSpeaker": "Amelia Frost MP",
+        "status": "approved",
+        "speeches": [],
+        "createdAt": "18/02/2026, 16:00:00",
+        "createdTs": 1771599600000,
+        "approvedAt": "18/02/2026, 18:00:00",
+        "closesAtSimIndex": 23972
       }
     ]
   },
   "fundraising": {
-    "nextId": 4,
+    "nextId": 6,
     "balances": {
       "parties": {
-        "Conservative": 124000
+        "Conservative": 234000,
+        "Labour": 92000
       },
       "factions": {
-        "Dale Weston MP": 9200
+        "Dale Weston MP": 9000,
+        "Rachel Morgan MP": 2800
       }
     },
     "items": [
       {
         "id": 1,
+        "type": "individual-luncheon",
+        "scope": "faction",
+        "party": "Conservative",
+        "hostName": "Rachel Morgan MP",
+        "hostId": "Rachel Morgan MP",
+        "location": "Bristol Civic Rooms",
+        "guestSpeaker": "",
+        "specialDetails": "Local business breakfast before luncheon",
+        "speech": "Small donor remarks focused on apprenticeships and local high-street investment.",
+        "status": "approved",
+        "grossRevenue": 3300,
+        "cost": 500,
+        "netRevenue": 2800,
+        "createdAt": "07/02/2026, 12:30:00",
+        "createdTs": 1771331400000
+      },
+      {
+        "id": 2,
         "type": "individual-dinner",
         "scope": "faction",
         "party": "Conservative",
@@ -8754,7 +9412,25 @@
         "createdTs": 1771432783419
       },
       {
-        "id": 2,
+        "id": 3,
+        "type": "party-dinner",
+        "scope": "party",
+        "party": "Labour",
+        "hostName": "Harriet Cole MP",
+        "hostId": "Harriet Cole MP",
+        "location": "Birmingham International Convention Centre",
+        "guestSpeaker": "Leah Cunningham MP",
+        "specialDetails": "Trade union delegation and policy briefing",
+        "speech": "A one-nation pitch on public service renewal and growth for every region.",
+        "status": "approved",
+        "grossRevenue": 112000,
+        "cost": 20000,
+        "netRevenue": 92000,
+        "createdAt": "09/02/2026, 20:10:00",
+        "createdTs": 1771426210000
+      },
+      {
+        "id": 4,
         "type": "party-gala",
         "scope": "party",
         "party": "Conservative",
@@ -8765,29 +9441,29 @@
         "specialDetails": "Live band and business sponsor tables",
         "speech": "Conference gala remarks on growth, public services and party renewal.",
         "status": "approved",
-        "grossRevenue": 185000,
+        "grossRevenue": 285000,
         "cost": 60000,
-        "netRevenue": 125000,
+        "netRevenue": 225000,
         "createdAt": "10/02/2026, 20:30:00",
         "createdTs": 1771428783419
       },
       {
-        "id": 3,
-        "type": "individual-luncheon",
-        "scope": "faction",
+        "id": 5,
+        "type": "party-gala",
+        "scope": "party",
         "party": "Conservative",
         "hostName": "Tom Barlow MP",
         "hostId": "Tom Barlow MP",
-        "location": "Leeds Chamber Hall",
-        "guestSpeaker": "",
-        "specialDetails": "Small donor lunch",
-        "speech": "A local speech on town centre regeneration and jobs.",
-        "status": "cancelled",
+        "location": "Leeds Arena",
+        "guestSpeaker": "Rt Hon Alice Thorne MP",
+        "specialDetails": "Premium tables and donor reception",
+        "speech": "Major donor address awaiting moderation and revenue allocation.",
+        "status": "pending",
         "grossRevenue": null,
-        "cost": 500,
+        "cost": 60000,
         "netRevenue": null,
-        "createdAt": "08/02/2026, 13:15:00",
-        "createdTs": 1771424783419
+        "createdAt": "19/02/2026, 20:45:00",
+        "createdTs": 1771609500000
       }
     ]
   },

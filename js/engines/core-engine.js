@@ -46,22 +46,31 @@ export function runSundayRoll(data) {
   data.hansard.passed ??= [];
   data.hansard.defeated ??= [];
 
+  const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
   const remaining = [];
+
   for (const bill of bills) {
-    if (bill?.status === "passed") {
+    const divisionAt = Number(bill?.divisionResolvedAt || bill?.division?.closedAt || 0);
+    const matured = Number.isFinite(divisionAt) && divisionAt > 0 && (now - divisionAt) >= FOURTEEN_DAYS_MS;
+
+    if (bill?.status === "passed" && matured) {
       const passedItem = { ...bill, archivedAtSim: bill.archivedAtSim || "Sunday Roll" };
-      const becameAct = String(bill.stage || "").toLowerCase().includes("royal assent") || String(bill.finalStage || "").toLowerCase().includes("royal assent");
+      const becameAct = String(bill.stage || "").toLowerCase().includes("act") || String(bill.finalStage || "").toLowerCase().includes("royal assent");
       passedItem.legislationKind = becameAct ? "Act of Parliament" : "Bill";
       if (becameAct) passedItem.title = String(passedItem.title || "").replace(/bill/ig, "Act");
       data.hansard.passed.unshift(passedItem);
       continue;
     }
-    if (bill?.status === "failed" || bill?.status === "stalled") {
+
+    if ((bill?.status === "failed" || bill?.status === "stalled") && matured) {
       data.hansard.defeated.unshift({ ...bill, archivedAtSim: bill.archivedAtSim || "Sunday Roll" });
       continue;
     }
+
     remaining.push(bill);
   }
+
   data.orderPaperCommons = remaining;
   saveData(data);
 }
