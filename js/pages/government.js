@@ -75,6 +75,27 @@ function getOfficeMap(data) {
   return new Map((data.government?.offices || []).map((o) => [o.id, o]));
 }
 
+
+function avatarFromCharacterProfile(data, name) {
+  const target = String(name || "").trim();
+  if (!target) return "";
+
+  const pools = [
+    ...(Array.isArray(data?.players) ? data.players : []),
+    ...(Array.isArray(data?.government?.activeCharacters) ? data.government.activeCharacters : []),
+    ...(Array.isArray(data?.opposition?.activeCharacters) ? data.opposition.activeCharacters : []),
+    data?.currentCharacter,
+    data?.currentPlayer
+  ].filter(Boolean);
+
+  for (const c of pools) {
+    if (String(c?.name || "").trim() !== target) continue;
+    const avatar = String(c?.avatar || "").trim();
+    if (avatar) return avatar;
+  }
+  return "";
+}
+
 function getActiveCharacterChoices(data) {
   const fromGov = Array.isArray(data.government?.activeCharacters)
     ? data.government.activeCharacters.filter((c) => c.name && c.active)
@@ -149,7 +170,7 @@ function render(data, state) {
         ${OFFICE_SPECS.map((spec) => {
           const office = officeMap.get(spec.id) || {};
           const name = office.holderName || "Vacant";
-          const avatar = office.holderAvatar || "";
+          const avatar = avatarFromCharacterProfile(data, office.holderName) || office.holderAvatar || "";
           const editable = canEditOffice(data, spec.id);
           return `
             <article class="tile" style="display:grid;grid-template-columns:minmax(260px,2fr) minmax(220px,2fr) 84px;gap:10px;align-items:center;">
@@ -180,33 +201,6 @@ function render(data, state) {
       ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
     </section>
 
-    ${manager ? `
-      <section class="panel">
-        <h2 style="margin-top:0;">Active Character Roster (Moderator Control)</h2>
-        <form id="active-char-form" style="display:grid;grid-template-columns:minmax(200px,1fr) minmax(200px,1fr) auto;gap:8px;align-items:end;">
-          <div>
-            <label class="label" for="active-char-name">Character Name</label>
-            <input id="active-char-name" class="input" name="name" required>
-          </div>
-          <div>
-            <label class="label" for="active-char-avatar">Avatar URL (optional)</label>
-            <input id="active-char-avatar" class="input" name="avatar">
-          </div>
-          <button type="submit" class="btn">Add Active Character</button>
-        </form>
-
-        <div style="margin-top:10px;display:grid;gap:8px;">
-          ${data.government.activeCharacters.length ? data.government.activeCharacters.map((c, idx) => `
-            <article class="tile" style="display:grid;grid-template-columns:minmax(180px,2fr) minmax(180px,2fr) auto auto;gap:8px;align-items:center;">
-              <div><b>${esc(c.name)}</b></div>
-              <input class="input" type="url" data-action="set-avatar" data-index="${idx}" value="${esc(c.avatar || "")}" placeholder="Avatar URL">
-              <button type="button" class="btn" data-action="toggle-active" data-index="${idx}">${c.active ? "Set Inactive" : "Set Active"}</button>
-              <button type="button" class="btn" data-action="remove-char" data-index="${idx}">Remove</button>
-            </article>
-          `).join("") : `<div class="muted-block">No active characters configured.</div>`}
-        </div>
-      </section>
-    ` : ""}
   `;
 
   host.querySelector("#gov-save")?.addEventListener("click", () => {
@@ -217,8 +211,7 @@ function render(data, state) {
       const office = officeMap.get(officeId);
       if (!office) continue;
       office.holderName = selectedName;
-      const char = data.government.activeCharacters.find((c) => c.name === selectedName);
-      office.holderAvatar = char?.avatar || "";
+      office.holderAvatar = avatarFromCharacterProfile(data, selectedName) || "";
     }
 
     applyAssignmentEffects(data);
@@ -227,69 +220,7 @@ function render(data, state) {
     render(data, state);
   });
 
-  host.querySelector("#active-char-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const name = String(fd.get("name") || "").trim();
-    const avatar = String(fd.get("avatar") || "").trim();
-    if (!name) return;
-    const existing = data.government.activeCharacters.find((c) => c.name.toLowerCase() === name.toLowerCase());
-    if (existing) {
-      existing.active = true;
-      if (avatar) existing.avatar = avatar;
-    } else {
-      data.government.activeCharacters.push({ name, avatar, active: true });
-    }
-    saveData(data);
-    state.message = `Updated active roster for ${name}.`;
-    render(data, state);
-  });
 
-  host.querySelectorAll('[data-action="toggle-active"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.dataset.index);
-      const char = data.government.activeCharacters[idx];
-      if (!char) return;
-      char.active = !char.active;
-      saveData(data);
-      state.message = `${char.name} marked ${char.active ? "active" : "inactive"}.`;
-      render(data, state);
-    });
-  });
-
-  host.querySelectorAll('[data-action="remove-char"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.dataset.index);
-      const char = data.government.activeCharacters[idx];
-      if (!char) return;
-      data.government.activeCharacters.splice(idx, 1);
-      for (const office of data.government.offices) {
-        if (office.holderName === char.name) {
-          office.holderName = "";
-          office.holderAvatar = "";
-        }
-      }
-      applyAssignmentEffects(data);
-      saveData(data);
-      state.message = `${char.name} removed from active roster.`;
-      render(data, state);
-    });
-  });
-
-  host.querySelectorAll('[data-action="set-avatar"]').forEach((input) => {
-    input.addEventListener("change", () => {
-      const idx = Number(input.dataset.index);
-      const char = data.government.activeCharacters[idx];
-      if (!char) return;
-      char.avatar = String(input.value || "").trim();
-      for (const office of data.government.offices) {
-        if (office.holderName === char.name) office.holderAvatar = char.avatar;
-      }
-      saveData(data);
-      state.message = `Avatar updated for ${char.name}.`;
-      render(data, state);
-    });
-  });
 }
 
 export function initGovernmentPage(data) {

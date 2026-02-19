@@ -39,6 +39,29 @@ function canAccessDepartment(data, officeId) {
   return canRaiseCivilServiceCase(data, officeId);
 }
 
+function selectedDeptFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    return String(url.searchParams.get("dept") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function setDeptInUrl(deptId) {
+  try {
+    const url = new URL(window.location.href);
+    if (deptId) {
+      url.searchParams.set("dept", deptId);
+    } else {
+      url.searchParams.delete("dept");
+    }
+    window.history.replaceState({}, "", url.toString());
+  } catch {
+    // no-op in non-browser contexts
+  }
+}
+
 function normaliseCivilService(data) {
   data.civilService ??= {};
   data.civilService.departments ??= CS_DEPARTMENTS.map((d) => ({ ...d }));
@@ -97,14 +120,16 @@ function render(data, state) {
   const char = getChar(data);
   const mod = canModerate(data);
   const govMember = isGovernmentMember(data);
-  const selectedDeptId = state.selectedDeptId || data.civilService.departments[0]?.id;
+  const requestedDeptId = state.selectedDeptId || selectedDeptFromUrl();
+  const hasDeptSelected = Boolean(requestedDeptId);
+  const selectedDeptId = hasDeptSelected ? requestedDeptId : data.civilService.departments[0]?.id;
   const dept = data.civilService.departments.find((d) => d.id === selectedDeptId) || data.civilService.departments[0];
   if (!dept) {
     host.innerHTML = '<section class="panel"><div class="muted-block">No Civil Service departments configured.</div></section>';
     return;
   }
 
-  state.selectedDeptId = dept.id;
+  state.selectedDeptId = hasDeptSelected ? dept.id : "";
   const deptCases = data.civilService.cases
     .filter((c) => c.deptId === dept.id)
     .sort((a, b) => b.id - a.id);
@@ -122,6 +147,7 @@ function render(data, state) {
         <p class="muted" style="margin-bottom:0;">Government members raise department cases. Mods/Admin respond as Civil Servants and can close cases.</p>
       </section>
 
+      ${!hasDeptSelected ? `
       <section class="panel" style="margin-bottom:12px;">
         <h2 style="margin-top:0;">Departments</h2>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
@@ -131,20 +157,25 @@ function render(data, state) {
             const closedCount = data.civilService.cases.filter((c) => c.deptId === d.id && c.status === "closed").length;
             return `
               <article class="tile card-flex">
-                <div><b>${esc(d.name)}</b></div>
+                <div><b>${esc(d.name)} Office</b></div>
                 <div class="muted" style="margin-top:6px;">${esc(d.officeTitle)}</div>
                 <div class="muted" style="margin-top:6px;">Open: ${openCount} • Closed: ${closedCount}</div>
                 <div class="tile-bottom">
-                  <button class="btn" type="button" data-action="open-dept" data-id="${esc(d.id)}" ${accessible ? "" : "disabled"}>${accessible ? "Open" : "No Access"}</button>
+                  <button class="btn" type="button" data-action="open-dept" data-id="${esc(d.id)}" ${accessible ? "" : "disabled"}>${accessible ? "Open Office" : "No Access"}</button>
                 </div>
               </article>
             `;
           }).join("")}
         </div>
       </section>
+      ` : ""}
 
+      ${hasDeptSelected ? `
       <section class="panel">
-        <h2 style="margin-top:0;">${esc(dept.name)} Case Panel</h2>
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+          <h2 style="margin:0;">${esc(dept.name)} Office</h2>
+          <button type="button" class="btn" data-action="back-to-directory">Back to Departments</button>
+        </div>
         <p class="muted">${esc(dept.officeTitle)}</p>
 
         ${canAccessDepartment(data, dept.officeId) ? `
@@ -190,6 +221,7 @@ function render(data, state) {
           `;
         }).join("") : '<div class="muted-block">No cases for this department yet.</div>'}
       </section>
+      ` : ""}
 
       ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
     `}
@@ -199,8 +231,16 @@ function render(data, state) {
     btn.addEventListener("click", () => {
       state.selectedDeptId = String(btn.dataset.id || "");
       state.openCaseId = null;
+      setDeptInUrl(state.selectedDeptId);
       render(data, state);
     });
+  });
+
+  host.querySelector('[data-action="back-to-directory"]')?.addEventListener("click", () => {
+    state.selectedDeptId = "";
+    state.openCaseId = null;
+    setDeptInUrl("");
+    render(data, state);
   });
 
   host.querySelector("#cs-new-case-form")?.addEventListener("submit", (e) => {
@@ -293,5 +333,5 @@ function render(data, state) {
 export function initCivilServicePage(data) {
   normaliseCivilService(data);
   saveData(data);
-  render(data, { selectedDeptId: "10ds", openCaseId: null, message: "" });
+  render(data, { selectedDeptId: selectedDeptFromUrl(), openCaseId: null, message: "" });
 }

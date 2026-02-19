@@ -61,6 +61,7 @@ function showBootError(err) {
 }
 
 (async function () {
+  document.body.dataset.bootState = "booting";
   try {
     const data = await bootData();
     initNavUI();
@@ -118,6 +119,7 @@ function showBootError(err) {
 
     if (typeof init === "function") {
       init(data);
+      document.body.dataset.bootState = "ready";
       return;
     }
 
@@ -135,8 +137,10 @@ function showBootError(err) {
       `<b>Page not wired:</b> This HTML is missing a valid <code>data-page</code> route. ` +
       `Current value: <code>${page || "(empty)"}</code>`;
     document.body.prepend(warn);
+    document.body.dataset.bootState = "route-missing";
 
   } catch (err) {
+    document.body.dataset.bootState = "error";
     showBootError(err);
   }
 })();

@@ -64,12 +64,22 @@ export function ensureDefaults(data) {
 
 export async function bootData() {
   const demo = await loadDemoJson();
-  let data = getData();
-  if (!data) data = demo;
+  const data = getData();
 
-  data = ensureDefaults(data);
-  saveData(data);
-  return data;
+  // Keep the app demo-first so deployed environments always show seeded content
+  // (including newly added showcase datasets) while preserving the active login context.
+  const next = data
+    ? {
+        ...demo,
+        currentUser: data.currentUser ?? demo.currentUser,
+        currentCharacter: data.currentCharacter ?? demo.currentCharacter,
+        currentPlayer: data.currentPlayer ?? demo.currentPlayer
+      }
+    : demo;
+
+  const ensured = ensureDefaults(next);
+  saveData(ensured);
+  return ensured;
 }
 
 export function qs(sel, root = document) {

@@ -33,6 +33,13 @@ function avatarFor(name, avatar) {
   return `https://dummyimage.com/48x48/1f3b60/ffffff&text=${encodeURIComponent(i)}`;
 }
 
+function preferredTwitterHandle(char) {
+  const custom = String(char?.twitterHandle || "").trim().replace(/^@+/, "");
+  if (custom) return `@${custom.toLowerCase()}`;
+  const fallback = String(char?.name || "character").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return `@${fallback || "character"}`;
+}
+
 function ensureOnline(data) {
   data.online ??= {
     settings: { webPost: true, webHistory: true, facebook: true, twitter: true },
@@ -160,11 +167,11 @@ function render(data, state) {
         <form id="online-twitter-form" style="margin-bottom:10px;">
           <label class="label" for="tw-handle">Handle</label>
           <select id="tw-handle" name="handle" class="input">
-            <option value="@${esc((char?.name || "character").toLowerCase().replace(/[^a-z0-9]/g, ""))}">@${esc((char?.name || "character").toLowerCase().replace(/[^a-z0-9]/g, ""))}</option>
+            <option value="${esc(preferredTwitterHandle(char))}">${esc(preferredTwitterHandle(char))}</option>
             ${(String(char?.role || "").includes("leader") || char?.office === "prime-minister") && char?.party ? `<option value="@${esc(char.party.replace(/\s+/g, ""))}">@${esc(char.party.replace(/\s+/g, ""))}</option>` : ""}
             ${mod ? `<option value="@npc">@npc (custom below)</option>` : ""}
           </select>
-          ${mod ? `<label class="label" for="tw-custom">Custom handle (mods only)</label><input id="tw-custom" name="customHandle" class="input" placeholder="@DowningStreetPress">` : ""}
+          ${mod ? `<label class="label" for="tw-custom">Custom handle (mods only)</label><input id="tw-custom" name="customHandle" class="input" placeholder="@DowningStreetPress"><label class="label" for="tw-display-custom">NPC display name (mods only)</label><input id="tw-display-custom" name="customDisplayName" class="input" placeholder="Civil Service Spokesperson">` : ""}
           <label class="label" for="tw-body">Tweet (${limit} chars)</label>
           <textarea id="tw-body" name="body" class="input" rows="3" maxlength="${limit}" required></textarea>
           <button class="btn" type="submit">Tweet</button>
@@ -255,10 +262,14 @@ function render(data, state) {
     }
     if (!handle.startsWith("@")) handle = `@${handle}`;
 
+    const displayName = mod && String(fd.get("handle") || "").trim() === "@npc"
+      ? (String(fd.get("customDisplayName") || "").trim() || "NPC")
+      : (char?.name || "Character");
+
     data.online.twitterPosts.push({
       id: data.online.nextId++,
       handle,
-      displayName: char?.name || "Character",
+      displayName,
       body,
       createdAt: new Date().toLocaleString("en-GB"),
       createdTs: Date.now()

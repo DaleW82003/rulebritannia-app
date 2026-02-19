@@ -1,6 +1,7 @@
 import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolveDivisionResult, setNpcVotes, setRebellions } from "../engines/division-engine.js";
 import { saveData } from "../core.js";
 import { buildDivisionWeights } from "../divisions.js";
+import { isAdmin, isMod } from "../permissions.js";
 
 function $(id) {
   return document.getElementById(id);
@@ -71,6 +72,48 @@ function stageCountdown(bill) {
   return msToHuman(start + dur - Date.now());
 }
 
+
+function canGrantAssent(data) {
+  return isMod(data) || isAdmin(data);
+}
+
+function finaliseDivisionOutcome(bill, data) {
+  const division = ensureDivision(bill);
+  if (division.status !== "closed") return false;
+
+  if (["passed", "failed", "stalled", "awaiting-assent"].includes(String(bill.status || "")) && bill.divisionOutcome) {
+    return false;
+  }
+
+  const result = resolveDivisionResult(bill, data);
+  if (result === "tied") return false;
+
+  bill.divisionOutcome = result;
+  bill.divisionResolvedAt = Number(division.closedAt || Date.now());
+  bill.finalStage = bill.finalStage || "Third Reading Division";
+
+  if (result === "passed") {
+    bill.status = "awaiting-assent";
+    bill.stage = "Passed - Awaiting Assent";
+    bill.awaitingAssentSince = bill.divisionResolvedAt;
+  } else {
+    bill.status = "failed";
+    bill.stage = "Defeated in Division";
+  }
+
+  return true;
+}
+
+function grantRoyalAssent(bill) {
+  bill.status = "passed";
+  bill.stage = "Act (Royal Assent Granted)";
+  bill.finalStage = "Royal Assent";
+  bill.legislationKind = "Act of Parliament";
+  bill.royalAssentGrantedAt = Date.now();
+  if (!bill.divisionResolvedAt) bill.divisionResolvedAt = bill.royalAssentGrantedAt;
+  bill.title = String(bill.title || "").replace(/\bbill\b/ig, "Act");
+}
+
 function partyOfCurrent(data) {
   return getCurrentCharacter(data)?.party || "Independent";
 }
@@ -125,6 +168,14 @@ function renderBillMeta(bill, data) {
       </div>
       <p class="small">Leader of the House / Prime Minister controls are active for this account.</p>
     ` : ""}
+
+    ${canGrantAssent(data) && bill.status === "awaiting-assent" ? `
+      <hr>
+      <div class="tile-bottom" style="padding-top:0;margin-top:0;">
+        <button type="button" class="btn" data-agenda="grant-assent">Grant Royal Assent</button>
+      </div>
+      <p class="small">Moderator / admin action required to convert this bill into an Act.</p>
+    ` : ""}
   `;
 
   if (canManage) {
@@ -149,6 +200,13 @@ function renderBillMeta(bill, data) {
       persistAndRerender(data, bill, false);
     });
   }
+
+
+  meta.querySelector('[data-agenda="grant-assent"]')?.addEventListener("click", () => {
+    if (!canGrantAssent(data) || bill.status !== "awaiting-assent") return;
+    grantRoyalAssent(bill);
+    persistAndRerender(data, bill);
+  });
 }
 
 function renderBillText(bill) {
@@ -230,6 +288,7 @@ function maybeAutoCloseDivision(bill, data) {
   const now = Date.now();
   if (Number(division.closesAt || 0) <= now) {
     closeDivision(bill);
+    finaliseDivisionOutcome(bill, data);
     return true;
   }
   const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
@@ -242,6 +301,7 @@ function maybeAutoCloseDivision(bill, data) {
   const npcSetVotes = Object.keys(division.npcVotes || {}).filter((party) => Number((parties.find((p) => p.name === party) || {}).seats || 0) > 0 && !autoAbstainNpc.has(party)).length;
   if (expectedPlayableVotes > 0 && actualPlayableVotes >= expectedPlayableVotes && npcSetVotes >= npcVotesNeeded) {
     closeDivision(bill);
+    finaliseDivisionOutcome(bill, data);
     return true;
   }
   return false;
@@ -453,6 +513,7 @@ function renderDivision(bill, data) {
 
   const division = ensureDivision(bill, { status: "open", openedAt: Number(bill.stageStartedAt || Date.now()), closesAt: Number(bill.stageStartedAt || Date.now()) + DIVISION_WINDOW_MS });
   maybeAutoCloseDivision(bill, data);
+  finaliseDivisionOutcome(bill, data);
   const totals = tallyDivision(bill, data);
   const now = Date.now();
 
@@ -545,15 +606,21 @@ function renderDivision(bill, data) {
   });
 
   voting.querySelector('[data-speaker="move-on"]')?.addEventListener("click", () => {
-    bill.status = "stalled";
+    bill.status = "failed";
+    bill.stage = "Defeated in Division";
+    bill.divisionOutcome = "failed";
+    bill.divisionResolvedAt = Date.now();
     division.status = "resolved-by-speaker";
     persistAndRerender(data, bill);
   });
 
   voting.querySelector('[data-speaker="tie-break"]')?.addEventListener("click", () => {
     division.status = "resolved-by-speaker";
-    bill.status = resolveDivisionResult(bill, data) === "failed" ? "failed" : "passed";
-    bill.stage = "Passed Commons";
+    bill.status = "awaiting-assent";
+    bill.stage = "Passed - Awaiting Assent";
+    bill.divisionOutcome = "passed";
+    bill.divisionResolvedAt = Date.now();
+    bill.finalStage = bill.finalStage || "Third Reading Division";
     persistAndRerender(data, bill);
   });
 }

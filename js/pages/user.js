@@ -140,11 +140,93 @@ function currentAccount(data) {
   return (data.userManagement?.accounts || []).find((a) => a.username === u);
 }
 
+
+function ownedCharactersForAccount(data, username) {
+  const user = String(username || "").trim();
+  if (!user) return [];
+  const account = (data.userManagement?.accounts || []).find((a) => a.username === user);
+  const activeName = String(account?.activeCharacter || "").trim();
+  const chars = Array.isArray(data.players) ? data.players : [];
+  return chars.filter((p) => {
+    if (!p?.name) return false;
+    if (String(p.ownerUsername || "").trim() === user) return true;
+    return activeName && String(p.name) === activeName;
+  });
+}
+
+
+function setCharacterInactiveEverywhere(data, characterName) {
+  const name = String(characterName || "").trim();
+  if (!name) return false;
+
+  let changed = false;
+  const player = (data.players || []).find((p) => p?.name === name);
+  if (player && player.active !== false) {
+    player.active = false;
+    changed = true;
+  }
+
+  const markRosterInactive = (group) => {
+    const roster = Array.isArray(data?.[group]?.activeCharacters) ? data[group].activeCharacters : [];
+    const row = roster.find((c) => String(c?.name || "") === name);
+    if (row && row.active !== false) {
+      row.active = false;
+      changed = true;
+    }
+  };
+
+  markRosterInactive("government");
+  markRosterInactive("opposition");
+
+  const clearOffice = (group) => {
+    const offices = Array.isArray(data?.[group]?.offices) ? data[group].offices : [];
+    for (const office of offices) {
+      if (String(office?.holderName || "") === name) {
+        office.holderName = "";
+        office.holderAvatar = "";
+        changed = true;
+      }
+    }
+  };
+
+  clearOffice("government");
+  clearOffice("opposition");
+
+  if (String(data?.currentCharacter?.name || "") === name && data.currentCharacter.active !== false) {
+    data.currentCharacter.active = false;
+    changed = true;
+  }
+  if (String(data?.currentPlayer?.name || "") === name && data.currentPlayer.active !== false) {
+    data.currentPlayer.active = false;
+    changed = true;
+  }
+
+  return changed;
+}
+
 function leaderForParty(data, party) {
   const pname = String(party || "").toLowerCase();
   const players = Array.isArray(data.players) ? data.players : [];
   const leader = players.find((p) => String(p.party || "").toLowerCase() === pname && p.partyLeader);
   return leader?.name || "";
+}
+
+
+function delegationChoicesForParty(data, partyName, currentName) {
+  const party = String(partyName || "").trim().toLowerCase();
+  if (!party) return [];
+  const current = String(currentName || "").trim();
+
+  const names = new Set();
+  for (const p of (Array.isArray(data.players) ? data.players : [])) {
+    if (!p?.name) continue;
+    if (String(p.party || "").trim().toLowerCase() !== party) continue;
+    if (String(p.name).trim() === current) continue;
+    if (p.active === false) continue;
+    names.add(String(p.name).trim());
+  }
+
+  return Array.from(names).sort((a, b) => a.localeCompare(b));
 }
 
 function render(data, state) {
@@ -164,6 +246,11 @@ function render(data, state) {
     activeCharacter: String(char?.name || ""),
     active: true
   };
+  const owned = ownedCharactersForAccount(data, account.username);
+  const hasActiveOwned = owned.some((p) => p?.active !== false);
+  const inactiveOwned = owned.filter((p) => p?.active === false);
+  const pendingByCurrent = (data.userManagement?.pendingCharacters || []).filter((p) => String(p.submittedBy || "") === account.username);
+  const delegationChoices = delegationChoicesForParty(data, char?.party, char?.name);
 
   host.innerHTML = `
     <h1 class="page-title">User</h1>
@@ -184,9 +271,16 @@ function render(data, state) {
       <div class="tile" style="margin-bottom:10px;">
         <div><b>${esc(char?.name || "No character selected")}</b></div>
         <div class="muted">DOB: ${esc(char?.dateOfBirth || "-")} · Education: ${esc(char?.education || "-")} · Career: ${esc(char?.careerBackground || "-")}</div>
-        <div class="muted">Family: ${esc(char?.family || "-")} · Constituency: ${esc(char?.constituency || "-")} · Party: ${esc(char?.party || "-")}</div>
+        <div class="muted">Family: ${esc(char?.family || "-")} · Constituency: ${esc(char?.constituency || "-")} · Party: ${esc(char?.party || "-")} · Twitter: ${esc(char?.twitterHandle || "-")}</div>
         <div class="muted">First elected: ${esc(String(char?.yearFirstElected || "-"))} · Personal background: ${esc(char?.personalBackground || "-")} · Financial level: ${esc(String(char?.financialBackgroundLevel || "-"))}</div>
         <div class="muted">Absence: ${char?.absent ? "Absent" : "Active"}${char?.absent ? ` · Delegated to ${esc(char?.delegatedTo || "None")}` : ""}</div>
+      </div>
+
+      <div class="tile" style="margin-bottom:10px;">
+        <div><b>Roster Eligibility</b></div>
+        <div class="muted">Active characters you own: ${esc(String(owned.filter((p) => p?.active !== false).length))} · Pending submissions: ${esc(String(pendingByCurrent.length))}</div>
+        ${hasActiveOwned ? `<div class="muted" style="margin-top:6px;">You already have an active character in this live simulation. Mark that character inactive before submitting a new one.</div>` : ""}
+        ${inactiveOwned.length ? `<div style="margin-top:8px;display:grid;gap:6px;">${inactiveOwned.map((p) => `<div class="tile" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><b>${esc(p.name)}</b> <span class="muted">(inactive)</span></div><button class="btn" type="button" data-action="reactivate-character" data-name="${esc(p.name)}">Re-Activate</button></div>`).join("")}</div>` : ""}
       </div>
 
       <details class="tile" style="margin-bottom:10px;">
@@ -201,6 +295,8 @@ function render(data, state) {
             ${openConstituencyOptions(data).map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("") || `<option value="">No open constituencies available</option>`}
           </select>
           <input class="input" name="party" placeholder="Party" required>
+          <input class="input" name="avatar" placeholder="Avatar URL (optional)">
+          <input class="input" name="twitterHandle" placeholder="Twitter handle (without @, optional)">
           <input class="input" name="yearFirstElected" placeholder="Year first elected" required>
           <input class="input" name="personalBackground" placeholder="Personal background" required>
           <input class="input" name="financialBackgroundLevel" type="number" min="1" max="10" placeholder="Financial background level (1-10)" required>
@@ -212,8 +308,11 @@ function render(data, state) {
         <summary><b>Absence & Delegation</b></summary>
         <form id="absence-form" style="margin-top:10px;display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:8px;align-items:end;">
           <div>
-            <label class="label" for="delegated-to">Delegate weighted voting to</label>
-            <input id="delegated-to" class="input" name="delegatedTo" placeholder="Character name" value="${esc(char?.delegatedTo || leaderForParty(data, char?.party) || "")}">
+            <label class="label" for="delegated-to">Delegate weighted voting to (same party)</label>
+            <select id="delegated-to" class="input" name="delegatedTo" required>
+              <option value="">Select character</option>
+              ${delegationChoices.map((name) => `<option value="${esc(name)}" ${name === (char?.delegatedTo || leaderForParty(data, char?.party) || "") ? "selected" : ""}>${esc(name)}</option>`).join("")}
+            </select>
           </div>
           <button class="btn" type="submit">Set Absent + Delegate</button>
           <button class="btn" type="button" id="absence-clear">Return Active</button>
@@ -268,6 +367,20 @@ function render(data, state) {
             <button class="btn" type="button" id="force-sunday-roll">Force Sunday Roll (Demo)</button>
           </form>
         </details>
+
+        <details class="tile" style="margin-bottom:10px;" open>
+          <summary><b>Active Player Roster (Moderator Control)</b></summary>
+          <div class="muted" style="margin-top:10px;">Control moved here from Government/Opposition pages. Mods can only set characters inactive.</div>
+          <div style="margin-top:10px;display:grid;gap:8px;">
+            ${(Array.isArray(data.players) ? data.players : []).slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))).map((p) => `
+              <article class="tile" style="display:grid;grid-template-columns:minmax(180px,2fr) minmax(180px,2fr) auto;gap:8px;align-items:center;">
+                <div><b>${esc(String(p.name || "Unknown"))}</b><div class="muted">${esc(String(p.party || "No party"))}</div></div>
+                <div class="muted">${p.active === false ? "Inactive" : "Active"}</div>
+                ${p.active === false ? `<span class="muted">Inactive (user can re-activate)</span>` : `<button class="btn" type="button" data-action="set-inactive-player" data-name="${esc(String(p.name || ""))}">Set Inactive</button>`}
+              </article>
+            `).join("") || `<div class="muted-block">No players configured.</div>`}
+          </div>
+        </details>
       ` : ""}
 
       ${(admin) ? `
@@ -318,6 +431,18 @@ function render(data, state) {
     const entry = Object.fromEntries(fd.entries());
     entry.submittedBy = account.username;
     entry.submittedAt = nowStamp();
+    const ownsAnyActive = ownedCharactersForAccount(data, account.username).some((p) => p?.active !== false);
+    const hasPending = (data.userManagement.pendingCharacters || []).some((p) => String(p.submittedBy || "") === account.username);
+    if (ownsAnyActive) {
+      state.message = "You already have an active character in this live simulation.";
+      render(data, state);
+      return;
+    }
+    if (hasPending) {
+      state.message = "You already have a character pending moderator approval.";
+      render(data, state);
+      return;
+    }
     if (!entry.constituency || seatTaken(data, entry.constituency)) {
       state.message = "Selected constituency is no longer available.";
       render(data, state);
@@ -333,8 +458,15 @@ function render(data, state) {
     e.preventDefault();
     if (!data.currentCharacter) return;
     const fd = new FormData(e.currentTarget);
+    const delegatedTo = String(fd.get("delegatedTo") || "").trim();
+    const allowed = delegationChoicesForParty(data, data.currentCharacter?.party, data.currentCharacter?.name);
+    if (!delegatedTo || !allowed.includes(delegatedTo)) {
+      state.message = "Please select a valid delegate from your own party.";
+      render(data, state);
+      return;
+    }
     data.currentCharacter.absent = true;
-    data.currentCharacter.delegatedTo = String(fd.get("delegatedTo") || "").trim();
+    data.currentCharacter.delegatedTo = delegatedTo;
     saveData(data);
     state.message = "Absence and delegation saved.";
     render(data, state);
@@ -359,6 +491,15 @@ function render(data, state) {
         return;
       }
 
+      const ownerUsername = String(candidate.submittedBy || "").trim();
+      if (ownerUsername) {
+        for (const p of (data.players || [])) {
+          if (String(p.ownerUsername || "").trim() === ownerUsername && p.active !== false) {
+            setCharacterInactiveEverywhere(data, p.name);
+          }
+        }
+      }
+
       const player = {
         name: candidate.name,
         party: candidate.party,
@@ -378,7 +519,10 @@ function render(data, state) {
         constituency: candidate.constituency,
         yearFirstElected: candidate.yearFirstElected,
         personalBackground: candidate.personalBackground,
-        financialBackgroundLevel: Number(candidate.financialBackgroundLevel || 1)
+        financialBackgroundLevel: Number(candidate.financialBackgroundLevel || 1),
+        avatar: String(candidate.avatar || "").trim(),
+        twitterHandle: String(candidate.twitterHandle || "").trim().replace(/^@+/, ""),
+        ownerUsername
       };
       data.players ??= [];
       data.players.push(player);
@@ -389,6 +533,10 @@ function render(data, state) {
         seat.mpName = player.name;
       }
       data.userManagement.pendingCharacters.splice(idx, 1);
+      if (ownerUsername) {
+        const owner = (data.userManagement.accounts || []).find((a) => a.username === ownerUsername);
+        if (owner) owner.activeCharacter = player.name;
+      }
       saveData(data);
       state.message = `Approved and activated ${player.name}.`;
       render(data, state);
@@ -403,6 +551,41 @@ function render(data, state) {
       data.userManagement.pendingCharacters.splice(idx, 1);
       saveData(data);
       state.message = "Rejected pending character.";
+      render(data, state);
+    });
+  });
+
+  host.querySelectorAll('[data-action="set-inactive-player"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!manager) return;
+      const name = String(btn.dataset.name || "").trim();
+      if (!name) return;
+      const changed = setCharacterInactiveEverywhere(data, name);
+      if (!changed) return;
+      saveData(data);
+      state.message = `${name} marked inactive.`;
+      render(data, state);
+    });
+  });
+
+  host.querySelectorAll('[data-action="reactivate-character"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const name = String(btn.dataset.name || "").trim();
+      if (!name) return;
+      const mine = ownedCharactersForAccount(data, account.username);
+      const target = mine.find((p) => p.name === name);
+      if (!target) return;
+      if (mine.some((p) => p.active !== false)) {
+        state.message = "You already have an active character. Set that character inactive before re-activating another.";
+        render(data, state);
+        return;
+      }
+      target.active = true;
+      account.activeCharacter = target.name;
+      data.currentCharacter = target;
+      data.currentPlayer = target;
+      saveData(data);
+      state.message = `${target.name} re-activated.`;
       render(data, state);
     });
   });

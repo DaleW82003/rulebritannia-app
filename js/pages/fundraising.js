@@ -70,6 +70,39 @@ function ensureFundraising(data) {
   data.fundraising.balances.factions ??= {};
 }
 
+function ensurePartyTreasury(data, partyName) {
+  if (!partyName) return null;
+  data.party ??= { parties: {}, nextDraftId: 1 };
+  data.party.parties ??= {};
+  data.party.nextDraftId = Number(data.party.nextDraftId || 1);
+  data.party.parties[partyName] ??= { name: partyName, short: "", leader: { name: "", avatar: "", characterId: "" }, treasury: { cash: 0, debt: 0, members: 0 }, hqUrl: "", drafts: [] };
+  data.party.parties[partyName].treasury ??= { cash: 0, debt: 0, members: 0 };
+  data.party.parties[partyName].treasury.cash = Number(data.party.parties[partyName].treasury.cash || 0);
+  return data.party.parties[partyName].treasury;
+}
+
+function ensurePersonalProfile(data, characterName) {
+  if (!characterName) return null;
+  data.personal ??= {};
+  data.personal.profiles ??= {};
+  data.personal.profiles[characterName] ??= {
+    name: characterName,
+    title: characterName,
+    salary: 0,
+    benefitsInKind: 0,
+    bankBalance: 0,
+    personalBackground: "",
+    financialBackgroundLevel: 3,
+    expenses: [],
+    additionalRevenue: [],
+    nextExpenseId: 1,
+    nextRevenueId: 1,
+    notes: ""
+  };
+  data.personal.profiles[characterName].bankBalance = Number(data.personal.profiles[characterName].bankBalance || 0);
+  return data.personal.profiles[characterName];
+}
+
 function visibleNet(data, item, char) {
   if (!item || item.status !== "approved") return false;
   if (canModerate(data)) return true;
@@ -284,10 +317,16 @@ function render(data, state) {
 
       if (item.scope === "party") {
         const key = item.party || "Unknown";
-        data.fundraising.balances.parties[key] = Number(data.fundraising.balances.parties[key] || 0) + Number(item.netRevenue || 0);
+        const net = Number(item.netRevenue || 0);
+        data.fundraising.balances.parties[key] = Number(data.fundraising.balances.parties[key] || 0) + net;
+        const treasury = ensurePartyTreasury(data, item.party);
+        if (treasury) treasury.cash = Number(treasury.cash || 0) + net;
       } else {
         const key = item.hostId || item.hostName;
-        data.fundraising.balances.factions[key] = Number(data.fundraising.balances.factions[key] || 0) + Number(item.netRevenue || 0);
+        const net = Number(item.netRevenue || 0);
+        data.fundraising.balances.factions[key] = Number(data.fundraising.balances.factions[key] || 0) + net;
+        const profile = ensurePersonalProfile(data, key);
+        if (profile) profile.bankBalance = Number(profile.bankBalance || 0) + net;
       }
 
       saveData(data);

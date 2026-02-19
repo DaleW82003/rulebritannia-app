@@ -57,12 +57,16 @@ function renderEditor(data, state) {
   const level = TEAM_LEVELS.find((l) => l.id === state.editLevel);
   if (!level) return "";
 
-  const options = (data.userManagement.accounts || []).map((a, idx) => `
-    <label style="display:flex;gap:8px;align-items:center;">
-      <input type="checkbox" data-action="set-level" data-level="${esc(level.id)}" data-index="${idx}" ${a[level.roleKey] ? "checked" : ""}>
-      <span><b>${esc(a.username)}</b> <span class="muted">(${esc(a.activeCharacter || "No character")})</span></span>
-    </label>
-  `).join("");
+  const options = (data.userManagement.accounts || []).map((a, idx) => {
+    const key = String(a.username || "");
+    const checked = state.draftAssignments?.[key] ?? !!a[level.roleKey];
+    return `
+      <label style="display:flex;gap:8px;align-items:center;">
+        <input type="checkbox" data-action="set-level" data-level="${esc(level.id)}" data-index="${idx}" ${checked ? "checked" : ""}>
+        <span><b>${esc(a.username)}</b> <span class="muted">(${esc(a.activeCharacter || "No character")})</span></span>
+      </label>
+    `;
+  }).join("");
 
   return `
     <section class="panel">
@@ -70,7 +74,11 @@ function renderEditor(data, state) {
       <div class="tile" style="display:grid;gap:8px;">
         ${options || '<div class="muted-block">No accounts available.</div>'}
       </div>
-      <p class="muted" style="margin-top:8px;">Changes are saved immediately.</p>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn" type="button" data-action="save-level" ${state.dirty ? "" : "disabled"}>Save ${esc(level.label)} Changes</button>
+        <button class="btn" type="button" data-action="cancel-level">Cancel</button>
+      </div>
+      <p class="muted" style="margin-top:8px;">Changes are staged until you press Save.</p>
     </section>
   `;
 }
@@ -97,6 +105,14 @@ function render(data, state) {
   host.querySelectorAll('[data-action="open-editor"]').forEach((btn) => {
     btn.addEventListener("click", () => {
       state.editLevel = String(btn.dataset.level || "");
+      const level = TEAM_LEVELS.find((l) => l.id === state.editLevel);
+      state.draftAssignments = {};
+      if (level) {
+        for (const account of (data.userManagement.accounts || [])) {
+          state.draftAssignments[String(account.username || "")] = !!account[level.roleKey];
+        }
+      }
+      state.dirty = false;
       render(data, state);
     });
   });
@@ -109,9 +125,31 @@ function render(data, state) {
       const account = data.userManagement.accounts[idx];
       const level = TEAM_LEVELS.find((l) => l.id === levelId);
       if (!account || !level) return;
-      account[level.roleKey] = input.checked;
+      state.draftAssignments ??= {};
+      state.draftAssignments[String(account.username || "")] = input.checked;
+      state.dirty = true;
+      state.message = `Staged ${level.label} changes. Press Save to apply.`;
+      render(data, state);
+    });
+  });
 
-      // sync roles array and current user flags if needed
+  host.querySelector('[data-action="cancel-level"]')?.addEventListener("click", () => {
+    state.editLevel = "";
+    state.dirty = false;
+    state.draftAssignments = {};
+    state.message = "Discarded staged role changes.";
+    render(data, state);
+  });
+
+  host.querySelector('[data-action="save-level"]')?.addEventListener("click", () => {
+    if (!adminMode || !state.editLevel) return;
+    const level = TEAM_LEVELS.find((l) => l.id === state.editLevel);
+    if (!level) return;
+
+    for (const account of (data.userManagement.accounts || [])) {
+      const key = String(account.username || "");
+      account[level.roleKey] = !!state.draftAssignments?.[key];
+
       const baseRoles = (account.roles || []).filter((r) => !["admin", "mod", "speaker"].includes(r));
       if (account.isAdmin) baseRoles.push("admin");
       if (account.isMod) baseRoles.push("mod");
@@ -125,17 +163,20 @@ function render(data, state) {
         data.currentUser.isSpeaker = !!account.isSpeaker;
         data.currentUser.roles = [...account.roles];
       }
+    }
 
-      normaliseTeam(data);
-      saveData(data);
-      state.message = `Updated ${level.label} assignments.`;
-      render(data, state);
-    });
+    normaliseTeam(data);
+    saveData(data);
+    state.dirty = false;
+    state.editLevel = "";
+    state.draftAssignments = {};
+    state.message = `Saved ${level.label} assignments.`;
+    render(data, state);
   });
 }
 
 export function initTeamPage(data) {
   normaliseTeam(data);
   saveData(data);
-  render(data, { editLevel: "", message: "" });
+  render(data, { editLevel: "", message: "", dirty: false, draftAssignments: {} });
 }
