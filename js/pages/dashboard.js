@@ -98,8 +98,14 @@ function billCountdown(bill) {
 
 function getWhatsGoingOnTiles(data) {
   const w = data?.whatsGoingOn || {};
+  const leadStory = Array.isArray(data?.news?.stories) ? data.news.stories[0] : null;
+  const topPaper = Array.isArray(data?.papers?.papers)
+    ? data.papers.papers.find((p) => Array.isArray(p.issues) && p.issues.length)?.issues?.[0]
+    : null;
+  const econTopline = data?.economyPage?.topline || {};
+  const masterPoll = Array.isArray(data?.polling?.tracker) ? data.polling.tracker : [];
   const econ = w?.economy || {};
-  const polling = Array.isArray(w?.polling) ? w.polling : [];
+  const polling = Array.isArray(w?.polling) && w.polling.length ? w.polling : masterPoll;
 
   // Show top 3 from polling if present
   const topPoll = polling.slice().sort((a,b)=>Number(b.value||0)-Number(a.value||0)).slice(0,3);
@@ -107,22 +113,22 @@ function getWhatsGoingOnTiles(data) {
   return [
     {
       kicker: "BBC NEWS",
-      title: w?.bbc?.headline || "No stories yet",
-      strap: w?.bbc?.strap || "—",
+      title: w?.bbc?.headline || leadStory?.headline || "No stories yet",
+      strap: w?.bbc?.strap || leadStory?.text || "—",
       href: "news.html",
       btn: "Open"
     },
     {
       kicker: "PAPERS",
-      title: `${w?.papers?.paper || "Paper"}: ${w?.papers?.headline || "No front page yet"}`,
-      strap: w?.papers?.strap || "—",
+      title: `${w?.papers?.paper || "Paper"}: ${w?.papers?.headline || topPaper?.headline || "No front page yet"}`,
+      strap: w?.papers?.strap || topPaper?.text || "—",
       href: "papers.html",
       btn: "Open"
     },
     {
       kicker: "ECONOMY",
-      title: `Inflation ${fmtPct(econ?.inflation)} • Unemployment ${fmtPct(econ?.unemployment)}`,
-      strap: `GDP growth ${fmtPct(econ?.growth)}`,
+      title: `Inflation ${fmtPct(econ?.inflation ?? econTopline?.inflation)} • Unemployment ${fmtPct(econ?.unemployment ?? econTopline?.unemployment)}`,
+      strap: `GDP growth ${fmtPct(econ?.growth ?? econTopline?.gdpGrowth)}`,
       href: "economy.html",
       btn: "Open"
     },
@@ -210,7 +216,7 @@ function renderLiveDocket(data) {
   root.innerHTML = `
     <div class="docket-list">
       ${visible.map(it => `
-        <div class="docket-item">
+        <div class="docket-item ${esc(it.priority || "")}">
           <div class="docket-left">
             <div class="docket-icon" aria-hidden="true">${esc(iconFor(it.type))}</div>
             <div>
@@ -247,7 +253,7 @@ function renderOrderPaper(data) {
 
   // 2-column layout
   root.innerHTML = `
-    <div class="bill-grid" style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:14px;">
+    <div class="order-grid">
       ${bills.map(b => `
         <div class="wgo-tile card-flex">
           <div class="wgo-kicker">${esc(billTypeLabel(b.billType))}</div>

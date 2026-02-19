@@ -42,6 +42,7 @@ import { initUserPage } from "./pages/user.js";
 import { initTeamPage } from "./pages/team.js";
 import { initRulesPage } from "./pages/rules.js";
 import { initGuidesPage } from "./pages/guides.js";
+import { initBillPage } from "./pages/bill.js";
 
 function showBootError(err) {
   console.error(err);
@@ -102,6 +103,7 @@ function showBootError(err) {
       team: initTeamPage,
       rules: initRulesPage,
       guides: initGuidesPage,
+      bill: initBillPage,
     };
 
     const init = routes[page];

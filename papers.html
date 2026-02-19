@@ -99,11 +99,50 @@
   </div>
 
   <section class="panel">
+    <div class="spaced">
+      <div class="muted-block" style="margin:0;">
+        <b>8 National Papers</b><br>
+        Open a tile to view all articles for that paper in chronological feed order.
+      </div>
+      <div class="tile-bottom" style="padding-top:0; margin-top:0;">
+        <button class="btn primary" type="button" id="papersNewsDeskBtn" style="display:none;">News Desk</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
     <div id="papersGrid" class="muted-block">Loading…</div>
   </section>
 
   <section class="panel" id="paperReaderPanel" style="display:none;">
     <div id="paperReader"></div>
+  </section>
+
+  <section class="panel" id="papersNewsDeskPanel" style="display:none;">
+    <h2>News Desk</h2>
+    <div class="muted-block" style="margin-bottom:12px;">Create a paper article (mods/admin only).</div>
+    <form id="papersNewsDeskForm" class="form-grid">
+      <label for="papersDeskPaper">Paper</label>
+      <select id="papersDeskPaper" required></select>
+
+      <label for="papersDeskHeadline">Headline</label>
+      <input id="papersDeskHeadline" type="text" maxlength="180" required>
+
+      <label for="papersDeskByline">Political Correspondent</label>
+      <input id="papersDeskByline" type="text" maxlength="80" required>
+
+      <label for="papersDeskImage">Image URL (optional)</label>
+      <input id="papersDeskImage" type="url" placeholder="https://...">
+
+      <label for="papersDeskText">Article text</label>
+      <textarea id="papersDeskText" rows="6" required></textarea>
+
+      <div></div>
+      <div class="tile-bottom" style="padding-top:0; margin-top:0;">
+        <button class="btn primary" type="submit">Publish</button>
+        <button class="btn" type="button" id="papersDeskCancel">Cancel</button>
+      </div>
+    </form>
   </section>
 
 </main>
