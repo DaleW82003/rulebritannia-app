@@ -120,8 +120,10 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
   padding:10px 0;
 }
 .brand{ display:flex; align-items:center; gap:10px; }
-.logo{
-  height:34px; width:auto;
+.logo,
+.brand-logo{
+  height:34px;
+  width:auto;
   background:#ffffff;
   padding:6px 10px;
   border-radius:10px;
