@@ -94,10 +94,12 @@
   "currentUser": {
     "username": "Dale",
     "isAdmin": true,
-    "isMod": false,
-    "isSpeaker": false,
+    "isMod": true,
+    "isSpeaker": true,
     "roles": [
-      "admin"
+      "admin",
+      "mod",
+      "speaker"
     ]
   },
   "currentCharacter": {
@@ -130,7 +132,27 @@
     "delegatedTo": null,
     "isSpeaker": false
   },
-  "oppositionTracker": {},
+  "oppositionTracker": {
+    "lastUpdated": "October 1997",
+    "scores": [
+      {
+        "topic": "Health",
+        "government": 44,
+        "opposition": 56
+      },
+      {
+        "topic": "Economy",
+        "government": 49,
+        "opposition": 51
+      },
+      {
+        "topic": "Transport",
+        "government": 52,
+        "opposition": 48
+      }
+    ],
+    "notes": "Used by Speaker and moderators to judge opposition day allocation and narrative momentum."
+  },
   "whatsGoingOn": {
     "bbc": {
       "headline": "BBC: PM and Leader of the House set out first legislative fortnight",
@@ -1064,7 +1086,21 @@
           "submittedAt": "2026-02-14T10:00:00Z"
         }
       ],
-      "hansard": {},
+      "hansard": {
+        "openedAtSim": "Second Reading",
+        "entries": [
+          {
+            "speaker": "Dale Weston MP",
+            "party": "Conservative",
+            "text": "I commend the National Health Service Foundation Trusts Act 2000 to the House and urge constructive scrutiny."
+          },
+          {
+            "speaker": "John Shade MP",
+            "party": "Labour",
+            "text": "We will test the government on delivery, safeguards and accountability before final passage."
+          }
+        ]
+      },
       "stageDurationMs": 172800000,
       "debateUrl": "https://forum.rulebritannia.org/t/nhs-ft-2000"
     },
@@ -1079,8 +1115,36 @@
       "createdAt": 1739318400000,
       "stageStartedAt": 1739448000000,
       "billText": "(Placeholder) Bill text not added yet.",
-      "amendments": [],
-      "hansard": {},
+      "amendments": [
+        {
+          "id": "rail-safety-2000-A1",
+          "articleNumber": 1,
+          "type": "insert",
+          "title": "Sunset review clause",
+          "text": "Insert requirement for a two-year post-implementation review laid before Parliament.",
+          "proposedBy": "Liberal Democrat",
+          "status": "proposed",
+          "supporters": [
+            "Liberal Democrat"
+          ],
+          "submittedAt": "2026-02-14T11:15:00Z"
+        }
+      ],
+      "hansard": {
+        "openedAtSim": "Report Stage",
+        "entries": [
+          {
+            "speaker": "Dale Weston MP",
+            "party": "Conservative",
+            "text": "I commend the Rail Safety Reform Act 2000 to the House and urge constructive scrutiny."
+          },
+          {
+            "speaker": "John Shade MP",
+            "party": "Labour",
+            "text": "We will test the government on delivery, safeguards and accountability before final passage."
+          }
+        ]
+      },
       "stageDurationMs": 172800000,
       "debateUrl": "https://forum.rulebritannia.org/t/rail-safety-2000"
     },
@@ -1095,8 +1159,36 @@
       "createdAt": 1739494800000,
       "stageStartedAt": 1739494800000,
       "billText": "(Placeholder) Bill text not added yet.",
-      "amendments": [],
-      "hansard": {},
+      "amendments": [
+        {
+          "id": "age-consent-2000-A1",
+          "articleNumber": 1,
+          "type": "insert",
+          "title": "Sunset review clause",
+          "text": "Insert requirement for a two-year post-implementation review laid before Parliament.",
+          "proposedBy": "Liberal Democrat",
+          "status": "proposed",
+          "supporters": [
+            "Liberal Democrat"
+          ],
+          "submittedAt": "2026-02-14T11:15:00Z"
+        }
+      ],
+      "hansard": {
+        "openedAtSim": "First Reading",
+        "entries": [
+          {
+            "speaker": "Dale Weston MP",
+            "party": "Conservative",
+            "text": "I commend the Sexual Offences (Age of Consent Equality) Act 2000 to the House and urge constructive scrutiny."
+          },
+          {
+            "speaker": "John Shade MP",
+            "party": "Labour",
+            "text": "We will test the government on delivery, safeguards and accountability before final passage."
+          }
+        ]
+      },
       "stageDurationMs": 172800000,
       "debateUrl": "https://forum.rulebritannia.org/t/age-consent-2000"
     },
@@ -1112,8 +1204,36 @@
       "stageStartedAt": 1771432522191,
       "completedAt": 1739521200000,
       "billText": "(Placeholder) Bill text not added yet.",
-      "amendments": [],
-      "hansard": {},
+      "amendments": [
+        {
+          "id": "finance-2000-A1",
+          "articleNumber": 1,
+          "type": "insert",
+          "title": "Sunset review clause",
+          "text": "Insert requirement for a two-year post-implementation review laid before Parliament.",
+          "proposedBy": "Liberal Democrat",
+          "status": "proposed",
+          "supporters": [
+            "Liberal Democrat"
+          ],
+          "submittedAt": "2026-02-14T11:15:00Z"
+        }
+      ],
+      "hansard": {
+        "openedAtSim": "Division",
+        "entries": [
+          {
+            "speaker": "Dale Weston MP",
+            "party": "Conservative",
+            "text": "I commend the Finance Act 2000 to the House and urge constructive scrutiny."
+          },
+          {
+            "speaker": "John Shade MP",
+            "party": "Labour",
+            "text": "We will test the government on delivery, safeguards and accountability before final passage."
+          }
+        ]
+      },
       "stageDurationMs": 7200000,
       "debateUrl": "https://forum.rulebritannia.org/t/finance-2000",
       "division": {
@@ -1437,7 +1557,15 @@
         "text": "Will the Prime Minister commit to publishing a timetable for the next Queen\u2019s Speech and the government\u2019s priorities for this session?",
         "status": "submitted",
         "answer": "",
-        "followUps": [],
+        "followUps": [
+          {
+            "id": "qt-001-f1",
+            "text": "Will the minister place a detailed written update in the Commons Library?",
+            "askedBy": "Leah Cunningham MP",
+            "askedAtSim": "October 1997",
+            "answer": ""
+          }
+        ],
         "archived": false
       },
       {
@@ -1484,7 +1612,15 @@
         "text": "What plans does the Home Secretary have to improve neighbourhood policing visibility in city centres?",
         "status": "submitted",
         "answer": "",
-        "followUps": [],
+        "followUps": [
+          {
+            "id": "qt-004-f1",
+            "text": "Will the minister place a detailed written update in the Commons Library?",
+            "askedBy": "Leah Cunningham MP",
+            "askedAtSim": "October 1997",
+            "answer": ""
+          }
+        ],
         "archived": false
       },
       {
@@ -1497,7 +1633,15 @@
         "status": "answered",
         "answer": "A targeted retention package and new bursary scheme will be introduced for priority shortage subjects.",
         "answeredAtSim": "August 1997",
-        "followUps": [],
+        "followUps": [
+          {
+            "id": "qt-005-f1",
+            "text": "Will the minister place a detailed written update in the Commons Library?",
+            "askedBy": "Leah Cunningham MP",
+            "askedAtSim": "October 1997",
+            "answer": "Yes, the department will place a written ministerial note and timeline update this month."
+          }
+        ],
         "archived": false
       },
       {
@@ -1509,7 +1653,15 @@
         "text": "What is the government\u2019s current assessment of UK export support in emerging markets?",
         "status": "submitted",
         "answer": "",
-        "followUps": [],
+        "followUps": [
+          {
+            "id": "qt-006-f1",
+            "text": "Will the minister place a detailed written update in the Commons Library?",
+            "askedBy": "Leah Cunningham MP",
+            "askedAtSim": "October 1997",
+            "answer": ""
+          }
+        ],
         "archived": false
       }
     ]
@@ -1911,7 +2063,10 @@
         "author": "Alice Thorne MP",
         "createdAtSim": "August 1997",
         "score": null,
-        "impact": [],
+        "impact": [
+          "Regional papers picked up the release overnight",
+          "Backbench responses mixed but generally positive"
+        ],
         "status": "open"
       }
     ],
@@ -1926,7 +2081,10 @@
         "closesAtSim": "October 1997",
         "status": "open",
         "score": null,
-        "impact": [],
+        "impact": [
+          "Clip widely shared on broadcast roundups",
+          "Opposition demanded costings within 24 hours"
+        ],
         "transcript": [
           {
             "from": "BBC Political Correspondent",
@@ -2482,7 +2640,18 @@
         "openingSpeech": "Today we met local employers to discuss practical support and skills investment.",
         "guestSpeaker": "West of England Mayor",
         "status": "closed",
-        "speeches": [],
+        "speeches": [
+          {
+            "by": "Dale Weston MP",
+            "role": "prime-minister",
+            "text": "This event reflects our commitment to practical reform and delivery."
+          },
+          {
+            "by": "John Shade MP",
+            "role": "leader-opposition",
+            "text": "We welcome ambition, but ministers must prove they can meet their promises."
+          }
+        ],
         "createdAt": "10/02/2026, 14:00:00",
         "createdTs": 1771432596164,
         "approvedAt": "10/02/2026, 17:00:00",
@@ -2499,7 +2668,18 @@
         "openingSpeech": "I want to outline our local plan on antisocial behaviour and town-centre policing.",
         "guestSpeaker": "",
         "status": "cancelled",
-        "speeches": [],
+        "speeches": [
+          {
+            "by": "Dale Weston MP",
+            "role": "prime-minister",
+            "text": "This event reflects our commitment to practical reform and delivery."
+          },
+          {
+            "by": "John Shade MP",
+            "role": "leader-opposition",
+            "text": "We welcome ambition, but ministers must prove they can meet their promises."
+          }
+        ],
         "createdAt": "08/02/2026, 09:00:00",
         "createdTs": 1771429596164,
         "approvedAt": null,
@@ -2713,7 +2893,18 @@
       "gdp": 1950.0
     },
     "pending": null,
-    "archive": []
+    "archive": [
+      {
+        "simDate": "September 1997",
+        "submittedBy": "Alice Thorne MP",
+        "approvedBy": "Dale",
+        "summary": {
+          "revenue": 355000000000,
+          "expenditure": 383000000000,
+          "balance": -28000000000
+        }
+      }
+    ]
   },
   "government": {
     "activeCharacters": [
@@ -3309,9 +3500,59 @@
         "isSpeaker": false,
         "activeCharacter": "Megan Ellis MP",
         "active": true
+      },
+      {
+        "username": "PlatformAdmin",
+        "roles": [
+          "admin"
+        ],
+        "isAdmin": true,
+        "isMod": false,
+        "isSpeaker": false,
+        "activeCharacter": "",
+        "active": true
+      },
+      {
+        "username": "ElectionMod",
+        "roles": [
+          "mod"
+        ],
+        "isAdmin": false,
+        "isMod": true,
+        "isSpeaker": false,
+        "activeCharacter": "Rina Patel MP",
+        "active": true
+      },
+      {
+        "username": "DeputySpeaker",
+        "roles": [
+          "speaker"
+        ],
+        "isAdmin": false,
+        "isMod": false,
+        "isSpeaker": true,
+        "activeCharacter": "",
+        "active": true
       }
     ],
-    "pendingCharacters": [],
+    "pendingCharacters": [
+      {
+        "name": "Harriet Sloan MP",
+        "party": "Labour",
+        "role": "backbencher",
+        "office": null,
+        "dateOfBirth": "12 March 1978",
+        "education": "Comprehensive school; University of York (History)",
+        "careerBackground": "Former housing charity director",
+        "family": "Single, no children",
+        "constituency": "Leeds Central",
+        "yearFirstElected": "1997",
+        "personalBackground": "Northern city upbringing and long-standing anti-poverty campaigner",
+        "financialBackgroundLevel": 4,
+        "submittedBy": "Shade",
+        "submittedAt": "2026-02-15T13:10:00Z"
+      }
+    ],
     "globalControls": {
       "sundayFreeze": false,
       "speakerConfigJson": "{\n  \"tieBreaker\": \"Speaker\",\n  \"autoArchiveDays\": 14,\n  \"divisionWindowMonths\": 1,\n  \"debateWindowMonths\": 2\n}"
@@ -3323,6 +3564,11 @@
         "username": "Dale",
         "activeCharacter": "Dale Weston MP",
         "active": true
+      },
+      {
+        "username": "PlatformAdmin",
+        "activeCharacter": "",
+        "active": true
       }
     ],
     "mods": [
@@ -3330,11 +3576,21 @@
         "username": "NewsMod",
         "activeCharacter": "Megan Ellis MP",
         "active": true
+      },
+      {
+        "username": "ElectionMod",
+        "activeCharacter": "Rina Patel MP",
+        "active": true
       }
     ],
     "speaker": [
       {
         "username": "SpeakerDesk",
+        "activeCharacter": "",
+        "active": true
+      },
+      {
+        "username": "DeputySpeaker",
         "activeCharacter": "",
         "active": true
       }
