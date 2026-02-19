@@ -1,3 +1,4 @@
+import { getCurrentCharacter, currentCharacterWeight, tallyDivisionVotes } from "../divisions.js";
 function $(id) {
   return document.getElementById(id);
 }
@@ -18,10 +19,6 @@ function getBillIdFromUrl() {
   return u.searchParams.get("id");
 }
 
-function getCurrentCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || null;
-}
-
 function canManageLegislativeAgenda(data) {
   const c = getCurrentCharacter(data);
   if (!c) return false;
@@ -38,6 +35,10 @@ function canProposeAmendment(data) {
   return ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th", "prime-minister"].includes(role);
 }
 
+
+function partyOfCurrent(data) {
+  return getCurrentCharacter(data)?.party || "Independent";
+}
 function billTypeLabel(t) {
   if (t === "government") return "Government Bill";
   if (t === "opposition") return "Opposition Bill";
@@ -74,24 +75,8 @@ function getDivisionState(bill) {
   return bill.division;
 }
 
-function getVoteWeights(data) {
-  const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
-  return Object.fromEntries(parties.map((p) => [p.name, Number(p.seats || 0)]));
-}
-
 function tallyVotes(division, data) {
-  const weights = getVoteWeights(data);
-  const totals = { aye: 0, no: 0, abstain: 0 };
-  Object.values(division.votes || {}).forEach((v) => {
-    const key = (v.choice || "abstain").toLowerCase();
-    const w = Number(weights[v.party] || 1);
-    if (totals[key] !== undefined) totals[key] += w;
-  });
-  return totals;
-}
-
-function partyOfCurrent(data) {
-  return getCurrentCharacter(data)?.party || "Independent";
+  return tallyDivisionVotes(division?.votes || {}, data);
 }
 
 function setDebateLink(bill) {
@@ -272,16 +257,18 @@ function renderDivision(bill, data) {
     division.status = "closed";
   }
 
-  const myParty = partyOfCurrent(data);
-  const current = division.votes[myParty]?.choice || "";
-  const canVote = division.status === "open";
+  const me = getCurrentCharacter(data);
+  const myName = me?.name || "MP";
+  const myWeight = currentCharacterWeight(data);
+  const current = division.votes[myName]?.choice || "";
+  const canVote = division.status === "open" && !me?.absent && myWeight > 0;
 
   voting.style.display = "block";
   progress.style.display = "block";
 
   voting.innerHTML = `
     <h2>Division</h2>
-    <p class="muted">Cast your party whip position for this demo. Vote closes in <b>${esc(msToHuman(Number(division.closesAt || 0) - now))}</b>.</p>
+    <p class="muted">Cast your weighted division vote. Your current effective voting weight: <b>${esc(String(myWeight))}</b>. Vote closes in <b>${esc(msToHuman(Number(division.closesAt || 0) - now))}</b>.</p>
     <div class="tile-bottom" style="padding-top:0;">
       <button class="btn ${current === "aye" ? "primary" : ""}" data-vote="aye" ${canVote ? "" : "disabled"}>Aye</button>
       <button class="btn ${current === "no" ? "primary" : ""}" data-vote="no" ${canVote ? "" : "disabled"}>No</button>
@@ -305,7 +292,7 @@ function renderDivision(bill, data) {
 
   voting.querySelectorAll("[data-vote]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      division.votes[myParty] = { choice: btn.dataset.vote, party: myParty, at: Date.now() };
+      division.votes[myName] = { choice: btn.dataset.vote, party: me?.party || "Independent", at: Date.now(), weight: myWeight };
       persistAndRerender(data, bill);
     });
   });

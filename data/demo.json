@@ -3346,7 +3346,11 @@
       {
         "id": 1,
         "title": "Keep it in character",
-        "body": "All posts and comments in simulation channels should be in character unless a moderator gives clear out-of-character guidance."
+        "body": "All posts and comments in simulation channels should be in character unless a moderator gives clear out-of-character guidance.",
+        "chunks": [
+          "All posts and comments in simulation channels should be in character.",
+          "Only post out of character where a moderator has explicitly allowed it."
+        ]
       }
     ]
   },
@@ -3356,7 +3360,11 @@
       {
         "id": 1,
         "title": "Getting Started",
-        "body": "Start in Your Office each week, review Live Docket actions, and then complete any parliamentary, press, or party actions before Sunday roll."
+        "body": "Start in Your Office each week, review Live Docket actions, and then complete any parliamentary, press, or party actions before Sunday roll.",
+        "chunks": [
+          "Start each week in Your Office and review the Live Docket first.",
+          "Then complete parliamentary, press, and party actions before Sunday roll."
+        ]
       }
     ]
   }
