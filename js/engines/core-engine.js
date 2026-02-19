@@ -49,7 +49,11 @@ export function runSundayRoll(data) {
   const remaining = [];
   for (const bill of bills) {
     if (bill?.status === "passed") {
-      data.hansard.passed.unshift({ ...bill, archivedAtSim: bill.archivedAtSim || "Sunday Roll" });
+      const passedItem = { ...bill, archivedAtSim: bill.archivedAtSim || "Sunday Roll" };
+      const becameAct = String(bill.stage || "").toLowerCase().includes("royal assent") || String(bill.finalStage || "").toLowerCase().includes("royal assent");
+      passedItem.legislationKind = becameAct ? "Act of Parliament" : "Bill";
+      if (becameAct) passedItem.title = String(passedItem.title || "").replace(/bill/ig, "Act");
+      data.hansard.passed.unshift(passedItem);
       continue;
     }
     if (bill?.status === "failed" || bill?.status === "stalled") {

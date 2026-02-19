@@ -99,7 +99,7 @@
         <button class="btn" type="button" id="localsEditorBtn" style="display:none;">Locals Control Panel</button>
       </div>
     </div>
-    <div class="muted-block">Councillor and council control by country (England, Scotland, Wales, Northern Ireland).</div>
+    <div class="muted-block">Councillor and councils-held breakdown by party and nation.</div>
   </section>
 
   <section class="panel" style="margin-top:14px;">
@@ -112,20 +112,13 @@
       <label for="localCountry">Country</label>
       <select id="localCountry" required></select>
 
-      <label for="localCouncils">Councils Controlled</label>
-      <input id="localCouncils" type="number" min="0" required>
-
-      <label for="localCouncillors">Councillors</label>
-      <input id="localCouncillors" type="number" min="0" required>
-
-      <label for="localIndependentCouncillors">Independent Councillors</label>
-      <input id="localIndependentCouncillors" type="number" min="0" required>
-
-      <label for="localIndependentCouncils">Independent-Controlled Councils</label>
-      <input id="localIndependentCouncils" type="number" min="0" required>
-
-      <label for="localNoc">No Overall Control Councils</label>
+            <label for="localNoc">No Overall Control Councils</label>
       <input id="localNoc" type="number" min="0" required>
+
+      <div style="grid-column:1/-1;">
+        <h3 style="margin:8px 0;">Party Breakdown</h3>
+        <div id="localsPartyRows"></div>
+      </div>
 
       <div></div>
       <div class="tile-bottom" style="padding-top:0; margin-top:0;">

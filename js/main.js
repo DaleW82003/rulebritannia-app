@@ -11,8 +11,11 @@ import { initQuestionTimePage } from "./pages/questiontime.js";
 // Stubs / to-be-built pages (you said you created these files already)
 import { initSubmitBillPage } from "./pages/submit-bill.js";
 import { initStatementsPage } from "./pages/statements.js";
+import { initStatementPage } from "./pages/statement.js";
 import { initMotionsPage } from "./pages/motions.js";
+import { initMotionPage } from "./pages/motion.js";
 import { initRegulationsPage } from "./pages/regulations.js";
+import { initRegulationPage } from "./pages/regulation.js";
 import { initRedLionPage } from "./pages/redlion.js";
 import { initHansardPage } from "./pages/hansard.js";
 
@@ -43,6 +46,7 @@ import { initTeamPage } from "./pages/team.js";
 import { initRulesPage } from "./pages/rules.js";
 import { initGuidesPage } from "./pages/guides.js";
 import { initBillPage } from "./pages/bill.js";
+import { initControlPanelPage } from "./pages/control-panel.js";
 
 function showBootError(err) {
   console.error(err);
@@ -72,8 +76,11 @@ function showBootError(err) {
 
       "submit-bill": initSubmitBillPage,
       statements: initStatementsPage,
+      statement: initStatementPage,
       motions: initMotionsPage,
+      motion: initMotionPage,
       regulations: initRegulationsPage,
+      regulation: initRegulationPage,
       redlion: initRedLionPage,
       hansard: initHansardPage,
 
@@ -104,6 +111,7 @@ function showBootError(err) {
       rules: initRulesPage,
       guides: initGuidesPage,
       bill: initBillPage,
+      "control-panel": initControlPanelPage,
     };
 
     const init = routes[page];

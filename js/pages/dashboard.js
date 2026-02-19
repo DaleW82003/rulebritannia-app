@@ -1,4 +1,5 @@
 import { canSeeAudienceItem } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker } from "../permissions.js";
 
 // js/pages/dashboard.js
 // Dashboard (Your Office) — Chunk 1 implementation
@@ -33,6 +34,63 @@ function nowMs() {
 
 // Best-effort sim label (Month Year) from your stored state.
 // If you already have a more accurate clock module, you can swap this later.
+
+function getCharacter(data) {
+  return data?.currentCharacter || data?.currentPlayer || {};
+}
+
+function isGovernmentOffice(office = "") {
+  return new Set(["prime-minister","leader-commons","chancellor","home","foreign","trade","defence","welfare","education","env-agri","health","eti","culture","home-nations"]).has(String(office));
+}
+
+function buildRoleAwareDocket(data) {
+  const char = getCharacter(data);
+  const items = [];
+  const push = (it) => items.push({ ...it, generated: true });
+  const isGov = isGovernmentOffice(char?.office);
+  const canAgenda = ["prime-minister", "leader-commons"].includes(String(char?.office || ""));
+
+  (data?.motions?.edm || []).filter((m) => m?.status !== "archived").slice(0, 4).forEach((m) => {
+    if (!isGov) push({ type: "edm", title: `Open EDM #${m.number}: ${m.title}`, detail: "Review/sign current Early Day Motion.", ctaLabel: "Open Motions", href: "motions.html", priority: "med" });
+  });
+
+  (data?.motions?.house || []).filter((m) => m?.status !== "archived").slice(0, 4).forEach((m) => {
+    push({ type: m?.division?.status === "open" ? "division" : "motion", title: `Open House Motion #${m.number}: ${m.title}`, detail: m?.division?.status === "open" ? "Division in progress." : "Debate open.", ctaLabel: "Open Motions", href: "motions.html", priority: "med" });
+  });
+
+  (data?.regulations?.items || []).filter((r) => r?.status !== "archived").slice(0, 4).forEach((r) => {
+    push({ type: "regulation", title: `Open Regulation #${r.number}: ${r.title}`, detail: "Regulation debate or division is open.", ctaLabel: "Open Regulations", href: "regulations.html", priority: "med" });
+  });
+
+  (data?.statements?.items || []).filter((st) => st?.status !== "archived").slice(0, 4).forEach((st) => {
+    push({ type: "statement", title: `Open Statement #${st.number}: ${st.title}`, detail: "Statement debate currently open.", ctaLabel: "Open Statements", href: "statements.html", priority: "low" });
+  });
+
+  (data?.orderPaperCommons || []).filter((b) => b?.status === "in-progress").slice(0, 6).forEach((b) => {
+    push({ type: b?.division?.status === "open" ? "division" : "debate", title: `${b.title}`, detail: `${b.stage || "Stage"} is active.`, ctaLabel: "Open Bill", href: `bill.html?id=${encodeURIComponent(b.id)}`, priority: "high" });
+    if (canAgenda && b.stage === "First Reading") push({ type: "bill", title: `Set second reading gate: ${b.title}`, detail: "PM/Leader of the House action required.", ctaLabel: "Open Bill", href: `bill.html?id=${encodeURIComponent(b.id)}`, priority: "high" });
+  });
+
+  const qAll = data?.questionTime?.questions || [];
+  qAll.filter((q) => !q.archived && !q.answer && String(q.askedBy || "") !== String(char?.name || "")).slice(0, 4).forEach((q) => {
+    if (isAdmin(data) || isMod(data) || isSpeaker(data) || ["prime-minister","leader-commons", q.office].includes(String(char?.office || ""))) {
+      push({ type: "question", title: "Question awaiting ministerial answer", detail: q.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "high" });
+    }
+  });
+
+  qAll.filter((q) => !q.archived && q.answer && String(q.askedBy || "") === String(char?.name || "") && !q.answerSeenByAsker).slice(0, 4).forEach((q) => {
+    push({ type: "speaker", title: "Your question has been answered", detail: (q.text || "").slice(0, 100), ctaLabel: "View Answer", href: `questiontime.html?questionId=${encodeURIComponent(q.id)}`, priority: "high", dismissOnClick: true, dismissQuestionId: q.id });
+  });
+
+  qAll.filter((q) => !q.archived && q.answer && String(q.askedBy || "") === String(char?.name || "").slice(0,999)).forEach((q) => {
+    (q.followUps || []).filter((f) => !f.answer && String(f.askedBy || "") === String(char?.name || "")).slice(0, 2).forEach((f) => {
+      push({ type: "question", title: "Open follow-up awaiting answer", detail: f.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "med" });
+    });
+  });
+
+  return items;
+}
+
 function iconFor(type) {
   // Simple symbols for immersion (you can replace with SVG later)
   const map = {
@@ -160,10 +218,11 @@ function renderLiveDocket(data) {
   const root = $("live-docket");
   if (!root) return;
 
-  const docket = data?.liveDocket;
-  const items = Array.isArray(docket?.items) ? docket.items : [];
+  data.liveDocket ??= { asOf: "Today", items: [] };
+  data.liveDocket.items ??= [];
 
-  const visible = items.filter(it => canSeeAudienceItem(data, it?.audience));
+  const combined = [...data.liveDocket.items, ...buildRoleAwareDocket(data)];
+  const visible = combined.filter((it) => canSeeAudienceItem(data, it?.audience));
 
   if (!visible.length) {
     root.innerHTML = `<div class="muted-block">No actions available right now.</div>`;
@@ -172,7 +231,7 @@ function renderLiveDocket(data) {
 
   root.innerHTML = `
     <div class="docket-list">
-      ${visible.map(it => `
+      ${visible.map((it, idx) => `
         <div class="docket-item ${esc(it.priority || "")}">
           <div class="docket-left">
             <div class="docket-icon" aria-hidden="true">${esc(iconFor(it.type))}</div>
@@ -182,12 +241,24 @@ function renderLiveDocket(data) {
             </div>
           </div>
           <div class="docket-cta">
-            ${it.href ? `<a class="btn" href="${esc(it.href)}">${esc(it.ctaLabel || "Open")}</a>` : ""}
+            ${it.href ? `<a class="btn" data-docket-idx="${idx}" href="${esc(it.href)}">${esc(it.ctaLabel || "Open")}</a>` : ""}
           </div>
         </div>
       `).join("")}
     </div>
   `;
+
+  root.querySelectorAll("a[data-docket-idx]").forEach((a) => {
+    a.addEventListener("click", () => {
+      const item = visible[Number(a.getAttribute("data-docket-idx") || -1)];
+      if (!item?.dismissOnClick || !item?.dismissQuestionId) return;
+      const q = (data.questionTime?.questions || []).find((it) => it.id === item.dismissQuestionId);
+      if (q) q.answerSeenByAsker = true;
+      if (item.generated !== true) {
+        data.liveDocket.items = data.liveDocket.items.filter((i) => i !== item);
+      }
+    });
+  });
 }
 
 function discourseLinkForBill(bill) {

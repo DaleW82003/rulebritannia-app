@@ -13,7 +13,7 @@ const SHADOW_OFFICE_SPECS = [
   { id: "shadow-education", title: "Shadow Secretary of State for Education", short: "Shadow Education" },
   { id: "shadow-env-agri", title: "Shadow Secretary of State for the Environment and Agriculture", short: "Shadow Environment & Agriculture" },
   { id: "shadow-health", title: "Shadow Secretary of State for Health and Social Care", short: "Shadow Health & Social" },
-  { id: "shadow-eti", title: "Shadow Secretary of State for Transport and Infrastructure", short: "Shadow ETI" },
+  { id: "shadow-eti", title: "Shadow Secretary of State for Transport and Infrastructure", short: "Shadow Transport & Infrastructure" },
   { id: "shadow-culture", title: "Shadow Secretary of State for Culture, Media and Sport", short: "Shadow Culture, Media & Sport" },
   { id: "shadow-home-nations", title: "Shadow Secretary of State for the Home Nations", short: "Shadow Home Nations" },
   { id: "shadow-leader-commons", title: "Shadow Leader of the House of Commons", short: "Shadow Leader of the House" }

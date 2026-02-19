@@ -1,6 +1,7 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
+import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
 
 const DEFAULT_PARTIES = {
   Conservative: {
@@ -159,19 +160,9 @@ function render(data, state) {
       <h2 style="margin-top:0;">Draft a Bill (Party Workspace)</h2>
       <p class="muted">Once submitted, drafts can only be edited by their author. There are no amendments or divisions in party drafting.</p>
       <form id="party-draft-form">
-        <label class="label" for="party-draft-title">Bill Title</label>
-        <input id="party-draft-title" name="title" class="input" required placeholder="Education Standards Bill">
+        ${renderDraftingBuilder("party-draft", state.editingDraftId ? party.drafts.find((d) => d.id === state.editingDraftId) : null)}
 
-        <label class="label" for="party-draft-purpose">A Bill to make provision for...</label>
-        <input id="party-draft-purpose" name="purpose" class="input" required placeholder="improving school standards and accountability">
-
-        <label class="label" for="party-draft-body">Draft Text</label>
-        <textarea id="party-draft-body" name="body" class="input" rows="8" required placeholder="Article 1...\nArticle 2..."></textarea>
-
-        <label class="label" for="party-draft-discuss">Discuss URL (optional)</label>
-        <input id="party-draft-discuss" name="discussUrl" class="input" placeholder="https://forum.rulebritannia.org/t/...">
-
-        <button type="submit" class="btn">Save Draft</button>
+        <button type="submit" class="btn">${state.editingDraftId ? "Update Draft" : "Save Draft"}</button>
       </form>
     </section>
 
@@ -245,13 +236,11 @@ function render(data, state) {
     render(data, state);
   });
 
+  wireDraftingBuilder(root.querySelector("#party-draft-form"), "party-draft");
+
   root.querySelector("#party-draft-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const title = String(fd.get("title") || "").trim();
-    const purpose = String(fd.get("purpose") || "").trim();
-    const body = String(fd.get("body") || "").trim();
-    const discussUrl = String(fd.get("discussUrl") || "").trim();
+    const { title, purpose, body, discussUrl, department, articleCount, extent, commencement, articles } = parseDraftingForm(e.currentTarget, data);
     if (!title || !purpose || !body) return;
 
     if (state.editingDraftId) {
@@ -262,6 +251,11 @@ function render(data, state) {
       draft.purpose = purpose;
       draft.body = body;
       draft.discussUrl = discussUrl;
+      draft.department = department;
+      draft.articleCount = articleCount;
+      draft.extent = extent;
+      draft.commencement = commencement;
+      draft.articles = articles;
       state.editingDraftId = null;
     } else {
       const id = data.party.nextDraftId++;
@@ -272,6 +266,11 @@ function render(data, state) {
         purpose,
         body,
         discussUrl,
+        department,
+        articleCount,
+        extent,
+        commencement,
+        articles,
         authorName: char?.name || "Unknown MP",
         authorId: char?.name || "",
         createdAt: new Date().toLocaleString("en-GB"),
@@ -300,11 +299,7 @@ function render(data, state) {
       const userId = char?.name || "";
       if (!draft || (draft.authorId !== userId && !manager)) return;
       state.editingDraftId = id;
-      root.querySelector("#party-draft-title").value = draft.title || "";
-      root.querySelector("#party-draft-purpose").value = draft.purpose || "";
-      root.querySelector("#party-draft-body").value = draft.body || "";
-      root.querySelector("#party-draft-discuss").value = draft.discussUrl || "";
-      root.querySelector("#party-draft-title")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      render(data, state);
     });
   });
 
