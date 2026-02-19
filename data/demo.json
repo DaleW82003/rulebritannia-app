@@ -3,7 +3,6 @@
   "adminSettings": {
     "monarchGender": "Queen"
   },
-
   "gameState": {
     "started": true,
     "startRealDate": "2026-02-16T00:00:00Z",
@@ -11,22 +10,57 @@
     "startSimYear": 1997,
     "isPaused": false
   },
-
   "parliament": {
     "totalSeats": 650,
     "speakerExcludedFromMajority": true,
     "excludeSinnFeinFromMajority": true,
     "excludeAbstentionsFromMajority": true,
     "parties": [
-      { "name": "Conservative", "seats": 330, "playable": true },
-      { "name": "Labour", "seats": 280, "playable": true },
-      { "name": "Liberal Democrat", "seats": 25, "playable": true },
-      { "name": "SNP", "seats": 15, "playable": false },
-      { "name": "Sinn Féin", "seats": 0, "playable": false },
-      { "name": "Others", "seats": 0, "playable": false }
-    ]
+      {
+        "name": "Conservative",
+        "seats": 330,
+        "playable": true
+      },
+      {
+        "name": "Labour",
+        "seats": 280,
+        "playable": true
+      },
+      {
+        "name": "Liberal Democrat",
+        "seats": 25,
+        "playable": true
+      },
+      {
+        "name": "SNP",
+        "seats": 15,
+        "playable": false
+      },
+      {
+        "name": "Sinn F\u00e9in",
+        "seats": 0,
+        "playable": false
+      },
+      {
+        "name": "Others",
+        "seats": 0,
+        "playable": false
+      },
+      {
+        "name": "Plaid Cymru",
+        "seats": 0,
+        "playable": false
+      },
+      {
+        "name": "SDLP",
+        "seats": 0,
+        "playable": false
+      }
+    ],
+    "lastGeneralElection": "May 1997",
+    "governmentSetup": "Majority",
+    "governmentParty": "Conservative"
   },
-
   "players": [
     {
       "name": "Dale Weston MP",
@@ -57,15 +91,15 @@
       "mature": true
     }
   ],
-
   "currentUser": {
     "username": "Dale",
     "isAdmin": true,
     "isMod": false,
     "isSpeaker": false,
-    "roles": ["admin"]
+    "roles": [
+      "admin"
+    ]
   },
-
   "currentCharacter": {
     "name": "Dale Weston MP",
     "party": "Conservative",
@@ -75,9 +109,16 @@
     "lastLogin": "2026-02-14T12:00:00Z",
     "absent": false,
     "delegatedTo": null,
-    "isSpeaker": false
+    "isSpeaker": false,
+    "dateOfBirth": "4 May 1970",
+    "education": "State school; University of Leeds (PPE)",
+    "careerBackground": "Former solicitor and local councillor before entering Parliament",
+    "family": "Married, two children",
+    "constituency": "Kensington & Chelsea",
+    "yearFirstElected": "1992",
+    "personalBackground": "Urban middle-class upbringing with strong legal and civic tradition",
+    "financialBackgroundLevel": 7
   },
-
   "currentPlayer": {
     "name": "Dale Weston MP",
     "party": "Conservative",
@@ -89,18 +130,16 @@
     "delegatedTo": null,
     "isSpeaker": false
   },
-
   "oppositionTracker": {},
-
   "whatsGoingOn": {
     "bbc": {
-      "headline": "BBC: Top political story headline goes here",
-      "strap": "One-sentence summary of the lead story."
+      "headline": "BBC: PM and Leader of the House set out first legislative fortnight",
+      "strap": "Government schedules NHS, rail safety and finance business for floor votes this week."
     },
     "papers": {
       "paper": "The Times",
-      "headline": "Front page headline goes here",
-      "strap": "One-sentence front page standfirst."
+      "headline": "Cabinet whip operation braces for heavy Order Paper week",
+      "strap": "Front benches clash over timetable powers and amendment windows."
     },
     "economy": {
       "growth": 1.8,
@@ -108,60 +147,164 @@
       "unemployment": 4.3
     },
     "polling": [
-      { "party": "Labour", "value": 34.1 },
-      { "party": "Conservative", "value": 31.7 },
-      { "party": "Liberal Democrat", "value": 11.2 },
-      { "party": "Green", "value": 5.4 },
-      { "party": "SNP", "value": 3.2 },
-      { "party": "Reform", "value": 2.4 },
-      { "party": "Others", "value": 11.0 }
+      {
+        "party": "Labour",
+        "value": 34.1
+      },
+      {
+        "party": "Conservative",
+        "value": 31.7
+      },
+      {
+        "party": "Liberal Democrat",
+        "value": 11.2
+      },
+      {
+        "party": "Green",
+        "value": 5.4
+      },
+      {
+        "party": "SNP",
+        "value": 3.2
+      },
+      {
+        "party": "Reform",
+        "value": 2.4
+      },
+      {
+        "party": "Others",
+        "value": 12.0
+      }
     ],
     "commonsLegislation": [
-      { "title": "Bill A", "stage": "Second Reading" },
-      { "title": "Bill B", "stage": "Report Stage" },
-      { "title": "Bill C", "stage": "Division" }
+      {
+        "title": "Bill A",
+        "stage": "Second Reading"
+      },
+      {
+        "title": "Bill B",
+        "stage": "Report Stage"
+      },
+      {
+        "title": "Bill C",
+        "stage": "Division"
+      }
     ]
   },
-
   "news": {
     "stories": [
       {
-        "id": "news-001",
-        "createdAt": 1739520000000,
-        "simDate": "August 1997",
+        "id": "news-live-001",
+        "createdAt": 1771349134548,
+        "simDate": "October 1997",
         "isBreaking": true,
         "category": "Politics",
-        "headline": "PM signals first legislative priorities after election victory",
+        "headline": "PM confirms emergency statement on rail safety reforms tonight",
         "imageUrl": "",
-        "text": "Downing Street has indicated a fast start to the session, with reforms and public service legislation expected to dominate the Queen’s Speech.",
+        "text": "No.10 says ministers will table immediate transport safety changes before the House rises. Opposition demands draft text before debate.",
         "flavour": false
       },
       {
-        "id": "news-002",
-        "createdAt": 1739516400000,
-        "simDate": "August 1997",
+        "id": "news-live-002",
+        "createdAt": 1771176334548,
+        "simDate": "October 1997",
+        "isBreaking": true,
+        "category": "Economy",
+        "headline": "Inflation surprise puts pressure on Treasury autumn package",
+        "imageUrl": "",
+        "text": "The latest inflation print has sharpened cabinet discussion on whether further fiscal restraint is needed this month.",
+        "flavour": false
+      },
+      {
+        "id": "news-live-003",
+        "createdAt": 1771003534548,
+        "simDate": "October 1997",
         "isBreaking": false,
         "category": "Health",
-        "headline": "NHS waiting list pressures remain in focus",
+        "headline": "NHS foundation trusts bill enters high-stakes second reading window",
         "imageUrl": "",
-        "text": "Ministers say targeted action will be taken in high-pressure trusts; opposition claims plans lack detail.",
+        "text": "Whips expect heavy amendment traffic as MPs focus on governance and intervention powers in committee planning.",
         "flavour": false
       },
       {
-        "id": "news-003",
-        "createdAt": 1739512800000,
-        "simDate": "August 1997",
+        "id": "news-live-004",
+        "createdAt": 1770744334548,
+        "simDate": "October 1997",
         "isBreaking": false,
-        "category": "Transport",
-        "headline": "Rail industry to face renewed safety scrutiny",
+        "category": "Parliament",
+        "headline": "Speaker reminds members on conduct after disorderly exchanges",
         "imageUrl": "",
-        "text": "Campaigners have renewed calls for reforms to oversight following recent service disruption and safety concerns.",
+        "text": "The Chair issued guidance on interventions and points of order after a heated sitting on business motions.",
+        "flavour": false
+      },
+      {
+        "id": "news-live-005",
+        "createdAt": 1770571534548,
+        "simDate": "October 1997",
+        "isBreaking": false,
+        "category": "Culture",
+        "headline": "West End producers welcome tourism uptick ahead of winter season",
+        "imageUrl": "",
+        "text": "Industry groups say advance bookings have improved, though staffing costs remain elevated across venues.",
+        "flavour": true
+      },
+      {
+        "id": "news-live-006",
+        "createdAt": 1770398734548,
+        "simDate": "October 1997",
+        "isBreaking": false,
+        "category": "Sport",
+        "headline": "County clubs urge investment in youth facilities",
+        "imageUrl": "",
+        "text": "Sporting bodies called for targeted grants, citing rising participation and ageing local infrastructure.",
+        "flavour": true
+      },
+      {
+        "id": "news-archive-001",
+        "createdAt": 1769880334548,
+        "simDate": "September 1997",
+        "isBreaking": false,
+        "category": "Politics",
+        "headline": "Government outlines first fortnight legislative grid",
+        "imageUrl": "",
+        "text": "The Leader of the House published indicative business, including transport and health measures for early debate.",
+        "flavour": false
+      },
+      {
+        "id": "news-archive-002",
+        "createdAt": 1769102734548,
+        "simDate": "September 1997",
+        "isBreaking": false,
+        "category": "World",
+        "headline": "European partners seek clarity on UK negotiating posture",
+        "imageUrl": "",
+        "text": "Diplomats said they welcomed ministerial engagement while requesting detail on medium-term cooperation priorities.",
+        "flavour": false
+      },
+      {
+        "id": "news-archive-003",
+        "createdAt": 1768584334548,
+        "simDate": "September 1997",
+        "isBreaking": false,
+        "category": "Home",
+        "headline": "Local councils trial new digital reporting dashboard",
+        "imageUrl": "",
+        "text": "Pilot authorities report faster case handling and improved response times in early-stage implementation.",
         "flavour": true
       }
     ],
-    "categories": ["Politics", "Economy", "Health", "Transport", "World", "Home", "Culture", "Sport"]
+    "categories": [
+      "Politics",
+      "Economy",
+      "Health",
+      "Parliament",
+      "World",
+      "Home",
+      "Culture",
+      "Sport",
+      "Other"
+    ]
   },
-
   "papers": {
     "papers": [
       {
@@ -173,7 +316,7 @@
             "id": "sun-issue-001",
             "createdAt": 1739520000000,
             "simDate": "August 1997",
-            "headline": "NEW PM, NEW ERA — BUT WHO PAYS?",
+            "headline": "NEW PM, NEW ERA \u2014 BUT WHO PAYS?",
             "imageUrl": "",
             "bylineName": "Political Correspondent",
             "text": "The government promises bold plans. Critics warn of costs. Ministers insist reforms will be funded without burdening working families."
@@ -221,7 +364,7 @@
             "id": "mirror-issue-001",
             "createdAt": 1739520000000,
             "simDate": "August 1997",
-            "headline": "NHS FIRST — MINISTERS PROMISE ACTION",
+            "headline": "NHS FIRST \u2014 MINISTERS PROMISE ACTION",
             "imageUrl": "",
             "bylineName": "Political Correspondent",
             "text": "Waiting times and access remain central. The government says it will prioritise reforms and investment. Opposition calls for targets and timelines."
@@ -294,7 +437,6 @@
       }
     ]
   },
-
   "economyPage": {
     "topline": {
       "gdpGrowth": 1.8,
@@ -307,151 +449,567 @@
         "title": "Economic Indicators",
         "subtitle": "Headline macro + output",
         "rows": [
-          ["Economic Growth", "1.8%", "—"],
-          ["Inflation", "2.6%", "—"],
-          ["Unemployment", "4.3%", "—"],
-          ["GDP", "£0.9tn", "—"],
-          ["GDP per capita", "£15,500", "—"]
+          [
+            "Inflation",
+            "2.6%"
+          ],
+          [
+            "Unemployment",
+            "4.3%"
+          ],
+          [
+            "GDP",
+            "\u00a30.9tn"
+          ],
+          [
+            "GDP Growth",
+            "1.8%"
+          ],
+          [
+            "GDP per Capita",
+            "\u00a315,500"
+          ],
+          [
+            "Investment (% of GDP)",
+            "17.2%"
+          ],
+          [
+            "BoE Interest Rate",
+            "6.0%"
+          ],
+          [
+            "Business Confidence",
+            "49.0"
+          ],
+          [
+            "Average UK Income (Full Time Salary)",
+            "\u00a323,900"
+          ]
         ]
       },
       {
         "id": "public-finance",
-        "title": "Public Finance (snapshot)",
-        "subtitle": "Budget context",
+        "title": "Public Finance",
+        "subtitle": "Fiscal year = April to March",
         "rows": [
-          ["Public Sector Net Borrowing", "£28.0bn", "—"],
-          ["Debt Interest", "£23.0bn", "—"]
+          [
+            "Revenue Last Year",
+            "\u00a3355.0bn"
+          ],
+          [
+            "Expenses Last Year",
+            "\u00a3383.0bn"
+          ],
+          [
+            "Surplus/Deficit Last Year",
+            "-\u00a328.0bn"
+          ],
+          [
+            "Real Growth (GDP Growth minus Inflation)",
+            "-0.8%"
+          ],
+          [
+            "National Debt",
+            "\u00a3560.0bn"
+          ],
+          [
+            "Debt Interest",
+            "\u00a323.0bn"
+          ],
+          [
+            "Debt as a % of GDP",
+            "62.2%"
+          ]
         ]
       },
       {
         "id": "demographics",
         "title": "Demographics",
-        "subtitle": "Population & structure",
+        "subtitle": "Population and electorate context",
         "rows": [
-          ["Population", "58.6m", "—"],
-          ["Net migration", "+50k", "—"]
+          [
+            "Population",
+            "58.6m"
+          ],
+          [
+            "Net Migration",
+            "+50k"
+          ],
+          [
+            "Pensioners",
+            "10.9m"
+          ],
+          [
+            "Students",
+            "2.1m"
+          ],
+          [
+            "Total Unemployed",
+            "2.5m"
+          ],
+          [
+            "Total Economically Inactive",
+            "16.7m"
+          ],
+          [
+            "Electoral Franchise",
+            "44.4m"
+          ],
+          [
+            "Registered Births",
+            "690k"
+          ],
+          [
+            "Registered Deaths",
+            "610k"
+          ]
         ]
       }
     ],
     "surveys": [
       {
         "id": "british-crime-survey",
-        "title": "The British Crime Survey",
+        "title": "British Crime Survey",
+        "subtitle": "Recorded offences snapshot",
         "rows": [
-          ["Crime type", "Level", "Change"],
-          ["Burglary", "Medium", "Down"],
-          ["Vehicle crime", "High", "Flat"],
-          ["Violence", "Rising", "Up"]
+          [
+            "Violent Crimes",
+            "1.06m"
+          ],
+          [
+            "Sexual Offences",
+            "54k"
+          ],
+          [
+            "Burglary",
+            "810k"
+          ],
+          [
+            "Theft",
+            "2.10m"
+          ],
+          [
+            "Criminal Damage",
+            "640k"
+          ],
+          [
+            "Arson",
+            "34k"
+          ],
+          [
+            "Fraud",
+            "410k"
+          ],
+          [
+            "Drug Possession",
+            "128k"
+          ],
+          [
+            "Drug Supply",
+            "41k"
+          ],
+          [
+            "Public Order Offence",
+            "300k"
+          ],
+          [
+            "Driving Offences",
+            "585k"
+          ],
+          [
+            "Offensive Weapon",
+            "27k"
+          ],
+          [
+            "Other Offences",
+            "190k"
+          ]
         ]
       },
       {
         "id": "nhs-waiting",
         "title": "NHS Waiting Lists",
+        "subtitle": "Specialty waiting totals",
         "rows": [
-          ["Measure", "Level", "Change"],
-          ["Total waiting list", "High", "Up"],
-          ["12+ months", "Concerning", "Up"]
+          [
+            "Trauma & Orthopaedics",
+            "840k"
+          ],
+          [
+            "General Surgery",
+            "790k"
+          ],
+          [
+            "Ophthalmology",
+            "520k"
+          ],
+          [
+            "ENT (Ear, Nose & Throat)",
+            "300k"
+          ],
+          [
+            "Obstetrics & Gynaecology (OBGYN)",
+            "270k"
+          ],
+          [
+            "Urology",
+            "220k"
+          ],
+          [
+            "Plastic Surgery",
+            "125k"
+          ],
+          [
+            "Oral Surgery",
+            "90k"
+          ],
+          [
+            "Other Surgeries",
+            "560k"
+          ]
         ]
       },
       {
         "id": "labour-survey",
-        "title": "The UK Labour Survey",
+        "title": "UK Labour Survey",
+        "subtitle": "Workforce totals",
         "rows": [
-          ["Measure", "Level", "Change"],
-          ["Employment", "Strong", "Up"],
-          ["Inactivity", "Moderate", "Flat"]
+          [
+            "Public Sector Workforce",
+            "5.3m"
+          ],
+          [
+            "Private Sector Workforce",
+            "21.9m"
+          ],
+          [
+            "Total Employed",
+            "27.2m"
+          ]
         ]
       }
     ]
   },
-
   "bodies": {
     "list": [
       {
-        "id": "commons",
-        "name": "House of Commons",
-        "desc": "Elected chamber. This is your active game parliament (voting occurs here).",
-        "totalSeats": 650,
-        "parties": [
-          { "name": "Conservative", "seats": 330 },
-          { "name": "Labour", "seats": 280 },
-          { "name": "Liberal Democrat", "seats": 25 },
-          { "name": "SNP", "seats": 15 }
-        ]
-      },
-      {
         "id": "lords",
         "name": "House of Lords",
-        "desc": "Non-elected chamber. Composition is flavour (no player voting).",
-        "totalSeats": 1200,
+        "desc": "Appointed upper chamber with scrutiny and revision powers.",
+        "totalSeats": 780,
+        "controlType": "majority",
+        "controlParty": "No overall control",
+        "visible": true,
         "parties": [
-          { "name": "Conservative", "seats": 450 },
-          { "name": "Labour", "seats": 200 },
-          { "name": "Liberal Democrat", "seats": 70 },
-          { "name": "Crossbench", "seats": 350 },
-          { "name": "Bishops/Other", "seats": 130 }
+          {
+            "name": "Conservative",
+            "seats": 310
+          },
+          {
+            "name": "Labour",
+            "seats": 180
+          },
+          {
+            "name": "Liberal Democrat",
+            "seats": 90
+          },
+          {
+            "name": "Crossbench",
+            "seats": 180
+          },
+          {
+            "name": "Bishops/Other",
+            "seats": 20
+          }
         ]
       },
       {
         "id": "europarl",
-        "name": "European Parliament (UK delegation)",
-        "desc": "Flavour body for Europe-wide context.",
+        "name": "European Parliament (UK Delegation)",
+        "desc": "UK delegation in the European Parliament for this period.",
         "totalSeats": 87,
+        "controlType": "majority",
+        "controlParty": "Labour",
+        "visible": true,
         "parties": [
-          { "name": "Labour", "seats": 62 },
-          { "name": "Conservative", "seats": 18 },
-          { "name": "Liberal Democrat", "seats": 2 },
-          { "name": "SNP/Plaid/Other", "seats": 5 }
+          {
+            "name": "Labour",
+            "seats": 62
+          },
+          {
+            "name": "Conservative",
+            "seats": 18
+          },
+          {
+            "name": "Liberal Democrat",
+            "seats": 2
+          },
+          {
+            "name": "SNP/Plaid/Other",
+            "seats": 5
+          }
+        ]
+      },
+      {
+        "id": "scottish-parliament",
+        "name": "Scottish Parliament",
+        "desc": "Devolved legislature in Scotland.",
+        "totalSeats": 129,
+        "controlType": "coalition",
+        "controlParty": "Labour + Liberal Democrat",
+        "visible": true,
+        "parties": [
+          {
+            "name": "Labour",
+            "seats": 56
+          },
+          {
+            "name": "SNP",
+            "seats": 35
+          },
+          {
+            "name": "Conservative",
+            "seats": 18
+          },
+          {
+            "name": "Liberal Democrat",
+            "seats": 17
+          },
+          {
+            "name": "Others",
+            "seats": 3
+          }
+        ]
+      },
+      {
+        "id": "welsh-assembly",
+        "name": "Welsh Assembly (Senedd)",
+        "desc": "Devolved legislature in Wales.",
+        "totalSeats": 60,
+        "controlType": "minority",
+        "controlParty": "Labour",
+        "visible": true,
+        "parties": [
+          {
+            "name": "Labour",
+            "seats": 28
+          },
+          {
+            "name": "Plaid Cymru",
+            "seats": 16
+          },
+          {
+            "name": "Conservative",
+            "seats": 12
+          },
+          {
+            "name": "Liberal Democrat",
+            "seats": 4
+          }
+        ]
+      },
+      {
+        "id": "ni-assembly",
+        "name": "Northern Irish Assembly",
+        "desc": "Devolved legislature in Northern Ireland.",
+        "totalSeats": 108,
+        "controlType": "coalition",
+        "controlParty": "Power-sharing Executive",
+        "visible": true,
+        "parties": [
+          {
+            "name": "UUP",
+            "seats": 28
+          },
+          {
+            "name": "SDLP",
+            "seats": 24
+          },
+          {
+            "name": "DUP",
+            "seats": 20
+          },
+          {
+            "name": "Sinn F\u00e9in",
+            "seats": 18
+          },
+          {
+            "name": "Alliance",
+            "seats": 10
+          },
+          {
+            "name": "Others",
+            "seats": 8
+          }
+        ]
+      },
+      {
+        "id": "directly-elected-mayors",
+        "name": "Directly Elected Mayors",
+        "type": "mayors",
+        "visible": true,
+        "mayors": [
+          {
+            "mayoralty": "London",
+            "name": "Frank Dobson",
+            "party": "Labour"
+          },
+          {
+            "mayoralty": "Liverpool",
+            "name": "Mike Storey",
+            "party": "Liberal Democrat"
+          },
+          {
+            "mayoralty": "Middlesbrough",
+            "name": "Ray Mallon",
+            "party": "Independent"
+          }
         ]
       }
     ]
   },
-
   "constituencies": [
     {
       "id": "kensington-chelsea",
       "name": "Kensington & Chelsea",
-      "region": "London",
       "nation": "England",
+      "region": "London",
       "party": "Conservative"
     },
     {
       "id": "islington-north",
       "name": "Islington North",
-      "region": "London",
       "nation": "England",
+      "region": "London",
+      "party": "Labour"
+    },
+    {
+      "id": "cities-london-westminster",
+      "name": "Cities of London & Westminster",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative"
+    },
+    {
+      "id": "bolton-west",
+      "name": "Bolton West",
+      "nation": "England",
+      "region": "North West",
       "party": "Labour"
     },
     {
       "id": "sheffield-hallam",
       "name": "Sheffield Hallam",
-      "region": "Yorkshire & the Humber",
       "nation": "England",
+      "region": "Yorkshire & the Humber",
       "party": "Liberal Democrat"
+    },
+    {
+      "id": "york-outer",
+      "name": "York Outer",
+      "nation": "England",
+      "region": "Yorkshire & the Humber",
+      "party": "Conservative"
+    },
+    {
+      "id": "birmingham-edgbaston",
+      "name": "Birmingham Edgbaston",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour"
+    },
+    {
+      "id": "worcester",
+      "name": "Worcester",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative"
+    },
+    {
+      "id": "norwich-south",
+      "name": "Norwich South",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour"
+    },
+    {
+      "id": "southend-west",
+      "name": "Southend West",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative"
+    },
+    {
+      "id": "bristol-west",
+      "name": "Bristol West",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat"
+    },
+    {
+      "id": "plymouth-sutton",
+      "name": "Plymouth Sutton",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative"
     },
     {
       "id": "glasgow-kelvin",
       "name": "Glasgow Kelvin",
-      "region": "Strathclyde",
       "nation": "Scotland",
+      "region": "Strathclyde",
       "party": "SNP"
+    },
+    {
+      "id": "edinburgh-south",
+      "name": "Edinburgh South",
+      "nation": "Scotland",
+      "region": "Lothian",
+      "party": "Labour"
+    },
+    {
+      "id": "aberdeen-south",
+      "name": "Aberdeen South",
+      "nation": "Scotland",
+      "region": "Grampian",
+      "party": "Conservative"
     },
     {
       "id": "cardiff-central",
       "name": "Cardiff Central",
-      "region": "South Wales",
       "nation": "Wales",
+      "region": "South Wales",
       "party": "Labour"
+    },
+    {
+      "id": "clwyd-west",
+      "name": "Clwyd West",
+      "nation": "Wales",
+      "region": "North Wales",
+      "party": "Conservative"
+    },
+    {
+      "id": "ynys-mon",
+      "name": "Ynys Mon",
+      "nation": "Wales",
+      "region": "North Wales",
+      "party": "Plaid Cymru"
     },
     {
       "id": "belfast-south",
       "name": "Belfast South",
-      "region": "Belfast",
       "nation": "Northern Ireland",
+      "region": "Belfast",
       "party": "Others"
+    },
+    {
+      "id": "foyle",
+      "name": "Foyle",
+      "nation": "Northern Ireland",
+      "region": "Derry",
+      "party": "SDLP"
     }
   ],
-
   "orderPaperCommons": [
     {
       "id": "nhs-ft-2000",
@@ -463,7 +1021,7 @@
       "status": "in-progress",
       "createdAt": 1739491200000,
       "stageStartedAt": 1739491200000,
-      "billText": "A Bill to make provision about NHS Foundation Trusts; to establish governance and financial duties; and for connected purposes.\n\nPART 1 — FOUNDATION TRUST STATUS\n1. Eligibility and designation.\n2. Governance requirements.\n\nPART 2 — FINANCE AND ACCOUNTABILITY\n3. Accounts and reporting.\n4. Oversight and intervention powers.\n\nPART 3 — GENERAL\n5. Commencement and extent.",
+      "billText": "A Bill to make provision about NHS Foundation Trusts; to establish governance and financial duties; and for connected purposes.\n\nPART 1 \u2014 FOUNDATION TRUST STATUS\n1. Eligibility and designation.\n2. Governance requirements.\n\nPART 2 \u2014 FINANCE AND ACCOUNTABILITY\n3. Accounts and reporting.\n4. Oversight and intervention powers.\n\nPART 3 \u2014 GENERAL\n5. Commencement and extent.",
       "amendments": [
         {
           "id": "A1",
@@ -473,7 +1031,9 @@
           "text": "Insert a requirement for quarterly publication of performance data by foundation trusts in a standard format.",
           "proposedBy": "Labour",
           "status": "proposed",
-          "supporters": ["Labour"],
+          "supporters": [
+            "Labour"
+          ],
           "submittedAt": "2026-02-14T09:00:00Z"
         },
         {
@@ -484,7 +1044,10 @@
           "text": "Insert a provision requiring a minimum percentage of capital spend to address the maintenance backlog for patient safety.",
           "proposedBy": "Conservative",
           "status": "proposed",
-          "supporters": ["Conservative", "Liberal Democrat"],
+          "supporters": [
+            "Conservative",
+            "Liberal Democrat"
+          ],
           "submittedAt": "2026-02-14T09:30:00Z"
         },
         {
@@ -495,11 +1058,15 @@
           "text": "Delete Clause 4 to remove the intervention power, replacing it with a requirement for parliamentary approval before intervention.",
           "proposedBy": "SNP",
           "status": "proposed",
-          "supporters": ["SNP"],
+          "supporters": [
+            "SNP"
+          ],
           "submittedAt": "2026-02-14T10:00:00Z"
         }
       ],
-      "hansard": {}
+      "hansard": {},
+      "stageDurationMs": 172800000,
+      "debateUrl": "https://forum.rulebritannia.org/t/nhs-ft-2000"
     },
     {
       "id": "rail-safety-2000",
@@ -513,7 +1080,9 @@
       "stageStartedAt": 1739448000000,
       "billText": "(Placeholder) Bill text not added yet.",
       "amendments": [],
-      "hansard": {}
+      "hansard": {},
+      "stageDurationMs": 172800000,
+      "debateUrl": "https://forum.rulebritannia.org/t/rail-safety-2000"
     },
     {
       "id": "age-consent-2000",
@@ -527,7 +1096,9 @@
       "stageStartedAt": 1739494800000,
       "billText": "(Placeholder) Bill text not added yet.",
       "amendments": [],
-      "hansard": {}
+      "hansard": {},
+      "stageDurationMs": 172800000,
+      "debateUrl": "https://forum.rulebritannia.org/t/age-consent-2000"
     },
     {
       "id": "finance-2000",
@@ -536,16 +1107,34 @@
       "department": "Treasury",
       "billType": "government",
       "stage": "Division",
-      "status": "passed",
+      "status": "in-progress",
       "createdAt": 1738886400000,
-      "stageStartedAt": 1739448000000,
+      "stageStartedAt": 1771432522191,
       "completedAt": 1739521200000,
       "billText": "(Placeholder) Bill text not added yet.",
       "amendments": [],
-      "hansard": {}
+      "hansard": {},
+      "stageDurationMs": 7200000,
+      "debateUrl": "https://forum.rulebritannia.org/t/finance-2000",
+      "division": {
+        "status": "open",
+        "openedAt": 1771432522191,
+        "closesAt": 1771439722191,
+        "votes": {
+          "Labour": {
+            "choice": "no",
+            "party": "Labour",
+            "at": 1771434022191
+          },
+          "Conservative": {
+            "choice": "aye",
+            "party": "Conservative",
+            "at": 1771434322191
+          }
+        }
+      }
     }
   ],
-
   "liveDocket": {
     "asOf": "Today, 10:15",
     "items": [
@@ -556,7 +1145,14 @@
         "ctaLabel": "Open",
         "href": "qt-office.html?office=prime-minister",
         "priority": "high",
-        "audience": { "roles": ["minister"], "offices": ["prime-minister"] }
+        "audience": {
+          "roles": [
+            "minister"
+          ],
+          "offices": [
+            "prime-minister"
+          ]
+        }
       },
       {
         "type": "question",
@@ -565,7 +1161,13 @@
         "ctaLabel": "Open",
         "href": "qt-office.html?office=prime-minister",
         "priority": "normal",
-        "audience": { "roles": ["leader-opposition", "party-leader-3rd-4th", "backbencher"] }
+        "audience": {
+          "roles": [
+            "leader-opposition",
+            "party-leader-3rd-4th",
+            "backbencher"
+          ]
+        }
       },
       {
         "type": "statement",
@@ -574,16 +1176,32 @@
         "ctaLabel": "Open",
         "href": "statements.html",
         "priority": "high",
-        "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
+        "audience": {
+          "roles": [
+            "backbencher",
+            "minister",
+            "shadow",
+            "leader-opposition",
+            "party-leader-3rd-4th"
+          ]
+        }
       },
       {
         "type": "division",
         "title": "Division: Finance Act 2000",
-        "detail": "Vote open now — closes 19:00.",
+        "detail": "Vote open now \u2014 closes 19:00.",
         "ctaLabel": "Vote",
         "href": "bill.html?id=finance-2000",
         "priority": "high",
-        "audience": { "roles": ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th"] }
+        "audience": {
+          "roles": [
+            "backbencher",
+            "minister",
+            "shadow",
+            "leader-opposition",
+            "party-leader-3rd-4th"
+          ]
+        }
       },
       {
         "type": "speaker",
@@ -592,26 +1210,150 @@
         "ctaLabel": "Open",
         "href": "civilservice.html",
         "priority": "high",
-        "audience": { "speakerOnly": true }
+        "audience": {
+          "speakerOnly": true
+        }
+      },
+      {
+        "type": "debate",
+        "title": "Second Reading Debate: NHS Foundation Trusts Act 2000",
+        "detail": "Debate thread open on forum before tonight's closure.",
+        "ctaLabel": "Debate",
+        "href": "https://forum.rulebritannia.org/t/nhs-ft-2000",
+        "priority": "normal",
+        "audience": {
+          "roles": [
+            "backbencher",
+            "minister",
+            "shadow",
+            "leader-opposition",
+            "party-leader-3rd-4th",
+            "prime-minister"
+          ]
+        }
+      },
+      {
+        "type": "motion",
+        "title": "Business Motion: Extend sitting to 10pm",
+        "detail": "Whips request member positions before division bell.",
+        "ctaLabel": "Open",
+        "href": "motions.html",
+        "priority": "normal",
+        "audience": {
+          "roles": [
+            "backbencher",
+            "minister",
+            "shadow",
+            "leader-opposition",
+            "party-leader-3rd-4th"
+          ]
+        }
+      },
+      {
+        "type": "edm",
+        "title": "EDM 102: Support for local steel jobs",
+        "detail": "Signatures open for 24 hours.",
+        "ctaLabel": "Sign EDM",
+        "href": "motions.html#edm-102",
+        "priority": "normal",
+        "audience": {
+          "roles": [
+            "backbencher",
+            "minister",
+            "shadow",
+            "leader-opposition",
+            "party-leader-3rd-4th"
+          ]
+        }
+      },
+      {
+        "type": "bill",
+        "title": "Leader of the House: Mark bill as Government Bill",
+        "detail": "Agenda power available this period.",
+        "ctaLabel": "Open Bill",
+        "href": "bill.html?id=age-consent-2000",
+        "priority": "high",
+        "audience": {
+          "offices": [
+            "prime-minister",
+            "leader-commons"
+          ]
+        }
       }
     ]
   },
-
   "questionTime": {
     "offices": [
-      { "id": "prime-minister", "title": "Prime Minister", "holder": "Dale Weston MP" },
-      { "id": "chancellor", "title": "Chancellor of the Exchequer", "holder": "—" },
-      { "id": "foreign", "title": "Foreign Secretary", "holder": "—" },
-      { "id": "trade", "title": "Business and Trade Secretary", "holder": "—" },
-      { "id": "defence", "title": "Defence Secretary", "holder": "—" },
-      { "id": "welfare", "title": "Work and Pensions Secretary", "holder": "—" },
-      { "id": "education", "title": "Education Secretary", "holder": "—" },
-      { "id": "env-agri", "title": "Environment and Agriculture Secretary", "holder": "—" },
-      { "id": "health", "title": "Health and Social Security Secretary", "holder": "—" },
-      { "id": "eti", "title": "Environment, Transport and Infrastructure Secretary", "holder": "—" },
-      { "id": "culture", "title": "Culture, Media and Sport Secretary", "holder": "—" },
-      { "id": "home-nations", "title": "Home Nations Secretary", "holder": "—" },
-      { "id": "leader-commons", "title": "Leader of the House of Commons", "holder": "—" }
+      {
+        "id": "prime-minister",
+        "title": "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service",
+        "holder": "Dale Weston MP"
+      },
+      {
+        "id": "chancellor",
+        "title": "Chancellor of the Exchequer, and Second Lord of the Treasury",
+        "holder": "Alice Thorne MP"
+      },
+      {
+        "id": "home",
+        "title": "Secretary of State for the Home Department",
+        "holder": "Graham Pike MP"
+      },
+      {
+        "id": "foreign",
+        "title": "Secretary of State for Foreign and Commonwealth Affairs",
+        "holder": "Helen Ward MP"
+      },
+      {
+        "id": "trade",
+        "title": "Secretary of State for Business and Trade, and President of the Board of Trade",
+        "holder": "Marcus Reid MP"
+      },
+      {
+        "id": "defence",
+        "title": "Secretary of State for Defence",
+        "holder": "Cameron Miles MP"
+      },
+      {
+        "id": "welfare",
+        "title": "Secretary of State for Work and Pensions",
+        "holder": "Nadia Cole MP"
+      },
+      {
+        "id": "education",
+        "title": "Secretary of State for Education",
+        "holder": "Ellen Price MP"
+      },
+      {
+        "id": "env-agri",
+        "title": "Secretary of State for the Environment and Agriculture",
+        "holder": "Ruth Mercer MP"
+      },
+      {
+        "id": "health",
+        "title": "Secretary of State for Health and Social Care",
+        "holder": "Imran Ashraf MP"
+      },
+      {
+        "id": "eti",
+        "title": "Secretary of State for Transport and Infrastructure",
+        "holder": "Peter Doyle MP"
+      },
+      {
+        "id": "culture",
+        "title": "Secretary of State for Culture, Media and Sport",
+        "holder": "Sophie Lambert MP"
+      },
+      {
+        "id": "home-nations",
+        "title": "Secretary of State for the Home Nations",
+        "holder": "Megan Ellis MP"
+      },
+      {
+        "id": "leader-commons",
+        "title": "Leader of the House of Commons",
+        "holder": "Victor Shaw MP"
+      }
     ],
     "cabinet": [
       {
@@ -625,14 +1367,19 @@
         "short": "Treasury Questions"
       },
       {
+        "slug": "home",
+        "title": "Secretary of State for the Home Department",
+        "short": "Home Questions"
+      },
+      {
         "slug": "foreign",
         "title": "Secretary of State for Foreign and Commonwealth Affairs",
-        "short": "FCO Questions"
+        "short": "Foreign Questions"
       },
       {
         "slug": "trade",
         "title": "Secretary of State for Business and Trade, and President of the Board of Trade",
-        "short": "Trade Questions"
+        "short": "Business & Trade Questions"
       },
       {
         "slug": "defence",
@@ -642,7 +1389,7 @@
       {
         "slug": "welfare",
         "title": "Secretary of State for Work and Pensions",
-        "short": "Welfare Questions"
+        "short": "DWP Questions"
       },
       {
         "slug": "education",
@@ -656,12 +1403,12 @@
       },
       {
         "slug": "health",
-        "title": "Secretary of State for Health and Social Security",
+        "title": "Secretary of State for Health and Social Care",
         "short": "Health Questions"
       },
       {
         "slug": "eti",
-        "title": "Secretary of State for the Environment, Transport and Infrastructure",
+        "title": "Secretary of State for Transport and Infrastructure",
         "short": "ETI Questions"
       },
       {
@@ -686,27 +1433,1930 @@
         "office": "prime-minister",
         "askedBy": "Dale Weston MP",
         "askedRole": "backbencher",
-        "text": "Will the Prime Minister commit to publishing a timetable for the next Queen’s Speech and the government’s priorities for this session?",
+        "askedAtSim": "August 1997",
+        "text": "Will the Prime Minister commit to publishing a timetable for the next Queen\u2019s Speech and the government\u2019s priorities for this session?",
         "status": "submitted",
-        "answer": ""
+        "answer": "",
+        "followUps": [],
+        "archived": false
       },
       {
         "id": "qt-002",
         "office": "health",
         "askedBy": "John Shade MP",
         "askedRole": "shadow",
+        "askedAtSim": "August 1997",
         "text": "What assessment has the Secretary of State made of NHS waiting times over the last quarter, and what action will be taken to improve performance?",
         "status": "answered",
-        "answer": "Waiting times have stabilised and targeted funding is being directed to high-pressure trusts. A further update will be issued in the next performance bulletin."
+        "answer": "Waiting times have stabilised and targeted funding is being directed to high-pressure trusts. A further update will be issued in the next performance bulletin.",
+        "answeredAtSim": "August 1997",
+        "followUps": [
+          {
+            "id": "qtf-001",
+            "text": "Will the Secretary publish trust-level waiting list data monthly?",
+            "askedBy": "John Shade MP",
+            "askedAtSim": "August 1997",
+            "answer": "Yes, trust-level publication will be added to the September NHS bulletin."
+          }
+        ],
+        "archived": false
       },
       {
         "id": "qt-003",
         "office": "leader-commons",
         "askedBy": "Grant Kingston MP",
         "askedRole": "leader-opposition",
-        "text": "Will the Leader of the House confirm the government’s legislative timetable for the next two sitting weeks, including opposition day allocation?",
+        "askedAtSim": "July 1997",
+        "text": "Will the Leader of the House confirm the government\u2019s legislative timetable for the next two sitting weeks, including opposition day allocation?",
         "status": "closed",
-        "answer": "A business statement will be issued outlining the next two sitting weeks, including one opposition day within that period."
+        "answer": "A business statement will be issued outlining the next two sitting weeks, including one opposition day within that period.",
+        "answeredAtSim": "July 1997",
+        "followUps": [],
+        "archived": true,
+        "archivedAtSim": "August 1997"
+      },
+      {
+        "id": "qt-004",
+        "office": "home",
+        "askedBy": "Rina Patel MP",
+        "askedRole": "backbencher",
+        "askedAtSim": "August 1997",
+        "text": "What plans does the Home Secretary have to improve neighbourhood policing visibility in city centres?",
+        "status": "submitted",
+        "answer": "",
+        "followUps": [],
+        "archived": false
+      },
+      {
+        "id": "qt-005",
+        "office": "education",
+        "askedBy": "Tom Barlow MP",
+        "askedRole": "backbencher",
+        "askedAtSim": "August 1997",
+        "text": "How will the Education Secretary support schools facing teacher recruitment gaps in STEM subjects?",
+        "status": "answered",
+        "answer": "A targeted retention package and new bursary scheme will be introduced for priority shortage subjects.",
+        "answeredAtSim": "August 1997",
+        "followUps": [],
+        "archived": false
+      },
+      {
+        "id": "qt-006",
+        "office": "foreign",
+        "askedBy": "Leah Cunningham MP",
+        "askedRole": "shadow",
+        "askedAtSim": "August 1997",
+        "text": "What is the government\u2019s current assessment of UK export support in emerging markets?",
+        "status": "submitted",
+        "answer": "",
+        "followUps": [],
+        "archived": false
+      }
+    ]
+  },
+  "locals": {
+    "countries": [
+      {
+        "country": "England",
+        "councilsControlled": 186,
+        "councillors": 18350,
+        "independentCouncillors": 980,
+        "independentCouncilsControlled": 7,
+        "noOverallControlCouncils": 89
+      },
+      {
+        "country": "Scotland",
+        "councilsControlled": 15,
+        "councillors": 1227,
+        "independentCouncillors": 96,
+        "independentCouncilsControlled": 1,
+        "noOverallControlCouncils": 9
+      },
+      {
+        "country": "Wales",
+        "councilsControlled": 14,
+        "councillors": 1254,
+        "independentCouncillors": 110,
+        "independentCouncilsControlled": 2,
+        "noOverallControlCouncils": 6
+      },
+      {
+        "country": "Northern Ireland",
+        "councilsControlled": 11,
+        "councillors": 582,
+        "independentCouncillors": 42,
+        "independentCouncilsControlled": 0,
+        "noOverallControlCouncils": 4
+      }
+    ]
+  },
+  "statements": {
+    "nextNumber": 4,
+    "items": [
+      {
+        "id": "ms-001",
+        "number": 1,
+        "title": "National Apprenticeship Expansion Programme",
+        "author": "Alice Thorne MP",
+        "office": "chancellor",
+        "body": "Today I am announcing a targeted apprenticeship expansion package focused on engineering, digital skills, and health support roles. Funding will be redirected from underspent departmental lines for this fiscal year, with delivery tracked quarterly.",
+        "status": "archived",
+        "openedAtSim": "May 1997",
+        "closesAtSim": "July 1997",
+        "archivedAtSim": "July 1997",
+        "debateUrl": "https://forum.rulebritannia.org/t/ms-1-national-apprenticeship-expansion-programme"
+      },
+      {
+        "id": "ms-002",
+        "number": 2,
+        "title": "Home Office Neighbourhood Safety Initiative",
+        "author": "Graham Pike MP",
+        "office": "home",
+        "body": "The Home Department will launch a neighbourhood safety initiative covering hotspot patrols, local partnership briefings, and a public confidence tracker. Initial deployment begins in twelve pilot authorities before national scale-up.",
+        "status": "open",
+        "openedAtSim": "July 1997",
+        "closesAtSim": "September 1997",
+        "debateUrl": "https://forum.rulebritannia.org/t/ms-2-home-office-neighbourhood-safety-initiative"
+      },
+      {
+        "id": "ms-003",
+        "number": 3,
+        "title": "NHS Elective Recovery and Workforce Plan",
+        "author": "Imran Ashraf MP",
+        "office": "health",
+        "body": "I am setting out an NHS elective recovery and workforce plan that prioritises high-backlog specialties, extends operating theatre schedules, and increases targeted recruitment for critical roles. Trust-level milestones will be reported monthly.",
+        "status": "open",
+        "openedAtSim": "August 1997",
+        "closesAtSim": "October 1997",
+        "debateUrl": "https://forum.rulebritannia.org/t/ms-3-nhs-elective-recovery-and-workforce-plan"
+      }
+    ]
+  },
+  "motions": {
+    "nextHouseNumber": 3,
+    "nextEdmNumber": 3,
+    "house": [
+      {
+        "id": "motion-001",
+        "number": 1,
+        "title": "Public Sector Procurement Transparency",
+        "author": "Dale Weston MP",
+        "body": "That this House calls on all departments to publish quarterly procurement award summaries and ministerial exception notices for contracts above \u00a31 million.",
+        "status": "archived",
+        "debateStartSim": "May 1997",
+        "debateEndSim": "July 1997",
+        "debateUrl": "https://forum.rulebritannia.org/t/motion-1-public-sector-procurement-transparency",
+        "division": {
+          "status": "closed",
+          "startSim": "July 1997",
+          "endSim": "August 1997",
+          "votes": {
+            "Dale Weston MP": {
+              "name": "Dale Weston MP",
+              "party": "Conservative",
+              "weight": 326,
+              "choice": "aye"
+            },
+            "Grant Kingston MP": {
+              "name": "Grant Kingston MP",
+              "party": "Labour",
+              "weight": 260,
+              "choice": "no"
+            },
+            "Leah Cunningham MP": {
+              "name": "Leah Cunningham MP",
+              "party": "Liberal Democrats",
+              "weight": 46,
+              "choice": "aye"
+            }
+          }
+        },
+        "closedAtSim": "August 1997"
+      },
+      {
+        "id": "motion-002",
+        "number": 2,
+        "title": "City Centre Retail Safety Support",
+        "author": "Rina Patel MP",
+        "body": "That this House urges the Government to coordinate police and local authority action plans to support city centre retail safety over the winter period.",
+        "status": "open",
+        "debateStartSim": "August 1997",
+        "debateEndSim": "October 1997",
+        "debateUrl": "https://forum.rulebritannia.org/t/motion-2-city-centre-retail-safety-support",
+        "division": {
+          "status": "open",
+          "startSim": "October 1997",
+          "endSim": "November 1997",
+          "votes": {
+            "Dale Weston MP": {
+              "name": "Dale Weston MP",
+              "party": "Conservative",
+              "weight": 326,
+              "choice": "aye"
+            },
+            "Leah Cunningham MP": {
+              "name": "Leah Cunningham MP",
+              "party": "Liberal Democrats",
+              "weight": 46,
+              "choice": "aye"
+            }
+          }
+        }
+      }
+    ],
+    "edm": [
+      {
+        "id": "edm-001",
+        "number": 1,
+        "title": "Support for Regional Bus Routes",
+        "author": "Tom Barlow MP",
+        "body": "That this House notes the importance of regional bus routes to social and economic participation and calls on ministers to protect viable local services.",
+        "signatures": [
+          {
+            "name": "Tom Barlow MP",
+            "party": "Labour",
+            "weight": 260
+          },
+          {
+            "name": "Leah Cunningham MP",
+            "party": "Liberal Democrats",
+            "weight": 46
+          }
+        ]
+      },
+      {
+        "id": "edm-002",
+        "number": 2,
+        "title": "Protection of High Street Post Offices",
+        "author": "Megan Ellis MP",
+        "body": "That this House recognises the role of high street post offices in local communities and calls for sustained service-level guarantees.",
+        "signatures": [
+          {
+            "name": "Megan Ellis MP",
+            "party": "Plaid Cymru",
+            "weight": 4
+          }
+        ]
+      }
+    ]
+  },
+  "regulations": {
+    "nextId": 4,
+    "items": [
+      {
+        "id": "reg-1997-1",
+        "department": "HM Treasury",
+        "office": "chancellor",
+        "regulationNumber": "1997/No 1",
+        "yearNumber": 1,
+        "simYear": 1997,
+        "shortTitle": "Public Procurement Reporting Regulations",
+        "author": "Alice Thorne MP",
+        "body": "These Regulations require all central departments to publish quarterly procurement award summaries for contracts above \u00a31 million, including ministerial exemptions and justifications.",
+        "laidAtSim": "May 1997",
+        "comesIntoForce": "July 1997",
+        "debateUrl": "https://forum.rulebritannia.org/t/reg-1997-no-1-public-procurement-reporting-regulations",
+        "debateClosesAtSim": "July 1997",
+        "status": "closed",
+        "closedAtSim": "June 1997"
+      },
+      {
+        "id": "reg-1997-2",
+        "department": "Home Office",
+        "office": "home",
+        "regulationNumber": "1997/No 2",
+        "yearNumber": 2,
+        "simYear": 1997,
+        "shortTitle": "Night-time Venue Licensing Conditions Regulations",
+        "author": "Graham Pike MP",
+        "body": "These Regulations set baseline safety, staffing and reporting conditions for night-time venue licensing authorities and require monthly compliance returns to the Home Office.",
+        "laidAtSim": "July 1997",
+        "comesIntoForce": "September 1997",
+        "debateUrl": "https://forum.rulebritannia.org/t/reg-1997-no-2-night-time-venue-licensing-conditions-regulations",
+        "debateClosesAtSim": "September 1997",
+        "status": "open"
+      },
+      {
+        "id": "reg-1997-3",
+        "department": "Department of Health and Social",
+        "office": "health",
+        "regulationNumber": "1997/No 3",
+        "yearNumber": 3,
+        "simYear": 1997,
+        "shortTitle": "Elective Treatment Data Publication Regulations",
+        "author": "Imran Ashraf MP",
+        "body": "These Regulations require NHS trusts to publish monthly elective treatment waiting list data, theatre utilisation rates and cancellation metrics in a standard public format.",
+        "laidAtSim": "August 1997",
+        "comesIntoForce": "October 1997",
+        "debateUrl": "https://forum.rulebritannia.org/t/reg-1997-no-3-elective-treatment-data-publication-regulations",
+        "debateClosesAtSim": "October 1997",
+        "status": "open"
+      }
+    ]
+  },
+  "redLion": {
+    "nextId": 4,
+    "posts": [
+      {
+        "id": "rl-001",
+        "displayName": "Dale Weston MP",
+        "asBarkeep": false,
+        "avatar": "",
+        "body": "Long day in the chamber. First round is on me if anyone can explain today's whip maths.",
+        "createdAt": "18/02/2026, 19:12:00"
+      },
+      {
+        "id": "rl-002",
+        "displayName": "Leah Cunningham MP",
+        "asBarkeep": false,
+        "avatar": "",
+        "body": "I heard three different stories about tomorrow's business statement before I even reached the bar.",
+        "createdAt": "18/02/2026, 19:18:00"
+      },
+      {
+        "id": "rl-003",
+        "displayName": "Barkeep",
+        "asBarkeep": true,
+        "avatar": "",
+        "body": "Keep it civil, keep it in character, and no standing on the tables during divisions.",
+        "createdAt": "18/02/2026, 19:20:00"
+      }
+    ]
+  },
+  "hansard": {
+    "rollLog": {
+      "completedSinceStart": 0,
+      "nextRollCountdown": "4d 0h 42m"
+    },
+    "passed": [
+      {
+        "id": "hansard-finance-1997",
+        "title": "Finance (Tax Administration) Act 1997",
+        "author": "Alice Thorne MP",
+        "department": "HM Treasury",
+        "finalStage": "Third Reading Division",
+        "archivedAtSim": "August 1997",
+        "billText": "A Bill to modernise tax administration procedures and improve quarterly reporting standards for VAT-registered businesses.",
+        "debateUrl": "https://forum.rulebritannia.org/t/finance-tax-administration-act-1997",
+        "amendments": [
+          {
+            "id": "A1",
+            "articleNumber": 2,
+            "status": "passed",
+            "proposedBy": "Grant Kingston MP",
+            "text": "Insert requirement for annual compliance guidance publication."
+          },
+          {
+            "id": "A2",
+            "articleNumber": 4,
+            "status": "failed",
+            "proposedBy": "Leah Cunningham MP",
+            "text": "Replace quarterly filing threshold with biannual threshold for small traders."
+          }
+        ],
+        "division": {
+          "status": "closed",
+          "votes": {
+            "Dale Weston MP": {
+              "choice": "aye",
+              "weight": 326
+            },
+            "Grant Kingston MP": {
+              "choice": "no",
+              "weight": 260
+            },
+            "Leah Cunningham MP": {
+              "choice": "aye",
+              "weight": 46
+            }
+          }
+        }
+      }
+    ],
+    "defeated": [
+      {
+        "id": "hansard-local-government-1997",
+        "title": "Local Government Reorganisation Bill 1997",
+        "author": "Rina Patel MP",
+        "department": "Home Office",
+        "finalStage": "Division",
+        "archivedAtSim": "August 1997",
+        "billText": "A Bill to make provision for local authority restructuring pilots and revised district competency powers.",
+        "debateUrl": "https://forum.rulebritannia.org/t/local-government-reorganisation-bill-1997",
+        "amendments": [
+          {
+            "id": "B1",
+            "articleNumber": 1,
+            "status": "passed",
+            "proposedBy": "Tom Barlow MP",
+            "text": "Insert consultation requirement for directly affected councils."
+          },
+          {
+            "id": "B2",
+            "articleNumber": 3,
+            "status": "failed",
+            "proposedBy": "Dale Weston MP",
+            "text": "Remove pilot duration cap and allow ministerial extension."
+          }
+        ],
+        "division": {
+          "status": "closed",
+          "votes": {
+            "Dale Weston MP": {
+              "choice": "no",
+              "weight": 326
+            },
+            "Grant Kingston MP": {
+              "choice": "no",
+              "weight": 260
+            },
+            "Leah Cunningham MP": {
+              "choice": "aye",
+              "weight": 46
+            }
+          }
+        }
+      }
+    ]
+  },
+  "press": {
+    "nextId": 9,
+    "counters": {
+      "PR:PM": 1,
+      "PR:GOV": 1,
+      "PR:Weston": 1,
+      "PC:PM": 1,
+      "PC:CON": 1
+    },
+    "releases": [
+      {
+        "id": "press-rel-001",
+        "reference": "PM PR 1",
+        "subject": "Prime Minister Sets Autumn Priorities",
+        "body": "The Prime Minister today set out three priorities for the autumn term: NHS delivery, economic stability, and safer communities. Further updates will be provided after Cabinet review.",
+        "author": "Dale Weston MP",
+        "createdAtSim": "August 1997",
+        "score": 4,
+        "impact": [
+          "CON",
+          "LDM"
+        ],
+        "status": "closed"
+      },
+      {
+        "id": "press-rel-002",
+        "reference": "GOV PR 1",
+        "subject": "Treasury publishes borrowing outlook",
+        "body": "HM Treasury confirms borrowing remains within forecast envelope for the current fiscal plan, with revised monthly transparency tables to be published from September.",
+        "author": "Alice Thorne MP",
+        "createdAtSim": "August 1997",
+        "score": null,
+        "impact": [],
+        "status": "open"
+      }
+    ],
+    "conferences": [
+      {
+        "id": "press-conf-001",
+        "reference": "PM PC 1",
+        "subject": "Post-Cabinet doorstep conference",
+        "body": "Thank you all for coming. I will begin with short remarks on public services and then take questions from correspondents.",
+        "author": "Dale Weston MP",
+        "createdAtSim": "August 1997",
+        "closesAtSim": "October 1997",
+        "status": "open",
+        "score": null,
+        "impact": [],
+        "transcript": [
+          {
+            "from": "BBC Political Correspondent",
+            "text": "Prime Minister, will you commit to monthly waiting-list updates?"
+          },
+          {
+            "from": "Dale Weston MP",
+            "text": "Yes. Monthly updates will be provided and published in full."
+          }
+        ]
+      },
+      {
+        "id": "press-conf-002",
+        "reference": "CON PC 1",
+        "subject": "Opposition response conference",
+        "body": "The Opposition is setting out a constructive alternative on growth and policing this afternoon.",
+        "author": "Grant Kingston MP",
+        "createdAtSim": "July 1997",
+        "closesAtSim": "September 1997",
+        "status": "closed",
+        "score": -2,
+        "impact": [
+          "CON"
+        ],
+        "transcript": [
+          {
+            "from": "The Times Political Correspondent",
+            "text": "Can you cost your policing proposal?"
+          },
+          {
+            "from": "Grant Kingston MP",
+            "text": "A full paper will be published before conference recess."
+          }
+        ]
+      }
+    ],
+    "comments": [
+      {
+        "id": "press-com-001",
+        "author": "Leah Cunningham MP",
+        "avatar": "",
+        "body": "A brief lobby chat: expect cross-party talks on transport before next week ends.",
+        "createdAtSim": "August 1997"
+      },
+      {
+        "id": "press-com-002",
+        "author": "Tom Barlow MP",
+        "avatar": "",
+        "body": "I have no formal briefing, but members should read the retail safety proposals closely.",
+        "createdAtSim": "August 1997"
+      }
+    ]
+  },
+  "party": {
+    "nextDraftId": 4,
+    "parties": {
+      "Conservative": {
+        "name": "Conservative",
+        "short": "CON",
+        "leader": {
+          "name": "Dale Weston MP",
+          "avatar": "",
+          "characterId": "dale-weston"
+        },
+        "treasury": {
+          "cash": 350000,
+          "debt": 50000,
+          "members": 176000
+        },
+        "hqUrl": "https://forum.rulebritannia.org/c/parties/conservative",
+        "drafts": [
+          {
+            "id": 1,
+            "ref": "CON DRAFT 1",
+            "title": "Police Visibility and Neighbourhood Safety Bill",
+            "purpose": "strengthening neighbourhood policing standards and local accountability",
+            "body": "Article 1 \u2014 Minimum neighbourhood patrol standards.\nArticle 2 \u2014 Commissioner annual plans and reporting duties.\nFinal Article \u2014 Extent, commencement and short title.",
+            "discussUrl": "https://forum.rulebritannia.org/t/con-draft-police-visibility-1",
+            "authorName": "Dale Weston MP",
+            "authorId": "Dale Weston MP",
+            "createdAt": "14/02/2026, 10:35:00",
+            "createdTs": 1760466900000
+          }
+        ]
+      },
+      "Labour": {
+        "name": "Labour",
+        "short": "LAB",
+        "leader": {
+          "name": "Rachel Morgan MP",
+          "avatar": "",
+          "characterId": "rachel-morgan"
+        },
+        "treasury": {
+          "cash": 290000,
+          "debt": 120000,
+          "members": 145000
+        },
+        "hqUrl": "https://forum.rulebritannia.org/c/parties/labour",
+        "drafts": [
+          {
+            "id": 2,
+            "ref": "LAB DRAFT 2",
+            "title": "NHS Workforce Stability Bill",
+            "purpose": "improving NHS staff retention and training provision",
+            "body": "Article 1 \u2014 NHS retention targets and reporting.\nArticle 2 \u2014 Expanded clinical training bursaries.\nFinal Article \u2014 Extent, commencement and short title.",
+            "discussUrl": "https://forum.rulebritannia.org/t/lab-draft-nhs-workforce-2",
+            "authorName": "Rachel Morgan MP",
+            "authorId": "Rachel Morgan MP",
+            "createdAt": "12/02/2026, 16:05:00",
+            "createdTs": 1760294700000
+          }
+        ]
+      },
+      "Liberal Democrat": {
+        "name": "Liberal Democrat",
+        "short": "LDM",
+        "leader": {
+          "name": "Alex Pritchard MP",
+          "avatar": "",
+          "characterId": "alex-pritchard"
+        },
+        "treasury": {
+          "cash": 95000,
+          "debt": 12000,
+          "members": 76000
+        },
+        "hqUrl": "https://forum.rulebritannia.org/c/parties/libdem",
+        "drafts": [
+          {
+            "id": 3,
+            "ref": "LDM DRAFT 3",
+            "title": "Local Rail Access Bill",
+            "purpose": "improving regional rail access and late-night services",
+            "body": "Article 1 \u2014 Regional rail service guarantees.\nArticle 2 \u2014 Rural route protection framework.\nFinal Article \u2014 Extent, commencement and short title.",
+            "discussUrl": "https://forum.rulebritannia.org/t/ldm-draft-local-rail-3",
+            "authorName": "Alex Pritchard MP",
+            "authorId": "Alex Pritchard MP",
+            "createdAt": "11/02/2026, 09:20:00",
+            "createdTs": 1760203200000
+          }
+        ]
+      }
+    }
+  },
+  "polling": {
+    "nextId": 4,
+    "polls": [
+      {
+        "id": 1,
+        "simDate": "August 1997",
+        "results": [
+          {
+            "party": "Labour",
+            "value": 35.2
+          },
+          {
+            "party": "Conservative",
+            "value": 30.4
+          },
+          {
+            "party": "Liberal Democrat",
+            "value": 11.0
+          },
+          {
+            "party": "Green",
+            "value": 4.0
+          },
+          {
+            "party": "SNP",
+            "value": 3.4
+          },
+          {
+            "party": "Reform",
+            "value": 2.3
+          },
+          {
+            "party": "Others",
+            "value": 13.7
+          }
+        ],
+        "createdAt": "03/08/1997, 18:00:00",
+        "createdTs": 1769626575721
+      },
+      {
+        "id": 2,
+        "simDate": "August 1997",
+        "results": [
+          {
+            "party": "Labour",
+            "value": 34.6
+          },
+          {
+            "party": "Conservative",
+            "value": 31.0
+          },
+          {
+            "party": "Liberal Democrat",
+            "value": 11.4
+          },
+          {
+            "party": "Green",
+            "value": 4.8
+          },
+          {
+            "party": "SNP",
+            "value": 3.2
+          },
+          {
+            "party": "Reform",
+            "value": 2.1
+          },
+          {
+            "party": "Others",
+            "value": 12.9
+          }
+        ],
+        "createdAt": "10/08/1997, 18:00:00",
+        "createdTs": 1770231375721
+      },
+      {
+        "id": 3,
+        "simDate": "August 1997",
+        "results": [
+          {
+            "party": "Labour",
+            "value": 34.1
+          },
+          {
+            "party": "Conservative",
+            "value": 31.7
+          },
+          {
+            "party": "Liberal Democrat",
+            "value": 11.2
+          },
+          {
+            "party": "Green",
+            "value": 5.4
+          },
+          {
+            "party": "SNP",
+            "value": 3.2
+          },
+          {
+            "party": "Reform",
+            "value": 2.4
+          },
+          {
+            "party": "Others",
+            "value": 12.0
+          }
+        ],
+        "createdAt": "17/08/1997, 18:00:00",
+        "createdTs": 1770836175721
+      }
+    ]
+  },
+  "elections": {
+    "nextArchiveId": 2,
+    "records": {
+      "general": {
+        "date": "May 1997",
+        "liveCampaignUrl": "https://forum.rulebritannia.org/c/elections/general-election-1997",
+        "results": [
+          {
+            "party": "Conservative",
+            "seats": 330,
+            "vote": 42.1
+          },
+          {
+            "party": "Labour",
+            "seats": 280,
+            "vote": 38.5
+          },
+          {
+            "party": "Liberal Democrat",
+            "seats": 25,
+            "vote": 10.8
+          },
+          {
+            "party": "SNP",
+            "seats": 15,
+            "vote": 3.0
+          }
+        ],
+        "createdAt": "04/05/1997, 20:00:00",
+        "createdTs": 1771391194349
+      },
+      "european-parliament": {
+        "date": "June 1994",
+        "results": [
+          {
+            "party": "Conservative",
+            "seats": 40,
+            "vote": 35.0
+          },
+          {
+            "party": "Labour",
+            "seats": 35,
+            "vote": 33.0
+          },
+          {
+            "party": "Liberal Democrat",
+            "seats": 8,
+            "vote": 10.0
+          }
+        ],
+        "createdAt": "10/06/1994, 20:00:00",
+        "createdTs": 1771392194349
+      },
+      "scottish-parliament": {
+        "date": "May 1995",
+        "results": [
+          {
+            "party": "Labour",
+            "seats": 58,
+            "vote": 39.4
+          },
+          {
+            "party": "Conservative",
+            "seats": 44,
+            "vote": 31.8
+          },
+          {
+            "party": "Liberal Democrat",
+            "seats": 16,
+            "vote": 11.4
+          }
+        ],
+        "createdAt": "15/05/1995, 20:00:00",
+        "createdTs": 1771393194349
+      },
+      "welsh-senedd": {
+        "date": "May 1995",
+        "results": [
+          {
+            "party": "Labour",
+            "seats": 34,
+            "vote": 37.0
+          },
+          {
+            "party": "Conservative",
+            "seats": 20,
+            "vote": 30.0
+          },
+          {
+            "party": "Liberal Democrat",
+            "seats": 6,
+            "vote": 12.0
+          }
+        ],
+        "createdAt": "15/05/1995, 20:00:00",
+        "createdTs": 1771394194349
+      },
+      "ni-assembly": {
+        "date": "May 1996",
+        "results": [
+          {
+            "party": "UUP",
+            "seats": 28,
+            "vote": 28.0
+          },
+          {
+            "party": "SDLP",
+            "seats": 24,
+            "vote": 22.0
+          },
+          {
+            "party": "DUP",
+            "seats": 20,
+            "vote": 18.0
+          }
+        ],
+        "createdAt": "18/05/1996, 20:00:00",
+        "createdTs": 1771395194349
+      },
+      "english-locals": {
+        "date": "May 1997",
+        "results": [
+          {
+            "party": "Conservative",
+            "seats": 6200,
+            "vote": 39.0
+          },
+          {
+            "party": "Labour",
+            "seats": 5900,
+            "vote": 37.0
+          },
+          {
+            "party": "Liberal Democrat",
+            "seats": 1700,
+            "vote": 12.0
+          }
+        ],
+        "createdAt": "09/05/1997, 20:00:00",
+        "createdTs": 1771396194349
+      },
+      "scottish-locals": {
+        "date": "May 1997",
+        "results": [
+          {
+            "party": "Labour",
+            "seats": 520,
+            "vote": 36.0
+          },
+          {
+            "party": "Conservative",
+            "seats": 380,
+            "vote": 28.0
+          },
+          {
+            "party": "Liberal Democrat",
+            "seats": 180,
+            "vote": 14.0
+          }
+        ],
+        "createdAt": "09/05/1997, 20:00:00",
+        "createdTs": 1771397194349
+      },
+      "welsh-locals": {
+        "date": "May 1997",
+        "results": [
+          {
+            "party": "Labour",
+            "seats": 410,
+            "vote": 38.0
+          },
+          {
+            "party": "Conservative",
+            "seats": 250,
+            "vote": 29.0
+          },
+          {
+            "party": "Liberal Democrat",
+            "seats": 110,
+            "vote": 13.0
+          }
+        ],
+        "createdAt": "09/05/1997, 20:00:00",
+        "createdTs": 1771398194349
+      },
+      "ni-locals": {
+        "date": "May 1997",
+        "results": [
+          {
+            "party": "UUP",
+            "seats": 210,
+            "vote": 30.0
+          },
+          {
+            "party": "SDLP",
+            "seats": 170,
+            "vote": 24.0
+          },
+          {
+            "party": "DUP",
+            "seats": 160,
+            "vote": 22.0
+          }
+        ],
+        "createdAt": "09/05/1997, 20:00:00",
+        "createdTs": 1771399194349
+      }
+    },
+    "archive": [
+      {
+        "id": 1,
+        "type": "general",
+        "date": "April 1992",
+        "results": [
+          {
+            "party": "Conservative",
+            "seats": 352,
+            "vote": 41.9
+          },
+          {
+            "party": "Labour",
+            "seats": 271,
+            "vote": 34.4
+          },
+          {
+            "party": "Liberal Democrat",
+            "seats": 20,
+            "vote": 17.8
+          }
+        ],
+        "createdAt": "10/04/1992, 20:00:00",
+        "createdTs": 1771361194349
+      }
+    ]
+  },
+  "constituencyWork": {
+    "plansByCharacter": {
+      "Dale Weston MP": {
+        "constituency": "Kensington & Chelsea",
+        "hours": {
+          "Meeting Local Businesses": 6,
+          "Meeting Community Groups": 5,
+          "Attending Local Events": 4,
+          "Visiting Local Schools, Hospitals & Job Centres": 6,
+          "Holding Surgeries": 8,
+          "Answer Mail and Emails": 6,
+          "Spend Time at Local Office": 5,
+          "Do Second Job": 0
+        },
+        "secondJobTitleCompany": "",
+        "lastSavedSimIndex": null,
+        "updatedAt": "18/02/2026, 19:00:00"
+      }
+    }
+  },
+  "events": {
+    "nextId": 4,
+    "items": [
+      {
+        "id": 1,
+        "type": "conference",
+        "party": "Conservative",
+        "hostName": "Dale Weston MP",
+        "hostId": "Dale Weston MP",
+        "location": "Manchester Central",
+        "reason": "",
+        "openingSpeech": "Welcome to Conference. We will focus on growth, public services and safer streets.",
+        "guestSpeaker": "",
+        "status": "approved",
+        "speeches": [
+          {
+            "author": "Leah Cunningham MP",
+            "body": "Our local priorities begin with policing and housing delivery.",
+            "createdAt": "17/02/2026, 11:20:00"
+          },
+          {
+            "author": "Dale Weston MP",
+            "body": "Leader speech: we will govern with discipline and purpose.",
+            "createdAt": "18/02/2026, 17:30:00"
+          }
+        ],
+        "createdAt": "16/02/2026, 10:00:00",
+        "createdTs": 1771438596164,
+        "approvedAt": "16/02/2026, 12:00:00",
+        "closesAtSimIndex": 23973
+      },
+      {
+        "id": 2,
+        "type": "event",
+        "party": "Conservative",
+        "hostName": "Tom Barlow MP",
+        "hostId": "Tom Barlow MP",
+        "location": "Bristol Harbourside",
+        "reason": "Regional enterprise and high-street recovery",
+        "openingSpeech": "Today we met local employers to discuss practical support and skills investment.",
+        "guestSpeaker": "West of England Mayor",
+        "status": "closed",
+        "speeches": [],
+        "createdAt": "10/02/2026, 14:00:00",
+        "createdTs": 1771432596164,
+        "approvedAt": "10/02/2026, 17:00:00",
+        "closesAtSimIndex": 23973
+      },
+      {
+        "id": 3,
+        "type": "event",
+        "party": "Conservative",
+        "hostName": "Grant Kingston MP",
+        "hostId": "Grant Kingston MP",
+        "location": "Leeds Civic Hall",
+        "reason": "Community safety briefing",
+        "openingSpeech": "I want to outline our local plan on antisocial behaviour and town-centre policing.",
+        "guestSpeaker": "",
+        "status": "cancelled",
+        "speeches": [],
+        "createdAt": "08/02/2026, 09:00:00",
+        "createdTs": 1771429596164,
+        "approvedAt": null,
+        "closesAtSimIndex": null
+      }
+    ]
+  },
+  "fundraising": {
+    "nextId": 4,
+    "balances": {
+      "parties": {
+        "Conservative": 124000
+      },
+      "factions": {
+        "Dale Weston MP": 9200
+      }
+    },
+    "items": [
+      {
+        "id": 1,
+        "type": "individual-dinner",
+        "scope": "faction",
+        "party": "Conservative",
+        "hostName": "Dale Weston MP",
+        "hostId": "Dale Weston MP",
+        "location": "The Athenaeum Club, London",
+        "guestSpeaker": "Rt Hon Alice Thorne MP",
+        "specialDetails": "Business roundtable before dinner",
+        "speech": "Thank you for backing our reform programme and local delivery priorities.",
+        "status": "approved",
+        "grossRevenue": 12000,
+        "cost": 3000,
+        "netRevenue": 9000,
+        "createdAt": "14/02/2026, 19:00:00",
+        "createdTs": 1771432783419
+      },
+      {
+        "id": 2,
+        "type": "party-gala",
+        "scope": "party",
+        "party": "Conservative",
+        "hostName": "Dale Weston MP",
+        "hostId": "Dale Weston MP",
+        "location": "Manchester Central",
+        "guestSpeaker": "",
+        "specialDetails": "Live band and business sponsor tables",
+        "speech": "Conference gala remarks on growth, public services and party renewal.",
+        "status": "approved",
+        "grossRevenue": 185000,
+        "cost": 60000,
+        "netRevenue": 125000,
+        "createdAt": "10/02/2026, 20:30:00",
+        "createdTs": 1771428783419
+      },
+      {
+        "id": 3,
+        "type": "individual-luncheon",
+        "scope": "faction",
+        "party": "Conservative",
+        "hostName": "Tom Barlow MP",
+        "hostId": "Tom Barlow MP",
+        "location": "Leeds Chamber Hall",
+        "guestSpeaker": "",
+        "specialDetails": "Small donor lunch",
+        "speech": "A local speech on town centre regeneration and jobs.",
+        "status": "cancelled",
+        "grossRevenue": null,
+        "cost": 500,
+        "netRevenue": null,
+        "createdAt": "08/02/2026, 13:15:00",
+        "createdTs": 1771424783419
+      }
+    ]
+  },
+  "online": {
+    "nextId": 10,
+    "settings": {
+      "webPost": true,
+      "webHistory": true,
+      "facebook": true,
+      "twitter": true
+    },
+    "webPosts": [
+      {
+        "id": 1,
+        "title": "My Local Homepage Update",
+        "author": "Dale Weston MP",
+        "imageUrl": "",
+        "body": "Weekly update from the constituency office: surgeries, schools, and transport meetings this week.",
+        "createdAt": "17/02/2026, 09:20:00",
+        "createdTs": 1771434999051
+      },
+      {
+        "id": 2,
+        "title": "Economic Notes Blog",
+        "author": "Leah Cunningham MP",
+        "imageUrl": "",
+        "body": "A short blog on local enterprise confidence and access to high street finance.",
+        "createdAt": "16/02/2026, 14:05:00",
+        "createdTs": 1771432999051
+      }
+    ],
+    "facebookPosts": [
+      {
+        "id": 3,
+        "displayName": "Dale Weston MP",
+        "avatar": "",
+        "body": "Great turnout at the weekend community event. Thanks to everyone who came along.",
+        "createdAt": "17/02/2026, 18:30:00",
+        "createdTs": 1771436999051
+      },
+      {
+        "id": 4,
+        "displayName": "Rachel Morgan MP",
+        "avatar": "",
+        "body": "Listening session today with local NHS staff and patient groups.",
+        "createdAt": "17/02/2026, 20:10:00",
+        "createdTs": 1771437799051
+      }
+    ],
+    "twitterPosts": [
+      {
+        "id": 5,
+        "handle": "@dalewestonmp",
+        "displayName": "Dale Weston MP",
+        "body": "Busy constituency week ahead: surgeries, schools and policing roundtables.",
+        "createdAt": "17/02/2026, 08:10:00",
+        "createdTs": 1771434399051
+      },
+      {
+        "id": 6,
+        "handle": "@Conservative",
+        "displayName": "Dale Weston MP",
+        "body": "Party update: conference planning is underway, details soon.",
+        "createdAt": "17/02/2026, 11:42:00",
+        "createdTs": 1771435599051
+      }
+    ]
+  },
+  "budget": {
+    "adminControls": {
+      "debtInterestPercent": 7.2,
+      "debtInterestExpenditure": 31.11,
+      "charityReliefExpenditure": 0.41,
+      "otherExpensesExpenditure": -0.66
+    },
+    "lastYear": {
+      "label": "August 1996",
+      "revenues": {
+        "Income Tax": 102.65,
+        "Corporate Tax": 34.74,
+        "Value Added Tax": 92.17,
+        "National Insurance": 66.62,
+        "Fuel Duty": 23.28,
+        "Stamp Duty": 9.96,
+        "Business Rate Appropriations": 14.14
+      },
+      "expenditures": {
+        "Health": 40.96,
+        "Social Security": 59.42,
+        "Education": 88.1,
+        "Home Office": 34.94,
+        "Ministry of Defense": 34.11,
+        "Transport": 18.69,
+        "Local Government": 61.21,
+        "Environment": 6.54,
+        "Energy": 5.58,
+        "Culture": 0.06,
+        "Housing": -2.45,
+        "Business": -5.5,
+        "Scottish Office": 21.14,
+        "Welsh Office": 7.1,
+        "Northern Ireland Office": 3.58
+      },
+      "capital": {
+        "Capital Expenditure": 35.21
+      },
+      "gdp": 1930.0
+    },
+    "currentYear": {
+      "label": "August 1997",
+      "revenues": {
+        "Income Tax": 104.4,
+        "Corporate Tax": 36.1,
+        "Value Added Tax": 93.2,
+        "National Insurance": 67.15,
+        "Fuel Duty": 24.04,
+        "Stamp Duty": 12.81,
+        "Business Rate Appropriations": 15.96
+      },
+      "expenditures": {
+        "Health": 42.1,
+        "Social Security": 60.2,
+        "Education": 89.24,
+        "Home Office": 29.25,
+        "Ministry of Defense": 34.53,
+        "Transport": 15.96,
+        "Local Government": 63.98,
+        "Environment": 6.67,
+        "Energy": 5.58,
+        "Culture": 0.01,
+        "Housing": -11.88,
+        "Business": 2.88,
+        "Scottish Office": 22.51,
+        "Welsh Office": 7.55,
+        "Northern Ireland Office": 3.27
+      },
+      "capital": {
+        "Capital Expenditure": 14.14
+      },
+      "gdp": 1950.0
+    },
+    "pending": null,
+    "archive": []
+  },
+  "government": {
+    "activeCharacters": [
+      {
+        "name": "Dale Weston MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Dale%20Weston",
+        "active": true
+      },
+      {
+        "name": "Alice Thorne MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Alice%20Thorne",
+        "active": true
+      },
+      {
+        "name": "Graham Pike MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Graham%20Pike",
+        "active": true
+      },
+      {
+        "name": "Helen Ward MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Helen%20Ward",
+        "active": true
+      },
+      {
+        "name": "Marcus Reid MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Marcus%20Reid",
+        "active": true
+      },
+      {
+        "name": "Cameron Miles MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Cameron%20Miles",
+        "active": true
+      },
+      {
+        "name": "Nadia Cole MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Nadia%20Cole",
+        "active": true
+      },
+      {
+        "name": "Ellen Price MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Ellen%20Price",
+        "active": true
+      },
+      {
+        "name": "Ruth Mercer MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Ruth%20Mercer",
+        "active": true
+      },
+      {
+        "name": "Imran Ashraf MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Imran%20Ashraf",
+        "active": true
+      },
+      {
+        "name": "Peter Doyle MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Peter%20Doyle",
+        "active": true
+      },
+      {
+        "name": "Sophie Lambert MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Sophie%20Lambert",
+        "active": true
+      },
+      {
+        "name": "Megan Ellis MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Megan%20Ellis",
+        "active": true
+      },
+      {
+        "name": "Victor Shaw MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Victor%20Shaw",
+        "active": true
+      }
+    ],
+    "offices": [
+      {
+        "id": "prime-minister",
+        "holderName": "Dale Weston MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Dale%20Weston"
+      },
+      {
+        "id": "chancellor",
+        "holderName": "Alice Thorne MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Alice%20Thorne"
+      },
+      {
+        "id": "home",
+        "holderName": "Graham Pike MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Graham%20Pike"
+      },
+      {
+        "id": "foreign",
+        "holderName": "Helen Ward MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Helen%20Ward"
+      },
+      {
+        "id": "trade",
+        "holderName": "Marcus Reid MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Marcus%20Reid"
+      },
+      {
+        "id": "defence",
+        "holderName": "Cameron Miles MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Cameron%20Miles"
+      },
+      {
+        "id": "welfare",
+        "holderName": "Nadia Cole MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Nadia%20Cole"
+      },
+      {
+        "id": "education",
+        "holderName": "Ellen Price MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Ellen%20Price"
+      },
+      {
+        "id": "env-agri",
+        "holderName": "Ruth Mercer MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Ruth%20Mercer"
+      },
+      {
+        "id": "health",
+        "holderName": "Imran Ashraf MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Imran%20Ashraf"
+      },
+      {
+        "id": "eti",
+        "holderName": "Peter Doyle MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Peter%20Doyle"
+      },
+      {
+        "id": "culture",
+        "holderName": "Sophie Lambert MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Sophie%20Lambert"
+      },
+      {
+        "id": "home-nations",
+        "holderName": "Megan Ellis MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Megan%20Ellis"
+      },
+      {
+        "id": "leader-commons",
+        "holderName": "Victor Shaw MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Victor%20Shaw"
+      }
+    ]
+  },
+  "opposition": {
+    "activeCharacters": [
+      {
+        "name": "John Shade MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=John%20Shade",
+        "active": true
+      },
+      {
+        "name": "Amelia Frost MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Amelia%20Frost",
+        "active": true
+      },
+      {
+        "name": "Ryan Mercer MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Ryan%20Mercer",
+        "active": true
+      },
+      {
+        "name": "Leah Cunningham MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Leah%20Cunningham",
+        "active": true
+      },
+      {
+        "name": "Tom Barlow MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Tom%20Barlow",
+        "active": true
+      },
+      {
+        "name": "Nina Wallace MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Nina%20Wallace",
+        "active": true
+      },
+      {
+        "name": "Oliver Finch MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Oliver%20Finch",
+        "active": true
+      },
+      {
+        "name": "Grace Harper MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Grace%20Harper",
+        "active": true
+      },
+      {
+        "name": "Daniel Kerr MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Daniel%20Kerr",
+        "active": true
+      },
+      {
+        "name": "Maya Patel MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Maya%20Patel",
+        "active": true
+      },
+      {
+        "name": "Liam Cross MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Liam%20Cross",
+        "active": true
+      },
+      {
+        "name": "Saira Hussain MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Saira%20Hussain",
+        "active": true
+      },
+      {
+        "name": "Rhys Morgan MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Rhys%20Morgan",
+        "active": true
+      },
+      {
+        "name": "Ethan Doyle MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Ethan%20Doyle",
+        "active": true
+      }
+    ],
+    "offices": [
+      {
+        "id": "leader-opposition",
+        "holderName": "John Shade MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=John%20Shade"
+      },
+      {
+        "id": "shadow-chancellor",
+        "holderName": "Amelia Frost MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Amelia%20Frost"
+      },
+      {
+        "id": "shadow-home",
+        "holderName": "Ryan Mercer MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Ryan%20Mercer"
+      },
+      {
+        "id": "shadow-foreign",
+        "holderName": "Leah Cunningham MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Leah%20Cunningham"
+      },
+      {
+        "id": "shadow-trade",
+        "holderName": "Tom Barlow MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Tom%20Barlow"
+      },
+      {
+        "id": "shadow-defence",
+        "holderName": "Nina Wallace MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Nina%20Wallace"
+      },
+      {
+        "id": "shadow-welfare",
+        "holderName": "Oliver Finch MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Oliver%20Finch"
+      },
+      {
+        "id": "shadow-education",
+        "holderName": "Grace Harper MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Grace%20Harper"
+      },
+      {
+        "id": "shadow-env-agri",
+        "holderName": "Daniel Kerr MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Daniel%20Kerr"
+      },
+      {
+        "id": "shadow-health",
+        "holderName": "Maya Patel MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Maya%20Patel"
+      },
+      {
+        "id": "shadow-eti",
+        "holderName": "Liam Cross MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Liam%20Cross"
+      },
+      {
+        "id": "shadow-culture",
+        "holderName": "Saira Hussain MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Saira%20Hussain"
+      },
+      {
+        "id": "shadow-home-nations",
+        "holderName": "Rhys Morgan MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Rhys%20Morgan"
+      },
+      {
+        "id": "shadow-leader-commons",
+        "holderName": "Ethan Doyle MP",
+        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Ethan%20Doyle"
+      }
+    ]
+  },
+  "civilService": {
+    "nextCaseId": 4,
+    "departments": [
+      {
+        "id": "10ds",
+        "name": "10 Downing Street",
+        "officeId": "prime-minister",
+        "officeTitle": "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service"
+      },
+      {
+        "id": "11ds",
+        "name": "11 Downing Street",
+        "officeId": "chancellor",
+        "officeTitle": "Chancellor of the Exchequer, and Second Lord of the Treasury"
+      },
+      {
+        "id": "home-office",
+        "name": "Home Office",
+        "officeId": "home",
+        "officeTitle": "Secretary of State for the Home Department"
+      },
+      {
+        "id": "foreign-office",
+        "name": "Foreign Office",
+        "officeId": "foreign",
+        "officeTitle": "Secretary of State for Foreign and Commonwealth Affairs"
+      },
+      {
+        "id": "board-trade",
+        "name": "Board of Trade",
+        "officeId": "trade",
+        "officeTitle": "Secretary of State for Business and Trade, and President of the Board of Trade"
+      },
+      {
+        "id": "mod",
+        "name": "MoD",
+        "officeId": "defence",
+        "officeTitle": "Secretary of State for Defence"
+      },
+      {
+        "id": "dwp",
+        "name": "DWP",
+        "officeId": "welfare",
+        "officeTitle": "Secretary of State for Work and Pensions"
+      },
+      {
+        "id": "education",
+        "name": "Education Department",
+        "officeId": "education",
+        "officeTitle": "Secretary of State for Education"
+      },
+      {
+        "id": "dea",
+        "name": "DEA",
+        "officeId": "env-agri",
+        "officeTitle": "Secretary of State for the Environment and Agriculture"
+      },
+      {
+        "id": "health",
+        "name": "Health Department",
+        "officeId": "health",
+        "officeTitle": "Secretary of State for Health and Social Care"
+      },
+      {
+        "id": "dot",
+        "name": "DoT",
+        "officeId": "eti",
+        "officeTitle": "Secretary of State for Transport and Infrastructure"
+      },
+      {
+        "id": "dcms",
+        "name": "DCMS",
+        "officeId": "culture",
+        "officeTitle": "Secretary of State for Culture, Media and Sport"
+      },
+      {
+        "id": "home-nations",
+        "name": "Department of the Home Nations",
+        "officeId": "home-nations",
+        "officeTitle": "Secretary of State for the Home Nations"
+      }
+    ],
+    "cases": [
+      {
+        "id": 1,
+        "deptId": "11ds",
+        "title": "Forecast update ahead of Budget statement",
+        "status": "open",
+        "createdBy": "Alice Thorne MP",
+        "createdByAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Alice%20Thorne",
+        "createdAt": "18/02/2026, 09:15:00",
+        "messages": [
+          {
+            "authorName": "Alice Thorne MP",
+            "authorRole": "government",
+            "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Alice%20Thorne",
+            "text": "Please provide a revised inflation path for Q2-Q4 and expected borrowing effects.",
+            "createdAt": "18/02/2026, 09:15:00"
+          },
+          {
+            "authorName": "Civil Servant",
+            "authorRole": "civil-service",
+            "avatar": "",
+            "text": "Noted. We will provide a full sensitivity table by end of day.",
+            "createdAt": "18/02/2026, 10:00:00"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "deptId": "home-office",
+        "title": "Knife crime pilot options for metro areas",
+        "status": "open",
+        "createdBy": "Graham Pike MP",
+        "createdByAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Graham%20Pike",
+        "createdAt": "17/02/2026, 14:10:00",
+        "messages": [
+          {
+            "authorName": "Graham Pike MP",
+            "authorRole": "government",
+            "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Graham%20Pike",
+            "text": "Need 3 policy options with legal risks and implementation timelines.",
+            "createdAt": "17/02/2026, 14:10:00"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "deptId": "foreign-office",
+        "title": "Briefing pack for emergency NATO summit",
+        "status": "closed",
+        "createdBy": "Helen Ward MP",
+        "createdByAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=Helen%20Ward",
+        "createdAt": "12/02/2026, 08:40:00",
+        "closedAt": "14/02/2026, 18:20:00",
+        "closedBy": "Moderator Team",
+        "messages": [
+          {
+            "authorName": "Helen Ward MP",
+            "authorRole": "government",
+            "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Helen%20Ward",
+            "text": "Please prepare red lines and bilateral briefing cards.",
+            "createdAt": "12/02/2026, 08:40:00"
+          },
+          {
+            "authorName": "Civil Servant",
+            "authorRole": "civil-service",
+            "avatar": "",
+            "text": "Pack uploaded to secure folder; legal and diplomatic annexes included.",
+            "createdAt": "13/02/2026, 11:25:00"
+          }
+        ]
+      }
+    ]
+  },
+  "cabinet": {
+    "headline": {
+      "text": "This week: finalise the Budget narrative, prepare Home Office public safety package, and lock the foreign policy briefing line before PMQs.",
+      "updatedAt": "18/02/2026, 08:30:00",
+      "updatedBy": "Dale Weston MP"
+    },
+    "hqUrl": "https://forum.rulebritannia.org/c/government/cabinet-office",
+    "nextDraftId": 3,
+    "drafts": [
+      {
+        "id": 1,
+        "ref": "CAB 1",
+        "title": "Economic Stability and Fiscal Responsibility Bill",
+        "purpose": "strengthen fiscal rules and improve long-term debt management transparency",
+        "body": "Article 1 \u2014 Fiscal Charter\nThe Treasury shall publish an annual fiscal charter with debt and borrowing anchors.\n\nArticle 2 \u2014 Reporting\nQuarterly compliance reports must be laid before the House.\n\nFinal Article \u2014 Extent and Commencement\nThis Act extends to the whole United Kingdom and comes into force one month after Royal Assent.",
+        "authorName": "Alice Thorne MP",
+        "authorId": "Alice Thorne MP",
+        "createdAt": "17/02/2026, 19:15:00",
+        "discussUrl": "https://forum.rulebritannia.org/c/government/cabinet-office/economic-stability-and-fiscal-responsibility-bill"
+      },
+      {
+        "id": 2,
+        "ref": "CAB 2",
+        "title": "Neighbourhood Safety Partnerships Bill",
+        "purpose": "create statutory local safety partnerships and targeted prevention plans",
+        "body": "Article 1 \u2014 Establishment\nEach local authority area shall maintain a Neighbourhood Safety Partnership.\n\nArticle 2 \u2014 Duty to Publish Plan\nA rolling 12-month safety plan must be published with measurable outcomes.\n\nFinal Article \u2014 Extent and Commencement\nThis Act extends to England and Wales and comes into force two months after Royal Assent.",
+        "authorName": "Graham Pike MP",
+        "authorId": "Graham Pike MP",
+        "createdAt": "18/02/2026, 09:45:00",
+        "discussUrl": "https://forum.rulebritannia.org/c/government/cabinet-office/neighbourhood-safety-partnerships-bill"
+      }
+    ]
+  },
+  "shadowCabinet": {
+    "headline": {
+      "text": "Priorities this week: challenge the Budget assumptions, finalise the NHS waiting-times package, and coordinate a joined-up response line for PMQs.",
+      "updatedAt": "18/02/2026, 09:05:00",
+      "updatedBy": "John Shade MP"
+    },
+    "hqUrl": "https://forum.rulebritannia.org/c/opposition/shadow-cabinet",
+    "nextDraftId": 3,
+    "drafts": [
+      {
+        "id": 1,
+        "ref": "SHD 1",
+        "title": "NHS Waiting Time Guarantee Bill",
+        "purpose": "set statutory maximum waiting time standards and annual recovery plans",
+        "body": "Article 1 \u2014 National Standard\nA national maximum waiting-time standard shall be set by regulation and reviewed annually.\n\nArticle 2 \u2014 Recovery Plans\nNHS trusts must publish annual recovery plans and quarterly progress updates.\n\nFinal Article \u2014 Extent and Commencement\nThis Act extends to England and comes into force two months after Royal Assent.",
+        "authorName": "Maya Patel MP",
+        "authorId": "Maya Patel MP",
+        "createdAt": "17/02/2026, 21:10:00",
+        "discussUrl": "https://forum.rulebritannia.org/c/opposition/shadow-cabinet/nhs-waiting-time-guarantee-bill"
+      },
+      {
+        "id": 2,
+        "ref": "SHD 2",
+        "title": "Clean Transport Transition Bill",
+        "purpose": "accelerate low-emission transport infrastructure and targeted freight support",
+        "body": "Article 1 \u2014 Strategic Corridors\nThe Secretary of State shall designate strategic clean transport corridors.\n\nArticle 2 \u2014 Transition Support\nA time-limited transition support scheme shall be created for freight operators.\n\nFinal Article \u2014 Extent and Commencement\nThis Act extends to Great Britain and comes into force one month after Royal Assent.",
+        "authorName": "Liam Cross MP",
+        "authorId": "Liam Cross MP",
+        "createdAt": "18/02/2026, 10:00:00",
+        "discussUrl": "https://forum.rulebritannia.org/c/opposition/shadow-cabinet/clean-transport-transition-bill"
+      }
+    ]
+  },
+  "personal": {
+    "profiles": {
+      "Dale Weston MP": {
+        "name": "Dale Weston MP",
+        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Dale%20Weston",
+        "profile": {
+          "dateOfBirth": "4 May 1970",
+          "education": "State school; University of Leeds (PPE)",
+          "careerBackground": "Former solicitor and local councillor before entering Parliament",
+          "family": "Married, two children",
+          "constituency": "Kensington & Chelsea",
+          "party": "Conservative",
+          "yearFirstElected": "1992"
+        },
+        "salaryAnnual": 91000,
+        "bankBalance": 128450,
+        "financialBackgroundLevel": "Upper-middle",
+        "affiliations": "Conservative Parliamentary Party; One Nation Caucus; Westminster Reform Group",
+        "additionalRevenue": [
+          {
+            "id": 1,
+            "source": "Book royalties",
+            "annualRevenue": 12000
+          },
+          {
+            "id": 2,
+            "source": "Rental income",
+            "annualRevenue": 18000
+          }
+        ],
+        "nextRevenueId": 3,
+        "lastSundayCreditAt": "18/02/2026, 08:00:00",
+        "updatedAt": "18/02/2026, 08:00:00"
+      }
+    }
+  },
+  "userManagement": {
+    "accounts": [
+      {
+        "username": "Dale",
+        "roles": [
+          "admin"
+        ],
+        "isAdmin": true,
+        "isMod": false,
+        "isSpeaker": false,
+        "activeCharacter": "Dale Weston MP",
+        "active": true
+      },
+      {
+        "username": "Shade",
+        "roles": [
+          "player"
+        ],
+        "isAdmin": false,
+        "isMod": false,
+        "isSpeaker": false,
+        "activeCharacter": "John Shade MP",
+        "active": true
+      },
+      {
+        "username": "SpeakerDesk",
+        "roles": [
+          "speaker"
+        ],
+        "isAdmin": false,
+        "isMod": false,
+        "isSpeaker": true,
+        "activeCharacter": "",
+        "active": true
+      },
+      {
+        "username": "NewsMod",
+        "roles": [
+          "mod"
+        ],
+        "isAdmin": false,
+        "isMod": true,
+        "isSpeaker": false,
+        "activeCharacter": "Megan Ellis MP",
+        "active": true
+      }
+    ],
+    "pendingCharacters": [],
+    "globalControls": {
+      "sundayFreeze": false,
+      "speakerConfigJson": "{\n  \"tieBreaker\": \"Speaker\",\n  \"autoArchiveDays\": 14,\n  \"divisionWindowMonths\": 1,\n  \"debateWindowMonths\": 2\n}"
+    }
+  },
+  "aTeam": {
+    "admins": [
+      {
+        "username": "Dale",
+        "activeCharacter": "Dale Weston MP",
+        "active": true
+      }
+    ],
+    "mods": [
+      {
+        "username": "NewsMod",
+        "activeCharacter": "Megan Ellis MP",
+        "active": true
+      }
+    ],
+    "speaker": [
+      {
+        "username": "SpeakerDesk",
+        "activeCharacter": "",
+        "active": true
+      }
+    ]
+  },
+  "rules": {
+    "nextId": 2,
+    "items": [
+      {
+        "id": 1,
+        "title": "Keep it in character",
+        "body": "All posts and comments in simulation channels should be in character unless a moderator gives clear out-of-character guidance."
+      }
+    ]
+  },
+  "guides": {
+    "nextId": 2,
+    "items": [
+      {
+        "id": 1,
+        "title": "Getting Started",
+        "body": "Start in Your Office each week, review Live Docket actions, and then complete any parliamentary, press, or party actions before Sunday roll."
       }
     ]
   }

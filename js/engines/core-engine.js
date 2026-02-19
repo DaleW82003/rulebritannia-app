@@ -1,0 +1,63 @@
+import { saveData } from "../core.js";
+
+export function getCharacterContext(data) {
+  return data?.currentCharacter || data?.currentPlayer || {};
+}
+
+export function hasRoleFlag(data, role) {
+  const user = data?.currentUser || {};
+  if (role === "admin") return !!user.isAdmin || (user.roles || []).includes("admin");
+  if (role === "mod") return !!user.isMod || (user.roles || []).includes("mod");
+  if (role === "speaker") return !!user.isSpeaker || (user.roles || []).includes("speaker") || !!getCharacterContext(data)?.isSpeaker;
+  return (user.roles || []).includes(role);
+}
+
+export function hasOffice(data, officeId) {
+  return String(getCharacterContext(data)?.office || "") === String(officeId || "");
+}
+
+export function setAbsenceState(data, { absent, delegatedTo }) {
+  const c = getCharacterContext(data);
+  if (!c || !c.name) return false;
+  c.absent = !!absent;
+  c.delegatedTo = absent ? String(delegatedTo || "").trim() || null : null;
+  saveData(data);
+  return true;
+}
+
+export function getPartySeatMap(data) {
+  const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
+  return Object.fromEntries(parties.map((p) => [String(p.name || ""), Number(p.seats || 0)]));
+}
+
+export function getWeightedVotePower(data, partyName, { rebelsByParty = {} } = {}) {
+  const seats = Number(getPartySeatMap(data)[String(partyName || "")] || 0);
+  const rebels = Number(rebelsByParty[String(partyName || "")] || 0);
+  return Math.max(0, seats - rebels);
+}
+
+export function runSundayRoll(data) {
+  data.hansard ??= { rollLog: {} };
+  data.hansard.rollLog ??= {};
+  data.hansard.rollLog.completedSinceSimStart = Number(data.hansard.rollLog.completedSinceSimStart || 0) + 1;
+  data.hansard.rollLog.lastForcedAt = new Date().toISOString();
+
+  const bills = Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [];
+  data.hansard.passed ??= [];
+  data.hansard.defeated ??= [];
+
+  const remaining = [];
+  for (const bill of bills) {
+    if (bill?.status === "passed") {
+      data.hansard.passed.unshift({ ...bill, archivedAtSim: bill.archivedAtSim || "Sunday Roll" });
+      continue;
+    }
+    if (bill?.status === "failed" || bill?.status === "stalled") {
+      data.hansard.defeated.unshift({ ...bill, archivedAtSim: bill.archivedAtSim || "Sunday Roll" });
+      continue;
+    }
+    remaining.push(bill);
+  }
+  data.orderPaperCommons = remaining;
+  saveData(data);
+}

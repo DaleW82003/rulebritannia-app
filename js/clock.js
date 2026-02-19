@@ -1,6 +1,9 @@
 // js/clock.js
-// Very simple: 1 real week = 2 sim months (as you specified)
-// Sunday freeze logic can be plugged in later; for now we just compute sim month/year.
+// Clock rules:
+// - Monday/Tuesday/Wednesday = one simulation month block
+// - Thursday/Friday/Saturday = one simulation month block
+// - Sunday is frozen (no advancement)
+// This yields 2 simulation months per real week.
 
 const MONTHS = [
   "January","February","March","April","May","June",
@@ -11,12 +14,31 @@ export function getSimDate(gameState, now = new Date()) {
   const startReal = new Date(gameState.startRealDate);
   const startMonth = Number(gameState.startSimMonth); // 1-12
   const startYear = Number(gameState.startSimYear);
+  if (Number.isNaN(startReal.getTime())) {
+    return { monthIndex: Math.max(0, Math.min(11, startMonth - 1)), monthName: MONTHS[Math.max(0, Math.min(11, startMonth - 1))], year: startYear };
+  }
 
-  const msPerDay = 24 * 60 * 60 * 1000;
-  const days = Math.floor((now - startReal) / msPerDay);
+  const start = new Date(startReal);
+  const end = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
 
-  // 1 week = 2 sim months => 7 days = 2 months => 1 day = 2/7 months
-  const simMonthsElapsed = Math.floor((days * 2) / 7);
+  let simMonthsElapsed = 0;
+  if (end > start) {
+    const cursor = new Date(start);
+    while (cursor < end) {
+      cursor.setDate(cursor.getDate() + 1);
+      const wd = cursor.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+      if (wd === 1 || wd === 4) simMonthsElapsed += 1;
+    }
+  } else if (end < start) {
+    const cursor = new Date(start);
+    while (cursor > end) {
+      const wd = cursor.getDay();
+      if (wd === 1 || wd === 4) simMonthsElapsed -= 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+  }
 
   let monthIndex = (startMonth - 1) + simMonthsElapsed;
   let year = startYear + Math.floor(monthIndex / 12);

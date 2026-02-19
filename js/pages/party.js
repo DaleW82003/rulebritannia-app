@@ -1,10 +1,341 @@
-export function initPartyPage(data) {
-  const host = document.getElementById("party-root") || document.querySelector("main.wrap");
-  if (!host) return;
-  host.innerHTML = `
-    <section class="panel">
-      <h1 class="page-title">Party</h1>
-      <div class="muted-block">Stub loaded ✅ (Party HQ + Draft a Bill + Discuss button next)</div>
+import { saveData } from "../core.js";
+import { esc } from "../ui.js";
+import { isAdmin, isMod } from "../permissions.js";
+
+const DEFAULT_PARTIES = {
+  Conservative: {
+    name: "Conservative",
+    short: "CON",
+    leader: { name: "Dale Weston MP", avatar: "", characterId: "" },
+    treasury: { cash: 350000, debt: 50000, members: 176000 },
+    hqUrl: "https://forum.rulebritannia.org/c/parties/conservative",
+    drafts: []
+  },
+  Labour: {
+    name: "Labour",
+    short: "LAB",
+    leader: { name: "Rachel Morgan MP", avatar: "", characterId: "" },
+    treasury: { cash: 290000, debt: 120000, members: 145000 },
+    hqUrl: "https://forum.rulebritannia.org/c/parties/labour",
+    drafts: []
+  },
+  "Liberal Democrat": {
+    name: "Liberal Democrat",
+    short: "LDM",
+    leader: { name: "Alex Pritchard MP", avatar: "", characterId: "" },
+    treasury: { cash: 95000, debt: 12000, members: 76000 },
+    hqUrl: "https://forum.rulebritannia.org/c/parties/libdem",
+    drafts: []
+  }
+};
+
+function canManage(data) {
+  return isAdmin(data) || isMod(data);
+}
+
+function getCharacter(data) {
+  return data?.currentCharacter || data?.currentPlayer || {};
+}
+
+function avatarFor(name, avatar) {
+  if (avatar) return avatar;
+  const initial = (name || "?").trim().slice(0, 1).toUpperCase() || "?";
+  return `https://dummyimage.com/64x64/1f3b60/ffffff&text=${encodeURIComponent(initial)}`;
+}
+
+function ensurePartyData(data) {
+  data.party ??= { parties: {}, nextDraftId: 1 };
+  data.party.parties ??= {};
+  data.party.nextDraftId = Number(data.party.nextDraftId || 1);
+
+  Object.entries(DEFAULT_PARTIES).forEach(([key, value]) => {
+    if (!data.party.parties[key]) data.party.parties[key] = structuredClone(value);
+    const p = data.party.parties[key];
+    p.name ??= value.name;
+    p.short ??= value.short;
+    p.leader ??= structuredClone(value.leader);
+    p.treasury ??= structuredClone(value.treasury);
+    p.hqUrl ??= value.hqUrl;
+    p.drafts ??= [];
+  });
+}
+
+function accessiblePartyNames(data) {
+  const char = getCharacter(data);
+  const party = char?.party;
+  const names = Object.keys(data.party.parties);
+  if (canManage(data)) return names;
+  return names.includes(party) ? [party] : [];
+}
+
+function partyFromState(data, state) {
+  return data.party.parties[state.activeParty] || null;
+}
+
+function formatMoney(v) {
+  return `£${Number(v || 0).toLocaleString("en-GB")}`;
+}
+
+function discussUrlForDraft(party, draft) {
+  if (draft.discussUrl) return draft.discussUrl;
+  const slug = String(draft.title || "party-draft").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const base = String(party.hqUrl || "https://forum.rulebritannia.org").replace(/\/$/, "");
+  return `${base}/t/${slug || "party-draft"}-${draft.id}`;
+}
+
+function render(data, state) {
+  const root = document.getElementById("party-root");
+  if (!root) return;
+
+  ensurePartyData(data);
+  const allowed = accessiblePartyNames(data);
+  const manager = canManage(data);
+
+  if (!state.activeParty || !data.party.parties[state.activeParty]) {
+    state.activeParty = allowed[0] || Object.keys(data.party.parties)[0];
+  }
+
+  const party = partyFromState(data, state);
+  const char = getCharacter(data);
+  const canView = manager || (char?.party && char.party === state.activeParty);
+
+  if (!canView) {
+    root.innerHTML = `
+      <section class="panel">
+        <h1 class="page-title">Party</h1>
+        <div class="muted-block">This headquarters is private. You can only access your own party workspace.</div>
+      </section>
+    `;
+    return;
+  }
+
+  const drafts = party.drafts.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
+
+  root.innerHTML = `
+    <h1 class="page-title">${esc(party.name)} Party HQ</h1>
+
+    ${manager ? `
+      <section class="panel" style="margin-bottom:12px;">
+        <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
+          <div>
+            <label class="label" for="party-switch">View/Edit Party</label>
+            <select id="party-switch" class="input">
+              ${Object.keys(data.party.parties).map((name) => `<option value="${esc(name)}" ${name === state.activeParty ? "selected" : ""}>${esc(name)}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+      </section>
+    ` : ""}
+
+    <section class="panel" style="margin-bottom:12px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
+        <article class="tile">
+          <h2 style="margin-top:0;">Current Party Leader</h2>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <img src="${esc(avatarFor(party.leader?.name, party.leader?.avatar))}" alt="Party leader avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
+            <div>
+              <div><b>${esc(party.leader?.name || "Vacant")}</b></div>
+              <div class="muted">${esc(party.short || "")}</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="tile">
+          <h2 style="margin-top:0;">Party Treasury</h2>
+          <div><b>Cash on hand:</b> ${esc(formatMoney(party.treasury?.cash))}</div>
+          <div><b>Debt:</b> ${esc(formatMoney(party.treasury?.debt))}</div>
+          <div><b>Members:</b> ${esc(Number(party.treasury?.members || 0).toLocaleString("en-GB"))}</div>
+        </article>
+      </div>
     </section>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Enter Headquarters</h2>
+      <p>Open your private party Discourse headquarters for internal strategy and debate.</p>
+      <a class="btn" href="${esc(party.hqUrl || "https://forum.rulebritannia.org")}" target="_blank" rel="noopener">Enter Headquarters</a>
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Draft a Bill (Party Workspace)</h2>
+      <p class="muted">Once submitted, drafts can only be edited by their author. There are no amendments or divisions in party drafting.</p>
+      <form id="party-draft-form">
+        <label class="label" for="party-draft-title">Bill Title</label>
+        <input id="party-draft-title" name="title" class="input" required placeholder="Education Standards Bill">
+
+        <label class="label" for="party-draft-purpose">A Bill to make provision for...</label>
+        <input id="party-draft-purpose" name="purpose" class="input" required placeholder="improving school standards and accountability">
+
+        <label class="label" for="party-draft-body">Draft Text</label>
+        <textarea id="party-draft-body" name="body" class="input" rows="8" required placeholder="Article 1...\nArticle 2..."></textarea>
+
+        <label class="label" for="party-draft-discuss">Discuss URL (optional)</label>
+        <input id="party-draft-discuss" name="discussUrl" class="input" placeholder="https://forum.rulebritannia.org/t/...">
+
+        <button type="submit" class="btn">Save Draft</button>
+      </form>
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Party Drafts</h2>
+      ${drafts.length ? drafts.map((d) => `
+        <article class="tile" style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;">
+            <div>
+              <b>${esc(d.ref || `Draft ${d.id}`)}:</b> ${esc(d.title)}
+              <div class="muted">By ${esc(d.authorName)} • ${esc(d.createdAt)}</div>
+            </div>
+            <button type="button" class="btn" data-action="open-draft" data-id="${esc(String(d.id))}">${state.openDraftId === d.id ? "Close" : "Open"}</button>
+          </div>
+          ${state.openDraftId === d.id ? `
+            <div style="margin-top:10px;">
+              <p><b>A Bill to make provision for:</b> ${esc(d.purpose)}</p>
+              <div class="muted-block" style="white-space:pre-wrap;">${esc(d.body)}</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                <a class="btn" href="${esc(discussUrlForDraft(party, d))}" target="_blank" rel="noopener">Discuss</a>
+                ${(d.authorId === (char?.name || "") || manager) ? `<button type="button" class="btn" data-action="edit-draft" data-id="${esc(String(d.id))}">Edit</button>` : ""}
+                ${manager ? `<button type="button" class="btn" data-action="delete-draft" data-id="${esc(String(d.id))}">Delete</button>` : ""}
+              </div>
+            </div>
+          ` : ""}
+        </article>
+      `).join("") : `<div class="muted-block">No party drafts yet.</div>`}
+    </section>
+
+    ${manager ? `
+      <section class="panel">
+        <h2 style="margin-top:0;">Party Control Panel</h2>
+        <form id="party-control-form">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
+            <div>
+              <label class="label" for="party-leader-name">Leader Name</label>
+              <input id="party-leader-name" name="leaderName" class="input" value="${esc(party.leader?.name || "")}">
+            </div>
+            <div>
+              <label class="label" for="party-leader-avatar">Leader Avatar URL</label>
+              <input id="party-leader-avatar" name="leaderAvatar" class="input" value="${esc(party.leader?.avatar || "")}">
+            </div>
+            <div>
+              <label class="label" for="party-cash">Treasury Cash (£)</label>
+              <input id="party-cash" name="cash" type="number" class="input" value="${esc(String(Number(party.treasury?.cash || 0)))}">
+            </div>
+            <div>
+              <label class="label" for="party-debt">Debt (£)</label>
+              <input id="party-debt" name="debt" type="number" class="input" value="${esc(String(Number(party.treasury?.debt || 0)))}">
+            </div>
+            <div>
+              <label class="label" for="party-members">Members</label>
+              <input id="party-members" name="members" type="number" class="input" value="${esc(String(Number(party.treasury?.members || 0)))}">
+            </div>
+            <div>
+              <label class="label" for="party-hq-url">Headquarters URL</label>
+              <input id="party-hq-url" name="hqUrl" class="input" value="${esc(party.hqUrl || "")}">
+            </div>
+          </div>
+          <button type="submit" class="btn">Save Party Settings</button>
+        </form>
+      </section>
+    ` : ""}
   `;
+
+  root.querySelector("#party-switch")?.addEventListener("change", (e) => {
+    const next = String(e.currentTarget.value || "");
+    if (!next) return;
+    state.activeParty = next;
+    state.openDraftId = null;
+    render(data, state);
+  });
+
+  root.querySelector("#party-draft-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const title = String(fd.get("title") || "").trim();
+    const purpose = String(fd.get("purpose") || "").trim();
+    const body = String(fd.get("body") || "").trim();
+    const discussUrl = String(fd.get("discussUrl") || "").trim();
+    if (!title || !purpose || !body) return;
+
+    if (state.editingDraftId) {
+      const draft = party.drafts.find((d) => d.id === state.editingDraftId);
+      const userId = char?.name || "";
+      if (!draft || (draft.authorId !== userId && !manager)) return;
+      draft.title = title;
+      draft.purpose = purpose;
+      draft.body = body;
+      draft.discussUrl = discussUrl;
+      state.editingDraftId = null;
+    } else {
+      const id = data.party.nextDraftId++;
+      const draft = {
+        id,
+        ref: `${party.short} DRAFT ${id}`,
+        title,
+        purpose,
+        body,
+        discussUrl,
+        authorName: char?.name || "Unknown MP",
+        authorId: char?.name || "",
+        createdAt: new Date().toLocaleString("en-GB"),
+        createdTs: Date.now()
+      };
+      party.drafts.push(draft);
+      state.openDraftId = id;
+    }
+
+    saveData(data);
+    render(data, state);
+  });
+
+  root.querySelectorAll("[data-action='open-draft']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.getAttribute("data-id") || 0);
+      state.openDraftId = state.openDraftId === id ? null : id;
+      render(data, state);
+    });
+  });
+
+  root.querySelectorAll("[data-action='edit-draft']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.getAttribute("data-id") || 0);
+      const draft = party.drafts.find((d) => d.id === id);
+      const userId = char?.name || "";
+      if (!draft || (draft.authorId !== userId && !manager)) return;
+      state.editingDraftId = id;
+      root.querySelector("#party-draft-title").value = draft.title || "";
+      root.querySelector("#party-draft-purpose").value = draft.purpose || "";
+      root.querySelector("#party-draft-body").value = draft.body || "";
+      root.querySelector("#party-draft-discuss").value = draft.discussUrl || "";
+      root.querySelector("#party-draft-title")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  });
+
+  root.querySelectorAll("[data-action='delete-draft']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!manager) return;
+      const id = Number(btn.getAttribute("data-id") || 0);
+      party.drafts = party.drafts.filter((d) => d.id !== id);
+      if (state.openDraftId === id) state.openDraftId = null;
+      saveData(data);
+      render(data, state);
+    });
+  });
+
+  root.querySelector("#party-control-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!manager) return;
+    const fd = new FormData(e.currentTarget);
+    party.leader.name = String(fd.get("leaderName") || "").trim() || party.leader.name;
+    party.leader.avatar = String(fd.get("leaderAvatar") || "").trim();
+    party.treasury.cash = Number(fd.get("cash") || 0);
+    party.treasury.debt = Number(fd.get("debt") || 0);
+    party.treasury.members = Number(fd.get("members") || 0);
+    party.hqUrl = String(fd.get("hqUrl") || "").trim() || party.hqUrl;
+    saveData(data);
+    render(data, state);
+  });
+}
+
+export function initPartyPage(data) {
+  ensurePartyData(data);
+  const state = { activeParty: getCharacter(data)?.party || "", openDraftId: null, editingDraftId: null };
+  render(data, state);
 }

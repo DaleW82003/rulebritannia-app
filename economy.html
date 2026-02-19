@@ -93,12 +93,19 @@
 </header>
 
 <main class="wrap">
-  <h1 class="page-title">Economy</h1>
+  <div class="bbc-masthead">
+    <div class="bbc-title">Economy</div>
+    <div class="bbc-sub" id="economySimDate">Loading…</div>
+  </div>
 
   <section class="panel">
-    <div class="muted-block">
-      <b>Key lines</b> always show at the top. Everything else is in tiles — click a tile to open the detail.
-      Mods/Admins can edit the values in <b>data/demo.json</b>.
+    <div class="spaced">
+      <div class="muted-block" style="margin:0;">
+        <b>Fiscal year note:</b> UK fiscal years run <b>April to March</b>. “Last year” refers to the previous fiscal year from the last budget.
+      </div>
+      <div id="economyControlPanelLink" style="display:none;">
+        <a class="btn" href="control-panel.html">Economy Control Panel</a>
+      </div>
     </div>
 
     <div id="economyKeyLines" style="margin-top:12px;">Loading…</div>
