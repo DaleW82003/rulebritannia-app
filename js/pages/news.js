@@ -144,7 +144,8 @@ export function initNewsPage(data) {
 
     const breakingPanel = document.getElementById("bbcBreakingPanel");
     if (breakingPanel) breakingPanel.style.display = liveBreaking.length ? "" : "none";
-    setHTML("bbcBreakingTicker", liveBreaking.map((s) => esc(s.headline)).join(" • "));
+    const ticker = liveBreaking.map((s) => esc(s.headline)).join("   •   ");
+    setHTML("bbcBreakingTicker", `<span class="bbc-breaking-track">${ticker}</span>`);
 
     setHTML("bbcTopStory", renderTopStory(liveMain));
     setHTML("bbcMainNews", renderGrid(liveMain, false, `No Main News in the last ${LIVE_WINDOW_DAYS} days.`));

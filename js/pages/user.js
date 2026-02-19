@@ -1,4 +1,6 @@
 import { saveData } from "../core.js";
+import { runSundayRoll, setAbsenceState } from "../engines/core-engine.js";
+import { updateParliamentState } from "../engines/control-panel-engine.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker } from "../permissions.js";
 
@@ -281,9 +283,7 @@ function render(data, state) {
 
   host.querySelector("#absence-clear")?.addEventListener("click", () => {
     if (!data.currentCharacter) return;
-    data.currentCharacter.absent = false;
-    data.currentCharacter.delegatedTo = null;
-    saveData(data);
+    setAbsenceState(data, { absent: false, delegatedTo: null });
     state.message = "Character marked active.";
     render(data, state);
   });
@@ -346,6 +346,10 @@ function render(data, state) {
     data.gameState.startSimYear = Number(fd.get("startSimYear") || 1997);
     data.parliament.lastGeneralElection = String(fd.get("lastGeneralElection") || "").trim();
     data.parliament.governmentSetup = String(fd.get("governmentSetup") || "Majority");
+    updateParliamentState(data, {
+      lastGeneralElection: data.parliament.lastGeneralElection,
+      governmentSetup: data.parliament.governmentSetup
+    });
     data.userManagement.globalControls.speakerConfigJson = String(fd.get("speakerConfigJson") || "{}");
     saveData(data);
     state.message = "Speaker controls updated.";
@@ -354,12 +358,7 @@ function render(data, state) {
 
   host.querySelector("#force-sunday-roll")?.addEventListener("click", () => {
     if (!manager) return;
-    data.hansard ??= { rollLog: {} };
-    data.hansard.rollLog ??= {};
-    const current = Number(data.hansard.rollLog.completedSinceSimStart || 0);
-    data.hansard.rollLog.completedSinceSimStart = current + 1;
-    data.hansard.rollLog.lastForcedAt = nowStamp();
-    saveData(data);
+    runSundayRoll(data);
     state.message = "Sunday roll forced for demo.";
     render(data, state);
   });

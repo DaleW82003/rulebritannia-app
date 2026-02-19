@@ -1,18 +1,36 @@
 // js/permissions.js
+import {
+  canManageAsAdmin,
+  canManageAsMod,
+  canManageAsSpeaker,
+  canPostNews as canPostNewsEngine,
+  canAnswerQuestionTime,
+  canRaiseCivilServiceCase,
+  canSignEdm,
+  canVoteDivision,
+  canSeeAudienceItem
+} from "./engines/permission-engine.js";
 
 export function isAdmin(data) {
-  return !!data?.currentUser?.isAdmin || (data?.currentUser?.roles || []).includes("admin");
+  return canManageAsAdmin(data);
 }
 
 export function isMod(data) {
-  return !!data?.currentUser?.isMod || (data?.currentUser?.roles || []).includes("mod");
+  return canManageAsMod(data);
 }
 
 export function isSpeaker(data) {
-  return (data?.currentUser?.roles || []).includes("speaker") || !!data?.currentCharacter?.isSpeaker;
+  return canManageAsSpeaker(data);
 }
 
-// Useful later:
 export function canPostNews(data) {
-  return isAdmin(data) || isMod(data);
+  return canPostNewsEngine(data);
 }
+
+export {
+  canAnswerQuestionTime,
+  canRaiseCivilServiceCase,
+  canSignEdm,
+  canVoteDivision,
+  canSeeAudienceItem
+};

@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canRaiseCivilServiceCase } from "../permissions.js";
 
 const CS_DEPARTMENTS = [
   { id: "10ds", name: "10 Downing Street", officeId: "prime-minister", officeTitle: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
@@ -12,8 +12,8 @@ const CS_DEPARTMENTS = [
   { id: "dwp", name: "DWP", officeId: "welfare", officeTitle: "Secretary of State for Work and Pensions" },
   { id: "education", name: "Education Department", officeId: "education", officeTitle: "Secretary of State for Education" },
   { id: "dea", name: "DEA", officeId: "env-agri", officeTitle: "Secretary of State for the Environment and Agriculture" },
-  { id: "health", name: "Health Department", officeId: "health", officeTitle: "Secretary of State for Health and Social" },
-  { id: "dot", name: "DoT", officeId: "eti", officeTitle: "Security Secretary of State for the Environment, Transport and Infrastructure" },
+  { id: "health", name: "Health Department", officeId: "health", officeTitle: "Secretary of State for Health and Social Care" },
+  { id: "dot", name: "DoT", officeId: "eti", officeTitle: "Secretary of State for Transport and Infrastructure" },
   { id: "dcms", name: "DCMS", officeId: "culture", officeTitle: "Secretary of State for Culture, Media and Sport" },
   { id: "home-nations", name: "Department of the Home Nations", officeId: "home-nations", officeTitle: "Secretary of State for the Home Nations" }
 ];
@@ -36,8 +36,7 @@ function isGovernmentMember(data) {
 }
 
 function canAccessDepartment(data, officeId) {
-  if (canModerate(data)) return true;
-  return String(getChar(data)?.office || "") === officeId;
+  return canRaiseCivilServiceCase(data, officeId);
 }
 
 function normaliseCivilService(data) {

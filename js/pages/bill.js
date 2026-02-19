@@ -1,4 +1,6 @@
-import { getCurrentCharacter, currentCharacterWeight, tallyDivisionVotes } from "../divisions.js";
+import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolveDivisionResult } from "../engines/division-engine.js";
+import { saveData } from "../core.js";
+
 function $(id) {
   return document.getElementById(id);
 }
@@ -19,6 +21,10 @@ function getBillIdFromUrl() {
   return u.searchParams.get("id");
 }
 
+function getCurrentCharacter(data) {
+  return data?.currentCharacter || data?.currentPlayer || null;
+}
+
 function canManageLegislativeAgenda(data) {
   const c = getCurrentCharacter(data);
   if (!c) return false;
@@ -35,10 +41,6 @@ function canProposeAmendment(data) {
   return ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th", "prime-minister"].includes(role);
 }
 
-
-function partyOfCurrent(data) {
-  return getCurrentCharacter(data)?.party || "Independent";
-}
 function billTypeLabel(t) {
   if (t === "government") return "Government Bill";
   if (t === "opposition") return "Opposition Bill";
@@ -64,19 +66,8 @@ function stageCountdown(bill) {
   return msToHuman(start + dur - Date.now());
 }
 
-function getDivisionState(bill) {
-  bill.division ??= {
-    status: "open",
-    openedAt: Date.now() - 30 * 60 * 1000,
-    closesAt: Date.now() + 90 * 60 * 1000,
-    votes: {}
-  };
-  bill.division.votes ??= {};
-  return bill.division;
-}
-
-function tallyVotes(division, data) {
-  return tallyDivisionVotes(division?.votes || {}, data);
+function partyOfCurrent(data) {
+  return getCurrentCharacter(data)?.party || "Independent";
 }
 
 function setDebateLink(bill) {
@@ -250,25 +241,23 @@ function renderDivision(bill, data) {
     return;
   }
 
-  const division = getDivisionState(bill);
-  const totals = tallyVotes(division, data);
+  const division = ensureDivision(bill, { status: "open", openedAt: Date.now() - 30 * 60 * 1000, closesAt: Date.now() + 90 * 60 * 1000 });
+  const totals = tallyDivision(bill, data);
   const now = Date.now();
   if (division.status === "open" && Number(division.closesAt || 0) <= now) {
-    division.status = "closed";
+    closeDivision(bill);
   }
 
-  const me = getCurrentCharacter(data);
-  const myName = me?.name || "MP";
-  const myWeight = currentCharacterWeight(data);
-  const current = division.votes[myName]?.choice || "";
-  const canVote = division.status === "open" && !me?.absent && myWeight > 0;
+  const myParty = partyOfCurrent(data);
+  const current = division.votes[myParty]?.choice || "";
+  const canVote = division.status === "open";
 
   voting.style.display = "block";
   progress.style.display = "block";
 
   voting.innerHTML = `
     <h2>Division</h2>
-    <p class="muted">Cast your weighted division vote. Your current effective voting weight: <b>${esc(String(myWeight))}</b>. Vote closes in <b>${esc(msToHuman(Number(division.closesAt || 0) - now))}</b>.</p>
+    <p class="muted">Cast your party whip position for this demo. Vote closes in <b>${esc(msToHuman(Number(division.closesAt || 0) - now))}</b>.</p>
     <div class="tile-bottom" style="padding-top:0;">
       <button class="btn ${current === "aye" ? "primary" : ""}" data-vote="aye" ${canVote ? "" : "disabled"}>Aye</button>
       <button class="btn ${current === "no" ? "primary" : ""}" data-vote="no" ${canVote ? "" : "disabled"}>No</button>
@@ -292,7 +281,7 @@ function renderDivision(bill, data) {
 
   voting.querySelectorAll("[data-vote]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      division.votes[myName] = { choice: btn.dataset.vote, party: me?.party || "Independent", at: Date.now(), weight: myWeight };
+      castDivisionVote(bill, myParty, { choice: btn.dataset.vote, party: myParty, weight: 1 });
       persistAndRerender(data, bill);
     });
   });
@@ -304,9 +293,8 @@ function renderDivision(bill, data) {
   });
 
   voting.querySelector('[data-speaker="tie-break"]')?.addEventListener("click", () => {
-    totals.aye += 1;
     division.status = "resolved-by-speaker";
-    bill.status = "passed";
+    bill.status = resolveDivisionResult(bill, data) === "failed" ? "failed" : "passed";
     bill.stage = "Passed Commons";
     persistAndRerender(data, bill);
   });
@@ -315,7 +303,7 @@ function renderDivision(bill, data) {
 function persistAndRerender(data, bill, rerenderAll = true) {
   const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
   if (idx >= 0) data.orderPaperCommons[idx] = bill;
-  localStorage.setItem("rb_data_v1", JSON.stringify(data));
+  saveData(data);
   if (rerenderAll) {
     renderBillMeta(bill, data);
     renderBillText(bill);

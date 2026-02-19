@@ -12,8 +12,8 @@ const OFFICE_SPECS = [
   { id: "welfare", title: "Secretary of State for Work and Pensions", short: "Work & Pensions" },
   { id: "education", title: "Secretary of State for Education", short: "Education Secretary" },
   { id: "env-agri", title: "Secretary of State for the Environment and Agriculture", short: "Environment & Agriculture" },
-  { id: "health", title: "Secretary of State for Health and Social", short: "Health & Social" },
-  { id: "eti", title: "Security Secretary of State for the Environment, Transport and Infrastructure", short: "Environment, Transport & Infrastructure" },
+  { id: "health", title: "Secretary of State for Health and Social Care", short: "Health & Social" },
+  { id: "eti", title: "Secretary of State for Transport and Infrastructure", short: "Environment, Transport & Infrastructure" },
   { id: "culture", title: "Secretary of State for Culture, Media and Sport", short: "Culture, Media & Sport" },
   { id: "home-nations", title: "Secretary of State for the Home Nations", short: "Home Nations" },
   { id: "leader-commons", title: "Leader of the House of Commons", short: "Leader of the House" }

@@ -5,7 +5,7 @@ import { isAdmin } from "../permissions.js";
 const TEAM_LEVELS = [
   { id: "admins", label: "Admins", roleKey: "isAdmin" },
   { id: "mods", label: "Mods", roleKey: "isMod" },
-  { id: "speaker", label: "Speaker", roleKey: "isSpeaker" }
+  { id: "speaker", label: "Speaker's Office", roleKey: "isSpeaker" }
 ];
 
 function normaliseTeam(data) {
@@ -83,7 +83,7 @@ function render(data, state) {
   const adminMode = isAdmin(data);
 
   host.innerHTML = `
-    <h1 class="page-title">A Team</h1>
+    <h1 class="page-title">Speaker's Office</h1>
 
     ${renderLevel(TEAM_LEVELS[0], data.aTeam.admins || [], adminMode)}
     ${renderLevel(TEAM_LEVELS[1], data.aTeam.mods || [], adminMode)}

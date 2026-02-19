@@ -1,3 +1,5 @@
+import { canSeeAudienceItem } from "../permissions.js";
+
 // js/pages/dashboard.js
 // Dashboard (Your Office) — Chunk 1 implementation
 
@@ -31,30 +33,18 @@ function nowMs() {
 
 // Best-effort sim label (Month Year) from your stored state.
 // If you already have a more accurate clock module, you can swap this later.
-function getSimLabel(data) {
-  const gs = data?.gameState;
-  const monthIndex = Number(gs?.startSimMonth ?? 8); // 1-12
-  const year = Number(gs?.startSimYear ?? 1997);
-
-  const months = [
-    "January","February","March","April","May","June",
-    "July","August","September","October","November","December"
-  ];
-
-  const m = months[(monthIndex - 1 + 12) % 12] || "August";
-  return `${m} ${year}`;
-}
-
 function iconFor(type) {
   // Simple symbols for immersion (you can replace with SVG later)
   const map = {
-    division: "🗳️",
     question: "❓",
-    statement: "📣",
     motion: "📜",
     edm: "✍️",
+    statement: "🗣️",
+    division: "🗳️",
+    speaker: "🔔",
+    amendment: "🧾",
+    "amendment-division": "🗳️",
     regulation: "🧾",
-    speaker: "🎙️",
     debate: "💬",
     bill: "🏛️",
   };
@@ -127,54 +117,21 @@ function getWhatsGoingOnTiles(data) {
     },
     {
       kicker: "ECONOMY",
-      title: `Inflation ${fmtPct(econ?.inflation ?? econTopline?.inflation)} • Unemployment ${fmtPct(econ?.unemployment ?? econTopline?.unemployment)}`,
-      strap: `GDP growth ${fmtPct(econ?.growth ?? econTopline?.gdpGrowth)}`,
+      title: "Key lines",
+      strap: `Inflation ${fmtPct(econ?.inflation ?? econTopline?.inflation)}\nUnemployment ${fmtPct(econ?.unemployment ?? econTopline?.unemployment)}\nGDP growth ${fmtPct(econ?.growth ?? econTopline?.gdpGrowth)}`,
       href: "economy.html",
       btn: "Open"
     },
     {
       kicker: "POLLING",
-      title: topPoll.length
-        ? `${topPoll.map(p => `${p.party} ${Number(p.value).toFixed(1)}%`).join(" • ")}`
+      title: "Latest topline",
+      strap: topPoll.length
+        ? `${topPoll.map(p => `${p.party} ${Number(p.value).toFixed(1)}%`).join("\n")}`
         : "No polling yet",
-      strap: "Weekly poll published Sundays",
       href: "polling.html",
       btn: "Open"
     },
   ];
-}
-
-function canSeeDocketItem(item, data) {
-  // Basic audience filter based on your demo.json shape.
-  // If no audience, assume visible to all.
-  const aud = item?.audience;
-  if (!aud) return true;
-
-  const user = data?.currentUser || {};
-  const char = data?.currentCharacter || data?.currentPlayer || {};
-
-  // SpeakerOnly
-  if (aud.speakerOnly) return Boolean(char?.isSpeaker) || user?.roles?.includes("speaker");
-
-  // Roles filter (character.role)
-  if (Array.isArray(aud.roles) && aud.roles.length) {
-    if (!aud.roles.includes(char?.role)) return false;
-  }
-
-  // Offices filter (character.office)
-  if (Array.isArray(aud.offices) && aud.offices.length) {
-    if (!aud.offices.includes(char?.office)) return false;
-  }
-
-  return true;
-}
-
-function renderSimDate(data) {
-  const el = $("sim-date-display");
-  if (!el) return;
-
-  const label = getSimLabel(data);
-  el.textContent = `Simulation Date: ${label}`;
 }
 
 function renderWhatsGoingOn(data) {
@@ -189,7 +146,7 @@ function renderWhatsGoingOn(data) {
         <div class="wgo-tile card-flex">
           <div class="wgo-kicker">${esc(t.kicker)}</div>
           <div class="wgo-title">${esc(t.title)}</div>
-          <div class="wgo-strap">${esc(t.strap)}</div>
+          <div class="wgo-strap wgo-strap-lines">${esc(t.strap)}</div>
           <div class="tile-bottom">
             <a class="btn" href="${esc(t.href)}">${esc(t.btn)}</a>
           </div>
@@ -206,7 +163,7 @@ function renderLiveDocket(data) {
   const docket = data?.liveDocket;
   const items = Array.isArray(docket?.items) ? docket.items : [];
 
-  const visible = items.filter(it => canSeeDocketItem(it, data));
+  const visible = items.filter(it => canSeeAudienceItem(data, it?.audience));
 
   if (!visible.length) {
     root.innerHTML = `<div class="muted-block">No actions available right now.</div>`;
@@ -256,7 +213,7 @@ function renderOrderPaper(data) {
     <div class="order-grid">
       ${bills.map(b => `
         <div class="wgo-tile card-flex">
-          <div class="wgo-kicker">${esc(billTypeLabel(b.billType))}</div>
+          <div class="wgo-kicker bill-type-${esc(b.billType || "bill")}">${esc(billTypeLabel(b.billType))}</div>
           <div class="wgo-title">${esc(b.title)}</div>
           <div class="wgo-strap">
             <div><b>Author:</b> ${esc(b.author || "—")}</div>
@@ -276,7 +233,6 @@ function renderOrderPaper(data) {
 }
 
 export function initDashboardPage(data) {
-  renderSimDate(data);
   renderWhatsGoingOn(data);
   renderLiveDocket(data);
   renderOrderPaper(data);

@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, isSpeaker } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime } from "../permissions.js";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -27,9 +27,7 @@ function canModerate(data) {
 }
 
 function canAnswerOffice(data, officeId) {
-  const char = getCurrentCharacter(data);
-  if (!char?.office) return false;
-  return char.office === officeId || char.office === "prime-minister" || char.office === "leader-commons";
+  return canAnswerQuestionTime(data, officeId);
 }
 
 function normaliseQuestionTime(data) {

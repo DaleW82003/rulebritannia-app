@@ -14,16 +14,8 @@ function normaliseRules(data) {
     .map((rule, idx) => ({
       id: Number(rule.id) || idx + 1,
       title: String(rule.title || "Untitled Rule"),
-      chunks: Array.isArray(rule.chunks)
-        ? rule.chunks.map((chunk) => String(chunk || "").trim()).filter(Boolean)
-        : [],
       body: String(rule.body || "")
     }));
-
-  data.rules.items = data.rules.items.map((rule) => ({
-    ...rule,
-    body: rule.body || rule.chunks.join("\n\n")
-  }));
 
   const maxId = data.rules.items.reduce((m, r) => Math.max(m, r.id), 0);
   data.rules.nextId = Math.max(data.rules.nextId, maxId + 1);
@@ -147,15 +139,13 @@ function render(data, state) {
         if (target) {
           target.title = title;
           target.body = body;
-          target.chunks = body.split(/\n{2,}/).map((chunk) => chunk.trim()).filter(Boolean);
           state.message = "Rule updated.";
         }
       } else {
         data.rules.items.unshift({
           id: data.rules.nextId,
           title,
-          body,
-          chunks: body.split(/\n{2,}/).map((chunk) => chunk.trim()).filter(Boolean)
+          body
         });
         data.rules.nextId += 1;
         state.message = "Rule added.";

@@ -14,16 +14,8 @@ function normaliseGuides(data) {
     .map((guide, idx) => ({
       id: Number(guide.id) || idx + 1,
       title: String(guide.title || "Untitled Guide"),
-      chunks: Array.isArray(guide.chunks)
-        ? guide.chunks.map((chunk) => String(chunk || "").trim()).filter(Boolean)
-        : [],
       body: String(guide.body || "")
     }));
-
-  data.guides.items = data.guides.items.map((guide) => ({
-    ...guide,
-    body: guide.body || guide.chunks.join("\n\n")
-  }));
 
   const maxId = data.guides.items.reduce((m, g) => Math.max(m, g.id), 0);
   data.guides.nextId = Math.max(data.guides.nextId, maxId + 1);
@@ -147,15 +139,13 @@ function render(data, state) {
         if (target) {
           target.title = title;
           target.body = body;
-          target.chunks = body.split(/\n{2,}/).map((chunk) => chunk.trim()).filter(Boolean);
           state.message = "Guide updated.";
         }
       } else {
         data.guides.items.unshift({
           id: data.guides.nextId,
           title,
-          body,
-          chunks: body.split(/\n{2,}/).map((chunk) => chunk.trim()).filter(Boolean)
+          body
         });
         data.guides.nextId += 1;
         state.message = "Guide added.";

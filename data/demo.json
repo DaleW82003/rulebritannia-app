@@ -1331,12 +1331,12 @@
       },
       {
         "id": "health",
-        "title": "Secretary of State for Health and Social",
+        "title": "Secretary of State for Health and Social Care",
         "holder": "Imran Ashraf MP"
       },
       {
         "id": "eti",
-        "title": "Security Secretary of State for the Environment, Transport and Infrastructure",
+        "title": "Secretary of State for Transport and Infrastructure",
         "holder": "Peter Doyle MP"
       },
       {
@@ -1403,12 +1403,12 @@
       },
       {
         "slug": "health",
-        "title": "Secretary of State for Health and Social",
+        "title": "Secretary of State for Health and Social Care",
         "short": "Health Questions"
       },
       {
         "slug": "eti",
-        "title": "Security Secretary of State for the Environment, Transport and Infrastructure",
+        "title": "Secretary of State for the Transport and Infrastructure",
         "short": "ETI Questions"
       },
       {
@@ -2712,60 +2712,7 @@
       },
       "gdp": 1950.0
     },
-    "pending": {
-      "budget": {
-        "label": "Draft submission",
-        "revenues": {
-          "Income Tax": 106.9,
-          "Corporate Tax": 36.1,
-          "Value Added Tax": 93.2,
-          "National Insurance": 67.15,
-          "Fuel Duty": 24.04,
-          "Stamp Duty": 12.81,
-          "Business Rate Appropriations": 15.96
-        },
-        "expenditures": {
-          "Health": 43.6,
-          "Social Security": 60.2,
-          "Education": 89.24,
-          "Home Office": 29.25,
-          "Ministry of Defense": 34.53,
-          "Transport": 15.96,
-          "Local Government": 63.98,
-          "Environment": 6.67,
-          "Energy": 5.58,
-          "Culture": 0.01,
-          "Housing": -11.88,
-          "Business": 2.88,
-          "Scottish Office": 22.51,
-          "Welsh Office": 7.55,
-          "Northern Ireland Office": 3.27
-        },
-        "capital": {
-          "Capital Expenditure": 14.14
-        },
-        "gdp": 1950.0
-      },
-      "submittedBy": "Eleanor Price MP",
-      "submittedAt": "19/02/2026, 09:30:00",
-      "division": {
-        "status": "open",
-        "votes": {
-          "Dale Weston MP": {
-            "name": "Dale Weston MP",
-            "party": "Conservative",
-            "choice": "aye",
-            "weight": 330
-          },
-          "John Shade MP": {
-            "name": "John Shade MP",
-            "party": "Labour",
-            "choice": "no",
-            "weight": 280
-          }
-        }
-      }
-    },
+    "pending": null,
     "archive": []
   },
   "government": {
@@ -3121,13 +3068,13 @@
         "id": "health",
         "name": "Health Department",
         "officeId": "health",
-        "officeTitle": "Secretary of State for Health and Social"
+        "officeTitle": "Secretary of State for Health and Social Care"
       },
       {
         "id": "dot",
         "name": "DoT",
         "officeId": "eti",
-        "officeTitle": "Security Secretary of State for the Environment, Transport and Infrastructure"
+        "officeTitle": "Secretary of State for Transport and Infrastructure"
       },
       {
         "id": "dcms",
@@ -3399,11 +3346,7 @@
       {
         "id": 1,
         "title": "Keep it in character",
-        "body": "All posts and comments in simulation channels should be in character unless a moderator gives clear out-of-character guidance.",
-        "chunks": [
-          "All posts and comments in simulation channels should be in character.",
-          "Only post out of character where a moderator has explicitly allowed it."
-        ]
+        "body": "All posts and comments in simulation channels should be in character unless a moderator gives clear out-of-character guidance."
       }
     ]
   },
@@ -3413,11 +3356,7 @@
       {
         "id": 1,
         "title": "Getting Started",
-        "body": "Start in Your Office each week, review Live Docket actions, and then complete any parliamentary, press, or party actions before Sunday roll.",
-        "chunks": [
-          "Start each week in Your Office and review the Live Docket first.",
-          "Then complete parliamentary, press, and party actions before Sunday roll."
-        ]
+        "body": "Start in Your Office each week, review Live Docket actions, and then complete any parliamentary, press, or party actions before Sunday roll."
       }
     ]
   }
