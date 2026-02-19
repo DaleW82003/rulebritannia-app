@@ -1,14 +1,10 @@
 import { formatSimMonthYear } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
 import { canPostNews } from "../permissions.js";
-import { saveData } from "../core.js";
+import { saveData, nowMs } from "../core.js";
 
 const LIVE_WINDOW_DAYS = 14;
 const LIVE_WINDOW_MS = LIVE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-
-function nowMs() {
-  return Date.now();
-}
 
 function byNewest(a, b) {
   return Number(b?.createdAt || 0) - Number(a?.createdAt || 0);

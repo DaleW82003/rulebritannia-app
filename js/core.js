@@ -38,6 +38,7 @@ export function saveData(data) {
 
 export function ensureDefaults(data) {
   // Defensive defaults so pages never "blank" because one field is missing.
+  // Null-coalescing for missing keys + type guards for critical arrays/objects.
   data.gameState ??= { started: false, startRealDate: "", startSimMonth: 8, startSimYear: 1997, isPaused: false };
   data.adminSettings ??= { monarchGender: "Queen" };
   data.adminSettings.monarchGender ??= "Queen";
@@ -47,17 +48,39 @@ export function ensureDefaults(data) {
 
   data.whatsGoingOn ??= {};
   data.whatsGoingOn.economy ??= { growth: 0, inflation: 0, unemployment: 0 };
-  data.whatsGoingOn.polling ??= [];
+  if (!Array.isArray(data.whatsGoingOn.polling)) data.whatsGoingOn.polling = [];
 
   data.news ??= { stories: [] };
+  if (!Array.isArray(data.news.stories)) data.news.stories = [];
   data.papers ??= { papers: [] };
+  if (!Array.isArray(data.papers.papers)) data.papers.papers = [];
   data.questionTime ??= { offices: [], questions: [] };
-  data.orderPaperCommons ??= [];
+  if (!Array.isArray(data.questionTime.offices)) data.questionTime.offices = [];
+  if (!Array.isArray(data.questionTime.questions)) data.questionTime.questions = [];
+  if (!Array.isArray(data.orderPaperCommons)) data.orderPaperCommons = [];
+  if (!Array.isArray(data.players)) data.players = [];
+
+  data.motions ??= { house: [], edm: [] };
+  if (!Array.isArray(data.motions.house)) data.motions.house = [];
+  if (!Array.isArray(data.motions.edm)) data.motions.edm = [];
+  data.statements ??= { items: [] };
+  if (!Array.isArray(data.statements.items)) data.statements.items = [];
+  data.regulations ??= { items: [] };
+  if (!Array.isArray(data.regulations.items)) data.regulations.items = [];
+  data.hansard ??= { passed: [], defeated: [] };
+  if (!Array.isArray(data.hansard.passed)) data.hansard.passed = [];
+  if (!Array.isArray(data.hansard.defeated)) data.hansard.defeated = [];
+
+  data.parliament ??= { totalSeats: 650, parties: [] };
+  if (!Array.isArray(data.parliament.parties)) data.parliament.parties = [];
+
+  data.polling ??= { tracker: [] };
+  if (!Array.isArray(data.polling.tracker)) data.polling.tracker = [];
 
   data.economyPage ??= JSON.parse(JSON.stringify(DEFAULT_ECONOMY_PAGE));
   data.economyPage.topline ??= { ...DEFAULT_ECONOMY_PAGE.topline };
-  data.economyPage.ukInfoTiles ??= JSON.parse(JSON.stringify(DEFAULT_ECONOMY_PAGE.ukInfoTiles));
-  data.economyPage.surveys ??= JSON.parse(JSON.stringify(DEFAULT_ECONOMY_PAGE.surveys));
+  if (!Array.isArray(data.economyPage.ukInfoTiles)) data.economyPage.ukInfoTiles = JSON.parse(JSON.stringify(DEFAULT_ECONOMY_PAGE.ukInfoTiles));
+  if (!Array.isArray(data.economyPage.surveys)) data.economyPage.surveys = JSON.parse(JSON.stringify(DEFAULT_ECONOMY_PAGE.surveys));
 
   return data;
 }
@@ -66,20 +89,19 @@ export async function bootData() {
   const demo = await loadDemoJson();
   const data = getData();
 
-  // Keep the app demo-first so deployed environments always show seeded content
-  // (including newly added showcase datasets) while preserving the active login context.
+  // User state wins so gameplay changes persist across reloads.
+  // Demo data backfills any keys not yet in localStorage (e.g. newly added datasets).
   const next = data
-    ? {
-        ...demo,
-        currentUser: data.currentUser ?? demo.currentUser,
-        currentCharacter: data.currentCharacter ?? demo.currentCharacter,
-        currentPlayer: data.currentPlayer ?? demo.currentPlayer
-      }
+    ? { ...demo, ...data }
     : demo;
 
   const ensured = ensureDefaults(next);
   saveData(ensured);
   return ensured;
+}
+
+export function nowMs() {
+  return Date.now();
 }
 
 export function qs(sel, root = document) {

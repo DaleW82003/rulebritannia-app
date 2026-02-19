@@ -1,8 +1,6 @@
-const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+import { nowMs } from "./core.js";
 
-function nowMs() {
-  return Date.now();
-}
+const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
 
 function isSettledBackbencher(player) {
   if (!player) return false;

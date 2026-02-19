@@ -36,21 +36,27 @@ export function getSimDate(gameState, now = new Date()) {
     return { monthIndex: fallbackIndex, monthName: MONTHS[fallbackIndex], year: Number.isFinite(startYear) ? startYear : 1997 };
   }
 
+  // Count Mondays and Thursdays between start and end using O(1) arithmetic
+  // instead of iterating day-by-day.
+  function countWeekday(from, to, targetDay) {
+    // Count occurrences of targetDay (0=Sun..6=Sat) in the half-open range (from, to].
+    const totalDays = Math.round((to - from) / 86400000);
+    if (totalDays <= 0) return 0;
+    const fullWeeks = Math.floor(totalDays / 7);
+    let count = fullWeeks;
+    const startDay = from.getDay();
+    const remainder = totalDays % 7;
+    for (let i = 1; i <= remainder; i++) {
+      if ((startDay + i) % 7 === targetDay) count++;
+    }
+    return count;
+  }
+
   let simMonthsElapsed = 0;
   if (end > start) {
-    const cursor = new Date(start);
-    while (cursor < end) {
-      cursor.setDate(cursor.getDate() + 1);
-      const wd = cursor.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-      if (wd === 1 || wd === 4) simMonthsElapsed += 1;
-    }
+    simMonthsElapsed = countWeekday(start, end, 1) + countWeekday(start, end, 4);
   } else if (end < start) {
-    const cursor = new Date(start);
-    while (cursor > end) {
-      const wd = cursor.getDay();
-      if (wd === 1 || wd === 4) simMonthsElapsed -= 1;
-      cursor.setDate(cursor.getDate() - 1);
-    }
+    simMonthsElapsed = -(countWeekday(end, start, 1) + countWeekday(end, start, 4));
   }
 
   let monthIndex = (startMonth - 1) + simMonthsElapsed;
