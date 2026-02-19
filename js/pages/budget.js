@@ -1,6 +1,7 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker } from "../permissions.js";
+import { currentCharacterWeight, tallyDivisionVotes } from "../divisions.js";
 
 const REVENUE_LINES = [
   "Income Tax", "Corporate Tax", "Value Added Tax", "National Insurance", "Fuel Duty", "Stamp Duty", "Business Rate Appropriations"
@@ -46,6 +47,9 @@ function ensureBudget(data) {
     };
   }
   data.budget.currentYear ??= structuredClone(data.budget.lastYear);
+  if (data.budget.pending && !data.budget.pending.division) {
+    data.budget.pending.division = { status: "open", votes: {} };
+  }
 }
 
 function calculateTotals(budget, adminControls) {
@@ -104,6 +108,24 @@ function renderBudgetTable(ly, ty, adminControls) {
   `;
 }
 
+
+function budgetDivisionResult(pending, data) {
+  const totals = tallyDivisionVotes(pending?.division?.votes || {}, data);
+  return { totals, passed: totals.aye > totals.no };
+}
+
+function applyApprovedBudget(data, approved) {
+  approved.label = `Approved ${new Date().toLocaleDateString("en-GB")}`;
+  approved.approvedAt = new Date().toLocaleString("en-GB");
+  data.budget.archive.push(structuredClone(data.budget.lastYear));
+  data.budget.lastYear = structuredClone(data.budget.currentYear);
+  data.budget.currentYear = approved;
+  data.budget.pending = null;
+}
+
+function rejectPendingBudget(data) {
+  data.budget.pending = null;
+}
 function render(data, state) {
   const root = document.getElementById("budget-root");
   if (!root) return;
@@ -112,6 +134,8 @@ function render(data, state) {
   const mod = isMod(data);
   const admin = isAdmin(data);
   const drafter = canDraftBudget(data);
+  const speaker = isSpeaker(data);
+  const myWeight = currentCharacterWeight(data);
   const ly = data.budget.lastYear;
   const ty = data.budget.currentYear;
 
@@ -167,16 +191,45 @@ function render(data, state) {
           <button class="btn" type="submit">Save Admin Controls</button>
         </form>
 
-        ${data.budget.pending ? `
+        ${data.budget.pending ? (() => { const div = budgetDivisionResult(data.budget.pending, data); const myName = getCharacter(data)?.name || "MP"; const myVote = data.budget.pending.division?.votes?.[myName]?.choice || ""; return `
           <div class="tile" style="margin-top:10px;">
             <h4 style="margin-top:0;">Pending Budget Submission</h4>
             <div>Submitted by ${esc(data.budget.pending.submittedBy)} at ${esc(data.budget.pending.submittedAt)}</div>
-            <button class="btn" type="button" data-action="approve-budget">Approve</button>
-            <button class="btn" type="button" data-action="reject-budget">Reject</button>
+            <div class="muted" style="margin-top:6px;">Division totals — Aye: <b>${div.totals.aye}</b> • No: <b>${div.totals.no}</b> • Abstain: <b>${div.totals.abstain}</b></div>
+            <div class="muted">Your vote: ${esc(myVote || "Not voted")} • Effective weight: ${esc(String(myWeight))}</div>
+            <div class="tile-bottom">
+              <button class="btn" type="button" data-action="budget-vote" data-choice="aye" ${myWeight <= 0 || getCharacter(data)?.absent ? "disabled" : ""}>Vote Aye</button>
+              <button class="btn" type="button" data-action="budget-vote" data-choice="no" ${myWeight <= 0 || getCharacter(data)?.absent ? "disabled" : ""}>Vote No</button>
+              <button class="btn" type="button" data-action="budget-vote" data-choice="abstain" ${myWeight <= 0 || getCharacter(data)?.absent ? "disabled" : ""}>Abstain</button>
+              ${(speaker || admin) ? `<button class="btn" type="button" data-action="close-budget-division">Close Division</button>` : ""}
+            </div>
+            ${(speaker || admin) ? `<div class="small" style="margin-top:8px;">On close: budget passes if Aye > No, otherwise fails.</div>` : ""}
+            <div class="tile-bottom" style="margin-top:8px;">
+              <button class="btn" type="button" data-action="approve-budget">Admin Approve Override</button>
+              <button class="btn" type="button" data-action="reject-budget">Admin Reject Override</button>
+            </div>
           </div>
-        ` : `<div class="muted">No pending budget submission.</div>`}
+        `; })() : `<div class="muted">No pending budget submission.</div>`}
       </section>
     ` : ""}
+
+
+    ${data.budget.pending ? (() => { const div = budgetDivisionResult(data.budget.pending, data); const myName = getCharacter(data)?.name || "MP"; const myVote = data.budget.pending.division?.votes?.[myName]?.choice || ""; return `
+      <section class="panel" style="margin-bottom:12px;">
+        <h2 style="margin-top:0;">Pending Budget Division</h2>
+        <div>Submitted by ${esc(data.budget.pending.submittedBy)} at ${esc(data.budget.pending.submittedAt)}</div>
+        <div class="muted" style="margin-top:6px;">Division totals — Aye: <b>${div.totals.aye}</b> • No: <b>${div.totals.no}</b> • Abstain: <b>${div.totals.abstain}</b></div>
+        <div class="muted">Your vote: ${esc(myVote || "Not voted")} • Effective weight: ${esc(String(myWeight))}</div>
+        <div class="tile-bottom">
+          <button class="btn" type="button" data-action="budget-vote" data-choice="aye" ${myWeight <= 0 || getCharacter(data)?.absent ? "disabled" : ""}>Vote Aye</button>
+          <button class="btn" type="button" data-action="budget-vote" data-choice="no" ${myWeight <= 0 || getCharacter(data)?.absent ? "disabled" : ""}>Vote No</button>
+          <button class="btn" type="button" data-action="budget-vote" data-choice="abstain" ${myWeight <= 0 || getCharacter(data)?.absent ? "disabled" : ""}>Abstain</button>
+          ${(speaker || admin) ? `<button class="btn" type="button" data-action="close-budget-division">Close Division</button>` : ""}
+        </div>
+        ${(speaker || admin) ? `<div class="small" style="margin-top:8px;">On close: budget passes if Aye > No, otherwise fails.</div>` : ""}
+        ${admin ? `<div class="tile-bottom" style="margin-top:8px;"><button class="btn" type="button" data-action="approve-budget">Admin Approve Override</button><button class="btn" type="button" data-action="reject-budget">Admin Reject Override</button></div>` : ""}
+      </section>
+    `; })() : ""}
 
     <section class="panel">
       <h2 style="margin-top:0;">Budget Archive</h2>
@@ -201,7 +254,38 @@ function render(data, state) {
     EXPENDITURE_LINES.forEach((k) => { draft.expenditures[k] = Number(fd.get(`exp:${k}`) || 0); });
     CAPITAL_LINES.forEach((k) => { draft.capital[k] = Number(fd.get(`cap:${k}`) || 0); });
     draft.label = "Draft submission";
-    data.budget.pending = { budget: draft, submittedBy: getCharacter(data)?.name || "User", submittedAt: new Date().toLocaleString("en-GB") };
+    data.budget.pending = { budget: draft, submittedBy: getCharacter(data)?.name || "User", submittedAt: new Date().toLocaleString("en-GB"), division: { status: "open", votes: {} } };
+    saveData(data);
+    render(data, state);
+  });
+
+  root.querySelectorAll("[data-action='budget-vote']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!data.budget.pending) return;
+      const char = getCharacter(data);
+      const name = char?.name || "MP";
+      const weight = currentCharacterWeight(data);
+      if (char?.absent || weight <= 0) return;
+      data.budget.pending.division ??= { status: "open", votes: {} };
+      data.budget.pending.division.votes ??= {};
+      data.budget.pending.division.votes[name] = {
+        name,
+        party: char?.party || "Independent",
+        choice: btn.getAttribute("data-choice") || "abstain",
+        weight
+      };
+      saveData(data);
+      render(data, state);
+    });
+  });
+
+  root.querySelector("[data-action='close-budget-division']")?.addEventListener("click", () => {
+    if (!(speaker || admin) || !data.budget.pending) return;
+    data.budget.pending.division ??= { status: "open", votes: {} };
+    data.budget.pending.division.status = "closed";
+    const result = budgetDivisionResult(data.budget.pending, data);
+    if (result.passed) applyApprovedBudget(data, data.budget.pending.budget);
+    else rejectPendingBudget(data);
     saveData(data);
     render(data, state);
   });
@@ -217,20 +301,14 @@ function render(data, state) {
 
   root.querySelector("[data-action='approve-budget']")?.addEventListener("click", () => {
     if (!admin || !data.budget.pending) return;
-    const approved = data.budget.pending.budget;
-    approved.label = `Approved ${new Date().toLocaleDateString("en-GB")}`;
-    approved.approvedAt = new Date().toLocaleString("en-GB");
-    data.budget.archive.push(structuredClone(data.budget.lastYear));
-    data.budget.lastYear = structuredClone(data.budget.currentYear);
-    data.budget.currentYear = approved;
-    data.budget.pending = null;
+    applyApprovedBudget(data, data.budget.pending.budget);
     saveData(data);
     render(data, state);
   });
 
   root.querySelector("[data-action='reject-budget']")?.addEventListener("click", () => {
     if (!admin) return;
-    data.budget.pending = null;
+    rejectPendingBudget(data);
     saveData(data);
     render(data, state);
   });
