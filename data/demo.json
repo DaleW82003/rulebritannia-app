@@ -2712,7 +2712,60 @@
       },
       "gdp": 1950.0
     },
-    "pending": null,
+    "pending": {
+      "budget": {
+        "label": "Draft submission",
+        "revenues": {
+          "Income Tax": 106.9,
+          "Corporate Tax": 36.1,
+          "Value Added Tax": 93.2,
+          "National Insurance": 67.15,
+          "Fuel Duty": 24.04,
+          "Stamp Duty": 12.81,
+          "Business Rate Appropriations": 15.96
+        },
+        "expenditures": {
+          "Health": 43.6,
+          "Social Security": 60.2,
+          "Education": 89.24,
+          "Home Office": 29.25,
+          "Ministry of Defense": 34.53,
+          "Transport": 15.96,
+          "Local Government": 63.98,
+          "Environment": 6.67,
+          "Energy": 5.58,
+          "Culture": 0.01,
+          "Housing": -11.88,
+          "Business": 2.88,
+          "Scottish Office": 22.51,
+          "Welsh Office": 7.55,
+          "Northern Ireland Office": 3.27
+        },
+        "capital": {
+          "Capital Expenditure": 14.14
+        },
+        "gdp": 1950.0
+      },
+      "submittedBy": "Eleanor Price MP",
+      "submittedAt": "19/02/2026, 09:30:00",
+      "division": {
+        "status": "open",
+        "votes": {
+          "Dale Weston MP": {
+            "name": "Dale Weston MP",
+            "party": "Conservative",
+            "choice": "aye",
+            "weight": 330
+          },
+          "John Shade MP": {
+            "name": "John Shade MP",
+            "party": "Labour",
+            "choice": "no",
+            "weight": 280
+          }
+        }
+      }
+    },
     "archive": []
   },
   "government": {
