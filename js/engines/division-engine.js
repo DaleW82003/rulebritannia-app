@@ -42,6 +42,7 @@ export function setNpcVotes(container, npcVotes = {}) {
 export function closeDivision(container) {
   const division = ensureDivision(container);
   division.status = "closed";
+  division.closedAt = Date.now();
 }
 
 export function tallyDivision(container, data) {

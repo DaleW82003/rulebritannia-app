@@ -1,5 +1,6 @@
+import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { formatSimMonthYear } from "../clock.js";
+import { isAdmin, isMod } from "../permissions.js";
 
 function ensureHansard(data) {
   data.hansard ??= {};
@@ -20,14 +21,25 @@ function divisionTotals(division = {}) {
   return totals;
 }
 
-function renderTile(item, kind) {
+function canGrantAssent(data) {
+  return isMod(data) || isAdmin(data);
+}
+
+function needsAssent(item = {}) {
+  return String(item.finalStage || "").toLowerCase() === "passed - awaiting assent" || item.assented === false || item.status === "awaiting-assent";
+}
+
+function renderTile(item, kind, data) {
   return `
     <article class="tile" style="margin-bottom:10px;">
       <div class="wgo-kicker">${kind === "passed" ? "Passed" : "Defeated"} ${kind === "passed" ? `• ${esc(item.legislationKind || "Bill")}` : ""}</div>
       <div><b>${esc(item.title)}</b></div>
       <div class="muted">${esc(item.author || "Unknown author")} • ${esc(item.department || "Unknown department")}</div>
       <div class="muted">Final stage: ${esc(item.finalStage || "Division")}</div>
-      <div class="tile-bottom"><button class="btn" type="button" data-action="open" data-kind="${esc(kind)}" data-id="${esc(item.id)}">Open</button></div>
+      <div class="tile-bottom">
+        <button class="btn" type="button" data-action="open" data-kind="${esc(kind)}" data-id="${esc(item.id)}">Open</button>
+        ${kind === "passed" && needsAssent(item) && canGrantAssent(data) ? `<button class="btn" type="button" data-action="grant-assent" data-id="${esc(item.id)}">Grant Assent</button>` : ""}
+      </div>
     </article>
   `;
 }
@@ -43,14 +55,14 @@ function amendmentLines(amendments = []) {
   `).join("");
 }
 
-function detailPanel(item, kind) {
+function detailPanel(item, kind, data) {
   if (!item) return `<p class="muted">Open a piece of archived legislation to view details.</p>`;
 
   const div = item.division || {};
   const totals = divisionTotals(div);
   return `
     <h3 style="margin-top:0;">${esc(item.title)}</h3>
-    <p class="muted">Status: <b>${kind === "passed" ? "Passed" : "Defeated"}</b> • Archived on ${esc(item.archivedAtSim || "—")}</p>
+    <p class="muted">Status: <b>${kind === "passed" ? (needsAssent(item) ? "Passed - Awaiting Assent" : "Passed") : "Defeated"}</b> • Archived on ${esc(item.archivedAtSim || "—")}</p>
     <p class="muted">Author: ${esc(item.author || "Unknown")} • Department: ${esc(item.department || "—")}</p>
 
     <div class="tile" style="margin:10px 0;">
@@ -79,12 +91,10 @@ function render(data, state) {
   const passedRoot = document.getElementById("hansard-passed");
   const failedRoot = document.getElementById("hansard-failed");
   const detailRoot = document.getElementById("hansard-detail");
-  const simRoot = document.getElementById("sim-date-display");
   const rollRoot = document.getElementById("sunday-roll-display");
 
   if (!passedRoot || !failedRoot || !detailRoot) return;
 
-  if (simRoot) simRoot.textContent = formatSimMonthYear(data?.gameState || {});
   if (rollRoot) {
     const log = data.hansard.rollLog;
     rollRoot.innerHTML = `Log of the Sunday roll: <b>${esc(log.completedSinceStart)}</b> completed since sim start. Next roll in <b>${esc(log.nextRollCountdown)}</b>.`;
@@ -94,23 +104,38 @@ function render(data, state) {
   const defeated = data.hansard.defeated;
 
   passedRoot.innerHTML = passed.length
-    ? `<div class="order-grid">${passed.map((i) => renderTile(i, "passed")).join("")}</div>`
+    ? `<div class="order-grid">${passed.map((i) => renderTile(i, "passed", data)).join("")}</div>`
     : `<div class="muted-block">No passed legislation archived yet.</div>`;
 
   failedRoot.innerHTML = defeated.length
-    ? `<div class="order-grid">${defeated.map((i) => renderTile(i, "defeated")).join("")}</div>`
+    ? `<div class="order-grid">${defeated.map((i) => renderTile(i, "defeated", data)).join("")}</div>`
     : `<div class="muted-block">No defeated legislation archived yet.</div>`;
 
   const selected = state.selectedKind && state.selectedId
     ? (state.selectedKind === "passed" ? passed : defeated).find((i) => i.id === state.selectedId)
     : null;
 
-  detailRoot.innerHTML = detailPanel(selected, state.selectedKind);
+  detailRoot.innerHTML = detailPanel(selected, state.selectedKind, data);
 
   document.querySelectorAll("[data-action='open']").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.selectedKind = btn.getAttribute("data-kind");
       state.selectedId = btn.getAttribute("data-id");
+      render(data, state);
+    });
+  });
+
+  document.querySelectorAll("[data-action='grant-assent']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!canGrantAssent(data)) return;
+      const id = btn.getAttribute("data-id");
+      const item = (data.hansard.passed || []).find((x) => x.id === id);
+      if (!item || !needsAssent(item)) return;
+      item.assented = true;
+      item.finalStage = "Royal Assent";
+      item.legislationKind = "Act of Parliament";
+      item.title = String(item.title || "").replace(/\bbill\b/ig, "Act");
+      saveData(data);
       render(data, state);
     });
   });

@@ -75,10 +75,29 @@ function canAsk(data) {
   return isMod(data) || isSpeaker(data) || isAdmin(data);
 }
 
-function avatar(name, url) {
-  if (url) return url;
+function avatarFallback(name) {
   const i = (name || "?").slice(0, 1).toUpperCase();
   return `https://dummyimage.com/48x48/334455/ffffff&text=${encodeURIComponent(i)}`;
+}
+
+function findCharacterAvatar(data, name, explicitAvatar = "") {
+  if (explicitAvatar) return explicitAvatar;
+
+  const wanted = String(name || "").trim().toLowerCase();
+  if (!wanted) return avatarFallback(name);
+
+  const pools = [
+    data?.currentCharacter,
+    data?.currentPlayer,
+    ...(data?.players || []),
+    ...(data?.government?.activeCharacters || []),
+    ...(data?.opposition?.activeCharacters || []),
+    ...(data?.government?.offices || []).map((o) => ({ name: o.holderName, avatar: o.holderAvatar })),
+    ...(data?.opposition?.offices || []).map((o) => ({ name: o.holderName, avatar: o.holderAvatar }))
+  ];
+
+  const match = pools.find((entry) => String(entry?.name || "").trim().toLowerCase() === wanted && String(entry?.avatar || "").trim());
+  return match?.avatar || avatarFallback(name);
 }
 
 function scoreChip(score) {
@@ -234,14 +253,13 @@ function render(data, state) {
       <form id="comment-form" class="tile" style="margin-bottom:10px;">
         <label class="label" for="press-comment-body">Comment</label>
         <textarea id="press-comment-body" name="body" class="input" rows="3" required placeholder="Your passing comment to the press..."></textarea>
-        <label class="label" for="press-comment-avatar">Avatar URL (optional)</label>
-        <input id="press-comment-avatar" name="avatar" class="input" placeholder="https://...">
+        <p class="muted">Avatar is pulled from your character profile.</p>
         <button class="btn" type="submit">Post Comment</button>
       </form>
 
       ${comments.length ? comments.map((c) => `
         <article class="tile" style="margin-bottom:10px;display:flex;gap:10px;align-items:flex-start;">
-          <img src="${esc(avatar(c.author, c.avatar))}" alt="${esc(c.author)} avatar" width="44" height="44" style="border-radius:999px;object-fit:cover;">
+          <img src="${esc(findCharacterAvatar(data, c.author, c.avatar))}" alt="${esc(c.author)} avatar" width="44" height="44" style="border-radius:999px;object-fit:cover;">
           <div style="flex:1;">
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
               <div><b>${esc(c.author)}</b></div><div class="muted">${esc(c.createdAtSim)}</div>
@@ -318,6 +336,7 @@ function render(data, state) {
       subject,
       body,
       author: char?.name || "MP",
+      authorOffice: char?.office || "",
       createdAtSim: now,
       closesAtSim: plusMonths(now, 2),
       status: "open",
@@ -356,7 +375,7 @@ function render(data, state) {
       ctaLabel: "Open Press",
       href: "press.html",
       priority: "high",
-      audience: { offices: [char?.office || ""] }
+      audience: { offices: [conf.authorOffice || ""] }
     });
 
     saveData(data);
@@ -403,12 +422,11 @@ function render(data, state) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const body = String(fd.get("body") || "").trim();
-    const avatarUrl = String(fd.get("avatar") || "").trim();
     if (!body) return;
     data.press.comments.push({
       id: `press-${Date.now()}-${data.press.nextId++}`,
       author: char?.name || "MP",
-      avatar: avatarUrl,
+      avatar: findCharacterAvatar(data, char?.name || "MP", char?.avatar || ""),
       body,
       createdAtSim: now
     });

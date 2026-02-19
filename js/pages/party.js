@@ -44,6 +44,39 @@ function avatarFor(name, avatar) {
   return `https://dummyimage.com/64x64/1f3b60/ffffff&text=${encodeURIComponent(initial)}`;
 }
 
+function normaliseName(v) {
+  return String(v || "").trim().toLowerCase();
+}
+
+function activeCharactersForParty(data, partyName) {
+  const wanted = normaliseName(partyName);
+  if (!wanted) return [];
+
+  const pools = [
+    ...(Array.isArray(data?.players) ? data.players : []),
+    ...(Array.isArray(data?.government?.activeCharacters) ? data.government.activeCharacters : []),
+    ...(Array.isArray(data?.opposition?.activeCharacters) ? data.opposition.activeCharacters : []),
+    data?.currentCharacter,
+    data?.currentPlayer
+  ].filter(Boolean);
+
+  const byName = new Map();
+  pools.forEach((c) => {
+    const name = String(c?.name || "").trim();
+    if (!name) return;
+
+    const party = normaliseName(c?.party);
+    if (party && party !== wanted) return;
+    if (c?.active === false) return;
+
+    const existing = byName.get(name) || { name, avatar: "" };
+    if (!existing.avatar && c?.avatar) existing.avatar = String(c.avatar).trim();
+    byName.set(name, existing);
+  });
+
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function ensurePartyData(data) {
   data.party ??= { parties: {}, nextDraftId: 1 };
   data.party.parties ??= {};
@@ -198,12 +231,10 @@ function render(data, state) {
         <form id="party-control-form">
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
             <div>
-              <label class="label" for="party-leader-name">Leader Name</label>
-              <input id="party-leader-name" name="leaderName" class="input" value="${esc(party.leader?.name || "")}">
-            </div>
-            <div>
-              <label class="label" for="party-leader-avatar">Leader Avatar URL</label>
-              <input id="party-leader-avatar" name="leaderAvatar" class="input" value="${esc(party.leader?.avatar || "")}">
+              <label class="label" for="party-leader-name">Leader (active character)</label>
+              <select id="party-leader-name" name="leaderName" class="input">
+                ${activeCharactersForParty(data, party.name).map((c) => `<option value="${esc(c.name)}" ${c.name === (party.leader?.name || "") ? "selected" : ""}>${esc(c.name)}</option>`).join("") || `<option value="">No active character available</option>`}
+              </select>
             </div>
             <div>
               <label class="label" for="party-cash">Treasury Cash (£)</label>
@@ -318,8 +349,14 @@ function render(data, state) {
     e.preventDefault();
     if (!manager) return;
     const fd = new FormData(e.currentTarget);
-    party.leader.name = String(fd.get("leaderName") || "").trim() || party.leader.name;
-    party.leader.avatar = String(fd.get("leaderAvatar") || "").trim();
+    const leaderName = String(fd.get("leaderName") || "").trim();
+    const candidates = activeCharactersForParty(data, party.name);
+    const selected = candidates.find((c) => c.name === leaderName);
+    if (selected) {
+      party.leader.name = selected.name;
+      party.leader.avatar = selected.avatar || "";
+      party.leader.characterId = selected.name;
+    }
     party.treasury.cash = Number(fd.get("cash") || 0);
     party.treasury.debt = Number(fd.get("debt") || 0);
     party.treasury.members = Number(fd.get("members") || 0);

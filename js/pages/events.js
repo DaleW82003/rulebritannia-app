@@ -76,7 +76,7 @@ function render(data, state) {
       <div style="display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));gap:12px;">
         <article class="tile">
           <h2 style="margin-top:0;">Party Conference</h2>
-          <p>Only Party Leaders can host conferences (location + opening remarks). Conferences run for 2 simulation months after approval.</p>
+          <p>Only Party Leaders can host conferences (location + opening remarks). Conferences run for 2 simulation months after approval, and all members of that party can post a “Speech at Conference” while open.</p>
           ${canHostConference ? `<button class="btn" data-action="show-form" data-type="conference" type="button">Host</button>` : `<div class="muted">Only Party Leaders can host conferences.</div>`}
         </article>
 
@@ -146,11 +146,11 @@ function render(data, state) {
 
                 ${canAddSpeech(char, item, data) ? `
                   <form data-action="add-speech" data-id="${esc(String(item.id))}" style="margin-top:8px;">
-                    <label class="label" for="speech-${esc(String(item.id))}">Add Speech</label>
-                    <textarea id="speech-${esc(String(item.id))}" name="speech" class="input" rows="4" required placeholder="Speech text..."></textarea>
+                    <label class="label" for="speech-${esc(String(item.id))}">Speech at Conference</label>
+                    <textarea id="speech-${esc(String(item.id))}" name="speech" class="input" rows="4" required placeholder="Speech at Conference..."></textarea>
                     <button class="btn" type="submit">Add Speech</button>
                   </form>
-                ` : `<div class="muted">Only same-party users can add conference speeches after approval.</div>`}
+                ` : `<div class="muted">Only same-party users can post a Speech at Conference while the conference is approved/open.</div>`}
               ` : ""}
               ${item.status === "approved" && item.closesAtSimIndex ? `<div class="muted">Scheduled close: ${esc(simLabel(Number(item.closesAtSimIndex)))}</div>` : ""}
             </div>
