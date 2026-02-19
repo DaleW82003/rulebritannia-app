@@ -1,6 +1,5 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isSpeaker } from "../permissions.js";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -18,8 +17,8 @@ const OFFICE_DEPARTMENT = {
   welfare: "Department for Work and Pensions",
   education: "Department for Education",
   "env-agri": "Department for Environment and Agriculture",
-  health: "Department of Health and Social",
-  eti: "Department for Environment, Transport and Infrastructure",
+  health: "Department of Health and Social Care",
+  eti: "Department for Transport and Infrastructure",
   culture: "Department for Culture, Media and Sport",
   "home-nations": "Department for the Home Nations"
 };
@@ -45,15 +44,10 @@ function canMakeRegulation(data) {
   return Boolean(OFFICE_DEPARTMENT[office]);
 }
 
-function ensureRegulations(data) {
+export function ensureRegulations(data) {
   data.regulations ??= {};
   data.regulations.items ??= [];
   data.regulations.nextId ??= data.regulations.items.length + 1;
-}
-
-function discussionUrl(reg) {
-  if (reg.debateUrl) return reg.debateUrl;
-  return `https://forum.rulebritannia.org/t/reg-${encodeURIComponent(reg.regulationNumber || reg.id)}-${encodeURIComponent((reg.shortTitle || "regulation").toLowerCase().replaceAll(" ", "-"))}`;
 }
 
 function nextYearNumber(data, year) {
@@ -61,31 +55,30 @@ function nextYearNumber(data, year) {
   return items.filter((i) => Number(i.simYear) === Number(year)).length + 1;
 }
 
-function render(data, state) {
+export function initRegulationsPage(data) {
   const root = document.getElementById("regulations-root");
   if (!root) return;
 
   ensureRegulations(data);
   const char = getCharacter(data);
   const simNow = sim(data);
-  const speaker = isSpeaker(data);
   const canSubmit = canMakeRegulation(data);
   const office = char?.office;
   const myDepartment = OFFICE_DEPARTMENT[office] || "";
 
   const items = data.regulations.items.slice().sort((a, b) => {
+    if (a.status !== b.status) return a.status === "closed" ? 1 : -1;
     if (a.simYear !== b.simYear) return Number(b.simYear) - Number(a.simYear);
     return Number(b.yearNumber || 0) - Number(a.yearNumber || 0);
   });
-
-  const selectedId = state.selectedId || items[0]?.id || null;
-  const selected = items.find((i) => i.id === selectedId) || null;
+  const openItems = items.filter((i) => i.status !== "closed");
+  const archivedItems = items.filter((i) => i.status === "closed");
 
   root.innerHTML = `
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Guide to Regulations</h2>
-      <p>Regulations are laid by Government members for their own department only. Each is numbered as <b>Year/No x</b>, where <b>x</b> increments across all departments in that simulation year.</p>
-      <p>Each regulation has a Discourse debate thread open for <b>2 simulation months</b>. There is <b>no division</b>. The Speaker can close debate early and edit regulation details.</p>
+      <p>Regulations are laid by Government members for their own department only. Each regulation links to a dedicated open page with the full text and debate link.</p>
+      <p>Use <b>Open</b> to view and manage an individual regulation (including Speaker controls).</p>
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
@@ -113,50 +106,27 @@ function render(data, state) {
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Regulations this Round</h2>
-      ${items.length ? items.map((r) => `
+      <h2 style="margin-top:0;">Current Regulations</h2>
+      ${openItems.length ? openItems.map((r) => `
         <article class="tile" style="margin-bottom:10px;">
-          <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-            <div><b>${esc(r.department)} Regulation ${esc(r.regulationNumber)}</b>: ${esc(r.shortTitle)} <span class="muted">by ${esc(r.author)}</span></div>
-            <div>${esc(r.status === "closed" ? "Debate Closed" : "Debate Open")}</div>
-          </div>
+          <div><b>${esc(r.department)} Regulation ${esc(r.regulationNumber)}</b>: ${esc(r.shortTitle)} <span class="muted">by ${esc(r.author)}</span></div>
           <div class="muted" style="margin-top:6px;">Laid: ${esc(r.laidAtSim || "—")} • In force: ${esc(r.comesIntoForce || "—")}</div>
-          <div class="tile-bottom"><button class="btn" type="button" data-action="open" data-id="${esc(r.id)}">Open</button></div>
+          <div class="tile-bottom"><a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a></div>
         </article>
-      `).join("") : `<p class="muted">No regulations laid yet.</p>`}
+      `).join("") : `<p class="muted">No current regulations.</p>`}
     </section>
 
-    <section class="tile">
-      <h2 style="margin-top:0;">Regulation Detail</h2>
-      ${selected ? `
-        <h3>${esc(selected.department)} Regulation ${esc(selected.regulationNumber)}: ${esc(selected.shortTitle)}</h3>
-        <p class="muted">Author: ${esc(selected.author)} • Laid: ${esc(selected.laidAtSim)} • Comes into force: ${esc(selected.comesIntoForce)} • Status: <b>${esc(selected.status === "closed" ? "Debate Closed" : "Debate Open")}</b></p>
-        <p style="white-space:pre-wrap;">${esc(selected.body)}</p>
-        <p><a class="btn" href="${esc(discussionUrl(selected))}" target="_blank" rel="noopener">Debate on Discourse</a></p>
-
-        ${speaker ? `
-          <div class="tile" style="margin-top:10px;">
-            <h4 style="margin-top:0;">Speaker Controls</h4>
-            ${selected.status !== "closed" ? `<button class="btn" type="button" data-action="close-early" data-id="${esc(selected.id)}">Close Debate Early</button>` : `<p class="muted">Debate already closed.</p>`}
-            <form id="speaker-edit-form" data-id="${esc(selected.id)}" style="margin-top:10px;">
-              <label class="label" for="speaker-edit-title">Edit short title</label>
-              <input id="speaker-edit-title" class="input" name="title" value="${esc(selected.shortTitle)}">
-              <label class="label" for="speaker-edit-body">Edit body</label>
-              <textarea id="speaker-edit-body" class="input" name="body" rows="5">${esc(selected.body)}</textarea>
-              <button class="btn" type="submit">Save Speaker Edits</button>
-            </form>
-          </div>
-        ` : ""}
-      ` : `<p class="muted">Open a regulation to view details.</p>`}
+    <section class="tile" style="margin-top:20px;">
+      <h2 style="margin-top:0;">Archive</h2>
+      ${archivedItems.length ? archivedItems.map((r) => `
+        <article class="tile" style="margin-bottom:10px;">
+          <div><b>${esc(r.department)} Regulation ${esc(r.regulationNumber)}</b>: ${esc(r.shortTitle)}</div>
+          <div class="muted" style="margin-top:6px;">Closed: ${esc(r.closedAtSim || "—")}</div>
+          <div class="tile-bottom"><a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a></div>
+        </article>
+      `).join("") : `<p class="muted">No archived regulations yet.</p>`}
     </section>
   `;
-
-  root.querySelectorAll("[data-action='open']").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      state.selectedId = btn.getAttribute("data-id");
-      render(data, state);
-    });
-  });
 
   root.querySelector("#reg-submit-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -192,41 +162,7 @@ function render(data, state) {
 
     data.regulations.items.push(regulation);
     data.regulations.nextId += 1;
-    state.selectedId = regulation.id;
     saveData(data);
-    render(data, state);
+    window.location.href = `regulation.html?id=${encodeURIComponent(regulation.id)}`;
   });
-
-  root.querySelector("#speaker-edit-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    if (!speaker) return;
-    const id = e.currentTarget.getAttribute("data-id");
-    const regulation = data.regulations.items.find((r) => r.id === id);
-    if (!regulation) return;
-
-    const fd = new FormData(e.currentTarget);
-    const title = String(fd.get("title") || "").trim();
-    const body = String(fd.get("body") || "").trim();
-    if (title) regulation.shortTitle = title;
-    if (body) regulation.body = body;
-    saveData(data);
-    render(data, state);
-  });
-
-  root.querySelector("[data-action='close-early']")?.addEventListener("click", (e) => {
-    if (!speaker) return;
-    const id = e.currentTarget.getAttribute("data-id");
-    const regulation = data.regulations.items.find((r) => r.id === id);
-    if (!regulation || regulation.status === "closed") return;
-    regulation.status = "closed";
-    regulation.closedAtSim = simNow.label;
-    saveData(data);
-    render(data, state);
-  });
-}
-
-export function initRegulationsPage(data) {
-  ensureRegulations(data);
-  const state = { selectedId: data.regulations.items[0]?.id || null };
-  render(data, state);
 }

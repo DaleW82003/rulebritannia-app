@@ -1,6 +1,7 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
+import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
 
 function nowStamp() {
   return new Date().toLocaleString("en-GB", { hour12: false });
@@ -120,14 +121,7 @@ function render(data, state) {
       <h2 style="margin-top:0;">Shadow Cabinet Draft a Bill</h2>
       <p class="muted">Internal drafting only. No amendments, divisions, or speaker controls. Author-only edit.</p>
       <form id="shadow-draft-form">
-        <label class="label" for="shadow-draft-title">Bill Title</label>
-        <input id="shadow-draft-title" class="input" name="title" required value="${esc(editingDraft?.title || "")}">
-        <label class="label" for="shadow-draft-purpose">A Bill to make provision for</label>
-        <input id="shadow-draft-purpose" class="input" name="purpose" required value="${esc(editingDraft?.purpose || "")}">
-        <label class="label" for="shadow-draft-body">Draft Text</label>
-        <textarea id="shadow-draft-body" class="input" name="body" rows="7" required>${esc(editingDraft?.body || "")}</textarea>
-        <label class="label" for="shadow-draft-discuss">Discuss URL (optional)</label>
-        <input id="shadow-draft-discuss" class="input" name="discussUrl" placeholder="Auto-generated if blank" value="${esc(editingDraft?.discussUrl || "")}">
+        ${renderDraftingBuilder("shadow-draft", editingDraft)}
         <button type="submit" class="btn">${editingDraft ? "Update Draft" : "Save Draft"}</button>
       </form>
     </section>
@@ -180,13 +174,11 @@ function render(data, state) {
     render(data, state);
   });
 
+  wireDraftingBuilder(host.querySelector("#shadow-draft-form"), "shadow-draft");
+
   host.querySelector("#shadow-draft-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const title = String(fd.get("title") || "").trim();
-    const purpose = String(fd.get("purpose") || "").trim();
-    const body = String(fd.get("body") || "").trim();
-    const discussUrl = String(fd.get("discussUrl") || "").trim();
+    const { title, purpose, body, discussUrl, department, articleCount, extent, commencement, articles } = parseDraftingForm(e.currentTarget, data);
     if (!title || !purpose || !body) return;
 
     if (state.editingDraftId) {
@@ -197,6 +189,11 @@ function render(data, state) {
       draft.purpose = purpose;
       draft.body = body;
       draft.discussUrl = discussUrl;
+      draft.department = department;
+      draft.articleCount = articleCount;
+      draft.extent = extent;
+      draft.commencement = commencement;
+      draft.articles = articles;
       draft.updatedAt = nowStamp();
       saveData(data);
       state.message = `Updated ${draft.ref}.`;
@@ -215,6 +212,11 @@ function render(data, state) {
       purpose,
       body,
       discussUrl,
+      department,
+      articleCount,
+      extent,
+      commencement,
+      articles,
       authorName,
       authorId: authorName,
       createdAt: nowStamp()

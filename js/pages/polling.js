@@ -1,6 +1,7 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
+import { formatSimMonthYear, getWeekdayName, isSunday } from "../clock.js";
 
 const POLL_DAY = "Sunday";
 
@@ -15,11 +16,7 @@ function ensurePolling(data) {
 }
 
 function currentSimLabel(data) {
-  const gs = data?.gameState || {};
-  const month = Number(gs.startSimMonth ?? 8);
-  const year = Number(gs.startSimYear ?? 1997);
-  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  return `${names[(month - 1 + 12) % 12]} ${year}`;
+  return formatSimMonthYear(data?.gameState || {});
 }
 
 function normalizeShares(entries) {
@@ -88,6 +85,8 @@ function render(data) {
 
   ensurePolling(data);
   const isPublisher = canPublish(data);
+  const sunday = isSunday();
+  const weekday = getWeekdayName();
   const polls = data.polling.polls.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
   const latest = polls[0] || null;
   const previous = polls[1] || null;
@@ -100,6 +99,7 @@ function render(data) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Weekly Poll Publication</h2>
       <p>Polls are published by moderators on <b>${POLL_DAY}s</b>. Only parties polling at <b>2%+</b> are displayed. Archive is chronological for the current simulation round.</p>
+      ${isPublisher && !sunday ? `<p class="muted">Poll publishing is locked on ${esc(weekday)}. Return on Sunday for the weekly release.</p>` : ""}
     </section>
 
     ${latest ? `
@@ -143,7 +143,7 @@ function render(data) {
           <label class="label" for="polling-results">Party shares (one per line: Party=Value)</label>
           <textarea id="polling-results" name="results" class="input" rows="6" required placeholder="Labour=34.5\nConservative=31.1\nLiberal Democrat=11.8\nGreen=5.0\nSNP=3.0"></textarea>
 
-          <button type="submit" class="btn">Publish Poll</button>
+          <button type="submit" class="btn" ${sunday ? "" : "disabled"}>Publish Poll</button>
         </form>
       </section>
     ` : ""}
@@ -165,6 +165,7 @@ function render(data) {
   root.querySelector("#poll-submit-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     if (!isPublisher) return;
+    if (!isSunday()) return;
     const fd = new FormData(e.currentTarget);
     const simDate = String(fd.get("simDate") || "").trim();
     const text = String(fd.get("results") || "").trim();

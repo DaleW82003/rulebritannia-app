@@ -1,16 +1,5 @@
 import { esc } from "../ui.js";
-
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-];
-
-function simLabel(data) {
-  const gs = data?.gameState || {};
-  const m = Number(gs.startSimMonth ?? 8);
-  const y = Number(gs.startSimYear ?? 1997);
-  return `${MONTHS[(m - 1 + 12) % 12]} ${y}`;
-}
+import { formatSimMonthYear } from "../clock.js";
 
 function ensureHansard(data) {
   data.hansard ??= {};
@@ -34,7 +23,7 @@ function divisionTotals(division = {}) {
 function renderTile(item, kind) {
   return `
     <article class="tile" style="margin-bottom:10px;">
-      <div class="wgo-kicker">${kind === "passed" ? "Passed" : "Defeated"}</div>
+      <div class="wgo-kicker">${kind === "passed" ? "Passed" : "Defeated"} ${kind === "passed" ? `• ${esc(item.legislationKind || "Bill")}` : ""}</div>
       <div><b>${esc(item.title)}</b></div>
       <div class="muted">${esc(item.author || "Unknown author")} • ${esc(item.department || "Unknown department")}</div>
       <div class="muted">Final stage: ${esc(item.finalStage || "Division")}</div>
@@ -95,7 +84,7 @@ function render(data, state) {
 
   if (!passedRoot || !failedRoot || !detailRoot) return;
 
-  if (simRoot) simRoot.textContent = `Simulation Date: ${simLabel(data)}`;
+  if (simRoot) simRoot.textContent = formatSimMonthYear(data?.gameState || {});
   if (rollRoot) {
     const log = data.hansard.rollLog;
     rollRoot.innerHTML = `Log of the Sunday roll: <b>${esc(log.completedSinceStart)}</b> completed since sim start. Next roll in <b>${esc(log.nextRollCountdown)}</b>.`;

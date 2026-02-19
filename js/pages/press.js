@@ -1,11 +1,7 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker } from "../permissions.js";
-
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-];
+import { formatSimMonthYear, getWeekdayName, isSunday } from "../clock.js";
 
 const PARTY_CODES = {
   Conservative: "CON",
@@ -32,20 +28,18 @@ function ensurePress(data) {
 }
 
 function simLabel(data) {
-  const gs = data?.gameState || {};
-  const m = Number(gs.startSimMonth ?? 8);
-  const y = Number(gs.startSimYear ?? 1997);
-  return `${MONTHS[(m - 1 + 12) % 12]} ${y}`;
+  return formatSimMonthYear(data?.gameState || {});
 }
 
 function plusMonths(label, months) {
+  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const [mn, ys] = String(label || "August 1997").split(" ");
-  let m = Math.max(MONTHS.indexOf(mn), 0) + 1;
+  let m = Math.max(names.indexOf(mn), 0) + 1;
   let y = Number(ys || 1997);
   const total = ((y * 12) + (m - 1) + months);
   const nm = (total % 12) + 1;
   const ny = Math.floor(total / 12);
-  return `${MONTHS[nm - 1]} ${ny}`;
+  return `${names[nm - 1]} ${ny}`;
 }
 
 function surname(name) {
@@ -103,6 +97,8 @@ function render(data, state) {
   const now = simLabel(data);
   const marker = canMark(data);
   const asker = canAsk(data);
+  const sundayWindow = isSunday();
+  const weekday = getWeekdayName();
 
   const releases = data.press.releases.slice().reverse();
   const conferences = data.press.conferences.slice().reverse();
@@ -112,6 +108,7 @@ function render(data, state) {
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Press Work</h2>
       <p>Three channels are available: <b>Press Releases & Statements</b>, <b>Press Conferences</b>, and <b>Comments to the Press</b>. Once submitted, users cannot edit submissions.</p>
+      ${marker && !sundayWindow ? `<p class="muted">Press marking opens on Sundays only. Today is ${esc(weekday)}.</p>` : ""}
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
@@ -159,7 +156,7 @@ function render(data, state) {
           ${r.impact?.length ? `<div class="muted">Affects: ${esc(r.impact.join(", "))}</div>` : ""}
           <div class="tile-bottom"><button class="btn" data-action="toggle-release" data-id="${esc(r.id)}" type="button">${state.openRelease === r.id ? "Close" : "Open"}</button></div>
           ${state.openRelease === r.id ? `<div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(r.body)}</div>` : ""}
-          ${marker && r.score === null ? `
+          ${marker && sundayWindow && r.score === null ? `
             <form class="tile" data-action="mark-release" data-id="${esc(r.id)}" style="margin-top:8px;">
               <label class="label">Mark score (-5 to +5)</label>
               <input class="input" type="number" name="score" min="-5" max="5" required>
@@ -215,7 +212,7 @@ function render(data, state) {
                   <button class="btn" type="button" data-action="walk-off" data-id="${esc(c.id)}">Walk Off</button>
                 </form>
               ` : ""}
-              ${marker && c.score === null ? `
+              ${marker && sundayWindow && c.score === null ? `
                 <form data-action="mark-conference" data-id="${esc(c.id)}" style="margin-top:8px;">
                   <label class="label">Mark score (-5 to +5)</label>
                   <input class="input" type="number" name="score" min="-5" max="5" required>
@@ -294,7 +291,7 @@ function render(data, state) {
 
   section.querySelectorAll("form[data-action='mark-release']").forEach((f) => f.addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!marker) return;
+    if (!marker || !isSunday()) return;
     const id = e.currentTarget.getAttribute("data-id");
     const item = data.press.releases.find((r) => r.id === id);
     if (!item) return;
@@ -390,7 +387,7 @@ function render(data, state) {
 
   section.querySelectorAll("form[data-action='mark-conference']").forEach((f) => f.addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!marker) return;
+    if (!marker || !isSunday()) return;
     const id = e.currentTarget.getAttribute("data-id");
     const conf = data.press.conferences.find((c) => c.id === id);
     if (!conf) return;

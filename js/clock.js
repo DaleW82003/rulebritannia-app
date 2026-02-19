@@ -11,6 +11,9 @@ const MONTHS = [
 ];
 
 export function getSimDate(gameState, now = new Date()) {
+  if (!gameState || typeof gameState !== "object") {
+    return { monthIndex: 0, monthName: MONTHS[0], year: 1997 };
+  }
   const startReal = new Date(gameState.startRealDate);
   const startMonth = Number(gameState.startSimMonth); // 1-12
   const startYear = Number(gameState.startSimYear);
@@ -22,6 +25,16 @@ export function getSimDate(gameState, now = new Date()) {
   const end = new Date(now);
   start.setHours(0, 0, 0, 0);
   end.setHours(0, 0, 0, 0);
+
+  if (gameState.started === false) {
+    const fallbackIndex = Math.max(0, Math.min(11, Number.isFinite(startMonth) ? startMonth - 1 : 0));
+    return { monthIndex: fallbackIndex, monthName: MONTHS[fallbackIndex], year: Number.isFinite(startYear) ? startYear : 1997 };
+  }
+
+  if (gameState.isPaused) {
+    const fallbackIndex = Math.max(0, Math.min(11, Number.isFinite(startMonth) ? startMonth - 1 : 0));
+    return { monthIndex: fallbackIndex, monthName: MONTHS[fallbackIndex], year: Number.isFinite(startYear) ? startYear : 1997 };
+  }
 
   let simMonthsElapsed = 0;
   if (end > start) {
@@ -50,4 +63,13 @@ export function getSimDate(gameState, now = new Date()) {
 export function formatSimMonthYear(gameState) {
   const d = getSimDate(gameState);
   return `${d.monthName} ${d.year}`;
+}
+
+export function getWeekdayName(now = new Date()) {
+  const day = new Date(now).getDay();
+  return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day] || "Sunday";
+}
+
+export function isSunday(now = new Date()) {
+  return new Date(now).getDay() === 0;
 }

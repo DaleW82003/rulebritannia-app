@@ -2,14 +2,6 @@ import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isMod, isSpeaker } from "../permissions.js";
 
-const WESTMINSTER_PROMPTS = [
-  "Whispers spread that a reshuffle memo is already drafted.",
-  "Tonight's bar talk: who controls next week's parliamentary timetable?",
-  "Rumour says whips are counting heads for a late division.",
-  "A backbench group is briefing journalists about a surprise amendment.",
-  "Speculation grows about a difficult PMQ exchange tomorrow."
-];
-
 function getCharacter(data) {
   return data?.currentCharacter || data?.currentPlayer || {};
 }
@@ -24,13 +16,27 @@ function ensureRedLion(data) {
   data.redLion.nextId ??= data.redLion.posts.length + 1;
 }
 
+function resolveCharacterAvatar(data, characterName, fallbackAvatar = "") {
+  if (fallbackAvatar) return fallbackAvatar;
+  const fromCurrent = getCharacter(data);
+  if (fromCurrent?.name === characterName && fromCurrent?.avatar) return String(fromCurrent.avatar);
+
+  const fromPlayers = (Array.isArray(data?.players) ? data.players : []).find((p) => p?.name === characterName);
+  if (fromPlayers?.avatar) return String(fromPlayers.avatar);
+
+  const fromPersonal = data?.personal?.profiles?.[characterName]?.avatar;
+  if (fromPersonal) return String(fromPersonal);
+
+  return "";
+}
+
 function avatarFor(name, avatar) {
   if (avatar) return avatar;
   const initial = (name || "?").trim().slice(0, 1).toUpperCase() || "?";
   return `https://dummyimage.com/64x64/112233/ffffff&text=${encodeURIComponent(initial)}`;
 }
 
-function render(data, state) {
+function render(data) {
   const root = document.getElementById("redlion-root");
   if (!root) return;
 
@@ -40,12 +46,13 @@ function render(data, state) {
   const posts = data.redLion.posts;
 
   root.innerHTML = `
-    <section class="tile" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Welcome to the Red Lion</h2>
-      <p>Everything posted here is <b>in-character bar talk</b>. Write as if spoken aloud in Westminster’s favourite political pub.</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <button class="btn" type="button" id="rl-generate-westminster">AI Generate Westminster Bar Prompt</button>
-        <span class="muted" id="rl-generated-line">${esc(state.generatedLine || "")}</span>
+    <section class="tile" style="margin-bottom:12px;overflow:hidden;">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <img src="assets/red-lion.svg" alt="Red Lion bar sign" width="92" height="92" style="border-radius:10px;border:1px solid #ccc;background:#fff;padding:4px;">
+        <div>
+          <h2 style="margin:0 0 6px;">Welcome to the Red Lion</h2>
+          <p style="margin:0;">Everything posted here is <b>in-character bar talk</b>, like a Westminster bar floor conversation.</p>
+        </div>
       </div>
     </section>
 
@@ -60,12 +67,8 @@ function render(data, state) {
             <label class="label" for="redlion-speaker">Post as</label>
             <select id="redlion-speaker" name="speaker" class="input">
               <option value="character">${esc(char?.name || "Your character")}</option>
-              ${allowBarkeep ? `<option value="barkeep">Barkeep</option>` : ""}
+              ${allowBarkeep ? `<option value="barkeep">Bar keep</option>` : ""}
             </select>
-          </div>
-          <div>
-            <label class="label" for="redlion-avatar">Avatar URL (optional)</label>
-            <input id="redlion-avatar" name="avatar" class="input" placeholder="https://...">
           </div>
         </div>
 
@@ -81,7 +84,7 @@ function render(data, state) {
             <img src="${esc(avatarFor(p.displayName, p.avatar))}" alt="${esc(p.displayName)} avatar" width="44" height="44" style="border-radius:999px;object-fit:cover;">
             <div style="flex:1;">
               <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                <div><b>${esc(p.displayName)}</b>${p.asBarkeep ? ` <span class="muted">(Barkeep)</span>` : ""}</div>
+                <div><b>${esc(p.displayName)}</b>${p.asBarkeep ? ` <span class="muted">(Bar keep)</span>` : ""}</div>
                 <div class="muted">${esc(p.createdAt || "")}</div>
               </div>
               <p style="margin:8px 0;white-space:pre-wrap;">${esc(p.body)}</p>
@@ -93,27 +96,21 @@ function render(data, state) {
     </section>
   `;
 
-  root.querySelector("#rl-generate-westminster")?.addEventListener("click", () => {
-    state.generatedLine = WESTMINSTER_PROMPTS[Math.floor(Math.random() * WESTMINSTER_PROMPTS.length)];
-    render(data, state);
-  });
-
   root.querySelector("#redlion-post-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const body = String(fd.get("body") || "").trim();
     const speaker = String(fd.get("speaker") || "character");
-    const avatar = String(fd.get("avatar") || "").trim();
     if (!body) return;
 
     const asBarkeep = speaker === "barkeep" && allowBarkeep;
-    const displayName = asBarkeep ? "Barkeep" : (char?.name || "Character");
+    const displayName = asBarkeep ? "Bar keep" : (char?.name || "Character");
 
     const post = {
       id: `rl-${Date.now()}-${data.redLion.nextId}`,
       displayName,
       asBarkeep,
-      avatar: asBarkeep ? "" : avatar,
+      avatar: asBarkeep ? "" : resolveCharacterAvatar(data, displayName, String(char?.avatar || "")),
       body,
       createdAt: new Date().toLocaleString("en-GB")
     };
@@ -121,7 +118,7 @@ function render(data, state) {
     data.redLion.posts.push(post);
     data.redLion.nextId += 1;
     saveData(data);
-    render(data, state);
+    render(data);
   });
 
   root.querySelectorAll("[data-action='delete']").forEach((btn) => {
@@ -130,13 +127,12 @@ function render(data, state) {
       const id = btn.getAttribute("data-id");
       data.redLion.posts = data.redLion.posts.filter((p) => p.id !== id);
       saveData(data);
-      render(data, state);
+      render(data);
     });
   });
 }
 
 export function initRedLionPage(data) {
   ensureRedLion(data);
-  const state = { generatedLine: "" };
-  render(data, state);
+  render(data);
 }

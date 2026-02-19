@@ -99,6 +99,8 @@ export function buildDivisionWeights(data) {
       const candidate = String(p.delegatedTo || "").trim();
       if (candidate && playersByName[candidate] && partyByName[candidate] === party && !playersByName[candidate].absent) {
         target = candidate;
+      } else {
+        target = Object.keys(playersByName).find((name) => partyByName[name] === party && name !== from && !playersByName[name].absent) || null;
       }
     } else if (leaderName && playersByName[leaderName] && !playersByName[leaderName].absent) {
       target = leaderName;

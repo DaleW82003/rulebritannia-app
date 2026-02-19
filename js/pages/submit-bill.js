@@ -1,5 +1,41 @@
 import { saveData } from "../core.js";
+import { getSimDate } from "../clock.js";
 import { esc } from "../ui.js";
+
+const DEPARTMENTS = [
+  "Cabinet Office (General)",
+  "Home",
+  "Foreign",
+  "Treasury",
+  "Business, Trade & Industry",
+  "Defence",
+  "Work & Pensions",
+  "Education",
+  "Health",
+  "Environment & Agriculture",
+  "Social Care",
+  "Transport & Infrastructure",
+  "Culture, Media & Sports",
+  "Home Nations"
+];
+
+const EXTENT_OPTIONS = [
+  "the United Kingdom",
+  "Great Britain",
+  "England and Wales",
+  "England",
+  "Wales",
+  "Scotland",
+  "Northern Ireland"
+];
+
+const COMMENCE_OPTIONS = [
+  "upon the day it is passed",
+  "in one month",
+  "in six months",
+  "in one year",
+  "on a date laid out in regulation by the Secretary of State"
+];
 
 function slugify(value) {
   return String(value || "")
@@ -21,14 +57,18 @@ function getThirdPartyName(data) {
   return ranked[2]?.name || null;
 }
 
+function currentSimYear(data) {
+  return Number(getSimDate(data?.gameState || {}).year || new Date().getFullYear());
+}
+
 function ensureSubmissionTracker(data) {
-  const simYear = Number(data?.gameState?.startSimYear || new Date().getFullYear());
-  data.billSubmission ??= { year: simYear, oppositionDayUsed: { "leader-opposition": 0, "third-party": 0 } };
-  if (data.billSubmission.year !== simYear) {
+  const simYear = currentSimYear(data);
+  data.billSubmission ??= { year: simYear, oppositionUsed: { "leader-opposition": 0, "third-party": 0 } };
+  if (Number(data.billSubmission.year) !== simYear) {
     data.billSubmission.year = simYear;
-    data.billSubmission.oppositionDayUsed = { "leader-opposition": 0, "third-party": 0 };
+    data.billSubmission.oppositionUsed = { "leader-opposition": 0, "third-party": 0 };
   }
-  data.billSubmission.oppositionDayUsed ??= { "leader-opposition": 0, "third-party": 0 };
+  data.billSubmission.oppositionUsed ??= { "leader-opposition": 0, "third-party": 0 };
 }
 
 function computeEligibility(data) {
@@ -40,8 +80,8 @@ function computeEligibility(data) {
   const canOppositionLeader = c.role === "leader-opposition";
   const canThirdPartyLeader = c.party === thirdParty && c.role === "party-leader-3rd-4th";
 
-  const oppUsed = Number(data.billSubmission.oppositionDayUsed?.["leader-opposition"] || 0);
-  const thirdUsed = Number(data.billSubmission.oppositionDayUsed?.["third-party"] || 0);
+  const oppUsed = Number(data.billSubmission.oppositionUsed?.["leader-opposition"] || 0);
+  const thirdUsed = Number(data.billSubmission.oppositionUsed?.["third-party"] || 0);
 
   return {
     canGovernment,
@@ -63,10 +103,10 @@ function renderTypeControls(data) {
     opts.push(`<label><input type="radio" name="billTypeChoice" value="government"> Government Bill (straight to Second Reading)</label>`);
   }
   if (e.canOppositionLeader) {
-    opts.push(`<label><input type="radio" name="billTypeChoice" value="opposition-leader" ${e.oppRemaining <= 0 ? "disabled" : ""}> Opposition Day Bill — Leader of the Opposition (${e.oppRemaining} remaining this year)</label>`);
+    opts.push(`<label><input type="radio" name="billTypeChoice" value="opposition-leader" ${e.oppRemaining <= 0 ? "disabled" : ""}> Opposition Bill — Leader of the Opposition (${e.oppRemaining} remaining this sim year)</label>`);
   }
   if (e.canThirdPartyLeader) {
-    opts.push(`<label><input type="radio" name="billTypeChoice" value="opposition-third" ${e.thirdRemaining <= 0 ? "disabled" : ""}> Opposition Day Bill — Third Party (${e.thirdRemaining} remaining this year)</label>`);
+    opts.push(`<label><input type="radio" name="billTypeChoice" value="opposition-third" ${e.thirdRemaining <= 0 ? "disabled" : ""}> Opposition Bill — Leader of the Third Party (${e.thirdRemaining} remaining this sim year)</label>`);
   }
 
   return `
@@ -90,7 +130,9 @@ function renderBuilder() {
         <textarea id="billProvisionInput" rows="3" required></textarea>
 
         <label for="billDepartmentInput">Department</label>
-        <input id="billDepartmentInput" type="text" maxlength="120" value="Cabinet Office">
+        <select id="billDepartmentInput" required>
+          ${DEPARTMENTS.map((d) => `<option value="${esc(d)}" ${d === "Cabinet Office (General)" ? "selected" : ""}>${esc(d)}</option>`).join("")}
+        </select>
 
         <label for="articleCountInput">Number of Articles</label>
         <input id="articleCountInput" type="number" min="1" max="20" value="3" required>
@@ -100,7 +142,17 @@ function renderBuilder() {
 
       <div class="panel" style="margin-top:12px;">
         <h3 style="margin-top:0;">Final Article — Extent & Commencement</h3>
-        <textarea id="billFinalArticle" rows="4" required>Extent and commencement: This Act extends to England, Wales, Scotland and Northern Ireland, and comes into force 30 days after Royal Assent.</textarea>
+        <div class="form-grid">
+          <label for="finalExtent">Extent</label>
+          <select id="finalExtent" required>
+            ${EXTENT_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
+          </select>
+
+          <label for="finalCommencement">Commencement</label>
+          <select id="finalCommencement" required>
+            ${COMMENCE_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
+          </select>
+        </div>
       </div>
 
       <div class="tile-bottom" style="margin-top:12px;">
@@ -126,10 +178,35 @@ function renderArticleEditors(count) {
   `).join("");
 }
 
-function buildBillText(formEl, articleCount) {
+function buildFinalArticle(formEl, articleCount, simYear, billTitle) {
+  const articleNumber = Number(articleCount) + 1;
+  const extent = formEl.querySelector("#finalExtent")?.value || "the United Kingdom";
+  const commencement = formEl.querySelector("#finalCommencement")?.value || "upon the day it is passed";
+  const citedAs = `${billTitle.replace(/Bill/ig, "Act")} ${simYear}`.trim();
+
+  return [
+    `ARTICLE ${articleNumber} — FINAL ARTICLE: EXTENT AND COMMENCEMENT`,
+    `1. This Act extends to ${extent}.`,
+    `2. This Act comes into force ${commencement}.`,
+    `3. This Act may be cited as the ${citedAs}.`
+  ].join("\n");
+}
+
+function buildBillText(formEl, articleCount, data) {
   const title = formEl.querySelector("#billTitleInput").value.trim();
   const provision = formEl.querySelector("#billProvisionInput").value.trim();
-  const lines = [`${title}`, "", `A Bill to make provision for ${provision}`];
+  const monarchGender = String(data?.adminSettings?.monarchGender || "Queen").toLowerCase() === "king" ? "King" : "Queen";
+  const majestyPronoun = monarchGender === "King" ? "His" : "Her";
+  const simYear = currentSimYear(data);
+
+  const lines = [
+    `${title}`,
+    "",
+    `A Bill to make provision for ${provision}`,
+    "",
+    `BE IT ENACTED by the ${monarchGender}’s most Excellent Majesty, by and with the advice and consent of the Lords Spiritual and Temporal, and Commons, in this present Parliament assembled, and by the authority of the same, as follows:`,
+    `(${majestyPronoun} Majesty in Parliament enacted this measure under the constitutional forms of the realm.)`
+  ];
 
   for (let i = 0; i < articleCount; i += 1) {
     const h = formEl.querySelector(`#articleHeading${i}`)?.value?.trim() || `Article ${i + 1}`;
@@ -137,7 +214,7 @@ function buildBillText(formEl, articleCount) {
     lines.push("", `ARTICLE ${i + 1} — ${h}`, b);
   }
 
-  lines.push("", "FINAL ARTICLE — EXTENT & COMMENCEMENT", formEl.querySelector("#billFinalArticle").value.trim());
+  lines.push("", buildFinalArticle(formEl, articleCount, simYear, title));
   return lines.join("\n");
 }
 
@@ -170,7 +247,7 @@ export function initSubmitBillPage(data) {
 
   if (permission) {
     permission.style.display = "";
-    permission.innerHTML = `<div class="muted-block">Submitting as <b>${esc(currentCharacter(data).name || "MP")}</b>. Government submissions are unlimited for PM / Leader of the House; Opposition Day bill limits are enforced yearly.</div>`;
+    permission.innerHTML = `<div class="muted-block">Submitting as <b>${esc(currentCharacter(data).name || "MP")}</b>. PMBs are available to all MPs. Government bills are for PM / Leader of the House. Opposition bills are capped yearly (Leader of the Opposition: 3; Third Party Leader: 1).</div>`;
   }
 
   const form = builderRoot.querySelector("#submitBillForm");
@@ -194,7 +271,7 @@ export function initSubmitBillPage(data) {
     if (typeChoice === "opposition-third" && eligibility.thirdRemaining <= 0) return;
 
     const title = form.querySelector("#billTitleInput").value.trim();
-    const department = form.querySelector("#billDepartmentInput").value.trim() || "Cabinet Office";
+    const department = form.querySelector("#billDepartmentInput").value || "Cabinet Office (General)";
     const now = Date.now();
 
     let billType = "pmb";
@@ -205,12 +282,13 @@ export function initSubmitBillPage(data) {
     }
     if (typeChoice === "opposition-leader" || typeChoice === "opposition-third") {
       billType = "opposition";
-      stage = "Second Reading";
+      stage = "First Reading";
       const key = typeChoice === "opposition-leader" ? "leader-opposition" : "third-party";
-      data.billSubmission.oppositionDayUsed[key] = Number(data.billSubmission.oppositionDayUsed[key] || 0) + 1;
+      data.billSubmission.oppositionUsed[key] = Number(data.billSubmission.oppositionUsed[key] || 0) + 1;
     }
 
-    const id = `${slugify(title)}-${(data?.gameState?.startSimYear || new Date().getFullYear())}`;
+    const simYear = currentSimYear(data);
+    const id = `${slugify(title)}-${simYear}`;
     const uniqueId = (data.orderPaperCommons || []).some((b) => b.id === id) ? `${id}-${Math.random().toString(36).slice(2, 5)}` : id;
 
     const bill = {
@@ -223,8 +301,8 @@ export function initSubmitBillPage(data) {
       status: "in-progress",
       createdAt: now,
       stageStartedAt: now,
-      stageDurationMs: stage === "Second Reading" ? 48 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
-      billText: buildBillText(form, articleCount),
+      stageDurationMs: stage === "Second Reading" ? 144 * 60 * 60 * 1000 : 72 * 60 * 60 * 1000,
+      billText: buildBillText(form, articleCount, data),
       amendments: [],
       hansard: {},
       debateUrl: `https://forum.rulebritannia.org/t/${encodeURIComponent(uniqueId)}`

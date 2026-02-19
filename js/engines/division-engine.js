@@ -47,18 +47,25 @@ export function closeDivision(container) {
 export function tallyDivision(container, data) {
   const division = ensureDivision(container);
   const totals = { aye: 0, no: 0, abstain: 0 };
+  const seats = getPartySeatMap(data);
+  const autoAbstainParties = Object.keys(seats).filter((party) => /sinn\s*f[ée]in/i.test(String(party || "")) && Number(seats[party] || 0) > 0);
 
   Object.values(division.votes).forEach((v) => {
     if (totals[v.choice] !== undefined) totals[v.choice] += Number(v.weight || 0);
   });
 
-  const seats = getPartySeatMap(data);
   for (const [party, vote] of Object.entries(division.npcVotes || {})) {
+    if (autoAbstainParties.includes(party)) continue;
     const partySeats = Number(seats[party] || 0);
     const rebels = Number((division.rebelsByParty || {})[party] || 0);
     const weight = Math.max(0, partySeats - rebels);
     if (totals[vote] !== undefined) totals[vote] += weight;
   }
+
+  autoAbstainParties.forEach((party) => {
+    const partySeats = Number(seats[party] || 0);
+    totals.abstain += Math.max(0, partySeats);
+  });
 
   return totals;
 }

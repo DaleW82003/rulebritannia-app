@@ -3,12 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Rule Britannia — Constituencies</title>
+  <title>Rule Britannia — Statement</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 
-<body class="theme-commons" data-page="constituencies">
-
+<body class="theme-commons" data-page="statement">
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand">
@@ -16,6 +15,7 @@
     </div>
 
 <nav class="nav" aria-label="Main Navigation">
+
       <a href="dashboard.html" class="nav-link">Office</a>
 
       <div class="nav-group">
@@ -87,78 +87,17 @@
           <a href="https://discord.com" target="_blank" rel="noopener">Discord</a>
         </div>
       </div>
+
     </nav>
   </div>
 </header>
 
 <main class="wrap">
-
-  <h1 class="page-title">Constituencies</h1>
-
+  <h1 class="page-title">Statement</h1>
   <section class="panel">
-    <div class="spaced">
-      <h2 style="margin:0;">State of Parliament</h2>
-      <div class="tile-bottom" style="padding-top:0; margin-top:0;">
-        <button class="btn" type="button" id="constituencyEditorBtn" style="display:none;">Parliament Control Panel</button>
-      </div>
-    </div>
-    <div id="parliament-summary">Loading…</div>
+    <div id="statement-root">Loading statement…</div>
   </section>
-
-  <section class="panel" style="margin-top:14px;">
-    <h2>Open Constituencies (Nation / Region)</h2>
-    <div id="party-constituencies">Loading…</div>
-  </section>
-
-  <section class="panel" id="constituencyEditorPanel" style="display:none; margin-top:14px;">
-    <h2>Parliament Control Panel</h2>
-    <div class="muted-block" style="margin-bottom:12px;">Add/edit/remove constituencies and assign MPs (Character/NPC). Constituencies with any MP are unavailable for character creation.</div>
-    <div class="tile-bottom" style="padding-top:0; margin-top:0; margin-bottom:10px;">
-      <button class="btn" type="button" id="constituencySeed650">Generate 650 Constituencies (1997 template)</button>
-    </div>
-    <form id="constEditorForm" class="form-grid">
-      <input id="constId" type="hidden">
-
-      <label for="constName">Constituency Name</label>
-      <input id="constName" type="text" maxlength="120" required>
-
-      <label for="constNation">Nation</label>
-      <select id="constNation" required>
-        <option value="England">England</option>
-        <option value="Scotland">Scotland</option>
-        <option value="Wales">Wales</option>
-        <option value="Northern Ireland">Northern Ireland</option>
-      </select>
-
-      <label for="constRegion">Region</label>
-      <input id="constRegion" type="text" maxlength="120" required>
-
-      <label for="constParty">Party Holding</label>
-      <select id="constParty" required></select>
-
-      <label for="constMpType">MP Type</label>
-      <select id="constMpType">
-        <option value="">Available (no MP)</option>
-        <option value="character">Character</option>
-        <option value="npc">NPC</option>
-      </select>
-
-      <label for="constMpName">MP Name (character or NPC)</label>
-      <input id="constMpName" type="text" maxlength="120" placeholder="Leave blank if seat is open">
-
-      <div></div>
-      <div class="tile-bottom" style="padding-top:0; margin-top:0;">
-        <button class="btn primary" type="submit">Add Constituency</button>
-        <button class="btn" type="button" id="constEditorReset">Reset</button>
-      </div>
-    </form>
-
-    <hr>
-    <div id="constEditorList" class="docket-list"></div>
-  </section>
-
 </main>
-
 <script type="module" src="./js/main.js"></script>
 
 </body>

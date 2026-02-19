@@ -25,6 +25,18 @@ function nowStamp() {
   return new Date().toLocaleString("en-GB", { hour12: false });
 }
 
+function isSundayToday() {
+  return new Date().getDay() === 0;
+}
+
+function nextSundayIso() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const add = (7 - d.getDay()) % 7;
+  d.setDate(d.getDate() + add);
+  return d.toISOString();
+}
+
 function canManage(data) {
   return isAdmin(data) || isMod(data) || isSpeaker(data);
 }
@@ -35,6 +47,21 @@ function canAdmin(data) {
 
 function getChar(data) {
   return data?.currentCharacter || data?.currentPlayer || {};
+}
+
+function seatTaken(data, constituencyName) {
+  const name = String(constituencyName || "").toLowerCase();
+  if (!name) return false;
+  const byPlayer = (data.players || []).some((p) => String(p.constituency || "").toLowerCase() === name);
+  if (byPlayer) return true;
+  const seat = (data.constituencies || []).find((c) => String(c.name || "").toLowerCase() === name);
+  return Boolean(seat && ((seat.mpType === "npc" && seat.mpName) || (seat.mpType === "character" && seat.mpName)));
+}
+
+function openConstituencyOptions(data) {
+  const pending = new Set((data.userManagement?.pendingCharacters || []).map((p) => String(p.constituency || "").toLowerCase()));
+  const all = (data.constituencies || []).slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  return all.filter((c) => !seatTaken(data, c.name) && !pending.has(String(c.name || "").toLowerCase()));
 }
 
 function normaliseUserData(data) {
@@ -71,16 +98,20 @@ function normaliseUserData(data) {
     }, null, 2)
   };
 
+  data.adminSettings ??= {};
+  data.adminSettings.monarchGender ??= "Queen";
+
   data.parliament ??= {};
   data.parliament.totalSeats ??= 650;
   data.parliament.lastGeneralElection ??= "May 1997";
   data.parliament.governmentSetup ??= "Majority";
 
   data.gameState ??= {};
-  data.gameState.started ??= true;
+  data.gameState.started ??= false;
   data.gameState.isPaused ??= false;
   data.gameState.startSimMonth ??= 8;
   data.gameState.startSimYear ??= 1997;
+  data.gameState.startRealDate ??= "";
 
   for (const acc of data.userManagement.accounts) {
     acc.username = String(acc.username || "").trim();
@@ -166,7 +197,9 @@ function render(data, state) {
           <input class="input" name="education" placeholder="Education" required>
           <input class="input" name="careerBackground" placeholder="Career background" required>
           <input class="input" name="family" placeholder="Family" required>
-          <input class="input" name="constituency" placeholder="Constituency" required>
+          <select class="input" name="constituency" required>
+            ${openConstituencyOptions(data).map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("") || `<option value="">No open constituencies available</option>`}
+          </select>
           <input class="input" name="party" placeholder="Party" required>
           <input class="input" name="yearFirstElected" placeholder="Year first elected" required>
           <input class="input" name="personalBackground" placeholder="Personal background" required>
@@ -238,6 +271,27 @@ function render(data, state) {
       ` : ""}
 
       ${(admin) ? `
+        <details class="tile" style="margin-bottom:10px;" open>
+          <summary><b>Simulation Control</b></summary>
+          <div style="margin-top:10px;display:grid;gap:8px;">
+            <div class="muted">Simulation must be started by an admin on Sunday. The sim clock advances from Monday onward.</div>
+            <div class="kv"><span>Simulation status</span><b>${data.gameState.started ? "Running" : "Not started"}</b></div>
+            <div class="kv"><span>Clock anchor (real date)</span><b>${esc(String(data.gameState.startRealDate || "Not set"))}</b></div>
+            <button class="btn" type="button" id="start-simulation" ${data.gameState.started || !isSundayToday() ? "disabled" : ""}>Start Simulation (Sunday Only)</button>
+            ${!data.gameState.started && !isSundayToday() ? `<div class="muted">Start unlocks on Sunday. Next Sunday anchor: <b>${esc(nextSundayIso().slice(0, 10))}</b>.</div>` : ""}
+            <form id="monarch-form" style="display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:8px;align-items:end;">
+              <div>
+                <label class="label" for="monarchGender">Monarch</label>
+                <select id="monarchGender" class="input" name="monarchGender">
+                  <option value="Queen" ${data.adminSettings.monarchGender === "Queen" ? "selected" : ""}>Queen</option>
+                  <option value="King" ${data.adminSettings.monarchGender === "King" ? "selected" : ""}>King</option>
+                </select>
+              </div>
+              <button class="btn" type="submit">Save Monarch</button>
+            </form>
+          </div>
+        </details>
+
         <details class="tile" open>
           <summary><b>Admin Role & Permission Assignment</b></summary>
           <div style="margin-top:10px;display:grid;gap:8px;">
@@ -264,6 +318,11 @@ function render(data, state) {
     const entry = Object.fromEntries(fd.entries());
     entry.submittedBy = account.username;
     entry.submittedAt = nowStamp();
+    if (!entry.constituency || seatTaken(data, entry.constituency)) {
+      state.message = "Selected constituency is no longer available.";
+      render(data, state);
+      return;
+    }
     data.userManagement.pendingCharacters.push(entry);
     saveData(data);
     state.message = "Character submitted for moderator approval.";
@@ -294,6 +353,12 @@ function render(data, state) {
       const idx = Number(btn.dataset.idx || -1);
       const candidate = data.userManagement.pendingCharacters[idx];
       if (!candidate) return;
+      if (seatTaken(data, candidate.constituency)) {
+        state.message = "Cannot approve: constituency already assigned.";
+        render(data, state);
+        return;
+      }
+
       const player = {
         name: candidate.name,
         party: candidate.party,
@@ -317,6 +382,12 @@ function render(data, state) {
       };
       data.players ??= [];
       data.players.push(player);
+      data.constituencies ??= [];
+      const seat = data.constituencies.find((c) => String(c.name || "").toLowerCase() === String(player.constituency || "").toLowerCase());
+      if (seat) {
+        seat.mpType = "character";
+        seat.mpName = player.name;
+      }
       data.userManagement.pendingCharacters.splice(idx, 1);
       saveData(data);
       state.message = `Approved and activated ${player.name}.`;
@@ -360,6 +431,29 @@ function render(data, state) {
     if (!manager) return;
     runSundayRoll(data);
     state.message = "Sunday roll forced for demo.";
+    render(data, state);
+  });
+
+  host.querySelector("#start-simulation")?.addEventListener("click", () => {
+    if (!admin || data.gameState.started || !isSundayToday()) return;
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    data.gameState.started = true;
+    data.gameState.startRealDate = now.toISOString();
+    data.gameState.isPaused = false;
+    saveData(data);
+    state.message = `Simulation started on ${now.toLocaleDateString("en-GB")}. Clock advances from Monday.`;
+    render(data, state);
+  });
+
+  host.querySelector("#monarch-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!admin) return;
+    const gender = String(new FormData(e.currentTarget).get("monarchGender") || "Queen");
+    data.adminSettings ??= {};
+    data.adminSettings.monarchGender = gender === "King" ? "King" : "Queen";
+    saveData(data);
+    state.message = `Monarch updated to ${data.adminSettings.monarchGender}.`;
     render(data, state);
   });
 
