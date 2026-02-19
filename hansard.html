@@ -20,7 +20,6 @@
 
       <a href="dashboard.html" class="nav-link">Office</a>
 
-      <!-- The U.K -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">The U.K ▾</button>
         <div class="dropdown">
@@ -33,7 +32,6 @@
         </div>
       </div>
 
-      <!-- Parliament -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Parliament ▾</button>
         <div class="dropdown">
@@ -47,7 +45,6 @@
         </div>
       </div>
 
-      <!-- Politics -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Politics ▾</button>
         <div class="dropdown">
@@ -62,7 +59,6 @@
         </div>
       </div>
 
-      <!-- Policy -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Policy ▾</button>
         <div class="dropdown">
@@ -75,7 +71,6 @@
         </div>
       </div>
 
-      <!-- Personal -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Personal ▾</button>
         <div class="dropdown">
@@ -87,7 +82,6 @@
         </div>
       </div>
 
-      <!-- External -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">External ▾</button>
         <div class="dropdown">
@@ -104,28 +98,27 @@
 <main class="wrap">
   <h1 class="page-title">Hansard</h1>
 
-  <!-- Simulation Date -->
   <div id="sim-date-display" class="sim-date"></div>
 
-  <!-- Sunday Roll Display -->
-  <div id="sunday-roll-display" class="muted-block" style="margin-bottom:18px;">
-    Loading Sunday roll…
-  </div>
+  <div id="sunday-roll-display" class="muted-block" style="margin-bottom:18px;">Loading Sunday roll…</div>
 
-  <div class="muted-block" style="margin-bottom:18px;">
-    Archive of completed legislation (passed or defeated). 
-    Bills remain on the Order Paper until the next Sunday roll,
-    then appear here.
-  </div>
+  <section class="panel" style="margin-bottom:12px;">
+    <div class="muted-block">Archive of completed legislation (passed or defeated). Bills remain on the Order Paper until the next Sunday roll, then appear here.</div>
+  </section>
 
-  <section class="panel">
+  <section class="panel" style="margin-bottom:12px;">
     <h2>Passed Legislation</h2>
     <div id="hansard-passed">Loading…</div>
   </section>
 
-  <section class="panel">
+  <section class="panel" style="margin-bottom:12px;">
     <h2>Defeated Legislation</h2>
     <div id="hansard-failed">Loading…</div>
+  </section>
+
+  <section class="panel">
+    <h2>Legislation Record</h2>
+    <div id="hansard-detail">Open a bill to inspect full archive details.</div>
   </section>
 </main>
 

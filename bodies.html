@@ -17,7 +17,6 @@
 
       <a href="dashboard.html" class="nav-link">Office</a>
 
-      <!-- The U.K -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">The U.K ▾</button>
         <div class="dropdown">
@@ -30,7 +29,6 @@
         </div>
       </div>
 
-      <!-- Parliament -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Parliament ▾</button>
         <div class="dropdown">
@@ -44,7 +42,6 @@
         </div>
       </div>
 
-      <!-- Politics -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Politics ▾</button>
         <div class="dropdown">
@@ -59,7 +56,6 @@
         </div>
       </div>
 
-      <!-- Policy -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Policy ▾</button>
         <div class="dropdown">
@@ -72,7 +68,6 @@
         </div>
       </div>
 
-      <!-- Personal -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Personal ▾</button>
         <div class="dropdown">
@@ -84,7 +79,6 @@
         </div>
       </div>
 
-      <!-- External -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">External ▾</button>
         <div class="dropdown">
@@ -98,7 +92,45 @@
 </header>
 
 <main class="wrap">
-  <div id="bodies-root"></div>
+  <section class="panel">
+    <div class="spaced">
+      <h1 class="page-title" style="margin:0;">Elected Bodies</h1>
+      <div class="tile-bottom" style="padding-top:0; margin-top:0;">
+        <button class="btn" type="button" id="bodiesEditorBtn" style="display:none;">Bodies Control Panel</button>
+      </div>
+    </div>
+    <div class="muted-block">Bodies can be hidden or edited by Speaker/Mods/Admin via the control panel below.</div>
+  </section>
+
+  <section class="panel" style="margin-top:14px;">
+    <div id="bodies-root">Loading…</div>
+  </section>
+
+  <section class="panel" id="bodiesEditorPanel" style="display:none; margin-top:14px;">
+    <h2>Bodies Control Panel</h2>
+    <form id="bodiesEditorForm" class="form-grid">
+      <label for="bodySelect">Body</label>
+      <select id="bodySelect" required></select>
+
+      <label for="bodyVisible">Visible</label>
+      <div><input id="bodyVisible" type="checkbox" style="width:auto;"> <span class="small">Uncheck to hide this body from users</span></div>
+
+      <label for="bodyControl">Control Type</label>
+      <select id="bodyControl">
+        <option value="majority">Majority</option>
+        <option value="minority">Minority</option>
+        <option value="coalition">Coalition</option>
+      </select>
+
+      <label for="bodyControlParty">Lead Party</label>
+      <input id="bodyControlParty" type="text" maxlength="120">
+
+      <div></div>
+      <div class="tile-bottom" style="padding-top:0; margin-top:0;">
+        <button class="btn primary" type="submit">Save Body Settings</button>
+      </div>
+    </form>
+  </section>
 </main>
 
 <script type="module" src="./js/main.js"></script>

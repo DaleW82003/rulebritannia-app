@@ -16,7 +16,6 @@
 
       <a href="dashboard.html" class="nav-link">Office</a>
 
-      <!-- The U.K -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">The U.K ▾</button>
         <div class="dropdown">
@@ -29,7 +28,6 @@
         </div>
       </div>
 
-      <!-- Parliament -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Parliament ▾</button>
         <div class="dropdown">
@@ -43,7 +41,6 @@
         </div>
       </div>
 
-      <!-- Politics -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Politics ▾</button>
         <div class="dropdown">
@@ -58,7 +55,6 @@
         </div>
       </div>
 
-      <!-- Policy -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Policy ▾</button>
         <div class="dropdown">
@@ -71,7 +67,6 @@
         </div>
       </div>
 
-      <!-- Personal -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Personal ▾</button>
         <div class="dropdown">
@@ -83,7 +78,6 @@
         </div>
       </div>
 
-      <!-- External -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">External ▾</button>
         <div class="dropdown">
@@ -98,24 +92,8 @@
 
 <main class="wrap">
   <h1 class="page-title">Motions & EDMs</h1>
-
   <section class="panel">
-    <h2>How this will work</h2>
-    <div class="muted-block">
-      <b>Early Day Motions (EDMs)</b> will have a “Sign” button.<br>
-      <b>House Motions</b> will have a timed debate window and then a division.
-      (We’ll build the automation rules + UI next.)
-    </div>
-  </section>
-
-  <section class="panel">
-    <h2>Live Motions</h2>
-    <div class="muted-block">No motions live right now.</div>
-  </section>
-
-  <section class="panel">
-    <h2>Early Day Motions</h2>
-    <div class="muted-block">No EDMs published yet.</div>
+    <div id="motions-root">Loading motions…</div>
   </section>
 </main>
 <script type="module" src="./js/main.js"></script>

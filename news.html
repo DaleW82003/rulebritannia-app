@@ -108,34 +108,66 @@
   </section>
 
   <section class="panel">
-    <div class="spaced" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+    <div class="spaced">
       <div class="muted-block" style="margin:0;">
         <b>BBC Rule Britannia News</b><br>
-        Tiles are live for <b>14 real-life days</b>, then move to the archive (still visible).
+        Main and Other stories stay in live tiles for <b>14 real-life days</b>, then move to the archive.
       </div>
-      <div>
-        <button class="btn" type="button" id="bbcNewStoryBtn" style="display:none;">Post Story</button>
+      <div class="tile-bottom" style="padding-top:0; margin-top:0;">
+        <button class="btn" type="button" id="bbcArchiveBtn">View Archive</button>
+        <button class="btn primary" type="button" id="bbcNewStoryBtn" style="display:none;">News Desk</button>
       </div>
     </div>
   </section>
 
-  <div class="bill-layout">
-    <section class="panel">
-      <h2>Main News</h2>
-      <div id="bbcMainNews" class="muted-block">Loading…</div>
-    </section>
-
-    <section class="panel">
-      <h2>Flavour</h2>
-      <div class="muted-block">Smaller stories (like lower down the BBC app).</div>
-      <div id="bbcFlavourNews" class="muted-block" style="margin-top:12px;">Loading…</div>
-    </section>
-  </div>
+  <section class="panel">
+    <h2>Top Story</h2>
+    <div id="bbcTopStory" class="muted-block">Loading…</div>
+  </section>
 
   <section class="panel">
-    <h2>Archive</h2>
-    <div class="muted-block">Stories older than 14 real-life days.</div>
-    <div id="bbcArchive" class="muted-block" style="margin-top:12px;">Loading…</div>
+    <h2>Main News</h2>
+    <div id="bbcMainNews" class="muted-block">Loading…</div>
+  </section>
+
+  <section class="panel">
+    <h2>Other News</h2>
+    <div id="bbcOtherNews" class="muted-block">Loading…</div>
+  </section>
+
+  <section class="panel" id="bbcArchivePanel" style="display:none;">
+    <h2>Archive (15+ days old)</h2>
+    <div id="bbcArchive" class="muted-block">Loading…</div>
+  </section>
+
+  <section class="panel" id="bbcNewsDeskPanel" style="display:none;">
+    <h2>News Desk</h2>
+    <div class="muted-block" style="margin-bottom:12px;">Create a news post (mods/admin only).</div>
+    <form id="bbcNewsDeskForm" class="form-grid">
+      <label for="newsHeadline">Headline</label>
+      <input id="newsHeadline" type="text" maxlength="160" required>
+
+      <label for="newsBreaking">Breaking News?</label>
+      <div><input id="newsBreaking" type="checkbox" style="width:auto;"> <span class="small">Include in BREAKING ticker for 14 days</span></div>
+
+      <label for="newsType">Section</label>
+      <select id="newsType">
+        <option value="main">Main News</option>
+        <option value="other">Other News (Flavour)</option>
+      </select>
+
+      <label for="newsImage">Image URL (optional)</label>
+      <input id="newsImage" type="url" placeholder="https://...">
+
+      <label for="newsText">Article text</label>
+      <textarea id="newsText" rows="6" required></textarea>
+
+      <div></div>
+      <div class="tile-bottom" style="padding-top:0; margin-top:0;">
+        <button class="btn primary" type="submit">Publish</button>
+        <button class="btn" type="button" id="bbcNewsDeskCancel">Cancel</button>
+      </div>
+    </form>
   </section>
 
 </main>

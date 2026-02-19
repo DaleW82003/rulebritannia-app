@@ -17,7 +17,6 @@
 
       <a href="dashboard.html" class="nav-link">Office</a>
 
-      <!-- The U.K -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">The U.K ▾</button>
         <div class="dropdown">
@@ -30,7 +29,6 @@
         </div>
       </div>
 
-      <!-- Parliament -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Parliament ▾</button>
         <div class="dropdown">
@@ -44,7 +42,6 @@
         </div>
       </div>
 
-      <!-- Politics -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Politics ▾</button>
         <div class="dropdown">
@@ -59,7 +56,6 @@
         </div>
       </div>
 
-      <!-- Policy -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Policy ▾</button>
         <div class="dropdown">
@@ -72,7 +68,6 @@
         </div>
       </div>
 
-      <!-- Personal -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Personal ▾</button>
         <div class="dropdown">
@@ -84,7 +79,6 @@
         </div>
       </div>
 
-      <!-- External -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">External ▾</button>
         <div class="dropdown">
@@ -98,10 +92,46 @@
 </header>
 
 <main class="wrap">
-  <h1 class="page-title">Locals</h1>
-
   <section class="panel">
-    <div class="muted-block">Coming soon.</div>
+    <div class="spaced">
+      <h1 class="page-title" style="margin:0;">Local Government</h1>
+      <div class="tile-bottom" style="padding-top:0; margin-top:0;">
+        <button class="btn" type="button" id="localsEditorBtn" style="display:none;">Locals Control Panel</button>
+      </div>
+    </div>
+    <div class="muted-block">Councillor and council control by country (England, Scotland, Wales, Northern Ireland).</div>
+  </section>
+
+  <section class="panel" style="margin-top:14px;">
+    <div id="locals-root">Loading…</div>
+  </section>
+
+  <section class="panel" id="localsEditorPanel" style="display:none; margin-top:14px;">
+    <h2>Locals Control Panel</h2>
+    <form id="localsEditorForm" class="form-grid">
+      <label for="localCountry">Country</label>
+      <select id="localCountry" required></select>
+
+      <label for="localCouncils">Councils Controlled</label>
+      <input id="localCouncils" type="number" min="0" required>
+
+      <label for="localCouncillors">Councillors</label>
+      <input id="localCouncillors" type="number" min="0" required>
+
+      <label for="localIndependentCouncillors">Independent Councillors</label>
+      <input id="localIndependentCouncillors" type="number" min="0" required>
+
+      <label for="localIndependentCouncils">Independent-Controlled Councils</label>
+      <input id="localIndependentCouncils" type="number" min="0" required>
+
+      <label for="localNoc">No Overall Control Councils</label>
+      <input id="localNoc" type="number" min="0" required>
+
+      <div></div>
+      <div class="tile-bottom" style="padding-top:0; margin-top:0;">
+        <button class="btn primary" type="submit">Save Country Data</button>
+      </div>
+    </form>
   </section>
 </main>
 
