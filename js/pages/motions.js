@@ -1,6 +1,7 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker } from "../permissions.js";
+import { buildDivisionWeights, currentCharacterWeight, getCurrentCharacter, tallyDivisionVotes } from "../divisions.js";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -8,39 +9,12 @@ const MONTHS = [
 ];
 
 const GOVERNMENT_OFFICES = new Set([
-  "prime-minister",
-  "leader-commons",
-  "chancellor",
-  "home",
-  "foreign",
-  "trade",
-  "defence",
-  "welfare",
-  "education",
-  "env-agri",
-  "health",
-  "eti",
-  "culture",
-  "home-nations"
+  "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade",
+  "defence", "welfare", "education", "env-agri", "health", "eti", "culture", "home-nations"
 ]);
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
-
-function getPartyWeights(data) {
-  const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
-  return Object.fromEntries(parties.map((p) => [p.name, Number(p.seats || 1)]));
-}
-
-function getWeightForCharacter(data) {
-  const char = getCharacter(data);
-  const weights = getPartyWeights(data);
-  return Number(weights[char?.party] || 1);
-}
-
 function isGovernmentMember(data) {
-  return GOVERNMENT_OFFICES.has(getCharacter(data)?.office);
+  return GOVERNMENT_OFFICES.has(getCurrentCharacter(data)?.office);
 }
 
 function ensureMotions(data) {
@@ -67,23 +41,22 @@ function discussionUrl(kind, number, title) {
   return `https://forum.rulebritannia.org/t/${kind}-${number}-${encodeURIComponent((title || "item").toLowerCase().replaceAll(" ", "-"))}`;
 }
 
-function houseDivisionTotals(motion) {
-  const votes = motion?.division?.votes || {};
-  const totals = { aye: 0, no: 0, abstain: 0 };
-  Object.values(votes).forEach((v) => {
-    const c = (v.choice || "abstain").toLowerCase();
-    totals[c] = Number(totals[c] || 0) + Number(v.weight || 1);
-  });
-  return totals;
+function houseDivisionTotals(motion, data) {
+  return tallyDivisionVotes(motion?.division?.votes || {}, data);
 }
 
-function houseResult(motion) {
-  const t = houseDivisionTotals(motion);
+function houseResult(motion, data) {
+  const t = houseDivisionTotals(motion, data);
   if (motion?.status === "archived" || motion?.division?.status === "closed") {
     if (t.aye > t.no) return "Passed";
-    if (t.no >= t.aye) return "Failed";
+    return "Failed";
   }
   return "In Division";
+}
+
+function effectiveWeightForName(data, name, fallback = 0) {
+  const { effectiveWeights } = buildDivisionWeights(data);
+  return Number(effectiveWeights[name] ?? fallback);
 }
 
 function render(data, state) {
@@ -92,7 +65,8 @@ function render(data, state) {
 
   ensureMotions(data);
   const sim = simInfo(data);
-  const char = getCharacter(data);
+  const char = getCurrentCharacter(data);
+  const myWeight = currentCharacterWeight(data);
   const canSpeaker = isSpeaker(data);
   const canSignEdm = !isGovernmentMember(data);
 
@@ -107,8 +81,8 @@ function render(data, state) {
   root.innerHTML = `
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Guide to Motions & EDMs</h2>
-      <p><b>House Motions</b> include a 2-simulation-month debate window and then a 1-simulation-month division (weighted by party seat strength). Status is shown as Passed/Failed once closed.</p>
-      <p><b>Early Day Motions (EDMs)</b> can be signed by MPs not in Government. EDMs show weighted signatory totals and signatory names.</p>
+      <p><b>House Motions</b> include a 2-simulation-month debate window and then a 1-simulation-month division with character-weighted voting.</p>
+      <p><b>Early Day Motions (EDMs)</b> can be signed by MPs not in Government. Signature weights use current character voting weight.</p>
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
@@ -132,7 +106,7 @@ function render(data, state) {
           <button class="btn" type="submit">Submit EDM</button>
         </form>
       </div>
-      <p class="muted" style="margin-top:8px;">Submitting as ${esc(char?.name || "MP")}.</p>
+      <p class="muted" style="margin-top:8px;">Submitting as ${esc(char?.name || "MP")} (effective weight ${esc(String(myWeight))}).</p>
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
@@ -141,7 +115,7 @@ function render(data, state) {
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div><b>Motion ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author)}</span></div>
-            <div><b>${esc(houseResult(m))}</b></div>
+            <div><b>${esc(houseResult(m, data))}</b></div>
           </div>
           <div class="muted" style="margin-top:6px;">Debate: ${esc(m.debateStartSim || "—")} → ${esc(m.debateEndSim || "—")} • Division: ${esc(m.division?.startSim || "—")} → ${esc(m.division?.endSim || "—")}</div>
           <div class="tile-bottom"><button class="btn" type="button" data-action="open-house" data-id="${esc(m.id)}">Open</button></div>
@@ -153,7 +127,7 @@ function render(data, state) {
       <h2 style="margin-top:0;">Early Day Motions</h2>
       ${edm.length ? edm.map((m) => {
         const signatures = Array.isArray(m.signatures) ? m.signatures : [];
-        const weighted = signatures.reduce((acc, s) => acc + Number(s.weight || 1), 0);
+        const weighted = signatures.reduce((acc, s) => acc + effectiveWeightForName(data, s.name, s.weight), 0);
         return `
           <article class="tile" style="margin-bottom:10px;">
             <div><b>EDM ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author)}</span></div>
@@ -167,22 +141,22 @@ function render(data, state) {
     <section class="tile">
       <h2 style="margin-top:0;">Motion / EDM Detail</h2>
       ${selectedHouse ? (() => {
-        const totals = houseDivisionTotals(selectedHouse);
+        const totals = houseDivisionTotals(selectedHouse, data);
         const myVote = selectedHouse.division?.votes?.[char?.name || ""]?.choice || "";
         return `
           <h3>Motion ${esc(selectedHouse.number)}: ${esc(selectedHouse.title)}</h3>
-          <p class="muted">Author: ${esc(selectedHouse.author)} • Status: <b>${esc(houseResult(selectedHouse))}</b></p>
+          <p class="muted">Author: ${esc(selectedHouse.author)} • Status: <b>${esc(houseResult(selectedHouse, data))}</b></p>
           <p style="white-space:pre-wrap;">${esc(selectedHouse.body)}</p>
           <p><a class="btn" target="_blank" rel="noopener" href="${esc(selectedHouse.debateUrl || discussionUrl("motion", selectedHouse.number, selectedHouse.title))}">Debate on Discourse</a></p>
           <div class="tile" style="margin-top:8px;">
             <h4 style="margin-top:0;">Division (weighted)</h4>
             <p>Aye: <b>${totals.aye}</b> • No: <b>${totals.no}</b> • Abstain: <b>${totals.abstain}</b></p>
-            <p class="muted">Your vote: ${esc(myVote || "Not voted")}</p>
+            <p class="muted">Your vote: ${esc(myVote || "Not voted")} • Effective weight: ${esc(String(myWeight))}</p>
             ${selectedHouse.status !== "archived" ? `
               <div class="tile-bottom" style="gap:8px;display:flex;flex-wrap:wrap;">
-                <button class="btn" type="button" data-action="vote-motion" data-choice="aye" data-id="${esc(selectedHouse.id)}">Vote Aye</button>
-                <button class="btn" type="button" data-action="vote-motion" data-choice="no" data-id="${esc(selectedHouse.id)}">Vote No</button>
-                <button class="btn" type="button" data-action="vote-motion" data-choice="abstain" data-id="${esc(selectedHouse.id)}">Abstain</button>
+                <button class="btn" type="button" data-action="vote-motion" data-choice="aye" data-id="${esc(selectedHouse.id)}" ${char?.absent || myWeight <= 0 ? "disabled" : ""}>Vote Aye</button>
+                <button class="btn" type="button" data-action="vote-motion" data-choice="no" data-id="${esc(selectedHouse.id)}" ${char?.absent || myWeight <= 0 ? "disabled" : ""}>Vote No</button>
+                <button class="btn" type="button" data-action="vote-motion" data-choice="abstain" data-id="${esc(selectedHouse.id)}" ${char?.absent || myWeight <= 0 ? "disabled" : ""}>Abstain</button>
                 ${canSpeaker ? `<button class="btn" type="button" data-action="close-motion" data-id="${esc(selectedHouse.id)}">Close Early (Speaker)</button>` : ""}
               </div>
             ` : `<p class="muted">Division closed.</p>`}
@@ -190,17 +164,17 @@ function render(data, state) {
         `;
       })() : selectedEdm ? (() => {
         const signatures = Array.isArray(selectedEdm.signatures) ? selectedEdm.signatures : [];
-        const weighted = signatures.reduce((acc, s) => acc + Number(s.weight || 1), 0);
+        const weighted = signatures.reduce((acc, s) => acc + effectiveWeightForName(data, s.name, s.weight), 0);
         const already = signatures.some((s) => s.name === char?.name);
         return `
           <h3>EDM ${esc(selectedEdm.number)}: ${esc(selectedEdm.title)}</h3>
           <p class="muted">Lead MP: ${esc(selectedEdm.author)}</p>
           <p style="white-space:pre-wrap;">${esc(selectedEdm.body)}</p>
           <p><b>Weighted signatures:</b> ${weighted}</p>
-          <p><b>Signatories:</b> ${signatures.length ? signatures.map((s) => `${esc(s.name)} (${esc(s.weight)})`).join(", ") : "None yet"}</p>
+          <p><b>Signatories:</b> ${signatures.length ? signatures.map((s) => `${esc(s.name)} (${esc(effectiveWeightForName(data, s.name, s.weight))})`).join(", ") : "None yet"}</p>
           ${canSignEdm ? (already
             ? `<p class="muted"><b>You have already signed this EDM.</b></p>`
-            : `<button class="btn" type="button" data-action="sign-edm" data-id="${esc(selectedEdm.id)}">Sign EDM</button>`)
+            : `<button class="btn" type="button" data-action="sign-edm" data-id="${esc(selectedEdm.id)}" ${char?.absent || myWeight <= 0 ? "disabled" : ""}>Sign EDM</button>`)
             : `<p class="muted"><b>You cannot sign EDMs as a Government member.</b></p>`}
         `;
       })() : `<p class="muted">Open a Motion or EDM to view details.</p>`}
@@ -266,14 +240,7 @@ function render(data, state) {
     const number = Number(data.motions.nextEdmNumber || (data.motions.edm.length + 1));
     const id = `edm-${Date.now()}`;
 
-    data.motions.edm.push({
-      id,
-      number,
-      title,
-      author: char?.name || "MP",
-      body,
-      signatures: []
-    });
+    data.motions.edm.push({ id, number, title, author: char?.name || "MP", body, signatures: [] });
     data.motions.nextEdmNumber = number + 1;
     state.selectedEdmId = id;
     state.selectedHouseId = null;
@@ -287,15 +254,11 @@ function render(data, state) {
       const choice = btn.getAttribute("data-choice");
       const motion = data.motions.house.find((m) => m.id === id);
       if (!motion || motion.status === "archived") return;
+      if (char?.absent || myWeight <= 0) return;
       motion.division ??= { status: "open", votes: {} };
       motion.division.votes ??= {};
       const name = char?.name || "MP";
-      motion.division.votes[name] = {
-        name,
-        party: char?.party || "Independent",
-        weight: getWeightForCharacter(data),
-        choice
-      };
+      motion.division.votes[name] = { name, party: char?.party || "Independent", weight: myWeight, choice };
       saveData(data);
       render(data, state);
     });
@@ -319,17 +282,14 @@ function render(data, state) {
   root.querySelectorAll("[data-action='sign-edm']").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (!canSignEdm) return;
+      if (char?.absent || myWeight <= 0) return;
       const id = btn.getAttribute("data-id");
       const motion = data.motions.edm.find((m) => m.id === id);
       if (!motion) return;
       motion.signatures ??= [];
       const name = char?.name || "MP";
       if (motion.signatures.some((s) => s.name === name)) return;
-      motion.signatures.push({
-        name,
-        party: char?.party || "Independent",
-        weight: getWeightForCharacter(data)
-      });
+      motion.signatures.push({ name, party: char?.party || "Independent", weight: myWeight });
       saveData(data);
       render(data, state);
     });
@@ -338,9 +298,6 @@ function render(data, state) {
 
 export function initMotionsPage(data) {
   ensureMotions(data);
-  const state = {
-    selectedHouseId: data.motions.house[0]?.id || null,
-    selectedEdmId: null
-  };
+  const state = { selectedHouseId: data.motions.house[0]?.id || null, selectedEdmId: null };
   render(data, state);
 }
