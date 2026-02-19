@@ -1,19 +1,13 @@
 import { canSeeAudienceItem } from "../permissions.js";
 import { isAdmin, isMod, isSpeaker } from "../permissions.js";
+import { esc } from "../ui.js";
+import { nowMs } from "../core.js";
 
 // js/pages/dashboard.js
 // Dashboard (Your Office) — Chunk 1 implementation
 
 function $(id) {
   return document.getElementById(id);
-}
-
-function esc(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
 
 function fmtPct(n) {
@@ -26,10 +20,6 @@ function fmtMoneyShort(s) {
   if (typeof s === "string") return s;
   if (typeof s === "number") return `£${s.toLocaleString("en-GB")}`;
   return "—";
-}
-
-function nowMs() {
-  return Date.now();
 }
 
 // Best-effort sim label (Month Year) from your stored state.

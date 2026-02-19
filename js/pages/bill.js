@@ -2,17 +2,10 @@ import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolve
 import { saveData } from "../core.js";
 import { buildDivisionWeights } from "../divisions.js";
 import { isAdmin, isMod } from "../permissions.js";
+import { esc } from "../ui.js";
 
 function $(id) {
   return document.getElementById(id);
-}
-
-function esc(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
 
 const DIVISION_STAGES = new Set(["Division", "Third Reading Division", "Final Division"]);

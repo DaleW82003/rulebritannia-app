@@ -1,6 +1,6 @@
 // js/main.js
 import { bootData } from "./core.js";
-import { initNavUI } from "./ui.js";
+import { initNavUI, esc } from "./ui.js";
 
 // Working pages (already built)
 import { initDashboardPage } from "./pages/dashboard.js";
@@ -56,7 +56,7 @@ function showBootError(err) {
   msg.style.background = "#fff5f5";
   msg.style.color = "#111";
   msg.style.borderRadius = "12px";
-  msg.innerHTML = `<b>Fatal boot error:</b> ${String(err?.message || err)}`;
+  msg.innerHTML = `<b>Fatal boot error:</b> ${esc(String(err?.message || err))}`;
   document.body.prepend(msg);
 }
 
@@ -135,7 +135,7 @@ function showBootError(err) {
     warn.style.borderRadius = "12px";
     warn.innerHTML =
       `<b>Page not wired:</b> This HTML is missing a valid <code>data-page</code> route. ` +
-      `Current value: <code>${page || "(empty)"}</code>`;
+      `Current value: <code>${esc(page || "(empty)")}</code>`;
     document.body.prepend(warn);
     document.body.dataset.bootState = "route-missing";
 
