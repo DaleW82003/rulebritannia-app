@@ -20,6 +20,7 @@ app.use(express.json({ limit: "2mb" }));
 const ALLOWED_ORIGINS = new Set([
   "https://rulebritannia.org",
   "https://www.rulebritannia.org",
+  "https://hoppscotch.io",
   // If your UI is also on a Render URL, add it here too, e.g.
   // "https://rulebritannia-app.onrender.com"
 ]);
