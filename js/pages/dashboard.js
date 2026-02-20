@@ -49,7 +49,7 @@ function buildRoleAwareDocket(data) {
   });
 
   (data?.regulations?.items || []).filter((r) => r?.status !== "archived").slice(0, 4).forEach((r) => {
-    push({ type: "regulation", title: `Open Regulation #${r.number}: ${r.title}`, detail: "Regulation debate or division is open.", ctaLabel: "Open Regulations", href: "regulations.html", priority: "med" });
+    push({ type: "regulation", title: `Open Regulation #${r.regulationNumber}: ${r.shortTitle}`, detail: "Regulation debate or division is open.", ctaLabel: "Open Regulations", href: "regulations.html", priority: "med" });
   });
 
   (data?.statements?.items || []).filter((st) => st?.status !== "archived").slice(0, 4).forEach((st) => {
