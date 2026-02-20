@@ -6,12 +6,14 @@ export function ensureDivision(container, defaults = {}) {
     votes: {},
     openedAt: Date.now(),
     closesAt: Date.now() + 60 * 60 * 1000,
+    closesAtSim: null,
     rebelsByParty: {},
     npcVotes: {}
   };
   container.division.votes ??= {};
   container.division.rebelsByParty ??= {};
   container.division.npcVotes ??= {};
+  container.division.closesAtSim ??= null;
   Object.assign(container.division, defaults || {});
   return container.division;
 }

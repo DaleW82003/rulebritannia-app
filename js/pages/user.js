@@ -354,7 +354,7 @@ function render(data, state) {
         <details class="tile" style="margin-bottom:10px;">
           <summary><b>Speaker Controls</b></summary>
           <form id="speaker-form" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
-            <label class="label"><input type="checkbox" name="isPaused" ${data.gameState.isPaused ? "checked" : ""}> Pause game clock</label>
+            <label class="label"><input type="checkbox" name="isPaused" ${data.gameState.isPaused ? "checked" : ""} ${!admin ? "disabled" : ""}> Pause game clock (Admin only — unpause on Sunday only)</label>
             <label class="label"><input type="checkbox" name="sundayFreeze" ${data.userManagement.globalControls.sundayFreeze ? "checked" : ""}> Sunday freeze</label>
             <input class="input" type="number" min="1" max="12" name="startSimMonth" value="${esc(String(data.gameState.startSimMonth || 1))}" placeholder="Sim month">
             <input class="input" type="number" name="startSimYear" value="${esc(String(data.gameState.startSimYear || 1997))}" placeholder="Sim year">
@@ -594,7 +594,39 @@ function render(data, state) {
     e.preventDefault();
     if (!manager) return;
     const fd = new FormData(e.currentTarget);
-    data.gameState.isPaused = fd.get("isPaused") === "on";
+
+    // Pause/unpause: admin-only with Sunday-only unpause
+    const wantPaused = fd.get("isPaused") === "on";
+    const wasPaused = !!data.gameState.isPaused;
+
+    if (wantPaused !== wasPaused) {
+      if (!admin) {
+        state.message = "Only an Admin can pause or unpause the simulation.";
+        render(data, state);
+        return;
+      }
+      if (wantPaused && !wasPaused) {
+        // Pausing: record the real date so sim time freezes here
+        data.gameState.isPaused = true;
+        data.gameState.pausedAtRealDate = new Date().toISOString();
+      } else if (!wantPaused && wasPaused) {
+        // Unpausing: only allowed on Sunday
+        if (!isSundayToday()) {
+          state.message = "Cannot unpause: the simulation may only be unpaused on a Sunday.";
+          render(data, state);
+          return;
+        }
+        // Shift startRealDate forward by the pause duration so sim time resumes correctly
+        const pausedAt = new Date(data.gameState.pausedAtRealDate || new Date().toISOString());
+        const now = new Date();
+        const pauseDurationMs = now.getTime() - pausedAt.getTime();
+        const oldStart = new Date(data.gameState.startRealDate);
+        data.gameState.startRealDate = new Date(oldStart.getTime() + pauseDurationMs).toISOString();
+        data.gameState.isPaused = false;
+        data.gameState.pausedAtRealDate = "";
+      }
+    }
+
     data.userManagement.globalControls.sundayFreeze = fd.get("sundayFreeze") === "on";
     data.gameState.startSimMonth = Number(fd.get("startSimMonth") || 1);
     data.gameState.startSimYear = Number(fd.get("startSimYear") || 1997);

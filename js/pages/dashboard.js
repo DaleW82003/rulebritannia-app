@@ -2,6 +2,7 @@ import { canSeeAudienceItem } from "../permissions.js";
 import { isAdmin, isMod, isSpeaker } from "../permissions.js";
 import { esc } from "../ui.js";
 import { nowMs } from "../core.js";
+import { formatSimMonthYear, getWeekdayName, isSunday, countdownToSimMonth } from "../clock.js";
 
 // js/pages/dashboard.js
 // Dashboard (Your Office) — Chunk 1 implementation
@@ -123,10 +124,12 @@ function msToHuman(ms) {
 
 /**
  * Countdown for a bill stage.
- * Uses bill.stageStartedAt + optional bill.stageDurationMs.
- * If not present, returns "—" (we avoid inventing timing rules here).
+ * Prefers sim-calendar deadline (stageDeadlineSim), falls back to ms-based.
  */
-function billCountdown(bill) {
+function billCountdown(bill, gameState) {
+  if (bill?.stageDeadlineSim) {
+    return countdownToSimMonth(bill.stageDeadlineSim.month, bill.stageDeadlineSim.year, gameState);
+  }
   const start = Number(bill?.stageStartedAt);
   const dur = Number(bill?.stageDurationMs);
   if (!Number.isFinite(start) || !Number.isFinite(dur) || dur <= 0) return "—";
@@ -280,7 +283,7 @@ function renderOrderPaper(data) {
             <div><b>Author:</b> ${esc(b.author || "—")}</div>
             <div><b>Department:</b> ${esc(b.department || "—")}</div>
             <div><b>Stage:</b> ${esc(stageLabel(b.stage))}</div>
-            <div><b>Stage ends in:</b> ${esc(billCountdown(b))}</div>
+            <div><b>Stage ends in:</b> ${esc(billCountdown(b, data.gameState))}</div>
           </div>
 
           <div class="tile-bottom">
@@ -293,8 +296,22 @@ function renderOrderPaper(data) {
   `;
 }
 
+function renderSimDate(data) {
+  const el = $("sim-date-display");
+  if (!el) return;
+  const simLabel = formatSimMonthYear(data.gameState);
+  const dayLabel = getWeekdayName();
+  const frozen = isSunday() ? " (SUNDAY \u2014 FROZEN)" : "";
+  const paused = data.gameState.isPaused ? " (PAUSED)" : "";
+  el.textContent = `${simLabel} \u2014 ${dayLabel}${frozen}${paused}`;
+}
+
 export function initDashboardPage(data) {
+  renderSimDate(data);
   renderWhatsGoingOn(data);
   renderLiveDocket(data);
   renderOrderPaper(data);
+
+  // Refresh sim date every 60s
+  setInterval(() => renderSimDate(data), 60000);
 }

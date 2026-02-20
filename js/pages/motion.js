@@ -5,6 +5,7 @@ import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolve
 import { buildDivisionWeights } from "../divisions.js";
 import { getPartySeatMap } from "../engines/core-engine.js";
 import { ensureMotions, isGovernmentMember } from "./motions.js";
+import { getSimDate, simDateToObj, formatSimMonthYear, isDeadlinePassed, compareSimDates, countdownToSimMonth } from "../clock.js";
 
 function getCharacter(data) {
   return data?.currentCharacter || data?.currentPlayer || {};
@@ -37,14 +38,29 @@ function renderHouse(root, data, motion) {
   const char = getCharacter(data);
   const speaker = isSpeaker(data);
   const voteWeight = currentWeight(data);
+  const simCurrentObj = simDateToObj(getSimDate(data.gameState));
+
+  // Auto-close division if deadline passed
+  if (motion.division?.status === "open" && motion.division.endSimObj && compareSimDates(simCurrentObj, motion.division.endSimObj) >= 0) {
+    closeDivision(motion);
+    motion.outcome = resolveDivisionResult(motion, data);
+    motion.status = "archived";
+    motion.archivedAtSim = formatSimMonthYear(data.gameState);
+    saveData(data);
+  }
+
   ensureDivision(motion);
   const totals = tallyDivision(motion, data);
   const myVote = motion.division?.votes?.[char?.name || ""]?.choice || "";
+  const debateCountdown = motion.debateEndSimObj ? countdownToSimMonth(motion.debateEndSimObj.month, motion.debateEndSimObj.year, data.gameState) : "";
+  const divisionCountdown = motion.division?.endSimObj ? countdownToSimMonth(motion.division.endSimObj.month, motion.division.endSimObj.year, data.gameState) : "";
 
   root.innerHTML = `
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Motion ${esc(motion.number)}: ${esc(motion.title)}</h2>
       <p class="muted">By ${esc(motion.author)} • Status: ${esc(motion.status || "open")}</p>
+      <p class="muted">Debate: ${esc(motion.debateStartSim || "—")} → ${esc(motion.debateEndSim || "—")}${debateCountdown ? ` (${debateCountdown})` : ""}</p>
+      <p class="muted">Division: ${esc(motion.division?.startSim || "—")} → ${esc(motion.division?.endSim || "—")}${divisionCountdown ? ` (${divisionCountdown})` : ""}</p>
       <p style="white-space:pre-wrap;"><b>That this House</b> ${esc(motion.body || "")}</p>
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
         <a class="btn" href="${esc(motion.debateUrl || "#")}" target="_blank" rel="noopener">Open Debate</a>
@@ -95,14 +111,25 @@ function renderEdm(root, data, edm) {
   const w = currentWeight(data);
   edm.signatures ??= [];
   edm.npcSignatures ??= {};
+
+  // Auto-archive expired EDM
+  if (edm.status !== "archived" && edm.closesAtSimObj && isDeadlinePassed(edm.closesAtSimObj, data.gameState)) {
+    edm.status = "archived";
+    edm.archivedAtSim = formatSimMonthYear(data.gameState);
+    saveData(data);
+  }
+
+  const expired = edm.status === "archived";
   const signed = edm.signatures.some((s) => s.name === char?.name);
   const seats = getPartySeatMap(data);
   const npcParties = Object.entries(seats).filter(([party, n]) => Number(n) > 0 && !["Conservative", "Labour", "Liberal Democrat"].includes(party));
+  const edmCountdown = edm.closesAtSimObj ? countdownToSimMonth(edm.closesAtSimObj.month, edm.closesAtSimObj.year, data.gameState) : "";
 
   root.innerHTML = `
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">EDM ${esc(edm.number)}: ${esc(edm.title)}</h2>
       <p class="muted">By ${esc(edm.author)} • Status: ${esc(edm.status || "open")}</p>
+      <p class="muted">Open: ${esc(edm.openedAtSim || "—")} → ${esc(edm.closesAtSim || "—")}${edmCountdown ? ` (${edmCountdown})` : ""}</p>
       <p style="white-space:pre-wrap;"><b>That this House</b> ${esc(edm.body || "")}</p>
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
         <a class="btn" href="${esc(edm.debateUrl || "#")}" target="_blank" rel="noopener">Open Debate</a>
@@ -115,9 +142,9 @@ function renderEdm(root, data, edm) {
       <p><b>Weighted signatories:</b> ${edmWeightedSignatures(edm, data).toFixed(2)}</p>
       <p><b>Signed by:</b> ${edm.signatures.length ? edm.signatures.map((s) => `${esc(s.name)} (${Number(s.weight || 0).toFixed(2)})`).join(", ") : "No player signatories yet."}</p>
       ${Object.entries(edm.npcSignatures).filter(([,v])=>v).length ? `<p><b>NPC signatures:</b> ${Object.entries(edm.npcSignatures).filter(([,v])=>v).map(([p]) => esc(p)).join(", ")}</p>` : ""}
-      ${disallowed ? `<p class="muted"><b>Government members cannot sign EDMs.</b></p>` : signed ? `<p class="muted"><b>You have already signed.</b></p>` : `<button class="btn" data-action="sign-edm" ${w > 0 ? "" : "disabled"}>Sign EDM (${w.toFixed(2)})</button>`}
+      ${expired ? `<p class="muted"><b>Signature period has closed.</b></p>` : disallowed ? `<p class="muted"><b>Government members cannot sign EDMs.</b></p>` : signed ? `<p class="muted"><b>You have already signed.</b></p>` : `<button class="btn" data-action="sign-edm" ${w > 0 ? "" : "disabled"}>Sign EDM (${w.toFixed(2)})</button>`}
 
-      ${speaker ? `
+      ${speaker && !expired ? `
         <div style="margin-top:12px;">
           <h4>Speaker NPC Signatures</h4>
           <form id="npc-sign-form">
@@ -130,7 +157,7 @@ function renderEdm(root, data, edm) {
   `;
 
   root.querySelector("[data-action='sign-edm']")?.addEventListener("click", () => {
-    if (disallowed || signed || w <= 0) return;
+    if (expired || disallowed || signed || w <= 0) return;
     edm.signatures.push({ name: char?.name || "MP", party: char?.party || "Independent", weight: w });
     saveData(data);
     renderEdm(root, data, edm);

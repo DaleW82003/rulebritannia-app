@@ -3,17 +3,21 @@ import { saveData } from "../core.js";
 import { buildDivisionWeights } from "../divisions.js";
 import { isAdmin, isMod } from "../permissions.js";
 import { esc } from "../ui.js";
+import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 
 function $(id) {
   return document.getElementById(id);
 }
 
-const DIVISION_STAGES = new Set(["Division", "Third Reading Division", "Final Division"]);
-const AMENDMENT_LOCK_STAGES = new Set(["Division", "Third Reading", "Third Reading Division", "Royal Assent"]);
-const SIM_MONTH_MS = 72 * 60 * 60 * 1000;
-const DEBATE_WINDOW_MS = 2 * SIM_MONTH_MS;
-const DIVISION_WINDOW_MS = SIM_MONTH_MS;
-const LAST_DAY_LOCK_MS = 24 * 60 * 60 * 1000;
+const DIVISION_STAGES = new Set(["Final Division"]);
+const AMENDMENT_LOCK_STAGES = new Set(["Final Division", "Royal Assent"]);
+
+const STAGE_DURATION_MONTHS = {
+  "Second Reading": 2,
+  "Report Stage": 1,
+  "Report Debate": 2,
+  "Final Division": 1
+};
 
 function getBillIdFromUrl() {
   const u = new URL(window.location.href);
@@ -58,7 +62,10 @@ function msToHuman(ms) {
   return `${m}m`;
 }
 
-function stageCountdown(bill) {
+function stageCountdown(bill, gameState) {
+  if (bill?.stageDeadlineSim) {
+    return countdownToSimMonth(bill.stageDeadlineSim.month, bill.stageDeadlineSim.year, gameState);
+  }
   const start = Number(bill?.stageStartedAt);
   const dur = Number(bill?.stageDurationMs);
   if (!Number.isFinite(start) || !Number.isFinite(dur) || dur <= 0) return "—";
@@ -83,7 +90,7 @@ function finaliseDivisionOutcome(bill, data) {
 
   bill.divisionOutcome = result;
   bill.divisionResolvedAt = Number(division.closedAt || Date.now());
-  bill.finalStage = bill.finalStage || "Third Reading Division";
+  bill.finalStage = bill.finalStage || "Final Division";
 
   if (result === "passed") {
     bill.status = "awaiting-assent";
@@ -140,7 +147,7 @@ function renderBillMeta(bill, data) {
       <div class="badges">
         <span class="bill-badge">${esc(billTypeLabel(bill.billType))}</span>
         <span class="bill-badge">${esc(bill.stage || "—")}</span>
-        <span class="bill-badge">Stage ends: ${esc(stageCountdown(bill))}</span>
+        <span class="bill-badge">Stage ends: ${esc(stageCountdown(bill, data.gameState))}</span>
       </div>
     </div>
     ${canManage ? `
@@ -176,7 +183,7 @@ function renderBillMeta(bill, data) {
       if (bill.stage !== "First Reading") return;
       bill.stage = "Second Reading";
       bill.stageStartedAt = Date.now();
-      bill.stageDurationMs = DEBATE_WINDOW_MS;
+      bill.stageDeadlineSim = createDeadline(data.gameState, 2);
       persistAndRerender(data, bill);
     });
 
@@ -249,9 +256,11 @@ function isPartyLeader(char = {}) {
   return ["leader-opposition", "party-leader-3rd-4th", "prime-minister"].includes(String(char.role || ""));
 }
 
-function ensureBillStageTimers(bill) {
+function ensureBillStageTimers(bill, gameState) {
   bill.stageStartedAt = Number(bill.stageStartedAt || Date.now());
-  bill.stageDurationMs = Number(bill.stageDurationMs || (DIVISION_STAGES.has(bill.stage) ? DIVISION_WINDOW_MS : DEBATE_WINDOW_MS));
+  if (!bill.stageDeadlineSim && STAGE_DURATION_MONTHS[bill.stage] && gameState) {
+    bill.stageDeadlineSim = createDeadline(gameState, STAGE_DURATION_MONTHS[bill.stage]);
+  }
 }
 
 function getPlayablePartyVotesExpected(data) {
@@ -278,8 +287,9 @@ function getAutoAbstainNpcParties(parties = []) {
 function maybeAutoCloseDivision(bill, data) {
   const division = ensureDivision(bill);
   if (division.status !== "open") return false;
-  const now = Date.now();
-  if (Number(division.closesAt || 0) <= now) {
+  const simExpired = division.closesAtSim && isDeadlinePassed(division.closesAtSim, data.gameState);
+  const msExpired = !division.closesAtSim && Number(division.closesAt || 0) <= Date.now();
+  if (simExpired || msExpired) {
     closeDivision(bill);
     finaliseDivisionOutcome(bill, data);
     return true;
@@ -320,10 +330,9 @@ function renderAmendments(bill, data) {
   if (!root) return;
 
   bill.amendments ??= [];
-  ensureBillStageTimers(bill);
-  const debateEndAt = Number(bill.stageStartedAt || Date.now()) + Number(bill.stageDurationMs || DEBATE_WINDOW_MS);
-  const inLastDay = !DIVISION_STAGES.has(bill.stage) && (debateEndAt - Date.now()) <= LAST_DAY_LOCK_MS;
-  const amendLocked = AMENDMENT_LOCK_STAGES.has(bill.stage) || inLastDay;
+  ensureBillStageTimers(bill, data.gameState);
+  const inLastMonth = !DIVISION_STAGES.has(bill.stage) && bill.stageDeadlineSim && simMonthsRemaining(bill.stageDeadlineSim, data.gameState) <= 0;
+  const amendLocked = AMENDMENT_LOCK_STAGES.has(bill.stage) || inLastMonth;
   const canSubmit = canProposeAmendment(data) && !amendLocked;
   const canAuthorAct = canAuthorManageAmendments(bill, data);
   const char = getCurrentCharacter(data);
@@ -334,8 +343,8 @@ function renderAmendments(bill, data) {
     <div class="docket-list">${bill.amendments.length ? bill.amendments.map(amendmentRow).join("") : '<div class="muted-block">No amendments submitted yet.</div>'}</div>
     <hr>
     <h3 style="margin:0 0 8px;">Submit amendment</h3>
-    ${inLastDay ? '<div class="muted-block">Amendments are locked in the last 24 hours of debate.</div>' : ""}
-    ${amendLocked && !inLastDay ? '<div class="muted-block">Amendments are closed at this stage.</div>' : ""}
+    ${inLastMonth ? '<div class="muted-block">Amendments are locked — debate deadline has passed.</div>' : ""}
+    ${amendLocked && !inLastMonth ? '<div class="muted-block">Amendments are closed at this stage.</div>' : ""}
     ${!canSubmit && !amendLocked ? '<div class="muted-block">Your role cannot submit amendments at this time.</div>' : ""}
     ${canSubmit ? `
       <form id="amendmentForm" class="form-grid">
@@ -412,7 +421,7 @@ ${text || ""}`.trim();
   root.querySelectorAll(".docket-item").forEach((node, idx) => {
     const am = bill.amendments[idx];
     if (!am) return;
-    if (am.status === "in-division" && am.division?.status === "open" && Number(am.division.closesAt || 0) <= Date.now()) {
+    if (am.status === "in-division" && am.division?.status === "open" && (am.division.closesAtSim ? isDeadlinePassed(am.division.closesAtSim, data.gameState) : Number(am.division.closesAt || 0) <= Date.now())) {
       am.status = "refused";
       am.division.status = "closed";
     }
@@ -430,7 +439,7 @@ ${text || ""}`.trim();
     }
     if (am.status === "in-division") {
       node.insertAdjacentHTML("beforeend", `
-        <div class="muted" style="margin-top:8px;">Amendment division closes in ${esc(msToHuman(Number(am.division?.closesAt || 0) - Date.now()))}.</div>
+        <div class="muted" style="margin-top:8px;">Amendment division closes in ${esc(am.division?.closesAtSim ? countdownToSimMonth(am.division.closesAtSim.month, am.division.closesAtSim.year, data.gameState) : msToHuman(Number(am.division?.closesAt || 0) - Date.now()))}.</div>
         ${isSpeaker(data) ? '<div style="margin-top:6px;display:flex;gap:8px;"><button class="btn" data-am-action="pass-division" data-am-id="'+esc(am.id)+'" type="button">Speaker: Pass Amendment</button><button class="btn danger" data-am-action="fail-division" data-am-id="'+esc(am.id)+'" type="button">Speaker: Fail Amendment</button></div>' : ''}
       `);
     }
@@ -465,7 +474,7 @@ ${am.text || ""}`.trim();
       const leaders = new Set(Array.isArray(am.supporters) ? am.supporters : []);
       if (leaders.size >= 2) {
         am.status = "in-division";
-        am.division = ensureDivision(am, { status: "open", openedAt: Date.now(), closesAt: Date.now() + DIVISION_WINDOW_MS });
+        am.division = ensureDivision(am, { status: "open", openedAt: Date.now(), closesAtSim: createDeadline(data.gameState, 1) });
       } else {
         am.status = "refused";
       }
@@ -504,7 +513,9 @@ function renderDivision(bill, data) {
     return;
   }
 
-  const division = ensureDivision(bill, { status: "open", openedAt: Number(bill.stageStartedAt || Date.now()), closesAt: Number(bill.stageStartedAt || Date.now()) + DIVISION_WINDOW_MS });
+  const divDefaults = { status: "open", openedAt: Number(bill.stageStartedAt || Date.now()) };
+  if (bill.stageDeadlineSim) divDefaults.closesAtSim = bill.stageDeadlineSim;
+  const division = ensureDivision(bill, divDefaults);
   maybeAutoCloseDivision(bill, data);
   finaliseDivisionOutcome(bill, data);
   const totals = tallyDivision(bill, data);
@@ -526,7 +537,7 @@ function renderDivision(bill, data) {
 
   voting.innerHTML = `
     <h2>Division</h2>
-    <p class="muted">Weighted division. Vote closes in <b>${esc(msToHuman(Number(division.closesAt || 0) - now))}</b> or early once all playable and NPC allocations are recorded.</p>
+    <p class="muted">Weighted division. Vote closes in <b>${esc(division.closesAtSim ? countdownToSimMonth(division.closesAtSim.month, division.closesAtSim.year, data.gameState) : msToHuman(Number(division.closesAt || 0) - now))}</b> or early once all playable and NPC allocations are recorded.</p>
     <p class="muted">Your current vote weight: <b>${esc(myWeight.toFixed(2))}</b>. Absent members transfer weight to their party leader; if the leader is absent, delegated votes apply.</p>
     ${pendingAmendmentDivisions ? `<p class="muted">Main bill division paused until amendment divisions are finished.</p>` : ""}
     ${!partyMeta.playable ? `<p class="muted">Your party is NPC in this cycle; only Speaker allocation applies.</p>` : ""}
@@ -613,7 +624,7 @@ function renderDivision(bill, data) {
     bill.stage = "Passed - Awaiting Assent";
     bill.divisionOutcome = "passed";
     bill.divisionResolvedAt = Date.now();
-    bill.finalStage = bill.finalStage || "Third Reading Division";
+    bill.finalStage = bill.finalStage || "Final Division";
     persistAndRerender(data, bill);
   });
 }
@@ -631,6 +642,35 @@ function persistAndRerender(data, bill, rerenderAll = true) {
   }
 }
 
+function autoAdvanceStage(bill, data) {
+  if (bill.status === "failed" || bill.status === "passed" || bill.status === "awaiting-assent") return false;
+  const deadline = bill.stageDeadlineSim;
+  if (!deadline) return false;
+  const expired = isDeadlinePassed(deadline, data.gameState);
+  if (!expired) return false;
+
+  let changed = false;
+  if (bill.stage === "Second Reading") {
+    bill.stage = "Report Stage";
+    bill.stageStartedAt = Date.now();
+    bill.stageDeadlineSim = createDeadline(data.gameState, 1);
+    changed = true;
+  } else if (bill.stage === "Report Stage") {
+    bill.stage = "Report Debate";
+    bill.stageStartedAt = Date.now();
+    bill.stageDeadlineSim = createDeadline(data.gameState, 2);
+    changed = true;
+  } else if (bill.stage === "Report Debate") {
+    bill.stage = "Final Division";
+    bill.stageStartedAt = Date.now();
+    bill.stageDeadlineSim = createDeadline(data.gameState, 1);
+    changed = true;
+  }
+
+  if (changed) saveData(data);
+  return changed;
+}
+
 export function initBillPage(data) {
   const billId = getBillIdFromUrl();
   const bill = (data?.orderPaperCommons || []).find((b) => b.id === billId) || (data?.orderPaperCommons || [])[0];
@@ -642,6 +682,9 @@ export function initBillPage(data) {
     if (meta) meta.innerHTML = '<div class="muted-block">No bill data is available in demo.json.</div>';
     return;
   }
+
+  // Auto-advance expired stages
+  while (autoAdvanceStage(bill, data)) { /* advance until current stage is not expired */ }
 
   renderBillMeta(bill, data);
   renderBillText(bill);

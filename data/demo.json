@@ -8,7 +8,8 @@
     "startRealDate": "2026-02-16T00:00:00Z",
     "startSimMonth": 8,
     "startSimYear": 1997,
-    "isPaused": false
+    "isPaused": false,
+    "pausedAtRealDate": ""
   },
   "parliament": {
     "totalSeats": 650,
