@@ -4,45 +4,65 @@ import { pool } from "./db.js";
 
 const app = express();
 
+/**
+ * -----------------------------
+ * 1) Basic middleware
+ * -----------------------------
+ */
 app.use(express.json({ limit: "2mb" }));
 
-// ✅ IMPORTANT: CORS so your UI can call your API
-// Put BOTH your Render UI URL + your custom domain (if different)
-const allow = new Set([
+/**
+ * -----------------------------
+ * 2) CORS (allow your UI domains)
+ * -----------------------------
+ * Add any other front-end URLs here if needed.
+ */
+const ALLOWED_ORIGINS = new Set([
   "https://rulebritannia.org",
-  "https://www.rulebritannia.org"
-  // Add your Render static site URL too if it’s different, e.g.
-  // "https://rulebritannia-ui.onrender.com"
+  "https://www.rulebritannia.org",
+  // If your UI is also on a Render URL, add it here too, e.g.
+  // "https://rulebritannia-app.onrender.com"
 ]);
 
 app.use(
   cors({
     origin(origin, cb) {
-      // allow same-origin / server-to-server / curl
+      // allow same-origin / server-to-server / curl / Postman
       if (!origin) return cb(null, true);
-      if (allow.has(origin)) return cb(null, true);
-      return cb(new Error("CORS blocked: " + origin));
-    }
+
+      if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+
+      return cb(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: false,
   })
 );
 
+/**
+ * -----------------------------
+ * 3) Health + sanity endpoints
+ * -----------------------------
+ * Render / browsers can hit these to confirm server is alive.
+ */
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
+
 app.get("/db-test", async (req, res) => {
   try {
-    const result = await pool.query("SELECT NOW()");
-    res.json({
-      ok: true,
-      time: result.rows[0].now
-    });
+    const result = await pool.query("SELECT NOW() AS now");
+    res.json({ ok: true, time: result.rows[0].now });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      ok: false,
-      error: err.message
-    });
+    console.error("[db-test]", err);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// Create table if missing (simple boot-time safety)
+/**
+ * -----------------------------
+ * 4) DB schema bootstrap
+ * -----------------------------
+ */
 async function ensureSchema() {
   const sql = `
     CREATE TABLE IF NOT EXISTS app_state (
@@ -54,35 +74,62 @@ async function ensureSchema() {
   await pool.query(sql);
 }
 
-// Read the entire sim state (single row)
+/**
+ * -----------------------------
+ * 5) API: read state
+ * -----------------------------
+ * GET /api/state -> { data, updatedAt }
+ */
 app.get("/api/state", async (req, res) => {
   try {
     const { rows } = await pool.query(
       "SELECT data, updated_at FROM app_state WHERE id = $1",
       ["main"]
     );
-    if (!rows.length) return res.status(404).json({ error: "No state yet" });
-    res.json({ data: rows[0].data, updatedAt: rows[0].updated_at });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Server error" });
+
+    if (!rows.length) {
+      return res.status(404).json({ ok: false, error: "No state yet" });
+    }
+
+    res.json({
+      ok: true,
+      data: rows[0].data,
+      updatedAt: rows[0].updated_at,
+    });
+  } catch (err) {
+    console.error("[GET /api/state]", err);
+    res.status(500).json({ ok: false, error: "Server error" });
   }
 });
 
-// Write the entire sim state (admin-only token for now)
+/**
+ * -----------------------------
+ * 6) API: write state (protected)
+ * -----------------------------
+ * POST /api/state
+ * Headers: x-admin-token: <ADMIN_TOKEN>
+ * Body: { data: <object> }
+ */
 app.post("/api/state", async (req, res) => {
   try {
-    const token = req.header("x-admin-token") || "";
-    if (!process.env.ADMIN_TOKEN) {
-      return res.status(500).json({ error: "ADMIN_TOKEN not set on server" });
+    const expected = process.env.ADMIN_TOKEN || "";
+    if (!expected) {
+      return res
+        .status(500)
+        .json({ ok: false, error: "ADMIN_TOKEN is not set on the server" });
     }
-    if (token !== process.env.ADMIN_TOKEN) {
-      return res.status(401).json({ error: "Unauthorized" });
+
+    const provided = req.header("x-admin-token") || "";
+    if (provided !== expected) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
     const data = req.body?.data;
-    if (!data || typeof data !== "object") {
-      return res.status(400).json({ error: "Body must be { data: <object> }" });
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      return res.status(400).json({
+        ok: false,
+        error: "Body must be JSON: { data: <object> }",
+      });
     }
 
     await pool.query(
@@ -97,12 +144,17 @@ app.post("/api/state", async (req, res) => {
     );
 
     res.json({ ok: true });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Server error" });
+  } catch (err) {
+    console.error("[POST /api/state]", err);
+    res.status(500).json({ ok: false, error: "Server error" });
   }
 });
 
+/**
+ * -----------------------------
+ * 7) Start server after schema ready
+ * -----------------------------
+ */
 const PORT = process.env.PORT || 3000;
 
 ensureSchema()
@@ -111,7 +163,7 @@ ensureSchema()
       console.log(`[server] listening on :${PORT}`);
     });
   })
-  .catch((e) => {
-    console.error("[server] schema init failed", e);
+  .catch((err) => {
+    console.error("[server] schema init failed", err);
     process.exit(1);
   });
