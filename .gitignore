@@ -1,1 +1,4 @@
+# env files
 .env
+server/.env
+**/.env
