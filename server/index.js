@@ -26,7 +26,21 @@ app.use(
   })
 );
 
-app.get("/health", (req, res) => res.json({ ok: true }));
+app.get("/db-test", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT NOW()");
+    res.json({
+      ok: true,
+      time: result.rows[0].now
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      ok: false,
+      error: err.message
+    });
+  }
+});
 
 // Create table if missing (simple boot-time safety)
 async function ensureSchema() {
