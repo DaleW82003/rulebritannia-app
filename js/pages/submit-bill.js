@@ -1,5 +1,5 @@
 import { saveData } from "../core.js";
-import { getSimDate } from "../clock.js";
+import { getSimDate, createDeadline } from "../clock.js";
 import { esc } from "../ui.js";
 
 const DEPARTMENTS = [
@@ -301,7 +301,7 @@ export function initSubmitBillPage(data) {
       status: "in-progress",
       createdAt: now,
       stageStartedAt: now,
-      stageDurationMs: stage === "Second Reading" ? 144 * 60 * 60 * 1000 : 72 * 60 * 60 * 1000,
+      stageDeadlineSim: createDeadline(data.gameState, stage === "Second Reading" ? 2 : 1),
       billText: buildBillText(form, articleCount, data),
       amendments: [],
       hansard: {},

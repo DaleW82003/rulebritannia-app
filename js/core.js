@@ -39,7 +39,8 @@ export function saveData(data) {
 export function ensureDefaults(data) {
   // Defensive defaults so pages never "blank" because one field is missing.
   // Null-coalescing for missing keys + type guards for critical arrays/objects.
-  data.gameState ??= { started: false, startRealDate: "", startSimMonth: 8, startSimYear: 1997, isPaused: false };
+  data.gameState ??= { started: false, startRealDate: "", startSimMonth: 8, startSimYear: 1997, isPaused: false, pausedAtRealDate: "" };
+  data.gameState.pausedAtRealDate ??= "";
   data.adminSettings ??= { monarchGender: "Queen" };
   data.adminSettings.monarchGender ??= "Queen";
 

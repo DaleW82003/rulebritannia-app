@@ -1,11 +1,9 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker } from "../permissions.js";
-
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-];
+import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
+         formatSimMonthYear, isDeadlinePassed, compareSimDates,
+         countdownToSimMonth } from "../clock.js";
 
 const GOVERNMENT_OFFICES = new Set([
   "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade", "defence", "welfare", "education", "env-agri", "health", "eti", "culture", "home-nations"
@@ -27,16 +25,13 @@ function ensureMotions(data) {
   data.motions.nextEdmNumber ??= data.motions.edm.length + 1;
 }
 
-function simInfo(data) {
-  const gs = data?.gameState || {};
-  const month = Number(gs.startSimMonth ?? 8);
-  const year = Number(gs.startSimYear ?? 1997);
-  return { month, year, label: `${MONTHS[(month - 1 + 12) % 12]} ${year}` };
-}
-
-function plusMonths(month, year, add) {
-  const n = (year * 12) + (month - 1) + add;
-  return { month: (n % 12) + 1, year: Math.floor(n / 12), label: `${MONTHS[(n % 12 + 12) % 12]} ${Math.floor(n / 12)}` };
+function simNow(data) {
+  const raw = getSimDate(data.gameState);
+  return {
+    month: raw.monthIndex + 1,
+    year: raw.year,
+    label: formatSimMonthYear(data.gameState)
+  };
 }
 
 function discussionUrl(kind, number, title) {
@@ -52,8 +47,24 @@ export function initMotionsPage(data) {
   if (!root) return;
 
   ensureMotions(data);
-  const sim = simInfo(data);
+  const sim = simNow(data);
   const char = getCharacter(data);
+  const simCurrentObj = simDateToObj(getSimDate(data.gameState));
+
+  // Auto-archive expired house motions and EDMs
+  for (const m of data.motions.house) {
+    if (m.status !== "archived" && m.division?.endSimObj && compareSimDates(simCurrentObj, m.division.endSimObj) >= 0 && m.division?.status === "open") {
+      m.division.status = "closed";
+      m.status = "archived";
+      m.archivedAtSim = sim.label;
+    }
+  }
+  for (const m of data.motions.edm) {
+    if (m.status !== "archived" && m.closesAtSimObj && compareSimDates(simCurrentObj, m.closesAtSimObj) >= 0) {
+      m.status = "archived";
+      m.archivedAtSim = sim.label;
+    }
+  }
 
   const house = data.motions.house.slice().sort((a, b) => Number(b.number || 0) - Number(a.number || 0));
   const edm = data.motions.edm.slice().sort((a, b) => Number(b.number || 0) - Number(a.number || 0));
@@ -97,7 +108,7 @@ export function initMotionsPage(data) {
       ${openHouse.length ? openHouse.map((m) => `
         <article class="tile" style="margin-bottom:10px;">
           <div><b>Motion ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author)}</span></div>
-          <div class="muted" style="margin-top:6px;">Debate: ${esc(m.debateStartSim || "—")} → ${esc(m.debateEndSim || "—")}</div>
+          <div class="muted" style="margin-top:6px;">Debate: ${esc(m.debateStartSim || "—")} → ${esc(m.debateEndSim || "—")}${m.debateEndSimObj ? ` (${countdownToSimMonth(m.debateEndSimObj.month, m.debateEndSimObj.year, data.gameState)})` : ""}</div>
           <div class="tile-bottom"><a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a></div>
         </article>`).join("") : `<p class="muted">No current house motions.</p>`}
     </section>
@@ -107,6 +118,7 @@ export function initMotionsPage(data) {
       ${openEdm.length ? openEdm.map((m) => `
         <article class="tile" style="margin-bottom:10px;">
           <div><b>EDM ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author)}</span></div>
+          <div class="muted" style="margin-top:6px;">Open: ${esc(m.openedAtSim || "—")} → ${esc(m.closesAtSim || "—")}${m.closesAtSimObj ? ` (${countdownToSimMonth(m.closesAtSimObj.month, m.closesAtSimObj.year, data.gameState)})` : ""}</div>
           <div class="tile-bottom"><a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a></div>
         </article>`).join("") : `<p class="muted">No current EDMs.</p>`}
     </section>
@@ -128,8 +140,8 @@ export function initMotionsPage(data) {
     if (!title || !body) return;
 
     const number = Number(data.motions.nextHouseNumber || (data.motions.house.length + 1));
-    const debateEnd = plusMonths(sim.month, sim.year, 2);
-    const divisionEnd = plusMonths(debateEnd.month, debateEnd.year, 1);
+    const debateEndObj = plusSimMonths(sim.month, sim.year, 2);
+    const divisionEndObj = plusSimMonths(debateEndObj.month, debateEndObj.year, 1);
     const id = `motion-${Date.now()}`;
 
     data.motions.house.push({
@@ -140,9 +152,10 @@ export function initMotionsPage(data) {
       body,
       status: "open",
       debateStartSim: sim.label,
-      debateEndSim: debateEnd.label,
+      debateEndSim: formatSimDate(debateEndObj),
+      debateEndSimObj: debateEndObj,
       debateUrl: discussionUrl("motion", number, title),
-      division: { status: "open", startSim: debateEnd.label, endSim: divisionEnd.label, votes: {}, rebelsByParty: {}, npcVotes: {} }
+      division: { status: "open", startSim: formatSimDate(debateEndObj), endSim: formatSimDate(divisionEndObj), endSimObj: divisionEndObj, votes: {}, rebelsByParty: {}, npcVotes: {} }
     });
     data.motions.nextHouseNumber = number + 1;
     saveData(data);
@@ -157,6 +170,7 @@ export function initMotionsPage(data) {
     if (!title || !body) return;
 
     const number = Number(data.motions.nextEdmNumber || (data.motions.edm.length + 1));
+    const closesAtObj = plusSimMonths(sim.month, sim.year, 2);
     const id = `edm-${Date.now()}`;
 
     data.motions.edm.push({
@@ -166,6 +180,9 @@ export function initMotionsPage(data) {
       author: char?.name || "MP",
       body,
       status: "open",
+      openedAtSim: sim.label,
+      closesAtSim: formatSimDate(closesAtObj),
+      closesAtSimObj: closesAtObj,
       signatures: [],
       npcSignatures: {}
     });

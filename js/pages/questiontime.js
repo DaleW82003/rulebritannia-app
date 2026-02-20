@@ -1,23 +1,10 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime } from "../permissions.js";
-
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-];
-
-const SIM_MONTH_MS = 72 * 60 * 60 * 1000;
+import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
 
 function nowId(prefix = "id") {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-}
-
-function getSimLabel(data) {
-  const gs = data?.gameState || {};
-  const monthIndex = Number(gs.startSimMonth ?? 8);
-  const year = Number(gs.startSimYear ?? 1997);
-  return `${MONTHS[(monthIndex - 1 + 12) % 12]} ${year}`;
 }
 
 function getCurrentCharacter(data) {
@@ -181,7 +168,7 @@ function render(data, state) {
   const preselect = urlQuestionId ? questions.find((q) => q.id === urlQuestionId) : null;
   const selectedOfficeId = state.selectedOfficeId || preselect?.office || offices[0]?.id;
   const selectedOffice = offices.find((o) => o.id === selectedOfficeId) || offices[0];
-  const simLabel = getSimLabel(data);
+  const simLabel = formatSimMonthYear(data.gameState);
 
   if (!selectedOffice) {
     root.innerHTML = `<div class="muted-block">No Question Time offices configured in demo.json.</div>`;
@@ -201,8 +188,9 @@ function render(data, state) {
     if (q.id === urlQuestionId && q.answer && !q.answerSeenByAsker && String(q.askedBy || "") === String(getCurrentCharacter(data)?.name || "")) {
       q.answerSeenByAsker = true;
     }
-    if (!q.answer && !q.speakerDemandedAtTs && Number(q.createdAtTs || 0) > 0 && (Date.now() - Number(q.createdAtTs || 0)) > SIM_MONTH_MS) {
-      q.speakerDemandAvailable = true;
+    if (!q.answer && !q.speakerDemandedAtTs) {
+      const overdue = q.dueAtSim ? isDeadlinePassed(q.dueAtSim, data.gameState) : (Number(q.createdAtTs || 0) > 0 && (Date.now() - Number(q.createdAtTs || 0)) > 72 * 60 * 60 * 1000);
+      if (overdue) q.speakerDemandAvailable = true;
     }
   });
 
@@ -285,7 +273,7 @@ function render(data, state) {
       askedRole: normaliseRole(char?.role || "backbencher"),
       askedAtSim: simLabel,
       createdAtTs: Date.now(),
-      dueAtTs: Date.now() + SIM_MONTH_MS,
+      dueAtSim: createDeadline(data.gameState, 1),
       text,
       status: "submitted",
       answer: "",
@@ -382,7 +370,7 @@ function render(data, state) {
       if (!question || question.answer || question.archived) return;
       question.speakerDemandedAtTs = Date.now();
       question.speakerDemandedAtSim = simLabel;
-      question.demandDueAtTs = Date.now() + SIM_MONTH_MS;
+      question.demandDueAtSim = createDeadline(data.gameState, 1);
       question.speakerDemandAvailable = false;
       saveData(data);
       render(data, state);

@@ -1,5 +1,8 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
+import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
+         formatSimMonthYear, isDeadlinePassed, compareSimDates,
+         countdownToSimMonth } from "../clock.js";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -27,16 +30,13 @@ function getCharacter(data) {
   return data?.currentCharacter || data?.currentPlayer || {};
 }
 
-function sim(data) {
-  const gs = data?.gameState || {};
-  const month = Number(gs.startSimMonth ?? 8);
-  const year = Number(gs.startSimYear ?? 1997);
-  return { month, year, label: `${MONTHS[(month - 1 + 12) % 12]} ${year}` };
-}
-
-function plusMonths(month, year, add) {
-  const z = (year * 12) + (month - 1) + add;
-  return { month: (z % 12) + 1, year: Math.floor(z / 12), label: `${MONTHS[((z % 12) + 12) % 12]} ${Math.floor(z / 12)}` };
+function simNow(data) {
+  const raw = getSimDate(data.gameState);
+  return {
+    month: raw.monthIndex + 1,
+    year: raw.year,
+    label: formatSimMonthYear(data.gameState)
+  };
 }
 
 function canMakeRegulation(data) {
@@ -61,7 +61,16 @@ export function initRegulationsPage(data) {
 
   ensureRegulations(data);
   const char = getCharacter(data);
-  const simNow = sim(data);
+  const simCurrent = simNow(data);
+
+  // Auto-close regulations whose deadline has passed
+  const simCurrentObj = simDateToObj(getSimDate(data.gameState));
+  for (const r of data.regulations.items) {
+    if (r.status === "open" && r.debateClosesAtSimObj && compareSimDates(simCurrentObj, r.debateClosesAtSimObj) >= 0) {
+      r.status = "closed";
+      r.closedAtSim = simCurrent.label;
+    }
+  }
   const canSubmit = canMakeRegulation(data);
   const office = char?.office;
   const myDepartment = OFFICE_DEPARTMENT[office] || "";
@@ -92,9 +101,9 @@ export function initRegulationsPage(data) {
           <label class="label" for="reg-force-month">Comes into force (month/year)</label>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
             <select id="reg-force-month" class="input" name="forceMonth">
-              ${MONTHS.map((m, idx) => `<option value="${idx + 1}" ${idx + 1 === simNow.month + 1 ? "selected" : ""}>${esc(m)}</option>`).join("")}
+              ${MONTHS.map((m, idx) => `<option value="${idx + 1}" ${idx + 1 === simCurrent.month + 1 ? "selected" : ""}>${esc(m)}</option>`).join("")}
             </select>
-            <input id="reg-force-year" class="input" type="number" name="forceYear" min="${simNow.year}" value="${simNow.year}">
+            <input id="reg-force-year" class="input" type="number" name="forceYear" min="${simCurrent.year}" value="${simCurrent.year}">
           </div>
 
           <label class="label" for="reg-body">Regulation body</label>
@@ -110,7 +119,7 @@ export function initRegulationsPage(data) {
       ${openItems.length ? openItems.map((r) => `
         <article class="tile" style="margin-bottom:10px;">
           <div><b>${esc(r.department)} Regulation ${esc(r.regulationNumber)}</b>: ${esc(r.shortTitle)} <span class="muted">by ${esc(r.author)}</span></div>
-          <div class="muted" style="margin-top:6px;">Laid: ${esc(r.laidAtSim || "—")} • In force: ${esc(r.comesIntoForce || "—")}</div>
+          <div class="muted" style="margin-top:6px;">Laid: ${esc(r.laidAtSim || "—")} • In force: ${esc(r.comesIntoForce || "—")} • Debate closes: ${esc(r.debateClosesAtSim || "—")}${r.debateClosesAtSimObj && r.status !== "closed" ? ` (${countdownToSimMonth(r.debateClosesAtSimObj.month, r.debateClosesAtSimObj.year, data.gameState)})` : ""}</div>
           <div class="tile-bottom"><a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a></div>
         </article>
       `).join("") : `<p class="muted">No current regulations.</p>`}
@@ -135,13 +144,13 @@ export function initRegulationsPage(data) {
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
     const body = String(fd.get("body") || "").trim();
-    const forceMonth = Number(fd.get("forceMonth") || simNow.month);
-    const forceYear = Number(fd.get("forceYear") || simNow.year);
+    const forceMonth = Number(fd.get("forceMonth") || simCurrent.month);
+    const forceYear = Number(fd.get("forceYear") || simCurrent.year);
     if (!title || !body) return;
 
-    const yearNumber = nextYearNumber(data, simNow.year);
-    const regNo = `${simNow.year}/No ${yearNumber}`;
-    const debateEnd = plusMonths(simNow.month, simNow.year, 2);
+    const yearNumber = nextYearNumber(data, simCurrent.year);
+    const regNo = `${simCurrent.year}/No ${yearNumber}`;
+    const debateEnd = plusSimMonths(simCurrent.month, simCurrent.year, 2);
 
     const regulation = {
       id: `reg-${Date.now()}-${data.regulations.nextId}`,
@@ -149,14 +158,15 @@ export function initRegulationsPage(data) {
       office,
       regulationNumber: regNo,
       yearNumber,
-      simYear: simNow.year,
+      simYear: simCurrent.year,
       shortTitle: title,
       author: char?.name || "Minister",
       body,
-      laidAtSim: simNow.label,
+      laidAtSim: simCurrent.label,
       comesIntoForce: `${MONTHS[(forceMonth - 1 + 12) % 12]} ${forceYear}`,
       debateUrl: `https://forum.rulebritannia.org/t/reg-${encodeURIComponent(regNo)}-${encodeURIComponent(title.toLowerCase().replaceAll(" ", "-"))}`,
-      debateClosesAtSim: debateEnd.label,
+      debateClosesAtSim: formatSimDate(debateEnd.month, debateEnd.year),
+      debateClosesAtSimObj: { month: debateEnd.month, year: debateEnd.year },
       status: "open"
     };
 

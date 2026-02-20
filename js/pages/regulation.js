@@ -2,18 +2,7 @@ import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker } from "../permissions.js";
 import { ensureRegulations } from "./regulations.js";
-
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"
-];
-
-function simLabel(data) {
-  const gs = data?.gameState || {};
-  const month = Number(gs.startSimMonth ?? 8);
-  const year = Number(gs.startSimYear ?? 1997);
-  return `${MONTHS[(month - 1 + 12) % 12]} ${year}`;
-}
+import { formatSimMonthYear, isDeadlinePassed, countdownToSimMonth } from "../clock.js";
 
 function getId() {
   return new URL(window.location.href).searchParams.get("id");
@@ -27,7 +16,13 @@ export function initRegulationPage(data) {
   const id = getId();
   const item = data.regulations.items.find((r) => r.id === id) || data.regulations.items[0] || null;
   const speaker = isSpeaker(data);
-  const sim = simLabel(data);
+
+  // Auto-close if debate deadline passed
+  if (item && item.status !== "closed" && item.debateClosesAtSimObj && isDeadlinePassed(item.debateClosesAtSimObj, data.gameState)) {
+    item.status = "closed";
+    item.closedAtSim = formatSimMonthYear(data.gameState);
+    saveData(data);
+  }
 
   if (!item) {
     root.innerHTML = `<div class="muted-block">No regulations available.</div>`;
@@ -38,7 +33,7 @@ export function initRegulationPage(data) {
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">${esc(item.department)} Regulation ${esc(item.regulationNumber)}: ${esc(item.shortTitle)}</h2>
       <p class="muted">By ${esc(item.author)} • Status: ${esc(item.status === "closed" ? "Debate Closed" : "Debate Open")}</p>
-      <p class="muted">Laid: ${esc(item.laidAtSim || "—")} • In force: ${esc(item.comesIntoForce || "—")} • Debate closes: ${esc(item.debateClosesAtSim || "—")}</p>
+      <p class="muted">Laid: ${esc(item.laidAtSim || "—")} • In force: ${esc(item.comesIntoForce || "—")} • Debate closes: ${esc(item.debateClosesAtSim || "—")}${item.debateClosesAtSimObj && item.status !== "closed" ? ` (${countdownToSimMonth(item.debateClosesAtSimObj.month, item.debateClosesAtSimObj.year, data.gameState)})` : ""}</p>
       ${item.closedAtSim ? `<p class="muted">Closed at: ${esc(item.closedAtSim)}</p>` : ""}
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
         <a class="btn" href="${esc(item.debateUrl || "#")}" target="_blank" rel="noopener">Open Debate</a>
@@ -83,7 +78,7 @@ export function initRegulationPage(data) {
   root.querySelector("[data-action='close-early']")?.addEventListener("click", () => {
     if (!speaker || item.status === "closed") return;
     item.status = "closed";
-    item.closedAtSim = sim;
+    item.closedAtSim = formatSimMonthYear(data.gameState);
     saveData(data);
     initRegulationPage(data);
   });
