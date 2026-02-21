@@ -7,10 +7,6 @@ import { pool } from "./db.js";
 
 const app = express();
 app.set("trust proxy", 1);
-
-// Render needs this so secure cookies work behind its proxy
-app.set("trust proxy", 1);
-
 app.use(express.json({ limit: "2mb" }));
 
 /**
