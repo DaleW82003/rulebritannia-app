@@ -4,6 +4,7 @@ import {
   apiLogout, apiGetState, apiGetConfig, apiSaveConfig,
   apiGetSnapshots, apiSaveSnapshot, apiRestoreSnapshot,
   apiGetAuditLog,
+  apiGetDiscourseConfig, apiSaveDiscourseConfig, apiTestDiscourse,
 } from "../api.js";
 import { logAction } from "../audit.js";
 
@@ -20,6 +21,7 @@ export async function initAdminPanelPage(data) {
   let auditEntries = [];
   let auditTotal = 0;
   let auditFilters = { action: "", target: "", limit: 50, offset: 0 };
+  let discourseConfig = { base_url: "", has_api_key: false, has_api_username: false };
 
   async function loadConfig() {
     try {
@@ -28,6 +30,14 @@ export async function initAdminPanelPage(data) {
     } catch (err) {
       console.error("Failed to load config:", err);
       currentConfig = {};
+    }
+  }
+
+  async function loadDiscourseConfig() {
+    try {
+      discourseConfig = await apiGetDiscourseConfig();
+    } catch (err) {
+      console.error("Failed to load discourse config:", err);
     }
   }
 
@@ -74,6 +84,46 @@ export async function initAdminPanelPage(data) {
       </div>`
       )
       .join("\n");
+  }
+
+  function renderDiscourseSection(status) {
+    const keyPlaceholder     = discourseConfig.has_api_key      ? "(already set — leave blank to keep)" : "Paste API key…";
+    const userPlaceholder    = discourseConfig.has_api_username  ? "(already set — leave blank to keep)" : "system";
+    const testResult         = status && status.startsWith("disc-test:") ? status.slice(10) : "";
+    const saveResult         = status && status.startsWith("disc-save:") ? status.slice(10) : "";
+
+    return `
+      <section class="panel" style="max-width:600px;margin-top:12px;">
+        <h2 style="margin-top:0;">Discourse Integration</h2>
+        <form id="discourse-config-form" style="display:flex;flex-direction:column;gap:10px;">
+          <div class="kv" style="align-items:center;gap:8px;">
+            <label for="disc-base-url" style="min-width:200px;">Discourse Base URL</label>
+            <input id="disc-base-url" name="base_url" type="url"
+                   value="${esc(discourseConfig.base_url || "")}"
+                   placeholder="https://forum.rulebritannia.org"
+                   style="flex:1;padding:4px 8px;border:1px solid #ccc;border-radius:4px;" />
+          </div>
+          <div class="kv" style="align-items:center;gap:8px;">
+            <label for="disc-api-key" style="min-width:200px;">API Key</label>
+            <input id="disc-api-key" name="api_key" type="password"
+                   placeholder="${esc(keyPlaceholder)}"
+                   autocomplete="new-password"
+                   style="flex:1;padding:4px 8px;border:1px solid #ccc;border-radius:4px;" />
+          </div>
+          <div class="kv" style="align-items:center;gap:8px;">
+            <label for="disc-api-username" style="min-width:200px;">API Username</label>
+            <input id="disc-api-username" name="api_username" type="text"
+                   placeholder="${esc(userPlaceholder)}"
+                   style="flex:1;padding:4px 8px;border:1px solid #ccc;border-radius:4px;" />
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn" type="submit">Save</button>
+            <button class="btn" id="btn-discourse-test" type="button">Test Connection</button>
+          </div>
+        </form>
+        ${saveResult ? `<div style="margin-top:10px;font-size:13px;">${esc(saveResult)}</div>` : ""}
+        <div id="discourse-test-result" style="margin-top:10px;font-size:13px;">${esc(testResult)}</div>
+      </section>`;
   }
 
   function renderSnapshotsList() {
@@ -184,6 +234,8 @@ export async function initAdminPanelPage(data) {
         ${status && status.startsWith("cfg:") ? `<div id="status-msg" style="margin-top:10px;font-size:13px;">${esc(status.slice(4))}</div>` : ""}
       </section>
 
+      ${renderDiscourseSection(status)}
+
       <section class="panel" style="max-width:700px;margin-top:12px;">
         <h2 style="margin-top:0;">State Snapshots</h2>
 
@@ -221,6 +273,40 @@ export async function initAdminPanelPage(data) {
         render("cfg:Config saved.");
       } catch (err) {
         render(`cfg:Error saving config: ${err.message}`);
+      }
+    });
+
+    host.querySelector("#discourse-config-form")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const payload = {};
+      const baseUrl  = form.querySelector("#disc-base-url")?.value?.trim();
+      const apiKey   = form.querySelector("#disc-api-key")?.value;
+      const apiUser  = form.querySelector("#disc-api-username")?.value?.trim();
+      if (baseUrl   !== undefined) payload.base_url     = baseUrl;
+      if (apiKey)                  payload.api_key      = apiKey;
+      if (apiUser)                 payload.api_username = apiUser;
+      try {
+        await apiSaveDiscourseConfig(payload);
+        logAction({ action: "discourse-config-saved", target: "discourse" });
+        await loadDiscourseConfig();
+        render("disc-save:Discourse config saved.");
+      } catch (err) {
+        render(`disc-save:Error saving Discourse config: ${err.message}`);
+      }
+    });
+
+    host.querySelector("#btn-discourse-test")?.addEventListener("click", async () => {
+      const resultEl = host.querySelector("#discourse-test-result");
+      if (resultEl) resultEl.textContent = "Testing…";
+      try {
+        const result = await apiTestDiscourse();
+        const msg = result.ok
+          ? `✓ Connected${result.discourse_title ? ` — "${result.discourse_title}"` : ""}`
+          : `✗ Failed: ${result.error || `HTTP ${result.status}`}`;
+        if (resultEl) resultEl.textContent = msg;
+      } catch (err) {
+        if (resultEl) resultEl.textContent = `Test error: ${err.message}`;
       }
     });
 
@@ -296,6 +382,6 @@ export async function initAdminPanelPage(data) {
     });
   }
 
-  await Promise.all([loadConfig(), loadSnapshots(), loadAuditLog()]);
+  await Promise.all([loadConfig(), loadDiscourseConfig(), loadSnapshots(), loadAuditLog()]);
   render("");
 }
