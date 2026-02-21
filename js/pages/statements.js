@@ -5,6 +5,8 @@ import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
 import { apiCreateDebateTopic } from "../api.js";
+import { tileSection, tileCard } from "../components/tile.js";
+import { toastSuccess } from "../components/toast.js";
 
 const GOVERNMENT_OFFICES = new Set([
   "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade", "defence",
@@ -47,21 +49,20 @@ function statementCard(s, speaker, gameState) {
   const countdown = s.closesAtSimObj && s.status !== "archived"
     ? countdownToSimMonth(s.closesAtSimObj.month, s.closesAtSimObj.year, gameState)
     : "";
-  return `
-    <article class="tile" style="margin-bottom:10px;">
-      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-        <div><b>MS${esc(s.number)}</b>: ${esc(s.title)} <span class="muted">by ${esc(s.author)}</span></div>
-        <div>${esc(badge(s))}</div>
-      </div>
-      <div class="muted" style="margin-top:6px;">Debate window: ${esc(s.openedAtSim || "—")} → ${esc(s.closesAtSim || "—")}${countdown ? ` (${countdown})` : ""}</div>
-      ${s.archivedAtSim ? `<div class="muted" style="margin-top:4px;">Archived ${esc(s.archivedAtSim)}</div>` : ""}
-      <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
-        <a class="btn" href="statement.html?id=${encodeURIComponent(s.id)}">Open</a>
-        ${s.debateUrl ? `<a class="btn" href="${esc(s.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
-        ${speaker && s.status !== "archived" ? `<button class="btn danger" type="button" data-action="archive" data-id="${esc(s.id)}">Archive</button>` : ""}
-      </div>
-    </article>
+  const actions = `
+    <a class="btn" href="statement.html?id=${encodeURIComponent(s.id)}">Open</a>
+    ${s.debateUrl ? `<a class="btn" href="${esc(s.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+    ${speaker && s.status !== "archived" ? `<button class="btn danger" type="button" data-action="archive" data-id="${esc(s.id)}">Archive</button>` : ""}
   `;
+  const body = `
+    <div class="spaced">
+      <div><b>MS${esc(s.number)}</b>: ${esc(s.title)} <span class="muted">by ${esc(s.author)}</span></div>
+      <div>${esc(badge(s))}</div>
+    </div>
+    <div class="muted" style="margin-top:6px;">Debate window: ${esc(s.openedAtSim || "—")} → ${esc(s.closesAtSim || "—")}${countdown ? ` (${countdown})` : ""}</div>
+    ${s.archivedAtSim ? `<div class="muted" style="margin-top:4px;">Archived ${esc(s.archivedAtSim)}</div>` : ""}
+  `;
+  return tileCard({ body, actions, extraClass: "tile-stack" });
 }
 
 function render(data) {
@@ -88,42 +89,45 @@ function render(data) {
   const archivedItems = items.filter((i) => i.status === "archived");
 
   root.innerHTML = `
-    <section class="tile" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Ministerial Statements Guide</h2>
-      <p>Ministerial Statements are used for major policy announcements that are not primary legislation. Statements are numbered automatically as <b>MS1, MS2, ...</b> in chronological sequence.</p>
-      <p>Each statement links to its own debate thread (normally open for <b>2 simulation months</b>). Click <b>Open</b> to view the full statement page and debate link.</p>
-    </section>
+    ${tileSection({
+      title: "Ministerial Statements Guide",
+      body: `<p>Ministerial Statements are used for major policy announcements that are not primary legislation. Statements are numbered automatically as <b>MS1, MS2, ...</b> in chronological sequence.</p>
+        <p>Each statement links to its own debate thread (normally open for <b>2 simulation months</b>). Click <b>Open</b> to view the full statement page and debate link.</p>`
+    })}
 
-    ${submitter ? `
-      <section class="tile" style="margin-bottom:12px;">
-        <h2 style="margin-top:0;">Submit a Ministerial Statement</h2>
-        <form id="statement-submit-form">
-          <label class="label" for="statement-title">Statement title</label>
-          <input id="statement-title" name="title" class="input" required placeholder="Title of the statement" />
+    ${submitter
+      ? tileSection({
+          title: "Submit a Ministerial Statement",
+          body: `
+            <form id="statement-submit-form">
+              <div class="form-row">
+                <label for="statement-title">Statement title</label>
+                <input id="statement-title" name="title" required placeholder="Title of the statement" />
+              </div>
+              <div class="form-row">
+                <label for="statement-body">Statement text</label>
+                <textarea id="statement-body" name="body" rows="6" required placeholder="Write ministerial statement text"></textarea>
+              </div>
+              <button type="submit" class="btn primary">Submit Statement</button>
+            </form>
+            <p class="muted" style="margin-top:8px;">Submitting as ${esc(char?.name || "Government minister")}.</p>
+          `
+        })
+      : tileSection({
+          title: "Submit a Ministerial Statement",
+          body: `<p class="muted">Only members of the Government can submit Ministerial Statements.</p>`
+        })
+    }
 
-          <label class="label" for="statement-body">Statement text</label>
-          <textarea id="statement-body" name="body" class="input" rows="6" required placeholder="Write ministerial statement text"></textarea>
+    ${tileSection({
+      title: "Current Statements",
+      body: openItems.length ? openItems.map((s) => statementCard(s, speaker, data.gameState)).join("") : `<p class="muted">No active statements.</p>`
+    })}
 
-          <button type="submit" class="btn">Submit Statement</button>
-        </form>
-        <p class="muted" style="margin-top:8px;">Submitting as ${esc(char?.name || "Government minister")}.</p>
-      </section>
-    ` : `
-      <section class="tile" style="margin-bottom:12px;">
-        <h2 style="margin-top:0;">Submit a Ministerial Statement</h2>
-        <p class="muted">Only members of the Government can submit Ministerial Statements.</p>
-      </section>
-    `}
-
-    <section class="tile" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Current Statements</h2>
-      ${openItems.length ? openItems.map((s) => statementCard(s, speaker, data.gameState)).join("") : `<p class="muted">No active statements.</p>`}
-    </section>
-
-    <section class="tile" style="margin-top:20px;">
-      <h2 style="margin-top:0;">Archive</h2>
-      ${archivedItems.length ? archivedItems.map((s) => statementCard(s, false, data.gameState)).join("") : `<p class="muted">No archived statements yet.</p>`}
-    </section>
+    ${tileSection({
+      title: "Archive",
+      body: archivedItems.length ? archivedItems.map((s) => statementCard(s, false, data.gameState)).join("") : `<p class="muted">No archived statements yet.</p>`
+    })}
   `;
 
   root.querySelector("#statement-submit-form")?.addEventListener("submit", (e) => {
@@ -153,6 +157,7 @@ function render(data) {
     data.statements.nextNumber = number + 1;
 
     saveData(data);
+    toastSuccess(`MS${number}: "${title}" submitted.`);
     apiCreateDebateTopic({
       entityType: "statement", entityId: statement.id,
       title: `Ministerial Statement MS${number}: ${title}`,
@@ -174,6 +179,7 @@ function render(data) {
       statement.status = "archived";
       statement.archivedAtSim = formatSimMonthYear(data.gameState);
       saveData(data);
+      toastSuccess("Statement archived.");
       render(data);
     });
   });

@@ -1,6 +1,8 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
+import { tileSection, tileCard } from "../components/tile.js";
+import { toastSuccess } from "../components/toast.js";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -72,66 +74,71 @@ function render(data, state) {
   root.innerHTML = `
     <h1 class="page-title">Events</h1>
 
-    <section class="panel" style="margin-bottom:12px;">
-      <div style="display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));gap:12px;">
-        <article class="tile">
-          <h2 style="margin-top:0;">Party Conference</h2>
-          <p>Only Party Leaders can host conferences (location + opening remarks). Conferences run for 2 simulation months after approval, and all members of that party can post a “Speech at Conference” while open.</p>
-          ${canHostConference ? `<button class="btn" data-action="show-form" data-type="conference" type="button">Host</button>` : `<div class="muted">Only Party Leaders can host conferences.</div>`}
-        </article>
+    ${tileSection({
+      body: `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
+          <article class="tile">
+            <h2 class="tile-title">Party Conference</h2>
+            <p>Only Party Leaders can host conferences (location + opening remarks). Conferences run for 2 simulation months after approval, and all members of that party can post a "Speech at Conference" while open.</p>
+            ${canHostConference ? `<button class="btn" data-action="show-form" data-type="conference" type="button">Host</button>` : `<div class="muted">Only Party Leaders can host conferences.</div>`}
+          </article>
+          <article class="tile">
+            <h2 class="tile-title">Party Event</h2>
+            <p>Any character may host a party event with location, purpose and speech. Requires moderator approval.</p>
+            <button class="btn" data-action="show-form" data-type="event" type="button">Host</button>
+          </article>
+        </div>
+      `
+    })}
 
-        <article class="tile">
-          <h2 style="margin-top:0;">Party Event</h2>
-          <p>Any character may host a party event with location, purpose and speech. Requires moderator approval.</p>
-          <button class="btn" data-action="show-form" data-type="event" type="button">Host</button>
-        </article>
-      </div>
-    </section>
+    ${state.showForm
+      ? tileSection({
+          title: `Host ${state.formType === "conference" ? "Party Conference" : "Party Event"}`,
+          body: `
+            <form id="events-host-form">
+              <div class="form-row">
+                <label for="events-location">Location</label>
+                <input id="events-location" name="location" required placeholder="Manchester Central">
+              </div>
+              ${state.formType === "conference" ? "" : `
+                <div class="form-row">
+                  <label for="events-reason">Reasoning / Purpose</label>
+                  <input id="events-reason" name="reason" required placeholder="Cost of living campaign stop">
+                </div>
+              `}
+              <div class="form-row">
+                <label for="events-speech">${state.formType === "conference" ? "Opening Remarks" : "Host Speech"}</label>
+                <textarea id="events-speech" name="speech" rows="6" required placeholder="Write the remarks..."></textarea>
+              </div>
+              <div class="form-row">
+                <label for="events-guest">Guest Speaker (optional)</label>
+                <input id="events-guest" name="guestSpeaker" placeholder="Rt Hon Jane Smith MP">
+              </div>
+              <div class="tile-bottom">
+                <button class="btn primary" type="submit">Submit for Approval</button>
+                <button class="btn" type="button" id="events-cancel-form">Cancel</button>
+              </div>
+            </form>
+          `
+        })
+      : ""}
 
-    ${state.showForm ? `
-      <section class="panel" style="margin-bottom:12px;">
-        <h2 style="margin-top:0;">Host ${state.formType === "conference" ? "Party Conference" : "Party Event"}</h2>
-        <form id="events-host-form">
-          <label class="label" for="events-location">Location</label>
-          <input id="events-location" name="location" class="input" required placeholder="Manchester Central">
-
-          ${state.formType === "conference" ? "" : `
-            <label class="label" for="events-reason">Reasoning / Purpose</label>
-            <input id="events-reason" name="reason" class="input" required placeholder="Cost of living campaign stop">
-          `}
-
-          <label class="label" for="events-speech">${state.formType === "conference" ? "Opening Remarks" : "Host Speech"}</label>
-          <textarea id="events-speech" name="speech" class="input" rows="6" required placeholder="Write the remarks..."></textarea>
-
-          <label class="label" for="events-guest">Guest Speaker (optional)</label>
-          <input id="events-guest" name="guestSpeaker" class="input" placeholder="Rt Hon Jane Smith MP">
-
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn" type="submit">Submit for Approval</button>
-            <button class="btn" type="button" id="events-cancel-form">Cancel</button>
-          </div>
-        </form>
-      </section>
-    ` : ""}
-
-    <section class="panel">
-      <h2 style="margin-top:0;">History of Events Hosted</h2>
-      ${list.length ? list.map((item) => `
-        <article class="tile" style="margin-bottom:10px;">
-          <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
+    ${tileSection({
+      title: "History of Events Hosted",
+      body: list.length ? list.map((item) => `
+        <article class="tile tile-stack">
+          <div class="spaced">
             <div>
               <b>${esc(eventTypeLabel(item.type))}</b> — ${esc(item.location)}
               <div class="muted">${esc(item.party || "No party")} • Host: ${esc(item.hostName)} • ${esc(item.createdAt || "")}</div>
             </div>
             <div>${statusChip(item.status)}</div>
           </div>
-
-          <div style="margin-top:6px;">
+          <div class="tile-bottom">
             <button class="btn" type="button" data-action="toggle-open" data-id="${esc(String(item.id))}">${state.openId === item.id ? "Close" : "Open"}</button>
-            ${mod && item.status === "pending" ? `<button class="btn" type="button" data-action="approve" data-id="${esc(String(item.id))}">Approve</button><button class="btn" type="button" data-action="cancel" data-id="${esc(String(item.id))}">Refuse</button>` : ""}
+            ${mod && item.status === "pending" ? `<button class="btn" type="button" data-action="approve" data-id="${esc(String(item.id))}">Approve</button><button class="btn danger" type="button" data-action="cancel" data-id="${esc(String(item.id))}">Refuse</button>` : ""}
             ${mod && item.status === "approved" ? `<button class="btn" type="button" data-action="close" data-id="${esc(String(item.id))}">Close Now</button>` : ""}
           </div>
-
           ${state.openId === item.id ? `
             <div style="margin-top:10px;">
               <div><b>Type:</b> ${esc(eventTypeLabel(item.type))}</div>
@@ -142,13 +149,14 @@ function render(data, state) {
               <div class="muted-block" style="white-space:pre-wrap;">${esc(item.openingSpeech || "")}</div>
               ${item.type === "conference" ? `
                 <div style="margin-top:8px;"><b>Conference Speeches</b></div>
-                ${(item.speeches || []).length ? item.speeches.map((s) => `<div class="tile" style="margin-top:6px;"><b>${esc(s.author)}</b><div class="muted">${esc(s.createdAt || "")}</div><div style="white-space:pre-wrap;">${esc(s.body)}</div></div>`).join("") : `<div class="muted">No speeches added yet.</div>`}
-
+                ${(item.speeches || []).length ? item.speeches.map((s) => `<div class="tile tile-stack"><b>${esc(s.author)}</b><div class="muted">${esc(s.createdAt || "")}</div><div style="white-space:pre-wrap;">${esc(s.body)}</div></div>`).join("") : `<div class="muted">No speeches added yet.</div>`}
                 ${canAddSpeech(char, item, data) ? `
                   <form data-action="add-speech" data-id="${esc(String(item.id))}" style="margin-top:8px;">
-                    <label class="label" for="speech-${esc(String(item.id))}">Speech at Conference</label>
-                    <textarea id="speech-${esc(String(item.id))}" name="speech" class="input" rows="4" required placeholder="Speech at Conference..."></textarea>
-                    <button class="btn" type="submit">Add Speech</button>
+                    <div class="form-row">
+                      <label for="speech-${esc(String(item.id))}">Speech at Conference</label>
+                      <textarea id="speech-${esc(String(item.id))}" name="speech" rows="4" required placeholder="Speech at Conference..."></textarea>
+                    </div>
+                    <button class="btn primary" type="submit">Add Speech</button>
                   </form>
                 ` : `<div class="muted">Only same-party users can post a Speech at Conference while the conference is approved/open.</div>`}
               ` : ""}
@@ -156,8 +164,8 @@ function render(data, state) {
             </div>
           ` : ""}
         </article>
-      `).join("") : `<div class="muted-block">No events hosted yet.</div>`}
-    </section>
+      `).join("") : `<div class="muted-block">No events hosted yet.</div>`
+    })}
   `;
 
   root.querySelectorAll("[data-action='show-form']").forEach((btn) => {
@@ -206,6 +214,7 @@ function render(data, state) {
     data.events.items.push(item);
     state.showForm = false;
     saveData(data);
+    toastSuccess(`${eventTypeLabel(type)} submitted for approval.`);
     render(data, state);
   });
 
