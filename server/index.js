@@ -1,8 +1,12 @@
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
+import session from "express-session";
+import pgSession from "connect-pg-simple";
 import { pool } from "./db.js";
 
 const app = express();
+app.set("trust proxy", 1);
 
 /**
  * -----------------------------
@@ -27,15 +31,34 @@ const ALLOWED_ORIGINS = new Set([
 
 app.use(
   cors({
+    credentials: true,
     origin(origin, cb) {
-      // allow same-origin / server-to-server / curl / Postman
       if (!origin) return cb(null, true);
+      if (allow.has(origin)) return cb(null, true);
+      return cb(new Error("CORS blocked: " + origin));
+    }
+  })
+);
 
-      if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+app.use(cookieParser());
 
-      return cb(new Error(`CORS blocked for origin: ${origin}`));
-    },
-    credentials: false,
+const PgStore = pgSession(session);
+
+app.use(
+  session({
+    store: new PgStore({
+      pool,
+      tableName: "session"
+    }),
+    name: "rb.sid",
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true
+    }
   })
 );
 
