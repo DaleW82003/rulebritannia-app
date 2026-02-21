@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
 const PROFILE_FIELDS = [
   { key: "dateOfBirth", label: "Date of birth" },
@@ -22,7 +22,7 @@ function nowStamp() {
 }
 
 function canManage(data) {
-  return isAdmin(data) || isMod(data);
+  return canAdminOrMod(data);
 }
 
 function getCharacterName(data) {

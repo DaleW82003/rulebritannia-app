@@ -1,11 +1,12 @@
 import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolveDivisionResult, setNpcVotes, setRebellions } from "../engines/division-engine.js";
 import { saveData } from "../core.js";
 import { buildDivisionWeights } from "../divisions.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { esc } from "../ui.js";
 import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
 import { apiCreateDebateTopic } from "../api.js";
+import { handleApiError } from "../errors.js";
 
 function $(id) {
   return document.getElementById(id);
@@ -76,7 +77,7 @@ function stageCountdown(bill, gameState) {
 
 
 function canGrantAssent(data) {
-  return isMod(data) || isAdmin(data);
+  return canAdminOrMod(data);
 }
 
 function finaliseDivisionOutcome(bill, data) {
@@ -139,7 +140,7 @@ function ensureBillDebateTopic(bill, data) {
       saveData(data);
       setDebateLink(bill);
     })
-    .catch(() => {});
+    .catch((err) => handleApiError(err, "Debate topic"));
 }
 
 function renderBillMeta(bill, data) {
@@ -700,7 +701,7 @@ export function initBillPage(data) {
     const title = $("billTitle");
     if (title) title.textContent = "Bill not found";
     const meta = $("billMeta");
-    if (meta) meta.innerHTML = '<div class="muted-block">No bill data is available in demo.json.</div>';
+    if (meta) meta.innerHTML = '<div class="muted-block">No bill data available.</div>';
     return;
   }
 

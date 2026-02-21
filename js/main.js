@@ -1,6 +1,7 @@
 // js/main.js
 import { bootData } from "./core.js";
 import { initNavUI, esc } from "./ui.js";
+import { handleApiError } from "./errors.js";
 
 // Working pages (already built)
 import { initDashboardPage } from "./pages/dashboard.js";
@@ -18,6 +19,7 @@ import { initRegulationsPage } from "./pages/regulations.js";
 import { initRegulationPage } from "./pages/regulation.js";
 import { initRedLionPage } from "./pages/redlion.js";
 import { initHansardPage } from "./pages/hansard.js";
+import { initDebatesPage } from "./pages/debates.js";
 
 import { initEconomyPage } from "./pages/economy.js";
 import { initConstituenciesPage } from "./pages/constituencies.js";
@@ -52,6 +54,7 @@ import { initLoginPage } from "./pages/login.js";
 
 function showBootError(err) {
   console.error(err);
+  handleApiError(err, "Boot error");
   const msg = document.createElement("div");
   msg.style.padding = "16px";
   msg.style.border = "2px solid #c00";
@@ -62,11 +65,55 @@ function showBootError(err) {
   document.body.prepend(msg);
 }
 
+// Global safety net: any unhandled promise rejection across all pages fires a toast.
+window.addEventListener("unhandledrejection", (event) => {
+  handleApiError(event.reason, "Unexpected error");
+  event.preventDefault(); // suppress duplicate browser console warning
+});
+
+function renderDataSourcePanel(sources) {
+  const failCount = sources.filter((s) => !s.ok).length;
+  const allOk = failCount === 0;
+  const panel = document.createElement("div");
+  panel.className = "ds-panel";
+
+  const rows = sources.map((s) =>
+    `<div class="ds-row"${s.error ? ` aria-label="${esc(s.label)}: ${esc(s.error)}"` : ""}>` +
+    `<span class="ds-dot ${s.ok ? "ok" : "fail"}" aria-hidden="true"></span>` +
+    `<span class="ds-label">${esc(s.label)}</span>` +
+    (s.error ? `<span class="ds-err">${esc(s.error)}</span>` : "") +
+    `</div>`
+  ).join("");
+
+  const summaryText = failCount ? `API Sources (${failCount} failed)` : "API Sources (all ok)";
+
+  panel.innerHTML =
+    `<button class="ds-panel-toggle" type="button" aria-expanded="false">` +
+    `<span class="ds-dot ${allOk ? "ok" : "fail"}" aria-hidden="true"></span>` +
+    `<span class="ds-toggle-label" aria-live="polite" aria-atomic="true">${summaryText}</span>` +
+    `<span class="ds-caret" aria-hidden="true">▸</span>` +
+    `</button>` +
+    `<div class="ds-panel-body" hidden>${rows}</div>`;
+
+  const toggle = panel.querySelector(".ds-panel-toggle");
+  const body   = panel.querySelector(".ds-panel-body");
+  const caret  = panel.querySelector(".ds-caret");
+  toggle.addEventListener("click", () => {
+    const open = toggle.getAttribute("aria-expanded") === "true";
+    toggle.setAttribute("aria-expanded", String(!open));
+    body.hidden = open;
+    caret.textContent = open ? "▸" : "▾";
+  });
+
+  document.body.appendChild(panel);
+}
+
 (async function () {
   document.body.dataset.bootState = "booting";
   try {
-    const { data, user, clock } = await bootData();
+    const { data, user, clock, sources } = await bootData();
     initNavUI(user, clock);
+    renderDataSourcePanel(sources);
 
     const page = document.body?.dataset?.page || "";
 
@@ -86,6 +133,7 @@ function showBootError(err) {
       regulation: initRegulationPage,
       redlion: initRedLionPage,
       hansard: initHansardPage,
+      debates: initDebatesPage,
 
       economy: initEconomyPage,
       constituencies: initConstituenciesPage,

@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
 const CHANNELS = {
   webPost: "Post to the Web",
@@ -10,7 +10,7 @@ const CHANNELS = {
 };
 
 function canModerate(data) {
-  return isAdmin(data) || isMod(data);
+  return canAdminOrMod(data);
 }
 
 function getCharacter(data) {

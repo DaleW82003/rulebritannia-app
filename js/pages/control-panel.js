@@ -1,7 +1,7 @@
 import { saveState } from "../core.js";
 import { formatSimMonthYear } from "../clock.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { requireAdmin } from "../auth.js";
 import { logAction } from "../audit.js";
 
@@ -42,7 +42,7 @@ export async function initControlPanelPage(data) {
 
   if (sim) sim.textContent = formatSimMonthYear(data?.gameState || {});
 
-  const canEdit = isAdmin(data) || isMod(data);
+  const canEdit = canAdminOrMod(data);
   const user = data?.currentUser || {};
   const char = data?.currentCharacter || data?.currentPlayer || {};
 

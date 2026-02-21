@@ -1,5 +1,5 @@
 // js/core.js
-import { apiMe, apiGetState, apiSaveState, apiGetClock } from "./api.js";
+import { apiBootstrap, apiSaveState } from "./api.js";
 const DEFAULT_ECONOMY_PAGE = {
   topline: { gdpGrowth: 1.8, inflation: 2.6, unemployment: 4.3 },
   ukInfoTiles: [
@@ -14,14 +14,7 @@ const DEFAULT_ECONOMY_PAGE = {
   ]
 };
 
-export const DATA_URL = "./data/demo.json";
 export const STORAGE_KEY = "rb_data_v1";
-
-export async function loadDemoJson() {
-  const r = await fetch(DATA_URL, { cache: "no-store" });
-  if (!r.ok) throw new Error(`Failed to load demo.json (${r.status})`);
-  return r.json();
-}
 
 export function getData() {
   try {
@@ -96,40 +89,40 @@ export function ensureDefaults(data) {
 }
 
 export async function bootData() {
-  const [demo, meResult, clock] = await Promise.all([
-    loadDemoJson(),
-    apiMe(),
-    apiGetClock().catch(() => null),
-  ]);
+  const sources = [];
 
-  // Determine if a user is currently logged in.
-  const user = meResult?.user ?? null;
+  // Single round-trip: /api/bootstrap returns clock + config + user + state.
+  const bootstrap = await apiBootstrap().then(
+    (r) => { sources.push({ label: "/api/bootstrap", ok: true  }); return r; },
+    (e) => { sources.push({ label: "/api/bootstrap", ok: false, error: e.message }); return null; }
+  );
+
+  const user   = bootstrap?.user  ?? null;
+  const clock  = bootstrap?.clock ?? null;
 
   if (!user) {
-    // 401 / not logged in → current behaviour: merge demo + localStorage.
+    // Not logged in — use whatever is in localStorage, or empty defaults.
     const stored = getData();
-    const next = stored ? { ...demo, ...stored } : demo;
-    const ensured = ensureDefaults(next);
+    const ensured = ensureDefaults(stored ?? {});
     saveData(ensured);
-    return { data: ensured, user: null, clock };
+    return { data: ensured, user: null, clock, sources };
   }
 
-  // Logged in → load state from the server.
-  const stateResult = await apiGetState();
-  let serverData = stateResult?.data ?? null;
+  // Logged in.
+  let serverData = bootstrap?.state?.data ?? null;
 
   if (!serverData) {
-    // 404 "No state yet" → seed the DB from demo.json (admin only).
+    // No state yet → seed the DB with empty defaults (admin only).
     if (Array.isArray(user.roles) && user.roles.includes("admin")) {
-      await apiSaveState(demo);
+      await apiSaveState(ensureDefaults({})).catch((err) => console.error("[bootData] first-admin DB seed failed (admin:", user.id, "):", err));
     }
-    serverData = demo;
+    serverData = {};
   }
 
   const ensured = ensureDefaults(serverData);
   ensured.currentUser = user;
   saveData(ensured);
-  return { data: ensured, user, clock };
+  return { data: ensured, user, clock, sources };
 }
 
 export function nowMs() {

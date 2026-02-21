@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
 const BODY_ORDER = [
   "european-parliament",
@@ -26,7 +26,7 @@ const LABELS = {
 };
 
 function canManage(data) {
-  return isMod(data) || isAdmin(data);
+  return canAdminOrMod(data);
 }
 
 function ensureElections(data) {

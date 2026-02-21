@@ -7,6 +7,7 @@ import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
 import { apiCreateDebateTopic } from "../api.js";
+import { handleApiError } from "../errors.js";
 
 const GOVERNMENT_OFFICES = new Set([
   "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade", "defence", "welfare", "education", "env-agri", "health", "eti", "culture", "home-nations"
@@ -193,7 +194,7 @@ export function initMotionsPage(data) {
       motion.debateUrl = topicUrl;
       motion.discourseTopicId = topicId;
       saveData(data);
-    }).catch(() => {});
+    }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `motion.html?kind=house&id=${encodeURIComponent(id)}`;
   });
 
@@ -233,7 +234,7 @@ export function initMotionsPage(data) {
       edm.debateUrl = topicUrl;
       edm.discourseTopicId = topicId;
       saveData(data);
-    }).catch(() => {});
+    }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `motion.html?kind=edm&id=${encodeURIComponent(id)}`;
   });
 }

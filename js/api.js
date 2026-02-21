@@ -15,6 +15,20 @@ function resolveApiBase() {
 }
 const API_BASE = resolveApiBase();
 
+/**
+ * Fetch the backend permission map.
+ *
+ * @param {string[]} [roles] - optional array of role strings to filter to
+ *   only actions the caller is permitted to perform.
+ * @returns {Promise<{ permissions: Record<string, string[]> }>}
+ */
+export async function apiGetPermissions(roles) {
+  const qs = roles?.length ? `?roles=${encodeURIComponent(roles.join(","))}` : "";
+  const res = await fetch(`${API_BASE}/api/permissions${qs}`);
+  if (!res.ok) throw new Error(`apiGetPermissions failed (${res.status})`);
+  return res.json();
+}
+
 export async function apiLogin(email, password) {
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
@@ -32,6 +46,14 @@ export async function apiMe() {
   });
   if (res.status === 401 || res.status === 404) return { user: null };
   if (!res.ok) throw new Error(`apiMe failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiBootstrap() {
+  const res = await fetch(`${API_BASE}/api/bootstrap`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiBootstrap failed (${res.status})`);
   return res.json();
 }
 
@@ -413,12 +435,12 @@ export async function apiGetDiscourseConfig() {
   return res.json();
 }
 
-export async function apiSaveDiscourseConfig({ base_url, api_key, api_username }) {
+export async function apiSaveDiscourseConfig({ base_url, api_key, api_username, sso_secret }) {
   const res = await fetch(`${API_BASE}/api/discourse/config`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ base_url, api_key, api_username }),
+    body: JSON.stringify({ base_url, api_key, api_username, sso_secret }),
   });
   if (!res.ok) throw new Error(`apiSaveDiscourseConfig failed (${res.status})`);
   return res.json();
@@ -470,5 +492,60 @@ export async function apiGetDiscourseSyncPreview() {
     credentials: "include",
   });
   if (!res.ok) throw new Error(`apiGetDiscourseSyncPreview failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetSsoReadiness() {
+  const res = await fetch(`${API_BASE}/api/admin/sso-readiness`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiGetSsoReadiness failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAdminSyncDiscourseGroups() {
+  const res = await fetch(`${API_BASE}/api/admin/discourse-sync-groups`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiAdminSyncDiscourseGroups failed (${res.status})`);
+  return res.json();
+}
+
+// ── ADMIN MAINTENANCE ─────────────────────────────────────────────────────────
+
+function maintPost(path) {
+  return async function () {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${path} failed (${res.status})`);
+    return res.json();
+  };
+}
+
+export const apiAdminClearCache     = maintPost("/api/admin/clear-cache");
+export const apiAdminRebuildCache   = maintPost("/api/admin/rebuild-cache");
+export const apiAdminRotateSessions = maintPost("/api/admin/rotate-sessions");
+export const apiAdminForceLogoutAll = maintPost("/api/admin/force-logout-all");
+
+export async function apiAdminExportSnapshot() {
+  const res = await fetch(`${API_BASE}/api/admin/export-snapshot`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`export-snapshot failed (${res.status})`);
+  // Returns the raw Response so the caller can read blob + filename header
+  return res;
+}
+
+export async function apiAdminImportSnapshot(label, data) {
+  const res = await fetch(`${API_BASE}/api/admin/import-snapshot`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label, data }),
+  });
+  if (!res.ok) throw new Error(`import-snapshot failed (${res.status})`);
   return res.json();
 }

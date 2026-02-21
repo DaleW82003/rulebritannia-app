@@ -2,7 +2,7 @@ import { saveData } from "../core.js";
 import { runSundayRoll, setAbsenceState } from "../engines/core-engine.js";
 import { updateParliamentState } from "../engines/control-panel-engine.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, isSpeaker } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 
 const CONTROL_LINKS = [
   { title: "Newsroom (BBC News)", href: "news.html", roles: ["mod", "admin"] },
@@ -38,7 +38,7 @@ function nextSundayIso() {
 }
 
 function canManage(data) {
-  return isAdmin(data) || isMod(data) || isSpeaker(data);
+  return canAdminModOrSpeaker(data);
 }
 
 function canAdmin(data) {

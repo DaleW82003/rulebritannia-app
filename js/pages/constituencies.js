@@ -1,6 +1,6 @@
 import { setHTML, esc } from "../ui.js";
 import { saveData } from "../core.js";
-import { isAdmin, isMod, isSpeaker } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 
 const REGION_TEMPLATE = [
   ["England", "North East", 25],
@@ -22,7 +22,7 @@ function slugify(value) {
 }
 
 function canManage(data) {
-  return isAdmin(data) || isMod(data) || isSpeaker(data);
+  return canAdminModOrSpeaker(data);
 }
 
 function activeMpNameForConstituency(data, constituencyName) {

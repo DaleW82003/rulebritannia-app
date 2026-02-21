@@ -6,8 +6,8 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { pool } from "./db.js";
-import { createTopic, createPost } from "./discourse.js";
-import { ALL_VALID_ROLES, computeDiscourseGroups } from "./roles.js";
+import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload } from "./discourse.js";
+import { ALL_VALID_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP } from "./roles.js";
 
 /**
  * Discourse credential encryption (AES-256-GCM).
@@ -68,15 +68,11 @@ app.use(express.json({ limit: "2mb" }));
 /**
  * CORS
  * - credentials:true is REQUIRED for cookies
- * - origin must include your FRONTEND origin (not hoppscotch, unless you're using it)
+ * - origin is restricted to the production frontend origins only
  */
 const allow = new Set([
   "https://rulebritannia.org",
   "https://www.rulebritannia.org",
-  "https://hoppscotch.io",
-  "https://rulebritannia-app.onrender.com",
-  // add your frontend render URL if you have one:
-  // "https://your-frontend.onrender.com",
 ]);
 
 app.use(
@@ -271,6 +267,7 @@ async function ensureSchema() {
       ('discourse_base_url',      'https://forum.rulebritannia.org'),
       ('discourse_api_key',       ''),
       ('discourse_api_username',  ''),
+      ('discourse_sso_secret',    ''),
       ('ui_base_url',             'https://rulebritannia.org'),
       ('sim_start_date',          '1997-08-01'),
       ('clock_rate',              '2')
@@ -297,17 +294,21 @@ function generateCsrfToken() {
   return randomBytes(32).toString("hex");
 }
 
+// Paths that are explicitly exempt from CSRF validation because no session
+// (and therefore no token) exists when they are called.
+const CSRF_EXEMPT_PATHS = new Set(["/auth/login"]);
+
 function verifyCsrfToken(req, res, next) {
   const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
   if (safeMethods.has(req.method)) return next();
 
-  const sessionToken = req.session?.csrfToken;
-  // No token in session means the request is unauthenticated;
-  // requireAuth / requireAdmin in each handler will reject it.
-  if (!sessionToken) return next();
+  // Explicit exemptions only — do not skip silently for other unauthenticated paths.
+  if (CSRF_EXEMPT_PATHS.has(req.path)) return next();
 
+  const sessionToken = req.session?.csrfToken;
   const requestToken = req.headers["x-csrf-token"];
   if (
+    !sessionToken ||
     !requestToken ||
     sessionToken.length !== requestToken.length ||
     !timingSafeEqual(Buffer.from(sessionToken), Buffer.from(requestToken))
@@ -422,26 +423,37 @@ async function syncObjectTables(data) {
 }
 
 /**
- * Health + DB test
+ * Health
  */
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-app.get("/db-test", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT NOW()");
-    res.json({ ok: true, time: result.rows[0].now });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
 /**
- * TEMP: hash helper (remove later)
+ * Permission map
+ * GET /api/permissions — public (no auth required)
+ *
+ * Returns the full PERMISSION_MAP so the frontend can drive UI visibility
+ * without hard-coding role lists in page code.
+ *
+ * Also accepts an optional ?roles=admin,mod query param to filter to only
+ * the actions the caller is permitted to perform.
  */
-app.get("/dev/hash/:pw", async (req, res) => {
-  const hash = await bcrypt.hash(req.params.pw, 10);
-  res.json({ hash });
+app.get("/api/permissions", (req, res) => {
+  const filterRoles = req.query?.roles
+    ? String(req.query.roles).split(",").map((r) => r.trim()).filter(Boolean)
+    : null;
+
+  if (filterRoles) {
+    // Return only actions where the user's roles satisfy at least one required role
+    const allowed = {};
+    for (const [action, required] of Object.entries(PERMISSION_MAP)) {
+      if (required.length === 0 || required.some((r) => filterRoles.includes(r))) {
+        allowed[action] = required;
+      }
+    }
+    return res.json({ permissions: allowed });
+  }
+
+  res.json({ permissions: PERMISSION_MAP });
 });
 
 /**
@@ -465,7 +477,9 @@ app.get("/csrf-token", (req, res) => {
  * POST /auth/logout
  */
 
-app.post("/auth/login", async (req, res) => {
+const authLimit = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+
+app.post("/auth/login", authLimit, async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) {
@@ -519,7 +533,7 @@ app.post("/auth/login", async (req, res) => {
   }
 });
 
-app.get("/auth/me", async (req, res) => {
+app.get("/auth/me", authLimit, async (req, res) => {
   try {
     if (!req.session.userId) {
       return res.status(401).json({ ok: false });
@@ -546,7 +560,7 @@ app.get("/auth/me", async (req, res) => {
   }
 });
 
-app.post("/auth/logout", (req, res) => {
+app.post("/auth/logout", authLimit, (req, res) => {
   req.session.destroy(() => {
     res.clearCookie("rb.sid", {
       sameSite: "none",
@@ -732,7 +746,7 @@ app.get("/api/config", async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT key, value FROM app_config");
     // Never expose encrypted discourse credentials through the public config endpoint
-    const SENSITIVE = new Set(["discourse_api_key", "discourse_api_username"]);
+    const SENSITIVE = new Set(["discourse_api_key", "discourse_api_username", "discourse_sso_secret"]);
     const config = Object.fromEntries(rows.filter((r) => !SENSITIVE.has(r.key)).map((r) => [r.key, r.value]));
     res.json({ config });
   } catch (e) {
@@ -793,13 +807,14 @@ app.get("/api/discourse/config", discourseReadLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
     const { rows } = await pool.query(
-      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'discourse_api_key', 'discourse_api_username')"
+      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'discourse_api_key', 'discourse_api_username', 'discourse_sso_secret')"
     );
     const cfg = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     res.json({
       base_url:         cfg.discourse_base_url || "",
       has_api_key:      Boolean(cfg.discourse_api_key),
       has_api_username: Boolean(cfg.discourse_api_username),
+      has_sso_secret:   Boolean(cfg.discourse_sso_secret),
     });
   } catch (e) {
     console.error(e);
@@ -810,7 +825,7 @@ app.get("/api/discourse/config", discourseReadLimit, async (req, res) => {
 app.put("/api/discourse/config", discourseWriteLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
-    const { base_url, api_key, api_username } = req.body || {};
+    const { base_url, api_key, api_username, sso_secret } = req.body || {};
 
     const entries = [];
     if (base_url !== undefined) {
@@ -821,6 +836,12 @@ app.put("/api/discourse/config", discourseWriteLimit, async (req, res) => {
     }
     if (api_username !== undefined && api_username !== "") {
       entries.push(["discourse_api_username", discourseEncrypt(String(api_username))]);
+    }
+    if (sso_secret !== undefined && sso_secret !== "") {
+      if (String(sso_secret).length < 32) {
+        return res.status(400).json({ error: "SSO secret must be at least 32 characters" });
+      }
+      entries.push(["discourse_sso_secret", discourseEncrypt(String(sso_secret))]);
     }
 
     if (!entries.length) {
@@ -885,6 +906,249 @@ app.post("/api/discourse/test", discourseWriteLimit, async (req, res) => {
       ? `Could not connect to Discourse server: ${e.message}`
       : e.message;
     res.status(500).json({ ok: false, error: msg });
+  }
+});
+
+/**
+ * DISCOURSECONNECT SSO
+ *
+ * Disabled unless the DISCOURSE_SSO_ENABLED=true environment variable is set.
+ *
+ * GET /api/discourse/sso           — Entry point; redirects browser to Discourse
+ *                                    with a signed nonce. Must be called by the
+ *                                    browser (not fetch) so the cookie is present.
+ * GET /api/discourse/sso/callback  — Discourse redirects back here with the
+ *                                    signed user payload. Verifies signature,
+ *                                    finds or creates the local user, starts a
+ *                                    session, then redirects to the UI.
+ *
+ * GET /api/admin/sso-readiness     — Admin: check whether all SSO prerequisites
+ *                                    are satisfied. Returns green/red check list.
+ *
+ * Ref: https://meta.discourse.org/t/discourseconnect-official-single-sign-on-for-discourse/13045
+ */
+
+const ssoEnabled = process.env.DISCOURSE_SSO_ENABLED === "true";
+const ssoRateLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+
+/** Load and decrypt the SSO secret from app_config, or return null. */
+async function getSsoSecret() {
+  const { rows } = await pool.query(
+    "SELECT value FROM app_config WHERE key = 'discourse_sso_secret'"
+  );
+  const raw = rows[0]?.value || "";
+  return raw ? discourseDecrypt(raw) : null;
+}
+
+app.get("/api/discourse/sso", ssoRateLimit, async (req, res) => {
+  if (!ssoEnabled) {
+    return res.status(404).json({ error: "DiscourseConnect SSO is not enabled on this server" });
+  }
+
+  try {
+    const ssoSecret = await getSsoSecret();
+    if (!ssoSecret) {
+      return res.status(503).json({ error: "SSO secret not configured. Set it in the Discourse Integration admin panel." });
+    }
+
+    const { rows: cfgRows } = await pool.query(
+      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'ui_base_url')"
+    );
+    const cfg = Object.fromEntries(cfgRows.map((r) => [r.key, r.value]));
+    const baseUrl  = (cfg.discourse_base_url || "").trim().replace(/\/$/, "");
+    const uiBase   = (cfg.ui_base_url        || "").trim().replace(/\/$/, "");
+
+    if (!baseUrl) {
+      return res.status(503).json({ error: "Discourse base URL not configured" });
+    }
+
+    // Generate a nonce, store in session so we can verify on callback
+    const nonce = randomBytes(16).toString("hex");
+    req.session.ssoNonce = nonce;
+
+    const returnUrl = `${uiBase || ""}/api/discourse/sso/callback`;
+    const { sso, sig } = buildSsoPayload({ ssoSecret, returnUrl, nonce });
+
+    const redirectUrl = `${baseUrl}/session/sso_provider?sso=${encodeURIComponent(sso)}&sig=${encodeURIComponent(sig)}`;
+    res.redirect(302, redirectUrl);
+  } catch (e) {
+    console.error("[discourse/sso]", e.message);
+    res.status(500).json({ error: "SSO initiation failed. Check server logs." });
+  }
+});
+
+app.get("/api/discourse/sso/callback", ssoRateLimit, async (req, res) => {
+  if (!ssoEnabled) {
+    return res.status(404).json({ error: "DiscourseConnect SSO is not enabled on this server" });
+  }
+
+  try {
+    const { sso, sig } = req.query;
+    if (!sso || !sig) {
+      return res.status(400).json({ error: "Missing sso or sig query parameters" });
+    }
+
+    const ssoSecret = await getSsoSecret();
+    if (!ssoSecret) {
+      return res.status(503).json({ error: "SSO secret not configured" });
+    }
+
+    const expectedNonce = req.session.ssoNonce;
+    if (!expectedNonce) {
+      return res.status(400).json({ error: "No SSO nonce in session. Please restart the login flow." });
+    }
+
+    // Validate signature and extract user info
+    const user = verifySsoPayload({ ssoSecret, sso, sig, expectedNonce });
+
+    // Clear the nonce (one-time use)
+    delete req.session.ssoNonce;
+
+    if (!user.email) {
+      return res.status(400).json({ error: "Discourse did not return an email address" });
+    }
+
+    // Look up or create the local user account by email
+    const { rows: existingRows } = await pool.query(
+      "SELECT id, username, roles FROM users WHERE email = $1",
+      [user.email.toLowerCase()]
+    );
+
+    let localUser;
+    if (existingRows.length) {
+      localUser = existingRows[0];
+    } else {
+      // Auto-provision: create account with a random unusable password
+      const id = randomBytes(12).toString("hex");
+      const unusableHash = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
+      const { rows: newRows } = await pool.query(
+        `INSERT INTO users (id, username, email, password_hash)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, username, roles`,
+        [id, user.username || user.email, user.email.toLowerCase(), unusableHash]
+      );
+      localUser = newRows[0];
+    }
+
+    // Load canonical roles from user_roles table
+    const { rows: roleRows } = await pool.query(
+      "SELECT role FROM user_roles WHERE user_id = $1",
+      [localUser.id]
+    );
+    const roles = roleRows.map((r) => r.role);
+
+    // Regenerate session to prevent fixation
+    await new Promise((resolve, reject) => {
+      req.session.regenerate((err) => (err ? reject(err) : resolve()));
+    });
+
+    req.session.userId    = localUser.id;
+    req.session.roles     = roles;
+    req.session.csrfToken = generateCsrfToken();
+
+    await new Promise((resolve, reject) => {
+      req.session.save((err) => (err ? reject(err) : resolve()));
+    });
+
+    // Redirect back to the UI
+    const { rows: uiCfgRows } = await pool.query(
+      "SELECT value FROM app_config WHERE key = 'ui_base_url'"
+    );
+    const uiBase = (uiCfgRows[0]?.value || "").trim().replace(/\/$/, "");
+    res.redirect(302, uiBase ? `${uiBase}/` : "/");
+  } catch (e) {
+    console.error("[discourse/sso/callback]", e.message);
+    // Don't expose internal error detail to the browser
+    res.status(400).json({ error: "SSO login failed. Please try again." });
+  }
+});
+
+// ── SSO Readiness check ───────────────────────────────────────────────────────
+
+app.get("/api/admin/sso-readiness", discourseReadLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { rows } = await pool.query("SELECT key, value FROM app_config");
+    const cfg = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+
+    const baseUrl    = (cfg.discourse_base_url || "").trim();
+    const apiKey     = cfg.discourse_api_key     || "";
+    const apiUser    = cfg.discourse_api_username || "";
+    const ssoSecretE = cfg.discourse_sso_secret   || "";
+    const uiBase     = (cfg.ui_base_url || "").trim();
+
+    // Attempt a live Discourse ping if credentials are present
+    let discourseLive = false;
+    let discourseLiveError = null;
+    if (baseUrl && apiKey && apiUser) {
+      try {
+        const cleanBase  = baseUrl.replace(/\/$/, "");
+        const decryptedKey  = discourseDecrypt(apiKey);
+        const decryptedUser = discourseDecrypt(apiUser);
+        const ping = await fetch(`${cleanBase}/site.json`, {
+          headers: { "Api-Key": decryptedKey, "Api-Username": decryptedUser },
+          signal: AbortSignal.timeout(5000),
+        });
+        discourseLive = ping.ok;
+        if (!ping.ok) discourseLiveError = `HTTP ${ping.status}`;
+      } catch (pingErr) {
+        discourseLiveError = pingErr.message;
+      }
+    }
+
+    const checks = [
+      {
+        id:      "env_flag",
+        label:   "DISCOURSE_SSO_ENABLED env var",
+        ok:      ssoEnabled,
+        detail:  ssoEnabled ? "Set to 'true'" : "Not set — SSO endpoints are disabled (set DISCOURSE_SSO_ENABLED=true to enable)",
+      },
+      {
+        id:      "base_url",
+        label:   "Discourse base URL configured",
+        ok:      Boolean(baseUrl),
+        detail:  baseUrl || "Not set",
+      },
+      {
+        id:      "api_credentials",
+        label:   "Discourse API key + username configured",
+        ok:      Boolean(apiKey && apiUser),
+        detail:  (apiKey && apiUser) ? "Both set" : "One or both missing",
+      },
+      {
+        id:      "sso_secret",
+        label:   "DiscourseConnect SSO secret configured",
+        ok:      Boolean(ssoSecretE),
+        detail:  ssoSecretE ? "Set (stored encrypted)" : "Not set — paste the secret from Discourse › Settings › Login › sso secret",
+      },
+      {
+        id:      "discourse_reachable",
+        label:   "Discourse API reachable",
+        ok:      discourseLive,
+        detail:  discourseLive ? "Connected successfully" : (discourseLiveError || "Credentials not configured — cannot test"),
+      },
+      {
+        id:      "ui_base_url",
+        label:   "UI base URL configured (for SSO return URL)",
+        ok:      Boolean(uiBase),
+        detail:  uiBase || "Not set",
+      },
+      {
+        id:      "session_secret",
+        label:   "SESSION_SECRET env var is non-default",
+        ok:      Boolean(process.env.SESSION_SECRET) && process.env.SESSION_SECRET !== "dev-secret-change-me",
+        detail:  (process.env.SESSION_SECRET && process.env.SESSION_SECRET !== "dev-secret-change-me")
+                   ? "Set to a custom value"
+                   : "Using default 'dev-secret-change-me' — change this before enabling SSO",
+      },
+    ];
+
+    const allOk = checks.every((c) => c.ok);
+    res.json({ allOk, checks });
+  } catch (e) {
+    console.error("[sso-readiness]", e);
+    res.status(500).json({ error: "Server error" });
   }
 });
 
@@ -1542,13 +1806,20 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
 
     // Idempotency: return existing topic if one was already created for this entity.
     const { rows: existing } = await pool.query(
-      `SELECT data->>'discourseTopicId' AS topic_id, data->>'discourseTopicUrl' AS topic_url FROM ${table} WHERE id = $1`,
+      `SELECT data->>'discourseTopicId'  AS topic_id,
+              data->>'discourseTopicUrl' AS topic_url
+         FROM ${table} WHERE id = $1`,
       [String(entityId)]
     );
     if (existing.length && existing[0].topic_id) {
       const existingUrl = existing[0].topic_url || `https://forum.rulebritannia.org/t/${existing[0].topic_id}`;
       return res.json({ ok: true, topicId: Number(existing[0].topic_id), topicUrl: existingUrl, existing: true });
     }
+
+    // Recovery: entity row exists with a stale placeholder URL but no topic ID yet.
+    // This can happen if the process died between topic creation and the DB patch.
+    // We proceed to create (or re-create) the topic below; the idempotency check
+    // above already handled the case where a topic ID was persisted.
 
     // Load and decrypt Discourse credentials
     const { rows: cfgRows } = await pool.query(
@@ -1564,14 +1835,18 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
     if (!apiKey)      return res.status(400).json({ ok: false, error: "Discourse API key not configured" });
     if (!apiUsername) return res.status(400).json({ ok: false, error: "Discourse API username not configured" });
 
-    // Create topic on Discourse
-    const { topicId, topicSlug } = await createTopic({
-      baseUrl, apiKey, apiUsername,
-      title: String(title),
-      raw:   String(raw),
-      categoryId,
-      tags: Array.isArray(tags) ? tags : undefined,
-    });
+    // Create topic on Discourse with automatic retry on transient errors
+    const { topicId, topicSlug } = await createTopicWithRetry(
+      {
+        baseUrl, apiKey, apiUsername,
+        title: String(title),
+        raw:   String(raw),
+        categoryId,
+        tags: Array.isArray(tags) ? tags : undefined,
+      },
+      3,   // up to 3 attempts
+      500  // 500 ms base delay (doubles each retry)
+    );
 
     const topicUrl = topicSlug
       ? `${baseUrl}/t/${topicSlug}/${topicId}`
@@ -1588,8 +1863,13 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
 
     res.json({ ok: true, topicId, topicUrl });
   } catch (e) {
-    console.error("[debates/create]", e);
-    res.status(500).json({ error: e.message || "Server error" });
+    // Log structured info server-side. Truncate the raw error message to avoid
+    // accidentally persisting long Discourse response bodies (which may contain
+    // HTML or credential hints) in log aggregators.
+    const safeMsg = String(e.message || e).slice(0, 200);
+    console.error("[debates/create] entityType=%s entityId=%s error=%s",
+      req.body?.entityType, req.body?.entityId, safeMsg);
+    res.status(500).json({ error: "Failed to create debate topic. Please try again later." });
   }
 });
 
@@ -1700,6 +1980,372 @@ app.get("/api/admin/discourse-sync-preview", rolesReadLimit, async (req, res) =>
     res.json({ preview });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * POST /api/admin/discourse-sync-groups — admin: sync every user's Discourse
+ * group membership to match their canonical roles.
+ *
+ * Algorithm:
+ *   1. Load all users + roles from the DB.
+ *   2. Build a desired-membership map: group → Set of discourse usernames.
+ *      (We use the game username as the Discourse username; if you need email
+ *      lookup, that can be added later.)
+ *   3. For each group in DISCOURSE_GROUP_MAP:
+ *      a. Fetch current members from Discourse.
+ *      b. Add users who should be in the group but aren't.
+ *      c. Remove users who are in the group but shouldn't be.
+ *   4. Return a per-group change log.
+ *
+ * Returns:
+ *   { ok: true, groups: [ { group, added: [], removed: [], skipped: string|null }, … ] }
+ *
+ * "skipped" is set when the Discourse API call fails for a group (other groups
+ * still proceed — a single group error doesn't abort the whole sync).
+ */
+
+/** Maximum characters of a Discourse error message to retain in sync results. */
+const SYNC_ERROR_MAX_LENGTH = 200;
+
+const discourseSyncLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    // Load credentials
+    const { rows: cfgRows } = await pool.query(
+      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'discourse_api_key', 'discourse_api_username')"
+    );
+    const cfg = Object.fromEntries(cfgRows.map((r) => [r.key, r.value]));
+
+    const baseUrl     = (cfg.discourse_base_url || "").trim().replace(/\/$/, "");
+    const apiKey      = cfg.discourse_api_key      ? discourseDecrypt(cfg.discourse_api_key)      : "";
+    const apiUsername = cfg.discourse_api_username ? discourseDecrypt(cfg.discourse_api_username) : "";
+
+    if (!baseUrl || !apiKey || !apiUsername) {
+      return res.status(400).json({ ok: false, error: "Discourse credentials not fully configured" });
+    }
+
+    // Load all users with their roles
+    const { rows: users } = await pool.query(`
+      SELECT u.id, u.username,
+             COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+       GROUP BY u.id, u.username
+    `);
+
+    // Build desired membership: group → Set of usernames
+    const desiredByGroup = new Map();
+    const uniqueGroups = new Set(Object.values(DISCOURSE_GROUP_MAP));
+    for (const grp of uniqueGroups) desiredByGroup.set(grp, new Set());
+
+    for (const user of users) {
+      const groups = computeDiscourseGroups(user.roles || []);
+      for (const grp of groups) {
+        if (!desiredByGroup.has(grp)) desiredByGroup.set(grp, new Set());
+        desiredByGroup.get(grp).add(user.username);
+      }
+    }
+
+    // Sync each group
+    const groupResults = [];
+    for (const [group, desiredSet] of desiredByGroup) {
+      try {
+        const currentMembers = await getGroupMembers({ baseUrl, apiKey, apiUsername, groupName: group });
+        const currentSet = new Set(currentMembers.map((m) => m.username));
+
+        const toAdd    = [...desiredSet].filter((u) => !currentSet.has(u));
+        const toRemove = [...currentSet].filter((u) => !desiredSet.has(u));
+
+        if (toAdd.length)    await addGroupMembers(   { baseUrl, apiKey, apiUsername, groupName: group, usernames: toAdd    });
+        if (toRemove.length) await removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName: group, usernames: toRemove });
+
+        groupResults.push({ group, added: toAdd, removed: toRemove, skipped: null });
+      } catch (grpErr) {
+        const safeMsg = String(grpErr.message || grpErr).slice(0, SYNC_ERROR_MAX_LENGTH);
+        console.error("[discourse-sync-groups] group=%s error=%s", group, safeMsg);
+        groupResults.push({ group, added: [], removed: [], skipped: safeMsg });
+      }
+    }
+
+    const totalAdded   = groupResults.reduce((n, g) => n + g.added.length,   0);
+    const totalRemoved = groupResults.reduce((n, g) => n + g.removed.length, 0);
+    const totalSkipped = groupResults.filter((g) => g.skipped).length;
+
+    console.log("[discourse-sync-groups] added=%d removed=%d groupErrors=%d", totalAdded, totalRemoved, totalSkipped);
+
+    res.json({ ok: true, groups: groupResults, totalAdded, totalRemoved, totalSkipped });
+  } catch (e) {
+    console.error("[discourse-sync-groups]", e.message);
+    res.status(500).json({ ok: false, error: "Discourse group sync failed. Check server logs." });
+  }
+});
+
+/**
+ * BOOTSTRAP
+ * GET /api/bootstrap
+ *
+ * Single round-trip that returns everything the UI needs on first load:
+ *   - clock (always)
+ *   - config (always, sensitive keys stripped)
+ *   - user + csrfToken (when a valid session cookie is present, else null)
+ *   - state { data, updatedAt } (when logged in and state exists, else null)
+ *
+ * The four DB queries run in parallel via Promise.all so the response time is
+ * bounded by the slowest individual query, not their sum.
+ */
+const bootstrapLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
+  try {
+    const SENSITIVE = new Set(["discourse_api_key", "discourse_api_username"]);
+    const isLoggedIn = Boolean(req.session?.userId);
+
+    // Always fetch: clock + config.  Conditionally fetch: user row + state.
+    const [clockRows, configRows, userRows, stateRows] = await Promise.all([
+      pool.query(
+        "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
+      ).then((r) => r.rows),
+
+      pool.query("SELECT key, value FROM app_config").then((r) => r.rows),
+
+      isLoggedIn
+        ? pool.query(
+            "SELECT id, username, email, roles, created_at FROM users WHERE id = $1",
+            [req.session.userId]
+          ).then((r) => r.rows)
+        : Promise.resolve([]),
+
+      isLoggedIn
+        ? pool.query(
+            `SELECT s.data, s.created_at AS updated_at
+               FROM app_state_current c
+               JOIN state_snapshots s ON s.id = c.snapshot_id
+              WHERE c.id = 'main'`
+          ).then((r) => r.rows)
+        : Promise.resolve([]),
+    ]);
+
+    // Clock — fall back to defaults if the table row doesn't exist yet.
+    const clock = clockRows[0] ?? { sim_current_month: 8, sim_current_year: 1997, real_last_tick: null, rate: 1 };
+
+    // Config — strip sensitive keys.
+    const config = Object.fromEntries(
+      configRows.filter((r) => !SENSITIVE.has(r.key)).map((r) => [r.key, r.value])
+    );
+
+    // User — absent or session stale.
+    if (isLoggedIn && !userRows.length) {
+      // Session references a deleted user; destroy it silently.
+      req.session.destroy(() => {});
+      return res.json({ clock, config, user: null, csrfToken: null, state: null });
+    }
+
+    if (!isLoggedIn) {
+      return res.json({ clock, config, user: null, csrfToken: null, state: null });
+    }
+
+    // Lazily generate CSRF token for sessions that pre-date the feature.
+    if (!req.session.csrfToken) {
+      req.session.csrfToken = generateCsrfToken();
+    }
+
+    const user = userRows[0];
+    const state = stateRows[0] ? { data: stateRows[0].data, updatedAt: stateRows[0].updated_at } : null;
+
+    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state });
+  } catch (e) {
+    console.error("[bootstrap]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * ADMIN MAINTENANCE TOOLS
+ *
+ * All endpoints require the admin role.
+ *
+ * POST /api/admin/clear-cache          — truncate the 5 object-cache tables
+ * POST /api/admin/rebuild-cache        — re-sync object tables from the current snapshot
+ * POST /api/admin/rotate-sessions      — regenerate the caller's own session ID + new CSRF token
+ * POST /api/admin/force-logout-all     — delete every session except the caller's
+ * GET  /api/admin/export-snapshot      — download the current snapshot as a JSON file attachment
+ * POST /api/admin/import-snapshot      — accept { label, data } body, save as new snapshot + set current
+ */
+const maintLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+
+// Clear object-cache tables
+app.post("/api/admin/clear-cache", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    await pool.query("BEGIN");
+    try {
+      await pool.query(
+        "TRUNCATE bills, motions, statements, regulations, questiontime_questions"
+      );
+      await pool.query("COMMIT");
+    } catch (truncErr) {
+      await pool.query("ROLLBACK");
+      throw truncErr;
+    }
+    console.log(`[admin] clear-cache by user ${req.session.userId}`);
+    res.json({ ok: true, message: "Object cache tables cleared." });
+  } catch (e) {
+    console.error("[admin/clear-cache]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Rebuild object-cache tables from the current snapshot
+app.post("/api/admin/rebuild-cache", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT s.data
+         FROM app_state_current c
+         JOIN state_snapshots s ON s.id = c.snapshot_id
+        WHERE c.id = 'main'`
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: "No active snapshot to rebuild from." });
+    }
+    await syncObjectTables(rows[0].data);
+    console.log(`[admin] rebuild-cache by user ${req.session.userId}`);
+    res.json({ ok: true, message: "Object cache rebuilt from current snapshot." });
+  } catch (e) {
+    console.error("[admin/rebuild-cache]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Rotate caller's session ID (invalidates old session cookie, issues new one + new CSRF token)
+app.post("/api/admin/rotate-sessions", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { userId, roles } = req.session;
+    req.session.regenerate((err) => {
+      if (err) {
+        console.error("[admin/rotate-sessions] regenerate error:", err);
+        return res.status(500).json({ error: "Session regeneration failed." });
+      }
+      req.session.userId = userId;
+      req.session.roles  = roles;
+      req.session.csrfToken = generateCsrfToken();
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error("[admin/rotate-sessions] save error:", saveErr);
+          return res.status(500).json({ error: "Session save failed." });
+        }
+        console.log(`[admin] rotate-sessions for user ${userId}`);
+        res.json({ ok: true, csrfToken: req.session.csrfToken, message: "Session rotated. Update your CSRF token." });
+      });
+    });
+  } catch (e) {
+    console.error("[admin/rotate-sessions]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Force-logout all users by deleting every session except the caller's
+app.post("/api/admin/force-logout-all", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const callerSid = req.sessionID;
+    const { rowCount } = await pool.query(
+      "DELETE FROM sessions WHERE sid <> $1",
+      [callerSid]
+    );
+    console.log(`[admin] force-logout-all by user ${req.session.userId}: ${rowCount} sessions deleted`);
+    res.json({ ok: true, sessionsDeleted: rowCount, message: `${rowCount} session(s) terminated.` });
+  } catch (e) {
+    console.error("[admin/force-logout-all]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Export the current snapshot as a downloadable JSON file
+app.get("/api/admin/export-snapshot", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT s.id, s.label, s.created_at, s.created_by, s.data
+         FROM app_state_current c
+         JOIN state_snapshots s ON s.id = c.snapshot_id
+        WHERE c.id = 'main'`
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: "No active snapshot to export." });
+    }
+    const snap = rows[0];
+    const filename = `rb-snapshot-${snap.id.slice(0, 8)}-${snap.created_at.toISOString().slice(0, 10)}.json`;
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      snapshotId: snap.id,
+      label:      snap.label,
+      createdAt:  snap.created_at,
+      createdBy:  snap.created_by,
+      data:       snap.data,
+    };
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(JSON.stringify(payload, null, 2));
+  } catch (e) {
+    console.error("[admin/export-snapshot]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Import a snapshot from a JSON body: { label, data }
+// Saves as a new snapshot and sets it as the active current state.
+app.post("/api/admin/import-snapshot", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { label, data } = req.body || {};
+    if (!label || typeof label !== "string" || !label.trim()) {
+      return res.status(400).json({ error: "Body must include a non-empty label." });
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      return res.status(400).json({ error: "Body must include a data object." });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO state_snapshots (created_by, label, data)
+       VALUES ($1, $2, $3::jsonb)
+       RETURNING id, created_at, label`,
+      [req.session.userId, label.trim(), JSON.stringify(data)]
+    );
+    const snap = rows[0];
+
+    await pool.query(
+      `INSERT INTO app_state_current (id, snapshot_id)
+       VALUES ('main', $1)
+       ON CONFLICT (id) DO UPDATE SET snapshot_id = EXCLUDED.snapshot_id`,
+      [snap.id]
+    );
+
+    let cacheWarning = null;
+    try {
+      await syncObjectTables(data);
+    } catch (syncErr) {
+      console.error("[admin/import-snapshot syncObjectTables]", syncErr);
+      cacheWarning = "Snapshot saved and set as current, but cache rebuild failed. Run 'Rebuild Cache' manually.";
+    }
+
+    console.log(`[admin] import-snapshot by user ${req.session.userId}: ${snap.id} (${label})`);
+    res.status(201).json({
+      ok: true,
+      snapshotId: snap.id,
+      createdAt: snap.created_at,
+      label: snap.label,
+      ...(cacheWarning ? { warning: cacheWarning } : {}),
+    });
+  } catch (e) {
+    console.error("[admin/import-snapshot]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

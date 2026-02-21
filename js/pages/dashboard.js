@@ -1,5 +1,4 @@
-import { canSeeAudienceItem } from "../permissions.js";
-import { isAdmin, isMod, isSpeaker } from "../permissions.js";
+import { canSeeAudienceItem, isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { esc } from "../ui.js";
 import { nowMs } from "../core.js";
 import { formatSimMonthYear, getWeekdayName, isSunday, countdownToSimMonth } from "../clock.js";
@@ -64,7 +63,7 @@ function buildRoleAwareDocket(data) {
 
   const qAll = data?.questionTime?.questions || [];
   qAll.filter((q) => !q.archived && !q.answer && String(q.askedBy || "") !== String(char?.name || "")).slice(0, 4).forEach((q) => {
-    if (isAdmin(data) || isMod(data) || isSpeaker(data) || ["prime-minister","leader-commons", q.office].includes(String(char?.office || ""))) {
+    if (canAdminModOrSpeaker(data) || ["prime-minister","leader-commons", q.office].includes(String(char?.office || ""))) {
       push({ type: "question", title: "Question awaiting ministerial answer", detail: q.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "high" });
     }
   });

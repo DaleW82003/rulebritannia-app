@@ -7,6 +7,7 @@ import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
 import { apiCreateDebateTopic } from "../api.js";
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
+import { handleApiError } from "../errors.js";
 
 const GOVERNMENT_OFFICES = new Set([
   "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade", "defence",
@@ -166,7 +167,7 @@ function render(data) {
       statement.debateUrl = topicUrl;
       statement.discourseTopicId = topicId;
       saveData(data);
-    }).catch(() => {});
+    }).catch((err) => handleApiError(err, "Debate topic"));
     render(data);
   });
 

@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
 import { logAction } from "../audit.js";
 
@@ -13,7 +13,7 @@ function getCurrentCharacter(data) {
 }
 
 function canModerate(data) {
-  return isAdmin(data) || isMod(data) || isSpeaker(data);
+  return canAdminModOrSpeaker(data);
 }
 
 function canAnswerOffice(data, officeId) {
@@ -172,7 +172,7 @@ function render(data, state) {
   const simLabel = formatSimMonthYear(data.gameState);
 
   if (!selectedOffice) {
-    root.innerHTML = `<div class="muted-block">No Question Time offices configured in demo.json.</div>`;
+    root.innerHTML = `<div class="muted-block">No Question Time offices configured.</div>`;
     return;
   }
 

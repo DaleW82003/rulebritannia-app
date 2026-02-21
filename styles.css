@@ -743,3 +743,35 @@ label{ font-weight:850; color:var(--navy); }
   }
   .form-row.inline label{ min-width:160px; flex-shrink:0; }
 }
+
+/* =========================
+   Data Source Debug Panel
+   ========================= */
+.ds-panel{
+  position:fixed; bottom:20px; left:20px; z-index:250;
+  background:#ffffff;
+  border:1px solid var(--line);
+  border-radius:14px;
+  box-shadow:0 4px 16px rgba(11,27,58,.10);
+  font-size:12px;
+  max-width:280px;
+  color:var(--text);
+}
+.ds-panel-toggle{
+  display:flex; align-items:center; gap:6px;
+  padding:8px 12px;
+  background:none; border:none; cursor:pointer;
+  font-weight:800; font-size:12px; color:inherit;
+  width:100%; border-radius:14px; white-space:nowrap;
+}
+.ds-panel-toggle:hover{ background:rgba(11,27,58,.04); }
+.ds-panel-body{ padding:4px 12px 10px; }
+.ds-row{ display:flex; align-items:center; gap:6px; padding:3px 0; overflow:hidden; }
+.ds-dot{
+  display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0;
+}
+.ds-dot.ok{ background:var(--green); }
+.ds-dot.fail{ background:var(--red); }
+.ds-label{ font-family:monospace; font-size:11px; color:var(--muted); flex-shrink:0; }
+.ds-err{ color:var(--red); font-size:10px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-left:4px; }
+.ds-caret{ margin-left:auto; opacity:.6; padding-left:6px; }
