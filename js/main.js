@@ -19,6 +19,7 @@ import { initRegulationsPage } from "./pages/regulations.js";
 import { initRegulationPage } from "./pages/regulation.js";
 import { initRedLionPage } from "./pages/redlion.js";
 import { initHansardPage } from "./pages/hansard.js";
+import { initDebatesPage } from "./pages/debates.js";
 
 import { initEconomyPage } from "./pages/economy.js";
 import { initConstituenciesPage } from "./pages/constituencies.js";
@@ -132,6 +133,7 @@ function renderDataSourcePanel(sources) {
       regulation: initRegulationPage,
       redlion: initRedLionPage,
       hansard: initHansardPage,
+      debates: initDebatesPage,
 
       economy: initEconomyPage,
       constituencies: initConstituenciesPage,
