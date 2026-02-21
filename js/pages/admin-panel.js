@@ -1,6 +1,9 @@
 import { requireAdmin } from "../auth.js";
 import { esc } from "../ui.js";
-import { apiLogout, apiGetState, apiSaveState, apiGetConfig, apiSaveConfig } from "../api.js";
+import {
+  apiLogout, apiGetState, apiGetConfig, apiSaveConfig,
+  apiGetSnapshots, apiSaveSnapshot, apiRestoreSnapshot,
+} from "../api.js";
 
 export async function initAdminPanelPage(data) {
   const user = await requireAdmin();
@@ -10,6 +13,8 @@ export async function initAdminPanelPage(data) {
   if (!host) return;
 
   let currentConfig = {};
+  let snapshots = [];
+  let currentSnapshotId = null;
 
   async function loadConfig() {
     try {
@@ -18,6 +23,18 @@ export async function initAdminPanelPage(data) {
     } catch (err) {
       console.error("Failed to load config:", err);
       currentConfig = {};
+    }
+  }
+
+  async function loadSnapshots() {
+    try {
+      const result = await apiGetSnapshots();
+      snapshots = result?.snapshots || [];
+      currentSnapshotId = result?.currentId ?? null;
+    } catch (err) {
+      console.error("Failed to load snapshots:", err);
+      snapshots = [];
+      currentSnapshotId = null;
     }
   }
 
@@ -42,6 +59,37 @@ export async function initAdminPanelPage(data) {
       .join("\n");
   }
 
+  function renderSnapshotsList() {
+    if (!snapshots.length) return '<p class="muted-block">No snapshots saved yet.</p>';
+    return `
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="border-bottom:1px solid #ccc;">
+            <th style="text-align:left;padding:4px 8px;">Label</th>
+            <th style="text-align:left;padding:4px 8px;">Created</th>
+            <th style="text-align:left;padding:4px 8px;">ID</th>
+            <th style="padding:4px 8px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${snapshots.map((s) => `
+            <tr style="border-bottom:1px solid #eee;${s.id === currentSnapshotId ? "background:#f0f8f0;" : ""}">
+              <td style="padding:4px 8px;">
+                ${esc(s.label)}
+                ${s.id === currentSnapshotId ? ' <span style="color:#2a7;font-size:11px;">(current)</span>' : ""}
+              </td>
+              <td style="padding:4px 8px;">${esc(new Date(s.created_at).toLocaleString())}</td>
+              <td style="padding:4px 8px;font-family:monospace;font-size:11px;">${esc(s.id.slice(0, 8))}…</td>
+              <td style="padding:4px 8px;">
+                ${s.id !== currentSnapshotId
+                  ? `<button class="btn btn-restore" data-id="${esc(s.id)}" type="button" style="font-size:12px;padding:2px 8px;">Restore</button>`
+                  : ""}
+              </td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+  }
+
   function render(status) {
     host.innerHTML = `
       <h1 class="page-title">Admin Panel</h1>
@@ -63,13 +111,19 @@ export async function initAdminPanelPage(data) {
         ${status && status.startsWith("cfg:") ? `<div id="status-msg" style="margin-top:10px;font-size:13px;">${esc(status.slice(4))}</div>` : ""}
       </section>
 
-      <section class="panel" style="max-width:600px;margin-top:12px;">
-        <h2 style="margin-top:0;">State Controls</h2>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button id="btn-reload" class="btn" type="button">Reload from server</button>
-          <button id="btn-save" class="btn" type="button">Save current state to server</button>
-        </div>
-        ${status && !status.startsWith("cfg:") ? `<div id="status-msg" style="margin-top:10px;font-size:13px;">${esc(status)}</div>` : ""}
+      <section class="panel" style="max-width:700px;margin-top:12px;">
+        <h2 style="margin-top:0;">State Snapshots</h2>
+
+        <form id="snapshot-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+          <input id="snapshot-label" type="text" placeholder="Snapshot label…"
+                 required minlength="1" maxlength="120"
+                 style="flex:1;min-width:180px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;" />
+          <button class="btn" type="submit">Save Snapshot</button>
+        </form>
+
+        <div id="snapshots-list">${renderSnapshotsList()}</div>
+
+        ${status && status.startsWith("snap:") ? `<div id="status-msg" style="margin-top:10px;font-size:13px;">${esc(status.slice(5))}</div>` : ""}
       </section>
 
       <section class="panel" style="max-width:600px;margin-top:12px;">
@@ -94,23 +148,35 @@ export async function initAdminPanelPage(data) {
       }
     });
 
-    host.querySelector("#btn-reload")?.addEventListener("click", async () => {
+    host.querySelector("#snapshot-form")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const label = host.querySelector("#snapshot-label")?.value?.trim();
+      if (!label) return;
       try {
-        const result = await apiGetState();
-        if (result?.data) Object.assign(data, result.data);
-        render("Reloaded from server.");
+        await apiSaveSnapshot(label, data);
+        await loadSnapshots();
+        render("snap:Snapshot saved.");
       } catch (err) {
-        render(`Error reloading: ${err.message}`);
+        render(`snap:Error saving snapshot: ${err.message}`);
       }
     });
 
-    host.querySelector("#btn-save")?.addEventListener("click", async () => {
-      try {
-        await apiSaveState(data);
-        render("State saved to server.");
-      } catch (err) {
-        render(`Error saving: ${err.message}`);
-      }
+    host.querySelectorAll(".btn-restore").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.id;
+        if (!id) return;
+        if (!confirm("Restore this snapshot? The current state will change immediately.")) return;
+        try {
+          await apiRestoreSnapshot(id);
+          // Reload state data into the shared data object
+          const result = await apiGetState();
+          if (result?.data) Object.assign(data, result.data);
+          await loadSnapshots();
+          render("snap:Snapshot restored.");
+        } catch (err) {
+          render(`snap:Error restoring snapshot: ${err.message}`);
+        }
+      });
     });
 
     host.querySelector("#btn-logout")?.addEventListener("click", async () => {
@@ -123,6 +189,6 @@ export async function initAdminPanelPage(data) {
     });
   }
 
-  await loadConfig();
+  await Promise.all([loadConfig(), loadSnapshots()]);
   render("");
 }

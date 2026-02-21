@@ -64,6 +64,34 @@ export async function apiSaveState(data) {
   return res.json();
 }
 
+export async function apiGetSnapshots() {
+  const res = await fetch(`${API_BASE}/api/snapshots`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiGetSnapshots failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSaveSnapshot(label, data) {
+  const res = await fetch(`${API_BASE}/api/snapshots`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label, data }),
+  });
+  if (!res.ok) throw new Error(`apiSaveSnapshot failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiRestoreSnapshot(id) {
+  const res = await fetch(`${API_BASE}/api/snapshots/${encodeURIComponent(id)}/restore`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiRestoreSnapshot failed (${res.status})`);
+  return res.json();
+}
+
 export async function apiGetConfig() {
   const res = await fetch(`${API_BASE}/api/config`);
   if (!res.ok) throw new Error(`apiGetConfig failed (${res.status})`);
