@@ -221,12 +221,11 @@ app.get("/api/state", async (req, res) => {
 
 app.post("/api/state", async (req, res) => {
   try {
-    const token = req.header("x-admin-token") || "";
-    if (!process.env.ADMIN_TOKEN) {
-      return res.status(500).json({ error: "ADMIN_TOKEN not set on server" });
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Not logged in" });
     }
-    if (token !== process.env.ADMIN_TOKEN) {
-      return res.status(401).json({ error: "Unauthorized" });
+    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
+      return res.status(403).json({ error: "Forbidden: admin role required" });
     }
 
     const data = req.body?.data;
