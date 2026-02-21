@@ -5,6 +5,7 @@ import { isAdmin, isMod } from "../permissions.js";
 import { esc } from "../ui.js";
 import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
+import { apiCreateDebateTopic } from "../api.js";
 
 function $(id) {
   return document.getElementById(id);
@@ -126,6 +127,21 @@ function setDebateLink(bill) {
   btn.href = url;
 }
 
+function ensureBillDebateTopic(bill, data) {
+  if (bill.discourseTopicId) return;
+  const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${bill.department ? ` (${bill.department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
+  apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw })
+    .then(({ topicId, topicUrl }) => {
+      bill.debateUrl = topicUrl;
+      bill.discourseTopicId = topicId;
+      const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
+      if (idx >= 0) data.orderPaperCommons[idx] = bill;
+      saveData(data);
+      setDebateLink(bill);
+    })
+    .catch(() => {});
+}
+
 function renderBillMeta(bill, data) {
   const h1 = $("billTitle");
   const meta = $("billMeta");
@@ -187,6 +203,7 @@ function renderBillMeta(bill, data) {
       bill.stageDeadlineSim = createDeadline(data.gameState, 2);
       logAction({ action: "bill-stage-changed", target: bill.title, details: { billId: bill.id, stage: bill.stage } });
       persistAndRerender(data, bill);
+      ensureBillDebateTopic(bill, data);
     });
 
     meta.querySelector('[data-agenda="refuse-second-reading"]')?.addEventListener("click", () => {

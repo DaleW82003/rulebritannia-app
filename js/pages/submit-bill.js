@@ -1,6 +1,7 @@
 import { saveData } from "../core.js";
 import { getSimDate, createDeadline } from "../clock.js";
 import { esc } from "../ui.js";
+import { apiCreateDebateTopic } from "../api.js";
 
 const DEPARTMENTS = [
   "Cabinet Office (General)",
@@ -316,6 +317,19 @@ export function initSubmitBillPage(data) {
     }
 
     saveData(data);
+
+    if (stage === "Second Reading") {
+      const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${department ? ` (${department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
+      apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw })
+        .then(({ topicId, topicUrl }) => {
+          bill.debateUrl = topicUrl;
+          bill.discourseTopicId = topicId;
+          const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
+          if (idx >= 0) data.orderPaperCommons[idx] = bill;
+          saveData(data);
+        })
+        .catch(() => {});
+    }
 
     if (success) {
       success.style.display = "";

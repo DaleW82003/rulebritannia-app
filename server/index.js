@@ -1328,7 +1328,7 @@ app.delete("/api/questiontime-questions/:id", crudWriteLimit, async (req, res) =
 
 /**
  * DEBATES (Discourse integration)
- * POST /api/debates/create — admin only
+ * POST /api/debates/create — any authenticated user
  *
  * Body: { entityType, entityId, title, raw, categoryId?, tags? }
  *   entityType: "bill" | "motion" | "statement" | "regulation" | "question"
@@ -1340,6 +1340,7 @@ app.delete("/api/questiontime-questions/:id", crudWriteLimit, async (req, res) =
  *
  * Returns: { ok: true, topicId, topicUrl }
  * Also patches the entity's JSONB data with discourseTopicId + discourseTopicUrl.
+ * Idempotent: if the entity already has a discourseTopicId, returns the existing URL.
  */
 
 const DEBATE_ENTITY_TABLES = {
@@ -1352,7 +1353,7 @@ const DEBATE_ENTITY_TABLES = {
 
 app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAuth(req, res)) return;
 
     const { entityType, entityId, title, raw, categoryId, tags } = req.body || {};
 
@@ -1363,6 +1364,20 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
       return res.status(400).json({
         error: `entityType must be one of: ${Object.keys(DEBATE_ENTITY_TABLES).join(", ")}`,
       });
+    }
+
+    // `table` is derived from DEBATE_ENTITY_TABLES — a static whitelist of known-safe names —
+    // so interpolating it here is not a SQL injection risk.
+    const table = DEBATE_ENTITY_TABLES[entityType];
+
+    // Idempotency: return existing topic if one was already created for this entity.
+    const { rows: existing } = await pool.query(
+      `SELECT data->>'discourseTopicId' AS topic_id, data->>'discourseTopicUrl' AS topic_url FROM ${table} WHERE id = $1`,
+      [String(entityId)]
+    );
+    if (existing.length && existing[0].topic_id) {
+      const existingUrl = existing[0].topic_url || `https://forum.rulebritannia.org/t/${existing[0].topic_id}`;
+      return res.json({ ok: true, topicId: Number(existing[0].topic_id), topicUrl: existingUrl, existing: true });
     }
 
     // Load and decrypt Discourse credentials
@@ -1393,9 +1408,6 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
       : `${baseUrl}/t/${topicId}`;
 
     // Patch the entity row: merge discourseTopicId and discourseTopicUrl into JSONB data.
-    // `table` is derived from DEBATE_ENTITY_TABLES — a static whitelist of known-safe names —
-    // so interpolating it here is not a SQL injection risk.
-    const table = DEBATE_ENTITY_TABLES[entityType];
     await pool.query(
       `UPDATE ${table}
           SET data       = data || $1::jsonb,
