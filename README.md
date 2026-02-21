@@ -42,7 +42,30 @@ Open `dashboard.html` in your browser.
 └── assets/                 # Logo, icons
 ```
 
-## How Routing Works
+## API Base Configuration
+
+The frontend calls the backend API (authentication, state persistence) using a base URL resolved at runtime by `js/api.js`:
+
+1. **`window.RB_API_BASE`** — if this global is set before `js/main.js` runs, it is used as-is.
+2. **Hostname inference** — if the page is served from `rulebritannia.org`, `*.rulebritannia.org`, or `rulebritannia-app.onrender.com`, the base is automatically set to `https://rulebritannia-app-backend.onrender.com`.
+3. **Fallback** — all other origins (e.g. `localhost`) default to `""`, meaning API requests go to the same origin. This is the correct behaviour for local development when you also run the backend on the same host/port.
+
+### Local development
+
+If you are running the backend on a different port (e.g. `http://localhost:4000`), add a `<script>` tag in the relevant HTML file **before** `js/main.js`:
+
+```html
+<script>window.RB_API_BASE = "http://localhost:4000";</script>
+<script type="module" src="js/main.js"></script>
+```
+
+Or set it once in your browser console before navigating to the page.
+
+### Production (Render)
+
+No extra configuration is needed. The hostname-inference rule in `js/api.js` automatically resolves the correct backend URL when the frontend is served from `rulebritannia.org` or `rulebritannia-app.onrender.com`.
+
+
 
 Each HTML file has a `data-page` attribute on `<body>`. On load, `js/main.js`:
 

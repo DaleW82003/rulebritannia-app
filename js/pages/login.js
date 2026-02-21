@@ -1,3 +1,4 @@
+import { apiLogin } from "../api.js";
 import { esc } from "../ui.js";
 
 function render(host, errorMsg) {
@@ -47,7 +48,21 @@ export function initLoginPage(_data) {
     }
 
     errorEl.style.display = "none";
-    // Placeholder: authentication logic goes here.
-    console.info("Login attempted for:", esc(email));
+    const btn = form.querySelector("button[type=submit]");
+    if (btn) btn.disabled = true;
+
+    apiLogin(email, password)
+      .then(() => {
+        window.location.href = "admin-panel.html";
+      })
+      .catch((err) => {
+        const status = err?.message?.match(/\((\d+)\)/)?.[1];
+        errorEl.textContent =
+          status === "401"
+            ? "Invalid email or password."
+            : "Login failed. Please try again.";
+        errorEl.style.display = "block";
+        if (btn) btn.disabled = false;
+      });
   });
 }

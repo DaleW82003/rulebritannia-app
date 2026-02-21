@@ -1,19 +1,17 @@
 // js/auth.js
-const API_BASE = (typeof window !== "undefined" && window.RB_API_BASE) || "";
+import { apiMe } from "./api.js";
 
 /**
  * Ensures the current visitor is logged in.
- * Calls /auth/me; if the response is 401, redirects to login.html.
+ * Calls /auth/me; if the user is not authenticated, redirects to login.html.
  * @returns {Promise<object|null>} Resolved user object, or null if redirecting.
  */
 export async function requireLogin() {
-  const res = await fetch(`${API_BASE}/auth/me`, { credentials: "include" });
-  if (res.status === 401) {
+  const { user } = await apiMe();
+  if (!user) {
     window.location.href = "login.html";
     return null;
   }
-  if (!res.ok) throw new Error(`requireLogin: /auth/me failed (${res.status})`);
-  const { user } = await res.json();
   return user;
 }
 
