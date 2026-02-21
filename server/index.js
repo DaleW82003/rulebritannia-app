@@ -516,6 +516,14 @@ app.post("/auth/login", authLimit, async (req, res) => {
         return res.status(500).json({ ok: false, error: "Session save failed" });
       }
 
+      // Record login in audit log for admin users (fire-and-forget)
+      if (Array.isArray(user.roles) && user.roles.includes("admin")) {
+        pool.query(
+          `INSERT INTO audit_log (actor_id, action, target, details) VALUES ($1, $2, $3, $4::jsonb)`,
+          [user.id, "admin-login", user.email, JSON.stringify({})]
+        ).catch((e) => console.error("audit-log login insert failed:", e));
+      }
+
       return res.json({
         ok: true,
         csrfToken: req.session.csrfToken,
@@ -561,6 +569,17 @@ app.get("/auth/me", authLimit, async (req, res) => {
 });
 
 app.post("/auth/logout", authLimit, (req, res) => {
+  const logoutUserId = req.session?.userId;
+  const logoutRoles  = req.session?.roles;
+
+  // Record logout in audit log for admin users (fire-and-forget)
+  if (logoutUserId && Array.isArray(logoutRoles) && logoutRoles.includes("admin")) {
+    pool.query(
+      `INSERT INTO audit_log (actor_id, action, target, details) VALUES ($1, $2, $3, $4::jsonb)`,
+      [logoutUserId, "admin-logout", "", JSON.stringify({})]
+    ).catch((e) => console.error("audit-log logout insert failed:", e));
+  }
+
   req.session.destroy(() => {
     res.clearCookie("rb.sid", {
       sameSite: "none",
