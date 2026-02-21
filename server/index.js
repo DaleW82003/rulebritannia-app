@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
 import { pool } from "./db.js";
+import { createTopic, createPost } from "./discourse.js";
 
 /**
  * Discourse credential encryption (AES-256-GCM).
@@ -1322,6 +1323,91 @@ app.delete("/api/questiontime-questions/:id", crudWriteLimit, async (req, res) =
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * DEBATES (Discourse integration)
+ * POST /api/debates/create — admin only
+ *
+ * Body: { entityType, entityId, title, raw, categoryId?, tags? }
+ *   entityType: "bill" | "motion" | "statement" | "regulation" | "question"
+ *   entityId:   the id of the entity to attach the topic link to
+ *   title:      Discourse topic title
+ *   raw:        Discourse topic body (Markdown)
+ *   categoryId: (optional) Discourse category ID
+ *   tags:       (optional) array of tag strings
+ *
+ * Returns: { ok: true, topicId, topicUrl }
+ * Also patches the entity's JSONB data with discourseTopicId + discourseTopicUrl.
+ */
+
+const DEBATE_ENTITY_TABLES = {
+  bill:       "bills",
+  motion:     "motions",
+  statement:  "statements",
+  regulation: "regulations",
+  question:   "questiontime_questions",
+};
+
+app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { entityType, entityId, title, raw, categoryId, tags } = req.body || {};
+
+    if (!entityType || !entityId || !title || !raw) {
+      return res.status(400).json({ error: "Body must include entityType, entityId, title, and raw" });
+    }
+    if (!DEBATE_ENTITY_TABLES[entityType]) {
+      return res.status(400).json({
+        error: `entityType must be one of: ${Object.keys(DEBATE_ENTITY_TABLES).join(", ")}`,
+      });
+    }
+
+    // Load and decrypt Discourse credentials
+    const { rows: cfgRows } = await pool.query(
+      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'discourse_api_key', 'discourse_api_username')"
+    );
+    const cfg = Object.fromEntries(cfgRows.map((r) => [r.key, r.value]));
+
+    const baseUrl     = (cfg.discourse_base_url || "").trim().replace(/\/$/, "");
+    const apiKey      = cfg.discourse_api_key      ? discourseDecrypt(cfg.discourse_api_key)      : "";
+    const apiUsername = cfg.discourse_api_username ? discourseDecrypt(cfg.discourse_api_username) : "";
+
+    if (!baseUrl)     return res.status(400).json({ ok: false, error: "Discourse base URL not configured" });
+    if (!apiKey)      return res.status(400).json({ ok: false, error: "Discourse API key not configured" });
+    if (!apiUsername) return res.status(400).json({ ok: false, error: "Discourse API username not configured" });
+
+    // Create topic on Discourse
+    const { topicId, topicSlug } = await createTopic({
+      baseUrl, apiKey, apiUsername,
+      title: String(title),
+      raw:   String(raw),
+      categoryId,
+      tags: Array.isArray(tags) ? tags : undefined,
+    });
+
+    const topicUrl = topicSlug
+      ? `${baseUrl}/t/${topicSlug}/${topicId}`
+      : `${baseUrl}/t/${topicId}`;
+
+    // Patch the entity row: merge discourseTopicId and discourseTopicUrl into JSONB data.
+    // `table` is derived from DEBATE_ENTITY_TABLES — a static whitelist of known-safe names —
+    // so interpolating it here is not a SQL injection risk.
+    const table = DEBATE_ENTITY_TABLES[entityType];
+    await pool.query(
+      `UPDATE ${table}
+          SET data       = data || $1::jsonb,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [JSON.stringify({ discourseTopicId: topicId, discourseTopicUrl: topicUrl }), String(entityId)]
+    );
+
+    res.json({ ok: true, topicId, topicUrl });
+  } catch (e) {
+    console.error("[debates/create]", e);
+    res.status(500).json({ error: e.message || "Server error" });
   }
 });
 
