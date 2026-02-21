@@ -405,7 +405,7 @@ export async function initAdminPanelPage(data) {
       </section>`;
   }
 
-
+  function renderMaintenanceSection() {
     return `
       <section class="panel" style="max-width:700px;margin-top:12px;">
         <h2 style="margin-top:0;">Maintenance</h2>

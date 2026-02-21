@@ -294,17 +294,21 @@ function generateCsrfToken() {
   return randomBytes(32).toString("hex");
 }
 
+// Paths that are explicitly exempt from CSRF validation because no session
+// (and therefore no token) exists when they are called.
+const CSRF_EXEMPT_PATHS = new Set(["/auth/login"]);
+
 function verifyCsrfToken(req, res, next) {
   const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
   if (safeMethods.has(req.method)) return next();
 
-  const sessionToken = req.session?.csrfToken;
-  // No token in session means the request is unauthenticated;
-  // requireAuth / requireAdmin in each handler will reject it.
-  if (!sessionToken) return next();
+  // Explicit exemptions only — do not skip silently for other unauthenticated paths.
+  if (CSRF_EXEMPT_PATHS.has(req.path)) return next();
 
+  const sessionToken = req.session?.csrfToken;
   const requestToken = req.headers["x-csrf-token"];
   if (
+    !sessionToken ||
     !requestToken ||
     sessionToken.length !== requestToken.length ||
     !timingSafeEqual(Buffer.from(sessionToken), Buffer.from(requestToken))
