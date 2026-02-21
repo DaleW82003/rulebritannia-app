@@ -122,7 +122,7 @@ app.post("/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) {
-      return res.status(400).json({ error: "Missing email or password" });
+      return res.status(400).json({ ok: false, error: "Missing email or password" });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
@@ -133,14 +133,14 @@ app.post("/auth/login", async (req, res) => {
     );
 
     if (!rows.length) {
-      return res.status(401).json({ error: "Invalid email or password" });
+      return res.status(401).json({ ok: false, error: "Invalid email or password" });
     }
 
     const user = rows[0];
 
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) {
-      return res.status(401).json({ error: "Invalid email or password" });
+      return res.status(401).json({ ok: false, error: "Invalid email or password" });
     }
 
     // Save to session
@@ -151,7 +151,7 @@ app.post("/auth/login", async (req, res) => {
     req.session.save((err) => {
       if (err) {
         console.error("session save failed:", err);
-        return res.status(500).json({ error: "Session save failed" });
+        return res.status(500).json({ ok: false, error: "Session save failed" });
       }
 
       return res.json({
@@ -166,7 +166,7 @@ app.post("/auth/login", async (req, res) => {
     });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ ok: false, error: "Server error" });
   }
 });
 
@@ -188,7 +188,7 @@ app.get("/auth/me", async (req, res) => {
     return res.json({ ok: true, user: rows[0] });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ ok: false, error: "Server error" });
   }
 });
 
