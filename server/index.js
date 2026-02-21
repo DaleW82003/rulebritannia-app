@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { pool } from "./db.js";
-import { createTopic, createPost } from "./discourse.js";
+import { createTopic, createPost, createTopicWithRetry } from "./discourse.js";
 import { ALL_VALID_ROLES, computeDiscourseGroups } from "./roles.js";
 
 /**
@@ -1522,13 +1522,20 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
 
     // Idempotency: return existing topic if one was already created for this entity.
     const { rows: existing } = await pool.query(
-      `SELECT data->>'discourseTopicId' AS topic_id, data->>'discourseTopicUrl' AS topic_url FROM ${table} WHERE id = $1`,
+      `SELECT data->>'discourseTopicId'  AS topic_id,
+              data->>'discourseTopicUrl' AS topic_url
+         FROM ${table} WHERE id = $1`,
       [String(entityId)]
     );
     if (existing.length && existing[0].topic_id) {
       const existingUrl = existing[0].topic_url || `https://forum.rulebritannia.org/t/${existing[0].topic_id}`;
       return res.json({ ok: true, topicId: Number(existing[0].topic_id), topicUrl: existingUrl, existing: true });
     }
+
+    // Recovery: entity row exists with a stale placeholder URL but no topic ID yet.
+    // This can happen if the process died between topic creation and the DB patch.
+    // We proceed to create (or re-create) the topic below; the idempotency check
+    // above already handled the case where a topic ID was persisted.
 
     // Load and decrypt Discourse credentials
     const { rows: cfgRows } = await pool.query(
@@ -1544,14 +1551,18 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
     if (!apiKey)      return res.status(400).json({ ok: false, error: "Discourse API key not configured" });
     if (!apiUsername) return res.status(400).json({ ok: false, error: "Discourse API username not configured" });
 
-    // Create topic on Discourse
-    const { topicId, topicSlug } = await createTopic({
-      baseUrl, apiKey, apiUsername,
-      title: String(title),
-      raw:   String(raw),
-      categoryId,
-      tags: Array.isArray(tags) ? tags : undefined,
-    });
+    // Create topic on Discourse with automatic retry on transient errors
+    const { topicId, topicSlug } = await createTopicWithRetry(
+      {
+        baseUrl, apiKey, apiUsername,
+        title: String(title),
+        raw:   String(raw),
+        categoryId,
+        tags: Array.isArray(tags) ? tags : undefined,
+      },
+      3,   // up to 3 attempts
+      500  // 500 ms base delay (doubles each retry)
+    );
 
     const topicUrl = topicSlug
       ? `${baseUrl}/t/${topicSlug}/${topicId}`
@@ -1568,8 +1579,13 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
 
     res.json({ ok: true, topicId, topicUrl });
   } catch (e) {
-    console.error("[debates/create]", e);
-    res.status(500).json({ error: e.message || "Server error" });
+    // Log structured info server-side. Truncate the raw error message to avoid
+    // accidentally persisting long Discourse response bodies (which may contain
+    // HTML or credential hints) in log aggregators.
+    const safeMsg = String(e.message || e).slice(0, 200);
+    console.error("[debates/create] entityType=%s entityId=%s error=%s",
+      req.body?.entityType, req.body?.entityId, safeMsg);
+    res.status(500).json({ error: "Failed to create debate topic. Please try again later." });
   }
 });
 
