@@ -2,6 +2,7 @@ import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
 import { formatSimMonthYear, getWeekdayName, isSunday } from "../clock.js";
+import { logAction } from "../audit.js";
 
 const POLL_DAY = "Sunday";
 
@@ -192,6 +193,7 @@ function render(data) {
 
     data.polling.polls.push(poll);
     saveData(data);
+    logAction({ action: "poll-published", target: simDate, details: { pollId: poll.id, results } });
     render(data);
   });
 }

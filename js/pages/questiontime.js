@@ -2,6 +2,7 @@ import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime } from "../permissions.js";
 import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
+import { logAction } from "../audit.js";
 
 function nowId(prefix = "id") {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
@@ -306,6 +307,7 @@ function render(data, state) {
       target.answeredAtSim = simLabel;
       target.status = "answered";
       target.answerSeenByAsker = false;
+      logAction({ action: "question-answered", target: selectedOffice.title, details: { questionId, askedBy: target.askedBy } });
     }
 
     saveData(data);
@@ -357,6 +359,7 @@ function render(data, state) {
       question.archived = true;
       question.status = "closed";
       question.archivedAtSim = simLabel;
+      logAction({ action: "question-closed", target: qid, details: { office: question.office, askedBy: question.askedBy } });
       saveData(data);
       render(data, state);
     });
@@ -372,6 +375,7 @@ function render(data, state) {
       question.speakerDemandedAtSim = simLabel;
       question.demandDueAtSim = createDeadline(data.gameState, 1);
       question.speakerDemandAvailable = false;
+      logAction({ action: "speaker-demand", target: qid, details: { office: question.office, askedBy: question.askedBy } });
       saveData(data);
       render(data, state);
     });

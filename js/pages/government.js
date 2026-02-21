@@ -1,6 +1,7 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
+import { logAction } from "../audit.js";
 
 const OFFICE_SPECS = [
   { id: "prime-minister", title: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service", short: "Prime Minister" },
@@ -204,18 +205,25 @@ function render(data, state) {
   `;
 
   host.querySelector("#gov-save")?.addEventListener("click", () => {
+    const changes = [];
     for (const el of host.querySelectorAll('[data-role="office-select"]')) {
       const officeId = String(el.dataset.officeId || "");
       if (!canEditOffice(data, officeId)) continue;
       const selectedName = String(el.value || "").trim();
       const office = officeMap.get(officeId);
       if (!office) continue;
+      if (office.holderName !== selectedName) {
+        changes.push({ office: officeId, from: office.holderName, to: selectedName });
+      }
       office.holderName = selectedName;
       office.holderAvatar = avatarFromCharacterProfile(data, selectedName) || "";
     }
 
     applyAssignmentEffects(data);
     saveData(data);
+    if (changes.length) {
+      logAction({ action: "office-assigned", target: "government", details: { changes } });
+    }
     state.message = "Appointments saved.";
     render(data, state);
   });

@@ -3,6 +3,7 @@ import cors from "cors";
 import session from "express-session";
 import pgSession from "connect-pg-simple";
 import bcrypt from "bcryptjs";
+import rateLimit from "express-rate-limit";
 import { pool } from "./db.js";
 
 const app = express();
@@ -130,6 +131,20 @@ async function ensureSchema() {
       value TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id         BIGSERIAL PRIMARY KEY,
+      actor_id   TEXT NOT NULL,
+      action     TEXT NOT NULL,
+      target     TEXT NOT NULL DEFAULT '',
+      details    JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS audit_log_actor_idx  ON audit_log (actor_id);
+    CREATE INDEX IF NOT EXISTS audit_log_action_idx ON audit_log (action);
+    CREATE INDEX IF NOT EXISTS audit_log_created_idx ON audit_log (created_at DESC);
   `);
 
   // Seed defaults (INSERT … ON CONFLICT DO NOTHING keeps existing values)
@@ -469,6 +484,88 @@ app.put("/api/config", async (req, res) => {
     );
 
     res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * AUDIT LOG
+ * POST /api/audit-log  — authenticated: record an admin/mod action
+ * GET  /api/audit-log  — admin only: list entries with optional filters
+ */
+
+const auditWriteLimit = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false });
+const auditReadLimit  = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/audit-log", auditWriteLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+    const { action, target = "", details = {} } = req.body || {};
+    if (!action || typeof action !== "string" || !action.trim()) {
+      return res.status(400).json({ error: "Body must include a non-empty action" });
+    }
+    await pool.query(
+      `INSERT INTO audit_log (actor_id, action, target, details)
+       VALUES ($1, $2, $3, $4::jsonb)`,
+      [req.session.userId, action.trim(), String(target), JSON.stringify(details)]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/audit-log", auditReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
+      return res.status(403).json({ error: "Forbidden: admin role required" });
+    }
+
+    const { action, target, actor, limit = "50", offset = "0" } = req.query;
+    const conditions = [];
+    const params = [];
+
+    if (action) {
+      params.push(action);
+      conditions.push(`action = $${params.length}`);
+    }
+    if (target) {
+      params.push(`%${target}%`);
+      conditions.push(`target ILIKE $${params.length}`);
+    }
+    if (actor) {
+      params.push(actor);
+      conditions.push(`actor_id = $${params.length}`);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+    const off = Math.max(parseInt(offset, 10) || 0, 0);
+
+    params.push(lim, off);
+    const { rows } = await pool.query(
+      `SELECT id, actor_id, action, target, details, created_at
+       FROM audit_log
+       ${where}
+       ORDER BY created_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    const { rows: countRows } = await pool.query(
+      `SELECT COUNT(*) AS total FROM audit_log ${where}`,
+      params.slice(0, params.length - 2)
+    );
+
+    res.json({ entries: rows, total: parseInt(countRows[0].total, 10) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
