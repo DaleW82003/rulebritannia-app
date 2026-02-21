@@ -136,3 +136,241 @@ export async function apiGetAuditLog({ action = "", target = "", actor = "", lim
   if (!res.ok) throw new Error(`apiGetAuditLog failed (${res.status})`);
   return res.json();
 }
+
+// ── BILLS ────────────────────────────────────────────────────────────────────
+
+export async function apiGetBills() {
+  const res = await fetch(`${API_BASE}/api/bills`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetBills failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetBill(id) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetBill failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateBill(bill) {
+  const res = await fetch(`${API_BASE}/api/bills`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bill),
+  });
+  if (!res.ok) throw new Error(`apiCreateBill failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiUpdateBill(id, bill) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bill),
+  });
+  if (!res.ok) throw new Error(`apiUpdateBill failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiDeleteBill(id) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiDeleteBill failed (${res.status})`);
+  return res.json();
+}
+
+// ── MOTIONS ───────────────────────────────────────────────────────────────────
+
+export async function apiGetMotions(type) {
+  const params = type ? `?type=${encodeURIComponent(type)}` : "";
+  const res = await fetch(`${API_BASE}/api/motions${params}`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetMotions failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetMotion(id) {
+  const res = await fetch(`${API_BASE}/api/motions/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetMotion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateMotion(motionType, motion) {
+  const res = await fetch(`${API_BASE}/api/motions`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ motion_type: motionType, ...motion }),
+  });
+  if (!res.ok) throw new Error(`apiCreateMotion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiUpdateMotion(id, motion) {
+  const res = await fetch(`${API_BASE}/api/motions/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(motion),
+  });
+  if (!res.ok) throw new Error(`apiUpdateMotion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiDeleteMotion(id) {
+  const res = await fetch(`${API_BASE}/api/motions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiDeleteMotion failed (${res.status})`);
+  return res.json();
+}
+
+// ── STATEMENTS ────────────────────────────────────────────────────────────────
+
+export async function apiGetStatements() {
+  const res = await fetch(`${API_BASE}/api/statements`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetStatements failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetStatement(id) {
+  const res = await fetch(`${API_BASE}/api/statements/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetStatement failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateStatement(stmt) {
+  const res = await fetch(`${API_BASE}/api/statements`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(stmt),
+  });
+  if (!res.ok) throw new Error(`apiCreateStatement failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiUpdateStatement(id, stmt) {
+  const res = await fetch(`${API_BASE}/api/statements/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(stmt),
+  });
+  if (!res.ok) throw new Error(`apiUpdateStatement failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiDeleteStatement(id) {
+  const res = await fetch(`${API_BASE}/api/statements/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiDeleteStatement failed (${res.status})`);
+  return res.json();
+}
+
+// ── REGULATIONS ───────────────────────────────────────────────────────────────
+
+export async function apiGetRegulations() {
+  const res = await fetch(`${API_BASE}/api/regulations`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetRegulations failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetRegulation(id) {
+  const res = await fetch(`${API_BASE}/api/regulations/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetRegulation failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateRegulation(reg) {
+  const res = await fetch(`${API_BASE}/api/regulations`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(reg),
+  });
+  if (!res.ok) throw new Error(`apiCreateRegulation failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiUpdateRegulation(id, reg) {
+  const res = await fetch(`${API_BASE}/api/regulations/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(reg),
+  });
+  if (!res.ok) throw new Error(`apiUpdateRegulation failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiDeleteRegulation(id) {
+  const res = await fetch(`${API_BASE}/api/regulations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiDeleteRegulation failed (${res.status})`);
+  return res.json();
+}
+
+// ── QUESTION TIME QUESTIONS ───────────────────────────────────────────────────
+
+export async function apiGetQTQuestions() {
+  const res = await fetch(`${API_BASE}/api/questiontime-questions`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetQTQuestions failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetQTQuestion(id) {
+  const res = await fetch(`${API_BASE}/api/questiontime-questions/${encodeURIComponent(id)}`, {
+    credentials: "include",
+  });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetQTQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateQTQuestion(q) {
+  const res = await fetch(`${API_BASE}/api/questiontime-questions`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(q),
+  });
+  if (!res.ok) throw new Error(`apiCreateQTQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiUpdateQTQuestion(id, q) {
+  const res = await fetch(`${API_BASE}/api/questiontime-questions/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(q),
+  });
+  if (!res.ok) throw new Error(`apiUpdateQTQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiDeleteQTQuestion(id) {
+  const res = await fetch(`${API_BASE}/api/questiontime-questions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiDeleteQTQuestion failed (${res.status})`);
+  return res.json();
+}
