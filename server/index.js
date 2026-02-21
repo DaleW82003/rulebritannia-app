@@ -109,6 +109,11 @@ app.get("/db-test", async (req, res) => {
   }
 });
 
+app.get("/dev/hash/:pw", async (req, res) => {
+  const hash = await bcrypt.hash(req.params.pw, 10);
+  res.json({ hash });
+});
+
 /**
  * AUTH (registration CLOSED because we do NOT add /auth/register)
  *
