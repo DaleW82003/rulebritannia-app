@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { formatSimMonthYear } from "../clock.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
@@ -87,6 +87,6 @@ export async function initControlPanelPage(data) {
     });
 
     data.economyPage = economy;
-    saveData(data);
+    saveState(data);
   });
 }
