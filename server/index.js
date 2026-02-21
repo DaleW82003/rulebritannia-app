@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import { pool } from "./db.js";
 
 const app = express();
+app.set("trust proxy", 1);
 
 // Render needs this so secure cookies work behind its proxy
 app.set("trust proxy", 1);
