@@ -484,6 +484,52 @@ export async function initAdminPanelPage(data) {
       </section>`;
   }
 
+  function renderQuickLinks() {
+    return `
+      <section class="panel" style="max-width:700px;margin-top:12px;">
+        <h2 style="margin-top:0;">Pages Without Nav Links</h2>
+        <p style="font-size:13px;color:#555;margin:0 0 10px;">
+          The following pages are not linked in the main navigation bar. They are admin-only or context-specific detail views.
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="border-bottom:2px solid #e0e0e0;text-align:left;">
+              <th style="padding:6px 10px;">Page</th>
+              <th style="padding:6px 10px;">Description</th>
+              <th style="padding:6px 10px;">Access</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom:1px solid #eee;">
+              <td style="padding:6px 10px;"><a href="control-panel.html">control-panel.html</a></td>
+              <td style="padding:6px 10px;">Speaker's Control Panel — manage clock, state categories, pinned stats</td>
+              <td style="padding:6px 10px;">Admin / Mod</td>
+            </tr>
+            <tr style="border-bottom:1px solid #eee;">
+              <td style="padding:6px 10px;"><a href="bill.html">bill.html</a></td>
+              <td style="padding:6px 10px;">Individual Bill detail view — use <code>?id={billId}</code></td>
+              <td style="padding:6px 10px;">All users (linked from Bills list)</td>
+            </tr>
+            <tr style="border-bottom:1px solid #eee;">
+              <td style="padding:6px 10px;"><a href="motion.html">motion.html</a></td>
+              <td style="padding:6px 10px;">Individual Motion / EDM detail view — use <code>?id={motionId}</code></td>
+              <td style="padding:6px 10px;">All users (linked from Motions list)</td>
+            </tr>
+            <tr style="border-bottom:1px solid #eee;">
+              <td style="padding:6px 10px;"><a href="regulation.html">regulation.html</a></td>
+              <td style="padding:6px 10px;">Individual Regulation detail view — use <code>?id={regulationId}</code></td>
+              <td style="padding:6px 10px;">All users (linked from Regulations list)</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 10px;"><a href="statement.html">statement.html</a></td>
+              <td style="padding:6px 10px;">Individual Statement detail view — use <code>?id={statementId}</code></td>
+              <td style="padding:6px 10px;">All users (linked from Statements list)</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>`;
+  }
+
   function render(status) {
     host.innerHTML = `
       <h1 class="page-title">Admin Panel</h1>
@@ -493,6 +539,8 @@ export async function initAdminPanelPage(data) {
         <div class="kv"><span>Email</span><b>${esc(user.email || "—")}</b></div>
         <div class="kv"><span>Roles</span><b>${esc((user.roles || []).join(", ") || "—")}</b></div>
       </section>
+
+      ${renderQuickLinks()}
 
       <section class="panel" style="max-width:600px;margin-top:12px;">
         <h2 style="margin-top:0;">App Config</h2>
