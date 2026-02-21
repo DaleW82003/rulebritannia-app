@@ -16,7 +16,7 @@ export async function apiMe() {
   const res = await fetch(`${API_BASE}/auth/me`, {
     credentials: "include",
   });
-  if (res.status === 401) return { user: null };
+  if (res.status === 401 || res.status === 404) return { user: null };
   if (!res.ok) throw new Error(`apiMe failed (${res.status})`);
   return res.json();
 }
