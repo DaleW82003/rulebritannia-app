@@ -190,6 +190,20 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
 }
 .dropdown a:hover{ background:rgba(30,84,255,.07); }
 
+.topbar-auth{ display:flex; align-items:center; gap:8px; }
+.topbar-auth-label{ color:#fff; opacity:.92; font-size:13px; padding:4px 8px; }
+.topbar-logout-btn{
+  padding:7px 14px;
+  border-radius:999px;
+  background:rgba(212,0,26,.80);
+  border:1px solid rgba(212,0,26,.60);
+  color:#fff;
+  cursor:pointer;
+  font-weight:700;
+  font-size:13px;
+}
+.topbar-logout-btn:hover{ background:rgba(212,0,26,1); }
+
 /* =========================
    Layout helpers
    ========================= */
