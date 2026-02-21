@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
 import { logAction } from "../audit.js";
 
@@ -13,7 +13,7 @@ function getCurrentCharacter(data) {
 }
 
 function canModerate(data) {
-  return isAdmin(data) || isMod(data) || isSpeaker(data);
+  return canAdminModOrSpeaker(data);
 }
 
 function canAnswerOffice(data, officeId) {

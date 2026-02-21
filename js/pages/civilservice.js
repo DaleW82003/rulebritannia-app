@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, canRaiseCivilServiceCase } from "../permissions.js";
+import { isAdmin, isMod, canRaiseCivilServiceCase, canAdminOrMod } from "../permissions.js";
 
 const CS_DEPARTMENTS = [
   { id: "10ds", name: "10 Downing Street", officeId: "prime-minister", officeTitle: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
@@ -27,7 +27,7 @@ function getChar(data) {
 }
 
 function canModerate(data) {
-  return isAdmin(data) || isMod(data);
+  return canAdminOrMod(data);
 }
 
 function isGovernmentMember(data) {

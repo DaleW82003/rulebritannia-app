@@ -7,7 +7,7 @@ import rateLimit from "express-rate-limit";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { pool } from "./db.js";
 import { createTopic, createPost, createTopicWithRetry } from "./discourse.js";
-import { ALL_VALID_ROLES, computeDiscourseGroups } from "./roles.js";
+import { ALL_VALID_ROLES, computeDiscourseGroups, PERMISSION_MAP } from "./roles.js";
 
 /**
  * Discourse credential encryption (AES-256-GCM).
@@ -421,6 +421,35 @@ async function syncObjectTables(data) {
  * Health
  */
 app.get("/health", (req, res) => res.json({ ok: true }));
+
+/**
+ * Permission map
+ * GET /api/permissions — public (no auth required)
+ *
+ * Returns the full PERMISSION_MAP so the frontend can drive UI visibility
+ * without hard-coding role lists in page code.
+ *
+ * Also accepts an optional ?roles=admin,mod query param to filter to only
+ * the actions the caller is permitted to perform.
+ */
+app.get("/api/permissions", (req, res) => {
+  const filterRoles = req.query?.roles
+    ? String(req.query.roles).split(",").map((r) => r.trim()).filter(Boolean)
+    : null;
+
+  if (filterRoles) {
+    // Return only actions where the user's roles satisfy at least one required role
+    const allowed = {};
+    for (const [action, required] of Object.entries(PERMISSION_MAP)) {
+      if (required.length === 0 || required.some((r) => filterRoles.includes(r))) {
+        allowed[action] = required;
+      }
+    }
+    return res.json({ permissions: allowed });
+  }
+
+  res.json({ permissions: PERMISSION_MAP });
+});
 
 /**
  * CSRF token endpoint

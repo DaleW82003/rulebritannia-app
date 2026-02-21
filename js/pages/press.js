@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, isSpeaker } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, getWeekdayName, isSunday } from "../clock.js";
 
 const PARTY_CODES = {
@@ -68,11 +68,11 @@ function nextSerial(data, kind, prefix) {
 }
 
 function canMark(data) {
-  return isMod(data) || isAdmin(data);
+  return canAdminOrMod(data);
 }
 
 function canAsk(data) {
-  return isMod(data) || isSpeaker(data) || isAdmin(data);
+  return canAdminModOrSpeaker(data);
 }
 
 function avatarFallback(name) {

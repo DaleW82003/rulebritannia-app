@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
 const TASKS = [
   "Meeting Local Businesses",
@@ -16,7 +16,7 @@ const TASKS = [
 const LOCK_MONTHS = 6;
 
 function canModerate(data) {
-  return isAdmin(data) || isMod(data);
+  return canAdminOrMod(data);
 }
 
 function getCharacter(data) {

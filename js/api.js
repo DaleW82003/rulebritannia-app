@@ -15,6 +15,20 @@ function resolveApiBase() {
 }
 const API_BASE = resolveApiBase();
 
+/**
+ * Fetch the backend permission map.
+ *
+ * @param {string[]} [roles] - optional array of role strings to filter to
+ *   only actions the caller is permitted to perform.
+ * @returns {Promise<{ permissions: Record<string, string[]> }>}
+ */
+export async function apiGetPermissions(roles) {
+  const qs = roles?.length ? `?roles=${encodeURIComponent(roles.join(","))}` : "";
+  const res = await fetch(`${API_BASE}/api/permissions${qs}`);
+  if (!res.ok) throw new Error(`apiGetPermissions failed (${res.status})`);
+  return res.json();
+}
+
 export async function apiLogin(email, password) {
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",

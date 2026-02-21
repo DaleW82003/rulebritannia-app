@@ -1,5 +1,5 @@
 import { setHTML, esc } from "../ui.js";
-import { isAdmin, isMod, isSpeaker } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { saveData } from "../core.js";
 
 const BODY_ORDER = [
@@ -12,7 +12,7 @@ const BODY_ORDER = [
 ];
 
 function canManage(data) {
-  return isAdmin(data) || isMod(data) || isSpeaker(data);
+  return canAdminModOrSpeaker(data);
 }
 
 function labelControl(control) {

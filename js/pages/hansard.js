@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
 function ensureHansard(data) {
   data.hansard ??= {};
@@ -22,7 +22,7 @@ function divisionTotals(division = {}) {
 }
 
 function canGrantAssent(data) {
-  return isMod(data) || isAdmin(data);
+  return canAdminOrMod(data);
 }
 
 function needsAssent(item = {}) {

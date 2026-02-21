@@ -1,6 +1,6 @@
 import { formatSimMonthYear } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
 function fmtPct(v) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
@@ -113,7 +113,7 @@ export function initEconomyPage(data) {
 
   const cpLinkWrap = document.getElementById("economyControlPanelLink");
   if (cpLinkWrap) {
-    const canEdit = isAdmin(data) || isMod(data);
+    const canEdit = canAdminOrMod(data);
     cpLinkWrap.style.display = canEdit ? "" : "none";
   }
 }

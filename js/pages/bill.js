@@ -1,7 +1,7 @@
 import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolveDivisionResult, setNpcVotes, setRebellions } from "../engines/division-engine.js";
 import { saveData } from "../core.js";
 import { buildDivisionWeights } from "../divisions.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { esc } from "../ui.js";
 import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
@@ -77,7 +77,7 @@ function stageCountdown(bill, gameState) {
 
 
 function canGrantAssent(data) {
-  return isMod(data) || isAdmin(data);
+  return canAdminOrMod(data);
 }
 
 function finaliseDivisionOutcome(bill, data) {

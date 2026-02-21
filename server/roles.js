@@ -127,3 +127,58 @@ export function computeDiscourseGroups(roles) {
   }
   return [...groups].sort();
 }
+
+// ── Permission map ───────────────────────────────────────────────────────────
+
+/**
+ * Maps named UI/API actions to the set of roles that are permitted to
+ * perform them.  The backend uses this as the authoritative source of truth;
+ * the frontend fetches it at boot to drive UI visibility.
+ *
+ * Format: { [actionName]: string[] }
+ *   - An empty array means "any authenticated user".
+ *   - "admin", "mod", "speaker" are the three system roles.
+ */
+export const PERMISSION_MAP = Object.freeze({
+  // ── Content management ─────────────────────────────────────────────────
+  "post_news":              ["admin", "mod"],
+  "manage_agenda":          ["admin", "mod"],
+  "manage_bodies":          ["admin", "mod", "speaker"],
+  "manage_budget":          ["admin", "mod"],
+  "manage_cabinet":         ["admin", "mod"],
+  "manage_civil_service":   ["admin", "mod"],
+  "manage_constituencies":  ["admin", "mod", "speaker"],
+  "manage_economy":         ["admin", "mod"],
+  "manage_elections":       ["admin", "mod"],
+  "manage_events":          ["admin", "mod"],
+  "manage_fundraising":     ["admin", "mod"],
+  "manage_government":      ["admin", "mod"],
+  "manage_locals":          ["admin", "mod", "speaker"],
+  "manage_online":          ["admin", "mod"],
+  "manage_opposition":      ["admin", "mod"],
+  "manage_party":           ["admin", "mod"],
+  "manage_personal":        ["admin", "mod"],
+  "manage_polling":         ["admin", "mod"],
+  "manage_press":           ["admin", "mod"],
+  "manage_redlion":         ["admin", "mod"],
+  "manage_statements":      ["admin", "mod"],
+  "manage_user_profiles":   ["admin", "mod", "speaker"],
+
+  // ── Parliament / procedural ────────────────────────────────────────────
+  "moderate_debate":        ["admin", "mod", "speaker"],
+  "close_question":         ["admin", "mod", "speaker"],
+  "grant_assent":           ["admin", "mod"],
+  "speaker_casting_vote":   ["admin", "mod", "speaker"],
+  "speaker_pass_amendment": ["admin", "mod", "speaker"],
+  "speaker_fail_amendment": ["admin", "mod", "speaker"],
+
+  // ── Admin-only ─────────────────────────────────────────────────────────
+  "admin_panel":            ["admin"],
+  "admin_maintenance":      ["admin"],
+  "control_panel":          ["admin"],
+  "manage_snapshots":       ["admin"],
+  "manage_config":          ["admin"],
+  "manage_roles":           ["admin"],
+  "force_logout_all":       ["admin"],
+  "rotate_sessions":        ["admin"],
+});

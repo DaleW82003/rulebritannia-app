@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { logAction } from "../audit.js";
 
 const OFFICE_SPECS = [
@@ -21,7 +21,7 @@ const OFFICE_SPECS = [
 ];
 
 function isManager(data) {
-  return isAdmin(data) || isMod(data);
+  return canAdminOrMod(data);
 }
 
 function normaliseGovernment(data) {

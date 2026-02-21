@@ -1,6 +1,6 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
 
 const DEFAULT_PARTIES = {
@@ -31,7 +31,7 @@ const DEFAULT_PARTIES = {
 };
 
 function canManage(data) {
-  return isAdmin(data) || isMod(data);
+  return canAdminOrMod(data);
 }
 
 function getCharacter(data) {
