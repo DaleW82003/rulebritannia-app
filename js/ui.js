@@ -2,7 +2,12 @@
 import { qsa } from "./core.js";
 import { apiLogout } from "./api.js";
 
-export function initNavUI(user) {
+const MONTH_NAMES = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December"
+];
+
+export function initNavUI(user, clock) {
   // Dropdown open/close
   const groups = qsa(".nav-group");
   groups.forEach(g => {
@@ -20,6 +25,22 @@ export function initNavUI(user) {
   document.addEventListener("click", () => {
     groups.forEach(g => g.classList.remove("open"));
   });
+
+  // Topbar clock display — inserted into topbar-inner after the brand
+  const topbarInner = document.querySelector(".topbar-inner");
+  if (topbarInner && clock) {
+    const monthName = MONTH_NAMES[clock.sim_current_month - 1];
+    const clockEl = document.createElement("span");
+    clockEl.id = "topbar-clock";
+    clockEl.className = "topbar-clock";
+    clockEl.textContent = `${monthName} ${clock.sim_current_year}`;
+    const brand = topbarInner.querySelector(".brand");
+    if (brand && brand.nextSibling) {
+      topbarInner.insertBefore(clockEl, brand.nextSibling);
+    } else {
+      topbarInner.appendChild(clockEl);
+    }
+  }
 
   // Topbar auth status — replace the static "Admin Login" element
   const nav = document.querySelector(".nav");

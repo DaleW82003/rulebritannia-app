@@ -1,5 +1,5 @@
 // js/core.js
-import { apiMe, apiGetState, apiSaveState } from "./api.js";
+import { apiMe, apiGetState, apiSaveState, apiGetClock } from "./api.js";
 const DEFAULT_ECONOMY_PAGE = {
   topline: { gdpGrowth: 1.8, inflation: 2.6, unemployment: 4.3 },
   ukInfoTiles: [
@@ -96,10 +96,13 @@ export function ensureDefaults(data) {
 }
 
 export async function bootData() {
-  const demo = await loadDemoJson();
+  const [demo, meResult, clock] = await Promise.all([
+    loadDemoJson(),
+    apiMe(),
+    apiGetClock().catch(() => null),
+  ]);
 
   // Determine if a user is currently logged in.
-  const meResult = await apiMe();
   const user = meResult?.user ?? null;
 
   if (!user) {
@@ -108,7 +111,7 @@ export async function bootData() {
     const next = stored ? { ...demo, ...stored } : demo;
     const ensured = ensureDefaults(next);
     saveData(ensured);
-    return { data: ensured, user: null };
+    return { data: ensured, user: null, clock };
   }
 
   // Logged in → load state from the server.
@@ -126,7 +129,7 @@ export async function bootData() {
   const ensured = ensureDefaults(serverData);
   ensured.currentUser = user;
   saveData(ensured);
-  return { data: ensured, user };
+  return { data: ensured, user, clock };
 }
 
 export function nowMs() {

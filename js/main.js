@@ -65,8 +65,8 @@ function showBootError(err) {
 (async function () {
   document.body.dataset.bootState = "booting";
   try {
-    const { data, user } = await bootData();
-    initNavUI(user);
+    const { data, user, clock } = await bootData();
+    initNavUI(user, clock);
 
     const page = document.body?.dataset?.page || "";
 
