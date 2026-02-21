@@ -1,6 +1,8 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker } from "../permissions.js";
+import { tileSection, tileCard } from "../components/tile.js";
+import { toastSuccess } from "../components/toast.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
@@ -75,68 +77,84 @@ export function initMotionsPage(data) {
   const archivedEdm = edm.filter((m) => m.status === "archived");
 
   root.innerHTML = `
-    <section class="tile" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Guide to Motions & EDMs</h2>
-      <p>Use <b>Open</b> to view the full motion/EDM page. House Motion divisions are handled on the open page. EDM signatures use weighted signatory logic and are also managed on the open page.</p>
-    </section>
+    ${tileSection({
+      title: "Guide to Motions & EDMs",
+      body: `<p>Use <b>Open</b> to view the full motion/EDM page. House Motion divisions are handled on the open page. EDM signatures use weighted signatory logic and are also managed on the open page.</p>`
+    })}
 
-    <section class="tile" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Submit Motion / EDM</h2>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
-        <form id="house-motion-form" class="tile">
-          <h3 style="margin-top:0;">Raise House Motion</h3>
-          <label class="label" for="house-motion-title">Title</label>
-          <input id="house-motion-title" class="input" name="title" required>
-          <label class="label" for="house-motion-body">Body text (after “That this House ...”)</label>
-          <textarea id="house-motion-body" class="input" rows="5" name="body" required placeholder="calls on the Government to..."></textarea>
-          <button class="btn" type="submit">Submit House Motion</button>
-        </form>
+    ${tileSection({
+      title: "Submit Motion / EDM",
+      body: `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
+          <form id="house-motion-form" class="tile">
+            <h3 class="tile-title">Raise House Motion</h3>
+            <div class="form-row">
+              <label for="house-motion-title">Title</label>
+              <input id="house-motion-title" name="title" required>
+            </div>
+            <div class="form-row">
+              <label for="house-motion-body">Body text (after "That this House ...")</label>
+              <textarea id="house-motion-body" rows="5" name="body" required placeholder="calls on the Government to..."></textarea>
+            </div>
+            <button class="btn primary" type="submit">Submit House Motion</button>
+          </form>
 
-        <form id="edm-form" class="tile">
-          <h3 style="margin-top:0;">Raise Early Day Motion</h3>
-          <label class="label" for="edm-title">Title</label>
-          <input id="edm-title" class="input" name="title" required>
-          <label class="label" for="edm-body">Body text (after “That this House ...”)</label>
-          <textarea id="edm-body" class="input" rows="5" name="body" required placeholder="recognises and calls for..."></textarea>
-          <button class="btn" type="submit">Submit EDM</button>
-        </form>
-      </div>
-      <p class="muted" style="margin-top:8px;">Submitting as ${esc(char?.name || "MP")}.</p>
-    </section>
+          <form id="edm-form" class="tile">
+            <h3 class="tile-title">Raise Early Day Motion</h3>
+            <div class="form-row">
+              <label for="edm-title">Title</label>
+              <input id="edm-title" name="title" required>
+            </div>
+            <div class="form-row">
+              <label for="edm-body">Body text (after "That this House ...")</label>
+              <textarea id="edm-body" rows="5" name="body" required placeholder="recognises and calls for..."></textarea>
+            </div>
+            <button class="btn primary" type="submit">Submit EDM</button>
+          </form>
+        </div>
+        <p class="muted" style="margin-top:8px;">Submitting as ${esc(char?.name || "MP")}.</p>
+      `
+    })}
 
-    <section class="tile" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Current House Motions</h2>
-      ${openHouse.length ? openHouse.map((m) => `
-        <article class="tile" style="margin-bottom:10px;">
+    ${tileSection({
+      title: "Current House Motions",
+      body: openHouse.length ? openHouse.map((m) => tileCard({
+        extraClass: "tile-stack",
+        body: `
           <div><b>Motion ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author)}</span></div>
           <div class="muted" style="margin-top:6px;">Debate: ${esc(m.debateStartSim || "—")} → ${esc(m.debateEndSim || "—")}${m.debateEndSimObj ? ` (${countdownToSimMonth(m.debateEndSimObj.month, m.debateEndSimObj.year, data.gameState)})` : ""}</div>
-          <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
-            <a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a>
-            ${m.debateUrl ? `<a class="btn" href="${esc(m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
-          </div>
-        </article>`).join("") : `<p class="muted">No current house motions.</p>`}
-    </section>
+        `,
+        actions: `
+          <a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a>
+          ${m.debateUrl ? `<a class="btn" href="${esc(m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+        `
+      })).join("") : `<p class="muted">No current house motions.</p>`
+    })}
 
-    <section class="tile" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Current EDMs</h2>
-      ${openEdm.length ? openEdm.map((m) => `
-        <article class="tile" style="margin-bottom:10px;">
+    ${tileSection({
+      title: "Current EDMs",
+      body: openEdm.length ? openEdm.map((m) => tileCard({
+        extraClass: "tile-stack",
+        body: `
           <div><b>EDM ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author)}</span></div>
           <div class="muted" style="margin-top:6px;">Open: ${esc(m.openedAtSim || "—")} → ${esc(m.closesAtSim || "—")}${m.closesAtSimObj ? ` (${countdownToSimMonth(m.closesAtSimObj.month, m.closesAtSimObj.year, data.gameState)})` : ""}</div>
-          <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
-            <a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a>
-            ${m.debateUrl ? `<a class="btn" href="${esc(m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
-          </div>
-        </article>`).join("") : `<p class="muted">No current EDMs.</p>`}
-    </section>
+        `,
+        actions: `
+          <a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a>
+          ${m.debateUrl ? `<a class="btn" href="${esc(m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+        `
+      })).join("") : `<p class="muted">No current EDMs.</p>`
+    })}
 
-    <section class="tile" style="margin-top:20px;">
-      <h2 style="margin-top:0;">Archive</h2>
-      <h3>House Motions</h3>
-      ${archivedHouse.length ? archivedHouse.map((m) => `<div style="margin-bottom:8px;"><b>Motion ${esc(m.number)}</b>: ${esc(m.title)} <a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a></div>`).join("") : `<p class="muted">No archived house motions.</p>`}
-      <h3>EDMs</h3>
-      ${archivedEdm.length ? archivedEdm.map((m) => `<div style="margin-bottom:8px;"><b>EDM ${esc(m.number)}</b>: ${esc(m.title)} <a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a></div>`).join("") : `<p class="muted">No archived EDMs.</p>`}
-    </section>
+    ${tileSection({
+      title: "Archive",
+      body: `
+        <h3>House Motions</h3>
+        ${archivedHouse.length ? archivedHouse.map((m) => `<div style="margin-bottom:8px;"><b>Motion ${esc(m.number)}</b>: ${esc(m.title)} <a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a></div>`).join("") : `<p class="muted">No archived house motions.</p>`}
+        <h3>EDMs</h3>
+        ${archivedEdm.length ? archivedEdm.map((m) => `<div style="margin-bottom:8px;"><b>EDM ${esc(m.number)}</b>: ${esc(m.title)} <a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a></div>`).join("") : `<p class="muted">No archived EDMs.</p>`}
+      `
+    })}
   `;
 
   root.querySelector("#house-motion-form")?.addEventListener("submit", (e) => {

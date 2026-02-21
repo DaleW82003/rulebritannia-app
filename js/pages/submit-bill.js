@@ -2,6 +2,8 @@ import { saveData } from "../core.js";
 import { getSimDate, createDeadline } from "../clock.js";
 import { esc } from "../ui.js";
 import { apiCreateDebateTopic } from "../api.js";
+import { tileSection } from "../components/tile.js";
+import { toastSuccess } from "../components/toast.js";
 
 const DEPARTMENTS = [
   "Cabinet Office (General)",
@@ -331,10 +333,8 @@ export function initSubmitBillPage(data) {
         .catch(() => {});
     }
 
-    if (success) {
-      success.style.display = "";
-      success.innerHTML = `<div class="muted-block"><b>Bill submitted:</b> ${esc(title)} (${esc(stage)}). It has been added to the Order Paper.</div>`;
-    }
+    toastSuccess(`Bill submitted: ${title} (${stage}).`);
+    if (success) success.style.display = "none";
     form.reset();
     countInput.value = 3;
     paintArticles();

@@ -1,6 +1,8 @@
 import { saveData } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
+import { tileSection } from "../components/tile.js";
+import { toastSuccess } from "../components/toast.js";
 
 const FUNDRAISERS = [
   {
@@ -125,77 +127,82 @@ function render(data, state) {
   root.innerHTML = `
     <h1 class="page-title">Fundraising</h1>
 
-    <section class="panel" style="margin-bottom:12px;">
-      <p>Players and parties can host fundraisers. Submissions require moderator approval. Costs are deducted from income. Guest speakers and special venue requests require moderator judgement.</p>
-    </section>
+    ${tileSection({
+      body: `<p>Players and parties can host fundraisers. Submissions require moderator approval. Costs are deducted from income. Guest speakers and special venue requests require moderator judgement.</p>`
+    })}
 
-    <section class="panel" style="margin-bottom:12px;">
-      <div style="display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));gap:12px;">
-        ${FUNDRAISERS.map((f) => `
-          <article class="tile">
-            <h3 style="margin-top:0;">${esc(f.title)}</h3>
-            <div><b>Scope:</b> ${f.scope === "party" ? "For Party" : "Individual/Faction"}</div>
-            <div><b>Guests:</b> ${esc(String(f.guests))}</div>
-            <div><b>Expected Revenue:</b> ${esc(money(f.rangeMin))} - ${esc(money(f.rangeMax))}</div>
-            <div><b>Cost:</b> ${esc(money(f.cost))}</div>
-            <div class="muted">${esc(f.speechNote)}</div>
-            <div style="margin-top:8px;"><button class="btn" data-action="host" data-type="${esc(f.key)}" type="button">Host</button></div>
-          </article>
-        `).join("")}
-      </div>
-    </section>
+    ${tileSection({
+      body: `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+          ${FUNDRAISERS.map((f) => `
+            <article class="tile">
+              <h3 class="tile-title">${esc(f.title)}</h3>
+              <div><b>Scope:</b> ${f.scope === "party" ? "For Party" : "Individual/Faction"}</div>
+              <div><b>Guests:</b> ${esc(String(f.guests))}</div>
+              <div><b>Expected Revenue:</b> ${esc(money(f.rangeMin))} - ${esc(money(f.rangeMax))}</div>
+              <div><b>Cost:</b> ${esc(money(f.cost))}</div>
+              <div class="muted">${esc(f.speechNote)}</div>
+              <div class="tile-bottom"><button class="btn" data-action="host" data-type="${esc(f.key)}" type="button">Host</button></div>
+            </article>
+          `).join("")}
+        </div>
+      `
+    })}
 
     ${state.showForm ? (() => {
       const selected = byKey(state.formType);
-      return `
-        <section class="panel" style="margin-bottom:12px;">
-          <h2 style="margin-top:0;">Host ${esc(selected.title)}</h2>
+      return tileSection({
+        title: `Host ${selected.title}`,
+        body: `
           <form id="fr-host-form">
-            <div><b>Target:</b> ${selected.scope === "party" ? `Party funds (${esc(char?.party || "No party")})` : `Faction funds (${esc(char?.name || "Character")})`}</div>
-            <label class="label" for="fr-location">Location</label>
-            <input id="fr-location" name="location" class="input" required placeholder="Guildhall, London">
-
-            <label class="label" for="fr-guest">Guest Speaker (optional; mod approval required)</label>
-            <input id="fr-guest" name="guestSpeaker" class="input" placeholder="Rt Hon Example MP">
-
-            <label class="label" for="fr-special">Special details / gifts / entertainment</label>
-            <input id="fr-special" name="specialDetails" class="input" placeholder="Live jazz quartet + local business sponsorship">
-
-            <label class="label" for="fr-speech">Host Speech</label>
-            <textarea id="fr-speech" name="speech" class="input" rows="8" required placeholder="Write your fundraising speech..."></textarea>
-
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn" type="submit">Submit Request</button>
+            <p class="muted"><b>Target:</b> ${selected.scope === "party" ? `Party funds (${esc(char?.party || "No party")})` : `Faction funds (${esc(char?.name || "Character")})`}</p>
+            <div class="form-row">
+              <label for="fr-location">Location</label>
+              <input id="fr-location" name="location" required placeholder="Guildhall, London">
+            </div>
+            <div class="form-row">
+              <label for="fr-guest">Guest Speaker (optional; mod approval required)</label>
+              <input id="fr-guest" name="guestSpeaker" placeholder="Rt Hon Example MP">
+            </div>
+            <div class="form-row">
+              <label for="fr-special">Special details / gifts / entertainment</label>
+              <input id="fr-special" name="specialDetails" placeholder="Live jazz quartet + local business sponsorship">
+            </div>
+            <div class="form-row">
+              <label for="fr-speech">Host Speech</label>
+              <textarea id="fr-speech" name="speech" rows="8" required placeholder="Write your fundraising speech..."></textarea>
+            </div>
+            <div class="tile-bottom">
+              <button class="btn primary" type="submit">Submit Request</button>
               <button class="btn" type="button" id="fr-cancel">Cancel</button>
             </div>
           </form>
-        </section>
-      `;
+        `
+      });
     })() : ""}
 
-    <section class="panel">
-      <h2 style="margin-top:0;">History of Events Hosted</h2>
-      ${list.length ? list.map((item) => {
+    ${tileSection({
+      title: "History of Events Hosted",
+      body: list.length ? list.map((item) => {
         const spec = byKey(item.type);
         const status = item.status === "approved" ? `<span style="color:#0a7f2e;font-weight:700;">Approved</span>` : item.status === "cancelled" ? `<span style="color:#9d1d1d;font-weight:700;">Cancelled</span>` : `<span class="muted">Pending Approval</span>`;
         const canSeeNet = visibleNet(data, item, char);
         return `
-          <article class="tile" style="margin-bottom:10px;">
-            <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+          <article class="tile tile-stack">
+            <div class="spaced">
               <div>
                 <b>${esc(spec.title)}</b> — ${esc(item.location)}
                 <div class="muted">Host: ${esc(item.hostName)} • ${esc(item.createdAt || "")}</div>
               </div>
               <div>${status}</div>
             </div>
-            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+            <div class="tile-bottom">
               <button class="btn" type="button" data-action="open" data-id="${esc(String(item.id))}">${state.openId === item.id ? "Close" : "Open"}</button>
               ${mod && item.status === "pending" ? `
                 <button class="btn" type="button" data-action="approve" data-id="${esc(String(item.id))}">Approve + Allocate Revenue</button>
-                <button class="btn" type="button" data-action="cancel" data-id="${esc(String(item.id))}">Refuse</button>
+                <button class="btn danger" type="button" data-action="cancel" data-id="${esc(String(item.id))}">Refuse</button>
               ` : ""}
             </div>
-
             ${state.openId === item.id ? `
               <div style="margin-top:8px;">
                 <div><b>Type:</b> ${esc(spec.title)}</div>
@@ -213,20 +220,21 @@ function render(data, state) {
                     <div><b>Net Added:</b> ${esc(money(item.netRevenue || 0))}</div>
                   </div>
                 ` : `<div class="muted" style="margin-top:8px;">Revenue details are private (host + moderators only).</div>`}
-
                 ${mod && item.status === "pending" ? `
                   <form data-action="allocate" data-id="${esc(String(item.id))}" style="margin-top:8px;">
-                    <label class="label" for="alloc-${esc(String(item.id))}">Allocate Gross Revenue (${esc(money(spec.rangeMin))}-${esc(money(spec.rangeMax))})</label>
-                    <input id="alloc-${esc(String(item.id))}" name="grossRevenue" class="input" type="number" min="${esc(String(spec.rangeMin))}" max="${esc(String(spec.rangeMax))}" required>
-                    <button class="btn" type="submit">Confirm Approval</button>
+                    <div class="form-row">
+                      <label for="alloc-${esc(String(item.id))}">Allocate Gross Revenue (${esc(money(spec.rangeMin))}-${esc(money(spec.rangeMax))})</label>
+                      <input id="alloc-${esc(String(item.id))}" name="grossRevenue" type="number" min="${esc(String(spec.rangeMin))}" max="${esc(String(spec.rangeMax))}" required>
+                    </div>
+                    <button class="btn primary" type="submit">Confirm Approval</button>
                   </form>
                 ` : ""}
               </div>
             ` : ""}
           </article>
         `;
-      }).join("") : `<div class="muted-block">No fundraising events yet.</div>`}
-    </section>
+      }).join("") : `<div class="muted-block">No fundraising events yet.</div>`
+    })}
   `;
 
   root.querySelectorAll("[data-action='host']").forEach((btn) => {
@@ -275,6 +283,7 @@ function render(data, state) {
 
     state.showForm = false;
     saveData(data);
+    toastSuccess(`${spec.title} submitted for approval.`);
     render(data, state);
   });
 
