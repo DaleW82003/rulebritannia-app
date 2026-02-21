@@ -374,3 +374,33 @@ export async function apiDeleteQTQuestion(id) {
   if (!res.ok) throw new Error(`apiDeleteQTQuestion failed (${res.status})`);
   return res.json();
 }
+
+// ── DISCOURSE INTEGRATION ─────────────────────────────────────────────────────
+
+export async function apiGetDiscourseConfig() {
+  const res = await fetch(`${API_BASE}/api/discourse/config`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiGetDiscourseConfig failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSaveDiscourseConfig({ base_url, api_key, api_username }) {
+  const res = await fetch(`${API_BASE}/api/discourse/config`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ base_url, api_key, api_username }),
+  });
+  if (!res.ok) throw new Error(`apiSaveDiscourseConfig failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiTestDiscourse() {
+  const res = await fetch(`${API_BASE}/api/discourse/test`, {
+    method: "POST",
+    credentials: "include",
+  });
+  // Return body regardless of HTTP status so caller can read the error message
+  return res.json();
+}

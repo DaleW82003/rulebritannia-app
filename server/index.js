@@ -4,7 +4,57 @@ import session from "express-session";
 import pgSession from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
 import { pool } from "./db.js";
+
+/**
+ * Discourse credential encryption (AES-256-GCM).
+ * Key derived from SESSION_SECRET so no extra env var is required,
+ * but can be overridden with DISCOURSE_ENCRYPTION_KEY (64-char hex = 32 bytes).
+ */
+let _discourseKey = null;
+function getDiscourseKey() {
+  if (_discourseKey) return _discourseKey;
+  if (process.env.DISCOURSE_ENCRYPTION_KEY) {
+    _discourseKey = Buffer.from(process.env.DISCOURSE_ENCRYPTION_KEY, "hex");
+    if (_discourseKey.length !== 32) throw new Error("DISCOURSE_ENCRYPTION_KEY must be 64 hex chars (32 bytes)");
+  } else {
+    _discourseKey = scryptSync(
+      process.env.SESSION_SECRET || "dev-secret-change-me",
+      "rb-discourse-v1",
+      32
+    );
+  }
+  return _discourseKey;
+}
+
+function discourseEncrypt(plaintext) {
+  if (!plaintext) return "";
+  const key = getDiscourseKey();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString("hex")}:${tag.toString("hex")}:${encrypted.toString("hex")}`;
+}
+
+function discourseDecrypt(stored) {
+  if (!stored) return "";
+  try {
+    const parts = stored.split(":");
+    if (parts.length !== 3) return "";
+    const [ivHex, tagHex, ciphertextHex] = parts;
+    const key = getDiscourseKey();
+    const iv = Buffer.from(ivHex, "hex");
+    const tag = Buffer.from(tagHex, "hex");
+    const ciphertext = Buffer.from(ciphertextHex, "hex");
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    return decipher.update(ciphertext).toString("utf8") + decipher.final("utf8");
+  } catch {
+    return "";
+  }
+}
 
 const app = express();
 
@@ -191,10 +241,12 @@ async function ensureSchema() {
   // Seed defaults (INSERT … ON CONFLICT DO NOTHING keeps existing values)
   await pool.query(`
     INSERT INTO app_config (key, value) VALUES
-      ('discourse_base_url', 'https://forum.rulebritannia.org'),
-      ('ui_base_url',        'https://rulebritannia.org'),
-      ('sim_start_date',     '1997-08-01'),
-      ('clock_rate',         '2')
+      ('discourse_base_url',      'https://forum.rulebritannia.org'),
+      ('discourse_api_key',       ''),
+      ('discourse_api_username',  ''),
+      ('ui_base_url',             'https://rulebritannia.org'),
+      ('sim_start_date',          '1997-08-01'),
+      ('clock_rate',              '2')
     ON CONFLICT (key) DO NOTHING;
   `);
 }
@@ -592,7 +644,9 @@ app.post("/api/snapshots/:id/restore", async (req, res) => {
 app.get("/api/config", async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT key, value FROM app_config");
-    const config = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    // Never expose encrypted discourse credentials through the public config endpoint
+    const SENSITIVE = new Set(["discourse_api_key", "discourse_api_username"]);
+    const config = Object.fromEntries(rows.filter((r) => !SENSITIVE.has(r.key)).map((r) => [r.key, r.value]));
     res.json({ config });
   } catch (e) {
     console.error(e);
@@ -635,6 +689,115 @@ app.put("/api/config", async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * DISCOURSE INTEGRATION
+ * GET  /api/discourse/config  — admin: read base URL + whether credentials are set (never raw values)
+ * PUT  /api/discourse/config  — admin: save base URL, API key, and API username (key+username stored encrypted)
+ * POST /api/discourse/test    — admin: validate credentials by calling Discourse /site.json
+ */
+
+const discourseReadLimit  = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+const discourseWriteLimit = rateLimit({ windowMs: 60_000, max: 10,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/discourse/config", discourseReadLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'discourse_api_key', 'discourse_api_username')"
+    );
+    const cfg = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    res.json({
+      base_url:         cfg.discourse_base_url || "",
+      has_api_key:      Boolean(cfg.discourse_api_key),
+      has_api_username: Boolean(cfg.discourse_api_username),
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/discourse/config", discourseWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { base_url, api_key, api_username } = req.body || {};
+
+    const entries = [];
+    if (base_url !== undefined) {
+      entries.push(["discourse_base_url", String(base_url).trim()]);
+    }
+    if (api_key !== undefined && api_key !== "") {
+      entries.push(["discourse_api_key", discourseEncrypt(String(api_key))]);
+    }
+    if (api_username !== undefined && api_username !== "") {
+      entries.push(["discourse_api_username", discourseEncrypt(String(api_username))]);
+    }
+
+    if (!entries.length) {
+      return res.status(400).json({ error: "No valid fields provided" });
+    }
+
+    const keys   = entries.map(([k]) => k);
+    const values = entries.map(([, v]) => v);
+    await pool.query(
+      `INSERT INTO app_config (key, value)
+       SELECT unnest($1::text[]), unnest($2::text[])
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value,
+             updated_at = NOW()`,
+      [keys, values]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/discourse/test", discourseWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { rows } = await pool.query(
+      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'discourse_api_key', 'discourse_api_username')"
+    );
+    const cfg = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+
+    const baseUrl     = (cfg.discourse_base_url || "").trim().replace(/\/$/, "");
+    const apiKey      = cfg.discourse_api_key     ? discourseDecrypt(cfg.discourse_api_key)     : "";
+    const apiUsername = cfg.discourse_api_username ? discourseDecrypt(cfg.discourse_api_username) : "";
+
+    if (!baseUrl)     return res.status(400).json({ ok: false, error: "Discourse base URL not configured" });
+    if (!apiKey)      return res.status(400).json({ ok: false, error: "Discourse API key not configured" });
+    if (!apiUsername) return res.status(400).json({ ok: false, error: "Discourse API username not configured" });
+
+    const discourseRes = await fetch(`${baseUrl}/site.json`, {
+      headers: {
+        "Api-Key":      apiKey,
+        "Api-Username": apiUsername,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (discourseRes.ok) {
+      const body = await discourseRes.json().catch((parseErr) => {
+        console.warn("[discourse/test] JSON parse error:", parseErr.message);
+        return {};
+      });
+      return res.json({ ok: true, discourse_title: body.site_settings?.title ?? null });
+    }
+
+    return res.json({ ok: false, status: discourseRes.status, error: `Discourse returned HTTP ${discourseRes.status}` });
+  } catch (e) {
+    console.error("[discourse/test]", e);
+    const msg = e.code === "ECONNREFUSED" || e.code === "ENOTFOUND"
+      ? `Could not connect to Discourse server: ${e.message}`
+      : e.message;
+    res.status(500).json({ ok: false, error: msg });
   }
 });
 
