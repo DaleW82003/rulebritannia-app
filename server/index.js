@@ -1684,6 +1684,85 @@ app.get("/api/admin/discourse-sync-preview", rolesReadLimit, async (req, res) =>
   }
 });
 
+/**
+ * BOOTSTRAP
+ * GET /api/bootstrap
+ *
+ * Single round-trip that returns everything the UI needs on first load:
+ *   - clock (always)
+ *   - config (always, sensitive keys stripped)
+ *   - user + csrfToken (when a valid session cookie is present, else null)
+ *   - state { data, updatedAt } (when logged in and state exists, else null)
+ *
+ * The four DB queries run in parallel via Promise.all so the response time is
+ * bounded by the slowest individual query, not their sum.
+ */
+const bootstrapLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
+  try {
+    const SENSITIVE = new Set(["discourse_api_key", "discourse_api_username"]);
+    const isLoggedIn = Boolean(req.session?.userId);
+
+    // Always fetch: clock + config.  Conditionally fetch: user row + state.
+    const [clockRows, configRows, userRows, stateRows] = await Promise.all([
+      pool.query(
+        "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
+      ).then((r) => r.rows),
+
+      pool.query("SELECT key, value FROM app_config").then((r) => r.rows),
+
+      isLoggedIn
+        ? pool.query(
+            "SELECT id, username, email, roles, created_at FROM users WHERE id = $1",
+            [req.session.userId]
+          ).then((r) => r.rows)
+        : Promise.resolve([]),
+
+      isLoggedIn
+        ? pool.query(
+            `SELECT s.data, s.created_at AS updated_at
+               FROM app_state_current c
+               JOIN state_snapshots s ON s.id = c.snapshot_id
+              WHERE c.id = 'main'`
+          ).then((r) => r.rows)
+        : Promise.resolve([]),
+    ]);
+
+    // Clock — fall back to defaults if the table row doesn't exist yet.
+    const clock = clockRows[0] ?? { sim_current_month: 8, sim_current_year: 1997, real_last_tick: null, rate: 1 };
+
+    // Config — strip sensitive keys.
+    const config = Object.fromEntries(
+      configRows.filter((r) => !SENSITIVE.has(r.key)).map((r) => [r.key, r.value])
+    );
+
+    // User — absent or session stale.
+    if (isLoggedIn && !userRows.length) {
+      // Session references a deleted user; destroy it silently.
+      req.session.destroy(() => {});
+      return res.json({ clock, config, user: null, csrfToken: null, state: null });
+    }
+
+    if (!isLoggedIn) {
+      return res.json({ clock, config, user: null, csrfToken: null, state: null });
+    }
+
+    // Lazily generate CSRF token for sessions that pre-date the feature.
+    if (!req.session.csrfToken) {
+      req.session.csrfToken = generateCsrfToken();
+    }
+
+    const user = userRows[0];
+    const state = stateRows[0] ? { data: stateRows[0].data, updatedAt: stateRows[0].updated_at } : null;
+
+    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state });
+  } catch (e) {
+    console.error("[bootstrap]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 
 ensureSchema()

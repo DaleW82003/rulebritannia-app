@@ -35,6 +35,14 @@ export async function apiMe() {
   return res.json();
 }
 
+export async function apiBootstrap() {
+  const res = await fetch(`${API_BASE}/api/bootstrap`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiBootstrap failed (${res.status})`);
+  return res.json();
+}
+
 export async function apiLogout() {
   const res = await fetch(`${API_BASE}/auth/logout`, {
     method: "POST",

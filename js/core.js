@@ -1,5 +1,5 @@
 // js/core.js
-import { apiMe, apiGetState, apiSaveState, apiGetClock } from "./api.js";
+import { apiBootstrap, apiSaveState } from "./api.js";
 const DEFAULT_ECONOMY_PAGE = {
   topline: { gdpGrowth: 1.8, inflation: 2.6, unemployment: 4.3 },
   ukInfoTiles: [
@@ -91,19 +91,14 @@ export function ensureDefaults(data) {
 export async function bootData() {
   const sources = [];
 
-  // Fetch session + clock in parallel; neither should crash the boot sequence.
-  const [meResult, clock] = await Promise.all([
-    apiMe().then(
-      (r) => { sources.push({ label: "/auth/me",   ok: true  }); return r; },
-      (e) => { sources.push({ label: "/auth/me",   ok: false, error: e.message }); return { user: null }; }
-    ),
-    apiGetClock().then(
-      (r) => { sources.push({ label: "/api/clock", ok: true  }); return r; },
-      (e) => { sources.push({ label: "/api/clock", ok: false, error: e.message }); return null; }
-    ),
-  ]);
+  // Single round-trip: /api/bootstrap returns clock + config + user + state.
+  const bootstrap = await apiBootstrap().then(
+    (r) => { sources.push({ label: "/api/bootstrap", ok: true  }); return r; },
+    (e) => { sources.push({ label: "/api/bootstrap", ok: false, error: e.message }); return null; }
+  );
 
-  const user = meResult?.user ?? null;
+  const user   = bootstrap?.user  ?? null;
+  const clock  = bootstrap?.clock ?? null;
 
   if (!user) {
     // Not logged in — use whatever is in localStorage, or empty defaults.
@@ -113,12 +108,8 @@ export async function bootData() {
     return { data: ensured, user: null, clock, sources };
   }
 
-  // Logged in → load state from the server.
-  const stateResult = await apiGetState().then(
-    (r) => { sources.push({ label: "/api/state", ok: true  }); return r; },
-    (e) => { sources.push({ label: "/api/state", ok: false, error: e.message }); return null; }
-  );
-  let serverData = stateResult?.data ?? null;
+  // Logged in.
+  let serverData = bootstrap?.state?.data ?? null;
 
   if (!serverData) {
     // No state yet → seed the DB with empty defaults (admin only).
