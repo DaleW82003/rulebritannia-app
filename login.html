@@ -3,21 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Rule Britannia — Cabinet</title>
+  <title>Rule Britannia — Login</title>
   <link rel="stylesheet" href="styles.css">
 </head>
-<body class="theme-commons" data-page="cabinet">
+
+<body class="theme-commons" data-page="login">
 <header class="topbar">
   <div class="topbar-inner">
     <div class="brand">
       <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
     </div>
 
-<nav class="nav" aria-label="Main Navigation">
-
+    <nav class="nav" aria-label="Main Navigation">
       <a href="dashboard.html" class="nav-link">Office</a>
 
-      <!-- The U.K -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">The U.K ▾</button>
         <div class="dropdown">
@@ -30,7 +29,6 @@
         </div>
       </div>
 
-      <!-- Parliament -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Parliament ▾</button>
         <div class="dropdown">
@@ -44,7 +42,6 @@
         </div>
       </div>
 
-      <!-- Politics -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Politics ▾</button>
         <div class="dropdown">
@@ -59,7 +56,6 @@
         </div>
       </div>
 
-      <!-- Policy -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Policy ▾</button>
         <div class="dropdown">
@@ -72,7 +68,6 @@
         </div>
       </div>
 
-      <!-- Personal -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">Personal ▾</button>
         <div class="dropdown">
@@ -84,7 +79,6 @@
         </div>
       </div>
 
-      <!-- External -->
       <div class="nav-group">
         <button class="nav-toggle" type="button">External ▾</button>
         <div class="dropdown">
@@ -93,14 +87,35 @@
         </div>
       </div>
 
-      <a href="login.html" class="nav-link">Admin Login</a>
+      <span class="nav-link active" aria-current="page">Admin Login</span>
     </nav>
   </div>
 </header>
 
-<main class="wrap" id="cabinet-root"></main>
+<main class="wrap">
+  <h1 class="page-title">Admin Login</h1>
 
-<script type="module" src="./js/main.js"></script>
+  <section class="panel" style="max-width:420px;">
+    <form id="login-form" style="display:grid;gap:14px;">
+      <label>
+        <div class="muted" style="margin-bottom:4px;">Email</div>
+        <input id="login-email" type="email" required autocomplete="email"
+               placeholder="admin@example.com"
+               style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;">
+      </label>
+      <label>
+        <div class="muted" style="margin-bottom:4px;">Password</div>
+        <input id="login-password" type="password" required autocomplete="current-password"
+               placeholder="••••••••"
+               style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;">
+      </label>
+      <div id="login-error" style="display:none;color:var(--red);font-size:13px;"></div>
+      <button class="btn primary" type="submit" style="width:100%;justify-content:center;">Login</button>
+    </form>
+  </section>
+</main>
+
+<script type="module" src="js/main.js"></script>
 
 </body>
 </html>
