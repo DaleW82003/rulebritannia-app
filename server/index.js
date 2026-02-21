@@ -68,15 +68,11 @@ app.use(express.json({ limit: "2mb" }));
 /**
  * CORS
  * - credentials:true is REQUIRED for cookies
- * - origin must include your FRONTEND origin (not hoppscotch, unless you're using it)
+ * - origin is restricted to the production frontend origins only
  */
 const allow = new Set([
   "https://rulebritannia.org",
   "https://www.rulebritannia.org",
-  "https://hoppscotch.io",
-  "https://rulebritannia-app.onrender.com",
-  // add your frontend render URL if you have one:
-  // "https://your-frontend.onrender.com",
 ]);
 
 app.use(
@@ -422,27 +418,9 @@ async function syncObjectTables(data) {
 }
 
 /**
- * Health + DB test
+ * Health
  */
 app.get("/health", (req, res) => res.json({ ok: true }));
-
-app.get("/db-test", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT NOW()");
-    res.json({ ok: true, time: result.rows[0].now });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-/**
- * TEMP: hash helper (remove later)
- */
-app.get("/dev/hash/:pw", async (req, res) => {
-  const hash = await bcrypt.hash(req.params.pw, 10);
-  res.json({ hash });
-});
 
 /**
  * CSRF token endpoint
@@ -465,7 +443,9 @@ app.get("/csrf-token", (req, res) => {
  * POST /auth/logout
  */
 
-app.post("/auth/login", async (req, res) => {
+const authLimit = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+
+app.post("/auth/login", authLimit, async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) {
@@ -519,7 +499,7 @@ app.post("/auth/login", async (req, res) => {
   }
 });
 
-app.get("/auth/me", async (req, res) => {
+app.get("/auth/me", authLimit, async (req, res) => {
   try {
     if (!req.session.userId) {
       return res.status(401).json({ ok: false });
@@ -546,7 +526,7 @@ app.get("/auth/me", async (req, res) => {
   }
 });
 
-app.post("/auth/logout", (req, res) => {
+app.post("/auth/logout", authLimit, (req, res) => {
   req.session.destroy(() => {
     res.clearCookie("rb.sid", {
       sameSite: "none",
