@@ -21,7 +21,7 @@ const allow = new Set([
   "https://rulebritannia.org",
   "https://www.rulebritannia.org",
   "https://hoppscotch.io",
-  "https://rulebritannia-app.onrender.com/",
+  "https://rulebritannia-app.onrender.com",
   // add your frontend render URL if you have one:
   // "https://your-frontend.onrender.com",
 ]);
@@ -207,6 +207,10 @@ app.post("/auth/logout", (req, res) => {
  */
 app.get("/api/state", async (req, res) => {
   try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+
     const { rows } = await pool.query(
       "SELECT data, updated_at FROM app_state WHERE id = $1",
       ["main"]

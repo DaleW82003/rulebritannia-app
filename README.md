@@ -65,6 +65,49 @@ Or set it once in your browser console before navigating to the page.
 
 No extra configuration is needed. The hostname-inference rule in `js/api.js` automatically resolves the correct backend URL when the frontend is served from `rulebritannia.org` or `rulebritannia-app.onrender.com`.
 
+## Backend (server/)
+
+The Express backend lives in `server/`. It requires Node ≥ 18 and a PostgreSQL database (Neon recommended).
+
+### Environment variables
+
+Copy `server/.env.example` to `server/.env` and fill in real values:
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | ✅ | Postgres connection string (e.g. Neon) |
+| `SESSION_SECRET` | ✅ | Long random string used to sign session cookies |
+| `PORT` | ✗ | Port to listen on (default: `3000`) |
+
+### Starting the server locally
+
+```bash
+cd server
+npm install
+cp .env.example .env   # then edit .env with real values
+node index.js
+```
+
+## Manual Testing
+
+### Unauthenticated (demo) experience
+
+1. Open any page (e.g. `dashboard.html`) **without** logging in.
+2. Verify the topbar shows "Not logged in" and a "Login" link.
+3. State is sourced from `data/demo.json` merged with `localStorage`. No network calls to `/api/state` are made.
+4. Make a change (e.g. edit economy data in Control Panel) and reload — changes persist via `localStorage`.
+5. Confirm that `GET /api/state` on the backend returns **401** when called without a session cookie (e.g. `curl https://rulebritannia-app-backend.onrender.com/api/state`).
+
+### Authenticated admin experience
+
+1. Navigate to `login.html` and log in with valid admin credentials.
+2. Verify the topbar now shows "Logged in as \<username\>" and a "Logout" button.
+3. State is loaded from the backend via `GET /api/state` (not `demo.json`). Open DevTools → Network and confirm the `/api/state` request returns `200` with a `data` payload.
+4. Open `admin-panel.html` and verify the logged-in user's email and roles are displayed.
+5. Click **Save current state to server** — confirm the request to `POST /api/state` returns `200 { ok: true }`.
+6. Click **Reload from server** — confirm the page reflects the server state.
+7. Click **Logout** — session cookie is cleared, topbar reverts to "Not logged in", and `GET /api/state` returns `401` again.
+8. Verify `GET /auth/me` returns `{ ok: true, user: {...} }` while logged in, and `401` after logout.
 
 
 Each HTML file has a `data-page` attribute on `<body>`. On load, `js/main.js`:
