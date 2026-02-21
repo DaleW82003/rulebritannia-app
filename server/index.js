@@ -20,6 +20,7 @@ app.use(express.json({ limit: "2mb" }));
 const allow = new Set([
   "https://rulebritannia.org",
   "https://www.rulebritannia.org",
+  "https://hoppscotch.io",
   // If your UI also has a render URL, add it, e.g.
   // "https://rulebritannia-app.onrender.com"
 ]);
