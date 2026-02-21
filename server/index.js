@@ -147,6 +147,47 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS audit_log_created_idx ON audit_log (created_at DESC);
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bills (
+      id         TEXT PRIMARY KEY,
+      data       JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS motions (
+      id          TEXT PRIMARY KEY,
+      motion_type TEXT NOT NULL DEFAULT 'house',
+      data        JSONB NOT NULL,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS statements (
+      id         TEXT PRIMARY KEY,
+      data       JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS regulations (
+      id         TEXT PRIMARY KEY,
+      data       JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS questiontime_questions (
+      id         TEXT PRIMARY KEY,
+      data       JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
   // Seed defaults (INSERT … ON CONFLICT DO NOTHING keeps existing values)
   await pool.query(`
     INSERT INTO app_config (key, value) VALUES
@@ -156,6 +197,110 @@ async function ensureSchema() {
       ('clock_rate',         '2')
     ON CONFLICT (key) DO NOTHING;
   `);
+}
+
+/**
+ * Middleware helpers
+ */
+function requireAuth(req, res) {
+  if (!req.session?.userId) {
+    res.status(401).json({ error: "Not logged in" });
+    return false;
+  }
+  return true;
+}
+
+function requireAdmin(req, res) {
+  if (!req.session?.userId) {
+    res.status(401).json({ error: "Not logged in" });
+    return false;
+  }
+  if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
+    res.status(403).json({ error: "Forbidden: admin role required" });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Sync the five key object tables from a full game-state snapshot.
+ * Called whenever POST /api/state saves a new snapshot, keeping the
+ * tables as a derived cache.  Uses batched upserts inside a transaction.
+ */
+async function syncObjectTables(data) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // helper: bulk-upsert an array of {id, data} rows into a simple table
+    async function upsertRows(table, rows) {
+      if (!rows.length) return;
+      // Build VALUES ($1,$2), ($3,$4), …
+      const placeholders = rows.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2}::jsonb)`).join(", ");
+      const params = rows.flatMap((r) => [r.id, JSON.stringify(r.data)]);
+      await client.query(
+        `INSERT INTO ${table} (id, data)
+         VALUES ${placeholders}
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+        params
+      );
+    }
+
+    // bills — stored in orderPaperCommons array
+    await upsertRows(
+      "bills",
+      (Array.isArray(data.orderPaperCommons) ? data.orderPaperCommons : [])
+        .filter((b) => b.id)
+        .map((b) => ({ id: b.id, data: b }))
+    );
+
+    // motions — house and edm sub-arrays; include motion_type column
+    const allMotions = [
+      ...(Array.isArray(data.motions?.house) ? data.motions.house : []).map((m) => ({ ...m, _type: "house" })),
+      ...(Array.isArray(data.motions?.edm)   ? data.motions.edm   : []).map((m) => ({ ...m, _type: "edm" })),
+    ].filter((m) => m.id);
+    if (allMotions.length) {
+      const placeholders = allMotions.map((_, i) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3}::jsonb)`).join(", ");
+      const params = allMotions.flatMap(({ _type, ...m }) => [m.id, _type, JSON.stringify(m)]);
+      await client.query(
+        `INSERT INTO motions (id, motion_type, data)
+         VALUES ${placeholders}
+         ON CONFLICT (id) DO UPDATE SET motion_type = EXCLUDED.motion_type, data = EXCLUDED.data, updated_at = NOW()`,
+        params
+      );
+    }
+
+    // statements — items array
+    await upsertRows(
+      "statements",
+      (Array.isArray(data.statements?.items) ? data.statements.items : [])
+        .filter((s) => s.id)
+        .map((s) => ({ id: s.id, data: s }))
+    );
+
+    // regulations — items array
+    await upsertRows(
+      "regulations",
+      (Array.isArray(data.regulations?.items) ? data.regulations.items : [])
+        .filter((r) => r.id)
+        .map((r) => ({ id: r.id, data: r }))
+    );
+
+    // questiontime_questions — questions array
+    await upsertRows(
+      "questiontime_questions",
+      (Array.isArray(data.questionTime?.questions) ? data.questionTime.questions : [])
+        .filter((q) => q.id)
+        .map((q) => ({ id: q.id, data: q }))
+    );
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**
@@ -325,6 +470,9 @@ app.post("/api/state", async (req, res) => {
        ON CONFLICT (id) DO UPDATE SET snapshot_id = EXCLUDED.snapshot_id`,
       [snapshotId]
     );
+
+    // Keep the object tables in sync with the new state
+    try { await syncObjectTables(data); } catch (syncErr) { console.error("[syncObjectTables]", syncErr); }
 
     res.json({ ok: true, snapshotId });
   } catch (e) {
@@ -566,6 +714,448 @@ app.get("/api/audit-log", auditReadLimit, async (req, res) => {
     );
 
     res.json({ entries: rows, total: parseInt(countRows[0].total, 10) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * BILLS  (orderPaperCommons items)
+ * GET    /api/bills          — authenticated: list all bills
+ * GET    /api/bills/:id      — authenticated: get one bill
+ * POST   /api/bills          — admin: create a bill
+ * PUT    /api/bills/:id      — admin: update a bill
+ * DELETE /api/bills/:id      — admin: delete a bill
+ */
+
+const crudReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const crudWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/bills", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT id, data, updated_at FROM bills ORDER BY updated_at DESC");
+    res.json({ bills: rows.map((r) => ({ ...r.data, _updatedAt: r.updated_at })) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/bills/:id", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT id, data, updated_at FROM bills WHERE id = $1", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Bill not found" });
+    res.json({ bill: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/bills", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const bill = req.body;
+    if (!bill || typeof bill !== "object" || !bill.id) {
+      return res.status(400).json({ error: "Body must be a bill object with an id" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO bills (id, data) VALUES ($1, $2::jsonb)
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+       RETURNING id, updated_at`,
+      [bill.id, JSON.stringify(bill)]
+    );
+    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/bills/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const bill = req.body;
+    if (!bill || typeof bill !== "object") {
+      return res.status(400).json({ error: "Body must be a bill object" });
+    }
+    const { rows } = await pool.query(
+      `UPDATE bills SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at`,
+      [JSON.stringify({ ...bill, id: req.params.id }), req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Bill not found" });
+    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM bills WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Bill not found" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * MOTIONS
+ * GET    /api/motions          — authenticated: list all motions (optional ?type=house|edm)
+ * GET    /api/motions/:id      — authenticated: get one motion
+ * POST   /api/motions          — admin: create a motion
+ * PUT    /api/motions/:id      — admin: update a motion
+ * DELETE /api/motions/:id      — admin: delete a motion
+ */
+app.get("/api/motions", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { type } = req.query;
+    let query = "SELECT id, motion_type, data, updated_at FROM motions";
+    const params = [];
+    if (type === "house" || type === "edm") {
+      query += " WHERE motion_type = $1";
+      params.push(type);
+    }
+    query += " ORDER BY updated_at DESC";
+    const { rows } = await pool.query(query, params);
+    res.json({ motions: rows.map((r) => ({ ...r.data, _motionType: r.motion_type, _updatedAt: r.updated_at })) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/motions/:id", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT id, motion_type, data, updated_at FROM motions WHERE id = $1",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Motion not found" });
+    res.json({ motion: { ...rows[0].data, _motionType: rows[0].motion_type, _updatedAt: rows[0].updated_at } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/motions", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { motion_type = "house", ...motion } = req.body || {};
+    if (!motion.id) {
+      return res.status(400).json({ error: "Body must be a motion object with an id" });
+    }
+    if (motion_type !== "house" && motion_type !== "edm") {
+      return res.status(400).json({ error: "motion_type must be 'house' or 'edm'" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO motions (id, motion_type, data) VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (id) DO UPDATE SET motion_type = EXCLUDED.motion_type, data = EXCLUDED.data, updated_at = NOW()
+       RETURNING id, updated_at`,
+      [motion.id, motion_type, JSON.stringify(motion)]
+    );
+    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/motions/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { motion_type, ...motion } = req.body || {};
+    const typeClause = (motion_type === "house" || motion_type === "edm") ? ", motion_type = $3" : "";
+    const params = [
+      JSON.stringify({ ...motion, id: req.params.id }),
+      req.params.id,
+    ];
+    if (typeClause) params.push(motion_type);
+    const { rows } = await pool.query(
+      `UPDATE motions SET data = $1::jsonb, updated_at = NOW()${typeClause} WHERE id = $2 RETURNING id, updated_at`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ error: "Motion not found" });
+    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/motions/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM motions WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Motion not found" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * STATEMENTS
+ * GET    /api/statements          — authenticated: list all statements
+ * GET    /api/statements/:id      — authenticated: get one statement
+ * POST   /api/statements          — admin: create a statement
+ * PUT    /api/statements/:id      — admin: update a statement
+ * DELETE /api/statements/:id      — admin: delete a statement
+ */
+app.get("/api/statements", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT id, data, updated_at FROM statements ORDER BY updated_at DESC");
+    res.json({ statements: rows.map((r) => ({ ...r.data, _updatedAt: r.updated_at })) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/statements/:id", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT id, data, updated_at FROM statements WHERE id = $1",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Statement not found" });
+    res.json({ statement: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/statements", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const stmt = req.body;
+    if (!stmt || typeof stmt !== "object" || !stmt.id) {
+      return res.status(400).json({ error: "Body must be a statement object with an id" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO statements (id, data) VALUES ($1, $2::jsonb)
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+       RETURNING id, updated_at`,
+      [stmt.id, JSON.stringify(stmt)]
+    );
+    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/statements/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const stmt = req.body;
+    if (!stmt || typeof stmt !== "object") {
+      return res.status(400).json({ error: "Body must be a statement object" });
+    }
+    const { rows } = await pool.query(
+      `UPDATE statements SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at`,
+      [JSON.stringify({ ...stmt, id: req.params.id }), req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Statement not found" });
+    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/statements/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM statements WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Statement not found" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * REGULATIONS
+ * GET    /api/regulations          — authenticated: list all regulations
+ * GET    /api/regulations/:id      — authenticated: get one regulation
+ * POST   /api/regulations          — admin: create a regulation
+ * PUT    /api/regulations/:id      — admin: update a regulation
+ * DELETE /api/regulations/:id      — admin: delete a regulation
+ */
+app.get("/api/regulations", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT id, data, updated_at FROM regulations ORDER BY updated_at DESC");
+    res.json({ regulations: rows.map((r) => ({ ...r.data, _updatedAt: r.updated_at })) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/regulations/:id", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT id, data, updated_at FROM regulations WHERE id = $1",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Regulation not found" });
+    res.json({ regulation: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/regulations", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const reg = req.body;
+    if (!reg || typeof reg !== "object" || !reg.id) {
+      return res.status(400).json({ error: "Body must be a regulation object with an id" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO regulations (id, data) VALUES ($1, $2::jsonb)
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+       RETURNING id, updated_at`,
+      [reg.id, JSON.stringify(reg)]
+    );
+    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/regulations/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const reg = req.body;
+    if (!reg || typeof reg !== "object") {
+      return res.status(400).json({ error: "Body must be a regulation object" });
+    }
+    const { rows } = await pool.query(
+      `UPDATE regulations SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at`,
+      [JSON.stringify({ ...reg, id: req.params.id }), req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Regulation not found" });
+    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/regulations/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM regulations WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Regulation not found" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * QUESTION TIME QUESTIONS
+ * GET    /api/questiontime-questions          — authenticated: list all questions
+ * GET    /api/questiontime-questions/:id      — authenticated: get one question
+ * POST   /api/questiontime-questions          — admin: create a question
+ * PUT    /api/questiontime-questions/:id      — admin: update a question
+ * DELETE /api/questiontime-questions/:id      — admin: delete a question
+ */
+app.get("/api/questiontime-questions", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT id, data, updated_at FROM questiontime_questions ORDER BY updated_at DESC"
+    );
+    res.json({ questions: rows.map((r) => ({ ...r.data, _updatedAt: r.updated_at })) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/questiontime-questions/:id", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT id, data, updated_at FROM questiontime_questions WHERE id = $1",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Question not found" });
+    res.json({ question: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/questiontime-questions", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const q = req.body;
+    if (!q || typeof q !== "object" || !q.id) {
+      return res.status(400).json({ error: "Body must be a question object with an id" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO questiontime_questions (id, data) VALUES ($1, $2::jsonb)
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+       RETURNING id, updated_at`,
+      [q.id, JSON.stringify(q)]
+    );
+    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/questiontime-questions/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const q = req.body;
+    if (!q || typeof q !== "object") {
+      return res.status(400).json({ error: "Body must be a question object" });
+    }
+    const { rows } = await pool.query(
+      `UPDATE questiontime_questions SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at`,
+      [JSON.stringify({ ...q, id: req.params.id }), req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Question not found" });
+    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/questiontime-questions/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM questiontime_questions WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Question not found" });
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

@@ -20,6 +20,42 @@ CREATE TABLE IF NOT EXISTS app_state_current (
   snapshot_id UUID REFERENCES state_snapshots(id)
 );
 
+-- Bills (orderPaperCommons items)
+CREATE TABLE IF NOT EXISTS bills (
+  id         TEXT PRIMARY KEY,
+  data       JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Motions (house and EDM)
+CREATE TABLE IF NOT EXISTS motions (
+  id          TEXT PRIMARY KEY,
+  motion_type TEXT NOT NULL DEFAULT 'house',
+  data        JSONB NOT NULL,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Statements
+CREATE TABLE IF NOT EXISTS statements (
+  id         TEXT PRIMARY KEY,
+  data       JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Regulations
+CREATE TABLE IF NOT EXISTS regulations (
+  id         TEXT PRIMARY KEY,
+  data       JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Question Time questions
+CREATE TABLE IF NOT EXISTS questiontime_questions (
+  id         TEXT PRIMARY KEY,
+  data       JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Audit log for admin/mod actions
 CREATE TABLE IF NOT EXISTS audit_log (
   id         BIGSERIAL PRIMARY KEY,
