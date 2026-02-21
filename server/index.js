@@ -239,6 +239,16 @@ async function ensureSchema() {
     );
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sim_clock (
+      id                TEXT PRIMARY KEY,
+      sim_current_month INTEGER NOT NULL DEFAULT 8,
+      sim_current_year  INTEGER NOT NULL DEFAULT 1997,
+      real_last_tick    TIMESTAMPTZ,
+      rate              INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+
   // Seed defaults (INSERT … ON CONFLICT DO NOTHING keeps existing values)
   await pool.query(`
     INSERT INTO app_config (key, value) VALUES
@@ -249,6 +259,12 @@ async function ensureSchema() {
       ('sim_start_date',          '1997-08-01'),
       ('clock_rate',              '2')
     ON CONFLICT (key) DO NOTHING;
+  `);
+
+  await pool.query(`
+    INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+    VALUES ('main', 8, 1997, 1)
+    ON CONFLICT (id) DO NOTHING;
   `);
 }
 
@@ -1320,6 +1336,90 @@ app.delete("/api/questiontime-questions/:id", crudWriteLimit, async (req, res) =
     const { rowCount } = await pool.query("DELETE FROM questiontime_questions WHERE id = $1", [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: "Question not found" });
     res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * CLOCK
+ * GET  /api/clock       — public: read current sim date
+ * POST /api/clock/tick  — admin: advance clock by rate months
+ * POST /api/clock/set   — admin: set sim_current_month, sim_current_year, and/or rate
+ */
+
+const clockReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const clockWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/clock", clockReadLimit, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
+    );
+    if (!rows.length) {
+      return res.json({ sim_current_month: 8, sim_current_year: 1997, real_last_tick: null, rate: 1 });
+    }
+    res.json(rows[0]);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows } = await pool.query(
+      `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+       VALUES ('main', 8, 1997, 1)
+       ON CONFLICT (id) DO UPDATE SET
+         sim_current_year  = sim_clock.sim_current_year + FLOOR((sim_clock.sim_current_month - 1 + sim_clock.rate) / 12),
+         sim_current_month = MOD(sim_clock.sim_current_month - 1 + sim_clock.rate, 12) + 1,
+         real_last_tick    = NOW()
+       RETURNING sim_current_month, sim_current_year, real_last_tick, rate`
+    );
+    res.json({ ok: true, clock: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { sim_current_month, sim_current_year, rate } = req.body || {};
+    const month = parseInt(sim_current_month, 10);
+    const year  = parseInt(sim_current_year, 10);
+
+    if (!Number.isFinite(month) || month < 1 || month > 12) {
+      return res.status(400).json({ error: "sim_current_month must be 1–12" });
+    }
+    if (!Number.isFinite(year)) {
+      return res.status(400).json({ error: "sim_current_year must be a number" });
+    }
+
+    let rateVal = null;
+    if (rate !== undefined) {
+      rateVal = parseInt(rate, 10);
+      if (!Number.isFinite(rateVal) || rateVal < 1) {
+        return res.status(400).json({ error: "rate must be a positive integer" });
+      }
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+       VALUES ('main', $1, $2, COALESCE($3, 1))
+       ON CONFLICT (id) DO UPDATE SET
+         sim_current_month = $1,
+         sim_current_year  = $2,
+         rate              = COALESCE($3, sim_clock.rate),
+         real_last_tick    = NOW()
+       RETURNING sim_current_month, sim_current_year, real_last_tick, rate`,
+      [month, year, rateVal]
+    );
+    res.json({ ok: true, clock: rows[0] });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

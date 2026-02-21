@@ -192,6 +192,16 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
 
 .topbar-auth{ display:flex; align-items:center; gap:8px; }
 .topbar-auth-label{ color:#fff; opacity:.92; font-size:13px; padding:4px 8px; }
+.topbar-clock{
+  color:#fff;
+  font-weight:700;
+  font-size:13px;
+  padding:6px 12px;
+  border-radius:999px;
+  background:rgba(255,255,255,.10);
+  border:1px solid rgba(255,255,255,.18);
+  white-space:nowrap;
+}
 .topbar-logout-btn{
   padding:7px 14px;
   border-radius:999px;

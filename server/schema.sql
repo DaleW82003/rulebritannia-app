@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS questiontime_questions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Simulation clock (single authoritative row)
+CREATE TABLE IF NOT EXISTS sim_clock (
+  id                TEXT PRIMARY KEY,
+  sim_current_month INTEGER NOT NULL DEFAULT 8,
+  sim_current_year  INTEGER NOT NULL DEFAULT 1997,
+  real_last_tick    TIMESTAMPTZ,
+  rate              INTEGER NOT NULL DEFAULT 1
+);
+
 -- Audit log for admin/mod actions
 CREATE TABLE IF NOT EXISTS audit_log (
   id         BIGSERIAL PRIMARY KEY,

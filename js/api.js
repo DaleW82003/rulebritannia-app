@@ -375,6 +375,34 @@ export async function apiDeleteQTQuestion(id) {
   return res.json();
 }
 
+// ── CLOCK ─────────────────────────────────────────────────────────────────────
+
+export async function apiGetClock() {
+  const res = await fetch(`${API_BASE}/api/clock`);
+  if (!res.ok) throw new Error(`apiGetClock failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiClockTick() {
+  const res = await fetch(`${API_BASE}/api/clock/tick`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiClockTick failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiClockSet({ sim_current_month, sim_current_year, rate } = {}) {
+  const res = await fetch(`${API_BASE}/api/clock/set`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sim_current_month, sim_current_year, rate }),
+  });
+  if (!res.ok) throw new Error(`apiClockSet failed (${res.status})`);
+  return res.json();
+}
+
 // ── DISCOURSE INTEGRATION ─────────────────────────────────────────────────────
 
 export async function apiGetDiscourseConfig() {
