@@ -4,7 +4,7 @@ import session from "express-session";
 import pgSession from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { pool } from "./db.js";
 import { createTopic, createPost } from "./discourse.js";
 import { ALL_VALID_ROLES, computeDiscourseGroups } from "./roles.js";
@@ -114,6 +114,9 @@ app.use(
     },
   })
 );
+
+// CSRF token validation for all state-changing requests
+app.use(verifyCsrfToken);
 
 /**
  * Boot-time schema
@@ -282,6 +285,39 @@ async function ensureSchema() {
 }
 
 /**
+ * CSRF helpers
+ *
+ * A per-session token is generated on login and must be echoed back in the
+ * X-CSRF-Token request header on every state-changing request (POST / PUT /
+ * DELETE / PATCH).  GET, HEAD, and OPTIONS are considered safe and are not
+ * checked.  The login endpoint is also exempt because the session (and token)
+ * does not exist yet at that point.
+ */
+function generateCsrfToken() {
+  return randomBytes(32).toString("hex");
+}
+
+function verifyCsrfToken(req, res, next) {
+  const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
+  if (safeMethods.has(req.method)) return next();
+
+  const sessionToken = req.session?.csrfToken;
+  // No token in session means the request is unauthenticated;
+  // requireAuth / requireAdmin in each handler will reject it.
+  if (!sessionToken) return next();
+
+  const requestToken = req.headers["x-csrf-token"];
+  if (
+    !requestToken ||
+    sessionToken.length !== requestToken.length ||
+    !timingSafeEqual(Buffer.from(sessionToken), Buffer.from(requestToken))
+  ) {
+    return res.status(403).json({ error: "CSRF token missing or invalid" });
+  }
+  next();
+}
+
+/**
  * Middleware helpers
  */
 function requireAuth(req, res) {
@@ -409,6 +445,20 @@ app.get("/dev/hash/:pw", async (req, res) => {
 });
 
 /**
+ * CSRF token endpoint
+ * GET /csrf-token — authenticated: returns (or creates) the CSRF token for the current session
+ */
+app.get("/csrf-token", (req, res) => {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: "Not logged in" });
+  }
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = generateCsrfToken();
+  }
+  res.json({ csrfToken: req.session.csrfToken });
+});
+
+/**
  * AUTH
  * POST /auth/login
  * GET  /auth/me
@@ -443,6 +493,7 @@ app.post("/auth/login", async (req, res) => {
     // Save to session
     req.session.userId = user.id;
     req.session.roles = user.roles;
+    req.session.csrfToken = generateCsrfToken();
 
     // IMPORTANT: force-save session before replying
     req.session.save((err) => {
@@ -453,6 +504,7 @@ app.post("/auth/login", async (req, res) => {
 
       return res.json({
         ok: true,
+        csrfToken: req.session.csrfToken,
         user: {
           id: user.id,
           username: user.username,
@@ -482,7 +534,12 @@ app.get("/auth/me", async (req, res) => {
       return res.status(401).json({ ok: false });
     }
 
-    return res.json({ ok: true, user: rows[0] });
+    // Lazily generate a CSRF token for sessions that pre-date this feature
+    if (!req.session.csrfToken) {
+      req.session.csrfToken = generateCsrfToken();
+    }
+
+    return res.json({ ok: true, csrfToken: req.session.csrfToken, user: rows[0] });
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: "Server error" });
