@@ -4,6 +4,7 @@ import { isSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
+import { apiCreateDebateTopic } from "../api.js";
 
 const GOVERNMENT_OFFICES = new Set([
   "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade", "defence", "welfare", "education", "env-agri", "health", "eti", "culture", "home-nations"
@@ -109,7 +110,10 @@ export function initMotionsPage(data) {
         <article class="tile" style="margin-bottom:10px;">
           <div><b>Motion ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author)}</span></div>
           <div class="muted" style="margin-top:6px;">Debate: ${esc(m.debateStartSim || "—")} → ${esc(m.debateEndSim || "—")}${m.debateEndSimObj ? ` (${countdownToSimMonth(m.debateEndSimObj.month, m.debateEndSimObj.year, data.gameState)})` : ""}</div>
-          <div class="tile-bottom"><a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a></div>
+          <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a>
+            ${m.debateUrl ? `<a class="btn" href="${esc(m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+          </div>
         </article>`).join("") : `<p class="muted">No current house motions.</p>`}
     </section>
 
@@ -119,7 +123,10 @@ export function initMotionsPage(data) {
         <article class="tile" style="margin-bottom:10px;">
           <div><b>EDM ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author)}</span></div>
           <div class="muted" style="margin-top:6px;">Open: ${esc(m.openedAtSim || "—")} → ${esc(m.closesAtSim || "—")}${m.closesAtSimObj ? ` (${countdownToSimMonth(m.closesAtSimObj.month, m.closesAtSimObj.year, data.gameState)})` : ""}</div>
-          <div class="tile-bottom"><a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a></div>
+          <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a>
+            ${m.debateUrl ? `<a class="btn" href="${esc(m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+          </div>
         </article>`).join("") : `<p class="muted">No current EDMs.</p>`}
     </section>
 
@@ -144,7 +151,7 @@ export function initMotionsPage(data) {
     const divisionEndObj = plusSimMonths(debateEndObj.month, debateEndObj.year, 1);
     const id = `motion-${Date.now()}`;
 
-    data.motions.house.push({
+    const motion = {
       id,
       number,
       title,
@@ -156,9 +163,19 @@ export function initMotionsPage(data) {
       debateEndSimObj: debateEndObj,
       debateUrl: discussionUrl("motion", number, title),
       division: { status: "open", startSim: formatSimDate(debateEndObj), endSim: formatSimDate(divisionEndObj), endSimObj: divisionEndObj, votes: {}, rebelsByParty: {}, npcVotes: {} }
-    });
+    };
+    data.motions.house.push(motion);
     data.motions.nextHouseNumber = number + 1;
     saveData(data);
+    apiCreateDebateTopic({
+      entityType: "motion", entityId: id,
+      title: `Motion ${number}: ${title}`,
+      raw: `**That this House** ${body}\n\n*Submitted by ${motion.author}.*`
+    }).then(({ topicId, topicUrl }) => {
+      motion.debateUrl = topicUrl;
+      motion.discourseTopicId = topicId;
+      saveData(data);
+    }).catch(() => {});
     window.location.href = `motion.html?kind=house&id=${encodeURIComponent(id)}`;
   });
 
@@ -173,7 +190,7 @@ export function initMotionsPage(data) {
     const closesAtObj = plusSimMonths(sim.month, sim.year, 2);
     const id = `edm-${Date.now()}`;
 
-    data.motions.edm.push({
+    const edm = {
       id,
       number,
       title,
@@ -183,11 +200,22 @@ export function initMotionsPage(data) {
       openedAtSim: sim.label,
       closesAtSim: formatSimDate(closesAtObj),
       closesAtSimObj: closesAtObj,
+      debateUrl: discussionUrl("edm", number, title),
       signatures: [],
       npcSignatures: {}
-    });
+    };
+    data.motions.edm.push(edm);
     data.motions.nextEdmNumber = number + 1;
     saveData(data);
+    apiCreateDebateTopic({
+      entityType: "motion", entityId: id,
+      title: `EDM ${number}: ${title}`,
+      raw: `**That this House** ${body}\n\n*Submitted by ${edm.author}.*`
+    }).then(({ topicId, topicUrl }) => {
+      edm.debateUrl = topicUrl;
+      edm.discourseTopicId = topicId;
+      saveData(data);
+    }).catch(() => {});
     window.location.href = `motion.html?kind=edm&id=${encodeURIComponent(id)}`;
   });
 }

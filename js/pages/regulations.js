@@ -3,6 +3,7 @@ import { esc } from "../ui.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
+import { apiCreateDebateTopic } from "../api.js";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -120,7 +121,10 @@ export function initRegulationsPage(data) {
         <article class="tile" style="margin-bottom:10px;">
           <div><b>${esc(r.department)} Regulation ${esc(r.regulationNumber)}</b>: ${esc(r.shortTitle)} <span class="muted">by ${esc(r.author)}</span></div>
           <div class="muted" style="margin-top:6px;">Laid: ${esc(r.laidAtSim || "—")} • In force: ${esc(r.comesIntoForce || "—")} • Debate closes: ${esc(r.debateClosesAtSim || "—")}${r.debateClosesAtSimObj && r.status !== "closed" ? ` (${countdownToSimMonth(r.debateClosesAtSimObj.month, r.debateClosesAtSimObj.year, data.gameState)})` : ""}</div>
-          <div class="tile-bottom"><a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a></div>
+          <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a>
+            ${r.debateUrl ? `<a class="btn" href="${esc(r.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+          </div>
         </article>
       `).join("") : `<p class="muted">No current regulations.</p>`}
     </section>
@@ -131,7 +135,10 @@ export function initRegulationsPage(data) {
         <article class="tile" style="margin-bottom:10px;">
           <div><b>${esc(r.department)} Regulation ${esc(r.regulationNumber)}</b>: ${esc(r.shortTitle)}</div>
           <div class="muted" style="margin-top:6px;">Closed: ${esc(r.closedAtSim || "—")}</div>
-          <div class="tile-bottom"><a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a></div>
+          <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a>
+            ${r.debateUrl ? `<a class="btn" href="${esc(r.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+          </div>
         </article>
       `).join("") : `<p class="muted">No archived regulations yet.</p>`}
     </section>
@@ -173,6 +180,15 @@ export function initRegulationsPage(data) {
     data.regulations.items.push(regulation);
     data.regulations.nextId += 1;
     saveData(data);
+    apiCreateDebateTopic({
+      entityType: "regulation", entityId: regulation.id,
+      title: `${regulation.department} Regulation ${regNo}: ${title}`,
+      raw: `**${regulation.department} Regulation ${regNo}: ${title}**\nLaid by ${regulation.author}. Comes into force: ${regulation.comesIntoForce}.\n\n${body}`
+    }).then(({ topicId, topicUrl }) => {
+      regulation.debateUrl = topicUrl;
+      regulation.discourseTopicId = topicId;
+      saveData(data);
+    }).catch(() => {});
     window.location.href = `regulation.html?id=${encodeURIComponent(regulation.id)}`;
   });
 }

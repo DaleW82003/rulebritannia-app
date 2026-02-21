@@ -404,3 +404,14 @@ export async function apiTestDiscourse() {
   // Return body regardless of HTTP status so caller can read the error message
   return res.json();
 }
+
+export async function apiCreateDebateTopic({ entityType, entityId, title, raw, categoryId, tags } = {}) {
+  const res = await fetch(`${API_BASE}/api/debates/create`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entityType, entityId, title, raw, categoryId, tags }),
+  });
+  if (!res.ok) throw new Error(`apiCreateDebateTopic failed (${res.status})`);
+  return res.json();
+}

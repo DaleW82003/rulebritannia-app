@@ -4,6 +4,7 @@ import { isSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
+import { apiCreateDebateTopic } from "../api.js";
 
 const GOVERNMENT_OFFICES = new Set([
   "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade", "defence",
@@ -56,6 +57,7 @@ function statementCard(s, speaker, gameState) {
       ${s.archivedAtSim ? `<div class="muted" style="margin-top:4px;">Archived ${esc(s.archivedAtSim)}</div>` : ""}
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
         <a class="btn" href="statement.html?id=${encodeURIComponent(s.id)}">Open</a>
+        ${s.debateUrl ? `<a class="btn" href="${esc(s.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
         ${speaker && s.status !== "archived" ? `<button class="btn danger" type="button" data-action="archive" data-id="${esc(s.id)}">Archive</button>` : ""}
       </div>
     </article>
@@ -135,7 +137,7 @@ function render(data) {
     const close = plusSimMonths(sim.month, sim.year, 2);
     const author = getCharacter(data)?.name || "Government Minister";
 
-    data.statements.items.push({
+    const statement = {
       id: `ms-${String(number).padStart(3, "0")}`,
       number,
       title,
@@ -146,10 +148,20 @@ function render(data) {
       closesAtSim: formatSimDate(close.month, close.year),
       closesAtSimObj: { month: close.month, year: close.year },
       debateUrl: `https://forum.rulebritannia.org/t/ms-${number}-${encodeURIComponent(title.toLowerCase().replaceAll(" ", "-"))}`
-    });
+    };
+    data.statements.items.push(statement);
     data.statements.nextNumber = number + 1;
 
     saveData(data);
+    apiCreateDebateTopic({
+      entityType: "statement", entityId: statement.id,
+      title: `Ministerial Statement MS${number}: ${title}`,
+      raw: `**Ministerial Statement by ${author}**\n\n${body}`
+    }).then(({ topicId, topicUrl }) => {
+      statement.debateUrl = topicUrl;
+      statement.discourseTopicId = topicId;
+      saveData(data);
+    }).catch(() => {});
     render(data);
   });
 
