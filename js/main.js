@@ -1,6 +1,7 @@
 // js/main.js
 import { bootData } from "./core.js";
 import { initNavUI, esc } from "./ui.js";
+import { handleApiError } from "./errors.js";
 
 // Working pages (already built)
 import { initDashboardPage } from "./pages/dashboard.js";
@@ -52,6 +53,7 @@ import { initLoginPage } from "./pages/login.js";
 
 function showBootError(err) {
   console.error(err);
+  handleApiError(err, "Boot error");
   const msg = document.createElement("div");
   msg.style.padding = "16px";
   msg.style.border = "2px solid #c00";
@@ -61,6 +63,12 @@ function showBootError(err) {
   msg.innerHTML = `<b>Fatal boot error:</b> ${esc(String(err?.message || err))}`;
   document.body.prepend(msg);
 }
+
+// Global safety net: any unhandled promise rejection across all pages fires a toast.
+window.addEventListener("unhandledrejection", (event) => {
+  handleApiError(event.reason, "Unexpected error");
+  event.preventDefault(); // suppress duplicate browser console warning
+});
 
 function renderDataSourcePanel(sources) {
   const failCount = sources.filter((s) => !s.ok).length;

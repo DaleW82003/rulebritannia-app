@@ -6,6 +6,7 @@ import { esc } from "../ui.js";
 import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
 import { apiCreateDebateTopic } from "../api.js";
+import { handleApiError } from "../errors.js";
 
 function $(id) {
   return document.getElementById(id);
@@ -139,7 +140,7 @@ function ensureBillDebateTopic(bill, data) {
       saveData(data);
       setDebateLink(bill);
     })
-    .catch(() => {});
+    .catch((err) => handleApiError(err, "Debate topic"));
 }
 
 function renderBillMeta(bill, data) {

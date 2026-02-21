@@ -4,6 +4,7 @@ import { esc } from "../ui.js";
 import { apiCreateDebateTopic } from "../api.js";
 import { tileSection } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
+import { handleApiError } from "../errors.js";
 
 const DEPARTMENTS = [
   "Cabinet Office (General)",
@@ -330,7 +331,7 @@ export function initSubmitBillPage(data) {
           if (idx >= 0) data.orderPaperCommons[idx] = bill;
           saveData(data);
         })
-        .catch(() => {});
+        .catch((err) => handleApiError(err, "Debate topic"));
     }
 
     toastSuccess(`Bill submitted: ${title} (${stage}).`);

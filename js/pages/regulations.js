@@ -4,6 +4,7 @@ import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
 import { apiCreateDebateTopic } from "../api.js";
+import { handleApiError } from "../errors.js";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -188,7 +189,7 @@ export function initRegulationsPage(data) {
       regulation.debateUrl = topicUrl;
       regulation.discourseTopicId = topicId;
       saveData(data);
-    }).catch(() => {});
+    }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `regulation.html?id=${encodeURIComponent(regulation.id)}`;
   });
 }

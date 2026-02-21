@@ -8,6 +8,7 @@ import {
   apiGetDiscourseSyncPreview, apiSetUserRoles,
 } from "../api.js";
 import { logAction } from "../audit.js";
+import { toastError } from "../components/toast.js";
 
 export async function initAdminPanelPage(data) {
   const user = await requireAdmin();
@@ -31,6 +32,7 @@ export async function initAdminPanelPage(data) {
       currentConfig = result?.config || {};
     } catch (err) {
       console.error("Failed to load config:", err);
+      toastError("Failed to load config.");
       currentConfig = {};
     }
   }
@@ -40,6 +42,7 @@ export async function initAdminPanelPage(data) {
       discourseConfig = await apiGetDiscourseConfig();
     } catch (err) {
       console.error("Failed to load discourse config:", err);
+      toastError("Failed to load Discourse config.");
     }
   }
 
@@ -50,6 +53,7 @@ export async function initAdminPanelPage(data) {
       currentSnapshotId = result?.currentId ?? null;
     } catch (err) {
       console.error("Failed to load snapshots:", err);
+      toastError("Failed to load snapshots.");
       snapshots = [];
       currentSnapshotId = null;
     }
@@ -62,6 +66,7 @@ export async function initAdminPanelPage(data) {
       auditTotal = result?.total ?? 0;
     } catch (err) {
       console.error("Failed to load audit log:", err);
+      toastError("Failed to load audit log.");
       auditEntries = [];
       auditTotal = 0;
     }
@@ -73,6 +78,7 @@ export async function initAdminPanelPage(data) {
       syncPreview = result?.preview || [];
     } catch (err) {
       console.error("Failed to load Discourse sync preview:", err);
+      toastError("Failed to load Discourse sync preview.");
       syncPreview = [];
     }
   }
@@ -352,6 +358,7 @@ export async function initAdminPanelPage(data) {
         currentConfig = { ...currentConfig, ...updates };
         render("cfg:Config saved.");
       } catch (err) {
+        toastError(`Save config: ${err.message}`);
         render(`cfg:Error saving config: ${err.message}`);
       }
     });
@@ -372,6 +379,7 @@ export async function initAdminPanelPage(data) {
         await loadDiscourseConfig();
         render("disc-save:Discourse config saved.");
       } catch (err) {
+        toastError(`Save Discourse config: ${err.message}`);
         render(`disc-save:Error saving Discourse config: ${err.message}`);
       }
     });
@@ -400,6 +408,7 @@ export async function initAdminPanelPage(data) {
         await loadSnapshots();
         render("snap:Snapshot saved.");
       } catch (err) {
+        toastError(`Save snapshot: ${err.message}`);
         render(`snap:Error saving snapshot: ${err.message}`);
       }
     });
@@ -418,6 +427,7 @@ export async function initAdminPanelPage(data) {
           await loadSnapshots();
           render("snap:Snapshot restored.");
         } catch (err) {
+          toastError(`Restore snapshot: ${err.message}`);
           render(`snap:Error restoring snapshot: ${err.message}`);
         }
       });
@@ -494,6 +504,7 @@ export async function initAdminPanelPage(data) {
         await loadSyncPreview();
         render(status);
       } catch (err) {
+        toastError(`Save roles: ${err.message}`);
         if (statusEl) statusEl.textContent = `Error: ${err.message}`;
       }
     });
@@ -503,6 +514,7 @@ export async function initAdminPanelPage(data) {
         await apiLogout();
         window.location.href = "login.html";
       } catch (err) {
+        toastError(`Logout failed: ${err.message}`);
         render(`Error logging out: ${err.message}`);
       }
     });
