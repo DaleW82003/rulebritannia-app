@@ -1,5 +1,19 @@
 // js/api.js
-const API_BASE = (typeof window !== "undefined" && window.RB_API_BASE) || "";
+function resolveApiBase() {
+  if (typeof window !== "undefined" && window.RB_API_BASE) return window.RB_API_BASE;
+  if (typeof window !== "undefined") {
+    const h = window.location.hostname;
+    if (
+      h === "rulebritannia.org" ||
+      h.endsWith(".rulebritannia.org") ||
+      h === "rulebritannia-app.onrender.com"
+    ) {
+      return "https://rulebritannia-app-backend.onrender.com";
+    }
+  }
+  return "";
+}
+const API_BASE = resolveApiBase();
 
 export async function apiLogin(email, password) {
   const res = await fetch(`${API_BASE}/auth/login`, {
