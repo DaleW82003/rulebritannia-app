@@ -63,3 +63,20 @@ export async function apiSaveState(data) {
   if (!res.ok) throw new Error(`apiSaveState failed (${res.status})`);
   return res.json();
 }
+
+export async function apiGetConfig() {
+  const res = await fetch(`${API_BASE}/api/config`);
+  if (!res.ok) throw new Error(`apiGetConfig failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSaveConfig(config) {
+  const res = await fetch(`${API_BASE}/api/config`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) throw new Error(`apiSaveConfig failed (${res.status})`);
+  return res.json();
+}

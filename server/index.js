@@ -86,6 +86,24 @@ async function ensureSchema() {
   `);
 
   // sessions table is handled by connect-pg-simple when createTableIfMissing:true
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // Seed defaults (INSERT … ON CONFLICT DO NOTHING keeps existing values)
+  await pool.query(`
+    INSERT INTO app_config (key, value) VALUES
+      ('discourse_base_url', 'https://forum.rulebritannia.org'),
+      ('ui_base_url',        'https://rulebritannia.org'),
+      ('sim_start_date',     '1997-08-01'),
+      ('clock_rate',         '2')
+    ON CONFLICT (key) DO NOTHING;
+  `);
 }
 
 /**
@@ -246,6 +264,60 @@ app.post("/api/state", async (req, res) => {
           updated_at = NOW()
       `,
       ["main", JSON.stringify(data)]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * CONFIG
+ * GET /api/config   — public, returns all key/value pairs
+ * PUT /api/config   — admin only, accepts { key: value, … }
+ */
+app.get("/api/config", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT key, value FROM app_config");
+    const config = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    res.json({ config });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/config", async (req, res) => {
+  try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
+      return res.status(403).json({ error: "Forbidden: admin role required" });
+    }
+
+    const updates = req.body;
+    if (!updates || typeof updates !== "object" || Array.isArray(updates)) {
+      return res.status(400).json({ error: "Body must be a key/value object" });
+    }
+
+    const ALLOWED_KEYS = new Set(["discourse_base_url", "ui_base_url", "sim_start_date", "clock_rate"]);
+    const entries = Object.entries(updates).filter(([k]) => ALLOWED_KEYS.has(k));
+    if (!entries.length) {
+      return res.status(400).json({ error: "No valid config keys provided" });
+    }
+
+    const keys = entries.map(([k]) => k);
+    const values = entries.map(([, v]) => String(v));
+    await pool.query(
+      `INSERT INTO app_config (key, value)
+       SELECT unnest($1::text[]), unnest($2::text[])
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value,
+             updated_at = NOW()`,
+      [keys, values]
     );
 
     res.json({ ok: true });
