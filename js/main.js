@@ -62,11 +62,49 @@ function showBootError(err) {
   document.body.prepend(msg);
 }
 
+function renderDataSourcePanel(sources) {
+  const failCount = sources.filter((s) => !s.ok).length;
+  const allOk = failCount === 0;
+  const panel = document.createElement("div");
+  panel.className = "ds-panel";
+
+  const rows = sources.map((s) =>
+    `<div class="ds-row"${s.error ? ` aria-label="${esc(s.label)}: ${esc(s.error)}"` : ""}>` +
+    `<span class="ds-dot ${s.ok ? "ok" : "fail"}" aria-hidden="true"></span>` +
+    `<span class="ds-label">${esc(s.label)}</span>` +
+    (s.error ? `<span class="ds-err">${esc(s.error)}</span>` : "") +
+    `</div>`
+  ).join("");
+
+  const summaryText = failCount ? `API Sources (${failCount} failed)` : "API Sources (all ok)";
+
+  panel.innerHTML =
+    `<button class="ds-panel-toggle" type="button" aria-expanded="false">` +
+    `<span class="ds-dot ${allOk ? "ok" : "fail"}" aria-hidden="true"></span>` +
+    `<span class="ds-toggle-label" aria-live="polite" aria-atomic="true">${summaryText}</span>` +
+    `<span class="ds-caret" aria-hidden="true">▸</span>` +
+    `</button>` +
+    `<div class="ds-panel-body" hidden>${rows}</div>`;
+
+  const toggle = panel.querySelector(".ds-panel-toggle");
+  const body   = panel.querySelector(".ds-panel-body");
+  const caret  = panel.querySelector(".ds-caret");
+  toggle.addEventListener("click", () => {
+    const open = toggle.getAttribute("aria-expanded") === "true";
+    toggle.setAttribute("aria-expanded", String(!open));
+    body.hidden = open;
+    caret.textContent = open ? "▸" : "▾";
+  });
+
+  document.body.appendChild(panel);
+}
+
 (async function () {
   document.body.dataset.bootState = "booting";
   try {
-    const { data, user, clock } = await bootData();
+    const { data, user, clock, sources } = await bootData();
     initNavUI(user, clock);
+    renderDataSourcePanel(sources);
 
     const page = document.body?.dataset?.page || "";
 

@@ -172,7 +172,7 @@ function render(data, state) {
   const simLabel = formatSimMonthYear(data.gameState);
 
   if (!selectedOffice) {
-    root.innerHTML = `<div class="muted-block">No Question Time offices configured in demo.json.</div>`;
+    root.innerHTML = `<div class="muted-block">No Question Time offices configured.</div>`;
     return;
   }
 

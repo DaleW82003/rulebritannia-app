@@ -700,7 +700,7 @@ export function initBillPage(data) {
     const title = $("billTitle");
     if (title) title.textContent = "Bill not found";
     const meta = $("billMeta");
-    if (meta) meta.innerHTML = '<div class="muted-block">No bill data is available in demo.json.</div>';
+    if (meta) meta.innerHTML = '<div class="muted-block">No bill data available.</div>';
     return;
   }
 
