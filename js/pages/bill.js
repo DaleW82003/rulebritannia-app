@@ -4,6 +4,7 @@ import { buildDivisionWeights } from "../divisions.js";
 import { isAdmin, isMod } from "../permissions.js";
 import { esc } from "../ui.js";
 import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
+import { logAction } from "../audit.js";
 
 function $(id) {
   return document.getElementById(id);
@@ -184,6 +185,7 @@ function renderBillMeta(bill, data) {
       bill.stage = "Second Reading";
       bill.stageStartedAt = Date.now();
       bill.stageDeadlineSim = createDeadline(data.gameState, 2);
+      logAction({ action: "bill-stage-changed", target: bill.title, details: { billId: bill.id, stage: bill.stage } });
       persistAndRerender(data, bill);
     });
 
@@ -192,6 +194,7 @@ function renderBillMeta(bill, data) {
       bill.stage = "First Reading Refused";
       bill.status = "failed";
       bill.stageStartedAt = Date.now();
+      logAction({ action: "bill-stage-changed", target: bill.title, details: { billId: bill.id, stage: bill.stage } });
       persistAndRerender(data, bill);
     });
 
@@ -205,6 +208,7 @@ function renderBillMeta(bill, data) {
   meta.querySelector('[data-agenda="grant-assent"]')?.addEventListener("click", () => {
     if (!canGrantAssent(data) || bill.status !== "awaiting-assent") return;
     grantRoyalAssent(bill);
+    logAction({ action: "bill-stage-changed", target: bill.title, details: { billId: bill.id, stage: bill.stage } });
     persistAndRerender(data, bill);
   });
 }

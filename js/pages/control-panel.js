@@ -3,6 +3,7 @@ import { formatSimMonthYear } from "../clock.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
 import { requireAdmin } from "../auth.js";
+import { logAction } from "../audit.js";
 
 function parseRows(text) {
   return String(text || "")
@@ -88,5 +89,6 @@ export async function initControlPanelPage(data) {
 
     data.economyPage = economy;
     saveState(data);
+    logAction({ action: "economy-saved", target: "economy", details: { topline: economy.topline } });
   });
 }

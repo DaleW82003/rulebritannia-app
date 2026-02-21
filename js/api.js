@@ -108,3 +108,31 @@ export async function apiSaveConfig(config) {
   if (!res.ok) throw new Error(`apiSaveConfig failed (${res.status})`);
   return res.json();
 }
+
+export async function apiLogAction({ action, target = "", details = {} }) {
+  try {
+    const res = await fetch(`${API_BASE}/api/audit-log`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, target, details }),
+    });
+    if (!res.ok) console.warn(`apiLogAction failed (${res.status})`);
+  } catch (err) {
+    console.warn("apiLogAction error:", err);
+  }
+}
+
+export async function apiGetAuditLog({ action = "", target = "", actor = "", limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams();
+  if (action) params.set("action", action);
+  if (target) params.set("target", target);
+  if (actor) params.set("actor", actor);
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  const res = await fetch(`${API_BASE}/api/audit-log?${params}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiGetAuditLog failed (${res.status})`);
+  return res.json();
+}
