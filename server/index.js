@@ -167,11 +167,21 @@ app.get("/auth/me", async (req, res) => {
 
     if (!rows.length) return res.status(401).json({ ok: false });
 
-    return res.json({ ok: true, user: rows[0] });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Server error" });
+// Save to session
+req.session.userId = user.id;
+req.session.roles = user.roles;
+
+// IMPORTANT: force-save session before replying
+req.session.save((err) => {
+  if (err) {
+    console.error("session save failed:", err);
+    return res.status(500).json({ error: "Session save failed" });
   }
+
+  return res.json({
+    ok: true,
+    user: { id: user.id, username: user.username, email: user.email, roles: user.roles },
+  });
 });
 
 app.post("/auth/logout", (req, res) => {
