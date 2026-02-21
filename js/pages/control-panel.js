@@ -2,6 +2,7 @@ import { saveData } from "../core.js";
 import { formatSimMonthYear } from "../clock.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
+import { requireAdmin } from "../auth.js";
 
 function parseRows(text) {
   return String(text || "")
@@ -29,7 +30,9 @@ function renderCategoryEditor(cat, locked) {
   `;
 }
 
-export function initControlPanelPage(data) {
+export async function initControlPanelPage(data) {
+  const authUser = await requireAdmin();
+  if (!authUser) return;
   const sim = document.getElementById("rbCpSimDate");
   const login = document.getElementById("rbLoginBlock");
   const simBlock = document.getElementById("rbSimBlock");
