@@ -21,6 +21,7 @@ const allow = new Set([
   "https://rulebritannia.org",
   "https://www.rulebritannia.org",
   "https://hoppscotch.io",
+  "https://rulebritannia-app.onrender.com/",
   // add your frontend render URL if you have one:
   // "https://your-frontend.onrender.com",
 ]);
