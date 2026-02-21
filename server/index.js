@@ -6,39 +6,38 @@ import bcrypt from "bcryptjs";
 import { pool } from "./db.js";
 
 const app = express();
+
+// Render sits behind a proxy; needed for secure cookies
 app.set("trust proxy", 1);
+
 app.use(express.json({ limit: "2mb" }));
 
 /**
  * CORS
- * - You MUST allow credentials for cookies/sessions to work
- * - Put BOTH your custom domain(s) and any Render UI URL if you use one
+ * - credentials:true is REQUIRED for cookies
+ * - origin must include your FRONTEND origin (not hoppscotch, unless you're using it)
  */
 const allow = new Set([
   "https://rulebritannia.org",
   "https://www.rulebritannia.org",
   "https://hoppscotch.io",
-  // If your UI also has a render URL, add it, e.g.
-  // "https://rulebritannia-app.onrender.com"
+  // add your frontend render URL if you have one:
+  // "https://your-frontend.onrender.com",
 ]);
 
 app.use(
   cors({
     origin(origin, cb) {
-      // allow same-origin / server-to-server / curl
-      if (!origin) return cb(null, true);
+      if (!origin) return cb(null, true); // server-to-server/curl
       if (allow.has(origin)) return cb(null, true);
       return cb(new Error("CORS blocked: " + origin));
     },
-    credentials: true, // ✅ REQUIRED for cookies
+    credentials: true,
   })
 );
 
 /**
  * Sessions (DB-backed)
- * Requires:
- * - DATABASE_URL
- * - SESSION_SECRET
  */
 const PgStore = pgSession(session);
 
@@ -55,20 +54,17 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      // If your UI and backend are on different domains, you need SameSite=None
-      sameSite: "none",
-      // Must be true on HTTPS (Render + your domain are HTTPS)
-      secure: true,
+      sameSite: "none", // cross-site cookie
+      secure: true, // must be true on https
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     },
   })
 );
 
 /**
- * Boot-time safety: tables we rely on
+ * Boot-time schema
  */
 async function ensureSchema() {
-  // your existing state table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS app_state (
       id TEXT PRIMARY KEY,
@@ -77,7 +73,6 @@ async function ensureSchema() {
     );
   `);
 
-  // users table (you already created this, but safe to keep)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -89,7 +84,7 @@ async function ensureSchema() {
     );
   `);
 
-  // sessions table is created by connect-pg-simple if missing
+  // sessions table is handled by connect-pg-simple when createTableIfMissing:true
 }
 
 /**
@@ -107,14 +102,16 @@ app.get("/db-test", async (req, res) => {
   }
 });
 
+/**
+ * TEMP: hash helper (remove later)
+ */
 app.get("/dev/hash/:pw", async (req, res) => {
   const hash = await bcrypt.hash(req.params.pw, 10);
   res.json({ hash });
 });
 
 /**
- * AUTH (registration CLOSED because we do NOT add /auth/register)
- *
+ * AUTH
  * POST /auth/login
  * GET  /auth/me
  * POST /auth/logout
@@ -127,9 +124,11 @@ app.post("/auth/login", async (req, res) => {
       return res.status(400).json({ error: "Missing email or password" });
     }
 
+    const normalizedEmail = email.toLowerCase().trim();
+
     const { rows } = await pool.query(
       "SELECT id, username, email, password_hash, roles FROM users WHERE email = $1",
-      [email.toLowerCase().trim()]
+      [normalizedEmail]
     );
 
     if (!rows.length) {
@@ -137,6 +136,7 @@ app.post("/auth/login", async (req, res) => {
     }
 
     const user = rows[0];
+
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) {
       return res.status(401).json({ error: "Invalid email or password" });
@@ -146,9 +146,22 @@ app.post("/auth/login", async (req, res) => {
     req.session.userId = user.id;
     req.session.roles = user.roles;
 
-    return res.json({
-      ok: true,
-      user: { id: user.id, username: user.username, email: user.email, roles: user.roles },
+    // IMPORTANT: force-save session before replying
+    req.session.save((err) => {
+      if (err) {
+        console.error("session save failed:", err);
+        return res.status(500).json({ error: "Session save failed" });
+      }
+
+      return res.json({
+        ok: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          roles: user.roles,
+        },
+      });
     });
   } catch (e) {
     console.error(e);
@@ -158,30 +171,24 @@ app.post("/auth/login", async (req, res) => {
 
 app.get("/auth/me", async (req, res) => {
   try {
-    if (!req.session.userId) return res.status(401).json({ ok: false });
+    if (!req.session.userId) {
+      return res.status(401).json({ ok: false });
+    }
 
     const { rows } = await pool.query(
       "SELECT id, username, email, roles, created_at FROM users WHERE id = $1",
       [req.session.userId]
     );
 
-    if (!rows.length) return res.status(401).json({ ok: false });
+    if (!rows.length) {
+      return res.status(401).json({ ok: false });
+    }
 
-// Save to session
-req.session.userId = user.id;
-req.session.roles = user.roles;
-
-// IMPORTANT: force-save session before replying
-req.session.save((err) => {
-  if (err) {
-    console.error("session save failed:", err);
-    return res.status(500).json({ error: "Session save failed" });
+    return res.json({ ok: true, user: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
   }
-
-  return res.json({
-    ok: true,
-    user: { id: user.id, username: user.username, email: user.email, roles: user.roles },
-  });
 });
 
 app.post("/auth/logout", (req, res) => {
@@ -195,7 +202,7 @@ app.post("/auth/logout", (req, res) => {
 });
 
 /**
- * STATE (unchanged)
+ * STATE
  */
 app.get("/api/state", async (req, res) => {
   try {
