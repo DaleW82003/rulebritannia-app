@@ -1763,6 +1763,192 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
   }
 });
 
+/**
+ * ADMIN MAINTENANCE TOOLS
+ *
+ * All endpoints require the admin role.
+ *
+ * POST /api/admin/clear-cache          — truncate the 5 object-cache tables
+ * POST /api/admin/rebuild-cache        — re-sync object tables from the current snapshot
+ * POST /api/admin/rotate-sessions      — regenerate the caller's own session ID + new CSRF token
+ * POST /api/admin/force-logout-all     — delete every session except the caller's
+ * GET  /api/admin/export-snapshot      — download the current snapshot as a JSON file attachment
+ * POST /api/admin/import-snapshot      — accept { label, data } body, save as new snapshot + set current
+ */
+const maintLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+
+// Clear object-cache tables
+app.post("/api/admin/clear-cache", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    await pool.query("BEGIN");
+    try {
+      await pool.query(
+        "TRUNCATE bills, motions, statements, regulations, questiontime_questions"
+      );
+      await pool.query("COMMIT");
+    } catch (truncErr) {
+      await pool.query("ROLLBACK");
+      throw truncErr;
+    }
+    console.log(`[admin] clear-cache by user ${req.session.userId}`);
+    res.json({ ok: true, message: "Object cache tables cleared." });
+  } catch (e) {
+    console.error("[admin/clear-cache]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Rebuild object-cache tables from the current snapshot
+app.post("/api/admin/rebuild-cache", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT s.data
+         FROM app_state_current c
+         JOIN state_snapshots s ON s.id = c.snapshot_id
+        WHERE c.id = 'main'`
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: "No active snapshot to rebuild from." });
+    }
+    await syncObjectTables(rows[0].data);
+    console.log(`[admin] rebuild-cache by user ${req.session.userId}`);
+    res.json({ ok: true, message: "Object cache rebuilt from current snapshot." });
+  } catch (e) {
+    console.error("[admin/rebuild-cache]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Rotate caller's session ID (invalidates old session cookie, issues new one + new CSRF token)
+app.post("/api/admin/rotate-sessions", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { userId, roles } = req.session;
+    req.session.regenerate((err) => {
+      if (err) {
+        console.error("[admin/rotate-sessions] regenerate error:", err);
+        return res.status(500).json({ error: "Session regeneration failed." });
+      }
+      req.session.userId = userId;
+      req.session.roles  = roles;
+      req.session.csrfToken = generateCsrfToken();
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error("[admin/rotate-sessions] save error:", saveErr);
+          return res.status(500).json({ error: "Session save failed." });
+        }
+        console.log(`[admin] rotate-sessions for user ${userId}`);
+        res.json({ ok: true, csrfToken: req.session.csrfToken, message: "Session rotated. Update your CSRF token." });
+      });
+    });
+  } catch (e) {
+    console.error("[admin/rotate-sessions]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Force-logout all users by deleting every session except the caller's
+app.post("/api/admin/force-logout-all", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const callerSid = req.sessionID;
+    const { rowCount } = await pool.query(
+      "DELETE FROM sessions WHERE sid <> $1",
+      [callerSid]
+    );
+    console.log(`[admin] force-logout-all by user ${req.session.userId}: ${rowCount} sessions deleted`);
+    res.json({ ok: true, sessionsDeleted: rowCount, message: `${rowCount} session(s) terminated.` });
+  } catch (e) {
+    console.error("[admin/force-logout-all]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Export the current snapshot as a downloadable JSON file
+app.get("/api/admin/export-snapshot", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT s.id, s.label, s.created_at, s.created_by, s.data
+         FROM app_state_current c
+         JOIN state_snapshots s ON s.id = c.snapshot_id
+        WHERE c.id = 'main'`
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: "No active snapshot to export." });
+    }
+    const snap = rows[0];
+    const filename = `rb-snapshot-${snap.id.slice(0, 8)}-${snap.created_at.toISOString().slice(0, 10)}.json`;
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      snapshotId: snap.id,
+      label:      snap.label,
+      createdAt:  snap.created_at,
+      createdBy:  snap.created_by,
+      data:       snap.data,
+    };
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(JSON.stringify(payload, null, 2));
+  } catch (e) {
+    console.error("[admin/export-snapshot]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Import a snapshot from a JSON body: { label, data }
+// Saves as a new snapshot and sets it as the active current state.
+app.post("/api/admin/import-snapshot", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { label, data } = req.body || {};
+    if (!label || typeof label !== "string" || !label.trim()) {
+      return res.status(400).json({ error: "Body must include a non-empty label." });
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      return res.status(400).json({ error: "Body must include a data object." });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO state_snapshots (created_by, label, data)
+       VALUES ($1, $2, $3::jsonb)
+       RETURNING id, created_at, label`,
+      [req.session.userId, label.trim(), JSON.stringify(data)]
+    );
+    const snap = rows[0];
+
+    await pool.query(
+      `INSERT INTO app_state_current (id, snapshot_id)
+       VALUES ('main', $1)
+       ON CONFLICT (id) DO UPDATE SET snapshot_id = EXCLUDED.snapshot_id`,
+      [snap.id]
+    );
+
+    let cacheWarning = null;
+    try {
+      await syncObjectTables(data);
+    } catch (syncErr) {
+      console.error("[admin/import-snapshot syncObjectTables]", syncErr);
+      cacheWarning = "Snapshot saved and set as current, but cache rebuild failed. Run 'Rebuild Cache' manually.";
+    }
+
+    console.log(`[admin] import-snapshot by user ${req.session.userId}: ${snap.id} (${label})`);
+    res.status(201).json({
+      ok: true,
+      snapshotId: snap.id,
+      createdAt: snap.created_at,
+      label: snap.label,
+      ...(cacheWarning ? { warning: cacheWarning } : {}),
+    });
+  } catch (e) {
+    console.error("[admin/import-snapshot]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 
 ensureSchema()

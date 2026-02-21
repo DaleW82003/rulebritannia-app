@@ -480,3 +480,41 @@ export async function apiGetDiscourseSyncPreview() {
   if (!res.ok) throw new Error(`apiGetDiscourseSyncPreview failed (${res.status})`);
   return res.json();
 }
+
+// ── ADMIN MAINTENANCE ─────────────────────────────────────────────────────────
+
+function maintPost(path) {
+  return async function () {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`${path} failed (${res.status})`);
+    return res.json();
+  };
+}
+
+export const apiAdminClearCache     = maintPost("/api/admin/clear-cache");
+export const apiAdminRebuildCache   = maintPost("/api/admin/rebuild-cache");
+export const apiAdminRotateSessions = maintPost("/api/admin/rotate-sessions");
+export const apiAdminForceLogoutAll = maintPost("/api/admin/force-logout-all");
+
+export async function apiAdminExportSnapshot() {
+  const res = await fetch(`${API_BASE}/api/admin/export-snapshot`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`export-snapshot failed (${res.status})`);
+  // Returns the raw Response so the caller can read blob + filename header
+  return res;
+}
+
+export async function apiAdminImportSnapshot(label, data) {
+  const res = await fetch(`${API_BASE}/api/admin/import-snapshot`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label, data }),
+  });
+  if (!res.ok) throw new Error(`import-snapshot failed (${res.status})`);
+  return res.json();
+}

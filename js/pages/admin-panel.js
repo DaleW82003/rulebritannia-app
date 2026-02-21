@@ -6,9 +6,12 @@ import {
   apiGetAuditLog,
   apiGetDiscourseConfig, apiSaveDiscourseConfig, apiTestDiscourse,
   apiGetDiscourseSyncPreview, apiSetUserRoles,
+  apiAdminClearCache, apiAdminRebuildCache, apiAdminRotateSessions,
+  apiAdminForceLogoutAll, apiAdminExportSnapshot, apiAdminImportSnapshot,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
+import { toastSuccess } from "../components/toast.js";
 
 export async function initAdminPanelPage(data) {
   const user = await requireAdmin();
@@ -297,6 +300,85 @@ export async function initAdminPanelPage(data) {
       </section>`;
   }
 
+  function renderMaintenanceSection() {
+    return `
+      <section class="panel" style="max-width:700px;margin-top:12px;">
+        <h2 style="margin-top:0;">Maintenance</h2>
+
+        <div style="display:flex;flex-direction:column;gap:14px;">
+
+          <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <b>Clear Object Cache</b>
+              <p style="margin:4px 0 0;font-size:13px;color:#555;">
+                Truncates the bills, motions, statements, regulations, and question-time tables.
+                Use before a rebuild or to free space.
+              </p>
+            </div>
+            <button class="btn" id="btn-clear-cache" type="button">Clear Cache</button>
+          </div>
+
+          <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <b>Rebuild Derived State</b>
+              <p style="margin:4px 0 0;font-size:13px;color:#555;">
+                Re-syncs the object-cache tables from the current active snapshot.
+                Run this if the cache is out of sync.
+              </p>
+            </div>
+            <button class="btn" id="btn-rebuild-cache" type="button">Rebuild Cache</button>
+          </div>
+
+          <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <b>Rotate My Session</b>
+              <p style="margin:4px 0 0;font-size:13px;color:#555;">
+                Issues a new session ID and CSRF token for your current login.
+                Invalidates the old session cookie.
+              </p>
+            </div>
+            <button class="btn" id="btn-rotate-session" type="button">Rotate Session</button>
+          </div>
+
+          <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <b>Force Logout All Users</b>
+              <p style="margin:4px 0 0;font-size:13px;color:#555;">
+                Terminates every active session except yours. All other users will be logged out immediately.
+              </p>
+            </div>
+            <button class="btn" id="btn-force-logout-all" type="button" style="border-color:rgba(212,0,26,.3);color:#b00;">Force Logout All</button>
+          </div>
+
+          <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <b>Export State Snapshot</b>
+              <p style="margin:4px 0 0;font-size:13px;color:#555;">
+                Downloads the current active snapshot as a JSON file.
+              </p>
+            </div>
+            <button class="btn" id="btn-export-snapshot" type="button">Export JSON</button>
+          </div>
+
+          <div class="muted-block" style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <b>Import State Snapshot</b>
+              <p style="margin:4px 0 0;font-size:13px;color:#555;">
+                Upload a previously exported JSON file to restore it as the active state.
+              </p>
+              <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input id="import-snapshot-file" type="file" accept=".json,application/json"
+                       style="font-size:13px;" />
+                <button class="btn" id="btn-import-snapshot" type="button">Import JSON</button>
+              </div>
+              <div id="import-snapshot-status" style="font-size:13px;margin-top:6px;"></div>
+            </div>
+          </div>
+
+        </div>
+      </section>`;
+  }
+
   function render(status) {
     host.innerHTML = `
       <h1 class="page-title">Admin Panel</h1>
@@ -338,6 +420,8 @@ export async function initAdminPanelPage(data) {
       ${renderAuditLog()}
 
       ${renderDiscourseSyncPreview()}
+
+      ${renderMaintenanceSection()}
 
       <section class="panel" style="max-width:600px;margin-top:12px;">
         <h2 style="margin-top:0;">Session</h2>
@@ -516,6 +600,105 @@ export async function initAdminPanelPage(data) {
       } catch (err) {
         toastError(`Logout failed: ${err.message}`);
         render(`Error logging out: ${err.message}`);
+      }
+    });
+
+    // ── Maintenance buttons ────────────────────────────────────────────────────
+
+    host.querySelector("#btn-clear-cache")?.addEventListener("click", async () => {
+      if (!confirm("Clear all object-cache tables? Data is not lost — it can be rebuilt from the current snapshot.")) return;
+      try {
+        const result = await apiAdminClearCache();
+        logAction({ action: "admin-clear-cache" });
+        toastSuccess(result.message || "Cache cleared.");
+      } catch (err) {
+        toastError(`Clear cache: ${err.message}`);
+      }
+    });
+
+    host.querySelector("#btn-rebuild-cache")?.addEventListener("click", async () => {
+      try {
+        const result = await apiAdminRebuildCache();
+        logAction({ action: "admin-rebuild-cache" });
+        toastSuccess(result.message || "Cache rebuilt.");
+      } catch (err) {
+        toastError(`Rebuild cache: ${err.message}`);
+      }
+    });
+
+    host.querySelector("#btn-rotate-session")?.addEventListener("click", async () => {
+      try {
+        const result = await apiAdminRotateSessions();
+        logAction({ action: "admin-rotate-session" });
+        toastSuccess(result.message || "Session rotated.");
+        // Reload after a short delay so the success toast is visible before the
+        // page refreshes and the browser picks up the new session cookie + CSRF token.
+        setTimeout(() => window.location.reload(), 1000);
+      } catch (err) {
+        toastError(`Rotate session: ${err.message}`);
+      }
+    });
+
+    host.querySelector("#btn-force-logout-all")?.addEventListener("click", async () => {
+      if (!confirm("Force-logout all other users? Every active session except yours will be terminated immediately.")) return;
+      try {
+        const result = await apiAdminForceLogoutAll();
+        logAction({ action: "admin-force-logout-all", details: { sessionsDeleted: result.sessionsDeleted } });
+        toastSuccess(result.message || "All other sessions terminated.");
+      } catch (err) {
+        toastError(`Force logout all: ${err.message}`);
+      }
+    });
+
+    host.querySelector("#btn-export-snapshot")?.addEventListener("click", async () => {
+      try {
+        const response = await apiAdminExportSnapshot();
+        const blob = await response.blob();
+        const disposition = response.headers.get("Content-Disposition") || "";
+        const match = disposition.match(/filename="([^"]+)"/);
+        const filename = match ? match[1] : "rb-snapshot.json";
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        logAction({ action: "admin-export-snapshot" });
+        toastSuccess("Snapshot exported.");
+      } catch (err) {
+        toastError(`Export snapshot: ${err.message}`);
+      }
+    });
+
+    host.querySelector("#btn-import-snapshot")?.addEventListener("click", async () => {
+      const fileInput = host.querySelector("#import-snapshot-file");
+      const statusEl  = host.querySelector("#import-snapshot-status");
+      const file = fileInput?.files?.[0];
+      if (!file) {
+        if (statusEl) statusEl.textContent = "Please select a JSON file first.";
+        return;
+      }
+      if (statusEl) statusEl.textContent = "Importing…";
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        // Accept either a raw data object or an export envelope { data, label }
+        const importData  = parsed.data  ?? parsed;
+        const importLabel = parsed.label ? `imported: ${parsed.label}` : `imported: ${file.name}`;
+        if (!importData || typeof importData !== "object" || Array.isArray(importData)) {
+          if (statusEl) statusEl.textContent = "Invalid JSON: must include a data object.";
+          return;
+        }
+        const result = await apiAdminImportSnapshot(importLabel, importData);
+        logAction({ action: "admin-import-snapshot", details: { snapshotId: result.snapshotId, label: result.label } });
+        if (statusEl) statusEl.textContent = `✓ Imported as snapshot ${result.snapshotId?.slice(0, 8)}…`;
+        if (result.warning) toastError(result.warning);
+        else toastSuccess("Snapshot imported and set as current.");
+        await loadSnapshots();
+        render(status);
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+        toastError(`Import snapshot: ${err.message}`);
       }
     });
   }
