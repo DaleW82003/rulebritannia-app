@@ -37,6 +37,14 @@ export function saveData(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
+export function saveState(data) {
+  saveData(data);
+  const roles = data?.currentUser?.roles;
+  if (Array.isArray(roles) && roles.includes("admin")) {
+    apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
+  }
+}
+
 export function ensureDefaults(data) {
   // Defensive defaults so pages never "blank" because one field is missing.
   // Null-coalescing for missing keys + type guards for critical arrays/objects.
