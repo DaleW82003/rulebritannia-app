@@ -5,6 +5,7 @@ import {
   apiGetSnapshots, apiSaveSnapshot, apiRestoreSnapshot,
   apiGetAuditLog,
   apiGetDiscourseConfig, apiSaveDiscourseConfig, apiTestDiscourse,
+  apiGetDiscourseSyncPreview, apiSetUserRoles,
 } from "../api.js";
 import { logAction } from "../audit.js";
 
@@ -22,6 +23,7 @@ export async function initAdminPanelPage(data) {
   let auditTotal = 0;
   let auditFilters = { action: "", target: "", limit: 50, offset: 0 };
   let discourseConfig = { base_url: "", has_api_key: false, has_api_username: false };
+  let syncPreview = [];
 
   async function loadConfig() {
     try {
@@ -62,6 +64,16 @@ export async function initAdminPanelPage(data) {
       console.error("Failed to load audit log:", err);
       auditEntries = [];
       auditTotal = 0;
+    }
+  }
+
+  async function loadSyncPreview() {
+    try {
+      const result = await apiGetDiscourseSyncPreview();
+      syncPreview = result?.preview || [];
+    } catch (err) {
+      console.error("Failed to load Discourse sync preview:", err);
+      syncPreview = [];
     }
   }
 
@@ -213,6 +225,72 @@ export async function initAdminPanelPage(data) {
       </section>`;
   }
 
+  function renderDiscourseSyncPreview() {
+    const VALID_ROLES = [
+      "admin", "mod", "speaker",
+      "party:labour", "party:conservative", "party:liberal_democrat",
+      "office:prime_minister", "office:leader_of_opposition",
+      "office:secretary_of_state", "office:shadow_secretary_of_state",
+      "office:leader_of_third_party", "office:backbencher",
+      "office:permanent_secretary", "office:civil_servant",
+    ];
+
+    const rows = syncPreview.length
+      ? syncPreview.map((u) => `
+          <tr style="border-bottom:1px solid #eee;">
+            <td style="padding:4px 8px;font-size:13px;">${esc(u.username)}</td>
+            <td style="padding:4px 8px;font-size:12px;">${esc(u.email)}</td>
+            <td style="padding:4px 8px;font-size:12px;">${esc((u.roles || []).join(", ") || "—")}</td>
+            <td style="padding:4px 8px;font-size:12px;">${esc((u.discourseGroups || []).join(", ") || "—")}</td>
+            <td style="padding:4px 8px;">
+              <button class="btn btn-edit-roles" data-userid="${esc(u.userId)}"
+                      data-username="${esc(u.username)}"
+                      data-roles="${esc(JSON.stringify(u.roles || []))}"
+                      type="button" style="font-size:12px;padding:2px 8px;">Edit</button>
+            </td>
+          </tr>`).join("")
+      : `<tr><td colspan="5" style="padding:8px;font-size:13px;color:#888;">No users found.</td></tr>`;
+
+    return `
+      <section class="panel" style="max-width:900px;margin-top:12px;">
+        <h2 style="margin-top:0;">Preview Discourse Group Sync</h2>
+        <p style="font-size:13px;color:#555;margin-top:0;">
+          Shows what Discourse groups each user would be assigned to based on their current roles.
+          SSO sync is not yet enabled — use this view to manage roles and preview the resulting Discourse group membership.
+        </p>
+        <button class="btn" id="btn-refresh-sync-preview" type="button" style="margin-bottom:10px;">Refresh</button>
+        <div id="sync-preview-table-wrap" style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="border-bottom:2px solid #ccc;">
+                <th style="text-align:left;padding:4px 8px;">Username</th>
+                <th style="text-align:left;padding:4px 8px;">Email</th>
+                <th style="text-align:left;padding:4px 8px;">Roles</th>
+                <th style="text-align:left;padding:4px 8px;">Discourse Groups</th>
+                <th style="padding:4px 8px;"></th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+
+        <div id="role-editor" style="display:none;margin-top:16px;padding:12px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px;">
+          <h3 style="margin-top:0;font-size:14px;">Edit roles for: <span id="role-editor-username"></span></h3>
+          <div id="role-checkboxes" style="display:flex;flex-wrap:wrap;gap:8px 16px;margin-bottom:12px;">
+            ${VALID_ROLES.map((r) => `
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" class="role-checkbox" value="${esc(r)}" /> ${esc(r)}
+              </label>`).join("")}
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" id="btn-save-roles" type="button">Save Roles</button>
+            <button class="btn" id="btn-cancel-roles" type="button">Cancel</button>
+          </div>
+          <div id="role-editor-status" style="font-size:13px;margin-top:8px;"></div>
+        </div>
+      </section>`;
+  }
+
   function render(status) {
     host.innerHTML = `
       <h1 class="page-title">Admin Panel</h1>
@@ -252,6 +330,8 @@ export async function initAdminPanelPage(data) {
       </section>
 
       ${renderAuditLog()}
+
+      ${renderDiscourseSyncPreview()}
 
       <section class="panel" style="max-width:600px;margin-top:12px;">
         <h2 style="margin-top:0;">Session</h2>
@@ -372,6 +452,52 @@ export async function initAdminPanelPage(data) {
       render(status);
     });
 
+    // Discourse sync preview
+    host.querySelector("#btn-refresh-sync-preview")?.addEventListener("click", async () => {
+      await loadSyncPreview();
+      render(status);
+    });
+
+    let roleEditorUserId = null;
+    host.querySelectorAll(".btn-edit-roles").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        roleEditorUserId = btn.dataset.userid;
+        const username = btn.dataset.username || roleEditorUserId;
+        const currentRoles = JSON.parse(btn.dataset.roles || "[]");
+        const editor = host.querySelector("#role-editor");
+        if (!editor) return;
+        editor.style.display = "block";
+        const nameEl = editor.querySelector("#role-editor-username");
+        if (nameEl) nameEl.textContent = username;
+        editor.querySelectorAll(".role-checkbox").forEach((cb) => {
+          cb.checked = currentRoles.includes(cb.value);
+        });
+        editor.querySelector("#role-editor-status").textContent = "";
+      });
+    });
+
+    host.querySelector("#btn-cancel-roles")?.addEventListener("click", () => {
+      const editor = host.querySelector("#role-editor");
+      if (editor) editor.style.display = "none";
+      roleEditorUserId = null;
+    });
+
+    host.querySelector("#btn-save-roles")?.addEventListener("click", async () => {
+      if (!roleEditorUserId) return;
+      const statusEl = host.querySelector("#role-editor-status");
+      const roles = [...host.querySelectorAll(".role-checkbox:checked")].map((cb) => cb.value);
+      try {
+        if (statusEl) statusEl.textContent = "Saving…";
+        await apiSetUserRoles(roleEditorUserId, roles);
+        logAction({ action: "roles-assigned", target: roleEditorUserId, details: { roles } });
+        if (statusEl) statusEl.textContent = "✓ Roles saved.";
+        await loadSyncPreview();
+        render(status);
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+      }
+    });
+
     host.querySelector("#btn-logout")?.addEventListener("click", async () => {
       try {
         await apiLogout();
@@ -382,6 +508,6 @@ export async function initAdminPanelPage(data) {
     });
   }
 
-  await Promise.all([loadConfig(), loadDiscourseConfig(), loadSnapshots(), loadAuditLog()]);
+  await Promise.all([loadConfig(), loadDiscourseConfig(), loadSnapshots(), loadAuditLog(), loadSyncPreview()]);
   render("");
 }

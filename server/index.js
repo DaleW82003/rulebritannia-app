@@ -7,6 +7,7 @@ import rateLimit from "express-rate-limit";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
 import { pool } from "./db.js";
 import { createTopic, createPost } from "./discourse.js";
+import { ALL_VALID_ROLES, computeDiscourseGroups } from "./roles.js";
 
 /**
  * Discourse credential encryption (AES-256-GCM).
@@ -182,6 +183,18 @@ async function ensureSchema() {
       value TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_roles (
+      id          BIGSERIAL PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role        TEXT NOT NULL,
+      assigned_by TEXT,
+      assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user_id, role)
+    );
+    CREATE INDEX IF NOT EXISTS user_roles_user_idx ON user_roles (user_id);
   `);
 
   await pool.query(`
@@ -1520,6 +1533,117 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
   } catch (e) {
     console.error("[debates/create]", e);
     res.status(500).json({ error: e.message || "Server error" });
+  }
+});
+
+/**
+ * ROLES SERVICE
+ *
+ * GET  /api/me/roles             — authenticated: return current user's canonical roles
+ * POST /api/users/:id/roles      — admin: replace a user's canonical roles
+ * GET  /api/admin/discourse-sync-preview — admin: preview Discourse group membership
+ */
+
+const rolesReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const rolesWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/me/roles", rolesReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT role, assigned_by, assigned_at FROM user_roles WHERE user_id = $1 ORDER BY assigned_at",
+      [req.session.userId]
+    );
+    const roles = rows.map((r) => r.role);
+    const discourseGroups = computeDiscourseGroups(roles);
+    res.json({ roles, discourseGroups, assignments: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/users/:id/roles", rolesWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const targetUserId = req.params.id;
+    const { roles } = req.body || {};
+
+    if (!Array.isArray(roles)) {
+      return res.status(400).json({ error: "Body must be { roles: string[] }" });
+    }
+
+    // Validate each role against the canonical allow-list
+    const invalid = roles.filter((r) => !ALL_VALID_ROLES.includes(r));
+    if (invalid.length) {
+      return res.status(400).json({
+        error: `Invalid role(s): ${invalid.join(", ")}`,
+        validRoles: ALL_VALID_ROLES,
+      });
+    }
+
+    // Confirm the target user exists
+    const { rows: userRows } = await pool.query("SELECT id FROM users WHERE id = $1", [targetUserId]);
+    if (!userRows.length) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Replace roles in a transaction: delete existing, insert new
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM user_roles WHERE user_id = $1", [targetUserId]);
+      if (roles.length) {
+        const placeholders = roles.map((_, i) => `($1, $${i + 2}, $${roles.length + 2})`).join(", ");
+        const params = [targetUserId, ...roles, req.session.userId];
+        await client.query(
+          `INSERT INTO user_roles (user_id, role, assigned_by) VALUES ${placeholders}`,
+          params
+        );
+      }
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    const discourseGroups = computeDiscourseGroups(roles);
+    res.json({ ok: true, userId: targetUserId, roles, discourseGroups });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/admin/discourse-sync-preview", rolesReadLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    // Fetch all users with their roles in one query
+    const { rows } = await pool.query(`
+      SELECT u.id, u.username, u.email,
+             COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+       GROUP BY u.id, u.username, u.email
+       ORDER BY u.username
+    `);
+
+    const preview = rows.map((r) => ({
+      userId:          r.id,
+      username:        r.username,
+      email:           r.email,
+      roles:           r.roles,
+      discourseGroups: computeDiscourseGroups(r.roles),
+    }));
+
+    res.json({ preview });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
   }
 });
 

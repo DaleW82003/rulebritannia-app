@@ -65,6 +65,17 @@ CREATE TABLE IF NOT EXISTS sim_clock (
   rate              INTEGER NOT NULL DEFAULT 1
 );
 
+-- Canonical user roles (admin/mod/speaker, party membership, government offices)
+CREATE TABLE IF NOT EXISTS user_roles (
+  id          BIGSERIAL PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role        TEXT NOT NULL,
+  assigned_by TEXT,
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, role)
+);
+CREATE INDEX IF NOT EXISTS user_roles_user_idx ON user_roles (user_id);
+
 -- Audit log for admin/mod actions
 CREATE TABLE IF NOT EXISTS audit_log (
   id         BIGSERIAL PRIMARY KEY,

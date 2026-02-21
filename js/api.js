@@ -443,3 +443,32 @@ export async function apiCreateDebateTopic({ entityType, entityId, title, raw, c
   if (!res.ok) throw new Error(`apiCreateDebateTopic failed (${res.status})`);
   return res.json();
 }
+
+// ── ROLES SERVICE ─────────────────────────────────────────────────────────────
+
+export async function apiGetMyRoles() {
+  const res = await fetch(`${API_BASE}/api/me/roles`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiGetMyRoles failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSetUserRoles(userId, roles) {
+  const res = await fetch(`${API_BASE}/api/users/${encodeURIComponent(userId)}/roles`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ roles }),
+  });
+  if (!res.ok) throw new Error(`apiSetUserRoles failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetDiscourseSyncPreview() {
+  const res = await fetch(`${API_BASE}/api/admin/discourse-sync-preview`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiGetDiscourseSyncPreview failed (${res.status})`);
+  return res.json();
+}
