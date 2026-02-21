@@ -112,3 +112,103 @@ export async function createPost({ baseUrl, apiKey, apiUsername, topicId, raw })
   const data = await res.json();
   return { postId: data.id, topicId: data.topic_id };
 }
+
+// ── Group management ──────────────────────────────────────────────────────────
+
+/**
+ * Fetch the current members of a Discourse group (all pages).
+ *
+ * Returns the full list of members across all pages.  Discourse paginates at
+ * 50 members by default; we walk pages until the response stops returning new
+ * members.
+ *
+ * @param {object} opts
+ * @param {string} opts.baseUrl
+ * @param {string} opts.apiKey
+ * @param {string} opts.apiUsername
+ * @param {string} opts.groupName
+ * @returns {Promise<Array<{ id: number, username: string }>>}
+ */
+export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName }) {
+  const members = [];
+  let offset = 0;
+  const limit = 50;
+
+  while (true) {
+    const url = `${baseUrl}/groups/${encodeURIComponent(groupName)}/members.json?limit=${limit}&offset=${offset}`;
+    const res = await fetch(url, {
+      headers: { "Api-Key": apiKey, "Api-Username": apiUsername },
+    });
+
+    if (res.status === 404) return [];         // group doesn't exist yet — treat as empty
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`getGroupMembers(${groupName}) failed: HTTP ${res.status} ${text}`);
+    }
+
+    const body = await res.json();
+    const page = body?.members ?? [];
+    if (!page.length) break;
+    for (const m of page) members.push({ id: m.id, username: m.username });
+    if (page.length < limit) break;            // last page
+    offset += limit;
+  }
+
+  return members;
+}
+
+/**
+ * Add usernames to a Discourse group.
+ *
+ * @param {object}   opts
+ * @param {string}   opts.baseUrl
+ * @param {string}   opts.apiKey
+ * @param {string}   opts.apiUsername
+ * @param {string}   opts.groupName
+ * @param {string[]} opts.usernames
+ * @returns {Promise<void>}
+ */
+export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName, usernames }) {
+  if (!usernames.length) return;
+  const res = await fetch(`${baseUrl}/groups/${encodeURIComponent(groupName)}/members.json`, {
+    method: "PUT",
+    headers: {
+      "Api-Key":      apiKey,
+      "Api-Username": apiUsername,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ usernames: usernames.join(",") }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`addGroupMembers(${groupName}) failed: HTTP ${res.status} ${text}`);
+  }
+}
+
+/**
+ * Remove usernames from a Discourse group.
+ *
+ * @param {object}   opts
+ * @param {string}   opts.baseUrl
+ * @param {string}   opts.apiKey
+ * @param {string}   opts.apiUsername
+ * @param {string}   opts.groupName
+ * @param {string[]} opts.usernames
+ * @returns {Promise<void>}
+ */
+export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName, usernames }) {
+  if (!usernames.length) return;
+  const res = await fetch(`${baseUrl}/groups/${encodeURIComponent(groupName)}/members.json`, {
+    method: "DELETE",
+    headers: {
+      "Api-Key":      apiKey,
+      "Api-Username": apiUsername,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ usernames: usernames.join(",") }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`removeGroupMembers(${groupName}) failed: HTTP ${res.status} ${text}`);
+  }
+}

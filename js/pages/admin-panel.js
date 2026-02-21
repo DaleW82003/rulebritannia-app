@@ -5,7 +5,7 @@ import {
   apiGetSnapshots, apiSaveSnapshot, apiRestoreSnapshot,
   apiGetAuditLog,
   apiGetDiscourseConfig, apiSaveDiscourseConfig, apiTestDiscourse,
-  apiGetDiscourseSyncPreview, apiSetUserRoles,
+  apiGetDiscourseSyncPreview, apiAdminSyncDiscourseGroups, apiSetUserRoles,
   apiAdminClearCache, apiAdminRebuildCache, apiAdminRotateSessions,
   apiAdminForceLogoutAll, apiAdminExportSnapshot, apiAdminImportSnapshot,
 } from "../api.js";
@@ -28,6 +28,7 @@ export async function initAdminPanelPage(data) {
   let auditFilters = { action: "", target: "", limit: 50, offset: 0 };
   let discourseConfig = { base_url: "", has_api_key: false, has_api_username: false };
   let syncPreview = [];
+  let syncResults = null;  // null = never run; object = last sync results
 
   async function loadConfig() {
     try {
@@ -234,6 +235,41 @@ export async function initAdminPanelPage(data) {
       </section>`;
   }
 
+  function renderSyncResults(results) {
+    if (!results) return "";
+    const { groups = [], totalAdded = 0, totalRemoved = 0, totalSkipped = 0 } = results;
+    const changedGroups = groups.filter((g) => g.added.length || g.removed.length || g.skipped);
+    return `
+      <div id="sync-results" style="margin-top:16px;padding:12px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px;">
+        <b>Last Sync Results</b>
+        <p style="font-size:13px;margin:6px 0;">
+          Added: <b>${esc(String(totalAdded))}</b> user–group memberships &nbsp;|&nbsp;
+          Removed: <b>${esc(String(totalRemoved))}</b> &nbsp;|&nbsp;
+          Groups with errors: <b>${esc(String(totalSkipped))}</b>
+        </p>
+        ${changedGroups.length ? `
+          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;">
+            <thead>
+              <tr style="border-bottom:1px solid #ccc;">
+                <th style="text-align:left;padding:3px 8px;">Group</th>
+                <th style="text-align:left;padding:3px 8px;">Added</th>
+                <th style="text-align:left;padding:3px 8px;">Removed</th>
+                <th style="text-align:left;padding:3px 8px;">Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${changedGroups.map((g) => `
+                <tr style="border-bottom:1px solid #eee;${g.skipped ? "color:#b00;" : ""}">
+                  <td style="padding:3px 8px;">${esc(g.group)}</td>
+                  <td style="padding:3px 8px;">${esc(g.added.join(", ") || "—")}</td>
+                  <td style="padding:3px 8px;">${esc(g.removed.join(", ") || "—")}</td>
+                  <td style="padding:3px 8px;">${esc(g.skipped || "")}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>` : `<p style="font-size:13px;color:#555;margin:6px 0;">No membership changes needed.</p>`}
+      </div>`;
+  }
+
   function renderDiscourseSyncPreview() {
     const VALID_ROLES = [
       "admin", "mod", "speaker",
@@ -265,9 +301,12 @@ export async function initAdminPanelPage(data) {
         <h2 style="margin-top:0;">Preview Discourse Group Sync</h2>
         <p style="font-size:13px;color:#555;margin-top:0;">
           Shows what Discourse groups each user would be assigned to based on their current roles.
-          SSO sync is not yet enabled — use this view to manage roles and preview the resulting Discourse group membership.
+          Use "Sync Now" to apply these groups via the Discourse API.
         </p>
-        <button class="btn" id="btn-refresh-sync-preview" type="button" style="margin-bottom:10px;">Refresh</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+          <button class="btn" id="btn-refresh-sync-preview" type="button">Refresh Preview</button>
+          <button class="btn" id="btn-sync-discourse-groups" type="button">Sync Discourse Groups Now</button>
+        </div>
         <div id="sync-preview-table-wrap" style="overflow-x:auto;">
           <table style="width:100%;border-collapse:collapse;font-size:13px;">
             <thead>
@@ -282,6 +321,8 @@ export async function initAdminPanelPage(data) {
             <tbody>${rows}</tbody>
           </table>
         </div>
+
+        ${renderSyncResults(syncResults)}
 
         <div id="role-editor" style="display:none;margin-top:16px;padding:12px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px;">
           <h3 style="margin-top:0;font-size:14px;">Edit roles for: <span id="role-editor-username"></span></h3>
@@ -550,6 +591,26 @@ export async function initAdminPanelPage(data) {
     host.querySelector("#btn-refresh-sync-preview")?.addEventListener("click", async () => {
       await loadSyncPreview();
       render(status);
+    });
+
+    host.querySelector("#btn-sync-discourse-groups")?.addEventListener("click", async () => {
+      const btn = host.querySelector("#btn-sync-discourse-groups");
+      if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
+      try {
+        const result = await apiAdminSyncDiscourseGroups();
+        syncResults = result;
+        logAction({ action: "discourse-groups-synced", details: {
+          totalAdded: result.totalAdded, totalRemoved: result.totalRemoved, totalSkipped: result.totalSkipped
+        }});
+        toastSuccess(`Discourse sync complete — ${result.totalAdded} added, ${result.totalRemoved} removed.`);
+        await loadSyncPreview();
+        render(status);
+      } catch (err) {
+        toastError(`Discourse sync failed: ${err.message}`);
+      } finally {
+        const b = host.querySelector("#btn-sync-discourse-groups");
+        if (b) { b.disabled = false; b.textContent = "Sync Discourse Groups Now"; }
+      }
     });
 
     let roleEditorUserId = null;

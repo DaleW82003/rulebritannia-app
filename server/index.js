@@ -6,8 +6,8 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { pool } from "./db.js";
-import { createTopic, createPost, createTopicWithRetry } from "./discourse.js";
-import { ALL_VALID_ROLES, computeDiscourseGroups, PERMISSION_MAP } from "./roles.js";
+import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers } from "./discourse.js";
+import { ALL_VALID_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP } from "./roles.js";
 
 /**
  * Discourse credential encryption (AES-256-GCM).
@@ -1726,6 +1726,107 @@ app.get("/api/admin/discourse-sync-preview", rolesReadLimit, async (req, res) =>
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * POST /api/admin/discourse-sync-groups — admin: sync every user's Discourse
+ * group membership to match their canonical roles.
+ *
+ * Algorithm:
+ *   1. Load all users + roles from the DB.
+ *   2. Build a desired-membership map: group → Set of discourse usernames.
+ *      (We use the game username as the Discourse username; if you need email
+ *      lookup, that can be added later.)
+ *   3. For each group in DISCOURSE_GROUP_MAP:
+ *      a. Fetch current members from Discourse.
+ *      b. Add users who should be in the group but aren't.
+ *      c. Remove users who are in the group but shouldn't be.
+ *   4. Return a per-group change log.
+ *
+ * Returns:
+ *   { ok: true, groups: [ { group, added: [], removed: [], skipped: string|null }, … ] }
+ *
+ * "skipped" is set when the Discourse API call fails for a group (other groups
+ * still proceed — a single group error doesn't abort the whole sync).
+ */
+
+/** Maximum characters of a Discourse error message to retain in sync results. */
+const SYNC_ERROR_MAX_LENGTH = 200;
+
+const discourseSyncLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    // Load credentials
+    const { rows: cfgRows } = await pool.query(
+      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'discourse_api_key', 'discourse_api_username')"
+    );
+    const cfg = Object.fromEntries(cfgRows.map((r) => [r.key, r.value]));
+
+    const baseUrl     = (cfg.discourse_base_url || "").trim().replace(/\/$/, "");
+    const apiKey      = cfg.discourse_api_key      ? discourseDecrypt(cfg.discourse_api_key)      : "";
+    const apiUsername = cfg.discourse_api_username ? discourseDecrypt(cfg.discourse_api_username) : "";
+
+    if (!baseUrl || !apiKey || !apiUsername) {
+      return res.status(400).json({ ok: false, error: "Discourse credentials not fully configured" });
+    }
+
+    // Load all users with their roles
+    const { rows: users } = await pool.query(`
+      SELECT u.id, u.username,
+             COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+       GROUP BY u.id, u.username
+    `);
+
+    // Build desired membership: group → Set of usernames
+    const desiredByGroup = new Map();
+    const uniqueGroups = new Set(Object.values(DISCOURSE_GROUP_MAP));
+    for (const grp of uniqueGroups) desiredByGroup.set(grp, new Set());
+
+    for (const user of users) {
+      const groups = computeDiscourseGroups(user.roles || []);
+      for (const grp of groups) {
+        if (!desiredByGroup.has(grp)) desiredByGroup.set(grp, new Set());
+        desiredByGroup.get(grp).add(user.username);
+      }
+    }
+
+    // Sync each group
+    const groupResults = [];
+    for (const [group, desiredSet] of desiredByGroup) {
+      try {
+        const currentMembers = await getGroupMembers({ baseUrl, apiKey, apiUsername, groupName: group });
+        const currentSet = new Set(currentMembers.map((m) => m.username));
+
+        const toAdd    = [...desiredSet].filter((u) => !currentSet.has(u));
+        const toRemove = [...currentSet].filter((u) => !desiredSet.has(u));
+
+        if (toAdd.length)    await addGroupMembers(   { baseUrl, apiKey, apiUsername, groupName: group, usernames: toAdd    });
+        if (toRemove.length) await removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName: group, usernames: toRemove });
+
+        groupResults.push({ group, added: toAdd, removed: toRemove, skipped: null });
+      } catch (grpErr) {
+        const safeMsg = String(grpErr.message || grpErr).slice(0, SYNC_ERROR_MAX_LENGTH);
+        console.error("[discourse-sync-groups] group=%s error=%s", group, safeMsg);
+        groupResults.push({ group, added: [], removed: [], skipped: safeMsg });
+      }
+    }
+
+    const totalAdded   = groupResults.reduce((n, g) => n + g.added.length,   0);
+    const totalRemoved = groupResults.reduce((n, g) => n + g.removed.length, 0);
+    const totalSkipped = groupResults.filter((g) => g.skipped).length;
+
+    console.log("[discourse-sync-groups] added=%d removed=%d groupErrors=%d", totalAdded, totalRemoved, totalSkipped);
+
+    res.json({ ok: true, groups: groupResults, totalAdded, totalRemoved, totalSkipped });
+  } catch (e) {
+    console.error("[discourse-sync-groups]", e.message);
+    res.status(500).json({ ok: false, error: "Discourse group sync failed. Check server logs." });
   }
 });
 

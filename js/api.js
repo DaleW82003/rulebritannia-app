@@ -495,6 +495,15 @@ export async function apiGetDiscourseSyncPreview() {
   return res.json();
 }
 
+export async function apiAdminSyncDiscourseGroups() {
+  const res = await fetch(`${API_BASE}/api/admin/discourse-sync-groups`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiAdminSyncDiscourseGroups failed (${res.status})`);
+  return res.json();
+}
+
 // ── ADMIN MAINTENANCE ─────────────────────────────────────────────────────────
 
 function maintPost(path) {
