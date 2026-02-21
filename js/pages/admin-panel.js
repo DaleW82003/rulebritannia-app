@@ -8,6 +8,7 @@ import {
   apiGetDiscourseSyncPreview, apiAdminSyncDiscourseGroups, apiSetUserRoles,
   apiAdminClearCache, apiAdminRebuildCache, apiAdminRotateSessions,
   apiAdminForceLogoutAll, apiAdminExportSnapshot, apiAdminImportSnapshot,
+  apiGetSsoReadiness,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
@@ -26,9 +27,10 @@ export async function initAdminPanelPage(data) {
   let auditEntries = [];
   let auditTotal = 0;
   let auditFilters = { action: "", target: "", limit: 50, offset: 0 };
-  let discourseConfig = { base_url: "", has_api_key: false, has_api_username: false };
+  let discourseConfig = { base_url: "", has_api_key: false, has_api_username: false, has_sso_secret: false };
   let syncPreview = [];
   let syncResults = null;  // null = never run; object = last sync results
+  let ssoReadiness = null; // null = not yet loaded; object = readiness check results
 
   async function loadConfig() {
     try {
@@ -87,6 +89,15 @@ export async function initAdminPanelPage(data) {
     }
   }
 
+  async function loadSsoReadiness() {
+    try {
+      ssoReadiness = await apiGetSsoReadiness();
+    } catch (err) {
+      console.error("Failed to load SSO readiness:", err);
+      ssoReadiness = null;
+    }
+  }
+
   function renderConfigFields() {
     const fields = [
       { key: "discourse_base_url", label: "Discourse Base URL", placeholder: "https://forum.rulebritannia.org" },
@@ -111,6 +122,7 @@ export async function initAdminPanelPage(data) {
   function renderDiscourseSection(status) {
     const keyPlaceholder     = discourseConfig.has_api_key      ? "(already set — leave blank to keep)" : "Paste API key…";
     const userPlaceholder    = discourseConfig.has_api_username  ? "(already set — leave blank to keep)" : "system";
+    const ssoSecretPh        = discourseConfig.has_sso_secret    ? "(already set — leave blank to keep)" : "Paste DiscourseConnect secret…";
     const testResult         = status && status.startsWith("disc-test:") ? status.slice(10) : "";
     const saveResult         = status && status.startsWith("disc-save:") ? status.slice(10) : "";
 
@@ -138,6 +150,17 @@ export async function initAdminPanelPage(data) {
                    placeholder="${esc(userPlaceholder)}"
                    style="flex:1;padding:4px 8px;border:1px solid #ccc;border-radius:4px;" />
           </div>
+          <div class="kv" style="align-items:center;gap:8px;">
+            <label for="disc-sso-secret" style="min-width:200px;">DiscourseConnect SSO Secret</label>
+            <input id="disc-sso-secret" name="sso_secret" type="password"
+                   placeholder="${esc(ssoSecretPh)}"
+                   autocomplete="off"
+                   style="flex:1;padding:4px 8px;border:1px solid #ccc;border-radius:4px;" />
+          </div>
+          <p style="font-size:12px;color:#777;margin:0;">
+            Find the SSO secret in your Discourse admin under Settings → Login → sso secret.
+            Leave blank to keep the current value.
+          </p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn" type="submit">Save</button>
             <button class="btn" id="btn-discourse-test" type="button">Test Connection</button>
@@ -341,7 +364,48 @@ export async function initAdminPanelPage(data) {
       </section>`;
   }
 
-  function renderMaintenanceSection() {
+  function renderSsoReadinessSection() {
+    if (!ssoReadiness) {
+      return `
+        <section class="panel" style="max-width:700px;margin-top:12px;">
+          <h2 style="margin-top:0;">SSO Readiness</h2>
+          <p style="font-size:13px;color:#888;">Loading…</p>
+          <button class="btn" id="btn-refresh-sso-readiness" type="button">Refresh</button>
+        </section>`;
+    }
+
+    const { allOk, checks = [] } = ssoReadiness;
+    const rows = checks.map((c) => {
+      const icon = c.ok ? "✅" : "❌";
+      return `
+        <tr style="border-bottom:1px solid #eee;">
+          <td style="padding:6px 10px;font-size:20px;line-height:1;">${icon}</td>
+          <td style="padding:6px 10px;font-size:13px;font-weight:600;color:${c.ok ? "#2a7030" : "#b00000"};">${esc(c.label)}</td>
+          <td style="padding:6px 10px;font-size:12px;color:#555;">${esc(c.detail || "")}</td>
+        </tr>`;
+    }).join("");
+
+    return `
+      <section class="panel" style="max-width:750px;margin-top:12px;">
+        <h2 style="margin-top:0;">SSO Readiness</h2>
+        <p style="font-size:13px;color:#555;margin-top:0;">
+          Checks whether all prerequisites for DiscourseConnect SSO are satisfied.
+          The SSO endpoints are only active when <code>DISCOURSE_SSO_ENABLED=true</code> is set on the server.
+        </p>
+        <div style="margin-bottom:10px;padding:8px 12px;border-radius:6px;font-weight:600;font-size:13px;
+                    background:${allOk ? "#eaf6ea" : "#fdf2f2"};color:${allOk ? "#2a7030" : "#b00000"};">
+          ${allOk ? "✅ All checks passed — SSO is ready to enable." : "❌ One or more checks failed — see details below."}
+        </div>
+        <table style="width:100%;border-collapse:collapse;">
+          <tbody>${rows}</tbody>
+        </table>
+        <div style="margin-top:10px;">
+          <button class="btn" id="btn-refresh-sso-readiness" type="button">Refresh</button>
+        </div>
+      </section>`;
+  }
+
+
     return `
       <section class="panel" style="max-width:700px;margin-top:12px;">
         <h2 style="margin-top:0;">Maintenance</h2>
@@ -462,6 +526,8 @@ export async function initAdminPanelPage(data) {
 
       ${renderDiscourseSyncPreview()}
 
+      ${renderSsoReadinessSection()}
+
       ${renderMaintenanceSection()}
 
       <section class="panel" style="max-width:600px;margin-top:12px;">
@@ -492,16 +558,19 @@ export async function initAdminPanelPage(data) {
       e.preventDefault();
       const form = e.target;
       const payload = {};
-      const baseUrl  = form.querySelector("#disc-base-url")?.value?.trim();
-      const apiKey   = form.querySelector("#disc-api-key")?.value;
-      const apiUser  = form.querySelector("#disc-api-username")?.value?.trim();
+      const baseUrl   = form.querySelector("#disc-base-url")?.value?.trim();
+      const apiKey    = form.querySelector("#disc-api-key")?.value;
+      const apiUser   = form.querySelector("#disc-api-username")?.value?.trim();
+      const ssoSecret = form.querySelector("#disc-sso-secret")?.value;
       if (baseUrl   !== undefined) payload.base_url     = baseUrl;
       if (apiKey)                  payload.api_key      = apiKey;
       if (apiUser)                 payload.api_username = apiUser;
+      if (ssoSecret)               payload.sso_secret   = ssoSecret;
       try {
         await apiSaveDiscourseConfig(payload);
         logAction({ action: "discourse-config-saved", target: "discourse" });
         await loadDiscourseConfig();
+        await loadSsoReadiness();
         render("disc-save:Discourse config saved.");
       } catch (err) {
         toastError(`Save Discourse config: ${err.message}`);
@@ -611,6 +680,12 @@ export async function initAdminPanelPage(data) {
         const b = host.querySelector("#btn-sync-discourse-groups");
         if (b) { b.disabled = false; b.textContent = "Sync Discourse Groups Now"; }
       }
+    });
+
+    // SSO Readiness
+    host.querySelector("#btn-refresh-sso-readiness")?.addEventListener("click", async () => {
+      await loadSsoReadiness();
+      render(status);
     });
 
     let roleEditorUserId = null;
@@ -764,6 +839,6 @@ export async function initAdminPanelPage(data) {
     });
   }
 
-  await Promise.all([loadConfig(), loadDiscourseConfig(), loadSnapshots(), loadAuditLog(), loadSyncPreview()]);
+  await Promise.all([loadConfig(), loadDiscourseConfig(), loadSnapshots(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness()]);
   render("");
 }

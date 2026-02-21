@@ -7,6 +7,8 @@
  * Discourse API reference: https://docs.discourse.org
  */
 
+import { createHmac, timingSafeEqual } from "crypto";
+
 /**
  * Create a new Discourse topic (first post of a thread).
  *
@@ -212,3 +214,70 @@ export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupNa
     throw new Error(`removeGroupMembers(${groupName}) failed: HTTP ${res.status} ${text}`);
   }
 }
+
+// ── DiscourseConnect SSO ──────────────────────────────────────────────────────
+// Reference: https://meta.discourse.org/t/discourseconnect-official-single-sign-on-for-discourse/13045
+
+/**
+ * Build the `sso` + `sig` query-string parameters to send to Discourse.
+ *
+ * DiscourseConnect flow (our side initiates):
+ *   1. We generate a nonce and redirect to:
+ *      {forum}/session/sso_provider?sso={payload}&sig={hmac}
+ *   2. Discourse validates the signature and redirects back to our
+ *      return_sso_url with the user's info embedded.
+ *   3. We call verifySsoPayload() to validate the return payload.
+ *
+ * @param {object} opts
+ * @param {string} opts.ssoSecret   - DiscourseConnect secret (from admin config)
+ * @param {string} opts.returnUrl   - URL Discourse will redirect back to
+ * @param {string} opts.nonce       - Unique random nonce (store in session before redirect)
+ * @returns {{ sso: string, sig: string }}
+ */
+export function buildSsoPayload({ ssoSecret, returnUrl, nonce }) {
+  const raw     = `nonce=${nonce}&return_sso_url=${encodeURIComponent(returnUrl)}`;
+  const payload = Buffer.from(raw).toString("base64");
+  const sig     = createHmac("sha256", ssoSecret).update(payload).digest("hex");
+  return { sso: payload, sig };
+}
+
+/**
+ * Verify a DiscourseConnect return payload and extract the user fields.
+ *
+ * Called when Discourse redirects back to our callback URL with
+ * ?sso={payload}&sig={sig} query params.
+ *
+ * @param {object} opts
+ * @param {string} opts.ssoSecret      - DiscourseConnect secret
+ * @param {string} opts.sso            - Base64 payload received from Discourse
+ * @param {string} opts.sig            - HMAC-SHA256 hex signature received from Discourse
+ * @param {string} opts.expectedNonce  - Nonce stored in the user's session at login
+ * @returns {{ externalId: string, email: string, username: string, name: string, groups: string[] }}
+ * @throws {Error} if signature is invalid or nonce doesn't match
+ */
+export function verifySsoPayload({ ssoSecret, sso, sig, expectedNonce }) {
+  const expected    = createHmac("sha256", ssoSecret).update(sso).digest("hex");
+  const expectedBuf = Buffer.from(expected, "hex");
+  const receivedBuf = Buffer.from(sig,      "hex");
+
+  if (expectedBuf.length !== receivedBuf.length || !timingSafeEqual(expectedBuf, receivedBuf)) {
+    throw new Error("DiscourseConnect: signature mismatch");
+  }
+
+  const decoded = Buffer.from(sso, "base64").toString("utf8");
+  const params  = new URLSearchParams(decoded);
+  const nonce   = params.get("nonce") || "";
+
+  if (nonce !== expectedNonce) {
+    throw new Error("DiscourseConnect: nonce mismatch");
+  }
+
+  return {
+    externalId: params.get("external_id")  || "",
+    email:      params.get("email")        || "",
+    username:   params.get("username")     || "",
+    name:       params.get("name")         || "",
+    groups:     (params.get("groups") || "").split(",").filter(Boolean),
+  };
+}
+

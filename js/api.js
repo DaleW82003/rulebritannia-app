@@ -435,12 +435,12 @@ export async function apiGetDiscourseConfig() {
   return res.json();
 }
 
-export async function apiSaveDiscourseConfig({ base_url, api_key, api_username }) {
+export async function apiSaveDiscourseConfig({ base_url, api_key, api_username, sso_secret }) {
   const res = await fetch(`${API_BASE}/api/discourse/config`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ base_url, api_key, api_username }),
+    body: JSON.stringify({ base_url, api_key, api_username, sso_secret }),
   });
   if (!res.ok) throw new Error(`apiSaveDiscourseConfig failed (${res.status})`);
   return res.json();
@@ -492,6 +492,14 @@ export async function apiGetDiscourseSyncPreview() {
     credentials: "include",
   });
   if (!res.ok) throw new Error(`apiGetDiscourseSyncPreview failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetSsoReadiness() {
+  const res = await fetch(`${API_BASE}/api/admin/sso-readiness`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiGetSsoReadiness failed (${res.status})`);
   return res.json();
 }
 

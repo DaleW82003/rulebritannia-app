@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { pool } from "./db.js";
-import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers } from "./discourse.js";
+import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload } from "./discourse.js";
 import { ALL_VALID_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP } from "./roles.js";
 
 /**
@@ -267,6 +267,7 @@ async function ensureSchema() {
       ('discourse_base_url',      'https://forum.rulebritannia.org'),
       ('discourse_api_key',       ''),
       ('discourse_api_username',  ''),
+      ('discourse_sso_secret',    ''),
       ('ui_base_url',             'https://rulebritannia.org'),
       ('sim_start_date',          '1997-08-01'),
       ('clock_rate',              '2')
@@ -741,7 +742,7 @@ app.get("/api/config", async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT key, value FROM app_config");
     // Never expose encrypted discourse credentials through the public config endpoint
-    const SENSITIVE = new Set(["discourse_api_key", "discourse_api_username"]);
+    const SENSITIVE = new Set(["discourse_api_key", "discourse_api_username", "discourse_sso_secret"]);
     const config = Object.fromEntries(rows.filter((r) => !SENSITIVE.has(r.key)).map((r) => [r.key, r.value]));
     res.json({ config });
   } catch (e) {
@@ -802,13 +803,14 @@ app.get("/api/discourse/config", discourseReadLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
     const { rows } = await pool.query(
-      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'discourse_api_key', 'discourse_api_username')"
+      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'discourse_api_key', 'discourse_api_username', 'discourse_sso_secret')"
     );
     const cfg = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     res.json({
       base_url:         cfg.discourse_base_url || "",
       has_api_key:      Boolean(cfg.discourse_api_key),
       has_api_username: Boolean(cfg.discourse_api_username),
+      has_sso_secret:   Boolean(cfg.discourse_sso_secret),
     });
   } catch (e) {
     console.error(e);
@@ -819,7 +821,7 @@ app.get("/api/discourse/config", discourseReadLimit, async (req, res) => {
 app.put("/api/discourse/config", discourseWriteLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
-    const { base_url, api_key, api_username } = req.body || {};
+    const { base_url, api_key, api_username, sso_secret } = req.body || {};
 
     const entries = [];
     if (base_url !== undefined) {
@@ -830,6 +832,12 @@ app.put("/api/discourse/config", discourseWriteLimit, async (req, res) => {
     }
     if (api_username !== undefined && api_username !== "") {
       entries.push(["discourse_api_username", discourseEncrypt(String(api_username))]);
+    }
+    if (sso_secret !== undefined && sso_secret !== "") {
+      if (String(sso_secret).length < 32) {
+        return res.status(400).json({ error: "SSO secret must be at least 32 characters" });
+      }
+      entries.push(["discourse_sso_secret", discourseEncrypt(String(sso_secret))]);
     }
 
     if (!entries.length) {
@@ -894,6 +902,249 @@ app.post("/api/discourse/test", discourseWriteLimit, async (req, res) => {
       ? `Could not connect to Discourse server: ${e.message}`
       : e.message;
     res.status(500).json({ ok: false, error: msg });
+  }
+});
+
+/**
+ * DISCOURSECONNECT SSO
+ *
+ * Disabled unless the DISCOURSE_SSO_ENABLED=true environment variable is set.
+ *
+ * GET /api/discourse/sso           — Entry point; redirects browser to Discourse
+ *                                    with a signed nonce. Must be called by the
+ *                                    browser (not fetch) so the cookie is present.
+ * GET /api/discourse/sso/callback  — Discourse redirects back here with the
+ *                                    signed user payload. Verifies signature,
+ *                                    finds or creates the local user, starts a
+ *                                    session, then redirects to the UI.
+ *
+ * GET /api/admin/sso-readiness     — Admin: check whether all SSO prerequisites
+ *                                    are satisfied. Returns green/red check list.
+ *
+ * Ref: https://meta.discourse.org/t/discourseconnect-official-single-sign-on-for-discourse/13045
+ */
+
+const ssoEnabled = process.env.DISCOURSE_SSO_ENABLED === "true";
+const ssoRateLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+
+/** Load and decrypt the SSO secret from app_config, or return null. */
+async function getSsoSecret() {
+  const { rows } = await pool.query(
+    "SELECT value FROM app_config WHERE key = 'discourse_sso_secret'"
+  );
+  const raw = rows[0]?.value || "";
+  return raw ? discourseDecrypt(raw) : null;
+}
+
+app.get("/api/discourse/sso", ssoRateLimit, async (req, res) => {
+  if (!ssoEnabled) {
+    return res.status(404).json({ error: "DiscourseConnect SSO is not enabled on this server" });
+  }
+
+  try {
+    const ssoSecret = await getSsoSecret();
+    if (!ssoSecret) {
+      return res.status(503).json({ error: "SSO secret not configured. Set it in the Discourse Integration admin panel." });
+    }
+
+    const { rows: cfgRows } = await pool.query(
+      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'ui_base_url')"
+    );
+    const cfg = Object.fromEntries(cfgRows.map((r) => [r.key, r.value]));
+    const baseUrl  = (cfg.discourse_base_url || "").trim().replace(/\/$/, "");
+    const uiBase   = (cfg.ui_base_url        || "").trim().replace(/\/$/, "");
+
+    if (!baseUrl) {
+      return res.status(503).json({ error: "Discourse base URL not configured" });
+    }
+
+    // Generate a nonce, store in session so we can verify on callback
+    const nonce = randomBytes(16).toString("hex");
+    req.session.ssoNonce = nonce;
+
+    const returnUrl = `${uiBase || ""}/api/discourse/sso/callback`;
+    const { sso, sig } = buildSsoPayload({ ssoSecret, returnUrl, nonce });
+
+    const redirectUrl = `${baseUrl}/session/sso_provider?sso=${encodeURIComponent(sso)}&sig=${encodeURIComponent(sig)}`;
+    res.redirect(302, redirectUrl);
+  } catch (e) {
+    console.error("[discourse/sso]", e.message);
+    res.status(500).json({ error: "SSO initiation failed. Check server logs." });
+  }
+});
+
+app.get("/api/discourse/sso/callback", ssoRateLimit, async (req, res) => {
+  if (!ssoEnabled) {
+    return res.status(404).json({ error: "DiscourseConnect SSO is not enabled on this server" });
+  }
+
+  try {
+    const { sso, sig } = req.query;
+    if (!sso || !sig) {
+      return res.status(400).json({ error: "Missing sso or sig query parameters" });
+    }
+
+    const ssoSecret = await getSsoSecret();
+    if (!ssoSecret) {
+      return res.status(503).json({ error: "SSO secret not configured" });
+    }
+
+    const expectedNonce = req.session.ssoNonce;
+    if (!expectedNonce) {
+      return res.status(400).json({ error: "No SSO nonce in session. Please restart the login flow." });
+    }
+
+    // Validate signature and extract user info
+    const user = verifySsoPayload({ ssoSecret, sso, sig, expectedNonce });
+
+    // Clear the nonce (one-time use)
+    delete req.session.ssoNonce;
+
+    if (!user.email) {
+      return res.status(400).json({ error: "Discourse did not return an email address" });
+    }
+
+    // Look up or create the local user account by email
+    const { rows: existingRows } = await pool.query(
+      "SELECT id, username, roles FROM users WHERE email = $1",
+      [user.email.toLowerCase()]
+    );
+
+    let localUser;
+    if (existingRows.length) {
+      localUser = existingRows[0];
+    } else {
+      // Auto-provision: create account with a random unusable password
+      const id = randomBytes(12).toString("hex");
+      const unusableHash = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
+      const { rows: newRows } = await pool.query(
+        `INSERT INTO users (id, username, email, password_hash)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, username, roles`,
+        [id, user.username || user.email, user.email.toLowerCase(), unusableHash]
+      );
+      localUser = newRows[0];
+    }
+
+    // Load canonical roles from user_roles table
+    const { rows: roleRows } = await pool.query(
+      "SELECT role FROM user_roles WHERE user_id = $1",
+      [localUser.id]
+    );
+    const roles = roleRows.map((r) => r.role);
+
+    // Regenerate session to prevent fixation
+    await new Promise((resolve, reject) => {
+      req.session.regenerate((err) => (err ? reject(err) : resolve()));
+    });
+
+    req.session.userId    = localUser.id;
+    req.session.roles     = roles;
+    req.session.csrfToken = generateCsrfToken();
+
+    await new Promise((resolve, reject) => {
+      req.session.save((err) => (err ? reject(err) : resolve()));
+    });
+
+    // Redirect back to the UI
+    const { rows: uiCfgRows } = await pool.query(
+      "SELECT value FROM app_config WHERE key = 'ui_base_url'"
+    );
+    const uiBase = (uiCfgRows[0]?.value || "").trim().replace(/\/$/, "");
+    res.redirect(302, uiBase ? `${uiBase}/` : "/");
+  } catch (e) {
+    console.error("[discourse/sso/callback]", e.message);
+    // Don't expose internal error detail to the browser
+    res.status(400).json({ error: "SSO login failed. Please try again." });
+  }
+});
+
+// ── SSO Readiness check ───────────────────────────────────────────────────────
+
+app.get("/api/admin/sso-readiness", discourseReadLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { rows } = await pool.query("SELECT key, value FROM app_config");
+    const cfg = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+
+    const baseUrl    = (cfg.discourse_base_url || "").trim();
+    const apiKey     = cfg.discourse_api_key     || "";
+    const apiUser    = cfg.discourse_api_username || "";
+    const ssoSecretE = cfg.discourse_sso_secret   || "";
+    const uiBase     = (cfg.ui_base_url || "").trim();
+
+    // Attempt a live Discourse ping if credentials are present
+    let discourseLive = false;
+    let discourseLiveError = null;
+    if (baseUrl && apiKey && apiUser) {
+      try {
+        const cleanBase  = baseUrl.replace(/\/$/, "");
+        const decryptedKey  = discourseDecrypt(apiKey);
+        const decryptedUser = discourseDecrypt(apiUser);
+        const ping = await fetch(`${cleanBase}/site.json`, {
+          headers: { "Api-Key": decryptedKey, "Api-Username": decryptedUser },
+          signal: AbortSignal.timeout(5000),
+        });
+        discourseLive = ping.ok;
+        if (!ping.ok) discourseLiveError = `HTTP ${ping.status}`;
+      } catch (pingErr) {
+        discourseLiveError = pingErr.message;
+      }
+    }
+
+    const checks = [
+      {
+        id:      "env_flag",
+        label:   "DISCOURSE_SSO_ENABLED env var",
+        ok:      ssoEnabled,
+        detail:  ssoEnabled ? "Set to 'true'" : "Not set — SSO endpoints are disabled (set DISCOURSE_SSO_ENABLED=true to enable)",
+      },
+      {
+        id:      "base_url",
+        label:   "Discourse base URL configured",
+        ok:      Boolean(baseUrl),
+        detail:  baseUrl || "Not set",
+      },
+      {
+        id:      "api_credentials",
+        label:   "Discourse API key + username configured",
+        ok:      Boolean(apiKey && apiUser),
+        detail:  (apiKey && apiUser) ? "Both set" : "One or both missing",
+      },
+      {
+        id:      "sso_secret",
+        label:   "DiscourseConnect SSO secret configured",
+        ok:      Boolean(ssoSecretE),
+        detail:  ssoSecretE ? "Set (stored encrypted)" : "Not set — paste the secret from Discourse › Settings › Login › sso secret",
+      },
+      {
+        id:      "discourse_reachable",
+        label:   "Discourse API reachable",
+        ok:      discourseLive,
+        detail:  discourseLive ? "Connected successfully" : (discourseLiveError || "Credentials not configured — cannot test"),
+      },
+      {
+        id:      "ui_base_url",
+        label:   "UI base URL configured (for SSO return URL)",
+        ok:      Boolean(uiBase),
+        detail:  uiBase || "Not set",
+      },
+      {
+        id:      "session_secret",
+        label:   "SESSION_SECRET env var is non-default",
+        ok:      Boolean(process.env.SESSION_SECRET) && process.env.SESSION_SECRET !== "dev-secret-change-me",
+        detail:  (process.env.SESSION_SECRET && process.env.SESSION_SECRET !== "dev-secret-change-me")
+                   ? "Set to a custom value"
+                   : "Using default 'dev-secret-change-me' — change this before enabling SSO",
+      },
+    ];
+
+    const allOk = checks.every((c) => c.ok);
+    res.json({ allOk, checks });
+  } catch (e) {
+    console.error("[sso-readiness]", e);
+    res.status(500).json({ error: "Server error" });
   }
 });
 
