@@ -64,7 +64,7 @@ function showBootError(err) {
 (async function () {
   document.body.dataset.bootState = "booting";
   try {
-    const data = await bootData();
+    const { data, user } = await bootData();
     initNavUI();
 
     const page = document.body?.dataset?.page || "";
@@ -120,7 +120,7 @@ function showBootError(err) {
     const init = routes[page];
 
     if (typeof init === "function") {
-      init(data);
+      init(data, user);
       document.body.dataset.bootState = "ready";
       return;
     }

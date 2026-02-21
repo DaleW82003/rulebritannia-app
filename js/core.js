@@ -1,4 +1,5 @@
 // js/core.js
+import { apiMe, apiGetState, apiSaveState } from "./api.js";
 const DEFAULT_ECONOMY_PAGE = {
   topline: { gdpGrowth: 1.8, inflation: 2.6, unemployment: 4.3 },
   ukInfoTiles: [
@@ -88,17 +89,36 @@ export function ensureDefaults(data) {
 
 export async function bootData() {
   const demo = await loadDemoJson();
-  const data = getData();
 
-  // User state wins so gameplay changes persist across reloads.
-  // Demo data backfills any keys not yet in localStorage (e.g. newly added datasets).
-  const next = data
-    ? { ...demo, ...data }
-    : demo;
+  // Determine if a user is currently logged in.
+  const meResult = await apiMe();
+  const user = meResult?.user ?? null;
 
-  const ensured = ensureDefaults(next);
+  if (!user) {
+    // 401 / not logged in → current behaviour: merge demo + localStorage.
+    const stored = getData();
+    const next = stored ? { ...demo, ...stored } : demo;
+    const ensured = ensureDefaults(next);
+    saveData(ensured);
+    return { data: ensured, user: null };
+  }
+
+  // Logged in → load state from the server.
+  const stateResult = await apiGetState();
+  let serverData = stateResult?.data ?? null;
+
+  if (!serverData) {
+    // 404 "No state yet" → seed the DB from demo.json (admin only).
+    if (Array.isArray(user.roles) && user.roles.includes("admin")) {
+      await apiSaveState(demo);
+    }
+    serverData = demo;
+  }
+
+  const ensured = ensureDefaults(serverData);
+  ensured.currentUser = user;
   saveData(ensured);
-  return ensured;
+  return { data: ensured, user };
 }
 
 export function nowMs() {
