@@ -66,12 +66,49 @@ app.use(
  * Boot-time schema
  */
 async function ensureSchema() {
+  // Legacy single-row state (kept for migration)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS app_state (
       id TEXT PRIMARY KEY,
       data JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  // Immutable versioned snapshots
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS state_snapshots (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by TEXT,
+      label TEXT NOT NULL DEFAULT '',
+      data JSONB NOT NULL
+    );
+  `);
+
+  // Single-row pointer to the active snapshot
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_state_current (
+      id TEXT PRIMARY KEY,
+      snapshot_id UUID REFERENCES state_snapshots(id)
+    );
+  `);
+
+  // Migrate legacy app_state row into state_snapshots / app_state_current (once)
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM app_state_current WHERE id = 'main')
+        AND EXISTS (SELECT 1 FROM app_state WHERE id = 'main') THEN
+        WITH migrated AS (
+          INSERT INTO state_snapshots (label, data, created_at)
+          SELECT 'migrated', data, updated_at FROM app_state WHERE id = 'main'
+          RETURNING id
+        )
+        INSERT INTO app_state_current (id, snapshot_id)
+        SELECT 'main', id FROM migrated;
+      END IF;
+    END $$;
   `);
 
   await pool.query(`
@@ -230,8 +267,10 @@ app.get("/api/state", async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      "SELECT data, updated_at FROM app_state WHERE id = $1",
-      ["main"]
+      `SELECT s.data, s.created_at AS updated_at
+       FROM app_state_current c
+       JOIN state_snapshots s ON s.id = c.snapshot_id
+       WHERE c.id = 'main'`
     );
     if (!rows.length) return res.status(404).json({ error: "No state yet" });
     res.json({ data: rows[0].data, updatedAt: rows[0].updated_at });
@@ -255,15 +294,124 @@ app.post("/api/state", async (req, res) => {
       return res.status(400).json({ error: "Body must be { data: <object> }" });
     }
 
+    const label = req.body?.label || "autosave";
+
+    const { rows } = await pool.query(
+      `INSERT INTO state_snapshots (created_by, label, data)
+       VALUES ($1, $2, $3::jsonb)
+       RETURNING id`,
+      [req.session.userId, label, JSON.stringify(data)]
+    );
+    const snapshotId = rows[0].id;
+
     await pool.query(
-      `
-      INSERT INTO app_state (id, data)
-      VALUES ($1, $2::jsonb)
-      ON CONFLICT (id) DO UPDATE
-      SET data = EXCLUDED.data,
-          updated_at = NOW()
-      `,
-      ["main", JSON.stringify(data)]
+      `INSERT INTO app_state_current (id, snapshot_id)
+       VALUES ('main', $1)
+       ON CONFLICT (id) DO UPDATE SET snapshot_id = EXCLUDED.snapshot_id`,
+      [snapshotId]
+    );
+
+    res.json({ ok: true, snapshotId });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * SNAPSHOTS
+ * GET  /api/snapshots                — admin: list all snapshots
+ * POST /api/snapshots                — admin: create named snapshot { label, data }
+ * POST /api/snapshots/:id/restore    — admin: set current pointer to snapshot (O(1))
+ */
+app.get("/api/snapshots", async (req, res) => {
+  try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
+      return res.status(403).json({ error: "Forbidden: admin role required" });
+    }
+
+    const { rows: current } = await pool.query(
+      "SELECT snapshot_id FROM app_state_current WHERE id = 'main'"
+    );
+    const currentId = current[0]?.snapshot_id ?? null;
+
+    const { rows } = await pool.query(
+      `SELECT id, created_at, created_by, label
+       FROM state_snapshots
+       ORDER BY created_at DESC`
+    );
+    res.json({ snapshots: rows, currentId });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/snapshots", async (req, res) => {
+  try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
+      return res.status(403).json({ error: "Forbidden: admin role required" });
+    }
+
+    const { label, data } = req.body || {};
+    if (!label || typeof label !== "string" || !label.trim()) {
+      return res.status(400).json({ error: "Body must include a non-empty label" });
+    }
+    if (!data || typeof data !== "object") {
+      return res.status(400).json({ error: "Body must include a data object" });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO state_snapshots (created_by, label, data)
+       VALUES ($1, $2, $3::jsonb)
+       RETURNING id, created_at, label`,
+      [req.session.userId, label.trim(), JSON.stringify(data)]
+    );
+
+    await pool.query(
+      `INSERT INTO app_state_current (id, snapshot_id)
+       VALUES ('main', $1)
+       ON CONFLICT (id) DO UPDATE SET snapshot_id = EXCLUDED.snapshot_id`,
+      [rows[0].id]
+    );
+
+    res.json({ ok: true, snapshot: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/snapshots/:id/restore", async (req, res) => {
+  try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
+      return res.status(403).json({ error: "Forbidden: admin role required" });
+    }
+
+    const snapshotId = req.params.id;
+
+    const { rows } = await pool.query(
+      "SELECT id FROM state_snapshots WHERE id = $1",
+      [snapshotId]
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: "Snapshot not found" });
+    }
+
+    await pool.query(
+      `INSERT INTO app_state_current (id, snapshot_id)
+       VALUES ('main', $1)
+       ON CONFLICT (id) DO UPDATE SET snapshot_id = EXCLUDED.snapshot_id`,
+      [snapshotId]
     );
 
     res.json({ ok: true });
