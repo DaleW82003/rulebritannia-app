@@ -47,6 +47,7 @@ import { initRulesPage } from "./pages/rules.js";
 import { initGuidesPage } from "./pages/guides.js";
 import { initBillPage } from "./pages/bill.js";
 import { initControlPanelPage } from "./pages/control-panel.js";
+import { initLoginPage } from "./pages/login.js";
 
 function showBootError(err) {
   console.error(err);
@@ -113,6 +114,7 @@ function showBootError(err) {
       guides: initGuidesPage,
       bill: initBillPage,
       "control-panel": initControlPanelPage,
+      login: initLoginPage,
     };
 
     const init = routes[page];
