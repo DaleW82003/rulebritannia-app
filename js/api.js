@@ -568,3 +568,234 @@ export async function apiAdminImportSnapshot(label, data) {
   if (!res.ok) throw new Error(`import-snapshot failed (${res.status})`);
   return res.json();
 }
+
+// ── Characters ─────────────────────────────────────────────────────────────
+
+export async function apiGetCharacters(params = {}) {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null)).toString();
+  const res = await fetch(`${API_BASE}/api/characters${qs ? "?" + qs : ""}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetCharacters failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetCharacter(id) {
+  const res = await fetch(`${API_BASE}/api/characters/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetCharacter failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateCharacter(character) {
+  const res = await fetch(`${API_BASE}/api/characters`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(character),
+  });
+  if (!res.ok) throw new Error(`apiCreateCharacter failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiPatchCharacter(id, updates) {
+  const res = await fetch(`${API_BASE}/api/characters/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`apiPatchCharacter failed (${res.status})`);
+  return res.json();
+}
+
+// ── Offices ────────────────────────────────────────────────────────────────
+
+export async function apiGetOffices() {
+  const res = await fetch(`${API_BASE}/api/offices`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetOffices failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateOffice(office) {
+  const res = await fetch(`${API_BASE}/api/offices`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(office),
+  });
+  if (!res.ok) throw new Error(`apiCreateOffice failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAssignOffice(officeId, character_id) {
+  const res = await fetch(`${API_BASE}/api/offices/${encodeURIComponent(officeId)}/assign`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id }),
+  });
+  if (!res.ok) throw new Error(`apiAssignOffice failed (${res.status})`);
+  return res.json();
+}
+
+// ── Divisions ──────────────────────────────────────────────────────────────
+
+export async function apiGetDivisions(params = {}) {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null)).toString();
+  const res = await fetch(`${API_BASE}/api/divisions${qs ? "?" + qs : ""}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetDivisions failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetDivision(id) {
+  const res = await fetch(`${API_BASE}/api/divisions/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetDivision failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateDivision(payload) {
+  const res = await fetch(`${API_BASE}/api/divisions/create`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`apiCreateDivision failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiVoteDivision(id, character_id, vote, weight) {
+  const res = await fetch(`${API_BASE}/api/divisions/${encodeURIComponent(id)}/vote`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id, vote, weight }),
+  });
+  if (!res.ok) throw new Error(`apiVoteDivision failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCloseDivision(id) {
+  const res = await fetch(`${API_BASE}/api/divisions/${encodeURIComponent(id)}/close`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiCloseDivision failed (${res.status})`);
+  return res.json();
+}
+
+// ── Question Time (DB-driven) ──────────────────────────────────────────────
+
+export async function apiGetQtQuestions(params = {}) {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null)).toString();
+  const res = await fetch(`${API_BASE}/api/qt/questions${qs ? "?" + qs : ""}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetQtQuestions failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetQtQuestion(id) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetQtQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSubmitQtQuestion(payload) {
+  const res = await fetch(`${API_BASE}/api/qt/questions`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`apiSubmitQtQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiPatchQtQuestion(id, updates) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`apiPatchQtQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAnswerQtQuestion(id, payload) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(id)}/answer`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`apiAnswerQtQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiFollowupQtQuestion(id, payload) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(id)}/followup`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`apiFollowupQtQuestion failed (${res.status})`);
+  return res.json();
+}
+
+// ── Simulation State ───────────────────────────────────────────────────────
+
+export async function apiGetSim() {
+  const res = await fetch(`${API_BASE}/api/sim`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetSim failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSimTick() {
+  const res = await fetch(`${API_BASE}/api/sim/tick`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiSimTick failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSimSet(payload) {
+  const res = await fetch(`${API_BASE}/api/sim/set`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`apiSimSet failed (${res.status})`);
+  return res.json();
+}
+
+// ── Admin Dashboard ────────────────────────────────────────────────────────
+
+export async function apiGetAdminDashboard() {
+  const res = await fetch(`${API_BASE}/api/admin/dashboard`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetAdminDashboard failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAdminDiscourseSyncBills() {
+  const res = await fetch(`${API_BASE}/api/admin/discourse-sync-bills`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiAdminDiscourseSyncBills failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiPatchBill(id, updates) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`apiPatchBill failed (${res.status})`);
+  return res.json();
+}

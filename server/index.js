@@ -7,6 +7,11 @@ import rateLimit from "express-rate-limit";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { pool } from "./db.js";
 import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload } from "./discourse.js";
+import {
+  createTopic as dcCreateTopic,
+  createPost as dcCreatePost,
+  withRetry as dcWithRetry,
+} from "./discourseClient.js";
 import { ALL_VALID_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP } from "./roles.js";
 
 /**
@@ -279,6 +284,131 @@ async function ensureSchema() {
     VALUES ('main', 8, 1997, 1)
     ON CONFLICT (id) DO NOTHING;
   `);
+
+  // ── Characters ────────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS characters (
+      id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id       TEXT REFERENCES users(id) ON DELETE SET NULL,
+      name          TEXT NOT NULL,
+      party         TEXT NOT NULL DEFAULT '',
+      constituency  TEXT NOT NULL DEFAULT '',
+      roles         JSONB NOT NULL DEFAULT '[]'::jsonb,
+      offices       JSONB NOT NULL DEFAULT '[]'::jsonb,
+      is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS characters_user_idx ON characters (user_id);
+    CREATE INDEX IF NOT EXISTS characters_active_idx ON characters (is_active);
+  `);
+
+  // ── Offices & Assignments ─────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS offices (
+      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name       TEXT NOT NULL,
+      type       TEXT NOT NULL DEFAULT 'parliamentary'
+                 CHECK (type IN ('cabinet','shadow','parliamentary','other')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS office_assignments (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      office_id    UUID NOT NULL REFERENCES offices(id) ON DELETE CASCADE,
+      character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      assigned_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (office_id, character_id)
+    );
+    CREATE INDEX IF NOT EXISTS office_assign_office_idx ON office_assignments (office_id);
+    CREATE INDEX IF NOT EXISTS office_assign_char_idx   ON office_assignments (character_id);
+  `);
+
+  // ── Divisions (generic voting engine) ────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS divisions (
+      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      entity_type TEXT NOT NULL,
+      entity_id   TEXT NOT NULL,
+      title       TEXT NOT NULL DEFAULT '',
+      status      TEXT NOT NULL DEFAULT 'open'
+                  CHECK (status IN ('open','closed')),
+      closes_at   TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS divisions_entity_idx ON divisions (entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS divisions_status_idx ON divisions (status);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS division_votes (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      division_id  UUID NOT NULL REFERENCES divisions(id) ON DELETE CASCADE,
+      character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      vote         TEXT NOT NULL CHECK (vote IN ('aye','no','abstain')),
+      weight       INTEGER NOT NULL DEFAULT 1,
+      voted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (division_id, character_id)
+    );
+    CREATE INDEX IF NOT EXISTS division_votes_div_idx ON division_votes (division_id);
+  `);
+
+  // ── Question Time (structured tables) ────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS qt_questions (
+      id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      office_id             TEXT NOT NULL,
+      asked_by_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      question_text         TEXT NOT NULL,
+      status                TEXT NOT NULL DEFAULT 'open'
+                            CHECK (status IN ('open','answered','archived')),
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS qt_questions_office_idx ON qt_questions (office_id);
+    CREATE INDEX IF NOT EXISTS qt_questions_status_idx ON qt_questions (status);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS qt_answers (
+      id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      question_id             UUID NOT NULL REFERENCES qt_questions(id) ON DELETE CASCADE,
+      answered_by_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      answer_text             TEXT NOT NULL,
+      created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS qt_answers_question_idx ON qt_answers (question_id);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS qt_followups (
+      id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      question_id           UUID NOT NULL REFERENCES qt_questions(id) ON DELETE CASCADE,
+      asked_by_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      followup_text         TEXT NOT NULL,
+      answer_text           TEXT NOT NULL DEFAULT '',
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS qt_followups_question_idx ON qt_followups (question_id);
+  `);
+
+  // ── Simulation State (authoritative clock) ────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sim_state (
+      id           TEXT PRIMARY KEY,
+      year         INTEGER NOT NULL DEFAULT 1997,
+      month        INTEGER NOT NULL DEFAULT 8,
+      is_paused    BOOLEAN NOT NULL DEFAULT FALSE,
+      last_tick_at TIMESTAMPTZ
+    );
+  `);
+
+  await pool.query(`
+    INSERT INTO sim_state (id, year, month, is_paused)
+    VALUES ('main', 1997, 8, FALSE)
+    ON CONFLICT (id) DO NOTHING;
+  `);
 }
 
 /**
@@ -339,6 +469,46 @@ function requireAdmin(req, res) {
     return false;
   }
   return true;
+}
+
+/**
+ * Write an entry to the audit_log table.
+ * Includes before/after JSON snapshots where provided.
+ * Non-fatal: errors are logged but do not abort the request.
+ */
+async function writeAuditLog(actorId, action, entityType, entityId, beforeJson, afterJson) {
+  try {
+    await pool.query(
+      `INSERT INTO audit_log (actor_id, action, target, details)
+       VALUES ($1, $2, $3, $4::jsonb)`,
+      [
+        actorId,
+        action,
+        `${entityType}:${entityId}`,
+        JSON.stringify({ entityType, entityId, before: beforeJson ?? null, after: afterJson ?? null }),
+      ]
+    );
+  } catch (err) {
+    console.error("[audit] write failed:", err.message);
+  }
+}
+
+/**
+ * Load and decrypt Discourse credentials from app_config.
+ * Returns { baseUrl, apiKey, apiUsername } or throws if not configured.
+ */
+async function loadDiscourseCredentials() {
+  const { rows } = await pool.query(
+    "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url','discourse_api_key','discourse_api_username')"
+  );
+  const cfg = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const baseUrl     = (cfg.discourse_base_url || "").trim().replace(/\/$/, "");
+  const apiKey      = cfg.discourse_api_key      ? discourseDecrypt(cfg.discourse_api_key)      : "";
+  const apiUsername = cfg.discourse_api_username ? discourseDecrypt(cfg.discourse_api_username) : "";
+  if (!baseUrl)     throw Object.assign(new Error("Discourse base URL not configured"),     { status: 400 });
+  if (!apiKey)      throw Object.assign(new Error("Discourse API key not configured"),      { status: 400 });
+  if (!apiUsername) throw Object.assign(new Error("Discourse API username not configured"), { status: 400 });
+  return { baseUrl, apiKey, apiUsername };
 }
 
 /**
@@ -2365,6 +2535,763 @@ app.post("/api/admin/import-snapshot", maintLimit, async (req, res) => {
     });
   } catch (e) {
     console.error("[admin/import-snapshot]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CHARACTERS
+// GET    /api/characters           — authenticated: list characters
+// GET    /api/characters/:id       — authenticated: get one character
+// POST   /api/characters           — admin: create character
+// PATCH  /api/characters/:id       — admin: update character
+// ═══════════════════════════════════════════════════════════════════════════
+
+const charReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
+const charWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/characters", charReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { active } = req.query;
+    let q = "SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at FROM characters";
+    const params = [];
+    if (active === "true") { q += " WHERE is_active = TRUE"; }
+    else if (active === "false") { q += " WHERE is_active = FALSE"; }
+    q += " ORDER BY name";
+    const { rows } = await pool.query(q, params);
+    res.json({ characters: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/characters/:id", charReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at FROM characters WHERE id = $1",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Character not found" });
+    res.json({ character: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/characters", charWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { user_id, name, party = "", constituency = "", roles = [], offices = [], is_active = true } = req.body || {};
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ error: "name is required" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO characters (user_id, name, party, constituency, roles, offices, is_active)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
+       RETURNING id, user_id, name, party, constituency, roles, offices, is_active, created_at`,
+      [user_id || null, name.trim(), party, constituency, JSON.stringify(roles), JSON.stringify(offices), is_active]
+    );
+    await writeAuditLog(req.session.userId, "character.create", "character", rows[0].id, null, rows[0]);
+    res.status(201).json({ ok: true, character: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.patch("/api/characters/:id", charWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows: before } = await pool.query(
+      "SELECT id, user_id, name, party, constituency, roles, offices, is_active FROM characters WHERE id = $1",
+      [req.params.id]
+    );
+    if (!before.length) return res.status(404).json({ error: "Character not found" });
+
+    const old = before[0];
+    const { user_id = old.user_id, name = old.name, party = old.party,
+            constituency = old.constituency, roles = old.roles,
+            offices = old.offices, is_active = old.is_active } = req.body || {};
+
+    const { rows } = await pool.query(
+      `UPDATE characters
+          SET user_id = $1, name = $2, party = $3, constituency = $4,
+              roles = $5::jsonb, offices = $6::jsonb, is_active = $7
+        WHERE id = $8
+        RETURNING id, user_id, name, party, constituency, roles, offices, is_active, created_at`,
+      [user_id, name, party, constituency, JSON.stringify(roles), JSON.stringify(offices), is_active, req.params.id]
+    );
+    await writeAuditLog(req.session.userId, "character.update", "character", req.params.id, old, rows[0]);
+    res.json({ ok: true, character: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OFFICES & ASSIGNMENTS
+// GET    /api/offices              — authenticated: list offices
+// POST   /api/offices              — admin: create office
+// POST   /api/offices/:id/assign   — admin: assign character to office
+// DELETE /api/offices/:id/assign/:characterId — admin: remove assignment
+// ═══════════════════════════════════════════════════════════════════════════
+
+const officeReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
+const officeWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/offices", officeReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(`
+      SELECT o.id, o.name, o.type, o.created_at,
+             json_agg(json_build_object(
+               'character_id', a.character_id,
+               'character_name', c.name,
+               'assigned_at', a.assigned_at
+             ) ORDER BY a.assigned_at) FILTER (WHERE a.character_id IS NOT NULL) AS assignments
+        FROM offices o
+        LEFT JOIN office_assignments a ON a.office_id = o.id
+        LEFT JOIN characters c ON c.id = a.character_id
+       GROUP BY o.id
+       ORDER BY o.type, o.name
+    `);
+    res.json({ offices: rows.map((r) => ({ ...r, assignments: r.assignments || [] })) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/offices", officeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { name, type = "parliamentary" } = req.body || {};
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ error: "name is required" });
+    }
+    const validTypes = ["cabinet", "shadow", "parliamentary", "other"];
+    if (!validTypes.includes(type)) {
+      return res.status(400).json({ error: `type must be one of: ${validTypes.join(", ")}` });
+    }
+    const { rows } = await pool.query(
+      "INSERT INTO offices (name, type) VALUES ($1, $2) RETURNING id, name, type, created_at",
+      [name.trim(), type]
+    );
+    await writeAuditLog(req.session.userId, "office.create", "office", rows[0].id, null, rows[0]);
+    res.status(201).json({ ok: true, office: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { character_id } = req.body || {};
+    if (!character_id) return res.status(400).json({ error: "character_id is required" });
+
+    // Verify office and character exist
+    const [{ rows: offRows }, { rows: charRows }] = await Promise.all([
+      pool.query("SELECT id, name FROM offices WHERE id = $1", [req.params.id]),
+      pool.query("SELECT id, name FROM characters WHERE id = $1", [character_id]),
+    ]);
+    if (!offRows.length)  return res.status(404).json({ error: "Office not found" });
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+
+    const { rows } = await pool.query(
+      `INSERT INTO office_assignments (office_id, character_id)
+       VALUES ($1, $2)
+       ON CONFLICT (office_id, character_id) DO UPDATE SET assigned_at = NOW()
+       RETURNING id, office_id, character_id, assigned_at`,
+      [req.params.id, character_id]
+    );
+    await writeAuditLog(req.session.userId, "office.assign", "office_assignment", rows[0].id,
+      null, { office_id: req.params.id, character_id });
+    res.status(201).json({ ok: true, assignment: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rowCount } = await pool.query(
+      "DELETE FROM office_assignments WHERE office_id = $1 AND character_id = $2",
+      [req.params.id, req.params.characterId]
+    );
+    if (!rowCount) return res.status(404).json({ error: "Assignment not found" });
+    await writeAuditLog(req.session.userId, "office.unassign", "office_assignment",
+      `${req.params.id}:${req.params.characterId}`, { office_id: req.params.id, character_id: req.params.characterId }, null);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DIVISIONS (generic weighted voting engine)
+// POST  /api/divisions/create    — admin: open a division
+// POST  /api/divisions/:id/vote  — authenticated: cast vote
+// POST  /api/divisions/:id/close — admin: close division and tally
+// GET   /api/divisions           — authenticated: list divisions
+// GET   /api/divisions/:id       — authenticated: get division with tally
+// ═══════════════════════════════════════════════════════════════════════════
+
+const divReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
+const divWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/divisions", divReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { status } = req.query;
+    let q = "SELECT id, entity_type, entity_id, title, status, closes_at, created_at FROM divisions";
+    const params = [];
+    if (status === "open" || status === "closed") {
+      q += " WHERE status = $1"; params.push(status);
+    }
+    q += " ORDER BY created_at DESC";
+    const { rows } = await pool.query(q, params);
+    res.json({ divisions: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT id, entity_type, entity_id, title, status, closes_at, created_at FROM divisions WHERE id = $1",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Division not found" });
+
+    // Aggregate weighted tally
+    const { rows: votes } = await pool.query(
+      `SELECT vote, SUM(weight) AS total_weight, COUNT(*) AS count
+         FROM division_votes WHERE division_id = $1
+        GROUP BY vote`,
+      [req.params.id]
+    );
+    const tally = { aye: 0, no: 0, abstain: 0 };
+    votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
+
+    res.json({ division: rows[0], tally });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/divisions/create", divWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { entity_type, entity_id, title = "", closes_at } = req.body || {};
+    if (!entity_type || !entity_id) {
+      return res.status(400).json({ error: "entity_type and entity_id are required" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO divisions (entity_type, entity_id, title, closes_at)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, entity_type, entity_id, title, status, closes_at, created_at`,
+      [entity_type, String(entity_id), title, closes_at || null]
+    );
+    await writeAuditLog(req.session.userId, "division.create", "division", rows[0].id, null, rows[0]);
+    res.status(201).json({ ok: true, division: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { character_id, vote, weight = 1 } = req.body || {};
+    if (!character_id || !vote) {
+      return res.status(400).json({ error: "character_id and vote are required" });
+    }
+    const validVotes = ["aye", "no", "abstain"];
+    if (!validVotes.includes(vote)) {
+      return res.status(400).json({ error: `vote must be one of: ${validVotes.join(", ")}` });
+    }
+
+    // Verify division is open
+    const { rows: divRows } = await pool.query(
+      "SELECT id, status FROM divisions WHERE id = $1",
+      [req.params.id]
+    );
+    if (!divRows.length) return res.status(404).json({ error: "Division not found" });
+    if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
+
+    const { rows } = await pool.query(
+      `INSERT INTO division_votes (division_id, character_id, vote, weight)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (division_id, character_id)
+       DO UPDATE SET vote = EXCLUDED.vote, weight = EXCLUDED.weight, voted_at = NOW()
+       RETURNING id, division_id, character_id, vote, weight, voted_at`,
+      [req.params.id, character_id, vote, Math.max(1, parseInt(weight, 10) || 1)]
+    );
+    res.json({ ok: true, vote: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows: divRows } = await client.query(
+        "SELECT id, status, entity_type, entity_id, title FROM divisions WHERE id = $1 FOR UPDATE",
+        [req.params.id]
+      );
+      if (!divRows.length) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Division not found" }); }
+      if (divRows[0].status === "closed") { await client.query("ROLLBACK"); return res.status(409).json({ error: "Already closed" }); }
+
+      await client.query("UPDATE divisions SET status = 'closed' WHERE id = $1", [req.params.id]);
+
+      // Compute weighted tally
+      const { rows: votes } = await client.query(
+        `SELECT vote, SUM(weight) AS total_weight, COUNT(*) AS count
+           FROM division_votes WHERE division_id = $1 GROUP BY vote`,
+        [req.params.id]
+      );
+      const tally = { aye: 0, no: 0, abstain: 0 };
+      votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
+
+      await client.query("COMMIT");
+      await writeAuditLog(req.session.userId, "division.close", "division", req.params.id, divRows[0], { ...divRows[0], status: "closed", tally });
+      res.json({ ok: true, division: { ...divRows[0], status: "closed" }, tally });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// QUESTION TIME (structured DB-driven)
+// GET    /api/qt/questions                  — authenticated: list QT questions
+// POST   /api/qt/questions                  — authenticated: submit question
+// PATCH  /api/qt/questions/:id              — admin/mod: update status
+// POST   /api/qt/questions/:id/answer       — authenticated: post answer
+// POST   /api/qt/questions/:id/followup     — authenticated: post follow-up
+// GET    /api/qt/questions/:id              — authenticated: get question + answers
+// ═══════════════════════════════════════════════════════════════════════════
+
+const qtReadLimit  = rateLimit({ windowMs: 60_000, max: 300, standardHeaders: true, legacyHeaders: false });
+const qtWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { office_id, status } = req.query;
+    let q = `
+      SELECT q.id, q.office_id, q.question_text, q.status, q.created_at, q.updated_at,
+             c.name AS asked_by_name
+        FROM qt_questions q
+        LEFT JOIN characters c ON c.id = q.asked_by_character_id
+    `;
+    const params = [];
+    const where = [];
+    if (office_id) { params.push(office_id); where.push(`q.office_id = $${params.length}`); }
+    if (status)    { params.push(status);    where.push(`q.status = $${params.length}`); }
+    if (where.length) q += " WHERE " + where.join(" AND ");
+    q += " ORDER BY q.created_at DESC";
+    const { rows } = await pool.query(q, params);
+    res.json({ questions: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/qt/questions/:id", qtReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows: qRows } = await pool.query(
+      `SELECT q.id, q.office_id, q.question_text, q.status, q.created_at, q.updated_at,
+              q.asked_by_character_id, c.name AS asked_by_name
+         FROM qt_questions q LEFT JOIN characters c ON c.id = q.asked_by_character_id
+        WHERE q.id = $1`,
+      [req.params.id]
+    );
+    if (!qRows.length) return res.status(404).json({ error: "Question not found" });
+
+    const [{ rows: answers }, { rows: followups }] = await Promise.all([
+      pool.query(
+        `SELECT a.id, a.answer_text, a.created_at, c.name AS answered_by_name
+           FROM qt_answers a LEFT JOIN characters c ON c.id = a.answered_by_character_id
+          WHERE a.question_id = $1 ORDER BY a.created_at`,
+        [req.params.id]
+      ),
+      pool.query(
+        `SELECT f.id, f.followup_text, f.answer_text, f.created_at, c.name AS asked_by_name
+           FROM qt_followups f LEFT JOIN characters c ON c.id = f.asked_by_character_id
+          WHERE f.question_id = $1 ORDER BY f.created_at`,
+        [req.params.id]
+      ),
+    ]);
+
+    res.json({ question: qRows[0], answers, followups });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { office_id, question_text, asked_by_character_id } = req.body || {};
+    if (!office_id || !question_text) {
+      return res.status(400).json({ error: "office_id and question_text are required" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO qt_questions (office_id, asked_by_character_id, question_text)
+       VALUES ($1, $2, $3)
+       RETURNING id, office_id, asked_by_character_id, question_text, status, created_at`,
+      [office_id, asked_by_character_id || null, question_text.trim()]
+    );
+    res.status(201).json({ ok: true, question: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.patch("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { status } = req.body || {};
+    const validStatuses = ["open", "answered", "archived"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: `status must be one of: ${validStatuses.join(", ")}` });
+    }
+    const { rows } = await pool.query(
+      "UPDATE qt_questions SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING id, status",
+      [status, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Question not found" });
+    await writeAuditLog(req.session.userId, "qt.question.status", "qt_question", req.params.id, null, rows[0]);
+    res.json({ ok: true, question: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { answered_by_character_id, answer_text } = req.body || {};
+    if (!answer_text || !answer_text.trim()) {
+      return res.status(400).json({ error: "answer_text is required" });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows: qRows } = await client.query(
+        "SELECT id, status FROM qt_questions WHERE id = $1", [req.params.id]
+      );
+      if (!qRows.length) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Question not found" }); }
+
+      const { rows } = await client.query(
+        `INSERT INTO qt_answers (question_id, answered_by_character_id, answer_text)
+         VALUES ($1, $2, $3) RETURNING id, question_id, answer_text, created_at`,
+        [req.params.id, answered_by_character_id || null, answer_text.trim()]
+      );
+      await client.query(
+        "UPDATE qt_questions SET status = 'answered', updated_at = NOW() WHERE id = $1",
+        [req.params.id]
+      );
+      await client.query("COMMIT");
+      res.status(201).json({ ok: true, answer: rows[0] });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/qt/questions/:id/followup", qtWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { asked_by_character_id, followup_text, answer_text = "" } = req.body || {};
+    if (!followup_text || !followup_text.trim()) {
+      return res.status(400).json({ error: "followup_text is required" });
+    }
+    const { rows: qRows } = await pool.query("SELECT id FROM qt_questions WHERE id = $1", [req.params.id]);
+    if (!qRows.length) return res.status(404).json({ error: "Question not found" });
+
+    const { rows } = await pool.query(
+      `INSERT INTO qt_followups (question_id, asked_by_character_id, followup_text, answer_text)
+       VALUES ($1, $2, $3, $4) RETURNING id, question_id, followup_text, answer_text, created_at`,
+      [req.params.id, asked_by_character_id || null, followup_text.trim(), answer_text.trim()]
+    );
+    res.status(201).json({ ok: true, followup: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SIMULATION STATE
+// GET   /api/sim        — authenticated: get current sim state
+// POST  /api/sim/tick   — admin: advance simulation clock by one month
+// POST  /api/sim/set    — admin: set simulation state directly
+// ═══════════════════════════════════════════════════════════════════════════
+
+const simReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
+const simWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/sim", simReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT id, year, month, is_paused, last_tick_at FROM sim_state WHERE id = 'main'");
+    if (!rows.length) return res.status(404).json({ error: "Sim state not found" });
+    res.json({ sim: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/sim/tick", simWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows } = await pool.query(`
+      UPDATE sim_state
+         SET month        = CASE WHEN month = 12 THEN 1 ELSE month + 1 END,
+             year         = CASE WHEN month = 12 THEN year + 1 ELSE year END,
+             last_tick_at = NOW()
+       WHERE id = 'main' AND is_paused = FALSE
+       RETURNING id, year, month, is_paused, last_tick_at
+    `);
+    if (!rows.length) {
+      // Either not found or paused
+      const { rows: current } = await pool.query("SELECT is_paused FROM sim_state WHERE id = 'main'");
+      if (current.length && current[0].is_paused) {
+        return res.status(409).json({ error: "Simulation is paused" });
+      }
+      return res.status(404).json({ error: "Sim state not found" });
+    }
+    await writeAuditLog(req.session.userId, "sim.tick", "sim_state", "main", null, rows[0]);
+    res.json({ ok: true, sim: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/sim/set", simWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { year, month, is_paused } = req.body || {};
+    if (year != null && (typeof year !== "number" || year < 1900 || year > 2200)) {
+      return res.status(400).json({ error: "year must be a number between 1900 and 2200" });
+    }
+    if (month != null && (typeof month !== "number" || month < 1 || month > 12)) {
+      return res.status(400).json({ error: "month must be a number between 1 and 12" });
+    }
+
+    const { rows: before } = await pool.query("SELECT year, month, is_paused FROM sim_state WHERE id = 'main'");
+    if (!before.length) return res.status(404).json({ error: "Sim state not found" });
+
+    const fields = [];
+    const params = [];
+    if (year      != null) { params.push(year);      fields.push(`year = $${params.length}`); }
+    if (month     != null) { params.push(month);     fields.push(`month = $${params.length}`); }
+    if (is_paused != null) { params.push(is_paused); fields.push(`is_paused = $${params.length}`); }
+    if (!fields.length) return res.status(400).json({ error: "Nothing to update" });
+
+    params.push("main");
+    const { rows } = await pool.query(
+      `UPDATE sim_state SET ${fields.join(", ")} WHERE id = $${params.length}
+       RETURNING id, year, month, is_paused, last_tick_at`,
+      params
+    );
+    await writeAuditLog(req.session.userId, "sim.set", "sim_state", "main", before[0], rows[0]);
+    res.json({ ok: true, sim: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BILLS — add PATCH for stage transitions (triggers Discourse on 2nd Reading)
+// PATCH /api/bills/:id   — admin: update bill fields (stage triggers Discourse)
+// ═══════════════════════════════════════════════════════════════════════════
+
+app.patch("/api/bills/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows: before } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!before.length) return res.status(404).json({ error: "Bill not found" });
+
+    const updated = { ...before[0].data, ...req.body, id: req.params.id };
+    const { rows } = await pool.query(
+      "UPDATE bills SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, data, updated_at",
+      [JSON.stringify(updated), req.params.id]
+    );
+
+    const newStage = updated.stage || updated.status;
+    const oldStage = before[0].data?.stage || before[0].data?.status;
+
+    // Auto-create Discourse topic when bill enters Second Reading (if not already linked)
+    let topicUrl = updated.discourseTopicUrl || null;
+    if (
+      newStage === "second_reading" &&
+      oldStage !== "second_reading" &&
+      !updated.discourseTopicId
+    ) {
+      try {
+        const { baseUrl, apiKey, apiUsername } = await loadDiscourseCredentials();
+        const title = `[Bill] ${updated.title || req.params.id} — Second Reading Debate`;
+        const raw   = updated.summary || updated.body || `Debate on **${updated.title || req.params.id}** at Second Reading.`;
+        const { topicId, topicUrl: url } = await dcWithRetry(
+          () => dcCreateTopic(baseUrl, apiKey, apiUsername, title, raw),
+          3, 500
+        );
+        topicUrl = url;
+        await pool.query(
+          `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+          [JSON.stringify({ discourseTopicId: topicId, discourseTopicUrl: url }), req.params.id]
+        );
+        rows[0].data = { ...rows[0].data, discourseTopicId: topicId, discourseTopicUrl: url };
+      } catch (discErr) {
+        // Non-fatal: log and continue; topic can be synced manually
+        console.error("[bills/patch] Discourse auto-topic failed:", discErr.message);
+      }
+    }
+
+    await writeAuditLog(req.session.userId, "bill.patch", "bill", req.params.id, before[0].data, rows[0].data);
+    res.json({ ok: true, bill: { ...rows[0].data, _updatedAt: rows[0].updated_at }, topicUrl });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMIN: Discourse sync — re-sync bills missing Discourse topic link
+// POST /api/admin/discourse-sync-bills — admin
+// ═══════════════════════════════════════════════════════════════════════════
+
+const discourseBillSyncLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/admin/discourse-sync-bills", discourseBillSyncLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    // Find bills at second_reading stage without a Discourse topic
+    const { rows: bills } = await pool.query(
+      `SELECT id, data FROM bills
+        WHERE (data->>'stage' = 'second_reading' OR data->>'status' = 'second_reading')
+          AND data->>'discourseTopicId' IS NULL`
+    );
+
+    if (!bills.length) return res.json({ ok: true, synced: 0, message: "No bills need syncing" });
+
+    let baseUrl, apiKey, apiUsername;
+    try {
+      ({ baseUrl, apiKey, apiUsername } = await loadDiscourseCredentials());
+    } catch (credErr) {
+      return res.status(400).json({ ok: false, error: credErr.message });
+    }
+
+    const results = [];
+    for (const bill of bills) {
+      try {
+        const title = `[Bill] ${bill.data.title || bill.id} — Second Reading Debate`;
+        const raw   = bill.data.summary || bill.data.body || `Debate on **${bill.data.title || bill.id}** at Second Reading.`;
+        const { topicId, topicUrl } = await dcWithRetry(
+          () => dcCreateTopic(baseUrl, apiKey, apiUsername, title, raw),
+          3, 500
+        );
+        await pool.query(
+          `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+          [JSON.stringify({ discourseTopicId: topicId, discourseTopicUrl: topicUrl }), bill.id]
+        );
+        results.push({ id: bill.id, ok: true, topicId, topicUrl });
+      } catch (err) {
+        results.push({ id: bill.id, ok: false, error: err.message });
+      }
+    }
+
+    const synced = results.filter((r) => r.ok).length;
+    await writeAuditLog(req.session.userId, "admin.discourse-sync-bills", "bills", "*", null, { synced, results });
+    res.json({ ok: true, synced, results });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMIN DASHBOARD SUMMARY
+// GET /api/admin/dashboard   — admin: summary data for moderator dashboard
+// ═══════════════════════════════════════════════════════════════════════════
+
+const dashboardLimit = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const [qtPending, openDivisions, billsAwaitingDebate, recentAudit] = await Promise.all([
+      pool.query(
+        "SELECT COUNT(*) AS count FROM qt_questions WHERE status = 'open'"
+      ),
+      pool.query(
+        "SELECT COUNT(*) AS count FROM divisions WHERE status = 'open'"
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS count FROM bills
+          WHERE (data->>'stage' = 'second_reading' OR data->>'status' = 'second_reading')
+            AND data->>'discourseTopicId' IS NULL`
+      ),
+      pool.query(
+        `SELECT id, actor_id, action, target, created_at
+           FROM audit_log ORDER BY created_at DESC LIMIT 10`
+      ),
+    ]);
+
+    res.json({
+      pendingQtQuestions:   Number(qtPending.rows[0].count),
+      openDivisions:        Number(openDivisions.rows[0].count),
+      billsAwaitingDebate:  Number(billsAwaitingDebate.rows[0].count),
+      recentAuditLog:       recentAudit.rows,
+    });
+  } catch (e) {
+    console.error(e);
     res.status(500).json({ error: "Server error" });
   }
 });

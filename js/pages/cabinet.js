@@ -2,6 +2,7 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
+import { apiGetCharacters } from "../api.js";
 
 function nowStamp() {
   return new Date().toLocaleString("en-GB", { hour12: false });
@@ -265,8 +266,33 @@ function render(data, state) {
   });
 }
 
-export function initCabinetPage(data) {
+/**
+ * Initialise the Cabinet page.
+ * Fetches active characters from /api/characters and merges them into the
+ * government offices data before rendering (non-fatal fallback if unavailable).
+ */
+export async function initCabinetPage(data) {
   normaliseCabinet(data);
+
+  // Augment government offices with characters from the DB
+  try {
+    const { characters } = await apiGetCharacters({ active: "true" });
+    if (characters && characters.length) {
+      // Merge DB characters into government offices where names match
+      const charByName = Object.fromEntries(characters.map((c) => [c.name.toLowerCase(), c]));
+      for (const office of data.government.offices) {
+        const holder = (office.holderName || "").toLowerCase();
+        if (holder && charByName[holder]) {
+          office._dbCharacter = charByName[holder];
+        }
+      }
+      // Attach characters list for access check
+      data._dbCharacters = characters;
+    }
+  } catch {
+    // Non-critical: fall back to state-based cabinet data
+  }
+
   saveState(data);
   render(data, { openDraftId: null, editingDraftId: null, message: "" });
 }
