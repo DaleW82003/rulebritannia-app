@@ -3621,11 +3621,12 @@ app.post("/api/admin/discourse-sync-bills", discourseBillSyncLimit, async (req, 
 // ═══════════════════════════════════════════════════════════════════════════
 // ADMIN: seed-demo — reset DB to a fully-populated baseline state
 // POST /api/admin/seed-demo   — admin: idempotent demo data seeder
+// POST /api/admin/seed        — canonical alias (same handler)
 // ═══════════════════════════════════════════════════════════════════════════
 
 const seedDemoLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
 
-app.post("/api/admin/seed-demo", seedDemoLimit, async (req, res) => {
+async function handleSeedDemo(req, res) {
   try {
     if (!requireAdmin(req, res)) return;
 
@@ -3770,7 +3771,14 @@ app.post("/api/admin/seed-demo", seedDemoLimit, async (req, res) => {
     console.error("[seed-demo]", e);
     res.status(500).json({ error: "Server error during demo seed" });
   }
-});
+}
+
+app.post("/api/admin/seed-demo", seedDemoLimit, handleSeedDemo);
+
+// ─── POST /api/admin/seed — canonical alias for /api/admin/seed-demo ─────────
+// Resets entire backend state to a clean, fully-populated baseline.
+// Fully idempotent — safe to call repeatedly during development.
+app.post("/api/admin/seed", seedDemoLimit, handleSeedDemo);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ADMIN DASHBOARD SUMMARY

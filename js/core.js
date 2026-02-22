@@ -1,5 +1,38 @@
 // js/core.js
-import { apiBootstrap, apiSaveState, setCsrfToken } from "./api.js";
+import { apiBootstrap, apiGetState, apiSaveState, setCsrfToken } from "./api.js";
+
+// ── Session state cache (set once during bootData) ───────────────────────────
+let _user = null;
+
+/**
+ * Returns true when the current visitor has an active server session.
+ * This is the single source of truth for session state across the application.
+ * @returns {boolean}
+ */
+export function isLoggedIn() {
+  return Boolean(_user?.id);
+}
+
+/**
+ * Load simulation state from the appropriate source.
+ * - When logged in: fetches the live state from GET /api/state.
+ * - When not logged in: fetches the read-only demo baseline from /data/demo.json.
+ * This is the sole data loader; no page may reference either source directly.
+ * @returns {Promise<object>} The resolved state data object.
+ */
+export async function getState() {
+  if (isLoggedIn()) {
+    const result = await apiGetState();
+    if (!result?.data) {
+      console.warn("[getState] API returned no state data; defaulting to empty object.");
+    }
+    return result?.data ?? {};
+  }
+  const res = await fetch("/data/demo.json");
+  if (!res.ok) throw new Error(`Failed to load demo data (${res.status})`);
+  return res.json();
+}
+
 const DEFAULT_ECONOMY_PAGE = {
   topline: { gdpGrowth: 1.8, inflation: 2.6, unemployment: 4.3 },
   ukInfoTiles: [
@@ -30,12 +63,24 @@ export function saveData(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
+/**
+ * Persist simulation state.
+ * - When logged in: writes to localStorage (optimistic) and POSTs to the backend.
+ * - When not logged in: shows a "Login required" notice and does not persist.
+ * This is the sole write function; no page may call the API or localStorage directly.
+ * @param {object} data - The full state object to persist.
+ */
 export function saveState(data) {
-  saveData(data);
-  const roles = data?.currentUser?.roles;
-  if (Array.isArray(roles) && roles.includes("admin")) {
-    apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
+  if (!isLoggedIn()) {
+    import("./components/toast.js").then(({ toastError }) => {
+      toastError("Login required to save changes.");
+    }).catch((err) => {
+      console.warn("[saveState] toast module unavailable:", err);
+    });
+    return;
   }
+  saveData(data);
+  apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
 }
 
 export function ensureDefaults(data) {
@@ -113,6 +158,9 @@ export async function bootData() {
   const clock  = bootstrap?.clock ?? null;
 
   if (bootstrap?.csrfToken) setCsrfToken(bootstrap.csrfToken);
+
+  // Cache session state so isLoggedIn() and saveState() can use it synchronously.
+  _user = user;
 
   if (!user) {
     // Not logged in — use whatever is in localStorage, or empty defaults.
