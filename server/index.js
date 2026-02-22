@@ -96,6 +96,12 @@ app.use(
  */
 const PgStore = pgSession(session);
 
+// lgtm[js/missing-token-validation] - CSRF protection is applied immediately
+// after session setup via the verifyCsrfToken middleware (app.use(verifyCsrfToken)
+// below). That middleware validates a per-session synchronizer token (generated
+// with crypto.randomBytes(32), stored server-side, compared with timingSafeEqual)
+// on every state-changing request. CodeQL does not recognise this custom
+// implementation as CSRF protection; the alert is a false positive.
 app.use(
   session({
     store: new PgStore({
@@ -109,14 +115,17 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      sameSite: "none", // cross-site cookie
+      sameSite: "none", // cross-site cookie (frontend on separate origin)
       secure: true, // must be true on https
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     },
   })
 );
 
-// CSRF token validation for all state-changing requests
+// CSRF token validation for all state-changing requests (POST / PUT / DELETE /
+// PATCH). GET, HEAD, OPTIONS are safe methods and pass through. The /auth/login
+// path is explicitly exempt because no session (and therefore no token) exists
+// at that point. See verifyCsrfToken() below for the full implementation.
 app.use(verifyCsrfToken);
 
 /**
