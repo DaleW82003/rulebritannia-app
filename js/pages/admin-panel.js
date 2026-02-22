@@ -9,6 +9,7 @@ import {
   apiAdminClearCache, apiAdminRebuildCache, apiAdminRotateSessions,
   apiAdminForceLogoutAll, apiAdminExportSnapshot, apiAdminImportSnapshot,
   apiGetSsoReadiness,
+  apiGetAdminDashboard, apiAdminDiscourseSyncBills,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
@@ -31,6 +32,79 @@ export async function initAdminPanelPage(data) {
   let syncPreview = [];
   let syncResults = null;  // null = never run; object = last sync results
   let ssoReadiness = null; // null = not yet loaded; object = readiness check results
+  let dashboardData = null; // moderator dashboard summary
+  let billSyncResults = null; // results of last Discourse bill sync
+
+  async function loadDashboard() {
+    try {
+      dashboardData = await apiGetAdminDashboard();
+    } catch (err) {
+      console.error("Failed to load dashboard:", err);
+      dashboardData = null;
+    }
+  }
+
+  function renderModDashboard() {
+    if (!dashboardData) {
+      return `<section class="panel" style="margin-top:12px;">
+        <h2 style="margin-top:0;">Moderator Dashboard</h2>
+        <p class="muted">Loading dashboard data…</p>
+      </section>`;
+    }
+    const { pendingQtQuestions, openDivisions, billsAwaitingDebate, recentAuditLog } = dashboardData;
+    const auditRows = (recentAuditLog || []).map((e) =>
+      `<tr>
+        <td>${esc(e.created_at ? new Date(e.created_at).toLocaleString("en-GB") : "")}</td>
+        <td>${esc(e.actor_id || "")}</td>
+        <td>${esc(e.action || "")}</td>
+        <td>${esc(e.target || "")}</td>
+      </tr>`
+    ).join("");
+
+    const syncMsg = billSyncResults
+      ? (billSyncResults.ok
+          ? `Synced ${billSyncResults.synced} bill(s). ${billSyncResults.message || ""}`
+          : `Sync error: ${esc(billSyncResults.error || "Unknown error")}`)
+      : "";
+
+    return `<section class="panel" style="margin-top:12px;">
+      <h2 style="margin-top:0;">Moderator Dashboard</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px;">
+        <div class="tile" style="text-align:center;">
+          <div style="font-size:2rem;font-weight:700;">${pendingQtQuestions ?? "—"}</div>
+          <div>Pending QT Questions</div>
+          <a href="questiontime.html" class="btn btn-sm" style="margin-top:6px;">View</a>
+        </div>
+        <div class="tile" style="text-align:center;">
+          <div style="font-size:2rem;font-weight:700;">${openDivisions ?? "—"}</div>
+          <div>Open Divisions</div>
+        </div>
+        <div class="tile" style="text-align:center;">
+          <div style="font-size:2rem;font-weight:700;">${billsAwaitingDebate ?? "—"}</div>
+          <div>Bills Awaiting Debate</div>
+        </div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <button id="btn-sync-discourse-bills" class="btn" type="button">Sync Discourse (Missing Bills)</button>
+        ${syncMsg ? `<span style="margin-left:10px;font-size:13px;">${syncMsg}</span>` : ""}
+      </div>
+      <h3 style="margin-top:0;">Recent Audit Log</h3>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="border-bottom:2px solid #ddd;">
+              <th style="text-align:left;padding:4px 8px;">Time</th>
+              <th style="text-align:left;padding:4px 8px;">Actor</th>
+              <th style="text-align:left;padding:4px 8px;">Action</th>
+              <th style="text-align:left;padding:4px 8px;">Target</th>
+            </tr>
+          </thead>
+          <tbody>${auditRows || `<tr><td colspan="4" class="muted" style="padding:8px;">No recent audit entries.</td></tr>`}</tbody>
+        </table>
+      </div>
+      <a href="#audit-log-section" style="font-size:13px;display:block;margin-top:8px;">View full audit log ↓</a>
+    </section>`;
+  }
 
   async function loadConfig() {
     try {
@@ -227,7 +301,7 @@ export async function initAdminPanelPage(data) {
       : '<p class="muted-block">No audit log entries match the current filters.</p>';
 
     return `
-      <section class="panel" style="max-width:800px;margin-top:12px;">
+      <section id="audit-log-section" class="panel" style="max-width:800px;margin-top:12px;">
         <h2 style="margin-top:0;">Audit Log</h2>
 
         <form id="audit-filter-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
@@ -540,6 +614,8 @@ export async function initAdminPanelPage(data) {
         <div class="kv"><span>Roles</span><b>${esc((user.roles || []).join(", ") || "—")}</b></div>
       </section>
 
+      ${renderModDashboard()}
+
       ${renderQuickLinks()}
 
       <section class="panel" style="max-width:600px;margin-top:12px;">
@@ -787,6 +863,24 @@ export async function initAdminPanelPage(data) {
       }
     });
 
+    // ── Sync Discourse Bills button ────────────────────────────────────────────
+    host.querySelector("#btn-sync-discourse-bills")?.addEventListener("click", async () => {
+      const btn = host.querySelector("#btn-sync-discourse-bills");
+      if (btn) btn.disabled = true;
+      try {
+        billSyncResults = await apiAdminDiscourseSyncBills();
+        toastSuccess(`Synced ${billSyncResults.synced} bill(s) to Discourse.`);
+        await loadDashboard();
+        render("");
+      } catch (err) {
+        billSyncResults = { ok: false, error: err.message };
+        toastError(`Discourse bill sync failed: ${err.message}`);
+        render("");
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    });
+
     // ── Maintenance buttons ────────────────────────────────────────────────────
 
     host.querySelector("#btn-clear-cache")?.addEventListener("click", async () => {
@@ -887,6 +981,6 @@ export async function initAdminPanelPage(data) {
     });
   }
 
-  await Promise.all([loadConfig(), loadDiscourseConfig(), loadSnapshots(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness()]);
+  await Promise.all([loadConfig(), loadDiscourseConfig(), loadSnapshots(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard()]);
   render("");
 }

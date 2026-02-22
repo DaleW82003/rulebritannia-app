@@ -1,6 +1,7 @@
 import { setHTML, esc } from "../ui.js";
 import { saveState } from "../core.js";
 import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
+import { apiGetCharacters } from "../api.js";
 
 const REGION_TEMPLATE = [
   ["England", "North East", 25],
@@ -382,9 +383,39 @@ function bindEditor(data) {
   });
 }
 
-export function initConstituenciesPage(data) {
+/**
+ * Initialise the Constituencies page.
+ * Fetches active characters from /api/characters and merges them into the
+ * players list for constituency assignment display (non-fatal fallback if unavailable).
+ */
+export async function initConstituenciesPage(data) {
   data.parliament ??= {};
   data.constituencies ??= [];
+
+  // Fetch DB characters and merge into players list for constituency assignment
+  try {
+    const { characters } = await apiGetCharacters({ active: "true" });
+    if (characters && characters.length) {
+      // Map DB characters onto data.players so existing constituency assignment logic works
+      const existingIds = new Set((data.players || []).map((p) => p.id));
+      const dbPlayers = characters
+        .filter((c) => c.constituency)
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          party: c.party,
+          constituency: c.constituency,
+          _fromDb: true,
+        }));
+      data.players = [
+        ...(data.players || []),
+        ...dbPlayers.filter((p) => !existingIds.has(p.id)),
+      ];
+    }
+  } catch {
+    // Non-critical: fall back to state-based players list
+  }
+
   ensureConstituencyAssignments(data);
   refreshAll(data);
   bindEditor(data);

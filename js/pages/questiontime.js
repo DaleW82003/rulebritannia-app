@@ -3,6 +3,10 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
 import { logAction } from "../audit.js";
+import {
+  apiGetQtQuestions, apiSubmitQtQuestion, apiAnswerQtQuestion,
+  apiFollowupQtQuestion, apiPatchQtQuestion,
+} from "../api.js";
 
 /** Static list of Question Time departments — mirrors government.js OFFICE_SPECS */
 const QT_OFFICES = [
@@ -431,8 +435,110 @@ function render(data, state) {
   });
 }
 
-export function initQuestionTimePage(data) {
+/**
+ * Render the DB-driven Question Time panel (new structured questions).
+ * Displayed as a separate tile below the legacy QT section.
+ */
+function renderDbQtPanel(questions, data, host) {
+  const canAdmin = canModerate(data);
+  const canAnswer = canAdminModOrSpeaker(data);
+  const char = getCurrentCharacter(data);
+
+  const byOffice = {};
+  questions.forEach((q) => {
+    (byOffice[q.office_id] = byOffice[q.office_id] || []).push(q);
+  });
+
+  const offices = Object.keys(byOffice);
+  if (!offices.length && !canAdmin) return;
+
+  const panel = document.createElement("section");
+  panel.className = "tile";
+  panel.style.marginTop = "20px";
+  panel.innerHTML = `<h2 style="margin-top:0;">Question Time (DB Questions)</h2>
+    <p class="muted" style="margin-bottom:12px;">Questions submitted via the structured question bank.</p>
+    <form id="db-qt-ask-form" style="margin-bottom:16px;">
+      <label class="label" for="db-qt-office">Office</label>
+      <select id="db-qt-office" name="office_id" class="input" style="margin-bottom:8px;">
+        ${QT_OFFICES.map((o) => `<option value="${esc(o.id)}">${esc(o.title)}</option>`).join("")}
+      </select>
+      <label class="label" for="db-qt-text">Your Question</label>
+      <textarea id="db-qt-text" name="question_text" class="input" rows="3" placeholder="Enter your question for the minister"></textarea>
+      <button class="btn" type="submit" style="margin-top:6px;">Submit Question</button>
+    </form>
+    <div id="db-qt-questions-list">
+      ${questions.length === 0 ? `<p class="muted">No questions yet.</p>` : offices.map((officeId) => {
+        const office = QT_OFFICES.find((o) => o.id === officeId) || { title: officeId };
+        const qs = byOffice[officeId];
+        return `<details open style="margin-bottom:12px;">
+          <summary style="font-weight:700;cursor:pointer;">${esc(office.title)} (${qs.length})</summary>
+          ${qs.map((q) => `
+            <article class="tile" style="margin:8px 0;padding:10px;">
+              <div style="display:flex;justify-content:space-between;">
+                <span><b>${esc(q.asked_by_name || "MP")}</b></span>
+                <span class="badge badge-${q.status}">${esc(q.status)}</span>
+              </div>
+              <p style="margin:6px 0;"><b>Q:</b> ${esc(q.question_text)}</p>
+              ${canAdmin && q.status !== "archived" ? `<button class="btn btn-sm" data-dbqt-archive="${esc(q.id)}" type="button">Archive</button>` : ""}
+            </article>
+          `).join("")}
+        </details>`;
+      }).join("")}
+    </div>`;
+
+  host.appendChild(panel);
+
+  // Submit question via DB endpoint
+  panel.querySelector("#db-qt-ask-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const office_id = form.office_id.value.trim();
+    const question_text = form.question_text.value.trim();
+    if (!question_text) return;
+    try {
+      await apiSubmitQtQuestion({ office_id, question_text });
+      form.question_text.value = "";
+      // Refresh DB questions list
+      const { questions: updated } = await apiGetQtQuestions();
+      renderDbQtPanel(updated, data, host);
+      panel.remove();
+    } catch (err) {
+      alert("Failed to submit question: " + err.message);
+    }
+  });
+
+  // Archive buttons
+  panel.querySelectorAll("[data-dbqt-archive]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await apiPatchQtQuestion(btn.dataset.dbqtArchive, { status: "archived" });
+        const { questions: updated } = await apiGetQtQuestions();
+        renderDbQtPanel(updated, data, host);
+        panel.remove();
+      } catch (err) {
+        alert("Failed to archive: " + err.message);
+      }
+    });
+  });
+}
+
+/**
+ * Initialise the Question Time page.
+ * Renders the legacy state-based QT panel then augments it with DB-sourced
+ * questions fetched from /api/qt/questions (non-fatal fallback if unavailable).
+ */
+export async function initQuestionTimePage(data) {
   normaliseQuestionTime(data);
   const state = { selectedOfficeId: data.questionTime.offices[0]?.id || null };
   render(data, state);
+
+  // Augment with DB-driven questions from the structured QT endpoint
+  const host = document.getElementById("question-time-root") || document.getElementById("qt-root");
+  if (!host) return;
+  try {
+    const { questions } = await apiGetQtQuestions();
+    renderDbQtPanel(questions, data, host);
+  } catch {
+    // Non-critical: DB questions unavailable, legacy state-based QT still works
+  }
 }
