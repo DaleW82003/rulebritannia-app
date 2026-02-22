@@ -52,7 +52,7 @@ function statementCard(s, speaker, gameState) {
     : "";
   const actions = `
     <a class="btn" href="statement.html?id=${encodeURIComponent(s.id)}">Open</a>
-    ${s.debateUrl ? `<a class="btn" href="${esc(s.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+    ${(s.discourse_topic_url || s.debateUrl) ? `<a class="btn" href="${esc(s.discourse_topic_url || s.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
     ${speaker && s.status !== "archived" ? `<button class="btn danger" type="button" data-action="archive" data-id="${esc(s.id)}">Archive</button>` : ""}
   `;
   const body = `
@@ -166,6 +166,8 @@ function render(data) {
     }).then(({ topicId, topicUrl }) => {
       statement.debateUrl = topicUrl;
       statement.discourseTopicId = topicId;
+      statement.discourse_topic_id = topicId;
+      statement.discourse_topic_url = topicUrl;
       saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     render(data);

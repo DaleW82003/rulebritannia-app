@@ -124,7 +124,7 @@ export function initRegulationsPage(data) {
           <div class="muted" style="margin-top:6px;">Laid: ${esc(r.laidAtSim || "—")} • In force: ${esc(r.comesIntoForce || "—")} • Debate closes: ${esc(r.debateClosesAtSim || "—")}${r.debateClosesAtSimObj && r.status !== "closed" ? ` (${countdownToSimMonth(r.debateClosesAtSimObj.month, r.debateClosesAtSimObj.year, data.gameState)})` : ""}</div>
           <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
             <a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a>
-            ${r.debateUrl ? `<a class="btn" href="${esc(r.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+            ${(r.discourse_topic_url || r.debateUrl) ? `<a class="btn" href="${esc(r.discourse_topic_url || r.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
           </div>
         </article>
       `).join("") : `<p class="muted">No current regulations.</p>`}
@@ -138,7 +138,7 @@ export function initRegulationsPage(data) {
           <div class="muted" style="margin-top:6px;">Closed: ${esc(r.closedAtSim || "—")}</div>
           <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
             <a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a>
-            ${r.debateUrl ? `<a class="btn" href="${esc(r.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+            ${(r.discourse_topic_url || r.debateUrl) ? `<a class="btn" href="${esc(r.discourse_topic_url || r.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
           </div>
         </article>
       `).join("") : `<p class="muted">No archived regulations yet.</p>`}
@@ -188,6 +188,8 @@ export function initRegulationsPage(data) {
     }).then(({ topicId, topicUrl }) => {
       regulation.debateUrl = topicUrl;
       regulation.discourseTopicId = topicId;
+      regulation.discourse_topic_id = topicId;
+      regulation.discourse_topic_url = topicUrl;
       saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `regulation.html?id=${encodeURIComponent(regulation.id)}`;

@@ -124,17 +124,24 @@ function partyOfCurrent(data) {
 function setDebateLink(bill) {
   const btn = $("debateBtn");
   if (!btn) return;
-  const url = bill?.debateUrl || bill?.discourseUrl || `https://forum.rulebritannia.org/t/${encodeURIComponent(bill?.id || "bill")}`;
-  btn.href = url;
+  const url = bill?.discourse_topic_url || bill?.debateUrl || bill?.discourseUrl || null;
+  if (url) {
+    btn.href = url;
+    btn.hidden = false;
+  } else {
+    btn.hidden = true;
+  }
 }
 
 function ensureBillDebateTopic(bill, data) {
-  if (bill.discourseTopicId) return;
+  if (bill.discourseTopicId || bill.discourse_topic_id) return;
   const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${bill.department ? ` (${bill.department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
   apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw })
     .then(({ topicId, topicUrl }) => {
       bill.debateUrl = topicUrl;
       bill.discourseTopicId = topicId;
+      bill.discourse_topic_id = topicId;
+      bill.discourse_topic_url = topicUrl;
       const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
       if (idx >= 0) data.orderPaperCommons[idx] = bill;
       saveState(data);

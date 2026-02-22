@@ -217,36 +217,53 @@ async function ensureSchema() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bills (
-      id         TEXT PRIMARY KEY,
-      data       JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id                  TEXT PRIMARY KEY,
+      data                JSONB NOT NULL,
+      discourse_topic_id  TEXT,
+      discourse_topic_url TEXT,
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  // Add columns to existing bills table if missing (migration)
+  await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
+  await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS motions (
-      id          TEXT PRIMARY KEY,
-      motion_type TEXT NOT NULL DEFAULT 'house',
-      data        JSONB NOT NULL,
-      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id                  TEXT PRIMARY KEY,
+      motion_type         TEXT NOT NULL DEFAULT 'house',
+      data                JSONB NOT NULL,
+      discourse_topic_id  TEXT,
+      discourse_topic_url TEXT,
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`ALTER TABLE motions ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
+  await pool.query(`ALTER TABLE motions ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS statements (
-      id         TEXT PRIMARY KEY,
-      data       JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id                  TEXT PRIMARY KEY,
+      data                JSONB NOT NULL,
+      discourse_topic_id  TEXT,
+      discourse_topic_url TEXT,
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
+  await pool.query(`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS regulations (
-      id         TEXT PRIMARY KEY,
-      data       JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id                  TEXT PRIMARY KEY,
+      data                JSONB NOT NULL,
+      discourse_topic_id  TEXT,
+      discourse_topic_url TEXT,
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
+  await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS questiontime_questions (
@@ -469,6 +486,27 @@ function requireAdmin(req, res) {
     return false;
   }
   return true;
+}
+
+/**
+ * Normalise Discourse fields on entity objects returned by API endpoints.
+ * Ensures discourse_topic_id and discourse_topic_url are always present
+ * (even if null) so the UI can reliably check them without extra guards.
+ * Also promotes legacy camelCase aliases so both forms are available.
+ */
+function normaliseDiscourseFields(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  const topicId  = obj.discourse_topic_id  ?? obj.discourseTopicId  ?? null;
+  const topicUrl = obj.discourse_topic_url ?? obj.discourseTopicUrl ?? obj.debateUrl ?? null;
+  return {
+    ...obj,
+    // snake_case (canonical API format)
+    discourse_topic_id:  topicId,
+    discourse_topic_url: topicUrl,
+    // camelCase aliases (legacy client-side format)
+    discourseTopicId:  topicId,
+    discourseTopicUrl: topicUrl,
+  };
 }
 
 /**
@@ -1439,7 +1477,7 @@ app.get("/api/bills", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT id, data, updated_at FROM bills ORDER BY updated_at DESC");
-    res.json({ bills: rows.map((r) => ({ ...r.data, _updatedAt: r.updated_at })) });
+    res.json({ bills: rows.map((r) => normaliseDiscourseFields({ ...r.data, _updatedAt: r.updated_at })) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -1451,7 +1489,7 @@ app.get("/api/bills/:id", crudReadLimit, async (req, res) => {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT id, data, updated_at FROM bills WHERE id = $1", [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: "Bill not found" });
-    res.json({ bill: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
+    res.json({ bill: normaliseDiscourseFields({ ...rows[0].data, _updatedAt: rows[0].updated_at }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -1529,7 +1567,7 @@ app.get("/api/motions", crudReadLimit, async (req, res) => {
     }
     query += " ORDER BY updated_at DESC";
     const { rows } = await pool.query(query, params);
-    res.json({ motions: rows.map((r) => ({ ...r.data, _motionType: r.motion_type, _updatedAt: r.updated_at })) });
+    res.json({ motions: rows.map((r) => normaliseDiscourseFields({ ...r.data, _motionType: r.motion_type, _updatedAt: r.updated_at })) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -1544,7 +1582,7 @@ app.get("/api/motions/:id", crudReadLimit, async (req, res) => {
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Motion not found" });
-    res.json({ motion: { ...rows[0].data, _motionType: rows[0].motion_type, _updatedAt: rows[0].updated_at } });
+    res.json({ motion: normaliseDiscourseFields({ ...rows[0].data, _motionType: rows[0].motion_type, _updatedAt: rows[0].updated_at }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -1620,7 +1658,7 @@ app.get("/api/statements", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT id, data, updated_at FROM statements ORDER BY updated_at DESC");
-    res.json({ statements: rows.map((r) => ({ ...r.data, _updatedAt: r.updated_at })) });
+    res.json({ statements: rows.map((r) => normaliseDiscourseFields({ ...r.data, _updatedAt: r.updated_at })) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -1635,7 +1673,7 @@ app.get("/api/statements/:id", crudReadLimit, async (req, res) => {
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Statement not found" });
-    res.json({ statement: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
+    res.json({ statement: normaliseDiscourseFields({ ...rows[0].data, _updatedAt: rows[0].updated_at }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -1705,7 +1743,7 @@ app.get("/api/regulations", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT id, data, updated_at FROM regulations ORDER BY updated_at DESC");
-    res.json({ regulations: rows.map((r) => ({ ...r.data, _updatedAt: r.updated_at })) });
+    res.json({ regulations: rows.map((r) => normaliseDiscourseFields({ ...r.data, _updatedAt: r.updated_at })) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -1720,7 +1758,7 @@ app.get("/api/regulations/:id", crudReadLimit, async (req, res) => {
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Regulation not found" });
-    res.json({ regulation: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
+    res.json({ regulation: normaliseDiscourseFields({ ...rows[0].data, _updatedAt: rows[0].updated_at }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -1792,7 +1830,7 @@ app.get("/api/questiontime-questions", crudReadLimit, async (req, res) => {
     const { rows } = await pool.query(
       "SELECT id, data, updated_at FROM questiontime_questions ORDER BY updated_at DESC"
     );
-    res.json({ questions: rows.map((r) => ({ ...r.data, _updatedAt: r.updated_at })) });
+    res.json({ questions: rows.map((r) => normaliseDiscourseFields({ ...r.data, _updatedAt: r.updated_at })) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -1807,7 +1845,7 @@ app.get("/api/questiontime-questions/:id", crudReadLimit, async (req, res) => {
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Question not found" });
-    res.json({ question: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
+    res.json({ question: normaliseDiscourseFields({ ...rows[0].data, _updatedAt: rows[0].updated_at }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -2335,7 +2373,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     }
 
     if (!isLoggedIn) {
-      return res.json({ clock, config, user: null, csrfToken: null, state: null });
+      return res.json({ clock, config, user: null, csrfToken: null, state: null, is_demo: true });
     }
 
     // Lazily generate CSRF token for sessions that pre-date the feature.
@@ -2346,7 +2384,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     const user = userRows[0];
     const state = stateRows[0] ? { data: stateRows[0].data, updatedAt: stateRows[0].updated_at } : null;
 
-    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state });
+    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state, is_demo: false });
   } catch (e) {
     console.error("[bootstrap]", e);
     res.status(500).json({ error: "Server error" });
