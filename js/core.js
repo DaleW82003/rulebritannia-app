@@ -67,7 +67,7 @@ export function ensureDefaults(data) {
       { key: "independent", name: "The Independent", cls: "paper-independent", issues: [] },
       { key: "express", name: "The Daily Express", cls: "paper-express", issues: [] },
     ];
-    data.papers.papers = DEFAULT_PAPERS.map((p) => ({ ...p, issues: [] }));
+    data.papers.papers = DEFAULT_PAPERS.map((p) => ({ ...p }));
   }
   data.questionTime ??= { offices: [], questions: [] };
   if (!Array.isArray(data.questionTime.offices)) data.questionTime.offices = [];

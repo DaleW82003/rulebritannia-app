@@ -279,7 +279,7 @@ function renderParliamentSetupForm(data) {
     const alloc = Array.from(formRoot.querySelectorAll("[data-party-seats]")).reduce((s, i) => s + Number(i.value || 0), 0);
     const msgEl = formRoot.querySelector("#parlSetupMsg");
     if (alloc !== total) {
-      if (msgEl) msgEl.textContent = `⚠ Seats allocated (${alloc}) must equal total seats (${total}).`;
+      if (msgEl) msgEl.textContent = `⚠ Error: Seats allocated (${alloc}) must equal total seats (${total}). Please adjust party seat allocations.`;
       return;
     }
 
