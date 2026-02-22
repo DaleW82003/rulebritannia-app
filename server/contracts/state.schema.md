@@ -196,7 +196,7 @@ Legislative items progressing through Parliament.
 
 ### 6.4 Lifecycle Fields (Bills)
 
-See the **Shared Lifecycle Fields** section (§12).
+See the **Shared Lifecycle Fields** section (§14).
 
 ---
 
@@ -217,7 +217,7 @@ House motions (including Early Day Motions).
 
 ### 7.1 Lifecycle Fields (Motions)
 
-See §12.
+See §14.
 
 ---
 
@@ -236,7 +236,7 @@ Ministerial statements delivered to the House.
 
 ### 8.1 Lifecycle Fields (Statements)
 
-See §12.
+See §14.
 
 ---
 
@@ -257,7 +257,7 @@ Statutory Instruments (secondary legislation).
 
 ### 9.1 Lifecycle Fields (Regulations)
 
-See §12.
+See §14.
 
 ---
 
@@ -296,7 +296,7 @@ Structured per-department oral question sessions.
 
 ### 10.4 Lifecycle Fields (QtQuestion)
 
-See §12.
+See §14.
 
 ---
 
@@ -336,7 +336,7 @@ See §12.
 
 ### 11.4 Lifecycle Fields (Press)
 
-See §12.
+See §14.
 
 ---
 
@@ -354,7 +354,7 @@ Weekly opinion poll data published each Sunday.
 
 ### 12.1 Lifecycle Fields (PollingEntry)
 
-See §12.
+See §14.
 
 ---
 
@@ -385,7 +385,7 @@ Six collapsible data blocks provide deeper economic context. Each block is an ar
 
 ---
 
-## 12. Shared Lifecycle Fields
+## 14. Shared Lifecycle Fields
 
 All content types (Bills, Motions, Statements, Regulations, QtQuestions, Press items, PollingEntries) carry the following lifecycle fields:
 
