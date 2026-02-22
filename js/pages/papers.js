@@ -1,7 +1,7 @@
 import { formatSimMonthYear } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
 import { canPostNews } from "../permissions.js";
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 
 function byNewest(a, b) {
   return Number(b?.createdAt || 0) - Number(a?.createdAt || 0);
@@ -116,7 +116,7 @@ function bindNewsDesk(data, rerenderGrid) {
       text
     });
 
-    saveData(data);
+    saveState(data);
     form.reset();
     deskPanel.style.display = "none";
     rerenderGrid();
@@ -124,13 +124,6 @@ function bindNewsDesk(data, rerenderGrid) {
 }
 
 export function initPapersPage(data) {
-  const simDateEl = document.getElementById("papersSimDate");
-  const renderClock = () => {
-    if (simDateEl) simDateEl.textContent = formatSimMonthYear(data.gameState);
-  };
-  renderClock();
-  window.setInterval(renderClock, 60 * 1000);
-
   const papers = data.papers?.papers || [];
   const paperSelect = document.getElementById("papersDeskPaper");
   if (paperSelect) {

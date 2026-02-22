@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canRaiseCivilServiceCase, canAdminOrMod } from "../permissions.js";
 
@@ -135,7 +135,7 @@ function render(data, state) {
     .sort((a, b) => b.id - a.id);
 
   host.innerHTML = `
-    <h1 class="page-title">Civil Service</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Civil Service</div></div>
 
     ${(!mod && !govMember) ? `
       <section class="panel">
@@ -273,7 +273,7 @@ function render(data, state) {
       ]
     };
     data.civilService.cases.unshift(caseItem);
-    saveData(data);
+    saveState(data);
     state.openCaseId = caseItem.id;
     state.message = `Case #${caseItem.id} created.`;
     render(data, state);
@@ -296,7 +296,7 @@ function render(data, state) {
       item.status = "closed";
       item.closedAt = nowStamp();
       item.closedBy = String(getChar(data)?.name || data?.currentUser?.username || "Civil Service Moderator");
-      saveData(data);
+      saveState(data);
       state.message = `Case #${id} closed.`;
       render(data, state);
     });
@@ -322,7 +322,7 @@ function render(data, state) {
         text,
         createdAt: nowStamp()
       });
-      saveData(data);
+      saveState(data);
       state.message = `Reply added to Case #${id}.`;
       state.openCaseId = id;
       render(data, state);
@@ -332,6 +332,6 @@ function render(data, state) {
 
 export function initCivilServicePage(data) {
   normaliseCivilService(data);
-  saveData(data);
+  saveState(data);
   render(data, { selectedDeptId: selectedDeptFromUrl(), openCaseId: null, message: "" });
 }

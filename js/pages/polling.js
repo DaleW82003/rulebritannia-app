@@ -1,10 +1,11 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
-import { formatSimMonthYear, getWeekdayName, isSunday } from "../clock.js";
+import { formatSimMonthYear, getSimDate, getWeekdayName, isSunday } from "../clock.js";
 import { logAction } from "../audit.js";
 
 const POLL_DAY = "Sunday";
+const SIM_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 function canPublish(data) {
   return canAdminOrMod(data);
@@ -14,6 +15,18 @@ function ensurePolling(data) {
   data.polling ??= { polls: [], nextId: 1 };
   data.polling.polls ??= [];
   data.polling.nextId = Number(data.polling.nextId || 1);
+}
+
+/**
+ * Return the sim label for Saturday (the last active sim day).
+ * Polls are published on Sunday (freeze), so the correct date label is
+ * the sim month/year computed as of Saturday — one real day earlier.
+ */
+function saturdaySimLabel(data) {
+  const saturday = new Date();
+  saturday.setDate(saturday.getDate() - 1); // step back to Saturday
+  const d = getSimDate(data?.gameState || {}, saturday);
+  return `${SIM_MONTHS[d.monthIndex]} ${d.year}`;
 }
 
 function currentSimLabel(data) {
@@ -95,7 +108,7 @@ function render(data) {
   const projection = latest ? seatProjection(data, latest) : [];
 
   root.innerHTML = `
-    <h1 class="page-title">Polling</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Polling</div></div>
 
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Weekly Poll Publication</h2>
@@ -138,8 +151,8 @@ function render(data) {
       <section class="panel" style="margin-bottom:12px;">
         <h2 style="margin-top:0;">Publish Weekly Poll (Mods/Admins)</h2>
         <form id="poll-submit-form">
-          <label class="label" for="polling-sim-date">Simulation Month & Year</label>
-          <input id="polling-sim-date" name="simDate" class="input" value="${esc(currentSimLabel(data))}" required>
+          <label class="label" for="polling-sim-date">Simulation Month &amp; Year</label>
+          <input id="polling-sim-date" name="simDate" class="input" value="${esc(saturdaySimLabel(data))}" readonly aria-readonly="true" style="background:#f0f4fb;cursor:default;">
 
           <label class="label" for="polling-results">Party shares (one per line: Party=Value)</label>
           <textarea id="polling-results" name="results" class="input" rows="6" required placeholder="Labour=34.5\nConservative=31.1\nLiberal Democrat=11.8\nGreen=5.0\nSNP=3.0"></textarea>
@@ -192,7 +205,7 @@ function render(data) {
     };
 
     data.polling.polls.push(poll);
-    saveData(data);
+    saveState(data);
     logAction({ action: "poll-published", target: simDate, details: { pollId: poll.id, results } });
     render(data);
   });

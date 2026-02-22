@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
@@ -118,7 +118,7 @@ function render(data, state) {
   const revenueTotal = profile.additionalRevenue.reduce((sum, r) => sum + Number(r.annualRevenue || 0), 0);
 
   host.innerHTML = `
-    <h1 class="page-title">Personal</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Personal</div></div>
 
     ${manager ? `
       <section class="panel" style="margin-bottom:12px;">
@@ -259,7 +259,7 @@ function render(data, state) {
     profile.bankBalance = Number(profile.bankBalance || 0) + weekly;
     profile.lastSundayCreditAt = nowStamp();
     profile.updatedAt = nowStamp();
-    saveData(data);
+    saveState(data);
     state.message = `Applied Sunday credit of ${money(weekly)}.`;
     render(data, state);
   });
@@ -279,7 +279,7 @@ function render(data, state) {
     }
 
     profile.updatedAt = nowStamp();
-    saveData(data);
+    saveState(data);
     state.message = `Saved personal profile for ${profile.name}.`;
     render(data, state);
   });
@@ -294,7 +294,7 @@ function render(data, state) {
     profile.additionalRevenue.push({ id: Number(profile.nextRevenueId || 1), source, annualRevenue });
     profile.nextRevenueId = Number(profile.nextRevenueId || 1) + 1;
     profile.updatedAt = nowStamp();
-    saveData(data);
+    saveState(data);
     state.message = `Added revenue source for ${profile.name}.`;
     render(data, state);
   });
@@ -307,7 +307,7 @@ function render(data, state) {
       if (idx === -1) return;
       profile.additionalRevenue.splice(idx, 1);
       profile.updatedAt = nowStamp();
-      saveData(data);
+      saveState(data);
       state.message = `Removed additional revenue source.`;
       render(data, state);
     });
@@ -316,6 +316,6 @@ function render(data, state) {
 
 export function initPersonalPage(data) {
   normalisePersonal(data);
-  saveData(data);
+  saveState(data);
   render(data, { selectedName: getCharacterName(data), message: "" });
 }

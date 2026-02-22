@@ -1,8 +1,26 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
 import { logAction } from "../audit.js";
+
+/** Static list of Question Time departments — mirrors government.js OFFICE_SPECS */
+const QT_OFFICES = [
+  { id: "prime-minister", title: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service", holder: "" },
+  { id: "chancellor", title: "Chancellor of the Exchequer, and Second Lord of the Treasury", holder: "" },
+  { id: "home", title: "Secretary of State for the Home Department", holder: "" },
+  { id: "foreign", title: "Secretary of State for Foreign and Commonwealth Affairs", holder: "" },
+  { id: "trade", title: "Secretary of State for Business and Trade, and President of the Board of Trade", holder: "" },
+  { id: "defence", title: "Secretary of State for Defence", holder: "" },
+  { id: "welfare", title: "Secretary of State for Work and Pensions", holder: "" },
+  { id: "education", title: "Secretary of State for Education", holder: "" },
+  { id: "env-agri", title: "Secretary of State for the Environment and Agriculture", holder: "" },
+  { id: "health", title: "Secretary of State for Health and Social Care", holder: "" },
+  { id: "eti", title: "Secretary of State for Transport and Infrastructure", holder: "" },
+  { id: "culture", title: "Secretary of State for Culture, Media and Sport", holder: "" },
+  { id: "home-nations", title: "Secretary of State for the Home Nations", holder: "" },
+  { id: "leader-commons", title: "Leader of the House of Commons", holder: "" }
+];
 
 function nowId(prefix = "id") {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
@@ -24,6 +42,27 @@ function normaliseQuestionTime(data) {
   data.questionTime ??= {};
   data.questionTime.offices ??= [];
   data.questionTime.questions ??= [];
+
+  // Seed static offices if none exist yet
+  if (!data.questionTime.offices.length) {
+    data.questionTime.offices = QT_OFFICES.map((o) => ({ ...o }));
+  }
+
+  // Ensure every static office is present (backfill any that were missing)
+  const existingOfficeIds = new Set(data.questionTime.offices.map((o) => o.id));
+  for (const def of QT_OFFICES) {
+    if (!existingOfficeIds.has(def.id)) {
+      data.questionTime.offices.push({ ...def });
+    }
+  }
+
+  // Sync office holders from government data so QT stays up to date
+  const govOffices = new Map((data.government?.offices || []).map((o) => [o.id, o]));
+  for (const qt of data.questionTime.offices) {
+    const gov = govOffices.get(qt.id);
+    if (gov) qt.holder = gov.holderName || "";
+  }
+
   data.questionTime.questions.forEach((q) => {
     q.followUps ??= [];
     q.followUps.forEach((f) => {
@@ -285,7 +324,7 @@ function render(data, state) {
       speakerDemandAvailable: false
     });
 
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -310,7 +349,7 @@ function render(data, state) {
       logAction({ action: "question-answered", target: selectedOffice.title, details: { questionId, askedBy: target.askedBy } });
     }
 
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -345,7 +384,7 @@ function render(data, state) {
         answer: ""
       });
 
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });
@@ -360,7 +399,7 @@ function render(data, state) {
       question.status = "closed";
       question.archivedAtSim = simLabel;
       logAction({ action: "question-closed", target: qid, details: { office: question.office, askedBy: question.askedBy } });
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });
@@ -376,7 +415,7 @@ function render(data, state) {
       question.demandDueAtSim = createDeadline(data.gameState, 1);
       question.speakerDemandAvailable = false;
       logAction({ action: "speaker-demand", target: qid, details: { office: question.office, askedBy: question.askedBy } });
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });
@@ -393,6 +432,7 @@ function render(data, state) {
 }
 
 export function initQuestionTimePage(data) {
-  const state = { selectedOfficeId: data?.questionTime?.offices?.[0]?.id || null };
+  normaliseQuestionTime(data);
+  const state = { selectedOfficeId: data.questionTime.offices[0]?.id || null };
   render(data, state);
 }

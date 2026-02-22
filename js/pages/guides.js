@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin } from "../permissions.js";
 
@@ -81,7 +81,7 @@ function render(data, state) {
   const adminMode = isAdmin(data);
 
   host.innerHTML = `
-    <h1 class="page-title">Guides</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Guides</div></div>
     <section class="panel" style="margin-bottom:12px;">
       <div class="muted-block">Guides for Rule Britannia are listed below.</div>
     </section>
@@ -105,7 +105,7 @@ function render(data, state) {
       const id = Number(btn.dataset.guideId || 0);
       data.guides.items = data.guides.items.filter((guide) => guide.id !== id);
       if (state.editingId === id) state.editingId = null;
-      saveData(data);
+      saveState(data);
       state.message = "Guide removed.";
       render(data, state);
     });
@@ -152,7 +152,7 @@ function render(data, state) {
       }
 
       state.editingId = null;
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   }
@@ -160,6 +160,6 @@ function render(data, state) {
 
 export function initGuidesPage(data) {
   normaliseGuides(data);
-  saveData(data);
+  saveState(data);
   render(data, { editingId: null, message: "" });
 }

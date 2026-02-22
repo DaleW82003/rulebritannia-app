@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin } from "../permissions.js";
 
@@ -91,7 +91,7 @@ function render(data, state) {
   const adminMode = isAdmin(data);
 
   host.innerHTML = `
-    <h1 class="page-title">Speaker's Office</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Speaker's Office</div></div>
 
     ${renderLevel(TEAM_LEVELS[0], data.aTeam.admins || [], adminMode)}
     ${renderLevel(TEAM_LEVELS[1], data.aTeam.mods || [], adminMode)}
@@ -166,7 +166,7 @@ function render(data, state) {
     }
 
     normaliseTeam(data);
-    saveData(data);
+    saveState(data);
     state.dirty = false;
     state.editLevel = "";
     state.draftAssignments = {};
@@ -177,6 +177,6 @@ function render(data, state) {
 
 export function initTeamPage(data) {
   normaliseTeam(data);
-  saveData(data);
+  saveState(data);
   render(data, { editLevel: "", message: "", dirty: false, draftAssignments: {} });
 }

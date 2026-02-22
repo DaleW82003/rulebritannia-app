@@ -95,7 +95,9 @@
 
 <main class="wrap">
 
-  <h1 class="page-title">Constituencies</h1>
+  <div class="bbc-masthead">
+    <div class="bbc-title">Constituencies</div>
+  </div>
 
   <section class="panel">
     <div class="spaced">
@@ -108,12 +110,25 @@
   </section>
 
   <section class="panel" style="margin-top:14px;">
-    <h2>Open Constituencies (Nation / Region)</h2>
-    <div id="party-constituencies">Loading…</div>
+    <h2>Parties</h2>
+    <div id="party-seats">Loading…</div>
+  </section>
+
+  <section class="panel" id="partyConstituencyPanel" style="display:none; margin-top:14px;">
+    <div class="spaced">
+      <h2 style="margin:0;" id="partyConstituencyTitle">Constituencies</h2>
+      <button class="btn" type="button" id="partyConstituencyClose">Close</button>
+    </div>
+    <div id="partyConstituencyList"></div>
   </section>
 
   <section class="panel" id="constituencyEditorPanel" style="display:none; margin-top:14px;">
     <h2>Parliament Control Panel</h2>
+
+    <h3>Parliament Setup</h3>
+    <div id="parliamentSetupForm" class="muted-block" style="margin-bottom:16px;">Loading…</div>
+
+    <h3>Constituency Management</h3>
     <div class="muted-block" style="margin-bottom:12px;">Add/edit/remove constituencies and assign MPs (Character/NPC). Constituencies with any MP are unavailable for character creation.</div>
     <div class="tile-bottom" style="padding-top:0; margin-top:0; margin-bottom:10px;">
       <button class="btn" type="button" id="constituencySeed650">Generate 650 Constituencies (1997 template)</button>

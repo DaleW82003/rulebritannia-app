@@ -1,5 +1,4 @@
 import { saveState } from "../core.js";
-import { formatSimMonthYear } from "../clock.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { requireAdmin } from "../auth.js";
@@ -34,13 +33,10 @@ function renderCategoryEditor(cat, locked) {
 export async function initControlPanelPage(data) {
   const authUser = await requireAdmin();
   if (!authUser) return;
-  const sim = document.getElementById("rbCpSimDate");
   const login = document.getElementById("rbLoginBlock");
   const simBlock = document.getElementById("rbSimBlock");
   const charBlock = document.getElementById("rbCharBlock");
   const rolePanels = document.getElementById("rbRolePanels");
-
-  if (sim) sim.textContent = formatSimMonthYear(data?.gameState || {});
 
   const canEdit = canAdminOrMod(data);
   const user = data?.currentUser || {};

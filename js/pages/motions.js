@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
@@ -185,7 +185,7 @@ export function initMotionsPage(data) {
     };
     data.motions.house.push(motion);
     data.motions.nextHouseNumber = number + 1;
-    saveData(data);
+    saveState(data);
     apiCreateDebateTopic({
       entityType: "motion", entityId: id,
       title: `Motion ${number}: ${title}`,
@@ -193,7 +193,7 @@ export function initMotionsPage(data) {
     }).then(({ topicId, topicUrl }) => {
       motion.debateUrl = topicUrl;
       motion.discourseTopicId = topicId;
-      saveData(data);
+      saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `motion.html?kind=house&id=${encodeURIComponent(id)}`;
   });
@@ -225,7 +225,7 @@ export function initMotionsPage(data) {
     };
     data.motions.edm.push(edm);
     data.motions.nextEdmNumber = number + 1;
-    saveData(data);
+    saveState(data);
     apiCreateDebateTopic({
       entityType: "motion", entityId: id,
       title: `EDM ${number}: ${title}`,
@@ -233,7 +233,7 @@ export function initMotionsPage(data) {
     }).then(({ topicId, topicUrl }) => {
       edm.debateUrl = topicUrl;
       edm.discourseTopicId = topicId;
-      saveData(data);
+      saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `motion.html?kind=edm&id=${encodeURIComponent(id)}`;
   });

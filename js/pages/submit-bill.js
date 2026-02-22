@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { getSimDate, createDeadline } from "../clock.js";
 import { esc } from "../ui.js";
 import { apiCreateDebateTopic } from "../api.js";
@@ -126,7 +126,7 @@ function renderTypeControls(data) {
 function renderBuilder() {
   return `
     <form id="submitBillForm">
-      <div class="form-grid">
+      <div class="form-grid" style="grid-template-columns:minmax(220px,max-content) 1fr;align-items:start;">
         <label for="billTitleInput">Title of the Bill</label>
         <input id="billTitleInput" type="text" maxlength="160" required>
 
@@ -144,9 +144,9 @@ function renderBuilder() {
 
       <div id="articlesContainer" style="margin-top:14px;"></div>
 
-      <div class="panel" style="margin-top:12px;">
-        <h3 style="margin-top:0;">Final Article — Extent & Commencement</h3>
-        <div class="form-grid">
+      <div class="tile" style="margin-top:12px;">
+        <h3 style="margin-top:0;">Final Article — Extent &amp; Commencement</h3>
+        <div class="form-grid" style="align-items:start;">
           <label for="finalExtent">Extent</label>
           <select id="finalExtent" required>
             ${EXTENT_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
@@ -169,16 +169,16 @@ function renderBuilder() {
 function renderArticleEditors(count) {
   const n = Math.max(1, Math.min(20, Number(count || 1)));
   return Array.from({ length: n }).map((_, i) => `
-    <section class="panel" style="margin-top:12px;">
+    <div class="tile" style="margin-top:12px;">
       <h3 style="margin-top:0;">Article ${i + 1}</h3>
-      <div class="form-grid">
+      <div class="form-grid" style="align-items:start;">
         <label for="articleHeading${i}">Article Heading</label>
         <input id="articleHeading${i}" type="text" maxlength="140" required>
 
         <label for="articleBody${i}">Article Body</label>
         <textarea id="articleBody${i}" rows="6" required></textarea>
       </div>
-    </section>
+    </div>
   `).join("");
 }
 
@@ -319,7 +319,7 @@ export function initSubmitBillPage(data) {
       pushAgendaDocketItem(data, bill);
     }
 
-    saveData(data);
+    saveState(data);
 
     if (stage === "Second Reading") {
       const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${department ? ` (${department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
@@ -329,7 +329,7 @@ export function initSubmitBillPage(data) {
           bill.discourseTopicId = topicId;
           const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
           if (idx >= 0) data.orderPaperCommons[idx] = bill;
-          saveData(data);
+          saveState(data);
         })
         .catch((err) => handleApiError(err, "Debate topic"));
     }

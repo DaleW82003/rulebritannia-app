@@ -3,7 +3,7 @@ import { esc } from "../ui.js";
 
 function render(host, errorMsg) {
   host.innerHTML = `
-    <h1 class="page-title">Admin Login</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Admin Login</div></div>
     <section class="panel" style="max-width:420px;">
       <form id="login-form" style="display:grid;gap:14px;">
         <label>

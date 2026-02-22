@@ -96,7 +96,7 @@
 <main class="wrap">
   <section class="panel">
     <div class="spaced">
-      <h1 class="page-title" style="margin:0;">Elected Bodies</h1>
+      <div class="bbc-masthead"><div class="bbc-title">Elected Bodies</div></div>
       <div class="tile-bottom" style="padding-top:0; margin-top:0;">
         <button class="btn" type="button" id="bodiesEditorBtn" style="display:none;">Bodies Control Panel</button>
       </div>
@@ -108,31 +108,7 @@
     <div id="bodies-root">Loading…</div>
   </section>
 
-  <section class="panel" id="bodiesEditorPanel" style="display:none; margin-top:14px;">
-    <h2>Bodies Control Panel</h2>
-    <form id="bodiesEditorForm" class="form-grid">
-      <label for="bodySelect">Body</label>
-      <select id="bodySelect" required></select>
-
-      <label for="bodyVisible">Visible</label>
-      <div><input id="bodyVisible" type="checkbox" style="width:auto;"> <span class="small">Uncheck to hide this body from users</span></div>
-
-      <label for="bodyControl">Control Type</label>
-      <select id="bodyControl">
-        <option value="majority">Majority</option>
-        <option value="minority">Minority</option>
-        <option value="coalition">Coalition</option>
-      </select>
-
-      <label for="bodyControlParty">Lead Party</label>
-      <input id="bodyControlParty" type="text" maxlength="120">
-
-      <div></div>
-      <div class="tile-bottom" style="padding-top:0; margin-top:0;">
-        <button class="btn primary" type="submit">Save Body Settings</button>
-      </div>
-    </form>
-  </section>
+  <section class="panel" id="bodiesEditorPanel" style="display:none; margin-top:14px;"></section>
 </main>
 
 <script type="module" src="./js/main.js"></script>

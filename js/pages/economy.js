@@ -1,4 +1,3 @@
-import { formatSimMonthYear } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
@@ -78,13 +77,6 @@ export function initEconomyPage(data) {
   const topline = economy.topline || {};
   const ukInfoTiles = Array.isArray(economy.ukInfoTiles) ? economy.ukInfoTiles : [];
   const surveys = Array.isArray(economy.surveys) ? economy.surveys : [];
-
-  const simDateEl = document.getElementById("economySimDate");
-  const tickDate = () => {
-    if (simDateEl) simDateEl.textContent = formatSimMonthYear(data.gameState);
-  };
-  tickDate();
-  window.setInterval(tickDate, 60 * 1000);
 
   setHTML("economyKeyLines", renderKeyLines(topline));
   setHTML("economyTiles", renderSectionTiles(ukInfoTiles, "uk"));

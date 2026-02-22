@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
@@ -86,7 +86,7 @@ function render(data, state) {
 
   if (!canAccess) {
     host.innerHTML = `
-      <h1 class="page-title">Shadow Cabinet</h1>
+      <div class="bbc-masthead"><div class="bbc-title">Shadow Cabinet</div></div>
       <section class="panel">
         <div class="muted-block">You are not part of the Official Opposition Shadow Cabinet. Access is limited to shadow cabinet members and moderators/admins.</div>
       </section>
@@ -95,7 +95,7 @@ function render(data, state) {
   }
 
   host.innerHTML = `
-    <h1 class="page-title">Shadow Cabinet Chamber</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Shadow Cabinet Chamber</div></div>
 
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Leader of the Opposition Headline</h2>
@@ -169,7 +169,7 @@ function render(data, state) {
     data.shadowCabinet.headline.text = text;
     data.shadowCabinet.headline.updatedAt = nowStamp();
     data.shadowCabinet.headline.updatedBy = String(char?.name || "Leader of the Opposition");
-    saveData(data);
+    saveState(data);
     state.message = "Shadow Cabinet headline updated.";
     render(data, state);
   });
@@ -195,7 +195,7 @@ function render(data, state) {
       draft.commencement = commencement;
       draft.articles = articles;
       draft.updatedAt = nowStamp();
-      saveData(data);
+      saveState(data);
       state.message = `Updated ${draft.ref}.`;
       state.editingDraftId = null;
       render(data, state);
@@ -222,7 +222,7 @@ function render(data, state) {
       createdAt: nowStamp()
     };
     data.shadowCabinet.drafts.unshift(draft);
-    saveData(data);
+    saveState(data);
     state.openDraftId = id;
     state.message = `Created ${draft.ref}.`;
     render(data, state);
@@ -256,7 +256,7 @@ function render(data, state) {
       const idx = data.shadowCabinet.drafts.findIndex((x) => x.id === id);
       if (idx === -1) return;
       const [deleted] = data.shadowCabinet.drafts.splice(idx, 1);
-      saveData(data);
+      saveState(data);
       if (state.openDraftId === id) state.openDraftId = null;
       if (state.editingDraftId === id) state.editingDraftId = null;
       state.message = `Deleted ${deleted.ref}.`;
@@ -267,6 +267,6 @@ function render(data, state) {
 
 export function initShadowCabinetPage(data) {
   normaliseShadowCabinet(data);
-  saveData(data);
+  saveState(data);
   render(data, { openDraftId: null, editingDraftId: null, message: "" });
 }

@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin } from "../permissions.js";
 
@@ -81,7 +81,7 @@ function render(data, state) {
   const adminMode = isAdmin(data);
 
   host.innerHTML = `
-    <h1 class="page-title">Rules</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Rules</div></div>
     <section class="panel" style="margin-bottom:12px;">
       <div class="muted-block">Core rules of Rule Britannia are listed below.</div>
     </section>
@@ -105,7 +105,7 @@ function render(data, state) {
       const id = Number(btn.dataset.ruleId || 0);
       data.rules.items = data.rules.items.filter((rule) => rule.id !== id);
       if (state.editingId === id) state.editingId = null;
-      saveData(data);
+      saveState(data);
       state.message = "Rule removed.";
       render(data, state);
     });
@@ -152,7 +152,7 @@ function render(data, state) {
       }
 
       state.editingId = null;
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   }
@@ -160,6 +160,6 @@ function render(data, state) {
 
 export function initRulesPage(data) {
   normaliseRules(data);
-  saveData(data);
+  saveState(data);
   render(data, { editingId: null, message: "" });
 }

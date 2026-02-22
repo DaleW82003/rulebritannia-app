@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection } from "../components/tile.js";
@@ -125,7 +125,7 @@ function render(data, state) {
   const list = data.fundraising.items.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
 
   root.innerHTML = `
-    <h1 class="page-title">Fundraising</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Fundraising</div></div>
 
     ${tileSection({
       body: `<p>Players and parties can host fundraisers. Submissions require moderator approval. Costs are deducted from income. Guest speakers and special venue requests require moderator judgement.</p>`
@@ -282,7 +282,7 @@ function render(data, state) {
     });
 
     state.showForm = false;
-    saveData(data);
+    saveState(data);
     toastSuccess(`${spec.title} submitted for approval.`);
     render(data, state);
   });
@@ -302,7 +302,7 @@ function render(data, state) {
       const item = data.fundraising.items.find((x) => x.id === id);
       if (!item) return;
       item.status = "cancelled";
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });
@@ -338,7 +338,7 @@ function render(data, state) {
         if (profile) profile.bankBalance = Number(profile.bankBalance || 0) + net;
       }
 
-      saveData(data);
+      saveState(data);
       state.openId = id;
       render(data, state);
     });
