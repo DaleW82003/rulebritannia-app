@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
@@ -180,7 +180,7 @@ export function initRegulationsPage(data) {
 
     data.regulations.items.push(regulation);
     data.regulations.nextId += 1;
-    saveData(data);
+    saveState(data);
     apiCreateDebateTopic({
       entityType: "regulation", entityId: regulation.id,
       title: `${regulation.department} Regulation ${regNo}: ${title}`,
@@ -188,7 +188,7 @@ export function initRegulationsPage(data) {
     }).then(({ topicId, topicUrl }) => {
       regulation.debateUrl = topicUrl;
       regulation.discourseTopicId = topicId;
-      saveData(data);
+      saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `regulation.html?id=${encodeURIComponent(regulation.id)}`;
   });

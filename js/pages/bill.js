@@ -1,5 +1,5 @@
 import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolveDivisionResult, setNpcVotes, setRebellions } from "../engines/division-engine.js";
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { buildDivisionWeights } from "../divisions.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { esc } from "../ui.js";
@@ -137,7 +137,7 @@ function ensureBillDebateTopic(bill, data) {
       bill.discourseTopicId = topicId;
       const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
       if (idx >= 0) data.orderPaperCommons[idx] = bill;
-      saveData(data);
+      saveState(data);
       setDebateLink(bill);
     })
     .catch((err) => handleApiError(err, "Debate topic"));
@@ -654,7 +654,7 @@ function renderDivision(bill, data) {
 function persistAndRerender(data, bill, rerenderAll = true) {
   const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
   if (idx >= 0) data.orderPaperCommons[idx] = bill;
-  saveData(data);
+  saveState(data);
   if (rerenderAll) {
     renderBillMeta(bill, data);
     renderBillText(bill);
@@ -689,7 +689,7 @@ function autoAdvanceStage(bill, data) {
     changed = true;
   }
 
-  if (changed) saveData(data);
+  if (changed) saveState(data);
   return changed;
 }
 

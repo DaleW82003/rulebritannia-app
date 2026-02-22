@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
@@ -135,7 +135,7 @@ function render(data, state) {
       item.finalStage = "Royal Assent";
       item.legislationKind = "Act of Parliament";
       item.title = String(item.title || "").replace(/\bbill\b/ig, "Act");
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });

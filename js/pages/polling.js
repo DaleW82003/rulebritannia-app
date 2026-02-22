@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { formatSimMonthYear, getWeekdayName, isSunday } from "../clock.js";
@@ -95,7 +95,7 @@ function render(data) {
   const projection = latest ? seatProjection(data, latest) : [];
 
   root.innerHTML = `
-    <h1 class="page-title">Polling</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Polling</div></div>
 
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Weekly Poll Publication</h2>
@@ -192,7 +192,7 @@ function render(data) {
     };
 
     data.polling.polls.push(poll);
-    saveData(data);
+    saveState(data);
     logAction({ action: "poll-published", target: simDate, details: { pollId: poll.id, results } });
     render(data);
   });

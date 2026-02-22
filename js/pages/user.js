@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { runSundayRoll, setAbsenceState } from "../engines/core-engine.js";
 import { updateParliamentState } from "../engines/control-panel-engine.js";
 import { esc } from "../ui.js";
@@ -253,7 +253,7 @@ function render(data, state) {
   const delegationChoices = delegationChoicesForParty(data, char?.party, char?.name);
 
   host.innerHTML = `
-    <h1 class="page-title">User</h1>
+    <div class="bbc-masthead"><div class="bbc-title">User</div></div>
 
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Account Data</h2>
@@ -449,7 +449,7 @@ function render(data, state) {
       return;
     }
     data.userManagement.pendingCharacters.push(entry);
-    saveData(data);
+    saveState(data);
     state.message = "Character submitted for moderator approval.";
     render(data, state);
   });
@@ -467,7 +467,7 @@ function render(data, state) {
     }
     data.currentCharacter.absent = true;
     data.currentCharacter.delegatedTo = delegatedTo;
-    saveData(data);
+    saveState(data);
     state.message = "Absence and delegation saved.";
     render(data, state);
   });
@@ -537,7 +537,7 @@ function render(data, state) {
         const owner = (data.userManagement.accounts || []).find((a) => a.username === ownerUsername);
         if (owner) owner.activeCharacter = player.name;
       }
-      saveData(data);
+      saveState(data);
       state.message = `Approved and activated ${player.name}.`;
       render(data, state);
     });
@@ -549,7 +549,7 @@ function render(data, state) {
       const idx = Number(btn.dataset.idx || -1);
       if (idx < 0 || idx >= data.userManagement.pendingCharacters.length) return;
       data.userManagement.pendingCharacters.splice(idx, 1);
-      saveData(data);
+      saveState(data);
       state.message = "Rejected pending character.";
       render(data, state);
     });
@@ -562,7 +562,7 @@ function render(data, state) {
       if (!name) return;
       const changed = setCharacterInactiveEverywhere(data, name);
       if (!changed) return;
-      saveData(data);
+      saveState(data);
       state.message = `${name} marked inactive.`;
       render(data, state);
     });
@@ -584,7 +584,7 @@ function render(data, state) {
       account.activeCharacter = target.name;
       data.currentCharacter = target;
       data.currentPlayer = target;
-      saveData(data);
+      saveState(data);
       state.message = `${target.name} re-activated.`;
       render(data, state);
     });
@@ -637,7 +637,7 @@ function render(data, state) {
       governmentSetup: data.parliament.governmentSetup
     });
     data.userManagement.globalControls.speakerConfigJson = String(fd.get("speakerConfigJson") || "{}");
-    saveData(data);
+    saveState(data);
     state.message = "Speaker controls updated.";
     render(data, state);
   });
@@ -656,7 +656,7 @@ function render(data, state) {
     data.gameState.started = true;
     data.gameState.startRealDate = now.toISOString();
     data.gameState.isPaused = false;
-    saveData(data);
+    saveState(data);
     state.message = `Simulation started on ${now.toLocaleDateString("en-GB")}. Clock advances from Monday.`;
     render(data, state);
   });
@@ -667,7 +667,7 @@ function render(data, state) {
     const gender = String(new FormData(e.currentTarget).get("monarchGender") || "Queen");
     data.adminSettings ??= {};
     data.adminSettings.monarchGender = gender === "King" ? "King" : "Queen";
-    saveData(data);
+    saveState(data);
     state.message = `Monarch updated to ${data.adminSettings.monarchGender}.`;
     render(data, state);
   });
@@ -695,7 +695,7 @@ function render(data, state) {
       if (input.dataset.action === "set-mod") acc.isMod = input.checked;
       if (input.dataset.action === "set-speaker") acc.isSpeaker = input.checked;
       syncCurrentUserFlags();
-      saveData(data);
+      saveState(data);
       state.message = `Updated permissions for ${acc.username}.`;
       render(data, state);
     });
@@ -708,7 +708,7 @@ function render(data, state) {
       const acc = data.userManagement.accounts[idx];
       if (!acc) return;
       acc.active = !acc.active;
-      saveData(data);
+      saveState(data);
       state.message = `${acc.username} marked ${acc.active ? "active" : "inactive"}.`;
       render(data, state);
     });
@@ -717,6 +717,6 @@ function render(data, state) {
 
 export function initUserPage(data) {
   normaliseUserData(data);
-  saveData(data);
+  saveState(data);
   render(data, { message: "" });
 }

@@ -76,7 +76,7 @@ function renderCategory(label, items, type) {
 
 export async function initDebatesPage(data) {
   const root = document.querySelector("main.wrap") || document.body;
-  root.innerHTML = `<h1 class="page-title">Debates</h1><p class="muted-block" id="debates-status">Loading debate topics…</p>`;
+  root.innerHTML = `<div class="bbc-masthead"><div class="bbc-title">Debates</div></div><p class="muted-block" id="debates-status">Loading debate topics…</p>`;
 
   let bills = [], houseMotions = [], edmMotions = [], statements = [], regulations = [];
 
@@ -104,7 +104,7 @@ export async function initDebatesPage(data) {
   const total = bills.length + allMotions.length + statements.length + regulations.length;
 
   root.innerHTML = `
-    <h1 class="page-title">Debates</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Debates</div></div>
     <p class="muted-block" style="margin-bottom:18px;">
       All Discourse debate topics linked to game entities, grouped by type and sorted newest first.
       ${total ? `${total} linked topic${total !== 1 ? "s" : ""}.` : "No linked topics yet."}

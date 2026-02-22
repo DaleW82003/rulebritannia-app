@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { getSimDate, createDeadline } from "../clock.js";
 import { esc } from "../ui.js";
 import { apiCreateDebateTopic } from "../api.js";
@@ -319,7 +319,7 @@ export function initSubmitBillPage(data) {
       pushAgendaDocketItem(data, bill);
     }
 
-    saveData(data);
+    saveState(data);
 
     if (stage === "Second Reading") {
       const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${department ? ` (${department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
@@ -329,7 +329,7 @@ export function initSubmitBillPage(data) {
           bill.discourseTopicId = topicId;
           const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
           if (idx >= 0) data.orderPaperCommons[idx] = bill;
-          saveData(data);
+          saveState(data);
         })
         .catch((err) => handleApiError(err, "Debate topic"));
     }

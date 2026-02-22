@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isMod, isSpeaker } from "../permissions.js";
 
@@ -117,7 +117,7 @@ function render(data) {
 
     data.redLion.posts.push(post);
     data.redLion.nextId += 1;
-    saveData(data);
+    saveState(data);
     render(data);
   });
 
@@ -126,7 +126,7 @@ function render(data) {
       if (!(allowBarkeep || isSpeaker(data))) return;
       const id = btn.getAttribute("data-id");
       data.redLion.posts = data.redLion.posts.filter((p) => p.id !== id);
-      saveData(data);
+      saveState(data);
       render(data);
     });
   });

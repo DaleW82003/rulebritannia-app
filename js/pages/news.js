@@ -1,7 +1,7 @@
 import { formatSimMonthYear } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
 import { canPostNews } from "../permissions.js";
-import { saveData, nowMs } from "../core.js";
+import { saveState, nowMs } from "../core.js";
 
 const LIVE_WINDOW_DAYS = 14;
 const LIVE_WINDOW_MS = LIVE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
@@ -107,7 +107,7 @@ function bindNewsDesk(data, rerender) {
       flavour: type === "other"
     });
 
-    saveData(data);
+    saveState(data);
     form.reset();
     panel.style.display = "none";
     rerender();
@@ -127,13 +127,6 @@ function bindArchiveToggle() {
 }
 
 export function initNewsPage(data) {
-  const dateEl = document.getElementById("bbcSimDate");
-  const renderClock = () => {
-    if (dateEl) dateEl.textContent = formatSimMonthYear(data.gameState);
-  };
-  renderClock();
-  window.setInterval(renderClock, 60 * 1000);
-
   const renderAll = () => {
     const stories = (data.news?.stories || []).slice().sort(byNewest);
     const { liveMain, liveOther, liveBreaking, archive } = splitNewsBuckets(stories);

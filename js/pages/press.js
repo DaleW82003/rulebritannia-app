@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, getWeekdayName, isSunday } from "../clock.js";
@@ -297,7 +297,7 @@ function render(data, state) {
       score: null,
       impact: []
     });
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -317,7 +317,7 @@ function render(data, state) {
     item.score = Number(fd.get("score"));
     item.impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
     item.status = "closed";
-    saveData(data);
+    saveState(data);
     render(data, state);
   }));
 
@@ -344,7 +344,7 @@ function render(data, state) {
       score: null,
       impact: []
     });
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -378,7 +378,7 @@ function render(data, state) {
       audience: { offices: [conf.authorOffice || ""] }
     });
 
-    saveData(data);
+    saveState(data);
     render(data, state);
   }));
 
@@ -390,7 +390,7 @@ function render(data, state) {
     const text = String(new FormData(e.currentTarget).get("text") || "").trim();
     if (!text) return;
     conf.transcript.push({ from: conf.author, text });
-    saveData(data);
+    saveState(data);
     render(data, state);
   }));
 
@@ -400,7 +400,7 @@ function render(data, state) {
     if (!conf || conf.author !== char?.name || conf.status === "closed") return;
     conf.transcript.push({ from: conf.author, text: "[Walked off without answering further questions.]" });
     conf.status = "closed";
-    saveData(data);
+    saveState(data);
     render(data, state);
   }));
 
@@ -414,7 +414,7 @@ function render(data, state) {
     conf.score = Number(fd.get("score"));
     conf.impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
     conf.status = "closed";
-    saveData(data);
+    saveState(data);
     render(data, state);
   }));
 
@@ -430,7 +430,7 @@ function render(data, state) {
       body,
       createdAtSim: now
     });
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -438,7 +438,7 @@ function render(data, state) {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
     data.press.comments = data.press.comments.filter((c) => c.id !== id);
-    saveData(data);
+    saveState(data);
     render(data, state);
   }));
 }

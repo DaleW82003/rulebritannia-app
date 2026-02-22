@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
@@ -136,7 +136,7 @@ function render(data, state) {
   if (!canView) {
     root.innerHTML = `
       <section class="panel">
-        <h1 class="page-title">Party</h1>
+        <div class="bbc-masthead"><div class="bbc-title">Party</div></div>
         <div class="muted-block">This headquarters is private. You can only access your own party workspace.</div>
       </section>
     `;
@@ -146,7 +146,7 @@ function render(data, state) {
   const drafts = party.drafts.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
 
   root.innerHTML = `
-    <h1 class="page-title">${esc(party.name)} Party HQ</h1>
+    <div class="bbc-masthead"><div class="bbc-title">${esc(party.name)} Party HQ</div></div>
 
     ${manager ? `
       <section class="panel" style="margin-bottom:12px;">
@@ -311,7 +311,7 @@ function render(data, state) {
       state.openDraftId = id;
     }
 
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -340,7 +340,7 @@ function render(data, state) {
       const id = Number(btn.getAttribute("data-id") || 0);
       party.drafts = party.drafts.filter((d) => d.id !== id);
       if (state.openDraftId === id) state.openDraftId = null;
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });
@@ -361,7 +361,7 @@ function render(data, state) {
     party.treasury.debt = Number(fd.get("debt") || 0);
     party.treasury.members = Number(fd.get("members") || 0);
     party.hqUrl = String(fd.get("hqUrl") || "").trim() || party.hqUrl;
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 }

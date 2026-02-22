@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker } from "../permissions.js";
 import { ensureRegulations } from "./regulations.js";
@@ -21,7 +21,7 @@ export function initRegulationPage(data) {
   if (item && item.status !== "closed" && item.debateClosesAtSimObj && isDeadlinePassed(item.debateClosesAtSimObj, data.gameState)) {
     item.status = "closed";
     item.closedAtSim = formatSimMonthYear(data.gameState);
-    saveData(data);
+    saveState(data);
   }
 
   if (!item) {
@@ -71,7 +71,7 @@ export function initRegulationPage(data) {
     const body = String(fd.get("body") || "").trim();
     if (title) item.shortTitle = title;
     if (body) item.body = body;
-    saveData(data);
+    saveState(data);
     initRegulationPage(data);
   });
 
@@ -79,7 +79,7 @@ export function initRegulationPage(data) {
     if (!speaker || item.status === "closed") return;
     item.status = "closed";
     item.closedAtSim = formatSimMonthYear(data.gameState);
-    saveData(data);
+    saveState(data);
     initRegulationPage(data);
   });
 }

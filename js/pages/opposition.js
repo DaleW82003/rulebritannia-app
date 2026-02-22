@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
@@ -141,7 +141,7 @@ function render(data, state) {
   const isLeader = !!leaderHolder && leaderHolder === getCurrentName(data);
 
   host.innerHTML = `
-    <h1 class="page-title">Official Opposition of the United Kingdom</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Official Opposition of the United Kingdom</div></div>
 
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">How appointments work</h2>
@@ -198,7 +198,7 @@ function render(data, state) {
     }
 
     applyAssignmentEffects(data);
-    saveData(data);
+    saveState(data);
     state.message = "Appointments saved.";
     render(data, state);
   });
@@ -209,6 +209,6 @@ function render(data, state) {
 export function initOppositionPage(data) {
   normaliseOpposition(data);
   applyAssignmentEffects(data);
-  saveData(data);
+  saveState(data);
   render(data, { message: "" });
 }

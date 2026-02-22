@@ -1,5 +1,5 @@
 // js/core.js
-import { apiBootstrap, apiSaveState } from "./api.js";
+import { apiBootstrap, apiSaveState, setCsrfToken } from "./api.js";
 const DEFAULT_ECONOMY_PAGE = {
   topline: { gdpGrowth: 1.8, inflation: 2.6, unemployment: 4.3 },
   ukInfoTiles: [
@@ -56,7 +56,19 @@ export function ensureDefaults(data) {
   data.news ??= { stories: [] };
   if (!Array.isArray(data.news.stories)) data.news.stories = [];
   data.papers ??= { papers: [] };
-  if (!Array.isArray(data.papers.papers)) data.papers.papers = [];
+  if (!Array.isArray(data.papers.papers) || data.papers.papers.length === 0) {
+    const DEFAULT_PAPERS = [
+      { key: "times", name: "The Times", cls: "paper-times", issues: [] },
+      { key: "telegraph", name: "The Daily Telegraph", cls: "paper-telegraph", issues: [] },
+      { key: "guardian", name: "The Guardian", cls: "paper-guardian", issues: [] },
+      { key: "mail", name: "The Daily Mail", cls: "paper-mail", issues: [] },
+      { key: "sun", name: "The Sun", cls: "paper-sun", issues: [] },
+      { key: "mirror", name: "The Daily Mirror", cls: "paper-mirror", issues: [] },
+      { key: "independent", name: "The Independent", cls: "paper-independent", issues: [] },
+      { key: "express", name: "The Daily Express", cls: "paper-express", issues: [] },
+    ];
+    data.papers.papers = DEFAULT_PAPERS.map((p) => ({ ...p, issues: [] }));
+  }
   data.questionTime ??= { offices: [], questions: [] };
   if (!Array.isArray(data.questionTime.offices)) data.questionTime.offices = [];
   if (!Array.isArray(data.questionTime.questions)) data.questionTime.questions = [];
@@ -99,6 +111,8 @@ export async function bootData() {
 
   const user   = bootstrap?.user  ?? null;
   const clock  = bootstrap?.clock ?? null;
+
+  if (bootstrap?.csrfToken) setCsrfToken(bootstrap.csrfToken);
 
   if (!user) {
     // Not logged in — use whatever is in localStorage, or empty defaults.

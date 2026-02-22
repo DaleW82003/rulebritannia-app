@@ -1,7 +1,7 @@
 import { canSeeAudienceItem, isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { esc } from "../ui.js";
 import { nowMs } from "../core.js";
-import { formatSimMonthYear, getWeekdayName, isSunday, countdownToSimMonth } from "../clock.js";
+import { countdownToSimMonth } from "../clock.js";
 
 // js/pages/dashboard.js
 // Dashboard (Your Office) — Chunk 1 implementation
@@ -168,7 +168,7 @@ function getWhatsGoingOnTiles(data) {
     {
       kicker: "ECONOMY",
       title: "Key lines",
-      strap: `Inflation ${fmtPct(econ?.inflation ?? econTopline?.inflation)}\nUnemployment ${fmtPct(econ?.unemployment ?? econTopline?.unemployment)}\nGDP growth ${fmtPct(econ?.growth ?? econTopline?.gdpGrowth)}`,
+      strap: `Inflation ${fmtPct(econTopline?.inflation ?? econ?.inflation)}\nUnemployment ${fmtPct(econTopline?.unemployment ?? econ?.unemployment)}\nGDP growth ${fmtPct(econTopline?.gdpGrowth ?? econ?.growth)}`,
       href: "economy.html",
       btn: "Open"
     },
@@ -295,22 +295,8 @@ function renderOrderPaper(data) {
   `;
 }
 
-function renderSimDate(data) {
-  const el = $("sim-date-display");
-  if (!el) return;
-  const simLabel = formatSimMonthYear(data.gameState);
-  const dayLabel = getWeekdayName();
-  const frozen = isSunday() ? " (SUNDAY \u2014 FROZEN)" : "";
-  const paused = data.gameState.isPaused ? " (PAUSED)" : "";
-  el.textContent = `${simLabel} \u2014 ${dayLabel}${frozen}${paused}`;
-}
-
 export function initDashboardPage(data) {
-  renderSimDate(data);
   renderWhatsGoingOn(data);
   renderLiveDocket(data);
   renderOrderPaper(data);
-
-  // Refresh sim date every 60s
-  setInterval(() => renderSimDate(data), 60000);
 }

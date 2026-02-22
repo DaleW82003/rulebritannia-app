@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
@@ -72,7 +72,7 @@ function render(data, state) {
   const list = data.events.items.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
 
   root.innerHTML = `
-    <h1 class="page-title">Events</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Events</div></div>
 
     ${tileSection({
       body: `
@@ -213,7 +213,7 @@ function render(data, state) {
 
     data.events.items.push(item);
     state.showForm = false;
-    saveData(data);
+    saveState(data);
     toastSuccess(`${eventTypeLabel(type)} submitted for approval.`);
     render(data, state);
   });
@@ -235,7 +235,7 @@ function render(data, state) {
       item.status = "approved";
       item.approvedAt = new Date().toLocaleString("en-GB");
       item.closesAtSimIndex = simIndex(data) + 2;
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });
@@ -247,7 +247,7 @@ function render(data, state) {
       const item = data.events.items.find((x) => x.id === id);
       if (!item) return;
       item.status = "cancelled";
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });
@@ -259,7 +259,7 @@ function render(data, state) {
       const item = data.events.items.find((x) => x.id === id);
       if (!item) return;
       item.status = "closed";
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });
@@ -274,7 +274,7 @@ function render(data, state) {
       const speech = String(fd.get("speech") || "").trim();
       if (!speech) return;
       item.speeches.push({ author: char?.name || "Character", body: speech, createdAt: new Date().toLocaleString("en-GB") });
-      saveData(data);
+      saveState(data);
       state.openId = id;
       render(data, state);
     });

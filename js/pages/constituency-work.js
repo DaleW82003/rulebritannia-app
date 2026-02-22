@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
@@ -85,7 +85,7 @@ function render(data, state = {}) {
   const weeklyTotal = totalHours(plan.hours);
 
   root.innerHTML = `
-    <h1 class="page-title">Constituency Work</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Constituency Work</div></div>
 
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Phase 1 Note</h2>
@@ -151,7 +151,7 @@ function render(data, state = {}) {
     plan.lastSavedSimIndex = simIndex;
     plan.updatedAt = new Date().toLocaleString("en-GB");
 
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -160,7 +160,7 @@ function render(data, state = {}) {
     if (!mod) return;
     const fd = new FormData(e.currentTarget);
     plan.secondJobTitleCompany = String(fd.get("secondJobTitleCompany") || "").trim();
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -168,7 +168,7 @@ function render(data, state = {}) {
     if (!mod) return;
     plan.secondJobTitleCompany = "";
     plan.hours["Do Second Job"] = 0;
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 }

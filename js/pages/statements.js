@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
@@ -157,7 +157,7 @@ function render(data) {
     data.statements.items.push(statement);
     data.statements.nextNumber = number + 1;
 
-    saveData(data);
+    saveState(data);
     toastSuccess(`MS${number}: "${title}" submitted.`);
     apiCreateDebateTopic({
       entityType: "statement", entityId: statement.id,
@@ -166,7 +166,7 @@ function render(data) {
     }).then(({ topicId, topicUrl }) => {
       statement.debateUrl = topicUrl;
       statement.discourseTopicId = topicId;
-      saveData(data);
+      saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     render(data);
   });
@@ -179,7 +179,7 @@ function render(data) {
       if (!statement || statement.status === "archived") return;
       statement.status = "archived";
       statement.archivedAtSim = formatSimMonthYear(data.gameState);
-      saveData(data);
+      saveState(data);
       toastSuccess("Statement archived.");
       render(data);
     });

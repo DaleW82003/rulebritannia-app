@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker, canVoteDivision } from "../permissions.js";
 import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolveDivisionResult } from "../engines/division-engine.js";
@@ -46,7 +46,7 @@ function renderHouse(root, data, motion) {
     motion.outcome = resolveDivisionResult(motion, data);
     motion.status = "archived";
     motion.archivedAtSim = formatSimMonthYear(data.gameState);
-    saveData(data);
+    saveState(data);
   }
 
   ensureDivision(motion);
@@ -89,7 +89,7 @@ function renderHouse(root, data, motion) {
       const name = char?.name || "MP";
       if (voteWeight <= 0) return;
       castDivisionVote(motion, name, { party: char?.party || "Independent", weight: voteWeight, choice });
-      saveData(data);
+      saveState(data);
       renderHouse(root, data, motion);
     });
   });
@@ -99,7 +99,7 @@ function renderHouse(root, data, motion) {
     closeDivision(motion);
     motion.outcome = resolveDivisionResult(motion, data);
     motion.status = "archived";
-    saveData(data);
+    saveState(data);
     renderHouse(root, data, motion);
   });
 }
@@ -116,7 +116,7 @@ function renderEdm(root, data, edm) {
   if (edm.status !== "archived" && edm.closesAtSimObj && isDeadlinePassed(edm.closesAtSimObj, data.gameState)) {
     edm.status = "archived";
     edm.archivedAtSim = formatSimMonthYear(data.gameState);
-    saveData(data);
+    saveState(data);
   }
 
   const expired = edm.status === "archived";
@@ -159,7 +159,7 @@ function renderEdm(root, data, edm) {
   root.querySelector("[data-action='sign-edm']")?.addEventListener("click", () => {
     if (expired || disallowed || signed || w <= 0) return;
     edm.signatures.push({ name: char?.name || "MP", party: char?.party || "Independent", weight: w });
-    saveData(data);
+    saveState(data);
     renderEdm(root, data, edm);
   });
 
@@ -170,7 +170,7 @@ function renderEdm(root, data, edm) {
     npcParties.forEach(([party]) => {
       edm.npcSignatures[party] = !!fd.get(`npc-${party}`);
     });
-    saveData(data);
+    saveState(data);
     renderEdm(root, data, edm);
   });
 }

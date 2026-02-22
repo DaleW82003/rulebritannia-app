@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
@@ -165,7 +165,7 @@ function render(data, state) {
   const pendingGe = data.elections.pendingGeneral;
 
   root.innerHTML = `
-    <h1 class="page-title">Elections</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Elections</div></div>
 
     <section class="panel" style="margin-bottom:12px;">
       <div class="muted">Election Development is not part of current Phase 1, this remains mod controlled via UK Elect.</div>
@@ -259,7 +259,7 @@ function render(data, state) {
   root.querySelector("#approve-general-election")?.addEventListener("click", () => {
     if (!isAdmin(data) || !data.elections.pendingGeneral) return;
     approveGeneralElection(data, data.elections.pendingGeneral, data?.currentUser?.username || "Admin");
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -283,7 +283,7 @@ function render(data, state) {
         createdAt: new Date().toLocaleString("en-GB"),
         createdTs: Date.now()
       };
-      saveData(data);
+      saveState(data);
       render(data, state);
       return;
     }
@@ -304,7 +304,7 @@ function render(data, state) {
       createdTs: Date.now()
     };
 
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 }

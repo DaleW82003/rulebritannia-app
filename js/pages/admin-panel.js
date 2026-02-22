@@ -532,7 +532,7 @@ export async function initAdminPanelPage(data) {
 
   function render(status) {
     host.innerHTML = `
-      <h1 class="page-title">Admin Panel</h1>
+      <div class="bbc-masthead"><div class="bbc-title">Admin Panel</div></div>
 
       <section class="panel" style="max-width:600px;">
         <h2 style="margin-top:0;">Logged-in User</h2>

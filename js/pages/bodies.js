@@ -1,6 +1,6 @@
 import { setHTML, esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 
 const BODY_ORDER = [
   "lords",
@@ -100,7 +100,7 @@ function bindEditor(data) {
     body.visible = form.querySelector("#bodyVisible").checked;
     body.controlType = form.querySelector("#bodyControl").value;
     body.controlParty = form.querySelector("#bodyControlParty").value.trim();
-    saveData(data);
+    saveState(data);
     refreshBodies(data);
   });
 }

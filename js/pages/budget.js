@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
 
@@ -116,7 +116,7 @@ function render(data, state) {
   const ty = data.budget.currentYear;
 
   root.innerHTML = `
-    <h1 class="page-title">Budget</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Budget</div></div>
 
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Current Budget (view only)</h2>
@@ -202,7 +202,7 @@ function render(data, state) {
     CAPITAL_LINES.forEach((k) => { draft.capital[k] = Number(fd.get(`cap:${k}`) || 0); });
     draft.label = "Draft submission";
     data.budget.pending = { budget: draft, submittedBy: getCharacter(data)?.name || "User", submittedAt: new Date().toLocaleString("en-GB") };
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -211,7 +211,7 @@ function render(data, state) {
     if (!admin) return;
     const fd = new FormData(e.currentTarget);
     Object.keys(data.budget.adminControls).forEach((k) => { data.budget.adminControls[k] = Number(fd.get(k) || 0); });
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -224,14 +224,14 @@ function render(data, state) {
     data.budget.lastYear = structuredClone(data.budget.currentYear);
     data.budget.currentYear = approved;
     data.budget.pending = null;
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
   root.querySelector("[data-action='reject-budget']")?.addEventListener("click", () => {
     if (!admin) return;
     data.budget.pending = null;
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 }

@@ -1,4 +1,4 @@
-import { saveData } from "../core.js";
+import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
@@ -84,7 +84,7 @@ function render(data, state) {
   `;
 
   root.innerHTML = `
-    <h1 class="page-title">Online</h1>
+    <div class="bbc-masthead"><div class="bbc-title">Online</div></div>
 
     <section class="panel" style="margin-bottom:12px;">
       <div style="display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));gap:12px;">
@@ -202,7 +202,7 @@ function render(data, state) {
       const key = btn.getAttribute("data-key");
       if (!key) return;
       data.online.settings[key] = !data.online.settings[key];
-      saveData(data);
+      saveState(data);
       if (!data.online.settings[key] && state.view === key) state.view = null;
       render(data, state);
     });
@@ -226,7 +226,7 @@ function render(data, state) {
       createdAt: new Date().toLocaleString("en-GB"),
       createdTs: Date.now()
     });
-    saveData(data);
+    saveState(data);
     state.view = "webHistory";
     render(data, state);
   });
@@ -246,7 +246,7 @@ function render(data, state) {
       createdAt: new Date().toLocaleString("en-GB"),
       createdTs: Date.now()
     });
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -274,7 +274,7 @@ function render(data, state) {
       createdAt: new Date().toLocaleString("en-GB"),
       createdTs: Date.now()
     });
-    saveData(data);
+    saveState(data);
     render(data, state);
   });
 
@@ -283,7 +283,7 @@ function render(data, state) {
       if (!mod) return;
       const id = Number(btn.getAttribute("data-id") || 0);
       data.online.webPosts = data.online.webPosts.filter((p) => p.id !== id);
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });
@@ -293,7 +293,7 @@ function render(data, state) {
       if (!mod) return;
       const id = Number(btn.getAttribute("data-id") || 0);
       data.online.facebookPosts = data.online.facebookPosts.filter((p) => p.id !== id);
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });
@@ -303,7 +303,7 @@ function render(data, state) {
       if (!mod) return;
       const id = Number(btn.getAttribute("data-id") || 0);
       data.online.twitterPosts = data.online.twitterPosts.filter((p) => p.id !== id);
-      saveData(data);
+      saveState(data);
       render(data, state);
     });
   });
