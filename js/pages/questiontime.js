@@ -65,6 +65,9 @@ function normaliseQuestionTime(data) {
   for (const qt of data.questionTime.offices) {
     const gov = govOffices.get(qt.id);
     if (gov) qt.holder = gov.holderName || "";
+    // Ensure Discourse fields are always present, even if null
+    qt.discourse_topic_id  ??= null;
+    qt.discourse_topic_url ??= null;
   }
 
   data.questionTime.questions.forEach((q) => {
@@ -259,7 +262,10 @@ function render(data, state) {
               <div class="qt-office">${esc(o.title)}</div>
               <div class="muted" style="margin:6px 0;">Secretary: ${esc(o.holder || "Vacant")}</div>
               <div class="muted">Open: ${openCount} • Answered: ${answeredCount}</div>
-              <div class="tile-bottom"><button class="btn" type="button" data-action="open-office" data-office-id="${esc(o.id)}">Open</button></div>
+              <div class="tile-bottom">
+                <button class="btn" type="button" data-action="open-office" data-office-id="${esc(o.id)}">Open</button>
+                ${o.discourse_topic_url ? `<a class="btn" href="${esc(o.discourse_topic_url)}" target="_blank" rel="noopener">Debate</a>` : ""}
+              </div>
             </article>
           `;
         }).join("")}

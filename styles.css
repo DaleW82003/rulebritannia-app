@@ -775,3 +775,131 @@ label{ font-weight:850; color:var(--navy); }
 .ds-label{ font-family:monospace; font-size:11px; color:var(--muted); flex-shrink:0; }
 .ds-err{ color:var(--red); font-size:10px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-left:4px; }
 .ds-caret{ margin-left:auto; opacity:.6; padding-left:6px; }
+
+/* =========================
+   Demo Mode Banner
+   ========================= */
+.demo-banner{
+  position:sticky; top:0; z-index:60;
+  background:linear-gradient(90deg, #d4001a, #a80015);
+  color:#fff;
+  font-weight:950;
+  font-size:13px;
+  letter-spacing:.06em;
+  text-align:center;
+  padding:8px 16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+}
+.demo-banner a{
+  color:#fff;
+  text-decoration:underline;
+  opacity:.88;
+}
+
+/* =========================
+   Page Header
+   ========================= */
+.page-header{
+  margin-bottom:18px;
+}
+.page-header .page-title{
+  margin:14px 0 6px;
+}
+.back-office-link{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:13px;
+  font-weight:800;
+  color:var(--muted);
+  margin-bottom:10px;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background:rgba(11,45,107,.04);
+  text-decoration:none;
+}
+.back-office-link:hover{ background:rgba(11,45,107,.08); color:var(--navy); }
+
+/* =========================
+   Error Tile (inline API error)
+   ========================= */
+.error-tile{
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  padding:14px 16px;
+  border:1px solid rgba(212,0,26,.22);
+  border-radius:18px;
+  background:rgba(212,0,26,.06);
+  color:#6b0010;
+  margin:10px 0;
+}
+.error-tile-icon{ font-size:20px; flex-shrink:0; line-height:1; }
+.error-tile-body{ flex:1; }
+.error-tile-title{ font-weight:950; margin-bottom:4px; }
+.error-tile-msg{ font-size:13px; opacity:.85; }
+
+/* =========================
+   Form validation
+   ========================= */
+.field-error{
+  font-size:12px;
+  color:var(--red);
+  font-weight:800;
+  margin-top:3px;
+}
+input.invalid, textarea.invalid, select.invalid{
+  border-color:rgba(212,0,26,.50);
+  background:rgba(212,0,26,.04);
+}
+
+/* =========================
+   Role-gated button tooltip
+   ========================= */
+.btn[disabled]{
+  opacity:.45;
+  cursor:not-allowed;
+  pointer-events:none;
+}
+[data-tip]{
+  position:relative;
+}
+[data-tip]::after{
+  content:attr(data-tip);
+  position:absolute;
+  bottom:calc(100% + 6px);
+  left:50%;
+  transform:translateX(-50%);
+  white-space:nowrap;
+  background:rgba(11,27,58,.88);
+  color:#fff;
+  font-size:11px;
+  font-weight:750;
+  padding:5px 8px;
+  border-radius:8px;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity .15s;
+  z-index:100;
+}
+[data-tip]:hover::after{
+  opacity:1;
+}
+
+/* =========================
+   Tile standardisation
+   ========================= */
+.tile-grid{
+  display:grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap:14px;
+}
+.tile.card-min{
+  display:flex;
+  flex-direction:column;
+  min-height:180px;
+}

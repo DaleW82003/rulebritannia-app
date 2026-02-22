@@ -127,7 +127,7 @@ export function initMotionsPage(data) {
         `,
         actions: `
           <a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a>
-          ${m.debateUrl ? `<a class="btn" href="${esc(m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+          ${(m.discourse_topic_url || m.debateUrl) ? `<a class="btn" href="${esc(m.discourse_topic_url || m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
         `
       })).join("") : `<p class="muted">No current house motions.</p>`
     })}
@@ -142,7 +142,7 @@ export function initMotionsPage(data) {
         `,
         actions: `
           <a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a>
-          ${m.debateUrl ? `<a class="btn" href="${esc(m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+          ${(m.discourse_topic_url || m.debateUrl) ? `<a class="btn" href="${esc(m.discourse_topic_url || m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
         `
       })).join("") : `<p class="muted">No current EDMs.</p>`
     })}
@@ -193,6 +193,8 @@ export function initMotionsPage(data) {
     }).then(({ topicId, topicUrl }) => {
       motion.debateUrl = topicUrl;
       motion.discourseTopicId = topicId;
+      motion.discourse_topic_id = topicId;
+      motion.discourse_topic_url = topicUrl;
       saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `motion.html?kind=house&id=${encodeURIComponent(id)}`;
@@ -233,6 +235,8 @@ export function initMotionsPage(data) {
     }).then(({ topicId, topicUrl }) => {
       edm.debateUrl = topicUrl;
       edm.discourseTopicId = topicId;
+      edm.discourse_topic_id = topicId;
+      edm.discourse_topic_url = topicUrl;
       saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `motion.html?kind=edm&id=${encodeURIComponent(id)}`;
