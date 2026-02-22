@@ -63,7 +63,7 @@ function renderHouse(root, data, motion) {
       <p class="muted">Division: ${esc(motion.division?.startSim || "—")} → ${esc(motion.division?.endSim || "—")}${divisionCountdown ? ` (${divisionCountdown})` : ""}</p>
       <p style="white-space:pre-wrap;"><b>That this House</b> ${esc(motion.body || "")}</p>
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
-        <a class="btn" href="${esc(motion.debateUrl || "#")}" target="_blank" rel="noopener">Open Debate</a>
+        ${(motion.debate?.topicUrl || motion.discourse_topic_url || motion.discourseTopicUrl || motion.debateUrl) ? `<a class="btn" href="${esc(motion.debate?.topicUrl || motion.discourse_topic_url || motion.discourseTopicUrl || motion.debateUrl)}" target="_blank" rel="noopener">Open Debate</a>` : `<span class="muted">No debate yet</span>`}
         <a class="btn" href="motions.html">Back to Motions</a>
       </div>
     </section>
@@ -132,7 +132,7 @@ function renderEdm(root, data, edm) {
       <p class="muted">Open: ${esc(edm.openedAtSim || "—")} → ${esc(edm.closesAtSim || "—")}${edmCountdown ? ` (${edmCountdown})` : ""}</p>
       <p style="white-space:pre-wrap;"><b>That this House</b> ${esc(edm.body || "")}</p>
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
-        <a class="btn" href="${esc(edm.debateUrl || "#")}" target="_blank" rel="noopener">Open Debate</a>
+        ${(edm.debate?.topicUrl || edm.discourse_topic_url || edm.discourseTopicUrl || edm.debateUrl) ? `<a class="btn" href="${esc(edm.debate?.topicUrl || edm.discourse_topic_url || edm.discourseTopicUrl || edm.debateUrl)}" target="_blank" rel="noopener">Open Debate</a>` : `<span class="muted">No debate yet</span>`}
         <a class="btn" href="motions.html">Back to Motions</a>
       </div>
     </section>
@@ -188,11 +188,9 @@ export function initMotionPage(data) {
   }
 
   if (kind === "edm") {
-    if (!item.debateUrl) item.debateUrl = `https://forum.rulebritannia.org/t/edm-${item.number}-${encodeURIComponent((item.title || "edm").toLowerCase().replaceAll(" ", "-"))}`;
     renderEdm(root, data, item);
     return;
   }
 
-  if (!item.debateUrl) item.debateUrl = `https://forum.rulebritannia.org/t/motion-${item.number}-${encodeURIComponent((item.title || "motion").toLowerCase().replaceAll(" ", "-"))}`;
   renderHouse(root, data, item);
 }

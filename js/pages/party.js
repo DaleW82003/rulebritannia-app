@@ -9,7 +9,7 @@ const DEFAULT_PARTIES = {
     short: "CON",
     leader: { name: "Dale Weston MP", avatar: "", characterId: "" },
     treasury: { cash: 350000, debt: 50000, members: 176000 },
-    hqUrl: "https://forum.rulebritannia.org/c/parties/conservative",
+    hqUrl: null,
     drafts: []
   },
   Labour: {
@@ -17,7 +17,7 @@ const DEFAULT_PARTIES = {
     short: "LAB",
     leader: { name: "Rachel Morgan MP", avatar: "", characterId: "" },
     treasury: { cash: 290000, debt: 120000, members: 145000 },
-    hqUrl: "https://forum.rulebritannia.org/c/parties/labour",
+    hqUrl: null,
     drafts: []
   },
   "Liberal Democrat": {
@@ -25,7 +25,7 @@ const DEFAULT_PARTIES = {
     short: "LDM",
     leader: { name: "Alex Pritchard MP", avatar: "", characterId: "" },
     treasury: { cash: 95000, debt: 12000, members: 76000 },
-    hqUrl: "https://forum.rulebritannia.org/c/parties/libdem",
+    hqUrl: null,
     drafts: []
   }
 };
@@ -111,10 +111,7 @@ function formatMoney(v) {
 }
 
 function discussUrlForDraft(party, draft) {
-  if (draft.discussUrl) return draft.discussUrl;
-  const slug = String(draft.title || "party-draft").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  const base = String(party.hqUrl || "https://forum.rulebritannia.org").replace(/\/$/, "");
-  return `${base}/t/${slug || "party-draft"}-${draft.id}`;
+  return draft.discussUrl || null;
 }
 
 function render(data, state) {
@@ -186,7 +183,7 @@ function render(data, state) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Enter Headquarters</h2>
       <p>Open your private party Discourse headquarters for internal strategy and debate.</p>
-      <a class="btn" href="${esc(party.hqUrl || "https://forum.rulebritannia.org")}" target="_blank" rel="noopener">Enter Headquarters</a>
+      ${party.hqUrl ? `<a class="btn" href="${esc(party.hqUrl)}" target="_blank" rel="noopener">Enter Headquarters</a>` : `<span class="muted">Forum link not configured.</span>`}
     </section>
 
     <section class="panel" style="margin-bottom:12px;">
@@ -215,7 +212,7 @@ function render(data, state) {
               <p><b>A Bill to make provision for:</b> ${esc(d.purpose)}</p>
               <div class="muted-block" style="white-space:pre-wrap;">${esc(d.body)}</div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-                <a class="btn" href="${esc(discussUrlForDraft(party, d))}" target="_blank" rel="noopener">Discuss</a>
+                ${discussUrlForDraft(party, d) ? `<a class="btn" href="${esc(discussUrlForDraft(party, d))}" target="_blank" rel="noopener">Discuss</a>` : ""}
                 ${(d.authorId === (char?.name || "") || manager) ? `<button type="button" class="btn" data-action="edit-draft" data-id="${esc(String(d.id))}">Edit</button>` : ""}
                 ${manager ? `<button type="button" class="btn" data-action="delete-draft" data-id="${esc(String(d.id))}">Delete</button>` : ""}
               </div>

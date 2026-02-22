@@ -22,7 +22,7 @@ function normaliseShadowCabinet(data) {
     updatedAt: nowStamp(),
     updatedBy: "Leader of the Opposition"
   };
-  data.shadowCabinet.hqUrl ??= "https://forum.rulebritannia.org/c/opposition/shadow-cabinet";
+  data.shadowCabinet.hqUrl ??= null;
   data.shadowCabinet.nextDraftId ??= 1;
   data.shadowCabinet.drafts ??= [];
 
@@ -64,12 +64,7 @@ function isOppositionLeader(data) {
 }
 
 function discussUrlForDraft(draft) {
-  if (draft.discussUrl) return draft.discussUrl;
-  const slug = encodeURIComponent(String(draft.title || `shadow-draft-${draft.id || ""}`)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, ""));
-  return `https://forum.rulebritannia.org/c/opposition/shadow-cabinet/${slug || `draft-${draft.id || "new"}`}`;
+  return draft.discussUrl || null;
 }
 
 function render(data, state) {
@@ -114,7 +109,7 @@ function render(data, state) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Enter the Shadow Cabinet Office</h2>
       <p class="muted">Private Opposition discussion space for the shadow cabinet and moderators.</p>
-      <a class="btn" href="${esc(data.shadowCabinet.hqUrl)}" target="_blank" rel="noopener">Enter Shadow Cabinet Office</a>
+      ${data.shadowCabinet.hqUrl ? `<a class="btn" href="${esc(data.shadowCabinet.hqUrl)}" target="_blank" rel="noopener">Enter Shadow Cabinet Office</a>` : `<span class="muted">Forum link not configured.</span>`}
     </section>
 
     <section class="panel" style="margin-bottom:12px;">
@@ -146,7 +141,7 @@ function render(data, state) {
                 <p><b>A Bill to make provision for:</b> ${esc(d.purpose)}</p>
                 <div class="muted-block" style="white-space:pre-wrap;">${esc(d.body)}</div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-                  <a class="btn" href="${esc(discussUrlForDraft(d))}" target="_blank" rel="noopener">Discuss</a>
+                  ${discussUrlForDraft(d) ? `<a class="btn" href="${esc(discussUrlForDraft(d))}" target="_blank" rel="noopener">Discuss</a>` : ""}
                   ${canEdit ? `<button type="button" class="btn" data-action="edit-draft" data-id="${d.id}">Edit</button>` : ""}
                   ${manager ? `<button type="button" class="btn" data-action="delete-draft" data-id="${d.id}">Delete</button>` : ""}
                 </div>

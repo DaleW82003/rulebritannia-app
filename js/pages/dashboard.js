@@ -253,12 +253,8 @@ function renderLiveDocket(data) {
   });
 }
 
-function discourseLinkForBill(bill) {
-  // Use explicit link if present; otherwise, a predictable placeholder.
-  // (Your future Discourse automation can replace this cleanly.)
-  if (bill?.debateUrl) return bill.debateUrl;
-  if (bill?.discourseUrl) return bill.discourseUrl;
-  return `https://forum.rulebritannia.org/t/${encodeURIComponent(bill?.id || "bill")}`;
+function getDebateUrl(bill) {
+  return bill?.debate?.topicUrl || bill?.discourse_topic_url || bill?.discourseTopicUrl || bill?.debateUrl || bill?.discourseUrl || null;
 }
 
 function renderOrderPaper(data) {
@@ -287,7 +283,7 @@ function renderOrderPaper(data) {
 
           <div class="tile-bottom">
             <a class="btn" href="bill.html?id=${encodeURIComponent(b.id)}">View Bill</a>
-            <a class="btn" href="${esc(discourseLinkForBill(b))}" target="_blank" rel="noopener">Debate</a>
+            ${getDebateUrl(b) ? `<a class="btn" href="${esc(getDebateUrl(b))}" target="_blank" rel="noopener">Debate</a>` : ""}
           </div>
         </div>
       `).join("")}

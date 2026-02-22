@@ -163,10 +163,15 @@ export async function bootData() {
   _user = user;
 
   if (!user) {
-    // Not logged in — use whatever is in localStorage, or empty defaults.
-    const stored = getData();
-    const ensured = ensureDefaults(stored ?? {});
-    saveData(ensured);
+    // Not logged in — load demo baseline from demo.json (read-only; no localStorage writes).
+    let demoData = {};
+    try {
+      const res = await fetch("/data/demo.json");
+      if (res.ok) demoData = await res.json();
+    } catch (e) {
+      console.warn("[bootData] Failed to load demo.json:", e.message);
+    }
+    const ensured = ensureDefaults(demoData);
     return { data: ensured, user: null, clock, sources };
   }
 

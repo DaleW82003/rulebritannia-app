@@ -34,7 +34,7 @@ function sortNewestFirst(items) {
 }
 
 function renderCard(item, type) {
-  const url   = item.discourseTopicUrl || item.debateUrl || "";
+  const url   = item.debate?.topicUrl || item.discourseTopicUrl || item.discourse_topic_url || item.debateUrl || "";
   const title = item.title || item.shortTitle || `${type} ${item.id}`;
   const date  = entityDate(item);
   const dateStr = date.getTime()
@@ -88,12 +88,12 @@ export async function initDebatesPage(data) {
       apiGetRegulations().catch((e) => { handleApiError(e, "Load regulations"); return null; }),
     ]);
 
-    bills       = (billsRes?.bills       || []).filter((b) => b.discourseTopicId || b.discourseTopicUrl);
+    bills       = (billsRes?.bills       || []).filter((b) => b.debate?.topicId || b.discourseTopicId || b.discourseTopicUrl);
     const allMotions = motionsRes?.motions || [];
-    houseMotions = allMotions.filter((m) => (m.motion_type || m.kind) !== "edm" && (m.discourseTopicId || m.discourseTopicUrl));
-    edmMotions   = allMotions.filter((m) => (m.motion_type || m.kind) === "edm"  && (m.discourseTopicId || m.discourseTopicUrl));
-    statements  = (statementsRes?.statements  || []).filter((s) => s.discourseTopicId || s.discourseTopicUrl);
-    regulations = (regulationsRes?.regulations || []).filter((r) => r.discourseTopicId || r.discourseTopicUrl);
+    houseMotions = allMotions.filter((m) => (m.motion_type || m.kind) !== "edm" && (m.debate?.topicId || m.discourseTopicId || m.discourseTopicUrl));
+    edmMotions   = allMotions.filter((m) => (m.motion_type || m.kind) === "edm"  && (m.debate?.topicId || m.discourseTopicId || m.discourseTopicUrl));
+    statements  = (statementsRes?.statements  || []).filter((s) => s.debate?.topicId || s.discourseTopicId || s.discourseTopicUrl);
+    regulations = (regulationsRes?.regulations || []).filter((r) => r.debate?.topicId || r.discourseTopicId || r.discourseTopicUrl);
   } catch (e) {
     handleApiError(e, "Load debates");
   }

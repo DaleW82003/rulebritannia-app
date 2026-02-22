@@ -70,7 +70,7 @@ function detailPanel(item, kind, data) {
       <pre style="white-space:pre-wrap;margin:0;font:inherit;">${esc(item.billText || "No text archived.")}</pre>
     </div>
 
-    <p><a class="btn" href="${esc(item.debateUrl || `https://forum.rulebritannia.org/t/${encodeURIComponent(item.id || "bill")}`)}" target="_blank" rel="noopener">View historic debate</a></p>
+    <p>${(item.debate?.topicUrl || item.discourse_topic_url || item.discourseTopicUrl || item.debateUrl) ? `<a class="btn" href="${esc(item.debate?.topicUrl || item.discourse_topic_url || item.discourseTopicUrl || item.debateUrl)}" target="_blank" rel="noopener">View historic debate</a>` : `<span class="muted">No debate record</span>`}</p>
 
     <div class="tile" style="margin:10px 0;">
       <h4 style="margin-top:0;">Archived amendments</h4>

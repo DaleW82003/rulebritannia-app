@@ -6,9 +6,8 @@ function ensureStatements(data) {
   data.statements.items ??= [];
 }
 
-function debateUrl(statement) {
-  if (statement?.debateUrl) return statement.debateUrl;
-  return `https://forum.rulebritannia.org/t/ms-${encodeURIComponent(statement?.number || "x")}-${encodeURIComponent((statement?.title || "statement").toLowerCase().replaceAll(" ", "-"))}`;
+function getDebateUrl(statement) {
+  return statement?.debate?.topicUrl || statement?.discourse_topic_url || statement?.discourseTopicUrl || statement?.debateUrl || null;
 }
 
 function getIdFromUrl() {
@@ -29,6 +28,8 @@ export function initStatementPage(data) {
     return;
   }
 
+  const debateUrl = getDebateUrl(statement);
+
   root.innerHTML = `
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">MS${esc(statement.number)}: ${esc(statement.title)}</h2>
@@ -44,7 +45,7 @@ export function initStatementPage(data) {
 
     <section class="tile">
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
-        <a class="btn" href="${esc(debateUrl(statement))}" target="_blank" rel="noopener">Open Debate</a>
+        ${debateUrl ? `<a class="btn" href="${esc(debateUrl)}" target="_blank" rel="noopener">Open Debate</a>` : `<span class="muted">No debate yet</span>`}
         <a class="btn" href="statements.html">Back to Statements</a>
       </div>
     </section>
