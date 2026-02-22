@@ -63,7 +63,7 @@ export function initNavUI(user, clock) {
       logoutBtn.textContent = "Logout";
       logoutBtn.addEventListener("click", async () => {
         try { await apiLogout(); } catch { /* ignore */ }
-        window.location.href = "dashboard.html";
+        window.location.href = "login.html";
       });
 
       authEl.appendChild(label);

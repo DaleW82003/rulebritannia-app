@@ -58,9 +58,14 @@ export async function apiBootstrap() {
 }
 
 export async function apiLogout() {
+  // Fetch the CSRF token required for state-changing POST requests.
+  const tokenRes = await fetch(`${API_BASE}/csrf-token`, { credentials: "include" });
+  if (!tokenRes.ok) throw new Error(`apiLogout failed: could not fetch CSRF token (${tokenRes.status})`);
+  const { csrfToken } = await tokenRes.json();
   const res = await fetch(`${API_BASE}/auth/logout`, {
     method: "POST",
     credentials: "include",
+    headers: { "X-CSRF-Token": csrfToken },
   });
   if (!res.ok) throw new Error(`apiLogout failed (${res.status})`);
   return res.json();
