@@ -124,7 +124,7 @@ function partyOfCurrent(data) {
 function setDebateLink(bill) {
   const btn = $("debateBtn");
   if (!btn) return;
-  const url = bill?.discourse_topic_url || bill?.debateUrl || bill?.discourseUrl || null;
+  const url = bill?.debate?.topicUrl || bill?.discourse_topic_url || bill?.discourseTopicUrl || bill?.debateUrl || bill?.discourseUrl || null;
   if (url) {
     btn.href = url;
     btn.hidden = false;
@@ -134,11 +134,11 @@ function setDebateLink(bill) {
 }
 
 function ensureBillDebateTopic(bill, data) {
-  if (bill.discourseTopicId || bill.discourse_topic_id) return;
+  if (bill.discourseTopicId || bill.discourse_topic_id || bill.debate?.topicId) return;
   const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${bill.department ? ` (${bill.department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
   apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw })
     .then(({ topicId, topicUrl }) => {
-      bill.debateUrl = topicUrl;
+      bill.debate = { ...(bill.debate || {}), topicId, topicUrl };
       bill.discourseTopicId = topicId;
       bill.discourse_topic_id = topicId;
       bill.discourse_topic_url = topicUrl;

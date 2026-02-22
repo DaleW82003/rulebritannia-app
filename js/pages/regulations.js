@@ -172,7 +172,8 @@ export function initRegulationsPage(data) {
       body,
       laidAtSim: simCurrent.label,
       comesIntoForce: `${MONTHS[(forceMonth - 1 + 12) % 12]} ${forceYear}`,
-      debateUrl: `https://forum.rulebritannia.org/t/reg-${encodeURIComponent(regNo)}-${encodeURIComponent(title.toLowerCase().replaceAll(" ", "-"))}`,
+      debateUrl: null,
+      debate: { topicId: null, topicUrl: null, opensAtSim: null, closesAtSim: null },
       debateClosesAtSim: formatSimDate(debateEnd.month, debateEnd.year),
       debateClosesAtSimObj: { month: debateEnd.month, year: debateEnd.year },
       status: "open"
@@ -186,7 +187,7 @@ export function initRegulationsPage(data) {
       title: `${regulation.department} Regulation ${regNo}: ${title}`,
       raw: `**${regulation.department} Regulation ${regNo}: ${title}**\nLaid by ${regulation.author}. Comes into force: ${regulation.comesIntoForce}.\n\n${body}`
     }).then(({ topicId, topicUrl }) => {
-      regulation.debateUrl = topicUrl;
+      regulation.debate = { ...regulation.debate, topicId, topicUrl };
       regulation.discourseTopicId = topicId;
       regulation.discourse_topic_id = topicId;
       regulation.discourse_topic_url = topicUrl;

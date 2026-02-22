@@ -76,8 +76,17 @@ Copy `server/.env.example` to `server/.env` and fill in real values:
 | Variable | Required | Description |
 |---|---|---|
 | `DATABASE_URL` | ✅ | Postgres connection string (e.g. Neon) |
-| `SESSION_SECRET` | ✅ | Long random string used to sign session cookies |
+| `SESSION_SECRET` | ✅ | Long random string used to sign session cookies. **In production (`NODE_ENV=production`) the server will refuse to start if this is missing or uses the default value.** |
 | `PORT` | ✗ | Port to listen on (default: `3000`) |
+| `NODE_ENV` | ✗ | Set to `production` on Render to enable production-mode guards |
+
+#### Setting SESSION_SECRET on Render
+
+1. Open your backend service in the [Render dashboard](https://dashboard.render.com).
+2. Go to **Environment** → **Environment Variables**.
+3. Add `SESSION_SECRET` with a long random value (e.g. generate with `openssl rand -hex 32`).
+4. Add `NODE_ENV` = `production`.
+5. **Never commit** the secret to source control. `server/.env` is in `.gitignore` and should stay there.
 
 ### Starting the server locally
 
@@ -94,8 +103,8 @@ node index.js
 
 1. Open any page (e.g. `dashboard.html`) **without** logging in.
 2. Verify the topbar shows "Not logged in" and a "Login" link.
-3. State is sourced from `data/demo.json` merged with `localStorage`. No network calls to `/api/state` are made.
-4. Make a change (e.g. edit economy data in Control Panel) and reload — changes persist via `localStorage`.
+3. State is sourced from `/data/demo.json` (read-only). No network calls to `/api/state` are made and no writes occur in `localStorage`.
+4. Reload the page — demo state is always fresh from `demo.json`; local edits do not persist.
 5. Confirm that `GET /api/state` on the backend returns **401** when called without a session cookie (e.g. `curl https://rulebritannia-app-backend.onrender.com/api/state`).
 
 ### Authenticated admin experience

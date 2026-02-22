@@ -36,7 +36,7 @@ export function initRegulationPage(data) {
       <p class="muted">Laid: ${esc(item.laidAtSim || "—")} • In force: ${esc(item.comesIntoForce || "—")} • Debate closes: ${esc(item.debateClosesAtSim || "—")}${item.debateClosesAtSimObj && item.status !== "closed" ? ` (${countdownToSimMonth(item.debateClosesAtSimObj.month, item.debateClosesAtSimObj.year, data.gameState)})` : ""}</p>
       ${item.closedAtSim ? `<p class="muted">Closed at: ${esc(item.closedAtSim)}</p>` : ""}
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
-        <a class="btn" href="${esc(item.debateUrl || "#")}" target="_blank" rel="noopener">Open Debate</a>
+        ${(item.debate?.topicUrl || item.discourse_topic_url || item.discourseTopicUrl || item.debateUrl) ? `<a class="btn" href="${esc(item.debate?.topicUrl || item.discourse_topic_url || item.discourseTopicUrl || item.debateUrl)}" target="_blank" rel="noopener">Open Debate</a>` : `<span class="muted">No debate yet</span>`}
         <a class="btn" href="regulations.html">Back to Regulations</a>
       </div>
     </section>

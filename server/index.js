@@ -78,6 +78,8 @@ app.use(express.json({ limit: "2mb" }));
 const allow = new Set([
   "https://rulebritannia.org",
   "https://www.rulebritannia.org",
+  "https://rulebritannia-app.onrender.com",
+  "https://rulebritannia-app-backend.onrender.com",
 ]);
 
 app.use(
@@ -527,11 +529,14 @@ function requireAdmin(req, res) {
  * Ensures discourse_topic_id and discourse_topic_url are always present
  * (even if null) so the UI can reliably check them without extra guards.
  * Also promotes legacy camelCase aliases so both forms are available.
+ * Merges any legacy discourseTopicId/discourseTopicUrl into the canonical
+ * `debate` object (topicId, topicUrl, opensAtSim, closesAtSim).
  */
 function normaliseDiscourseFields(obj) {
   if (!obj || typeof obj !== "object") return obj;
-  const topicId  = obj.discourse_topic_id  ?? obj.discourseTopicId  ?? null;
-  const topicUrl = obj.discourse_topic_url ?? obj.discourseTopicUrl ?? obj.debateUrl ?? null;
+  const topicId  = obj.discourse_topic_id  ?? obj.discourseTopicId  ?? obj.debate?.topicId  ?? null;
+  const topicUrl = obj.discourse_topic_url ?? obj.discourseTopicUrl ?? obj.debate?.topicUrl ?? obj.debateUrl ?? null;
+  const existingDebate = obj.debate && typeof obj.debate === "object" ? obj.debate : {};
   return {
     ...obj,
     // snake_case (canonical API format)
@@ -540,6 +545,13 @@ function normaliseDiscourseFields(obj) {
     // camelCase aliases (legacy client-side format)
     discourseTopicId:  topicId,
     discourseTopicUrl: topicUrl,
+    // canonical debate object — always present with at least null fields
+    debate: {
+      topicId:     topicId,
+      topicUrl:    topicUrl,
+      opensAtSim:  existingDebate.opensAtSim  ?? null,
+      closesAtSim: existingDebate.closesAtSim ?? null,
+    },
   };
 }
 
@@ -2348,7 +2360,12 @@ const DEBATE_ENTITY_TABLES = {
 
 app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
   try {
+    // Debate topic creation is restricted to admin and mod users.
     if (!requireAuth(req, res)) return;
+    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    if (!roles.includes("admin") && !roles.includes("mod")) {
+      return res.status(403).json({ error: "Forbidden: admin or mod role required to create debate topics" });
+    }
 
     const { entityType, entityId, title, raw, categoryId, tags } = req.body || {};
 
@@ -2373,7 +2390,7 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
       [String(entityId)]
     );
     if (existing.length && existing[0].topic_id) {
-      const existingUrl = existing[0].topic_url || `https://forum.rulebritannia.org/t/${existing[0].topic_id}`;
+      const existingUrl = existing[0].topic_url || null;
       return res.json({ ok: true, topicId: Number(existing[0].topic_id), topicUrl: existingUrl, existing: true });
     }
 
@@ -3831,6 +3848,18 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
+// Refuse to start in production with the default insecure secret.
+if (process.env.NODE_ENV === "production") {
+  const secret = process.env.SESSION_SECRET || "";
+  if (!secret || secret === "dev-secret-change-me") {
+    console.error(
+      "[server] FATAL: SESSION_SECRET is not set or uses the default value. " +
+      "Set a strong random secret in the Render environment variables before deploying."
+    );
+    process.exit(1);
+  }
+}
 
 ensureSchema()
   .then(() => {

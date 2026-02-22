@@ -39,7 +39,7 @@ function simNow(data) {
 }
 
 function discussionUrl(kind, number, title) {
-  return `https://forum.rulebritannia.org/t/${kind}-${number}-${encodeURIComponent((title || "item").toLowerCase().replaceAll(" ", "-"))}`;
+  return null; // URLs are only set after a Discourse topic is created
 }
 
 function bodyWithPreamble(body = "") {
@@ -127,7 +127,7 @@ export function initMotionsPage(data) {
         `,
         actions: `
           <a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a>
-          ${(m.discourse_topic_url || m.debateUrl) ? `<a class="btn" href="${esc(m.discourse_topic_url || m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+          ${(m.debate?.topicUrl || m.discourse_topic_url || m.discourseTopicUrl || m.debateUrl) ? `<a class="btn" href="${esc(m.debate?.topicUrl || m.discourse_topic_url || m.discourseTopicUrl || m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
         `
       })).join("") : `<p class="muted">No current house motions.</p>`
     })}
@@ -142,7 +142,7 @@ export function initMotionsPage(data) {
         `,
         actions: `
           <a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a>
-          ${(m.discourse_topic_url || m.debateUrl) ? `<a class="btn" href="${esc(m.discourse_topic_url || m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+          ${(m.debate?.topicUrl || m.discourse_topic_url || m.discourseTopicUrl || m.debateUrl) ? `<a class="btn" href="${esc(m.debate?.topicUrl || m.discourse_topic_url || m.discourseTopicUrl || m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
         `
       })).join("") : `<p class="muted">No current EDMs.</p>`
     })}
@@ -180,7 +180,7 @@ export function initMotionsPage(data) {
       debateStartSim: sim.label,
       debateEndSim: formatSimDate(debateEndObj),
       debateEndSimObj: debateEndObj,
-      debateUrl: discussionUrl("motion", number, title),
+      debate: { topicId: null, topicUrl: null, opensAtSim: null, closesAtSim: null },
       division: { status: "open", startSim: formatSimDate(debateEndObj), endSim: formatSimDate(divisionEndObj), endSimObj: divisionEndObj, votes: {}, rebelsByParty: {}, npcVotes: {} }
     };
     data.motions.house.push(motion);
@@ -191,7 +191,7 @@ export function initMotionsPage(data) {
       title: `Motion ${number}: ${title}`,
       raw: `**That this House** ${body}\n\n*Submitted by ${motion.author}.*`
     }).then(({ topicId, topicUrl }) => {
-      motion.debateUrl = topicUrl;
+      motion.debate = { ...motion.debate, topicId, topicUrl };
       motion.discourseTopicId = topicId;
       motion.discourse_topic_id = topicId;
       motion.discourse_topic_url = topicUrl;
@@ -221,7 +221,7 @@ export function initMotionsPage(data) {
       openedAtSim: sim.label,
       closesAtSim: formatSimDate(closesAtObj),
       closesAtSimObj: closesAtObj,
-      debateUrl: discussionUrl("edm", number, title),
+      debate: { topicId: null, topicUrl: null, opensAtSim: null, closesAtSim: null },
       signatures: [],
       npcSignatures: {}
     };
@@ -233,7 +233,7 @@ export function initMotionsPage(data) {
       title: `EDM ${number}: ${title}`,
       raw: `**That this House** ${body}\n\n*Submitted by ${edm.author}.*`
     }).then(({ topicId, topicUrl }) => {
-      edm.debateUrl = topicUrl;
+      edm.debate = { ...edm.debate, topicId, topicUrl };
       edm.discourseTopicId = topicId;
       edm.discourse_topic_id = topicId;
       edm.discourse_topic_url = topicUrl;

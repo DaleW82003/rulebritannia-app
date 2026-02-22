@@ -23,7 +23,7 @@ function normaliseCabinet(data) {
     updatedAt: nowStamp(),
     updatedBy: "Prime Minister"
   };
-  data.cabinet.hqUrl ??= "https://forum.rulebritannia.org/c/government/cabinet-office";
+  data.cabinet.hqUrl ??= null;
   data.cabinet.nextDraftId ??= 1;
   data.cabinet.drafts ??= [];
 
@@ -65,12 +65,7 @@ function isPrimeMinister(data) {
 }
 
 function discussUrlForDraft(data, draft) {
-  if (draft.discussUrl) return draft.discussUrl;
-  const slug = encodeURIComponent(String(draft.title || `cabinet-draft-${draft.id || ""}`)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, ""));
-  return `https://forum.rulebritannia.org/c/government/cabinet-office/${slug || `draft-${draft.id || "new"}`}`;
+  return draft.discussUrl || null;
 }
 
 function render(data, state) {
@@ -115,7 +110,7 @@ function render(data, state) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Enter Cabinet Office</h2>
       <p class="muted">Private government discussion space for cabinet members and moderators.</p>
-      <a class="btn" href="${esc(data.cabinet.hqUrl)}" target="_blank" rel="noopener">Enter Cabinet Office</a>
+      ${data.cabinet.hqUrl ? `<a class="btn" href="${esc(data.cabinet.hqUrl)}" target="_blank" rel="noopener">Enter Cabinet Office</a>` : `<span class="muted">Forum link not configured.</span>`}
     </section>
 
     <section class="panel" style="margin-bottom:12px;">
@@ -147,7 +142,7 @@ function render(data, state) {
                 <p><b>A Bill to make provision for:</b> ${esc(d.purpose)}</p>
                 <div class="muted-block" style="white-space:pre-wrap;">${esc(d.body)}</div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-                  <a class="btn" href="${esc(discussUrlForDraft(data, d))}" target="_blank" rel="noopener">Discuss</a>
+                  ${discussUrlForDraft(data, d) ? `<a class="btn" href="${esc(discussUrlForDraft(data, d))}" target="_blank" rel="noopener">Discuss</a>` : ""}
                   ${canEdit ? `<button type="button" class="btn" data-action="edit-draft" data-id="${d.id}">Edit</button>` : ""}
                   ${manager ? `<button type="button" class="btn" data-action="delete-draft" data-id="${d.id}">Delete</button>` : ""}
                 </div>

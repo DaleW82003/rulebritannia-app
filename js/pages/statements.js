@@ -37,9 +37,8 @@ function canSubmit(data) {
   return GOVERNMENT_OFFICES.has(getCharacter(data)?.office);
 }
 
-function discussionUrl(statement) {
-  if (statement?.debateUrl) return statement.debateUrl;
-  return `https://forum.rulebritannia.org/t/ms-${encodeURIComponent(statement?.number || "x")}-${encodeURIComponent((statement?.title || "statement").toLowerCase().replaceAll(" ", "-"))}`;
+function getDebateUrl(statement) {
+  return statement?.debate?.topicUrl || statement?.discourse_topic_url || statement?.discourseTopicUrl || statement?.debateUrl || null;
 }
 
 function badge(statement) {
@@ -50,9 +49,10 @@ function statementCard(s, speaker, gameState) {
   const countdown = s.closesAtSimObj && s.status !== "archived"
     ? countdownToSimMonth(s.closesAtSimObj.month, s.closesAtSimObj.year, gameState)
     : "";
+  const debateUrl = getDebateUrl(s);
   const actions = `
     <a class="btn" href="statement.html?id=${encodeURIComponent(s.id)}">Open</a>
-    ${(s.discourse_topic_url || s.debateUrl) ? `<a class="btn" href="${esc(s.discourse_topic_url || s.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+    ${debateUrl ? `<a class="btn" href="${esc(debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
     ${speaker && s.status !== "archived" ? `<button class="btn danger" type="button" data-action="archive" data-id="${esc(s.id)}">Archive</button>` : ""}
   `;
   const body = `
@@ -152,7 +152,7 @@ function render(data) {
       openedAtSim: sim.label,
       closesAtSim: formatSimDate(close.month, close.year),
       closesAtSimObj: { month: close.month, year: close.year },
-      debateUrl: `https://forum.rulebritannia.org/t/ms-${number}-${encodeURIComponent(title.toLowerCase().replaceAll(" ", "-"))}`
+      debate: { topicId: null, topicUrl: null, opensAtSim: null, closesAtSim: null }
     };
     data.statements.items.push(statement);
     data.statements.nextNumber = number + 1;
@@ -164,7 +164,7 @@ function render(data) {
       title: `Ministerial Statement MS${number}: ${title}`,
       raw: `**Ministerial Statement by ${author}**\n\n${body}`
     }).then(({ topicId, topicUrl }) => {
-      statement.debateUrl = topicUrl;
+      statement.debate = { ...statement.debate, topicId, topicUrl };
       statement.discourseTopicId = topicId;
       statement.discourse_topic_id = topicId;
       statement.discourse_topic_url = topicUrl;

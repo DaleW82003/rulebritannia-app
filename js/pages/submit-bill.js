@@ -309,7 +309,7 @@ export function initSubmitBillPage(data) {
       billText: buildBillText(form, articleCount, data),
       amendments: [],
       hansard: {},
-      debateUrl: `https://forum.rulebritannia.org/t/${encodeURIComponent(uniqueId)}`
+      debate: { topicId: null, topicUrl: null, opensAtSim: null, closesAtSim: null }
     };
 
     data.orderPaperCommons ??= [];
@@ -325,7 +325,7 @@ export function initSubmitBillPage(data) {
       const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${department ? ` (${department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
       apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw })
         .then(({ topicId, topicUrl }) => {
-          bill.debateUrl = topicUrl;
+          bill.debate = { ...bill.debate, topicId, topicUrl };
           bill.discourseTopicId = topicId;
           const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
           if (idx >= 0) data.orderPaperCommons[idx] = bill;
