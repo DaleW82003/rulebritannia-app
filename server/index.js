@@ -426,6 +426,31 @@ async function ensureSchema() {
     VALUES ('main', 1997, 8, FALSE)
     ON CONFLICT (id) DO NOTHING;
   `);
+
+  // ── Press items (press releases + press conferences) ─────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS press_items (
+      id                  TEXT PRIMARY KEY,
+      press_type          TEXT NOT NULL DEFAULT 'release'
+                          CHECK (press_type IN ('release','conference')),
+      data                JSONB NOT NULL,
+      discourse_topic_id  TEXT,
+      discourse_topic_url TEXT,
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS press_items_type_idx   ON press_items (press_type);
+    CREATE INDEX IF NOT EXISTS press_items_status_idx ON press_items ((data->>'status'));
+  `);
+
+  // ── Polling entries ───────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS polling_entries (
+      id         TEXT PRIMARY KEY,
+      data       JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS polling_entries_status_idx ON polling_entries ((data->>'status'));
+  `);
 }
 
 /**
@@ -529,6 +554,40 @@ async function writeAuditLog(actorId, action, entityType, entityId, beforeJson, 
   } catch (err) {
     console.error("[audit] write failed:", err.message);
   }
+}
+
+/**
+ * Attach standardised content lifecycle fields to any content object.
+ * Existing values are preserved; missing fields are filled with safe defaults.
+ *
+ * Lifecycle fields:
+ *   createdAtSim   – { month, year } simulation date of creation
+ *   createdAtReal  – real UTC ISO timestamp
+ *   status         – "draft" | "open" | "closed" | "archived"
+ *   visibility     – "public" | "party" | "cabinet" | "mod"
+ *   autoArchiveAfterSimMonths – integer months after creation or null
+ *   debate         – { topicId, topicUrl, opensAtSim, closesAtSim }
+ */
+function attachLifecycle(obj, simMonth, simYear, realNow) {
+  const now = realNow || new Date().toISOString();
+  const defaults = {
+    createdAtSim: { month: simMonth ?? 8, year: simYear ?? 1997 },
+    createdAtReal: now,
+    status: "open",
+    visibility: "public",
+    autoArchiveAfterSimMonths: null,
+    debate: { topicId: null, topicUrl: null, opensAtSim: null, closesAtSim: null },
+  };
+  return { ...defaults, ...obj,
+    createdAtSim:  obj.createdAtSim  ?? defaults.createdAtSim,
+    createdAtReal: obj.createdAtReal ?? defaults.createdAtReal,
+    status:        obj.status        ?? defaults.status,
+    visibility:    obj.visibility    ?? defaults.visibility,
+    autoArchiveAfterSimMonths: obj.autoArchiveAfterSimMonths !== undefined
+      ? obj.autoArchiveAfterSimMonths
+      : defaults.autoArchiveAfterSimMonths,
+    debate: obj.debate ? { ...defaults.debate, ...obj.debate } : defaults.debate,
+  };
 }
 
 /**
@@ -1503,11 +1562,17 @@ app.post("/api/bills", crudWriteLimit, async (req, res) => {
     if (!bill || typeof bill !== "object" || !bill.id) {
       return res.status(400).json({ error: "Body must be a bill object with an id" });
     }
+    const { rows: clk } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+    const enriched = attachLifecycle({ ...bill }, sm, sy);
     const { rows } = await pool.query(
       `INSERT INTO bills (id, data) VALUES ($1, $2::jsonb)
        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
        RETURNING id, updated_at`,
-      [bill.id, JSON.stringify(bill)]
+      [enriched.id, JSON.stringify(enriched)]
     );
     res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
   } catch (e) {
@@ -1599,11 +1664,17 @@ app.post("/api/motions", crudWriteLimit, async (req, res) => {
     if (motion_type !== "house" && motion_type !== "edm") {
       return res.status(400).json({ error: "motion_type must be 'house' or 'edm'" });
     }
+    const { rows: clk } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+    const enriched = attachLifecycle({ ...motion }, sm, sy);
     const { rows } = await pool.query(
       `INSERT INTO motions (id, motion_type, data) VALUES ($1, $2, $3::jsonb)
        ON CONFLICT (id) DO UPDATE SET motion_type = EXCLUDED.motion_type, data = EXCLUDED.data, updated_at = NOW()
        RETURNING id, updated_at`,
-      [motion.id, motion_type, JSON.stringify(motion)]
+      [enriched.id, motion_type, JSON.stringify(enriched)]
     );
     res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
   } catch (e) {
@@ -1687,11 +1758,17 @@ app.post("/api/statements", crudWriteLimit, async (req, res) => {
     if (!stmt || typeof stmt !== "object" || !stmt.id) {
       return res.status(400).json({ error: "Body must be a statement object with an id" });
     }
+    const { rows: clk } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+    const enriched = attachLifecycle({ ...stmt }, sm, sy);
     const { rows } = await pool.query(
       `INSERT INTO statements (id, data) VALUES ($1, $2::jsonb)
        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
        RETURNING id, updated_at`,
-      [stmt.id, JSON.stringify(stmt)]
+      [enriched.id, JSON.stringify(enriched)]
     );
     res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
   } catch (e) {
@@ -1772,11 +1849,17 @@ app.post("/api/regulations", crudWriteLimit, async (req, res) => {
     if (!reg || typeof reg !== "object" || !reg.id) {
       return res.status(400).json({ error: "Body must be a regulation object with an id" });
     }
+    const { rows: clk } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+    const enriched = attachLifecycle({ ...reg }, sm, sy);
     const { rows } = await pool.query(
       `INSERT INTO regulations (id, data) VALUES ($1, $2::jsonb)
        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
        RETURNING id, updated_at`,
-      [reg.id, JSON.stringify(reg)]
+      [enriched.id, JSON.stringify(enriched)]
     );
     res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
   } catch (e) {
@@ -1859,11 +1942,17 @@ app.post("/api/questiontime-questions", crudWriteLimit, async (req, res) => {
     if (!q || typeof q !== "object" || !q.id) {
       return res.status(400).json({ error: "Body must be a question object with an id" });
     }
+    const { rows: clk } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+    const enriched = attachLifecycle({ ...q }, sm, sy);
     const { rows } = await pool.query(
       `INSERT INTO questiontime_questions (id, data) VALUES ($1, $2::jsonb)
        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
        RETURNING id, updated_at`,
-      [q.id, JSON.stringify(q)]
+      [enriched.id, JSON.stringify(enriched)]
     );
     res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
   } catch (e) {
@@ -1940,7 +2029,41 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
          real_last_tick    = NOW()
        RETURNING sim_current_month, sim_current_year, real_last_tick, rate`
     );
-    res.json({ ok: true, clock: rows[0] });
+    const newMonth = rows[0].sim_current_month;
+    const newYear  = rows[0].sim_current_year;
+
+    // Auto-archive content whose autoArchiveAfterSimMonths has elapsed.
+    // We compare createdAtSim against the new sim date.
+    const ARCHIVABLE_TABLES = [
+      "bills", "motions", "statements", "regulations",
+      "questiontime_questions", "press_items", "polling_entries",
+    ];
+    let archived = 0;
+    for (const tbl of ARCHIVABLE_TABLES) {
+      try {
+        const { rowCount } = await pool.query(
+          `UPDATE ${tbl}
+              SET data = data || '{"status":"archived"}'::jsonb,
+                  updated_at = NOW()
+            WHERE (data->>'status') NOT IN ('archived','closed')
+              AND (data->>'autoArchiveAfterSimMonths') IS NOT NULL
+              AND (data->>'autoArchiveAfterSimMonths')::int > 0
+              AND (
+                (($1 - (data->'createdAtSim'->>'year')::int) * 12
+                 + ($2 - (data->'createdAtSim'->>'month')::int))
+                >= (data->>'autoArchiveAfterSimMonths')::int
+              )`,
+          [newYear, newMonth]
+        );
+        archived += rowCount ?? 0;
+      } catch (archiveErr) {
+        // Non-fatal: log and continue
+        console.error(`[clock/tick] auto-archive failed for ${tbl}:`, archiveErr.message);
+      }
+    }
+
+    await writeAuditLog(req.session.userId, "clock.tick", "sim_clock", "main", null, { ...rows[0], archivedItems: archived });
+    res.json({ ok: true, clock: rows[0], archivedItems: archived });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -1981,6 +2104,208 @@ app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
       [month, year, rateVal]
     );
     res.json({ ok: true, clock: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * PRESS ITEMS
+ * GET    /api/press              — public: list press items (optional ?type=release|conference)
+ * GET    /api/press/:id          — public: get one press item
+ * POST   /api/press              — admin: create a press item
+ * PUT    /api/press/:id          — admin: update a press item
+ * DELETE /api/press/:id          — admin: delete a press item
+ */
+const pressReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
+const pressWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/press", pressReadLimit, async (req, res) => {
+  try {
+    const { type } = req.query;
+    const q = type
+      ? "SELECT id, press_type, data, updated_at FROM press_items WHERE press_type = $1 ORDER BY updated_at DESC"
+      : "SELECT id, press_type, data, updated_at FROM press_items ORDER BY updated_at DESC";
+    const params = type ? [type] : [];
+    const { rows } = await pool.query(q, params);
+    res.json({ items: rows.map((r) => normaliseDiscourseFields({ ...r.data, _pressType: r.press_type, _updatedAt: r.updated_at })) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/press/:id", pressReadLimit, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, press_type, data, updated_at FROM press_items WHERE id = $1",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Press item not found" });
+    res.json({ item: normaliseDiscourseFields({ ...rows[0].data, _pressType: rows[0].press_type, _updatedAt: rows[0].updated_at }) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/press", pressWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { press_type = "release", ...item } = req.body || {};
+    if (!item.id) {
+      return res.status(400).json({ error: "Body must have an id field" });
+    }
+    if (press_type !== "release" && press_type !== "conference") {
+      return res.status(400).json({ error: "press_type must be 'release' or 'conference'" });
+    }
+    const { rows: clk } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+    const enriched = attachLifecycle({ ...item }, sm, sy);
+    const { rows } = await pool.query(
+      `INSERT INTO press_items (id, press_type, data) VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (id) DO UPDATE SET press_type = EXCLUDED.press_type, data = EXCLUDED.data, updated_at = NOW()
+       RETURNING id, updated_at`,
+      [enriched.id, press_type, JSON.stringify(enriched)]
+    );
+    await writeAuditLog(req.session.userId, "press.create", "press_items", enriched.id, null, enriched);
+    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/press/:id", pressWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { press_type, ...item } = req.body || {};
+    const { rows: before } = await pool.query("SELECT data FROM press_items WHERE id = $1", [req.params.id]);
+    if (!before.length) return res.status(404).json({ error: "Press item not found" });
+    const updated = { ...before[0].data, ...item, id: req.params.id };
+    const ptCols = press_type ? ", press_type = $3" : "";
+    const params = press_type
+      ? [JSON.stringify(updated), req.params.id, press_type]
+      : [JSON.stringify(updated), req.params.id];
+    const { rows } = await pool.query(
+      `UPDATE press_items SET data = $1::jsonb, updated_at = NOW()${ptCols} WHERE id = $2 RETURNING id, updated_at`,
+      params
+    );
+    await writeAuditLog(req.session.userId, "press.update", "press_items", req.params.id, before[0].data, updated);
+    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/press/:id", pressWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM press_items WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Press item not found" });
+    await writeAuditLog(req.session.userId, "press.delete", "press_items", req.params.id, null, null);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * POLLING ENTRIES
+ * GET    /api/polling            — public: list polling entries
+ * GET    /api/polling/:id        — public: get one polling entry
+ * POST   /api/polling            — admin: create a polling entry
+ * PUT    /api/polling/:id        — admin: update a polling entry
+ * DELETE /api/polling/:id        — admin: delete a polling entry
+ */
+const pollReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
+const pollWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/polling", pollReadLimit, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, data, updated_at FROM polling_entries ORDER BY updated_at DESC"
+    );
+    res.json({ entries: rows.map((r) => ({ ...r.data, _updatedAt: r.updated_at })) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/polling/:id", pollReadLimit, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, data, updated_at FROM polling_entries WHERE id = $1",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Polling entry not found" });
+    res.json({ entry: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/polling", pollWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const entry = req.body;
+    if (!entry || typeof entry !== "object" || !entry.id) {
+      return res.status(400).json({ error: "Body must be a polling entry with an id" });
+    }
+    const { rows: clk } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+    const enriched = attachLifecycle({ ...entry }, sm, sy);
+    const { rows } = await pool.query(
+      `INSERT INTO polling_entries (id, data) VALUES ($1, $2::jsonb)
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+       RETURNING id, updated_at`,
+      [enriched.id, JSON.stringify(enriched)]
+    );
+    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/polling/:id", pollWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const entry = req.body;
+    if (!entry || typeof entry !== "object") {
+      return res.status(400).json({ error: "Body must be a polling entry object" });
+    }
+    const { rows: before } = await pool.query("SELECT data FROM polling_entries WHERE id = $1", [req.params.id]);
+    if (!before.length) return res.status(404).json({ error: "Polling entry not found" });
+    const updated = { ...before[0].data, ...entry, id: req.params.id };
+    const { rows } = await pool.query(
+      `UPDATE polling_entries SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at`,
+      [JSON.stringify(updated), req.params.id]
+    );
+    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/polling/:id", pollWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM polling_entries WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Polling entry not found" });
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -3290,6 +3615,160 @@ app.post("/api/admin/discourse-sync-bills", discourseBillSyncLimit, async (req, 
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMIN: seed-demo — reset DB to a fully-populated baseline state
+// POST /api/admin/seed-demo   — admin: idempotent demo data seeder
+// ═══════════════════════════════════════════════════════════════════════════
+
+const seedDemoLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/admin/seed-demo", seedDemoLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    // ── Reset clock to August 1997 ─────────────────────────────────────────
+    await pool.query(`
+      INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+      VALUES ('main', 8, 1997, 1)
+      ON CONFLICT (id) DO UPDATE SET
+        sim_current_month = 8,
+        sim_current_year  = 1997,
+        rate              = 1,
+        real_last_tick    = NOW()
+    `);
+
+    // ── Clear existing content ─────────────────────────────────────────────
+    await pool.query(
+      "TRUNCATE bills, motions, statements, regulations, questiontime_questions, press_items, polling_entries"
+    );
+
+    const SIM_MONTH = 8;
+    const SIM_YEAR  = 1997;
+    const NOW_ISO   = new Date().toISOString();
+    const lc = (extra = {}) => attachLifecycle(extra, SIM_MONTH, SIM_YEAR, NOW_ISO);
+
+    // ── Bills ──────────────────────────────────────────────────────────────
+    const bills = [
+      { id: "bill-001", title: "Education Standards Bill", summary: "Raises the school leaving age to 18 and introduces national curriculum benchmarks.", sponsor: "Secretary of State for Education", party: "Labour", stage: "second_reading", ...lc({ autoArchiveAfterSimMonths: 6 }) },
+      { id: "bill-002", title: "National Health Service (Modernisation) Bill", summary: "Reforms NHS internal market and introduces primary care trusts.", sponsor: "Secretary of State for Health", party: "Labour", stage: "committee", ...lc({ autoArchiveAfterSimMonths: 9 }) },
+      { id: "bill-003", title: "Crime and Disorder Bill", summary: "Introduces ASBOs and youth offending teams.", sponsor: "Home Secretary", party: "Labour", stage: "first_reading", ...lc({ autoArchiveAfterSimMonths: 6 }) },
+      { id: "bill-004", title: "Bank of England (Independence) Bill", summary: "Grants the Bank of England operational independence to set interest rates.", sponsor: "Chancellor of the Exchequer", party: "Labour", stage: "royal_assent", ...lc({ status: "closed", autoArchiveAfterSimMonths: null }) },
+      { id: "bill-005", title: "Devolution (Scotland) Bill", summary: "Establishes the Scottish Parliament with primary legislative competence.", sponsor: "Secretary of State for Scotland", party: "Labour", stage: "report", ...lc({ autoArchiveAfterSimMonths: 6 }) },
+    ];
+    for (const b of bills) {
+      await pool.query(
+        `INSERT INTO bills (id, data) VALUES ($1, $2::jsonb)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+        [b.id, JSON.stringify(b)]
+      );
+    }
+
+    // ── Motions ────────────────────────────────────────────────────────────
+    const motions = [
+      { id: "motion-001", number: 1, title: "This House welcomes the Northern Ireland peace process", type: "house", proposedBy: "Prime Minister", party: "Labour", text: "This House welcomes the progress made in the Northern Ireland peace process and supports the Government's continued engagement with all parties to achieve a lasting settlement.", ...lc({ autoArchiveAfterSimMonths: 3 }) },
+      { id: "motion-002", number: 2, title: "Early Day Motion on NHS Waiting Times", type: "edm", proposedBy: "Opposition Leader", party: "Conservative", text: "This House notes with concern the increase in NHS waiting times over the past quarter.", ...lc({ autoArchiveAfterSimMonths: 2 }) },
+      { id: "motion-003", number: 3, title: "Motion on Economic Policy", type: "house", proposedBy: "Chancellor", party: "Labour", text: "This House approves the Government's economic strategy for sustainable growth.", ...lc({ autoArchiveAfterSimMonths: 3 }) },
+    ];
+    for (const m of motions) {
+      const mt = m.type === "edm" ? "edm" : "house";
+      await pool.query(
+        `INSERT INTO motions (id, motion_type, data) VALUES ($1, $2, $3::jsonb)
+         ON CONFLICT (id) DO UPDATE SET motion_type = EXCLUDED.motion_type, data = EXCLUDED.data, updated_at = NOW()`,
+        [m.id, mt, JSON.stringify(m)]
+      );
+    }
+
+    // ── Statements ────────────────────────────────────────────────────────
+    const statements = [
+      { id: "stmt-001", number: 1, title: "Statement on Computer Systems and the Year 2000", minister: "Chancellor of the Duchy of Lancaster", party: "Labour", text: "The Government is establishing a task force to assess the readiness of public sector computer systems for the Year 2000 date change and will report to Parliament in due course.", ...lc({ autoArchiveAfterSimMonths: 3 }) },
+      { id: "stmt-002", number: 2, title: "Statement on BSE Crisis", minister: "Secretary of State for Health", party: "Labour", text: "Following expert advice, the Government is implementing additional food safety measures regarding beef products.", ...lc({ autoArchiveAfterSimMonths: 4 }) },
+      { id: "stmt-003", number: 3, title: "Statement on Hong Kong Handover", minister: "Foreign Secretary", party: "Labour", text: "The Government confirms that the handover of Hong Kong to China on 1 July 1997 proceeded in accordance with the Joint Declaration.", ...lc({ status: "closed" }) },
+    ];
+    for (const s of statements) {
+      await pool.query(
+        `INSERT INTO statements (id, data) VALUES ($1, $2::jsonb)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+        [s.id, JSON.stringify(s)]
+      );
+    }
+
+    // ── Regulations ───────────────────────────────────────────────────────
+    const regulations = [
+      { id: "reg-001", regulationNumber: "SI 1997/1234", shortTitle: "Education (Teacher Pay) Regulations 1997", minister: "Secretary of State for Education", party: "Labour", text: "These Regulations set the pay scales for qualified teachers in England and Wales.", ...lc({ autoArchiveAfterSimMonths: 12 }) },
+      { id: "reg-002", regulationNumber: "SI 1997/2345", shortTitle: "Road Traffic (Motorways) Regulations 1997", minister: "Secretary of State for Transport", party: "Labour", text: "These Regulations amend the national speed limit provisions applicable to motorways and dual carriageways.", ...lc({ autoArchiveAfterSimMonths: 6 }) },
+    ];
+    for (const r of regulations) {
+      await pool.query(
+        `INSERT INTO regulations (id, data) VALUES ($1, $2::jsonb)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+        [r.id, JSON.stringify(r)]
+      );
+    }
+
+    // ── Question Time questions ───────────────────────────────────────────
+    const qtQuestions = [
+      { id: "qt-001", office: "prime-minister", askedBy: "William Hague", askedByParty: "Conservative", text: "Will the Prime Minister confirm the Government's plans for Scottish devolution?", status: "open", ...lc({ autoArchiveAfterSimMonths: 1 }) },
+      { id: "qt-002", office: "chancellor", askedBy: "Michael Portillo", askedByParty: "Conservative", text: "Can the Chancellor explain why interest rates have risen twice since the election?", answer: "Interest rate decisions are now independently taken by the Bank of England's Monetary Policy Committee.", status: "answered", ...lc({ autoArchiveAfterSimMonths: 1 }) },
+      { id: "qt-003", office: "home", askedBy: "Ann Widdecombe", askedByParty: "Conservative", text: "What steps is the Home Secretary taking to reduce youth crime in urban areas?", status: "open", ...lc({ autoArchiveAfterSimMonths: 1 }) },
+    ];
+    for (const q of qtQuestions) {
+      await pool.query(
+        `INSERT INTO questiontime_questions (id, data) VALUES ($1, $2::jsonb)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+        [q.id, JSON.stringify(q)]
+      );
+    }
+
+    // ── Press items ───────────────────────────────────────────────────────
+    const pressItems = [
+      { id: "press-001", press_type: "release",    title: "Government Announces £1bn Schools Investment", headline: "Historic investment to modernise Britain's schools", body: "The Secretary of State for Education today announced a landmark £1 billion investment programme for school buildings.", author: "Number 10 Press Office", party: "Labour",        ...lc({ autoArchiveAfterSimMonths: 3 }) },
+      { id: "press-002", press_type: "conference", title: "PM Holds Press Conference on Economy",          headline: "Prime Minister outlines economic strategy",    body: "At a Downing Street press conference, the Prime Minister outlined the Government's five-point plan for economic stability.", author: "Number 10 Press Office", party: "Labour",        ...lc({ autoArchiveAfterSimMonths: 2 }) },
+      { id: "press-003", press_type: "release",    title: "Opposition Attacks NHS Record",                headline: "Conservative leader calls for urgent inquiry", body: "William Hague called for a full parliamentary inquiry into NHS waiting times, accusing the Government of broken promises.", author: "Conservative Party HQ",   party: "Conservative", ...lc({ autoArchiveAfterSimMonths: 2 }) },
+    ];
+    for (const p of pressItems) {
+      const { press_type = "release", ...itemData } = p;
+      await pool.query(
+        `INSERT INTO press_items (id, press_type, data) VALUES ($1, $2, $3::jsonb)
+         ON CONFLICT (id) DO UPDATE SET press_type = EXCLUDED.press_type, data = EXCLUDED.data, updated_at = NOW()`,
+        [itemData.id, press_type, JSON.stringify(itemData)]
+      );
+    }
+
+    // ── Polling entries ───────────────────────────────────────────────────
+    const pollingEntries = [
+      { id: "poll-001", weekLabel: "Aug Week 1 1997", simMonth: 8, simYear: 1997, parties: { Labour: 55, Conservative: 30, "Lib Dem": 12, Other: 3 }, ...lc({ autoArchiveAfterSimMonths: 24 }) },
+      { id: "poll-002", weekLabel: "Aug Week 2 1997", simMonth: 8, simYear: 1997, parties: { Labour: 54, Conservative: 31, "Lib Dem": 12, Other: 3 }, ...lc({ autoArchiveAfterSimMonths: 24 }) },
+      { id: "poll-003", weekLabel: "Aug Week 3 1997", simMonth: 8, simYear: 1997, parties: { Labour: 56, Conservative: 29, "Lib Dem": 12, Other: 3 }, ...lc({ autoArchiveAfterSimMonths: 24 }) },
+    ];
+    for (const pe of pollingEntries) {
+      await pool.query(
+        `INSERT INTO polling_entries (id, data) VALUES ($1, $2::jsonb)
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+        [pe.id, JSON.stringify(pe)]
+      );
+    }
+
+    await writeAuditLog(req.session.userId, "admin.seed-demo", "all", "*", null, {
+      bills: bills.length, motions: motions.length, statements: statements.length,
+      regulations: regulations.length, qtQuestions: qtQuestions.length,
+      pressItems: pressItems.length, pollingEntries: pollingEntries.length,
+    });
+
+    res.json({
+      ok: true,
+      message: "Demo data seeded successfully. Simulation reset to August 1997.",
+      counts: {
+        bills: bills.length, motions: motions.length, statements: statements.length,
+        regulations: regulations.length, qtQuestions: qtQuestions.length,
+        pressItems: pressItems.length, pollingEntries: pollingEntries.length,
+      },
+    });
+  } catch (e) {
+    console.error("[seed-demo]", e);
+    res.status(500).json({ error: "Server error during demo seed" });
   }
 });
 

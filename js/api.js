@@ -799,3 +799,79 @@ export async function apiPatchBill(id, updates) {
   if (!res.ok) throw new Error(`apiPatchBill failed (${res.status})`);
   return res.json();
 }
+
+
+// ── Press items ────────────────────────────────────────────────────────────
+
+export async function apiGetPressItems(type) {
+  const url = type
+    ? `${API_BASE}/api/press?type=${encodeURIComponent(type)}`
+    : `${API_BASE}/api/press`;
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPressItems failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreatePressItem(payload) {
+  const res = await fetch(`${API_BASE}/api/press`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`apiCreatePressItem failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiUpdatePressItem(id, payload) {
+  const res = await fetch(`${API_BASE}/api/press/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`apiUpdatePressItem failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiDeletePressItem(id) {
+  const res = await fetch(`${API_BASE}/api/press/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: csrfHeaders(),
+  });
+  if (!res.ok) throw new Error(`apiDeletePressItem failed (${res.status})`);
+  return res.json();
+}
+
+// ── Polling entries ────────────────────────────────────────────────────────
+
+export async function apiGetPollingEntries() {
+  const res = await fetch(`${API_BASE}/api/polling`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPollingEntries failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreatePollingEntry(payload) {
+  const res = await fetch(`${API_BASE}/api/polling`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`apiCreatePollingEntry failed (${res.status})`);
+  return res.json();
+}
+
+// ── Admin seed-demo ────────────────────────────────────────────────────────
+
+export async function apiSeedDemo() {
+  const res = await fetch(`${API_BASE}/api/admin/seed-demo`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiSeedDemo failed (${res.status})`);
+  return res.json();
+}
+

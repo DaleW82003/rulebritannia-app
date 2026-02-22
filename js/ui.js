@@ -51,6 +51,50 @@ const PAGE_HREF_MAP = {
   regulation:          "regulation.html",
 };
 
+/** Muted one-line purpose description for each page. */
+const PAGE_PURPOSE = {
+  dashboard:           "Your personal office — track active business, messages, and your parliamentary role.",
+  news:                "Latest news stories from across Britain, updated each simulation month.",
+  papers:              "Browse newspaper front pages and published issues from each major outlet.",
+  economy:             "Live macroeconomic indicators, public finance data, and key statistics.",
+  constituencies:      "All 650 UK constituencies — seats, majorities, and MP assignments.",
+  bodies:              "Elected and appointed public bodies, quangos, and devolved institutions.",
+  locals:              "Local government overview — councils, leaders, and local election results.",
+  "submit-bill":       "Draft and submit a new Bill for consideration by the House of Commons.",
+  questiontime:        "Ask written questions to ministers; ministers answer within the deadline.",
+  statements:          "Ministerial statements made to the House on matters of public importance.",
+  motions:             "House motions and Early Day Motions open for debate and signature.",
+  regulations:         "Statutory instruments laid before Parliament for approval or annulment.",
+  redlion:             "The Red Lion — the parliamentary bar where deals are made off the record.",
+  debates:             "Ongoing and archived debates linked to bills, motions, and statements.",
+  hansard:             "The official record of proceedings — bills passed and defeated in Parliament.",
+  press:               "Party press releases and press conferences — communicate with the media.",
+  party:               "Your party's internal hub — membership, donations, and party management.",
+  polling:             "Weekly polling tracker and trend analysis by party across the simulation.",
+  elections:           "General election schedule, results history, and constituency projections.",
+  "constituency-work": "Surgeries, casework, and community projects in your constituency.",
+  events:              "Parliamentary events, recess dates, and party conference schedule.",
+  fundraising:         "Party fundraising campaigns and donation totals.",
+  online:              "Social media and digital communications for your party.",
+  government:          "Cabinet, government structure, and ministerial responsibilities.",
+  opposition:          "Shadow Cabinet and official opposition leadership and policy positions.",
+  budget:              "The Chancellor's Budget — revenue, expenditure, and fiscal projections.",
+  civilservice:        "The civil service structure supporting each government department.",
+  cabinet:             "Cabinet composition — Secretaries of State and their ministerial teams.",
+  shadowcabinet:       "Shadow Cabinet composition and opposition spokespeople.",
+  personal:            "Your personal profile, biography, and character settings.",
+  user:                "Account settings, notification preferences, and session management.",
+  team:                "The moderator and administrator team behind the simulation.",
+  rules:               "The official rules and standing orders of the simulation.",
+  guides:              "Guides and tutorials for new and experienced players.",
+  bill:                "Full text, stage history, amendments, and debate record for a single Bill.",
+  "control-panel":     "Moderator control panel — manage the simulation, clock, and game state.",
+  "admin-panel":       "Administrator panel — user management, roles, and system configuration.",
+  statement:           "Full text and debate thread for a single ministerial statement.",
+  motion:              "Full text, signatories, and voting record for a single motion or EDM.",
+  regulation:          "Full text and parliamentary scrutiny record for a single regulation.",
+};
+
 /**
  * Apply `.active` class to the nav link matching the current page.
  * Also marks parent `.nav-toggle` active when a dropdown child matches.
@@ -88,28 +132,64 @@ function insertDemoBanner() {
   banner.innerHTML =
     'DEMO MODE — <a href="login.html">Login</a> to use live simulation';
   document.body.prepend(banner);
-  // Disable all write-action buttons once DOM is fully rendered
-  window.addEventListener("DOMContentLoaded", disableDemoButtons, { once: true });
+  // Mark write-action buttons with "Login required" label
+  window.addEventListener("DOMContentLoaded", markDemoButtons, { once: true });
   // Also run immediately in case DOM is already ready
-  setTimeout(disableDemoButtons, 0);
+  setTimeout(markDemoButtons, 0);
 }
 
 /**
- * In demo mode, mark write-action buttons as disabled with a tooltip so
- * users understand they need to log in.
+ * In demo mode, mark write-action buttons to display "Login required" inline.
+ * Buttons are disabled and styled with the .btn-login-required class.
  */
-function disableDemoButtons() {
-  qsa('button.btn[type="submit"], button.btn.primary, button.btn.danger').forEach((btn) => {
+function markDemoButtons() {
+  qsa('button.btn[type="submit"], button.btn.primary, button.btn.danger, button.btn.secondary').forEach((btn) => {
     if (btn.disabled) return;
     btn.disabled = true;
+    btn.classList.add("btn-login-required");
     btn.setAttribute("data-tip", "Login required");
   });
+}
+
+/**
+ * Inject a sim-date badge and page purpose line into the .bbc-masthead element
+ * on the current page, if it exists.
+ */
+function injectSimBadge(clock) {
+  const masthead = document.querySelector(".bbc-masthead");
+  if (!masthead) return;
+  // Don't duplicate if already injected
+  if (masthead.querySelector(".sim-badge")) return;
+
+  const month = clock?.sim_current_month ?? 8;
+  const year  = clock?.sim_current_year  ?? 1997;
+  const badge = document.createElement("span");
+  badge.className = "sim-badge";
+  badge.id = "sim-badge";
+  badge.textContent = `${MONTH_NAMES[month - 1]} ${year}`;
+  masthead.appendChild(badge);
+
+  // Purpose line — inserted as a <p> after the masthead if not already present
+  const page = document.body?.dataset?.page || "";
+  const purpose = PAGE_PURPOSE[page];
+  if (purpose && !masthead.querySelector(".page-purpose")) {
+    const p = document.createElement("p");
+    p.className = "page-purpose";
+    p.textContent = purpose;
+    // Insert the purpose line on its own row below the masthead
+    masthead.insertAdjacentElement("afterend", p);
+  }
 }
 
 export function initNavUI(user, clock) {
   // Demo mode banner — shown whenever no authenticated user is present
   if (!user) {
     insertDemoBanner();
+  }
+
+  // Inject sim-date badge into page masthead
+  if (clock) {
+    injectSimBadge(clock);
   }
 
   // Dropdown open/close
@@ -206,6 +286,24 @@ export function initNavUI(user, clock) {
   }
 }
 
+/**
+ * Render a styled empty-state tile into the given container element.
+ * @param {HTMLElement} container  — the element to render into
+ * @param {object}      opts
+ * @param {string}      opts.icon  — emoji icon (default "📭")
+ * @param {string}      opts.title — bold heading
+ * @param {string}      opts.body  — explanatory sentence
+ */
+export function renderEmptyState(container, { icon = "📭", title, body } = {}) {
+  if (!container) return;
+  container.innerHTML = `
+    <div class="empty-state-tile">
+      <div class="empty-icon">${esc(icon)}</div>
+      <div class="empty-title">${esc(title ?? "Nothing here yet")}</div>
+      <p class="empty-body">${esc(body ?? "Moderators can create the first one.")}</p>
+    </div>`;
+}
+
 export function setHTML(id, html) {
   const el = document.getElementById(id);
   if (el) el.innerHTML = html;
@@ -219,3 +317,5 @@ export function esc(s) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
+
