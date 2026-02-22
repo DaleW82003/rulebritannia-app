@@ -568,3 +568,265 @@ export async function apiAdminImportSnapshot(label, data) {
   if (!res.ok) throw new Error(`import-snapshot failed (${res.status})`);
   return res.json();
 }
+
+// ── CHARACTERS ────────────────────────────────────────────────────────────────
+
+export async function apiGetCharacters() {
+  const res = await fetch(`${API_BASE}/api/characters`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetCharacters failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetCharacter(id) {
+  const res = await fetch(`${API_BASE}/api/characters/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetCharacter failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateCharacter(character) {
+  const res = await fetch(`${API_BASE}/api/characters`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(character),
+  });
+  if (!res.ok) throw new Error(`apiCreateCharacter failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiUpdateCharacter(id, updates) {
+  const res = await fetch(`${API_BASE}/api/characters/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`apiUpdateCharacter failed (${res.status})`);
+  return res.json();
+}
+
+// ── OFFICES ───────────────────────────────────────────────────────────────────
+
+export async function apiGetOffices() {
+  const res = await fetch(`${API_BASE}/api/offices`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetOffices failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateOffice(office) {
+  const res = await fetch(`${API_BASE}/api/offices`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(office),
+  });
+  if (!res.ok) throw new Error(`apiCreateOffice failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAssignOffice(officeId, characterId) {
+  const res = await fetch(`${API_BASE}/api/offices/${encodeURIComponent(officeId)}/assign`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id: characterId }),
+  });
+  if (!res.ok) throw new Error(`apiAssignOffice failed (${res.status})`);
+  return res.json();
+}
+
+// ── DIVISIONS ─────────────────────────────────────────────────────────────────
+
+export async function apiGetDivisions(status) {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  const res = await fetch(`${API_BASE}/api/divisions${qs}`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetDivisions failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetDivision(id) {
+  const res = await fetch(`${API_BASE}/api/divisions/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetDivision failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateDivision({ entity_type, entity_id, title, closes_at } = {}) {
+  const res = await fetch(`${API_BASE}/api/divisions/create`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ entity_type, entity_id, title, closes_at }),
+  });
+  if (!res.ok) throw new Error(`apiCreateDivision failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCastVote(divisionId, { character_id, vote, weight = 1 } = {}) {
+  const res = await fetch(`${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}/vote`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id, vote, weight }),
+  });
+  if (!res.ok) throw new Error(`apiCastVote failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCloseDivision(divisionId) {
+  const res = await fetch(`${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}/close`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiCloseDivision failed (${res.status})`);
+  return res.json();
+}
+
+// ── STRUCTURED QUESTION TIME (/api/qt) ────────────────────────────────────────
+
+export async function apiQtGetQuestions({ office_id, status } = {}) {
+  const params = new URLSearchParams();
+  if (office_id) params.set("office_id", office_id);
+  if (status) params.set("status", status);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await fetch(`${API_BASE}/api/qt/questions${qs}`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiQtGetQuestions failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiQtGetQuestion(id) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiQtGetQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiQtSubmitQuestion({ office_id, asked_by_character_id, asked_by_name, asked_by_role, text, asked_at_sim, due_at_sim } = {}) {
+  const res = await fetch(`${API_BASE}/api/qt/questions`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ office_id, asked_by_character_id, asked_by_name, asked_by_role, text, asked_at_sim, due_at_sim }),
+  });
+  if (!res.ok) throw new Error(`apiQtSubmitQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiQtAnswerQuestion(questionId, { answered_by_character_id, answered_by_name, text, answered_at_sim } = {}) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(questionId)}/answer`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ answered_by_character_id, answered_by_name, text, answered_at_sim }),
+  });
+  if (!res.ok) throw new Error(`apiQtAnswerQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiQtSubmitFollowup(questionId, { asked_by_character_id, asked_by_name, asked_by_role, text, asked_at_sim } = {}) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(questionId)}/followup`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ asked_by_character_id, asked_by_name, asked_by_role, text, asked_at_sim }),
+  });
+  if (!res.ok) throw new Error(`apiQtSubmitFollowup failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiQtAnswerFollowup(questionId, followupId, { text, answered_by_name } = {}) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(questionId)}/followup/${encodeURIComponent(followupId)}/answer`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ text, answered_by_name }),
+  });
+  if (!res.ok) throw new Error(`apiQtAnswerFollowup failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiQtArchiveQuestion(questionId) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(questionId)}/archive`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiQtArchiveQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiQtSpeakerDemand(questionId) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(questionId)}/speaker-demand`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiQtSpeakerDemand failed (${res.status})`);
+  return res.json();
+}
+
+// ── SIMULATION STATE (/api/sim) ───────────────────────────────────────────────
+
+export async function apiGetSim() {
+  const res = await fetch(`${API_BASE}/api/sim`);
+  if (!res.ok) throw new Error(`apiGetSim failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSimTick() {
+  const res = await fetch(`${API_BASE}/api/sim/tick`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiSimTick failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSimSet({ year, month, is_paused } = {}) {
+  const res = await fetch(`${API_BASE}/api/sim/set`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ year, month, is_paused }),
+  });
+  if (!res.ok) throw new Error(`apiSimSet failed (${res.status})`);
+  return res.json();
+}
+
+// ── BILL STAGE ────────────────────────────────────────────────────────────────
+
+export async function apiBillSetStage(billId, stage) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(billId)}/stage`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ stage }),
+  });
+  if (!res.ok) throw new Error(`apiBillSetStage failed (${res.status})`);
+  return res.json();
+}
+
+// ── ADMIN DASHBOARD ───────────────────────────────────────────────────────────
+
+export async function apiAdminDashboard() {
+  const res = await fetch(`${API_BASE}/api/admin/dashboard`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiAdminDashboard failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAdminSyncDiscourseBills() {
+  const res = await fetch(`${API_BASE}/api/admin/sync-discourse-bills`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiAdminSyncDiscourseBills failed (${res.status})`);
+  return res.json();
+}

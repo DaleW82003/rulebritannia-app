@@ -3,6 +3,14 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
 import { logAction } from "../audit.js";
+import {
+  apiQtGetQuestions,
+  apiQtSubmitQuestion,
+  apiQtAnswerQuestion,
+  apiQtSubmitFollowup,
+  apiQtArchiveQuestion,
+  apiQtSpeakerDemand,
+} from "../api.js";
 
 /** Static list of Question Time departments — mirrors government.js OFFICE_SPECS */
 const QT_OFFICES = [
@@ -434,5 +442,85 @@ function render(data, state) {
 export function initQuestionTimePage(data) {
   normaliseQuestionTime(data);
   const state = { selectedOfficeId: data.questionTime.offices[0]?.id || null };
+
+  // If the user is authenticated, attempt to also load DB-backed qt questions
+  // and add a notice panel. The legacy render still works for demo/offline mode.
+  const isAuthenticated = typeof window !== "undefined" && document.cookie.includes("rb.sid");
+
+  if (isAuthenticated) {
+    // Async-load and render a supplemental DB-backed panel below the legacy panel
+    _maybeRenderDbQtPanel(data, state);
+  }
+
   render(data, state);
+}
+
+/**
+ * When authenticated, render a supplemental "DB-backed Questions" section
+ * below the legacy QT panel using the /api/qt/questions endpoint.
+ * This provides a live view of questions submitted via the structured API.
+ */
+async function _maybeRenderDbQtPanel(data, legacyState) {
+  const simLabel = formatSimMonthYear(data.gameState);
+  const canArchive = canModerate(data);
+
+  try {
+    const result = await apiQtGetQuestions();
+    if (!result) return; // not authenticated or endpoint not available
+
+    const { questions = [] } = result;
+    if (!questions.length) return;
+
+    const root = document.getElementById("question-time-root") || document.getElementById("qt-root");
+    if (!root) return;
+
+    // Group by office_id
+    const byOffice = {};
+    for (const q of questions) {
+      if (!byOffice[q.office_id]) byOffice[q.office_id] = [];
+      byOffice[q.office_id].push(q);
+    }
+
+    const panel = document.createElement("section");
+    panel.className = "tile";
+    panel.style.marginTop = "16px";
+    panel.innerHTML = `
+      <h2 style="margin-top:0;">DB-Backed Questions (Live)</h2>
+      <p class="muted">These questions are stored in the database via the structured /api/qt endpoint.
+      Submit new questions using the API directly. This panel auto-refreshes on page load.</p>
+      ${Object.entries(byOffice).map(([officeId, qs]) => `
+        <details style="margin-bottom:10px;">
+          <summary style="cursor:pointer;font-weight:600;">${esc(officeId)} (${qs.length} question${qs.length !== 1 ? "s" : ""})</summary>
+          ${qs.map((q) => `
+            <article class="tile" style="margin:8px 0 0 16px;">
+              <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;">
+                <span><b>${esc(q.asked_by_name || "MP")}</b> • ${esc(q.asked_at_sim || "")}</span>
+                <span class="muted">${esc(q.status)}</span>
+              </div>
+              <p style="margin:6px 0;"><b>Q:</b> ${esc(q.text || "")}</p>
+              ${q.answer_text ? `<p style="margin:6px 0;"><b>A:</b> ${esc(q.answer_text)}</p>` : `<p class="muted" style="margin:6px 0;">Awaiting answer.</p>`}
+              ${canArchive && q.status !== "archived" ? `<button class="btn" type="button" data-action="db-archive" data-id="${esc(q.id)}">Archive</button>` : ""}
+            </article>
+          `).join("")}
+        </details>
+      `).join("")}
+    `;
+
+    root.appendChild(panel);
+
+    panel.querySelectorAll("[data-action='db-archive']").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.getAttribute("data-id");
+        try {
+          await apiQtArchiveQuestion(id);
+          btn.closest("article")?.remove();
+        } catch (e) {
+          console.error("Archive failed:", e);
+        }
+      });
+    });
+  } catch (e) {
+    // Silently ignore: /api/qt may not be available in demo mode
+    console.debug("[QT] DB panel unavailable:", e.message);
+  }
 }

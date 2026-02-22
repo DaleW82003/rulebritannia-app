@@ -51,6 +51,7 @@ import { initBillPage } from "./pages/bill.js";
 import { initControlPanelPage } from "./pages/control-panel.js";
 import { initAdminPanelPage } from "./pages/admin-panel.js";
 import { initLoginPage } from "./pages/login.js";
+import { initModeratorDashboardPage } from "./pages/moderator-dashboard.js";
 
 function showBootError(err) {
   console.error(err);
@@ -164,6 +165,7 @@ function renderDataSourcePanel(sources) {
       bill: initBillPage,
       "control-panel": initControlPanelPage,
       "admin-panel": initAdminPanelPage,
+      "moderator-dashboard": initModeratorDashboardPage,
       login: initLoginPage,
     };
 
