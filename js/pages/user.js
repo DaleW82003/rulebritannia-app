@@ -364,7 +364,7 @@ function render(data, state) {
             </select>
             <textarea class="input" rows="5" name="speakerConfigJson">${esc(data.userManagement.globalControls.speakerConfigJson || "")}</textarea>
             <button class="btn" type="submit">Save Speaker Controls</button>
-            <button class="btn" type="button" id="force-sunday-roll">Force Sunday Roll (Demo)</button>
+            <button class="btn" type="button" id="force-sunday-roll">Force Sunday Roll</button>
           </form>
         </details>
 
@@ -645,7 +645,7 @@ function render(data, state) {
   host.querySelector("#force-sunday-roll")?.addEventListener("click", () => {
     if (!manager) return;
     runSundayRoll(data);
-    state.message = "Sunday roll forced for demo.";
+    state.message = "Sunday roll forced.";
     render(data, state);
   });
 

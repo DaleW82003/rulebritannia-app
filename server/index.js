@@ -3215,6 +3215,21 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
       return res.status(400).json({ error: `vote must be one of: ${validVotes.join(", ")}` });
     }
 
+    // Character ownership check: admin and mod may vote on behalf of any character;
+    // regular users may only vote with a character they own (user_id matches session).
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isStaff) {
+      const { rows: charRows } = await pool.query(
+        "SELECT user_id FROM characters WHERE id = $1",
+        [character_id]
+      );
+      if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+      if (charRows[0].user_id !== req.session.userId) {
+        return res.status(403).json({ error: "Forbidden: you may only vote with your own character" });
+      }
+    }
+
     // Verify division is open
     const { rows: divRows } = await pool.query(
       "SELECT id, status FROM divisions WHERE id = $1",
@@ -3393,6 +3408,11 @@ app.patch("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
 app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
+    // Only admin, mod, and speaker may post answers on behalf of an office.
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    if (!sessionRoles.includes("admin") && !sessionRoles.includes("mod") && !sessionRoles.includes("speaker")) {
+      return res.status(403).json({ error: "Forbidden: admin, mod, or speaker role required to post answers" });
+    }
     const { answered_by_character_id, answer_text } = req.body || {};
     if (!answer_text || !answer_text.trim()) {
       return res.status(400).json({ error: "answer_text is required" });
