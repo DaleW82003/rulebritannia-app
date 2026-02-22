@@ -160,8 +160,7 @@ function render(data, state) {
           return `
             <article class="tile" style="display:grid;grid-template-columns:minmax(260px,2fr) minmax(220px,2fr) 84px;gap:10px;align-items:center;">
               <div>
-                <div><b>${esc(spec.short)}</b></div>
-                <div class="muted">${esc(spec.title)}</div>
+                <div><b>${esc(spec.title)}</b></div>
               </div>
               <div>
                 ${editable ? `

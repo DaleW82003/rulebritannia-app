@@ -219,6 +219,7 @@ function render(data, state) {
                 <form data-action="ask" data-id="${esc(c.id)}">
                   <label class="label">Ask as Political Correspondent</label>
                   <select class="input" name="paper">${papers.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("")}</select>
+                  <input class="input" name="corrName" type="text" maxlength="80" required placeholder="Correspondent name (e.g. Jane Smith)">
                   <textarea class="input" name="text" rows="2" required placeholder="Question for the conference host"></textarea>
                   <button class="btn" type="submit">Submit Question</button>
                 </form>
@@ -362,9 +363,11 @@ function render(data, state) {
     if (!conf || conf.status === "closed") return;
     const fd = new FormData(e.currentTarget);
     const paper = String(fd.get("paper") || "Political Correspondent");
+    const corrName = String(fd.get("corrName") || "").trim();
     const text = String(fd.get("text") || "").trim();
-    if (!text) return;
-    conf.transcript.push({ from: `${paper} Political Correspondent`, text });
+    if (!text || !corrName) return;
+    const from = `${corrName}, Political Correspondent for ${paper}`;
+    conf.transcript.push({ from, text });
 
     data.liveDocket ??= { items: [] };
     data.liveDocket.items ??= [];

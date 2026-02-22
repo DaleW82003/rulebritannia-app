@@ -73,33 +73,58 @@ function renderBudgetTable(ly, ty, adminControls) {
   const lyT = calculateTotals(ly, adminControls);
   const tyT = calculateTotals(ty, adminControls);
 
-  return `
-    <div class="tile" style="margin-bottom:10px;">
-      <h3 style="margin-top:0;">Budget of Rule Britannia</h3>
-      <div><b>REVENUES</b> — LY ${money(lyT.revenues)} • TY ${money(tyT.revenues)}</div>
-      <div><b>EXPENDITURE</b> — LY ${money(lyT.expenditure)} • TY ${money(tyT.expenditure)}</div>
-      <div><b>BUDGET SURPLUS/DEFICIT</b> — LY ${money(lyT.deficit)} • TY ${money(tyT.deficit)}</div>
-      <div><b>SURPLUS/DEFICIT (% GDP)</b> — LY ${lyT.deficitPctGdp.toFixed(2)}% • TY ${tyT.deficitPctGdp.toFixed(2)}%</div>
-      <div><b>Govt. Revenue % GDP</b> — LY ${lyT.revenuePctGdp.toFixed(2)}% • TY ${tyT.revenuePctGdp.toFixed(2)}%</div>
-      <div><b>Public Spending % GDP</b> — LY ${lyT.spendPctGdp.toFixed(2)}% • TY ${tyT.spendPctGdp.toFixed(2)}%</div>
-      <div><b>Operating Surplus/Deficit</b> — LY ${money(lyT.operatingDeficit)} • TY ${money(tyT.operatingDeficit)}</div>
-      <div><b>Capital Expenditure</b> — LY ${money(lyT.cap)} • TY ${money(tyT.cap)}</div>
-      <div><b>Debt Interest %</b> — ${Number(adminControls.debtInterestPercent || 0).toFixed(2)}% (admin controlled)</div>
-    </div>
+  const tableStyle = `width:100%;border-collapse:collapse;font-size:14px;`;
+  const thStyle = `padding:8px 12px;background:#0b2d6b;color:#fff;text-align:left;`;
+  const thRStyle = `padding:8px 12px;background:#0b2d6b;color:#fff;text-align:right;`;
+  const tdStyle = `padding:7px 12px;border-bottom:1px solid #cdd9f2;`;
+  const tdRStyle = `padding:7px 12px;border-bottom:1px solid #cdd9f2;text-align:right;font-variant-numeric:tabular-nums;`;
+  const tdBStyle = `padding:7px 12px;border-bottom:1px solid #cdd9f2;font-weight:700;`;
+  const tdBRStyle = `padding:7px 12px;border-bottom:1px solid #cdd9f2;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;`;
 
-    <div style="display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));gap:12px;">
-      <article class="tile">
-        <h4 style="margin-top:0;">Budgetary Details — Revenues</h4>
-        ${REVENUE_LINES.map((k) => `<div>${esc(k)} — LY ${money(ly.revenues[k])} • TY ${money(ty.revenues[k])}</div>`).join("")}
-      </article>
-      <article class="tile">
-        <h4 style="margin-top:0;">Budgetary Details — Expenditure</h4>
-        ${EXPENDITURE_LINES.map((k) => `<div>${esc(k)} — LY ${money(ly.expenditures[k])} • TY ${money(ty.expenditures[k])}</div>`).join("")}
-        <hr>
-        <div>Debt Interest — ${money(adminControls.debtInterestExpenditure)} (static)</div>
-        <div>Charity Tax Relief — ${money(adminControls.charityReliefExpenditure)} (static)</div>
-        <div>Other Receipts/Expenses — ${money(adminControls.otherExpensesExpenditure)} (static)</div>
-      </article>
+  function row(label, lyVal, tyVal, bold = false) {
+    const td1 = bold ? `<td style="${tdBStyle}">${esc(label)}</td>` : `<td style="${tdStyle}">${esc(label)}</td>`;
+    const td2 = bold ? `<td style="${tdBRStyle}">${lyVal}</td>` : `<td style="${tdRStyle}">${lyVal}</td>`;
+    const td3 = bold ? `<td style="${tdBRStyle}">${tyVal}</td>` : `<td style="${tdRStyle}">${tyVal}</td>`;
+    return `<tr>${td1}${td2}${td3}</tr>`;
+  }
+
+  function sectionHeader(label) {
+    return `<tr><td colspan="3" style="padding:10px 12px 4px;font-weight:900;font-size:12px;letter-spacing:.06em;text-transform:uppercase;background:#eef3fb;color:#0b2d6b;">${esc(label)}</td></tr>`;
+  }
+
+  return `
+    <div style="overflow-x:auto;">
+      <table style="${tableStyle}">
+        <thead>
+          <tr>
+            <th style="${thStyle}">Line Item</th>
+            <th style="${thRStyle}">Last Year (LY)</th>
+            <th style="${thRStyle}">This Year (TY)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sectionHeader("Revenues")}
+          ${REVENUE_LINES.map((k) => row(k, money(ly.revenues[k]), money(ty.revenues[k]))).join("")}
+          ${row("Total Revenues", money(lyT.revenues), money(tyT.revenues), true)}
+
+          ${sectionHeader("Expenditure")}
+          ${EXPENDITURE_LINES.map((k) => row(k, money(ly.expenditures[k]), money(ty.expenditures[k]))).join("")}
+          ${row("Capital Expenditure", money(lyT.cap), money(tyT.cap))}
+          <!-- Static admin-controlled lines intentionally show the same value in both LY and TY columns -->
+          ${row("Debt Interest (static)", money(adminControls.debtInterestExpenditure), money(adminControls.debtInterestExpenditure))}
+          ${row("Charity Tax Relief (static)", money(adminControls.charityReliefExpenditure), money(adminControls.charityReliefExpenditure))}
+          ${row("Other Receipts/Expenses (static)", money(adminControls.otherExpensesExpenditure), money(adminControls.otherExpensesExpenditure))}
+          ${row("Total Expenditure", money(lyT.expenditure), money(tyT.expenditure), true)}
+
+          ${sectionHeader("Summary")}
+          ${row("Budget Surplus / Deficit", money(lyT.deficit), money(tyT.deficit), true)}
+          ${row("Surplus/Deficit (% GDP)", `${lyT.deficitPctGdp.toFixed(2)}%`, `${tyT.deficitPctGdp.toFixed(2)}%`)}
+          ${row("Govt. Revenue % GDP", `${lyT.revenuePctGdp.toFixed(2)}%`, `${tyT.revenuePctGdp.toFixed(2)}%`)}
+          ${row("Public Spending % GDP", `${lyT.spendPctGdp.toFixed(2)}%`, `${tyT.spendPctGdp.toFixed(2)}%`)}
+          ${row("Operating Surplus/Deficit", money(lyT.operatingDeficit), money(tyT.operatingDeficit))}
+          ${row(`Debt Interest % (admin)`, `${Number(adminControls.debtInterestPercent || 0).toFixed(2)}%`, `${Number(adminControls.debtInterestPercent || 0).toFixed(2)}%`)}
+        </tbody>
+      </table>
     </div>
   `;
 }
