@@ -64,6 +64,27 @@ CREATE TABLE IF NOT EXISTS questiontime_questions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Press items (press releases + press conferences)
+CREATE TABLE IF NOT EXISTS press_items (
+  id                  TEXT PRIMARY KEY,
+  press_type          TEXT NOT NULL DEFAULT 'release'
+                      CHECK (press_type IN ('release','conference')),
+  data                JSONB NOT NULL,
+  discourse_topic_id  TEXT,
+  discourse_topic_url TEXT,
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS press_items_type_idx   ON press_items (press_type);
+CREATE INDEX IF NOT EXISTS press_items_status_idx ON press_items ((data->>'status'));
+
+-- Polling entries (weekly Sunday polls)
+CREATE TABLE IF NOT EXISTS polling_entries (
+  id         TEXT PRIMARY KEY,
+  data       JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS polling_entries_status_idx ON polling_entries ((data->>'status'));
+
 -- Simulation clock (single authoritative row)
 CREATE TABLE IF NOT EXISTS sim_clock (
   id                TEXT PRIMARY KEY,

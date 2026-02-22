@@ -1,0 +1,1118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rulebritannia.app/schemas/state.schema.json",
+  "title": "AppState",
+  "description": "Root application state for the Rule Britannia simulation. This is a frozen v1.0 contract. Do not modify without a deliberate versioned update.",
+  "type": "object",
+  "$defs": {
+    "SimMonthYear": {
+      "$id": "#/$defs/SimMonthYear",
+      "title": "SimMonthYear",
+      "description": "A simulation month/year pair.",
+      "type": "object",
+      "required": ["month", "year"],
+      "additionalProperties": false,
+      "properties": {
+        "month": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12,
+          "description": "Simulation month (1 = January, 12 = December)."
+        },
+        "year": {
+          "type": "integer",
+          "minimum": 1900,
+          "description": "Four-digit simulation year."
+        }
+      }
+    },
+    "SimClock": {
+      "$id": "#/$defs/SimClock",
+      "title": "SimClock",
+      "description": "Master simulation clock state.",
+      "type": "object",
+      "required": ["year", "month", "is_paused", "freeze"],
+      "additionalProperties": false,
+      "properties": {
+        "year": {
+          "type": "integer",
+          "minimum": 1900,
+          "description": "Current simulation year (convenience alias for now.year)."
+        },
+        "month": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12,
+          "description": "Current simulation month (convenience alias for now.month)."
+        },
+        "now": {
+          "$ref": "#/$defs/SimMonthYear",
+          "description": "Current simulation time as a month/year pair."
+        },
+        "is_paused": {
+          "type": "boolean",
+          "description": "Explicit moderator-controlled pause flag."
+        },
+        "freeze": {
+          "type": "boolean",
+          "description": "True during the Sunday maintenance window; all sim-clock-dependent actions are blocked."
+        },
+        "last_tick_at": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "UTC ISO-8601 timestamp of the most recent clock tick, or null if the clock has never ticked."
+        }
+      }
+    },
+    "DebateRef": {
+      "$id": "#/$defs/DebateRef",
+      "title": "DebateRef",
+      "description": "Reference to an associated forum debate topic.",
+      "type": "object",
+      "required": ["topicId", "topicUrl", "opensAtSim", "closesAtSim"],
+      "additionalProperties": false,
+      "properties": {
+        "topicId": {
+          "type": ["string", "null"],
+          "description": "Forum topic identifier, or null if no topic has been created yet."
+        },
+        "topicUrl": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Full URL to the forum topic, or null."
+        },
+        "opensAtSim": {
+          "oneOf": [
+            { "$ref": "#/$defs/SimMonthYear" },
+            { "type": "null" }
+          ],
+          "description": "Simulation month/year at which the debate opens, or null."
+        },
+        "closesAtSim": {
+          "oneOf": [
+            { "$ref": "#/$defs/SimMonthYear" },
+            { "type": "null" }
+          ],
+          "description": "Simulation month/year at which the debate closes, or null."
+        }
+      }
+    },
+    "LifecycleFields": {
+      "$id": "#/$defs/LifecycleFields",
+      "title": "LifecycleFields",
+      "description": "Reusable lifecycle metadata carried by all content types.",
+      "type": "object",
+      "required": ["createdAtSim", "createdAtReal", "status", "visibility", "autoArchiveAfterSimMonths", "debate"],
+      "properties": {
+        "createdAtSim": {
+          "$ref": "#/$defs/SimMonthYear",
+          "description": "Simulation month/year when the item was created."
+        },
+        "createdAtReal": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Wall-clock UTC ISO-8601 timestamp when the item was created."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "open", "closed", "archived"],
+          "description": "Current lifecycle state of the item."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public", "party", "cabinet", "mod"],
+          "description": "Audience who can view this item."
+        },
+        "autoArchiveAfterSimMonths": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Number of sim months after creation before automatic archival; null disables auto-archive."
+        },
+        "debate": {
+          "oneOf": [
+            { "$ref": "#/$defs/DebateRef" },
+            { "type": "null" }
+          ],
+          "description": "Linked forum debate, or null if none."
+        }
+      }
+    },
+    "Division": {
+      "$id": "#/$defs/Division",
+      "title": "Division",
+      "description": "A recorded parliamentary vote.",
+      "type": "object",
+      "required": ["id", "question", "ayes", "noes", "abstains", "result", "held_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Division identifier."
+        },
+        "question": {
+          "type": "string",
+          "description": "The question put to the House."
+        },
+        "ayes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "UserIds of members who voted Aye."
+        },
+        "noes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "UserIds of members who voted No."
+        },
+        "abstains": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "UserIds of members who abstained."
+        },
+        "result": {
+          "type": "string",
+          "enum": ["passed", "failed"],
+          "description": "Outcome of the division."
+        },
+        "held_at": {
+          "$ref": "#/$defs/SimMonthYear",
+          "description": "Simulation time at which the division was held."
+        }
+      }
+    },
+    "Amendment": {
+      "$id": "#/$defs/Amendment",
+      "title": "Amendment",
+      "description": "A tabled amendment to a Bill.",
+      "type": "object",
+      "required": ["id", "text", "tabled_by", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Amendment identifier."
+        },
+        "text": {
+          "type": "string",
+          "description": "Full amendment text."
+        },
+        "tabled_by": {
+          "type": "string",
+          "description": "UserId of the MP who tabled the amendment."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["tabled", "accepted", "rejected"],
+          "description": "Current status of the amendment."
+        }
+      }
+    },
+    "Bill": {
+      "$id": "#/$defs/Bill",
+      "title": "Bill",
+      "description": "A piece of legislation progressing through Parliament.",
+      "allOf": [
+        { "$ref": "#/$defs/LifecycleFields" },
+        {
+          "type": "object",
+          "required": ["id", "title", "summary", "sponsor", "party", "stage", "amendments", "divisions", "house", "type"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique bill identifier."
+            },
+            "title": {
+              "type": "string",
+              "description": "Short title of the bill."
+            },
+            "summary": {
+              "type": "string",
+              "description": "Plain English description of the bill's purpose."
+            },
+            "sponsor": {
+              "type": "string",
+              "description": "UserId of the sponsoring MP."
+            },
+            "party": {
+              "type": "string",
+              "description": "Sponsoring party key."
+            },
+            "stage": {
+              "type": "string",
+              "enum": [
+                "first_reading",
+                "second_reading",
+                "committee",
+                "report",
+                "third_reading",
+                "royal_assent",
+                "defeated"
+              ],
+              "description": "Current parliamentary stage."
+            },
+            "house": {
+              "type": "string",
+              "enum": ["commons", "lords"],
+              "description": "House currently considering the bill."
+            },
+            "type": {
+              "type": "string",
+              "enum": ["public", "private", "private_member"],
+              "description": "Bill classification."
+            },
+            "amendments": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Amendment" },
+              "description": "Tabled amendments to this bill."
+            },
+            "divisions": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Division" },
+              "description": "Recorded votes on this bill."
+            },
+            "createdAtSim": true,
+            "createdAtReal": true,
+            "status": true,
+            "visibility": true,
+            "autoArchiveAfterSimMonths": true,
+            "debate": true
+          }
+        }
+      ]
+    },
+    "Motion": {
+      "$id": "#/$defs/Motion",
+      "title": "Motion",
+      "description": "A House motion or Early Day Motion.",
+      "allOf": [
+        { "$ref": "#/$defs/LifecycleFields" },
+        {
+          "type": "object",
+          "required": ["id", "title", "text", "type", "tabled_by", "party", "signatories", "divisions"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique motion identifier."
+            },
+            "title": {
+              "type": "string",
+              "description": "Motion title."
+            },
+            "text": {
+              "type": "string",
+              "description": "Full motion text."
+            },
+            "type": {
+              "type": "string",
+              "enum": ["motion", "edm"],
+              "description": "Whether this is a substantive motion or an Early Day Motion."
+            },
+            "tabled_by": {
+              "type": "string",
+              "description": "UserId of the MP who tabled the motion."
+            },
+            "party": {
+              "type": "string",
+              "description": "Tabling MP's party key."
+            },
+            "signatories": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "UserIds of MPs who have signed the motion."
+            },
+            "divisions": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Division" },
+              "description": "Recorded votes on this motion."
+            },
+            "createdAtSim": true,
+            "createdAtReal": true,
+            "status": true,
+            "visibility": true,
+            "autoArchiveAfterSimMonths": true,
+            "debate": true
+          }
+        }
+      ]
+    },
+    "Statement": {
+      "$id": "#/$defs/Statement",
+      "title": "Statement",
+      "description": "A ministerial statement delivered to the House.",
+      "allOf": [
+        { "$ref": "#/$defs/LifecycleFields" },
+        {
+          "type": "object",
+          "required": ["id", "title", "body", "minister_id", "department", "house"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique statement identifier."
+            },
+            "title": {
+              "type": "string",
+              "description": "Statement heading."
+            },
+            "body": {
+              "type": "string",
+              "description": "Full statement text."
+            },
+            "minister_id": {
+              "type": "string",
+              "description": "UserId of the minister making the statement."
+            },
+            "department": {
+              "type": "string",
+              "description": "Government department key."
+            },
+            "house": {
+              "type": "string",
+              "enum": ["commons", "lords"],
+              "description": "House in which the statement is delivered."
+            },
+            "createdAtSim": true,
+            "createdAtReal": true,
+            "status": true,
+            "visibility": true,
+            "autoArchiveAfterSimMonths": true,
+            "debate": true
+          }
+        }
+      ]
+    },
+    "Regulation": {
+      "$id": "#/$defs/Regulation",
+      "title": "Regulation",
+      "description": "A Statutory Instrument (secondary legislation).",
+      "allOf": [
+        { "$ref": "#/$defs/LifecycleFields" },
+        {
+          "type": "object",
+          "required": ["id", "title", "summary", "laid_by", "department", "procedure", "divisions"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique regulation identifier."
+            },
+            "title": {
+              "type": "string",
+              "description": "Regulation title."
+            },
+            "summary": {
+              "type": "string",
+              "description": "Plain English summary of the regulation."
+            },
+            "laid_by": {
+              "type": "string",
+              "description": "UserId of the minister who laid the instrument."
+            },
+            "department": {
+              "type": "string",
+              "description": "Department key responsible."
+            },
+            "si_number": {
+              "type": ["string", "null"],
+              "description": "Statutory Instrument reference number once assigned, or null."
+            },
+            "procedure": {
+              "type": "string",
+              "enum": ["negative", "affirmative", "super_affirmative"],
+              "description": "Parliamentary procedure type."
+            },
+            "divisions": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Division" },
+              "description": "Any approval or annulment votes."
+            },
+            "createdAtSim": true,
+            "createdAtReal": true,
+            "status": true,
+            "visibility": true,
+            "autoArchiveAfterSimMonths": true,
+            "debate": true
+          }
+        }
+      ]
+    },
+    "QtFollowup": {
+      "$id": "#/$defs/QtFollowup",
+      "title": "QtFollowup",
+      "description": "A supplementary question and optional ministerial response.",
+      "type": "object",
+      "required": ["text", "asker_id"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Supplementary question text."
+        },
+        "asker_id": {
+          "type": "string",
+          "description": "UserId of the MP asking the supplementary."
+        },
+        "response": {
+          "type": ["string", "null"],
+          "description": "Minister's response text, or null if not yet answered."
+        }
+      }
+    },
+    "QtQuestion": {
+      "$id": "#/$defs/QtQuestion",
+      "title": "QtQuestion",
+      "description": "An oral parliamentary question submitted for Question Time.",
+      "allOf": [
+        { "$ref": "#/$defs/LifecycleFields" },
+        {
+          "type": "object",
+          "required": ["id", "text", "asker_id", "deadline", "followups"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Question identifier."
+            },
+            "text": {
+              "type": "string",
+              "description": "The question text."
+            },
+            "asker_id": {
+              "type": "string",
+              "description": "UserId of the MP asking."
+            },
+            "deadline": {
+              "$ref": "#/$defs/SimMonthYear",
+              "description": "Simulation deadline by which an answer is expected."
+            },
+            "answer": {
+              "type": ["string", "null"],
+              "description": "Minister's answer text, or null if unanswered."
+            },
+            "answer_by": {
+              "type": ["string", "null"],
+              "description": "UserId of the minister who answered, or null."
+            },
+            "followups": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/QtFollowup" },
+              "description": "Supplementary question/answer pairs."
+            },
+            "createdAtSim": true,
+            "createdAtReal": true,
+            "status": true,
+            "visibility": true,
+            "autoArchiveAfterSimMonths": true,
+            "debate": true
+          }
+        }
+      ]
+    },
+    "PressComment": {
+      "$id": "#/$defs/PressComment",
+      "title": "PressComment",
+      "description": "A comment attached to a press release or press conference.",
+      "type": "object",
+      "required": ["id", "text", "author_id", "posted_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Comment identifier."
+        },
+        "text": {
+          "type": "string",
+          "description": "Comment content."
+        },
+        "author_id": {
+          "type": "string",
+          "description": "UserId of the comment author."
+        },
+        "posted_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC ISO-8601 timestamp when the comment was posted."
+        }
+      }
+    },
+    "PressRelease": {
+      "$id": "#/$defs/PressRelease",
+      "title": "PressRelease",
+      "description": "A press release issued by a party or minister.",
+      "allOf": [
+        { "$ref": "#/$defs/LifecycleFields" },
+        {
+          "type": "object",
+          "required": ["id", "headline", "body", "issued_by", "party", "is_marked", "comments"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique release identifier."
+            },
+            "headline": {
+              "type": "string",
+              "description": "Press release headline."
+            },
+            "body": {
+              "type": "string",
+              "description": "Full release text."
+            },
+            "issued_by": {
+              "type": "string",
+              "description": "UserId of the issuing player."
+            },
+            "party": {
+              "type": "string",
+              "description": "Issuing party key."
+            },
+            "is_marked": {
+              "type": "boolean",
+              "description": "True when a moderator has approved it for the public news page."
+            },
+            "comments": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/PressComment" },
+              "description": "Attached comments."
+            },
+            "createdAtSim": true,
+            "createdAtReal": true,
+            "status": true,
+            "visibility": true,
+            "autoArchiveAfterSimMonths": true,
+            "debate": true
+          }
+        }
+      ]
+    },
+    "PressConferenceQuestion": {
+      "$id": "#/$defs/PressConferenceQuestion",
+      "title": "PressConferenceQuestion",
+      "description": "A question submitted to a press conference.",
+      "type": "object",
+      "required": ["id", "text", "author_id", "posted_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Question identifier."
+        },
+        "text": {
+          "type": "string",
+          "description": "Question text."
+        },
+        "author_id": {
+          "type": "string",
+          "description": "UserId of the questioner."
+        },
+        "posted_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC ISO-8601 timestamp when the question was posted."
+        }
+      }
+    },
+    "PressConference": {
+      "$id": "#/$defs/PressConference",
+      "title": "PressConference",
+      "description": "A press conference hosted by a player or party.",
+      "allOf": [
+        { "$ref": "#/$defs/LifecycleFields" },
+        {
+          "type": "object",
+          "required": ["id", "title", "host_id", "party", "questions", "is_marked"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique conference identifier."
+            },
+            "title": {
+              "type": "string",
+              "description": "Conference title or topic."
+            },
+            "host_id": {
+              "type": "string",
+              "description": "UserId of the hosting player."
+            },
+            "party": {
+              "type": "string",
+              "description": "Hosting party key."
+            },
+            "questions": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/PressConferenceQuestion" },
+              "description": "Questions submitted to the conference."
+            },
+            "is_marked": {
+              "type": "boolean",
+              "description": "Moderator approval flag."
+            },
+            "createdAtSim": true,
+            "createdAtReal": true,
+            "status": true,
+            "visibility": true,
+            "autoArchiveAfterSimMonths": true,
+            "debate": true
+          }
+        }
+      ]
+    },
+    "PollingEntry": {
+      "$id": "#/$defs/PollingEntry",
+      "title": "PollingEntry",
+      "description": "A weekly opinion poll result published each Sunday.",
+      "allOf": [
+        { "$ref": "#/$defs/LifecycleFields" },
+        {
+          "type": "object",
+          "required": ["id", "week", "results", "trend"],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Poll entry identifier."
+            },
+            "week": {
+              "$ref": "#/$defs/SimMonthYear",
+              "description": "Simulation month/year this poll covers."
+            },
+            "results": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "description": "Vote share percentage per party key. Values must sum to 100."
+            },
+            "trend": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number"
+              },
+              "description": "Change in vote share since the previous poll, per party key (positive = gain, negative = loss)."
+            },
+            "createdAtSim": true,
+            "createdAtReal": true,
+            "status": true,
+            "visibility": true,
+            "autoArchiveAfterSimMonths": true,
+            "debate": true
+          }
+        }
+      ]
+    },
+    "User": {
+      "$id": "#/$defs/User",
+      "title": "User",
+      "description": "A registered player or staff member.",
+      "type": "object",
+      "required": ["id", "name", "email", "roles", "is_active", "absence_status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique user identifier."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Login email address."
+        },
+        "party": {
+          "type": ["string", "null"],
+          "description": "Party affiliation key, or null for crossbenchers and staff."
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["admin", "mod", "speaker", "player"]
+          },
+          "description": "Role tokens granted to this user."
+        },
+        "is_active": {
+          "type": "boolean",
+          "description": "Whether the account is enabled."
+        },
+        "absence_status": {
+          "type": "string",
+          "enum": ["present", "absent", "delegated"],
+          "description": "Current attendance status."
+        },
+        "delegation_target": {
+          "type": ["string", "null"],
+          "description": "UserId receiving this user's delegated vote, or null."
+        }
+      }
+    },
+    "Constituency": {
+      "$id": "#/$defs/Constituency",
+      "title": "Constituency",
+      "description": "A single parliamentary constituency.",
+      "type": "object",
+      "required": ["id", "name", "region", "held_by", "majority", "marginality"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique constituency identifier / slug."
+        },
+        "name": {
+          "type": "string",
+          "description": "Full constituency name."
+        },
+        "region": {
+          "type": "string",
+          "description": "Geographic region (e.g. South East)."
+        },
+        "held_by": {
+          "type": "string",
+          "description": "Party key of the current MP."
+        },
+        "mp_userId": {
+          "type": ["string", "null"],
+          "description": "UserId of the player MP, or null if uncontested."
+        },
+        "majority": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Vote majority at the last election."
+        },
+        "marginality": {
+          "type": "string",
+          "enum": ["safe", "marginal", "ultra-marginal"],
+          "description": "Seat marginality classification."
+        }
+      }
+    },
+    "GovernmentOffice": {
+      "$id": "#/$defs/GovernmentOffice",
+      "title": "GovernmentOffice",
+      "description": "A government office and its current holder.",
+      "type": "object",
+      "required": ["officeId", "title", "tier", "department"],
+      "additionalProperties": false,
+      "properties": {
+        "officeId": {
+          "type": "string",
+          "description": "Unique office key (e.g. prime_minister)."
+        },
+        "title": {
+          "type": "string",
+          "description": "Official title of the office."
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["cabinet", "parliamentary"],
+          "description": "Government tier."
+        },
+        "holder_userId": {
+          "type": ["string", "null"],
+          "description": "UserId of the current holder, or null if vacant."
+        },
+        "department": {
+          "type": "string",
+          "description": "Parent department key."
+        }
+      }
+    },
+    "OppositionOffice": {
+      "$id": "#/$defs/OppositionOffice",
+      "title": "OppositionOffice",
+      "description": "An opposition shadow office and its current holder.",
+      "type": "object",
+      "required": ["officeId", "title", "department"],
+      "additionalProperties": false,
+      "properties": {
+        "officeId": {
+          "type": "string",
+          "description": "Shadow office key (e.g. shadow_home_secretary)."
+        },
+        "title": {
+          "type": "string",
+          "description": "Shadow title."
+        },
+        "holder_userId": {
+          "type": ["string", "null"],
+          "description": "UserId of the shadow minister, or null if vacant."
+        },
+        "department": {
+          "type": "string",
+          "description": "Corresponding government department key."
+        }
+      }
+    },
+    "Party": {
+      "$id": "#/$defs/Party",
+      "title": "Party",
+      "description": "A political party and its current standing.",
+      "type": "object",
+      "required": ["key", "name", "short_name", "colour", "funds"],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Party identifier (e.g. labour)."
+        },
+        "name": {
+          "type": "string",
+          "description": "Full party name."
+        },
+        "short_name": {
+          "type": "string",
+          "description": "Party abbreviation (e.g. Lab)."
+        },
+        "colour": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "description": "Hex colour code for UI rendering."
+        },
+        "funds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Current party funds in simulated GBP."
+        },
+        "leader_id": {
+          "type": ["string", "null"],
+          "description": "UserId of the elected party leader, or null if vacant."
+        }
+      }
+    },
+    "EconomyBlock": {
+      "$id": "#/$defs/EconomyBlock",
+      "title": "EconomyBlock",
+      "description": "A collapsible economic data block (array of arbitrary tile/entry objects).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "An individual tile or entry within the data block.",
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": ["sim", "users", "parliament", "government", "opposition", "bills", "motions", "statements", "regulations", "questionTime", "press", "polling", "economy"],
+  "additionalProperties": false,
+  "properties": {
+    "sim": {
+      "$ref": "#/$defs/SimClock",
+      "description": "Master simulation clock."
+    },
+    "users": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/User" },
+      "description": "All registered users and staff."
+    },
+    "parliament": {
+      "type": "object",
+      "required": ["constituencies", "seats", "parties"],
+      "additionalProperties": false,
+      "description": "Structural data about the House of Commons.",
+      "properties": {
+        "constituencies": {
+          "type": "array",
+          "minItems": 650,
+          "maxItems": 650,
+          "items": { "$ref": "#/$defs/Constituency" },
+          "description": "All 650 parliamentary constituencies."
+        },
+        "seats": {
+          "type": "object",
+          "required": ["totals", "majority"],
+          "additionalProperties": false,
+          "description": "Seat totals by party.",
+          "properties": {
+            "totals": {
+              "type": "object",
+              "additionalProperties": { "type": "integer", "minimum": 0 },
+              "description": "Number of seats held by each party, keyed by party key."
+            },
+            "majority": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Seats required for an overall majority."
+            }
+          }
+        },
+        "parties": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Party" },
+          "description": "All recognised political parties."
+        }
+      }
+    },
+    "government": {
+      "type": "object",
+      "required": ["offices"],
+      "additionalProperties": false,
+      "description": "Government offices and holders.",
+      "properties": {
+        "offices": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/GovernmentOffice" },
+          "description": "All Cabinet and parliamentary government offices."
+        }
+      }
+    },
+    "opposition": {
+      "type": "object",
+      "required": ["offices"],
+      "additionalProperties": false,
+      "description": "Official opposition shadow offices and holders.",
+      "properties": {
+        "offices": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/OppositionOffice" },
+          "description": "All shadow opposition offices."
+        }
+      }
+    },
+    "bills": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Bill" },
+      "description": "All bills currently or previously before Parliament."
+    },
+    "motions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Motion" },
+      "description": "All house motions and Early Day Motions."
+    },
+    "statements": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Statement" },
+      "description": "All ministerial statements."
+    },
+    "regulations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Regulation" },
+      "description": "All Statutory Instruments."
+    },
+    "questionTime": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["department", "rota_month", "questions", "archive"],
+        "additionalProperties": false,
+        "description": "Question Time data for a single department.",
+        "properties": {
+          "department": {
+            "type": "string",
+            "description": "Department key."
+          },
+          "rota_month": {
+            "$ref": "#/$defs/SimMonthYear",
+            "description": "Sim month this department is next on the rota."
+          },
+          "questions": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/QtQuestion" },
+            "description": "Active questions for the upcoming session."
+          },
+          "archive": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/QtQuestion" },
+            "description": "Closed or answered questions from past sessions."
+          }
+        }
+      },
+      "description": "Per-department Question Time data, keyed by department key."
+    },
+    "press": {
+      "type": "object",
+      "required": ["releases", "conferences"],
+      "additionalProperties": false,
+      "description": "Press releases and press conferences.",
+      "properties": {
+        "releases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PressRelease" },
+          "description": "All press releases."
+        },
+        "conferences": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PressConference" },
+          "description": "All press conferences."
+        }
+      }
+    },
+    "polling": {
+      "type": "object",
+      "required": ["entries", "archive"],
+      "additionalProperties": false,
+      "description": "Opinion poll data.",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PollingEntry" },
+          "description": "Active or recent poll entries."
+        },
+        "archive": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PollingEntry" },
+          "description": "Historical poll entries, ordered newest-first."
+        }
+      }
+    },
+    "economy": {
+      "type": "object",
+      "required": ["gdpGrowth", "inflation", "unemployment"],
+      "additionalProperties": false,
+      "description": "Macroeconomic state of the simulation.",
+      "properties": {
+        "gdpGrowth": {
+          "type": "number",
+          "description": "Annual GDP growth rate as a percentage (e.g. 2.1)."
+        },
+        "inflation": {
+          "type": "number",
+          "description": "CPI inflation rate as a percentage."
+        },
+        "unemployment": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Unemployment rate as a percentage."
+        },
+        "ukInfoTiles": {
+          "$ref": "#/$defs/EconomyBlock",
+          "description": "Summary info tiles (e.g. trade balance, deficit, debt)."
+        },
+        "surveys": {
+          "$ref": "#/$defs/EconomyBlock",
+          "description": "Business and consumer confidence survey results."
+        },
+        "sectorOutput": {
+          "$ref": "#/$defs/EconomyBlock",
+          "description": "Output indices by economic sector."
+        },
+        "tradeData": {
+          "$ref": "#/$defs/EconomyBlock",
+          "description": "Import/export figures by trading partner."
+        },
+        "publicFinances": {
+          "$ref": "#/$defs/EconomyBlock",
+          "description": "Revenue, expenditure, and borrowing figures."
+        },
+        "labourMarket": {
+          "$ref": "#/$defs/EconomyBlock",
+          "description": "Detailed employment and wage statistics."
+        }
+      }
+    }
+  }
+}
