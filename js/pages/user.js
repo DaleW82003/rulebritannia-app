@@ -376,7 +376,7 @@ function render(data, state) {
               <article class="tile" style="display:grid;grid-template-columns:minmax(180px,2fr) minmax(180px,2fr) auto;gap:8px;align-items:center;">
                 <div><b>${esc(String(p.name || "Unknown"))}</b><div class="muted">${esc(String(p.party || "No party"))}</div></div>
                 <div class="muted">${p.active === false ? "Inactive" : "Active"}</div>
-                ${p.active === false ? `<span class="muted">Inactive (user can re-activate)</span>` : `<button class="btn" type="button" data-action="set-inactive-player" data-name="${esc(String(p.name || ""))}">Set Inactive</button>`}
+                ${p.active === false ? `<span class="muted">Inactive (user can re-activate)</span>` : `<button class="btn danger" type="button" data-action="set-inactive-player" data-name="${esc(String(p.name || ""))}">Set Inactive</button>`}
               </article>
             `).join("") || `<div class="muted-block">No players configured.</div>`}
           </div>
@@ -385,7 +385,7 @@ function render(data, state) {
 
       ${(admin) ? `
         <details class="tile" style="margin-bottom:10px;" open>
-          <summary><b>Simulation Control</b></summary>
+          <summary><b>Simulation Control <span class="admin-badge">Admin only</span></b></summary>
           <div style="margin-top:10px;display:grid;gap:8px;">
             <div class="muted">Simulation must be started by an admin on Sunday. The sim clock advances from Monday onward.</div>
             <div class="kv"><span>Simulation status</span><b>${data.gameState.started ? "Running" : "Not started"}</b></div>
@@ -406,7 +406,7 @@ function render(data, state) {
         </details>
 
         <details class="tile" open>
-          <summary><b>Admin Role & Permission Assignment</b></summary>
+          <summary><b>Admin Role &amp; Permission Assignment <span class="admin-badge">Admin only</span></b></summary>
           <div style="margin-top:10px;display:grid;gap:8px;">
             ${data.userManagement.accounts.map((a, idx) => `
               <article class="tile" style="display:grid;grid-template-columns:minmax(120px,1fr) auto auto auto auto;gap:8px;align-items:center;">
@@ -414,7 +414,7 @@ function render(data, state) {
                 <label><input type="checkbox" data-action="set-admin" data-idx="${idx}" ${a.isAdmin ? "checked" : ""}> Admin</label>
                 <label><input type="checkbox" data-action="set-mod" data-idx="${idx}" ${a.isMod ? "checked" : ""}> Mod</label>
                 <label><input type="checkbox" data-action="set-speaker" data-idx="${idx}" ${a.isSpeaker ? "checked" : ""}> Speaker</label>
-                <button class="btn" type="button" data-action="toggle-active-account" data-idx="${idx}">${a.active ? "Set Inactive" : "Set Active"}</button>
+                <div class="danger-zone" style="margin-top:0;padding:8px 10px;"><button class="btn danger" type="button" data-action="toggle-active-account" data-idx="${idx}">${a.active ? "Deactivate Account" : "Activate Account"}</button></div>
               </article>
             `).join("")}
           </div>

@@ -69,16 +69,26 @@ function renderHouse(root, data, motion) {
     </section>
 
     <section class="tile">
-      <h3 style="margin-top:0;">Division</h3>
-      <p class="muted">Aye: <b>${totals.aye}</b> • No: <b>${totals.no}</b> • Abstain: <b>${totals.abstain}</b> • Your weight: <b>${voteWeight.toFixed(2)}</b></p>
-      ${motion.division.status === "open" ? `
-        <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn ${myVote === "aye" ? "primary" : ""}" data-action="vote" data-choice="aye" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Aye</button>
-          <button class="btn ${myVote === "no" ? "primary" : ""}" data-action="vote" data-choice="no" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>No</button>
-          <button class="btn ${myVote === "abstain" ? "primary" : ""}" data-action="vote" data-choice="abstain" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Abstain</button>
+      <div class="division-panel">
+        <div class="division-header">
+          <div class="division-title">🗳️ Division</div>
+          ${motion.division.status === "open" && divisionCountdown ? `<span class="division-countdown">Closes in ${esc(divisionCountdown)}</span>` : `<span class="division-countdown">${esc(motion.division.status)}</span>`}
         </div>
-      ` : `<p class="muted">Division closed. Outcome: <b>${esc(motion.outcome || resolveDivisionResult(motion, data))}</b></p>`}
-      ${speaker ? `<div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn danger" data-action="close-division">Close Division</button></div>` : ""}
+        <div class="division-totals">
+          <div class="division-total-cell aye"><div class="dc-num">${totals.aye}</div><div class="dc-lbl">Aye</div></div>
+          <div class="division-total-cell no"><div class="dc-num">${totals.no}</div><div class="dc-lbl">No</div></div>
+          <div class="division-total-cell"><div class="dc-num">${totals.abstain}</div><div class="dc-lbl">Abstain</div></div>
+        </div>
+        ${myVote ? `<div class="division-my-vote voted-${esc(myVote)}">Your vote: <b>${esc(myVote.charAt(0).toUpperCase() + myVote.slice(1))}</b> · Weight: <b>${voteWeight.toFixed(2)}</b></div>` : `<div class="division-my-vote">Not yet voted · Weight: <b>${voteWeight.toFixed(2)}</b></div>`}
+        ${motion.division.status === "open" ? `
+          <div class="tile-bottom" style="padding-top:10px;">
+            <button class="btn ${myVote === "aye" ? "primary" : ""}" data-action="vote" data-choice="aye" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Aye</button>
+            <button class="btn ${myVote === "no" ? "primary" : ""}" data-action="vote" data-choice="no" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>No</button>
+            <button class="btn ${myVote === "abstain" ? "primary" : ""}" data-action="vote" data-choice="abstain" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Abstain</button>
+          </div>
+        ` : `<p class="muted">Division closed. Outcome: <b>${esc(motion.outcome || resolveDivisionResult(motion, data))}</b></p>`}
+        ${speaker ? `<div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;"><button class="btn danger" data-action="close-division">Close Division</button></div>` : ""}
+      </div>
     </section>
   `;
 

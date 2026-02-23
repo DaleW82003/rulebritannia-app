@@ -978,3 +978,221 @@ input.invalid, textarea.invalid, select.invalid{
   font-weight:700;
   opacity:.7;
 }
+
+/* =========================
+   Skip-to-content link
+   ========================= */
+.skip-link{
+  position:absolute;
+  top:-48px;
+  left:16px;
+  z-index:9999;
+  padding:8px 18px;
+  border-radius:999px;
+  background:var(--navy);
+  color:#fff;
+  font-weight:800;
+  font-size:14px;
+  text-decoration:none;
+  transition:top .12s ease;
+  box-shadow:0 4px 16px rgba(11,27,58,.30);
+}
+.skip-link:focus{
+  top:8px;
+}
+
+/* =========================
+   Keyboard focus ring
+   ========================= */
+:focus-visible{
+  outline:2.5px solid var(--blue);
+  outline-offset:3px;
+  border-radius:4px;
+}
+.btn:focus-visible{
+  outline:2.5px solid var(--blue);
+  outline-offset:3px;
+  border-radius:999px;
+}
+.nav-toggle:focus-visible,
+.nav-link:focus-visible,
+.dropdown a:focus-visible{
+  outline:2.5px solid rgba(255,255,255,.80);
+  outline-offset:2px;
+}
+
+/* =========================
+   Loading skeleton
+   ========================= */
+@keyframes skelPulse{
+  0%,100%{ opacity:1; }
+  50%{ opacity:.42; }
+}
+.skel{
+  display:block;
+  border-radius:8px;
+  background:linear-gradient(90deg, var(--line) 25%, rgba(205,217,242,.35) 50%, var(--line) 75%);
+  background-size:200% 100%;
+  animation:skelPulse 1.4s ease-in-out infinite;
+}
+.skel-line{ height:13px; margin-bottom:8px; border-radius:6px; }
+.skel-line.wide{ width:80%; }
+.skel-line.mid{ width:55%; }
+.skel-line.short{ width:30%; }
+.skel-title{ height:20px; width:60%; margin-bottom:10px; border-radius:8px; }
+.skel-btn{ height:36px; width:110px; border-radius:999px; margin-top:10px; display:inline-block; }
+.skel-tile{
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:16px;
+  background:linear-gradient(180deg,#ffffff,#f6f9ff);
+}
+
+/* =========================
+   Panel spacing rhythm
+   ========================= */
+.panel + .panel{ margin-top:14px; }
+.tile + .tile{ margin-top:10px; }
+
+/* =========================
+   Section labels / control groups
+   ========================= */
+.section-label{
+  font-size:11px;
+  font-weight:950;
+  letter-spacing:.12em;
+  color:var(--muted);
+  text-transform:uppercase;
+  margin:16px 0 8px;
+  display:block;
+}
+.control-group{
+  border:1px solid var(--line);
+  border-radius:16px;
+  padding:14px;
+  margin-bottom:10px;
+  background:rgba(11,45,107,.02);
+}
+.control-group-label{
+  font-size:12px;
+  font-weight:950;
+  letter-spacing:.08em;
+  color:var(--navy);
+  text-transform:uppercase;
+  margin:0 0 10px;
+  display:block;
+}
+
+/* =========================
+   Danger zone
+   ========================= */
+.danger-zone{
+  border:1.5px solid rgba(212,0,26,.28);
+  border-radius:18px;
+  padding:16px;
+  background:rgba(212,0,26,.04);
+  margin-top:14px;
+}
+.danger-zone-label{
+  font-size:11px;
+  font-weight:950;
+  letter-spacing:.12em;
+  color:var(--red);
+  text-transform:uppercase;
+  margin:0 0 10px;
+  display:block;
+}
+
+/* =========================
+   Admin badge / indicator
+   ========================= */
+.admin-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  font-size:11px;
+  font-weight:950;
+  letter-spacing:.10em;
+  text-transform:uppercase;
+  color:var(--red);
+  background:rgba(212,0,26,.08);
+  border:1px solid rgba(212,0,26,.22);
+  border-radius:999px;
+  padding:3px 10px;
+}
+
+/* =========================
+   Division UI (uniform across bill / motion / amendment)
+   ========================= */
+.division-panel{
+  border:1.5px solid rgba(212,0,26,.22);
+  border-radius:18px;
+  padding:16px;
+  background:linear-gradient(180deg,rgba(255,255,255,1),rgba(255,250,250,1));
+  box-shadow:0 4px 18px rgba(212,0,26,.05);
+}
+.division-header{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+}
+.division-title{
+  font-size:16px;
+  font-weight:950;
+  color:var(--navy);
+}
+.division-countdown{
+  font-size:12px;
+  font-weight:800;
+  color:var(--muted);
+  background:rgba(11,45,107,.06);
+  padding:4px 10px;
+  border-radius:999px;
+  border:1px solid rgba(11,45,107,.12);
+  white-space:nowrap;
+}
+.division-totals{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+}
+.division-total-cell{
+  flex:1;
+  min-width:70px;
+  text-align:center;
+  padding:10px 8px;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background:rgba(11,45,107,.03);
+}
+.division-total-cell.aye{ background:rgba(31,143,74,.08); border-color:rgba(31,143,74,.22); }
+.division-total-cell.no{ background:rgba(212,0,26,.06); border-color:rgba(212,0,26,.18); }
+.division-total-cell .dc-num{ font-size:22px; font-weight:950; color:var(--navy); }
+.division-total-cell.aye .dc-num{ color:#0b3b1e; }
+.division-total-cell.no  .dc-num{ color:#6b0010; }
+.division-total-cell .dc-lbl{ font-size:10px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-top:2px; }
+.division-my-vote{
+  font-size:13px;
+  font-weight:800;
+  padding:8px 12px;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background:rgba(11,45,107,.04);
+  margin-bottom:12px;
+}
+.division-my-vote.voted-aye{ border-color:rgba(31,143,74,.22); background:rgba(31,143,74,.08); color:#0b3b1e; }
+.division-my-vote.voted-no{ border-color:rgba(212,0,26,.22); background:rgba(212,0,26,.06); color:#6b0010; }
+.division-my-vote.voted-abstain{ border-color:rgba(11,27,58,.20); background:rgba(11,27,58,.06); }
+.division-party-breakdown{ margin-top:12px; font-size:13px; }
+.division-party-row{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  padding:5px 0;
+  border-bottom:1px dashed rgba(11,27,58,.08);
+}
+.division-party-row:last-child{ border-bottom:none; }
