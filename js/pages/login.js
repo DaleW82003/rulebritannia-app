@@ -21,7 +21,7 @@ function render(host, errorMsg, ssoEnabled) {
         <label>
           <div class="muted" style="margin-bottom:4px;">Email</div>
           <input id="login-email" type="email" required autocomplete="email"
-                 placeholder="admin@example.com"
+                 placeholder="your@email.com"
                  style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;">
         </label>
         <label>
@@ -35,6 +35,9 @@ function render(host, errorMsg, ssoEnabled) {
       </form>
       ${ssoSection}
     </section>
+    <p style="margin-top:14px;font-size:13px;color:var(--muted);text-align:center;max-width:420px;">
+      Don't have an account? <a href="register.html" style="color:var(--blue);">Apply to join</a> — applications are reviewed by our moderation team.
+    </p>
   `;
 }
 

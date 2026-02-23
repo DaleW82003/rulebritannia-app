@@ -117,3 +117,22 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS audit_log_actor_idx   ON audit_log (actor_id);
 CREATE INDEX IF NOT EXISTS audit_log_action_idx  ON audit_log (action);
 CREATE INDEX IF NOT EXISTS audit_log_created_idx ON audit_log (created_at DESC);
+
+-- Pending registration applications (admin-gated sign-up)
+CREATE TABLE IF NOT EXISTS pending_registrations (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email           TEXT NOT NULL UNIQUE,
+  username        TEXT NOT NULL UNIQUE,
+  display_name    TEXT NOT NULL DEFAULT '',
+  password_hash   TEXT NOT NULL,
+  age_attested    BOOLEAN NOT NULL DEFAULT FALSE,
+  consent_version INTEGER NOT NULL DEFAULT 1,
+  consent_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  status          TEXT NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'approved', 'rejected')),
+  reviewed_by     TEXT,
+  reviewed_at     TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS pending_reg_status_idx ON pending_registrations (status);
+CREATE INDEX IF NOT EXISTS pending_reg_email_idx  ON pending_registrations (email);
