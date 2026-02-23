@@ -1,6 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isSpeaker } from "../permissions.js";
+import { isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
@@ -45,7 +45,7 @@ function badge(statement) {
   return statement.status === "archived" ? "Archived" : "Open for Debate";
 }
 
-function statementCard(s, speaker, gameState) {
+function statementCard(s, speaker, canDelete, gameState) {
   const countdown = s.closesAtSimObj && s.status !== "archived"
     ? countdownToSimMonth(s.closesAtSimObj.month, s.closesAtSimObj.year, gameState)
     : "";
@@ -54,6 +54,7 @@ function statementCard(s, speaker, gameState) {
     <a class="btn" href="statement.html?id=${encodeURIComponent(s.id)}">Open</a>
     ${debateUrl ? `<a class="btn" href="${esc(debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
     ${speaker && s.status !== "archived" ? `<button class="btn danger" type="button" data-action="archive" data-id="${esc(s.id)}">Archive</button>` : ""}
+    ${canDelete ? `<button class="btn danger" type="button" data-action="delete-statement" data-id="${esc(s.id)}">Delete</button>` : ""}
   `;
   const body = `
     <div class="spaced">
@@ -73,6 +74,7 @@ function render(data) {
   ensureStatements(data);
   const sim = simNow(data);
   const speaker = isSpeaker(data);
+  const canDelete = canAdminModOrSpeaker(data);
   const submitter = canSubmit(data);
   const char = getCharacter(data);
 
@@ -122,12 +124,12 @@ function render(data) {
 
     ${tileSection({
       title: "Current Statements",
-      body: openItems.length ? openItems.map((s) => statementCard(s, speaker, data.gameState)).join("") : `<p class="muted">No active statements.</p>`
+      body: openItems.length ? openItems.map((s) => statementCard(s, speaker, canDelete, data.gameState)).join("") : `<p class="muted">No active statements.</p>`
     })}
 
     ${tileSection({
       title: "Archive",
-      body: archivedItems.length ? archivedItems.map((s) => statementCard(s, false, data.gameState)).join("") : `<p class="muted">No archived statements yet.</p>`
+      body: archivedItems.length ? archivedItems.map((s) => statementCard(s, false, canDelete, data.gameState)).join("") : `<p class="muted">No archived statements yet.</p>`
     })}
   `;
 
@@ -183,6 +185,17 @@ function render(data) {
       statement.archivedAtSim = formatSimMonthYear(data.gameState);
       saveState(data);
       toastSuccess("Statement archived.");
+      render(data);
+    });
+  });
+
+  root.querySelectorAll("[data-action='delete-statement']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!canDelete) return;
+      const id = btn.getAttribute("data-id");
+      data.statements.items = data.statements.items.filter((s) => s.id !== id);
+      saveState(data);
+      toastSuccess("Statement deleted.");
       render(data);
     });
   });

@@ -167,7 +167,7 @@ function maxFollowUpsFor(data, officeId, askedRole) {
   return 1;
 }
 
-function renderQuestionLine(question, office, canAnswer, canArchive, simLabel, data) {
+function renderQuestionLine(question, office, canAnswer, canArchive, canDeleteQ, simLabel, data) {
   const followUps = Array.isArray(question.followUps) ? question.followUps : [];
   const maxFollowUps = maxFollowUpsFor(data, question.office, question.askedRole);
   const canAskFollowUp = !!question.answer && !question.archived && followUps.length < maxFollowUps;
@@ -200,6 +200,7 @@ function renderQuestionLine(question, office, canAnswer, canArchive, simLabel, d
       ${canArchive && !question.archived && !question.answer && question.speakerDemandAvailable && !question.speakerDemandedAtTs ? `<button class="btn" data-action="demand" data-question-id="${esc(question.id)}" type="button">Speaker Demand: Answer within 1 sim month</button>` : ""}
       ${canArchive && !question.archived ? `<button class="btn" data-action="archive" data-question-id="${esc(question.id)}" type="button">Close Question (Mod/Speaker)</button>` : ""}
       ${canAnswer && !question.archived && !question.answer ? `<button class="btn" data-action="quick-answer" data-question-id="${esc(question.id)}" type="button">Answer This Question</button>` : ""}
+      ${canDeleteQ ? `<button class="btn danger" data-action="delete-question" data-question-id="${esc(question.id)}" type="button">Delete</button>` : ""}
     </article>
   `;
 }
@@ -225,6 +226,7 @@ function render(data, state) {
   state.selectedOfficeId = selectedOffice.id;
   const canArchive = canModerate(data);
   const canAnswer = canAnswerOffice(data, selectedOffice.id) || canModerate(data);
+  const canDeleteQ = isAdmin(data) || isMod(data);
   const askGate = canAskMainQuestion(data, selectedOffice.id);
   const canPostAsNpc = isAdmin(data) || isMod(data);
   const partyOptions = (Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [])
@@ -313,7 +315,7 @@ function render(data, state) {
       <div>
         <h3>Questions & Follow-ups</h3>
         ${officeQuestions.length
-          ? officeQuestions.map((q) => renderQuestionLine(q, selectedOffice, canAnswer, canArchive, simLabel, data)).join("")
+          ? officeQuestions.map((q) => renderQuestionLine(q, selectedOffice, canAnswer, canArchive, canDeleteQ, simLabel, data)).join("")
           : `<p class="muted">No questions in this department yet.</p>`}
       </div>
     </section>
@@ -457,6 +459,16 @@ function render(data, state) {
       if (qid && select) select.value = qid;
       const answerBox = root.querySelector("#qt-answer-text");
       answerBox?.focus();
+    });
+  });
+
+  root.querySelectorAll("[data-action='delete-question']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!canDeleteQ) return;
+      const qid = btn.getAttribute("data-question-id");
+      data.questionTime.questions = data.questionTime.questions.filter((q) => q.id !== qid);
+      saveState(data);
+      render(data, state);
     });
   });
 }

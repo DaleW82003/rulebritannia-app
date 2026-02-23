@@ -173,7 +173,7 @@ function render(data, state) {
           </div>
           <div class="muted">By ${esc(r.author)} • ${esc(r.createdAtSim)}</div>
           ${r.impact?.length ? `<div class="muted">Affects: ${esc(r.impact.join(", "))}</div>` : ""}
-          <div class="tile-bottom"><button class="btn" data-action="toggle-release" data-id="${esc(r.id)}" type="button">${state.openRelease === r.id ? "Close" : "Open"}</button></div>
+          <div class="tile-bottom"><button class="btn" data-action="toggle-release" data-id="${esc(r.id)}" type="button">${state.openRelease === r.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-release" data-id="${esc(r.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openRelease === r.id ? `<div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(r.body)}</div>` : ""}
           ${marker && sundayWindow && r.score === null ? `
             <form class="tile" data-action="mark-release" data-id="${esc(r.id)}" style="margin-top:8px;">
@@ -209,7 +209,7 @@ function render(data, state) {
             <div>${scoreChip(c.score)}</div>
           </div>
           <div class="muted">By ${esc(c.author)} • Opens ${esc(c.createdAtSim)} • Closes ${esc(c.closesAtSim)}</div>
-          <div class="tile-bottom"><button class="btn" data-action="toggle-conference" data-id="${esc(c.id)}" type="button">${state.openConference === c.id ? "Close" : "Open"}</button></div>
+          <div class="tile-bottom"><button class="btn" data-action="toggle-conference" data-id="${esc(c.id)}" type="button">${state.openConference === c.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-conference" data-id="${esc(c.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openConference === c.id ? `
             <div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(c.body)}</div>
             <div class="tile" style="margin-top:8px;">
@@ -441,6 +441,22 @@ function render(data, state) {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
     data.press.comments = data.press.comments.filter((c) => c.id !== id);
+    saveState(data);
+    render(data, state);
+  }));
+
+  section.querySelectorAll("[data-action='delete-release']").forEach((btn) => btn.addEventListener("click", () => {
+    if (!marker) return;
+    const id = btn.getAttribute("data-id");
+    data.press.releases = data.press.releases.filter((r) => r.id !== id);
+    saveState(data);
+    render(data, state);
+  }));
+
+  section.querySelectorAll("[data-action='delete-conference']").forEach((btn) => btn.addEventListener("click", () => {
+    if (!marker) return;
+    const id = btn.getAttribute("data-id");
+    data.press.conferences = data.press.conferences.filter((c) => c.id !== id);
     saveState(data);
     render(data, state);
   }));

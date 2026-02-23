@@ -1,5 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
+import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
@@ -74,6 +75,7 @@ export function initRegulationsPage(data) {
     }
   }
   const canSubmit = canMakeRegulation(data);
+  const canDelete = canAdminModOrSpeaker(data);
   const office = char?.office;
   const myDepartment = OFFICE_DEPARTMENT[office] || "";
 
@@ -125,6 +127,7 @@ export function initRegulationsPage(data) {
           <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
             <a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a>
             ${(r.discourse_topic_url || r.debateUrl) ? `<a class="btn" href="${esc(r.discourse_topic_url || r.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+            ${canDelete ? `<button class="btn danger" data-action="delete-regulation" data-id="${esc(r.id)}" type="button">Delete</button>` : ""}
           </div>
         </article>
       `).join("") : `<p class="muted">No current regulations.</p>`}
@@ -139,6 +142,7 @@ export function initRegulationsPage(data) {
           <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
             <a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a>
             ${(r.discourse_topic_url || r.debateUrl) ? `<a class="btn" href="${esc(r.discourse_topic_url || r.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+            ${canDelete ? `<button class="btn danger" data-action="delete-regulation" data-id="${esc(r.id)}" type="button">Delete</button>` : ""}
           </div>
         </article>
       `).join("") : `<p class="muted">No archived regulations yet.</p>`}
@@ -194,5 +198,15 @@ export function initRegulationsPage(data) {
       saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `regulation.html?id=${encodeURIComponent(regulation.id)}`;
+  });
+
+  root.querySelectorAll("[data-action='delete-regulation']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!canDelete) return;
+      const id = btn.getAttribute("data-id");
+      data.regulations.items = data.regulations.items.filter((r) => r.id !== id);
+      saveState(data);
+      initRegulationsPage(data);
+    });
   });
 }

@@ -1,6 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, isSpeaker } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
@@ -55,6 +55,7 @@ export function initMotionsPage(data) {
   const char = getCharacter(data);
   const simCurrentObj = simDateToObj(getSimDate(data.gameState));
   const canPostAsNpc = isAdmin(data) || isMod(data);
+  const canDelete = canAdminModOrSpeaker(data);
   const partyOptions = (Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [])
     .map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
 
@@ -149,6 +150,7 @@ export function initMotionsPage(data) {
         actions: `
           <a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a>
           ${(m.debate?.topicUrl || m.discourse_topic_url || m.discourseTopicUrl || m.debateUrl) ? `<a class="btn" href="${esc(m.debate?.topicUrl || m.discourse_topic_url || m.discourseTopicUrl || m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+          ${canDelete ? `<button class="btn danger" data-action="delete-motion" data-kind="house" data-id="${esc(m.id)}" type="button">Delete</button>` : ""}
         `
       })).join("") : `<p class="muted">No current house motions.</p>`
     })}
@@ -164,6 +166,7 @@ export function initMotionsPage(data) {
         actions: `
           <a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a>
           ${(m.debate?.topicUrl || m.discourse_topic_url || m.discourseTopicUrl || m.debateUrl) ? `<a class="btn" href="${esc(m.debate?.topicUrl || m.discourse_topic_url || m.discourseTopicUrl || m.debateUrl)}" target="_blank" rel="noopener">Debate</a>` : ""}
+          ${canDelete ? `<button class="btn danger" data-action="delete-motion" data-kind="edm" data-id="${esc(m.id)}" type="button">Delete</button>` : ""}
         `
       })).join("") : `<p class="muted">No current EDMs.</p>`
     })}
@@ -172,9 +175,9 @@ export function initMotionsPage(data) {
       title: "Archive",
       body: `
         <h3>House Motions</h3>
-        ${archivedHouse.length ? archivedHouse.map((m) => `<div style="margin-bottom:8px;"><b>Motion ${esc(m.number)}</b>: ${esc(m.title)} <a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a></div>`).join("") : `<p class="muted">No archived house motions.</p>`}
+        ${archivedHouse.length ? archivedHouse.map((m) => `<div style="margin-bottom:8px;"><b>Motion ${esc(m.number)}</b>: ${esc(m.title)} <a class="btn" href="motion.html?kind=house&id=${encodeURIComponent(m.id)}">Open</a>${canDelete ? `<button class="btn danger" data-action="delete-motion" data-kind="house" data-id="${esc(m.id)}" type="button" style="margin-left:6px;">Delete</button>` : ""}</div>`).join("") : `<p class="muted">No archived house motions.</p>`}
         <h3>EDMs</h3>
-        ${archivedEdm.length ? archivedEdm.map((m) => `<div style="margin-bottom:8px;"><b>EDM ${esc(m.number)}</b>: ${esc(m.title)} <a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a></div>`).join("") : `<p class="muted">No archived EDMs.</p>`}
+        ${archivedEdm.length ? archivedEdm.map((m) => `<div style="margin-bottom:8px;"><b>EDM ${esc(m.number)}</b>: ${esc(m.title)} <a class="btn" href="motion.html?kind=edm&id=${encodeURIComponent(m.id)}">Open</a>${canDelete ? `<button class="btn danger" data-action="delete-motion" data-kind="edm" data-id="${esc(m.id)}" type="button" style="margin-left:6px;">Delete</button>` : ""}</div>`).join("") : `<p class="muted">No archived EDMs.</p>`}
       `
     })}
   `;
@@ -271,6 +274,21 @@ export function initMotionsPage(data) {
       saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `motion.html?kind=edm&id=${encodeURIComponent(id)}`;
+  });
+
+  root.querySelectorAll("[data-action='delete-motion']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!canDelete) return;
+      const id = btn.getAttribute("data-id");
+      const kind = btn.getAttribute("data-kind");
+      if (kind === "house") {
+        data.motions.house = data.motions.house.filter((m) => m.id !== id);
+      } else {
+        data.motions.edm = data.motions.edm.filter((m) => m.id !== id);
+      }
+      saveState(data);
+      initMotionsPage(data);
+    });
   });
 }
 

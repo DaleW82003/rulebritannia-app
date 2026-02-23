@@ -1,7 +1,7 @@
 import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolveDivisionResult, setNpcVotes, setRebellions } from "../engines/division-engine.js";
 import { saveState } from "../core.js";
 import { buildDivisionWeights } from "../divisions.js";
-import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { esc } from "../ui.js";
 import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
@@ -157,6 +157,7 @@ function renderBillMeta(bill, data) {
   if (!meta) return;
 
   const canManage = canManageLegislativeAgenda(data);
+  const canDeleteBill = canAdminModOrSpeaker(data);
   const typeOptions = [
     ["government", "Government Bill"],
     ["opposition", "Opposition Bill"],
@@ -201,6 +202,14 @@ function renderBillMeta(bill, data) {
       </div>
       <p class="small">Moderator / admin action required to convert this bill into an Act.</p>
     ` : ""}
+
+    ${canDeleteBill ? `
+      <hr>
+      <div class="tile-bottom" style="padding-top:0;margin-top:0;">
+        <button type="button" class="btn danger" data-agenda="delete-bill">Delete Bill</button>
+      </div>
+      <p class="small">Admin / Mod / Speaker: permanently removes this bill.</p>
+    ` : ""}
   `;
 
   if (canManage) {
@@ -235,6 +244,13 @@ function renderBillMeta(bill, data) {
     grantRoyalAssent(bill);
     logAction({ action: "bill-stage-changed", target: bill.title, details: { billId: bill.id, stage: bill.stage } });
     persistAndRerender(data, bill);
+  });
+
+  meta.querySelector('[data-agenda="delete-bill"]')?.addEventListener("click", () => {
+    if (!canDeleteBill) return;
+    data.orderPaperCommons = (data.orderPaperCommons || []).filter((b) => b.id !== bill.id);
+    saveState(data);
+    window.location.href = "dashboard.html";
   });
 }
 
