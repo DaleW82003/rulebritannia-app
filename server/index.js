@@ -1064,6 +1064,7 @@ app.post("/api/admin/registrations/:id/reject", regAdminLimit, verifyCsrfToken, 
 /**
  * STATE
  */
+app.get("/api/state", async (req, res) => {
   try {
     if (!req.session?.userId) {
       return res.status(401).json({ error: "Not logged in" });
