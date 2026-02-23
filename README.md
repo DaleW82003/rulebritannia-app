@@ -99,7 +99,51 @@ node index.js
 
 ## Manual Testing
 
-### Unauthenticated (demo) experience
+### Civil Service — minister-only access and briefings
+
+1. Log in as a character who holds a government office (e.g. Home Secretary with `office: "home"`).
+2. Navigate to `civilservice.html`.
+3. Confirm you see **only** the Home Office department tile — all other departments are hidden.
+4. Click "Open Office" and open a case ticket in the Home Office.
+5. Log out. Log in as a mod/admin. Verify all departments are visible.
+6. As mod/admin, use the "Create Briefing" form on `civilservice.html`:
+   - Set Target Office to `home` (Home Secretary).
+   - Add `prime-minister` to the CC list.
+   - Create the briefing with a title, stage text, and two options.
+7. Log out. Log in as the Home Secretary character. Verify the briefing appears and you can choose an option. The decision is logged.
+8. Log out. Log in as a PM character (office `prime-minister`). Verify the same briefing appears (because it was CC'd to PM).
+9. Log out. Log in as a character with a different office (e.g. Chancellor). Verify the briefing does **not** appear — PM visibility is CC-based, not global.
+10. As mod/admin, close the briefing and confirm the minister can no longer act on it.
+
+### Shop purchases and modifiers
+
+1. Log in as any character. Navigate to `personal.html`.
+2. Confirm the **Active Modifiers** tile shows 0% press impact, 0% polling boost, Scrutiny Score: 0.
+3. Purchase "Media Training Session" (£5,000). Confirm:
+   - Bank balance decreases by £5,000.
+   - Active Modifiers tile updates to +10% press impact.
+   - The item appears in "Purchased Items".
+4. Purchase "Luxury Car" (£45,000). Confirm scrutiny score increases (e.g. to 5).
+5. Navigate to `press.html` and submit a press release. The modifier (+10% press impact) is stored in `effects.modifiers` and visible in the Personal page. (The modifier is a soft signal; integration in press impact calculations is available via `getPressImpactModifier()` in `personal.js`.)
+6. As mod/admin, click "Remove" on a purchased item and verify the modifiers recompute.
+
+### Constituency Work — scandal opt-in and progression
+
+1. Log in as any character. Navigate to `constituency-work.html`.
+2. Confirm the **Local Scandal Opt-In** section shows the opt-in checkbox (unchecked by default).
+3. Check the box and click "Save Preference". Verify the preference persists on reload.
+4. Log out. Log in as mod/admin. Navigate to `constituency-work.html`.
+5. In "Moderator: Trigger Scandal", enter the character's name, select the "Planning Permission Controversy" template, and submit.
+6. Log out. Log in as the player character. Navigate to `constituency-work.html`.
+7. Confirm the scandal appears with a stage title and narrative text.
+8. Click one of the response options. Verify:
+   - The decision is logged in the audit trail (expandable "Decision log").
+   - The reputation impact updates.
+   - If the chosen option has `nextStageIdx: null`, the scandal closes.
+9. As mod/admin, verify all characters' scandals are visible and you can close any scandal manually.
+10. Attempt to trigger a scandal for a character who has NOT opted in — verify an alert prevents this.
+
+
 
 1. Open any page (e.g. `dashboard.html`) **without** logging in.
 2. Verify the topbar shows "Not logged in" and a "Login" link.

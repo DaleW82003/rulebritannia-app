@@ -30,13 +30,66 @@ function canModerate(data) {
   return canAdminOrMod(data);
 }
 
+function getMyOfficeId(data) {
+  return String(getChar(data)?.office || "");
+}
+
 function isGovernmentMember(data) {
-  const office = String(getChar(data)?.office || "");
+  const office = getMyOfficeId(data);
   return CS_DEPARTMENTS.some((d) => d.officeId === office);
 }
 
 function canAccessDepartment(data, officeId) {
   return canRaiseCivilServiceCase(data, officeId);
+}
+
+// ── Briefing visibility ──────────────────────────────────────────────────────
+
+function canSeeBriefing(data, briefing) {
+  if (canModerate(data)) return true;
+  const officeId = getMyOfficeId(data);
+  if (!officeId) return false;
+  if (String(briefing.target_officeId || "") === officeId) return true;
+  return Array.isArray(briefing.cc_officeIds) && briefing.cc_officeIds.includes(officeId);
+}
+
+function canActOnBriefing(data, briefing) {
+  if (canModerate(data)) return true;
+  const officeId = getMyOfficeId(data);
+  return !!officeId && String(briefing.target_officeId || "") === officeId;
+}
+
+// ── Briefing normalisation ───────────────────────────────────────────────────
+
+function normaliseBriefing(b) {
+  b.id = Number(b.id || 0);
+  b.target_officeId = String(b.target_officeId || "");
+  b.cc_officeIds = Array.isArray(b.cc_officeIds) ? b.cc_officeIds.map(String) : [];
+  b.title = String(b.title || "").trim();
+  b.status = b.status === "closed" ? "closed" : "open";
+  b.currentStageIdx = b.status === "closed" ? null : Number(b.currentStageIdx ?? 0);
+  b.createdAt = String(b.createdAt || nowStamp());
+  b.createdBy = String(b.createdBy || "Moderator");
+  b.auditLog = Array.isArray(b.auditLog) ? b.auditLog : [];
+  b.stages = Array.isArray(b.stages) ? b.stages : [];
+  for (const s of b.stages) {
+    s.id = String(s.id || "");
+    s.title = String(s.title || "").trim();
+    s.text = String(s.text || "").trim();
+    s.options = Array.isArray(s.options) ? s.options : [];
+    for (const o of s.options) {
+      o.id = String(o.id || "");
+      o.label = String(o.label || "").trim();
+      o.nextStageIdx = o.nextStageIdx != null ? Number(o.nextStageIdx) : null;
+    }
+  }
+  for (const entry of b.auditLog) {
+    entry.stageTitle = String(entry.stageTitle || "");
+    entry.chosenOptionLabel = String(entry.chosenOptionLabel || "");
+    entry.actorName = String(entry.actorName || "Unknown");
+    entry.actorOffice = String(entry.actorOffice || "");
+    entry.at = String(entry.at || "");
+  }
 }
 
 function selectedDeptFromUrl() {
@@ -67,6 +120,8 @@ function normaliseCivilService(data) {
   data.civilService.departments ??= CS_DEPARTMENTS.map((d) => ({ ...d }));
   data.civilService.cases ??= [];
   data.civilService.nextCaseId ??= 1;
+  data.civilService.briefings ??= [];
+  data.civilService.nextBriefingId ??= 1;
 
   // Keep canonical department list order/shape.
   const byId = new Map((data.civilService.departments || []).map((d) => [d.id, d]));
@@ -94,6 +149,10 @@ function normaliseCivilService(data) {
       m.createdAt = String(m.createdAt || nowStamp());
     }
   }
+
+  for (const b of data.civilService.briefings) {
+    normaliseBriefing(b);
+  }
 }
 
 function renderMessage(m) {
@@ -112,6 +171,113 @@ function renderMessage(m) {
   `;
 }
 
+// ── Briefings UI helpers ─────────────────────────────────────────────────────
+
+function renderBriefingCard(data, b, state) {
+  const open = state.openBriefingId === b.id;
+  const mod = canModerate(data);
+  const canAct = canActOnBriefing(data, b);
+  const targetDept = CS_DEPARTMENTS.find((d) => d.officeId === b.target_officeId);
+  const ccNames = (b.cc_officeIds || []).map((id) => {
+    const d = CS_DEPARTMENTS.find((dept) => dept.officeId === id);
+    return d ? d.name : id;
+  }).join(", ") || "None";
+
+  const stage = (b.stages.length > 0 && b.currentStageIdx != null)
+    ? b.stages[b.currentStageIdx] || null
+    : null;
+
+  return `
+    <article class="tile" style="margin-top:10px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+        <div>
+          <b>Briefing #${b.id}: ${esc(b.title)}</b>
+          <div class="muted">Target: ${esc(targetDept?.name || b.target_officeId)} • CC: ${esc(ccNames)} • ${b.status === "open" ? "Open" : "Closed"}</div>
+          <div class="muted">Created by ${esc(b.createdBy)} at ${esc(b.createdAt)}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${mod && b.status === "open" ? `<button type="button" class="btn" data-action="close-briefing" data-id="${b.id}">Close Briefing</button>` : ""}
+          <button type="button" class="btn" data-action="toggle-briefing" data-id="${b.id}">${open ? "Collapse" : "View"}</button>
+        </div>
+      </div>
+
+      ${open ? `
+        <div style="margin-top:10px;">
+          ${stage ? `
+            <div class="tile" style="background:var(--color-bg,#f8f8f8);margin-bottom:8px;">
+              <h3 style="margin:0 0 4px;">${esc(stage.title)}</h3>
+              <p style="white-space:pre-wrap;margin:0 0 8px;">${esc(stage.text)}</p>
+              ${canAct && b.status === "open" && stage.options.length ? `
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  ${stage.options.map((opt) => `
+                    <button type="button" class="btn" data-action="choose-briefing-option"
+                      data-briefing-id="${b.id}" data-stage-idx="${b.currentStageIdx}"
+                      data-opt-id="${esc(opt.id)}" data-opt-label="${esc(opt.label)}"
+                      data-next-stage-idx="${opt.nextStageIdx != null ? opt.nextStageIdx : ""}">
+                      ${esc(opt.label)}
+                    </button>
+                  `).join("")}
+                </div>
+              ` : (b.status === "open" && !canAct ? '<div class="muted">Awaiting ministerial decision.</div>' : "")}
+            </div>
+          ` : `<div class="muted-block">No active stage — briefing ${b.status === "closed" ? "closed" : "has no stages configured"}.</div>`}
+
+          ${b.auditLog.length ? `
+            <details style="margin-top:8px;">
+              <summary class="muted" style="cursor:pointer;">Decision log (${b.auditLog.length})</summary>
+              ${b.auditLog.map((entry) => `
+                <div class="muted" style="margin-top:4px;font-size:.9em;">
+                  <b>${esc(entry.actorName)}</b> (${esc(entry.actorOffice)}) chose "<em>${esc(entry.chosenOptionLabel)}</em>" on stage "${esc(entry.stageTitle)}" at ${esc(entry.at)}
+                </div>
+              `).join("")}
+            </details>
+          ` : ""}
+        </div>
+      ` : ""}
+    </article>
+  `;
+}
+
+function renderModBriefingEditor(data, state) {
+  const officeOptions = CS_DEPARTMENTS.map((d) => `<option value="${esc(d.officeId)}">${esc(d.name)} (${esc(d.officeId)})</option>`).join("");
+  return `
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Create Briefing</h2>
+      <form id="cs-new-briefing-form">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:8px;">
+          <div>
+            <label class="label" for="bf-title">Briefing Title</label>
+            <input id="bf-title" class="input" name="title" required placeholder="Briefing title">
+          </div>
+          <div>
+            <label class="label" for="bf-target">Target Office</label>
+            <select id="bf-target" class="input" name="target_officeId" required>
+              <option value="">— select —</option>
+              ${officeOptions}
+            </select>
+          </div>
+        </div>
+        <label class="label" for="bf-cc">CC Offices (hold Ctrl/Cmd to select multiple)</label>
+        <select id="bf-cc" class="input" name="cc_officeIds" multiple style="height:80px;">
+          ${officeOptions}
+        </select>
+        <p class="muted" style="margin:4px 0 8px;">The Prime Minister must be explicitly CC'd to receive this briefing.</p>
+        <label class="label" for="bf-stage-title">First Stage Title</label>
+        <input id="bf-stage-title" class="input" name="stageTitle" required placeholder="e.g. Initial Brief">
+        <label class="label" for="bf-stage-text">First Stage Text</label>
+        <textarea id="bf-stage-text" class="input" name="stageText" rows="4" required placeholder="Briefing content…"></textarea>
+        <label class="label" for="bf-opt-a">Option A Label</label>
+        <input id="bf-opt-a" class="input" name="optA" placeholder="e.g. Accept the recommendation">
+        <label class="label" for="bf-opt-b">Option B Label</label>
+        <input id="bf-opt-b" class="input" name="optB" placeholder="e.g. Request further advice">
+        <button type="submit" class="btn" style="margin-top:8px;">Create Briefing</button>
+      </form>
+    </section>
+  `;
+}
+
+// ── Main render ──────────────────────────────────────────────────────────────
+
 function render(data, state) {
   const host = document.getElementById("civilservice-root") || document.querySelector("main.wrap");
   if (!host) return;
@@ -119,29 +285,65 @@ function render(data, state) {
   normaliseCivilService(data);
   const char = getChar(data);
   const mod = canModerate(data);
+  const myOfficeId = getMyOfficeId(data);
   const govMember = isGovernmentMember(data);
+
+  // Enforce minister-only visibility: non-mods only see their own department.
+  const visibleDepts = mod
+    ? data.civilService.departments
+    : data.civilService.departments.filter((d) => canAccessDepartment(data, d.officeId));
+
   const requestedDeptId = state.selectedDeptId || selectedDeptFromUrl();
   const hasDeptSelected = Boolean(requestedDeptId);
-  const selectedDeptId = hasDeptSelected ? requestedDeptId : data.civilService.departments[0]?.id;
-  const dept = data.civilService.departments.find((d) => d.id === selectedDeptId) || data.civilService.departments[0];
-  if (!dept) {
-    host.innerHTML = '<section class="panel"><div class="muted-block">No Civil Service departments configured.</div></section>';
-    return;
-  }
 
-  state.selectedDeptId = hasDeptSelected ? dept.id : "";
-  const deptCases = data.civilService.cases
-    .filter((c) => c.deptId === dept.id)
-    .sort((a, b) => b.id - a.id);
+  // Detect URL-manipulation: requested dept exists in global list but not visible to this user.
+  const requestedDeptExists = hasDeptSelected && data.civilService.departments.some((d) => d.id === requestedDeptId);
+  const requestedDeptVisible = !hasDeptSelected || visibleDepts.some((d) => d.id === requestedDeptId);
+  const accessDenied = requestedDeptExists && !requestedDeptVisible;
+
+  const dept = hasDeptSelected
+    ? (visibleDepts.find((d) => d.id === requestedDeptId) || (accessDenied ? null : visibleDepts[0]))
+    : visibleDepts[0];
+
+  state.selectedDeptId = hasDeptSelected && dept ? dept.id : "";
+
+  // Briefings visible to this user.
+  const myBriefings = data.civilService.briefings.filter((b) => canSeeBriefing(data, b));
+
+  let deptCases = [];
+  if (dept) {
+    deptCases = data.civilService.cases
+      .filter((c) => c.deptId === dept.id)
+      .sort((a, b) => b.id - a.id);
+  }
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Civil Service</div></div>
 
     ${(!mod && !govMember) ? `
       <section class="panel">
-        <div class="muted-block">You are a Backbencher, Speak to your Party Leader if you want to join their Government.</div>
+        <div class="muted-block">You hold no departmental office. Speak to your Party Leader if you want to join the Government.</div>
+      </section>
+    ` : accessDenied ? `
+      <section class="panel">
+        <div class="muted-block">You do not have access to that department. Only the minister responsible for that office can view it.</div>
+        <button type="button" class="btn" style="margin-top:8px;" data-action="back-to-directory">Back to your departments</button>
       </section>
     ` : `
+
+      ${mod ? renderModBriefingEditor(data, state) : ""}
+
+      <section class="tile" style="margin-bottom:12px;">
+        <h2 style="margin-top:0;">Departmental Briefings</h2>
+        <p class="muted" style="margin-bottom:0;">Mod-authored briefings for ministers. The Prime Minister only receives briefings they are CC'd on.</p>
+      </section>
+
+      <section class="panel" style="margin-bottom:12px;">
+        ${myBriefings.length
+          ? myBriefings.sort((a, b) => b.id - a.id).map((b) => renderBriefingCard(data, b, state)).join("")
+          : '<div class="muted-block">No briefings assigned to your office.</div>'}
+      </section>
+
       <section class="tile" style="margin-bottom:12px;">
         <h2 style="margin-top:0;">Department Case Tickets</h2>
         <p class="muted" style="margin-bottom:0;">Government members raise department cases. Mods/Admin respond as Civil Servants and can close cases.</p>
@@ -149,10 +351,9 @@ function render(data, state) {
 
       ${!hasDeptSelected ? `
       <section class="panel" style="margin-bottom:12px;">
-        <h2 style="margin-top:0;">Departments</h2>
+        <h2 style="margin-top:0;">Your Departments</h2>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
-          ${data.civilService.departments.map((d) => {
-            const accessible = canAccessDepartment(data, d.officeId);
+          ${visibleDepts.length ? visibleDepts.map((d) => {
             const openCount = data.civilService.cases.filter((c) => c.deptId === d.id && c.status === "open").length;
             const closedCount = data.civilService.cases.filter((c) => c.deptId === d.id && c.status === "closed").length;
             return `
@@ -161,16 +362,16 @@ function render(data, state) {
                 <div class="muted" style="margin-top:6px;">${esc(d.officeTitle)}</div>
                 <div class="muted" style="margin-top:6px;">Open: ${openCount} • Closed: ${closedCount}</div>
                 <div class="tile-bottom">
-                  <button class="btn" type="button" data-action="open-dept" data-id="${esc(d.id)}" ${accessible ? "" : "disabled"}>${accessible ? "Open Office" : "No Access"}</button>
+                  <button class="btn" type="button" data-action="open-dept" data-id="${esc(d.id)}">Open Office</button>
                 </div>
               </article>
             `;
-          }).join("")}
+          }).join("") : '<div class="muted-block">No departments assigned to your office.</div>'}
         </div>
       </section>
       ` : ""}
 
-      ${hasDeptSelected ? `
+      ${hasDeptSelected && dept ? `
       <section class="panel">
         <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
           <h2 style="margin:0;">${esc(dept.name)} Office</h2>
@@ -227,6 +428,106 @@ function render(data, state) {
     `}
   `;
 
+  // ── Event listeners ────────────────────────────────────────────────────────
+
+  // Mod: create briefing
+  host.querySelector("#cs-new-briefing-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!mod) return;
+    const fd = new FormData(e.currentTarget);
+    const title = String(fd.get("title") || "").trim();
+    const target_officeId = String(fd.get("target_officeId") || "").trim();
+    const cc_officeIds = fd.getAll("cc_officeIds").map(String).filter(Boolean);
+    const stageTitle = String(fd.get("stageTitle") || "").trim();
+    const stageText = String(fd.get("stageText") || "").trim();
+    const optA = String(fd.get("optA") || "").trim();
+    const optB = String(fd.get("optB") || "").trim();
+    if (!title || !target_officeId || !stageTitle || !stageText) return;
+
+    const options = [];
+    if (optA) options.push({ id: "a", label: optA, nextStageIdx: null });
+    if (optB) options.push({ id: "b", label: optB, nextStageIdx: null });
+
+    const briefing = {
+      id: data.civilService.nextBriefingId++,
+      target_officeId,
+      cc_officeIds,
+      title,
+      status: "open",
+      currentStageIdx: 0,
+      createdAt: nowStamp(),
+      createdBy: String(char?.name || data?.currentUser?.username || "Moderator"),
+      auditLog: [],
+      stages: [{ id: "s1", title: stageTitle, text: stageText, options }]
+    };
+    normaliseBriefing(briefing);
+    data.civilService.briefings.unshift(briefing);
+    saveState(data);
+    state.message = `Briefing #${briefing.id} created.`;
+    render(data, state);
+  });
+
+  // Minister/mod: choose a briefing stage option
+  host.querySelectorAll('[data-action="choose-briefing-option"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const briefingId = Number(btn.dataset.briefingId || 0);
+      const stageIdx = Number(btn.dataset.stageIdx || 0);
+      const optId = String(btn.dataset.optId || "");
+      const optLabel = String(btn.dataset.optLabel || "");
+      const nextRaw = btn.dataset.nextStageIdx;
+      const nextStageIdx = nextRaw !== "" && nextRaw != null ? Number(nextRaw) : null;
+
+      const briefing = data.civilService.briefings.find((b) => b.id === briefingId);
+      if (!briefing || briefing.status === "closed") return;
+      if (!canActOnBriefing(data, briefing)) return;
+      if (briefing.currentStageIdx !== stageIdx) return;
+
+      const stage = briefing.stages[stageIdx];
+      briefing.auditLog.push({
+        stageTitle: stage?.title || String(stageIdx),
+        chosenOptionLabel: optLabel,
+        actorName: String(char?.name || data?.currentUser?.username || "Unknown"),
+        actorOffice: myOfficeId,
+        at: nowStamp()
+      });
+
+      if (nextStageIdx != null && nextStageIdx < briefing.stages.length) {
+        briefing.currentStageIdx = nextStageIdx;
+      } else {
+        briefing.status = "closed";
+        briefing.currentStageIdx = null;
+      }
+
+      saveState(data);
+      state.message = `Decision recorded on Briefing #${briefingId}.`;
+      render(data, state);
+    });
+  });
+
+  // Mod: close briefing
+  host.querySelectorAll('[data-action="close-briefing"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!mod) return;
+      const id = Number(btn.dataset.id || 0);
+      const briefing = data.civilService.briefings.find((b) => b.id === id);
+      if (!briefing || briefing.status === "closed") return;
+      briefing.status = "closed";
+      briefing.currentStageIdx = null;
+      saveState(data);
+      state.message = `Briefing #${id} closed.`;
+      render(data, state);
+    });
+  });
+
+  // Toggle briefing detail
+  host.querySelectorAll('[data-action="toggle-briefing"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.dataset.id || 0);
+      state.openBriefingId = state.openBriefingId === id ? null : id;
+      render(data, state);
+    });
+  });
+
   host.querySelectorAll('[data-action="open-dept"]').forEach((btn) => {
     btn.addEventListener("click", () => {
       state.selectedDeptId = String(btn.dataset.id || "");
@@ -245,7 +546,7 @@ function render(data, state) {
 
   host.querySelector("#cs-new-case-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!canAccessDepartment(data, dept.officeId)) return;
+    if (!dept || !canAccessDepartment(data, dept.officeId)) return;
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
     const body = String(fd.get("body") || "").trim();
@@ -295,7 +596,7 @@ function render(data, state) {
       if (!item || item.status === "closed") return;
       item.status = "closed";
       item.closedAt = nowStamp();
-      item.closedBy = String(getChar(data)?.name || data?.currentUser?.username || "Civil Service Moderator");
+      item.closedBy = String(char?.name || data?.currentUser?.username || "Civil Service Moderator");
       saveState(data);
       state.message = `Case #${id} closed.`;
       render(data, state);
@@ -305,6 +606,7 @@ function render(data, state) {
   host.querySelectorAll('form[data-action="post-message"]').forEach((form) => {
     form.addEventListener("submit", (e) => {
       e.preventDefault();
+      if (!dept) return;
       const id = Number(form.dataset.id || 0);
       const item = data.civilService.cases.find((c) => c.id === id);
       if (!item || item.status !== "open") return;
@@ -333,5 +635,5 @@ function render(data, state) {
 export function initCivilServicePage(data) {
   normaliseCivilService(data);
   saveState(data);
-  render(data, { selectedDeptId: selectedDeptFromUrl(), openCaseId: null, message: "" });
+  render(data, { selectedDeptId: selectedDeptFromUrl(), openCaseId: null, openBriefingId: null, message: "" });
 }
