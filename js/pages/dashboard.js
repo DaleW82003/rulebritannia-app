@@ -1,6 +1,6 @@
 import { canSeeAudienceItem, isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { esc } from "../ui.js";
-import { nowMs } from "../core.js";
+import { nowMs, saveState } from "../core.js";
 import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
 
@@ -79,6 +79,51 @@ function buildRoleAwareDocket(data) {
     });
   });
 
+  // ── Offline activity highlights ────────────────────────────────────────────
+  // Show one-click items for content added since the user last acknowledged each
+  // category (tracked via data.liveDocket.seenActivityTs).
+  const seenTs = data.liveDocket?.seenActivityTs || {};
+
+  const newConferences = (data?.press?.conferences || []).filter(
+    (c) => tsFromPressId(c.id) > (seenTs.pressConference || 0)
+  );
+  if (newConferences.length) {
+    const latest = newConferences[newConferences.length - 1];
+    const label = newConferences.length === 1
+      ? `${latest.author || "Someone"} held a Press Conference`
+      : `${newConferences.length} new Press Conferences`;
+    const detail = newConferences.length === 1
+      ? (latest.subject || "")
+      : "New activity whilst you were away.";
+    push({ type: "conference", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=conferences", priority: "med", dismissOnClick: true, seenActivityKey: "pressConference" });
+  }
+
+  const newComments = (data?.press?.comments || []).filter(
+    (c) => tsFromPressId(c.id) > (seenTs.pressComment || 0)
+  );
+  if (newComments.length) {
+    const latest = newComments[newComments.length - 1];
+    const label = newComments.length === 1
+      ? `${latest.author || "Someone"} made Comments to the Press`
+      : `${newComments.length} new Comments to the Press`;
+    const detail = newComments.length === 1
+      ? (latest.body || "").slice(0, 100)
+      : "New activity whilst you were away.";
+    push({ type: "presscomment", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=comments", priority: "med", dismissOnClick: true, seenActivityKey: "pressComment" });
+  }
+
+  const newEvents = (data?.events?.items || []).filter(
+    (ev) => Number(ev.createdTs || 0) > (seenTs.event || 0)
+  );
+  if (newEvents.length) {
+    const latest = newEvents[newEvents.length - 1];
+    const typeLabel = latest.type === "conference" ? "a Party Conference" : "a Party Event";
+    const label = newEvents.length === 1
+      ? `${latest.hostName || "Someone"} held ${typeLabel}`
+      : `${newEvents.length} new Events`;
+    push({ type: "event", title: label, detail: newEvents.length === 1 ? (latest.location || "") : "New activity whilst you were away.", ctaLabel: "Open Events", href: "events.html", priority: "med", dismissOnClick: true, seenActivityKey: "event" });
+  }
+
   return items;
 }
 
@@ -96,8 +141,17 @@ function iconFor(type) {
     regulation: "🧾",
     debate: "💬",
     bill: "🏛️",
+    conference: "🎙️",
+    presscomment: "💬",
+    event: "🎉",
   };
   return map[type] || "•";
+}
+
+/** Extract the real-time timestamp embedded in a press item's id (format: "press-<ts>-<n>"). */
+function tsFromPressId(id) {
+  const parts = String(id || "").split("-");
+  return parts.length >= 2 ? (Number(parts[1]) || 0) : 0;
 }
 
 function billTypeLabel(t) {
@@ -213,6 +267,7 @@ function renderLiveDocket(data) {
 
   data.liveDocket ??= { asOf: "Today", items: [] };
   data.liveDocket.items ??= [];
+  data.liveDocket.seenActivityTs ??= {};
 
   const combined = [...data.liveDocket.items, ...buildRoleAwareDocket(data)];
   const visible = combined.filter((it) => canSeeAudienceItem(data, it?.audience));
@@ -244,9 +299,16 @@ function renderLiveDocket(data) {
   root.querySelectorAll("a[data-docket-idx]").forEach((a) => {
     a.addEventListener("click", () => {
       const item = visible[Number(a.getAttribute("data-docket-idx") || -1)];
-      if (!item?.dismissOnClick || !item?.dismissQuestionId) return;
-      const q = (data.questionTime?.questions || []).find((it) => it.id === item.dismissQuestionId);
-      if (q) q.answerSeenByAsker = true;
+      if (!item?.dismissOnClick) return;
+      if (item.dismissQuestionId) {
+        const q = (data.questionTime?.questions || []).find((it) => it.id === item.dismissQuestionId);
+        if (q) q.answerSeenByAsker = true;
+      }
+      if (item.seenActivityKey) {
+        data.liveDocket.seenActivityTs ??= {};
+        data.liveDocket.seenActivityTs[item.seenActivityKey] = Date.now();
+        saveState(data);
+      }
       if (item.generated !== true) {
         data.liveDocket.items = data.liveDocket.items.filter((i) => i !== item);
       }
