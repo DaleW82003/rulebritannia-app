@@ -202,8 +202,8 @@ export function initNavUI(user, clock) {
   // Inject skip-to-content link for keyboard / screen-reader users
   if (!document.getElementById("rb-skip-link")) {
     const mainEl = document.querySelector("main");
-    const mainId = mainEl?.id || "main-content";
     if (mainEl && !mainEl.id) mainEl.id = "main-content";
+    const mainId = mainEl?.id || "main-content";
 
     const skip = document.createElement("a");
     skip.id = "rb-skip-link";
@@ -212,10 +212,6 @@ export function initNavUI(user, clock) {
     skip.textContent = "Skip to content";
     document.body.prepend(skip);
   }
-
-  // Ensure main landmark has a stable id for the skip link target (pages with no existing id)
-  const mainEl = document.querySelector("main.wrap");
-  if (mainEl && !mainEl.id) mainEl.id = "main-content";
 
   // Demo mode banner — shown whenever no authenticated user is present
   if (!user) {
