@@ -5,6 +5,7 @@ import { apiCreateDebateTopic } from "../api.js";
 import { tileSection } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
+import { isAdmin, isMod } from "../permissions.js";
 
 const DEPARTMENTS = [
   "Cabinet Office (General)",
@@ -123,7 +124,7 @@ function renderTypeControls(data) {
   `;
 }
 
-function renderBuilder() {
+function renderBuilder(canPostAsNpc, partyOptions) {
   return `
     <form id="submitBillForm">
       <div class="form-grid" style="grid-template-columns:minmax(220px,max-content) 1fr;align-items:start;">
@@ -141,6 +142,22 @@ function renderBuilder() {
         <label for="articleCountInput">Number of Articles</label>
         <input id="articleCountInput" type="number" min="1" max="20" value="3" required>
       </div>
+
+      ${canPostAsNpc ? `
+      <div class="muted-block" style="margin-top:12px;padding:10px;border:1px solid var(--line);">
+        <div class="wgo-kicker" style="margin-bottom:6px;">NPC Submission (mod/admin)</div>
+        <div class="form-row">
+          <label for="npcNameInput">NPC MP Name <span style="color:var(--danger);">*</span></label>
+          <input id="npcNameInput" name="npcName" maxlength="100" placeholder="Enter MP name" required>
+        </div>
+        <div class="form-row" style="margin-top:6px;">
+          <label for="npcPartyInput">Party <span style="color:var(--danger);">*</span></label>
+          <select id="npcPartyInput" name="npcParty" required>
+            <option value="">— Select party —</option>
+            ${partyOptions}
+          </select>
+        </div>
+      </div>` : ""}
 
       <div id="articlesContainer" style="margin-top:14px;"></div>
 
@@ -245,13 +262,23 @@ export function initSubmitBillPage(data) {
 
   ensureSubmissionTracker(data);
   const eligibility = computeEligibility(data);
+  const canPostAsNpc = isAdmin(data) || isMod(data);
+
+  const partyOptions = (Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [])
+    .filter((p) => Number(p.seats || 0) > 0 && p.name !== "Others")
+    .map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`)
+    .join("");
 
   typeRoot.innerHTML = renderTypeControls(data);
-  builderRoot.innerHTML = renderBuilder();
+  builderRoot.innerHTML = renderBuilder(canPostAsNpc, partyOptions);
 
   if (permission) {
     permission.style.display = "";
-    permission.innerHTML = `<div class="muted-block">Submitting as <b>${esc(currentCharacter(data).name || "MP")}</b>. PMBs are available to all MPs. Government bills are for PM / Leader of the House. Opposition bills are capped yearly (Leader of the Opposition: 3; Third Party Leader: 1).</div>`;
+    if (canPostAsNpc) {
+      permission.innerHTML = `<div class="muted-block">Submitting as <b>NPC</b> (mod/admin). You must enter an MP name and select a party. The bill will be tagged <b>[NPC]</b>.</div>`;
+    } else {
+      permission.innerHTML = `<div class="muted-block">Submitting as <b>${esc(currentCharacter(data).name || "MP")}</b>. PMBs are available to all MPs. Government bills are for PM / Leader of the House. Opposition bills are capped yearly (Leader of the Opposition: 3; Third Party Leader: 1).</div>`;
+    }
   }
 
   const form = builderRoot.querySelector("#submitBillForm");
@@ -271,24 +298,42 @@ export function initSubmitBillPage(data) {
     const articleCount = Math.max(1, Math.min(20, Number(countInput.value || 1)));
     const c = currentCharacter(data);
 
-    if (typeChoice === "opposition-leader" && eligibility.oppRemaining <= 0) return;
-    if (typeChoice === "opposition-third" && eligibility.thirdRemaining <= 0) return;
+    if (!canPostAsNpc) {
+      if (typeChoice === "opposition-leader" && eligibility.oppRemaining <= 0) return;
+      if (typeChoice === "opposition-third" && eligibility.thirdRemaining <= 0) return;
+    }
+
+    const npcName = canPostAsNpc ? String(form.querySelector("#npcNameInput")?.value || "").trim() : "";
+    const npcParty = canPostAsNpc ? String(form.querySelector("#npcPartyInput")?.value || "").trim() : "";
+
+    if (canPostAsNpc && !npcName) {
+      form.querySelector("#npcNameInput")?.focus();
+      return;
+    }
+    if (canPostAsNpc && !npcParty) {
+      form.querySelector("#npcPartyInput")?.focus();
+      return;
+    }
 
     const title = form.querySelector("#billTitleInput").value.trim();
     const department = form.querySelector("#billDepartmentInput").value || "Cabinet Office (General)";
     const now = Date.now();
 
+    const author = canPostAsNpc ? `${npcName} [NPC]` : (c.name || "Unknown MP");
+
     let billType = "pmb";
     let stage = "First Reading";
-    if (typeChoice === "government") {
-      billType = "government";
-      stage = "Second Reading";
-    }
-    if (typeChoice === "opposition-leader" || typeChoice === "opposition-third") {
-      billType = "opposition";
-      stage = "First Reading";
-      const key = typeChoice === "opposition-leader" ? "leader-opposition" : "third-party";
-      data.billSubmission.oppositionUsed[key] = Number(data.billSubmission.oppositionUsed[key] || 0) + 1;
+    if (!canPostAsNpc) {
+      if (typeChoice === "government") {
+        billType = "government";
+        stage = "Second Reading";
+      }
+      if (typeChoice === "opposition-leader" || typeChoice === "opposition-third") {
+        billType = "opposition";
+        stage = "First Reading";
+        const key = typeChoice === "opposition-leader" ? "leader-opposition" : "third-party";
+        data.billSubmission.oppositionUsed[key] = Number(data.billSubmission.oppositionUsed[key] || 0) + 1;
+      }
     }
 
     const simYear = currentSimYear(data);
@@ -298,7 +343,8 @@ export function initSubmitBillPage(data) {
     const bill = {
       id: uniqueId,
       title,
-      author: c.name || "Unknown MP",
+      author,
+      ...(canPostAsNpc ? { npc: true, npcParty } : {}),
       department,
       billType,
       stage,

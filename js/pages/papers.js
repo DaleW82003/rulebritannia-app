@@ -1,6 +1,6 @@
 import { formatSimMonthYear } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
-import { canPostNews } from "../permissions.js";
+import { canPostNews, canAdminOrMod } from "../permissions.js";
 import { saveState } from "../core.js";
 
 function byNewest(a, b) {
@@ -27,7 +27,7 @@ function renderPaperTiles(papers) {
   `;
 }
 
-function renderReader(paper) {
+function renderReader(paper, canDelete = false) {
   const issues = (paper.issues || []).slice().sort(byNewest);
   if (!issues.length) {
     return `
@@ -58,19 +58,37 @@ function renderReader(paper) {
         ${i.bylineName ? `<div class="paper-issue-byline">By ${esc(i.bylineName)}</div>` : ""}
         ${i.imageUrl ? `<div class="paper-issue-imagewrap"><img src="${esc(i.imageUrl)}" alt=""></div>` : ""}
         <div class="paper-issue-text">${esc(i.text || "")}</div>
+        ${canDelete ? `<div class="tile-bottom" style="margin-top:8px;"><button class="btn danger" data-action="delete-article" data-paper="${esc(paper.key)}" data-article-id="${esc(i.id)}" type="button">Delete</button></div>` : ""}
       </article>
     `).join("")}
   `;
 }
 
-function bindOpenButtons(data) {
+function bindArticleDeleteListeners(data, canDelete) {
+  if (!canDelete) return;
+  document.querySelectorAll("[data-action='delete-article']").forEach((delBtn) => {
+    delBtn.addEventListener("click", () => {
+      const articleId = delBtn.getAttribute("data-article-id");
+      const paperKey = delBtn.getAttribute("data-paper");
+      const targetPaper = (data.papers?.papers || []).find((p) => p.key === paperKey);
+      if (!targetPaper) return;
+      targetPaper.issues = (targetPaper.issues || []).filter((i) => i.id !== articleId);
+      saveState(data);
+      setHTML("paperReader", renderReader(targetPaper, canDelete));
+      bindArticleDeleteListeners(data, canDelete);
+    });
+  });
+}
+
+function bindOpenButtons(data, canDelete) {
   document.querySelectorAll("[data-paper]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const paper = (data.papers?.papers || []).find((p) => p.key === btn.dataset.paper);
       if (!paper) return;
       const panel = document.getElementById("paperReaderPanel");
       if (panel) panel.style.display = "";
-      setHTML("paperReader", renderReader(paper));
+      setHTML("paperReader", renderReader(paper, canDelete));
+      bindArticleDeleteListeners(data, canDelete);
     });
   });
 }
@@ -125,6 +143,7 @@ function bindNewsDesk(data, rerenderGrid) {
 
 export function initPapersPage(data) {
   const papers = data.papers?.papers || [];
+  const canDelete = canAdminOrMod(data);
   const paperSelect = document.getElementById("papersDeskPaper");
   if (paperSelect) {
     paperSelect.innerHTML = papers.map((p) => `<option value="${esc(p.key)}">${esc(p.name)}</option>`).join("");
@@ -137,7 +156,7 @@ export function initPapersPage(data) {
     }
 
     setHTML("papersGrid", renderPaperTiles(papers));
-    bindOpenButtons(data);
+    bindOpenButtons(data, canDelete);
   };
 
   rerenderGrid();

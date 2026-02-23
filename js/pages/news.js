@@ -1,6 +1,6 @@
 import { formatSimMonthYear } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
-import { canPostNews } from "../permissions.js";
+import { canPostNews, canAdminOrMod } from "../permissions.js";
 import { saveState, nowMs } from "../core.js";
 
 const LIVE_WINDOW_DAYS = 14;
@@ -26,7 +26,7 @@ function splitNewsBuckets(stories) {
   return { liveMain, liveOther, liveBreaking, archive };
 }
 
-function renderStoryCard(story, small = false) {
+function renderStoryCard(story, small = false, canDelete = false) {
   return `
     <article class="news-card ${small ? "small" : ""}">
       <div class="news-brand">
@@ -37,26 +37,27 @@ function renderStoryCard(story, small = false) {
       <div class="news-headline">${esc(story.headline || "Untitled")}</div>
       ${story.imageUrl ? `<div class="news-imagewrap"><img src="${esc(story.imageUrl)}" alt=""></div>` : ""}
       <div class="news-text">${esc(story.text || "")}</div>
+      ${canDelete ? `<div class="tile-bottom" style="margin-top:8px;"><button class="btn danger" data-action="delete-story" data-id="${esc(story.id)}" type="button">Delete</button></div>` : ""}
     </article>
   `;
 }
 
-function renderGrid(items, small = false, emptyMessage = "No stories yet.") {
+function renderGrid(items, small = false, emptyMessage = "No stories yet.", canDelete = false) {
   if (!items.length) return `<div class="muted-block">${esc(emptyMessage)}</div>`;
-  return `<div class="news-grid">${items.map((s) => renderStoryCard(s, small)).join("")}</div>`;
+  return `<div class="news-grid">${items.map((s) => renderStoryCard(s, small, canDelete)).join("")}</div>`;
 }
 
-function renderTopStory(mainItems) {
+function renderTopStory(mainItems, canDelete = false) {
   const top = mainItems[0];
   if (!top) return `<div class="muted-block">No Top Story in the last ${LIVE_WINDOW_DAYS} days.</div>`;
-  return renderStoryCard(top);
+  return renderStoryCard(top, false, canDelete);
 }
 
-function renderArchive(archiveStories) {
+function renderArchive(archiveStories, canDelete = false) {
   if (!archiveStories.length) return `<div class="muted-block">No archived stories yet.</div>`;
   return `
     <div class="small" style="margin-bottom:10px;">Showing items older than ${LIVE_WINDOW_DAYS} days in chronological order (oldest first).</div>
-    <div class="news-grid">${archiveStories.map((s) => renderStoryCard(s, true)).join("")}</div>
+    <div class="news-grid">${archiveStories.map((s) => renderStoryCard(s, true, canDelete)).join("")}</div>
   `;
 }
 
@@ -127,6 +128,8 @@ function bindArchiveToggle() {
 }
 
 export function initNewsPage(data) {
+  const canDelete = canAdminOrMod(data);
+
   const renderAll = () => {
     const stories = (data.news?.stories || []).slice().sort(byNewest);
     const { liveMain, liveOther, liveBreaking, archive } = splitNewsBuckets(stories);
@@ -136,13 +139,24 @@ export function initNewsPage(data) {
     const ticker = liveBreaking.map((s) => esc(s.headline)).join("   •   ");
     setHTML("bbcBreakingTicker", `<span class="bbc-breaking-track">${ticker}</span>`);
 
-    setHTML("bbcTopStory", renderTopStory(liveMain));
-    setHTML("bbcMainNews", renderGrid(liveMain, false, `No Main News in the last ${LIVE_WINDOW_DAYS} days.`));
-    setHTML("bbcOtherNews", renderGrid(liveOther, true, `No Other News in the last ${LIVE_WINDOW_DAYS} days.`));
-    setHTML("bbcArchive", renderArchive(archive));
+    setHTML("bbcTopStory", renderTopStory(liveMain, canDelete));
+    setHTML("bbcMainNews", renderGrid(liveMain, false, `No Main News in the last ${LIVE_WINDOW_DAYS} days.`, canDelete));
+    setHTML("bbcOtherNews", renderGrid(liveOther, true, `No Other News in the last ${LIVE_WINDOW_DAYS} days.`, canDelete));
+    setHTML("bbcArchive", renderArchive(archive, canDelete));
   };
 
   renderAll();
   bindArchiveToggle();
   bindNewsDesk(data, renderAll);
+
+  if (canDelete) {
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-action='delete-story']");
+      if (!btn) return;
+      const id = btn.getAttribute("data-id");
+      data.news.stories = (data.news.stories || []).filter((s) => s.id !== id);
+      saveState(data);
+      renderAll();
+    });
+  }
 }
