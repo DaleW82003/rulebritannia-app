@@ -135,6 +135,34 @@ function roleChips(account) {
   return tags.length ? tags.join(" · ") : "Player";
 }
 
+/**
+ * Return the active-role badge HTML for the current user.
+ * Admin > Mod > Speaker; returns "" for plain players.
+ */
+function activeRoleBadgeHTML(data) {
+  if (isAdmin(data))    return `<span class="admin-badge">🔒 Admin</span>`;
+  if (isMod(data))      return `<span class="mod-badge">🔧 Mod</span>`;
+  if (isSpeaker(data))  return `<span class="speaker-badge">🔔 Speaker</span>`;
+  return "";
+}
+
+/**
+ * Return the set of role badges that apply to the Control Panels section heading.
+ * Admins see all three; mods see Mod + Speaker; speakers see Speaker only.
+ */
+function controlPanelBadgesHTML(admin, data) {
+  if (admin) {
+    return `<span class="admin-badge">Admin</span> <span class="mod-badge">Mod</span> <span class="speaker-badge">Speaker</span>`;
+  }
+  if (isMod(data)) {
+    return `<span class="mod-badge">Mod</span> <span class="speaker-badge">Speaker</span>`;
+  }
+  if (isSpeaker(data)) {
+    return `<span class="speaker-badge">Speaker</span>`;
+  }
+  return "";
+}
+
 function currentAccount(data) {
   const u = String(data?.currentUser?.username || "").trim();
   return (data.userManagement?.accounts || []).find((a) => a.username === u);
@@ -263,6 +291,7 @@ function render(data, state) {
         <div class="kv"><span>Active Character</span><b>${esc(account.activeCharacter || "None")}</b></div>
         <div class="kv"><span>Active Party</span><b>${esc(char?.party || "-")}</b></div>
         <div class="kv"><span>Status</span><b>${account.active ? "Active" : "Inactive"}</b></div>
+        ${activeRoleBadgeHTML(data) ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">${activeRoleBadgeHTML(data)}</div>` : ""}
       </div>
     </section>
 
@@ -335,7 +364,10 @@ function render(data, state) {
     </section>
 
     <section id="speaker-controls" class="panel">
-      <h2 style="margin-top:0;">Control Panels (Admin / Mod / Speaker)</h2>
+      <h2 style="margin-top:0;">
+        Control Panels
+        ${controlPanelBadgesHTML(admin, data)}
+      </h2>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-bottom:10px;">
         ${CONTROL_LINKS.map((c) => {
           const allowed = admin || (manager && c.roles.some((r) => {
@@ -352,7 +384,7 @@ function render(data, state) {
 
       ${(manager) ? `
         <details class="tile" style="margin-bottom:10px;">
-          <summary><b>Speaker Controls</b></summary>
+          <summary><b>Speaker Controls <span class="speaker-badge">Speaker / Mod / Admin</span></b></summary>
           <form id="speaker-form" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
             <label class="label"><input type="checkbox" name="isPaused" ${data.gameState.isPaused ? "checked" : ""} ${!admin ? "disabled" : ""}> Pause game clock (Admin only — unpause on Sunday only)</label>
             <label class="label"><input type="checkbox" name="sundayFreeze" ${data.userManagement.globalControls.sundayFreeze ? "checked" : ""}> Sunday freeze</label>
@@ -369,7 +401,7 @@ function render(data, state) {
         </details>
 
         <details class="tile" style="margin-bottom:10px;" open>
-          <summary><b>Active Player Roster (Moderator Control)</b></summary>
+          <summary><b>Active Player Roster <span class="mod-badge">Mod / Admin</span></b></summary>
           <div class="muted" style="margin-top:10px;">Control moved here from Government/Opposition pages. Mods can only set characters inactive.</div>
           <div style="margin-top:10px;display:grid;gap:8px;">
             ${(Array.isArray(data.players) ? data.players : []).slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))).map((p) => `

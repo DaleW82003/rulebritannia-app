@@ -1,6 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker, canAdminOrMod } from "../permissions.js";
 import { requireAdmin } from "../auth.js";
 import { logAction } from "../audit.js";
 
@@ -45,7 +45,14 @@ export async function initControlPanelPage(data) {
   if (login) login.innerHTML = `
     <div class="kv"><span>User</span><b>${esc(user.username || "Demo")}</b></div>
     <div class="kv"><span>Roles</span><b>${esc((user.roles || []).join(", ") || "player")}</b></div>
-    ${isAdmin(data) ? `<div style="margin-top:8px;"><span class="admin-badge">🔒 Admin Mode Active</span></div>` : isMod(data) ? `<div style="margin-top:8px;"><span class="admin-badge" style="color:var(--blue);background:rgba(30,84,255,.08);border-color:rgba(30,84,255,.22);">🔧 Mod Mode Active</span></div>` : ""}
+    ${isAdmin(data)
+      ? `<div style="margin-top:8px;"><span class="admin-badge">🔒 Admin Mode Active</span></div>`
+      : isMod(data)
+        ? `<div style="margin-top:8px;"><span class="mod-badge">🔧 Mod Mode Active</span></div>`
+        : isSpeaker(data)
+          ? `<div style="margin-top:8px;"><span class="speaker-badge">🔔 Speaker Mode Active</span></div>`
+          : ""
+    }
   `;
   if (simBlock) simBlock.innerHTML = `<div class="kv"><span>Simulation Started</span><b>${data?.gameState?.started ? "Yes" : "No"}</b></div><div class="kv"><span>Start Real Date</span><b>${esc(data?.gameState?.startRealDate || "Not set")}</b></div>`;
   if (charBlock) charBlock.innerHTML = `<div class="kv"><span>Character</span><b>${esc(char?.name || "None")}</b></div><div class="kv"><span>Office</span><b>${esc(char?.office || "None")}</b></div>`;

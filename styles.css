@@ -1104,9 +1104,11 @@ input.invalid, textarea.invalid, select.invalid{
 }
 
 /* =========================
-   Admin badge / indicator
+   Role badges (Admin / Mod / Speaker)
    ========================= */
-.admin-badge{
+.admin-badge,
+.mod-badge,
+.speaker-badge{
   display:inline-flex;
   align-items:center;
   gap:5px;
@@ -1114,11 +1116,31 @@ input.invalid, textarea.invalid, select.invalid{
   font-weight:950;
   letter-spacing:.10em;
   text-transform:uppercase;
-  color:var(--red);
-  background:rgba(212,0,26,.08);
-  border:1px solid rgba(212,0,26,.22);
   border-radius:999px;
   padding:3px 10px;
+  border:1px solid;
+  white-space:nowrap;
+}
+
+/* Admin — red */
+.admin-badge{
+  color:var(--red);
+  background:rgba(212,0,26,.08);
+  border-color:rgba(212,0,26,.22);
+}
+
+/* Mod — blue */
+.mod-badge{
+  color:var(--blue2);
+  background:rgba(30,84,255,.08);
+  border-color:rgba(30,84,255,.22);
+}
+
+/* Speaker — purple */
+.speaker-badge{
+  color:#6b21a8;
+  background:rgba(107,33,168,.08);
+  border-color:rgba(107,33,168,.24);
 }
 
 /* =========================
