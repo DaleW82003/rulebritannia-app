@@ -112,6 +112,34 @@ function buildRoleAwareDocket(data) {
     push({ type: "presscomment", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=comments", priority: "med", dismissOnClick: true, seenActivityKey: "pressComment" });
   }
 
+  const newSpeeches = (data?.press?.speeches || []).filter(
+    (s) => tsFromPressId(s.id) > (seenTs.pressSpeech || 0)
+  );
+  if (newSpeeches.length) {
+    const latest = newSpeeches[newSpeeches.length - 1];
+    const label = newSpeeches.length === 1
+      ? `${latest.author || "Someone"} delivered a Speech`
+      : `${newSpeeches.length} new Speeches`;
+    const detail = newSpeeches.length === 1
+      ? (latest.title || "")
+      : "New activity whilst you were away.";
+    push({ type: "speech", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=speeches", priority: "med", dismissOnClick: true, seenActivityKey: "pressSpeech" });
+  }
+
+  const newLetters = (data?.press?.letters || []).filter(
+    (l) => tsFromPressId(l.id) > (seenTs.pressLetter || 0)
+  );
+  if (newLetters.length) {
+    const latest = newLetters[newLetters.length - 1];
+    const label = newLetters.length === 1
+      ? `Official Letter from ${latest.officeName || latest.officeKey || "an Office"}`
+      : `${newLetters.length} new Official Letters`;
+    const detail = newLetters.length === 1
+      ? (latest.subject || "")
+      : "New activity whilst you were away.";
+    push({ type: "letter", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=letters", priority: "med", dismissOnClick: true, seenActivityKey: "pressLetter" });
+  }
+
   const newEvents = (data?.events?.items || []).filter(
     (ev) => Number(ev.createdTs || 0) > (seenTs.event || 0)
   );
@@ -143,6 +171,8 @@ function iconFor(type) {
     bill: "🏛️",
     conference: "🎙️",
     presscomment: "💬",
+    speech: "🎤",
+    letter: "✉️",
     event: "🎉",
   };
   return map[type] || "•";

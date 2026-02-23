@@ -3,6 +3,7 @@ import { apiBootstrap, apiGetState, apiSaveState, setCsrfToken } from "./api.js"
 
 // ── Session state cache (set once during bootData) ───────────────────────────
 let _user = null;
+let _bootstrapConfig = {};
 
 /**
  * Returns true when the current visitor has an active server session.
@@ -11,6 +12,16 @@ let _user = null;
  */
 export function isLoggedIn() {
   return Boolean(_user?.id);
+}
+
+/**
+ * Returns the non-sensitive config object from the last bootstrap response.
+ * Available after bootData() resolves. Contains keys such as sso_enabled,
+ * discourse_base_url, ui_base_url, etc.
+ * @returns {object}
+ */
+export function getBootstrapConfig() {
+  return _bootstrapConfig;
 }
 
 /**
@@ -161,6 +172,7 @@ export async function bootData() {
 
   // Cache session state so isLoggedIn() and saveState() can use it synchronously.
   _user = user;
+  _bootstrapConfig = bootstrap?.config ?? {};
 
   if (!user) {
     // Not logged in — load demo baseline from demo.json (read-only; no localStorage writes).

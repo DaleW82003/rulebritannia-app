@@ -334,7 +334,77 @@ See §14.
 | `author_id`| string (UUID)| UserId of the author.            |
 | `posted_at`| string       | UTC ISO-8601 timestamp.          |
 
-### 11.4 Lifecycle Fields (Press)
+### 11.4 Speeches (`press.speeches`)
+
+Speeches delivered by player characters or NPCs, stored in `press.speeches[]`.
+
+| Field         | Type     | Description                                                     |
+|---------------|----------|-----------------------------------------------------------------|
+| `id`          | string   | Unique identifier (format: `press-<ts>-<n>`).                  |
+| `reference`   | string   | Human-readable reference code (e.g. `PM SP 1`).                |
+| `title`       | string   | Title of the speech.                                            |
+| `audience`    | string   | Intended audience or occasion (e.g. `Party Conference`).       |
+| `topOfSpeech` | string   | Opening header / occasion line at the top of the speech.       |
+| `body`        | string   | Full speech text.                                               |
+| `picture`     | string   | Optional URL of an image accompanying the speech.              |
+| `author`      | string   | Character name of the speaker.                                  |
+| `authorOffice`| string   | Office or role of the author at time of delivery.              |
+| `createdAtSim`| string   | Simulation month/year when the speech was delivered.           |
+| `score`       | number\|null | Moderator score (−5 to +5); `null` until marked Sunday.  |
+| `impact`      | string[] | Party codes whose polling is affected by the score.            |
+| `is_marked`   | boolean  | `true` once a moderator has scored this speech.                |
+
+#### 11.4.1 Marking rules
+
+Same as press releases: moderator/admin only, Sunday window only.
+
+---
+
+### 11.5 Official Letters (`press.letters`)
+
+Formal letters issued from government or NPC offices, stored in `press.letters[]`.
+
+| Field        | Type     | Description                                                        |
+|--------------|----------|--------------------------------------------------------------------|
+| `id`         | string   | Unique identifier (format: `press-<ts>-<n>`).                     |
+| `reference`  | string   | Reference code (supplied or auto-generated from office + serial). |
+| `officeKey`  | string   | Key of the issuing office (see §11.5.1).                          |
+| `officeName` | string   | Display name of the issuing office.                               |
+| `recipient`  | string   | Addressee of the letter (To:).                                    |
+| `subject`    | string   | Subject / title line of the letter.                               |
+| `body`       | string   | Full letter body text.                                            |
+| `author`     | string   | Signatory name or character name.                                 |
+| `createdAtSim`| string  | Simulation month/year when the letter was issued.                 |
+| `score`      | number\|null | Moderator score (−5 to +5); `null` until marked.           |
+| `impact`     | string[] | Party codes affected by the score.                                |
+| `is_marked`  | boolean  | `true` once a moderator has scored this letter.                   |
+
+#### 11.5.1 Office keys and authorization
+
+**Player-derived offices** (normal users; office derived from government state):
+
+| `officeKey`          | Held by                    | Display name                                     |
+|----------------------|----------------------------|--------------------------------------------------|
+| `pmo`                | Prime Minister             | Office of the Prime Minister                     |
+| `treasury`           | Chancellor                 | HM Treasury                                      |
+| `home-office`        | Home Secretary             | Home Office                                      |
+| `fcdo`               | Foreign Secretary          | Foreign, Commonwealth & Development Office       |
+| `opp-leader`         | Leader of the Opposition   | Office of the Leader of the Opposition           |
+| `third-party-leader` | Leader of the Third Party  | Office of the Leader of the Third Party          |
+
+**NPC offices** (moderators / admins / speaker only):
+
+| `officeKey`      | Display name                         |
+|------------------|--------------------------------------|
+| `monarch`        | Buckingham Palace / The Crown        |
+| `speakers-office`| Speaker's Office                     |
+| `cabinet-office` | Cabinet Office                       |
+
+#### 11.5.2 Marking rules
+
+Same as press releases: moderator/admin only, Sunday window only.
+
+### 11.6 Lifecycle Fields (Press)
 
 See §14.
 
