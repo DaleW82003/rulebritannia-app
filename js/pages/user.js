@@ -75,15 +75,6 @@ function normaliseUserData(data) {
       isSpeaker: !!data?.currentUser?.isSpeaker,
       activeCharacter: String(getChar(data)?.name || ""),
       active: true
-    },
-    {
-      username: "Shade",
-      roles: ["player"],
-      isAdmin: false,
-      isMod: false,
-      isSpeaker: false,
-      activeCharacter: "John Shade MP",
-      active: true
     }
   ];
 
@@ -105,6 +96,22 @@ function normaliseUserData(data) {
   data.parliament.totalSeats ??= 650;
   data.parliament.lastGeneralElection ??= "May 1997";
   data.parliament.governmentSetup ??= "Majority";
+  data.parliament.parties ??= [
+    { name: "Conservative", seats: 0 },
+    { name: "Labour", seats: 0 },
+    { name: "Liberal Democrat", seats: 0 },
+    { name: "SNP", seats: 0 },
+    { name: "Plaid Cymru", seats: 0 },
+    { name: "Green", seats: 0 },
+    { name: "UKIP", seats: 0 },
+    { name: "DUP", seats: 0 },
+    { name: "Sinn Fein", seats: 0 },
+    { name: "SDLP", seats: 0 },
+    { name: "Alliance", seats: 0 },
+    { name: "TUP", seats: 0 },
+    { name: "Independents", seats: 0 },
+    { name: "Speaker", seats: 0 }
+  ];
 
   data.gameState ??= {};
   data.gameState.started ??= false;

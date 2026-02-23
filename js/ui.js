@@ -152,33 +152,11 @@ function markDemoButtons() {
 }
 
 /**
- * Inject a sim-date badge and page purpose line into the .bbc-masthead element
- * on the current page, if it exists.
+ * No-op: sim-date badge and page-purpose line have been removed from page
+ * mastheads. The sim clock is displayed only in the topbar.
  */
-function injectSimBadge(clock) {
-  const masthead = document.querySelector(".bbc-masthead");
-  if (!masthead) return;
-  // Don't duplicate if already injected
-  if (masthead.querySelector(".sim-badge")) return;
-
-  const month = clock?.sim_current_month ?? 8;
-  const year  = clock?.sim_current_year  ?? 1997;
-  const badge = document.createElement("span");
-  badge.className = "sim-badge";
-  badge.id = "sim-badge";
-  badge.textContent = `${MONTH_NAMES[month - 1]} ${year}`;
-  masthead.appendChild(badge);
-
-  // Purpose line — inserted as a <p> after the masthead if not already present
-  const page = document.body?.dataset?.page || "";
-  const purpose = PAGE_PURPOSE[page];
-  if (purpose && !masthead.querySelector(".page-purpose")) {
-    const p = document.createElement("p");
-    p.className = "page-purpose";
-    p.textContent = purpose;
-    // Insert the purpose line on its own row below the masthead
-    masthead.insertAdjacentElement("afterend", p);
-  }
+function injectSimBadge(_clock) {
+  // Intentionally empty — clock is shown only in the topbar nav.
 }
 
 /**

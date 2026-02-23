@@ -1,6 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isSpeaker } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
@@ -54,6 +54,9 @@ export function initMotionsPage(data) {
   const sim = simNow(data);
   const char = getCharacter(data);
   const simCurrentObj = simDateToObj(getSimDate(data.gameState));
+  const canNpc = isAdmin(data) || isMod(data);
+  const partyOptions = (Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [])
+    .map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
 
   // Auto-archive expired house motions and EDMs
   for (const m of data.motions.house) {
@@ -97,6 +100,15 @@ export function initMotionsPage(data) {
               <label for="house-motion-body">Body text (after "That this House ...")</label>
               <textarea id="house-motion-body" rows="5" name="body" required placeholder="calls on the Government to..."></textarea>
             </div>
+            ${canNpc ? `
+            <div class="form-row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line);">
+              <label style="font-size:0.85em;color:var(--muted);">Post as NPC (mod/admin)</label>
+              <input name="npcName" placeholder="NPC MP name (leave blank to post as yourself)" style="margin-bottom:4px;">
+              <select name="npcParty">
+                <option value="">— NPC party —</option>
+                ${partyOptions}
+              </select>
+            </div>` : ""}
             <button class="btn primary" type="submit">Submit House Motion</button>
           </form>
 
@@ -110,6 +122,15 @@ export function initMotionsPage(data) {
               <label for="edm-body">Body text (after "That this House ...")</label>
               <textarea id="edm-body" rows="5" name="body" required placeholder="recognises and calls for..."></textarea>
             </div>
+            ${canNpc ? `
+            <div class="form-row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line);">
+              <label style="font-size:0.85em;color:var(--muted);">Post as NPC (mod/admin)</label>
+              <input name="npcName" placeholder="NPC MP name (leave blank to post as yourself)" style="margin-bottom:4px;">
+              <select name="npcParty">
+                <option value="">— NPC party —</option>
+                ${partyOptions}
+              </select>
+            </div>` : ""}
             <button class="btn primary" type="submit">Submit EDM</button>
           </form>
         </div>
@@ -165,6 +186,10 @@ export function initMotionsPage(data) {
     const body = String(fd.get("body") || "").trim();
     if (!title || !body) return;
 
+    const npcName = canNpc ? String(fd.get("npcName") || "").trim() : "";
+    const npcParty = canNpc ? String(fd.get("npcParty") || "").trim() : "";
+    const author = npcName || char?.name || "MP";
+
     const number = Number(data.motions.nextHouseNumber || (data.motions.house.length + 1));
     const debateEndObj = plusSimMonths(sim.month, sim.year, 2);
     const divisionEndObj = plusSimMonths(debateEndObj.month, debateEndObj.year, 1);
@@ -174,7 +199,8 @@ export function initMotionsPage(data) {
       id,
       number,
       title,
-      author: char?.name || "MP",
+      author,
+      ...(npcName ? { npc: true, npcParty } : {}),
       body,
       status: "open",
       debateStartSim: sim.label,
@@ -207,6 +233,10 @@ export function initMotionsPage(data) {
     const body = String(fd.get("body") || "").trim();
     if (!title || !body) return;
 
+    const npcName = canNpc ? String(fd.get("npcName") || "").trim() : "";
+    const npcParty = canNpc ? String(fd.get("npcParty") || "").trim() : "";
+    const author = npcName || char?.name || "MP";
+
     const number = Number(data.motions.nextEdmNumber || (data.motions.edm.length + 1));
     const closesAtObj = plusSimMonths(sim.month, sim.year, 2);
     const id = `edm-${Date.now()}`;
@@ -215,7 +245,8 @@ export function initMotionsPage(data) {
       id,
       number,
       title,
-      author: char?.name || "MP",
+      author,
+      ...(npcName ? { npc: true, npcParty } : {}),
       body,
       status: "open",
       openedAtSim: sim.label,
