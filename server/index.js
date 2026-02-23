@@ -1000,7 +1000,7 @@ app.post("/api/admin/registrations/:id/approve", regAdminLimit, verifyCsrfToken,
     const reg = rows[0];
 
     // Create the user account
-    const userId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const userId = `user-${randomBytes(16).toString("hex")}`;
     await pool.query(
       `INSERT INTO users (id, username, email, password_hash, roles)
        VALUES ($1, $2, $3, $4, '[]'::jsonb)`,
