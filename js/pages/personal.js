@@ -12,6 +12,102 @@ const PROFILE_FIELDS = [
   { key: "yearFirstElected", label: "Year first elected" }
 ];
 
+// ── Shop catalogue ────────────────────────────────────────────────────────────
+// Each item has: id, name, category, price, description,
+//   modifiers: { pressImpactPct, pollingBoostPct },
+//   scrutinyRisk: integer (added to scrutiny score on purchase).
+
+const SHOP_ITEMS = [
+  {
+    id: "media-trainer",
+    name: "Media Training Session",
+    category: "Communications",
+    price: 5000,
+    description: "A professional media coaching session. Improves press release effectiveness.",
+    modifiers: { pressImpactPct: 10, pollingBoostPct: 0 },
+    scrutinyRisk: 0
+  },
+  {
+    id: "polling-consultant",
+    name: "Polling Consultant",
+    category: "Communications",
+    price: 8000,
+    description: "Commission a specialist polling consultant. Small but sustained polling lift.",
+    modifiers: { pressImpactPct: 0, pollingBoostPct: 2 },
+    scrutinyRisk: 1
+  },
+  {
+    id: "luxury-car",
+    name: "Luxury Car (chauffeur-driven)",
+    category: "Lifestyle",
+    price: 45000,
+    description: "A high-end chauffeured vehicle. Status symbol — but attracts media scrutiny.",
+    modifiers: { pressImpactPct: 0, pollingBoostPct: 0 },
+    scrutinyRisk: 5
+  },
+  {
+    id: "second-home",
+    name: "Second Home (London)",
+    category: "Property",
+    price: 120000,
+    description: "A London property. Expensive and scrutiny-attracting, but convenient.",
+    modifiers: { pressImpactPct: 0, pollingBoostPct: 0 },
+    scrutinyRisk: 8
+  },
+  {
+    id: "constituency-event",
+    name: "Constituency Summer Fair",
+    category: "Outreach",
+    price: 3000,
+    description: "Fund a local constituency event. Modest polling boost from community goodwill.",
+    modifiers: { pressImpactPct: 0, pollingBoostPct: 1 },
+    scrutinyRisk: 0
+  },
+  {
+    id: "pr-firm",
+    name: "PR Firm Retainer",
+    category: "Communications",
+    price: 15000,
+    description: "Retain a PR firm for ongoing positive press management.",
+    modifiers: { pressImpactPct: 20, pollingBoostPct: 1 },
+    scrutinyRisk: 2
+  }
+];
+
+// Compute aggregate modifiers for a profile from its purchases.
+function computeModifiers(profile) {
+  const purchases = Array.isArray(profile.shopPurchases) ? profile.shopPurchases : [];
+  let pressImpactPct = 0;
+  let pollingBoostPct = 0;
+  let scrutinyScore = 0;
+  for (const p of purchases) {
+    pressImpactPct += Number(p.modifiers?.pressImpactPct || 0);
+    pollingBoostPct += Number(p.modifiers?.pollingBoostPct || 0);
+    scrutinyScore += Number(p.scrutinyRisk || 0);
+  }
+  return { pressImpactPct, pollingBoostPct, scrutinyScore };
+}
+
+// Persist computed modifiers to state (used by press/polling pipeline).
+function syncModifiers(data, profileName) {
+  const profile = data.personal?.profiles?.[profileName];
+  if (!profile) return;
+  const mods = computeModifiers(profile);
+  data.effects ??= {};
+  data.effects.modifiers ??= {};
+  data.effects.modifiers[profileName] = mods;
+  profile.modifiers = mods;
+}
+
+/**
+ * Returns the active press-impact modifier percentage for the given character name.
+ * Used by press.js to scale release effectiveness.
+ */
+export function getPressImpactModifier(data, characterName) {
+  const name = String(characterName || "").trim();
+  return Number(data?.effects?.modifiers?.[name]?.pressImpactPct || 0);
+}
+
 function money(n) {
   const val = Number(n || 0);
   return `£${val.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -61,6 +157,8 @@ function normalisePersonal(data) {
       { id: 2, source: "Rental income", annualRevenue: 18000 }
     ],
     nextRevenueId: 3,
+    shopPurchases: [],
+    modifiers: { pressImpactPct: 0, pollingBoostPct: 0, scrutinyScore: 0 },
     lastSundayCreditAt: "",
     updatedAt: nowStamp()
   };
@@ -79,12 +177,32 @@ function normalisePersonal(data) {
     profile.additionalRevenue = Array.isArray(profile.additionalRevenue) ? profile.additionalRevenue : [];
     profile.nextRevenueId = Number(profile.nextRevenueId || 1);
     profile.lastSundayCreditAt = String(profile.lastSundayCreditAt || "");
+    profile.shopPurchases = Array.isArray(profile.shopPurchases) ? profile.shopPurchases : [];
 
     for (const rev of profile.additionalRevenue) {
       rev.id = Number(rev.id || 0);
       rev.source = String(rev.source || "").trim();
       rev.annualRevenue = Number(rev.annualRevenue || 0);
     }
+
+    for (const p of profile.shopPurchases) {
+      p.itemId = String(p.itemId || "");
+      p.name = String(p.name || "");
+      p.price = Number(p.price || 0);
+      p.purchasedAt = String(p.purchasedAt || "");
+      p.modifiers ??= { pressImpactPct: 0, pollingBoostPct: 0 };
+      p.scrutinyRisk = Number(p.scrutinyRisk || 0);
+    }
+
+    // Recompute modifiers from purchases.
+    profile.modifiers = computeModifiers(profile);
+  }
+
+  // Keep effects.modifiers in sync.
+  data.effects ??= {};
+  data.effects.modifiers ??= {};
+  for (const [pName, profile] of Object.entries(data.personal.profiles)) {
+    data.effects.modifiers[pName] = profile.modifiers;
   }
 }
 
@@ -116,6 +234,10 @@ function render(data, state) {
 
   const weekly = weeklyCreditAmount(profile);
   const revenueTotal = profile.additionalRevenue.reduce((sum, r) => sum + Number(r.annualRevenue || 0), 0);
+  const mods = profile.modifiers;
+  // Viewing own profile (non-manager) or any profile (manager).
+  const isOwnProfile = activeName === name;
+  const canShop = isOwnProfile || manager;
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Personal</div></div>
@@ -171,6 +293,16 @@ function render(data, state) {
         <h2 style="margin-top:0;">Affiliations</h2>
         <p style="white-space:pre-wrap;">${esc(profile.affiliations || "-")}</p>
       </article>
+
+      <article class="tile">
+        <h2 style="margin-top:0;">Active Modifiers</h2>
+        <div class="muted" style="line-height:1.8;">
+          <div><b>Press Impact:</b> +${mods.pressImpactPct}%</div>
+          <div><b>Polling Boost:</b> +${mods.pollingBoostPct}%</div>
+          <div><b>Scrutiny Score:</b> ${mods.scrutinyScore} ${mods.scrutinyScore >= 10 ? "⚠️ High" : mods.scrutinyScore >= 5 ? "⚡ Medium" : "✅ Low"}</div>
+        </div>
+        <p class="muted" style="margin-bottom:0;font-size:.85em;">Modifiers from shop purchases are applied to press releases and polling entries.</p>
+      </article>
     </section>
 
     <section class="panel" style="margin-top:12px;">
@@ -185,6 +317,47 @@ function render(data, state) {
           ${manager ? `<button type="button" class="btn" data-action="remove-revenue" data-id="${rev.id}">Remove</button>` : ""}
         </article>
       `).join("") : '<div class="muted-block">No additional revenue streams recorded.</div>'}
+    </section>
+
+    <section class="panel" style="margin-top:12px;">
+      <h2 style="margin-top:0;">MP Shop</h2>
+      <p class="muted">Purchase items to gain soft modifiers. High-luxury and property purchases attract media scrutiny (visible to mods).</p>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:12px;">
+        ${SHOP_ITEMS.map((item) => `
+          <article class="tile card-flex">
+            <div>
+              <div><b>${esc(item.name)}</b> <span class="muted">(${esc(item.category)})</span></div>
+              <div class="muted" style="margin-top:4px;font-size:.9em;">${esc(item.description)}</div>
+              <div class="muted" style="margin-top:4px;">
+                ${item.modifiers.pressImpactPct ? `+${item.modifiers.pressImpactPct}% press impact ` : ""}
+                ${item.modifiers.pollingBoostPct ? `+${item.modifiers.pollingBoostPct}% polling boost ` : ""}
+                ${item.scrutinyRisk ? `⚠️ +${item.scrutinyRisk} scrutiny` : ""}
+              </div>
+            </div>
+            <div class="tile-bottom" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <b>${money(item.price)}</b>
+              ${canShop ? `<button type="button" class="btn" data-action="buy-item" data-item-id="${esc(item.id)}" ${profile.bankBalance < item.price ? "disabled title=\"Insufficient funds\"" : ""}>Buy</button>` : ""}
+            </div>
+          </article>
+        `).join("")}
+      </div>
+
+      <h3 style="margin:0 0 6px;">Purchased Items</h3>
+      ${profile.shopPurchases.length ? profile.shopPurchases.map((p, idx) => `
+        <article class="tile" style="margin-bottom:8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
+          <div>
+            <b>${esc(p.name)}</b>
+            <div class="muted">Purchased ${esc(p.purchasedAt)} — ${money(p.price)}</div>
+            <div class="muted" style="font-size:.9em;">
+              ${p.modifiers?.pressImpactPct ? `+${p.modifiers.pressImpactPct}% press ` : ""}
+              ${p.modifiers?.pollingBoostPct ? `+${p.modifiers.pollingBoostPct}% polling ` : ""}
+              ${p.scrutinyRisk ? `+${p.scrutinyRisk} scrutiny` : ""}
+            </div>
+          </div>
+          ${manager ? `<button type="button" class="btn" data-action="remove-purchase" data-idx="${idx}">Remove</button>` : ""}
+        </article>
+      `).join("") : '<div class="muted-block">No items purchased.</div>'}
     </section>
 
     ${manager ? `
@@ -262,6 +435,48 @@ function render(data, state) {
     saveState(data);
     state.message = `Applied Sunday credit of ${money(weekly)}.`;
     render(data, state);
+  });
+
+  // Shop: buy item
+  host.querySelectorAll('[data-action="buy-item"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!canShop) return;
+      const itemId = String(btn.dataset.itemId || "");
+      const item = SHOP_ITEMS.find((i) => i.id === itemId);
+      if (!item) return;
+      if (profile.bankBalance < item.price) return;
+      profile.bankBalance -= item.price;
+      profile.shopPurchases.push({
+        itemId: item.id,
+        name: item.name,
+        price: item.price,
+        modifiers: { ...item.modifiers },
+        scrutinyRisk: item.scrutinyRisk,
+        purchasedAt: nowStamp()
+      });
+      profile.modifiers = computeModifiers(profile);
+      syncModifiers(data, activeName);
+      profile.updatedAt = nowStamp();
+      saveState(data);
+      state.message = `Purchased "${item.name}" for ${money(item.price)}.`;
+      render(data, state);
+    });
+  });
+
+  // Manager: remove purchase
+  host.querySelectorAll('[data-action="remove-purchase"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!manager) return;
+      const idx = Number(btn.dataset.idx || 0);
+      if (idx < 0 || idx >= profile.shopPurchases.length) return;
+      profile.shopPurchases.splice(idx, 1);
+      profile.modifiers = computeModifiers(profile);
+      syncModifiers(data, activeName);
+      profile.updatedAt = nowStamp();
+      saveState(data);
+      state.message = `Purchase removed.`;
+      render(data, state);
+    });
   });
 
   host.querySelector("#personal-control-form")?.addEventListener("submit", (e) => {

@@ -36,14 +36,14 @@
 | `online.html`           | `users` (online presence)                           |
 | `party.html`            | `users`, `parties`                                  |
 | `team.html`             | `users` (mod/admin roles)                           |
-| `personal.html`         | `users[me]`                                         |
+| `personal.html`         | `personal.profiles[me]`, `personal.profiles[me].shopPurchases`, `effects.modifiers` |
 | `user.html`             | `users[id]`                                         |
 | `fundraising.html`      | `parties` (funds), `users[me]`                      |
 | `events.html`           | `events[]`                                          |
 | `budget.html`           | `economy`, `bills[]` (Finance Bill)                 |
 | `papers.html`           | `bills[]`, `regulations[]`, `statements[]`          |
 | `bodies.html`           | `government.bodies[]`                               |
-| `civilservice.html`     | `government.civilService`                           |
+| `civilservice.html`     | `civilService.departments[]`, `civilService.cases[]`, `civilService.briefings[]` |
 | `locals.html`           | `parliament.localCouncils[]`                        |
 | `admin-panel.html`      | All domains (admin read/write)                      |
 | `control-panel.html`    | `sim`, `users` (mod controls)                       |
@@ -406,3 +406,174 @@ All content types (Bills, Motions, Statements, Regulations, QtQuestions, Press i
 | `topicUrl`    | string \| null                    | Full URL to the forum topic.                                    |
 | `opensAtSim`  | `{ month, year }` \| null         | Sim time at which the debate opens.                             |
 | `closesAtSim` | `{ month, year }` \| null         | Sim time at which the debate closes.                            |
+
+---
+
+## 15. Civil Service (`civilService`)
+
+### 15.1 Departments (`civilService.departments`)
+
+A canonical list of government departments (mirrors the `CS_DEPARTMENTS` constant in `js/pages/civilservice.js`).
+
+| Field        | Type   | Description                                      |
+|--------------|--------|--------------------------------------------------|
+| `id`         | string | Department identifier (e.g. `"home-office"`).    |
+| `name`       | string | Short department name.                           |
+| `officeId`   | string | The `government.offices` office id that owns this department. |
+| `officeTitle`| string | Full title of the ministerial office.            |
+
+### 15.2 Cases (`civilService.cases`)
+
+Department case tickets raised by ministers and responded to by civil servants (mods/admins).
+
+| Field             | Type          | Description                                               |
+|-------------------|---------------|-----------------------------------------------------------|
+| `id`              | integer       | Sequential case number.                                   |
+| `deptId`          | string        | Department id this case belongs to.                       |
+| `title`           | string        | Case title.                                               |
+| `status`          | `"open"` \| `"closed"` | Case status.                                  |
+| `createdBy`       | string        | Character name of the case creator.                       |
+| `createdByAvatar` | string        | Avatar URL of the creator.                                |
+| `createdAt`       | string        | Local timestamp when the case was opened.                 |
+| `closedAt`        | string        | Local timestamp when the case was closed (if closed).     |
+| `closedBy`        | string        | Character or username who closed the case.                |
+| `messages`        | CsMessage[]   | Chronological messages on the case.                       |
+
+#### CsMessage
+
+| Field        | Type                                    | Description                               |
+|--------------|-----------------------------------------|-------------------------------------------|
+| `authorName` | string                                  | Display name of the message author.       |
+| `authorRole` | `"government"` \| `"civil-service"`     | Who sent the message.                     |
+| `avatar`     | string                                  | Avatar URL (empty for civil servants).    |
+| `text`       | string                                  | Message body.                             |
+| `createdAt`  | string                                  | Local timestamp.                          |
+
+### 15.3 Briefings (`civilService.briefings`)
+
+Mod-authored multi-stage briefings consumed by specific ministers.
+
+**Visibility rules:**
+- A minister sees a briefing if their `currentCharacter.office` matches `target_officeId` **or** their office is listed in `cc_officeIds`.
+- The Prime Minister does **not** see all briefings by default — they must be explicitly CC'd via `cc_officeIds`.
+- Mods/Admins see and can author/close all briefings.
+
+| Field             | Type          | Description                                                         |
+|-------------------|---------------|---------------------------------------------------------------------|
+| `id`              | integer       | Sequential briefing number.                                         |
+| `target_officeId` | string        | The office id of the primary minister recipient.                    |
+| `cc_officeIds`    | string[]      | Additional office ids that can view this briefing (e.g. PM, Cabinet). |
+| `title`           | string        | Briefing title.                                                     |
+| `status`          | `"open"` \| `"closed"` | Briefing status.                                          |
+| `currentStageIdx` | integer \| null | Index into `stages[]` for the active stage; null when closed.    |
+| `createdAt`       | string        | Local timestamp of creation.                                        |
+| `createdBy`       | string        | Character name or username of the authoring mod.                    |
+| `stages`          | BriefingStage[] | Ordered array of stages with multiple-choice options.             |
+| `auditLog`        | BriefingAuditEntry[] | Ordered log of decisions taken.                             |
+
+#### BriefingStage
+
+| Field     | Type              | Description                                           |
+|-----------|-------------------|-------------------------------------------------------|
+| `id`      | string            | Stage identifier.                                     |
+| `title`   | string            | Stage heading.                                        |
+| `text`    | string            | Stage body text (the briefing content for this step). |
+| `options` | BriefingOption[]  | Multiple-choice response options.                     |
+
+#### BriefingOption
+
+| Field          | Type             | Description                                              |
+|----------------|------------------|----------------------------------------------------------|
+| `id`           | string           | Option identifier.                                       |
+| `label`        | string           | Button label shown to the minister.                      |
+| `nextStageIdx` | integer \| null  | Index of the next stage; null means the briefing closes. |
+
+#### BriefingAuditEntry
+
+| Field               | Type   | Description                                       |
+|---------------------|--------|---------------------------------------------------|
+| `stageTitle`        | string | Title of the stage on which the decision was made.|
+| `chosenOptionLabel` | string | Label of the chosen option.                       |
+| `actorName`         | string | Character name of the decision-maker.             |
+| `actorOffice`       | string | Office id of the decision-maker at the time.      |
+| `at`                | string | Local timestamp.                                  |
+
+---
+
+## 16. Personal Finance & Shop (`personal`, `effects`)
+
+### 16.1 Shop Purchases (`personal.profiles[name].shopPurchases`)
+
+Items purchased by a character from the MP Shop.
+
+| Field        | Type                           | Description                                               |
+|--------------|--------------------------------|-----------------------------------------------------------|
+| `itemId`     | string                         | Catalogue item identifier.                                |
+| `name`       | string                         | Human-readable item name.                                 |
+| `price`      | number                         | Purchase price in simulated GBP.                          |
+| `purchasedAt`| string                         | Local timestamp of purchase.                              |
+| `modifiers`  | `{ pressImpactPct, pollingBoostPct }` | Soft modifiers applied by this item.            |
+| `scrutinyRisk`| integer                       | Amount added to the character's scrutiny score.           |
+
+### 16.2 Computed Modifiers (`personal.profiles[name].modifiers`)
+
+Re-computed from `shopPurchases` on every normalisation pass. Also mirrored to `effects.modifiers[name]`.
+
+| Field            | Type    | Description                                                              |
+|------------------|---------|--------------------------------------------------------------------------|
+| `pressImpactPct` | number  | Total press-impact percentage boost (sum of all purchased item modifiers).|
+| `pollingBoostPct`| number  | Total polling percentage boost.                                           |
+| `scrutinyScore`  | number  | Total scrutiny score (sum of `scrutinyRisk` across all purchases). High values (≥10) are flagged as high risk in the UI. |
+
+### 16.3 Global Modifier Cache (`effects.modifiers`)
+
+A top-level cache of `Record<characterName, Modifiers>` kept in sync by `personal.js`. Used by the press/polling pipeline to read modifiers without loading the full personal profiles object.
+
+---
+
+## 17. Constituency Scandals (`constituencyWork.scandals`)
+
+Local scandal scenarios that affect a character's reputation and constituency standing.
+
+**Opt-in:** Players must explicitly opt in (`constituencyWork.plansByCharacter[key].scandalOptIn = true`) before mods can trigger a scandal for their character.
+
+| Field             | Type          | Description                                                               |
+|-------------------|---------------|---------------------------------------------------------------------------|
+| `id`              | integer       | Sequential scandal number.                                                |
+| `characterKey`    | string        | Character name (key into `plansByCharacter`).                             |
+| `title`           | string        | Scandal title.                                                            |
+| `status`          | `"open"` \| `"closed"` | Scandal lifecycle status.                                       |
+| `currentStageIdx` | integer \| null | Index into `stages[]` for the active stage; null when closed.          |
+| `createdAt`       | string        | Local timestamp of creation.                                              |
+| `createdBy`       | string        | Username of the triggering mod.                                           |
+| `reputationImpact`| number        | Running total of reputation delta from all decisions taken so far.        |
+| `stages`          | ScandalStage[] | Ordered array of scandal stages.                                         |
+| `auditLog`        | ScandalAuditEntry[] | Ordered log of player decisions.                                   |
+
+### ScandalStage
+
+| Field     | Type            | Description                                |
+|-----------|-----------------|--------------------------------------------|
+| `id`      | string          | Stage identifier.                          |
+| `title`   | string          | Stage heading shown to the player.         |
+| `text`    | string          | Narrative text describing the situation.   |
+| `options` | ScandalOption[] | Player response options.                   |
+
+### ScandalOption
+
+| Field             | Type             | Description                                               |
+|-------------------|------------------|-----------------------------------------------------------|
+| `id`              | string           | Option identifier.                                        |
+| `label`           | string           | Button label.                                             |
+| `nextStageIdx`    | integer \| null  | Next stage index; null means the scandal resolves.        |
+| `reputationDelta` | integer          | Reputation change applied when this option is chosen.     |
+
+### ScandalAuditEntry
+
+| Field               | Type    | Description                                    |
+|---------------------|---------|------------------------------------------------|
+| `stageTitle`        | string  | Title of the stage at time of decision.        |
+| `chosenOptionLabel` | string  | Label of the chosen option.                    |
+| `reputationDelta`   | integer | Reputation change from this choice.            |
+| `actorName`         | string  | Character name of the player.                  |
+| `at`                | string  | Local timestamp.                               |
