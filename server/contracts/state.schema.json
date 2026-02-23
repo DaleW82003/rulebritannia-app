@@ -666,6 +666,51 @@
         }
       ]
     },
+    "PressSpeech": {
+      "$id": "#/$defs/PressSpeech",
+      "title": "PressSpeech",
+      "description": "A speech delivered by a player character or NPC.",
+      "type": "object",
+      "required": ["id", "reference", "title", "audience", "topOfSpeech", "body", "author", "createdAtSim", "is_marked"],
+      "additionalProperties": true,
+      "properties": {
+        "id":          { "type": "string",  "description": "Unique speech identifier (format: press-<ts>-<n>)." },
+        "reference":   { "type": "string",  "description": "Human-readable reference code (e.g. PM SP 1)." },
+        "title":       { "type": "string",  "description": "Title of the speech." },
+        "audience":    { "type": "string",  "description": "Intended audience or occasion (e.g. Party Conference)." },
+        "topOfSpeech": { "type": "string",  "description": "Opening header / occasion line at the top of the speech." },
+        "body":        { "type": "string",  "description": "Full speech text." },
+        "picture":     { "type": "string",  "description": "Optional URL of an image to accompany the speech." },
+        "author":      { "type": "string",  "description": "Name of the speech author / character." },
+        "authorOffice":{ "type": "string",  "description": "Office or role of the author at time of delivery." },
+        "createdAtSim":{ "type": "string",  "description": "Simulation month/year when the speech was delivered." },
+        "score":       { "description": "Moderator score (-5 to +5); null until marked." },
+        "impact":      { "type": "array", "items": { "type": "string" }, "description": "Party codes affected by the score." },
+        "is_marked":   { "type": "boolean", "description": "True once a moderator has scored this speech." }
+      }
+    },
+    "PressOfficialLetter": {
+      "$id": "#/$defs/PressOfficialLetter",
+      "title": "PressOfficialLetter",
+      "description": "An official letter issued from a government or NPC office.",
+      "type": "object",
+      "required": ["id", "reference", "officeKey", "officeName", "recipient", "subject", "body", "author", "createdAtSim", "is_marked"],
+      "additionalProperties": true,
+      "properties": {
+        "id":          { "type": "string",  "description": "Unique letter identifier (format: press-<ts>-<n>)." },
+        "reference":   { "type": "string",  "description": "Reference code (auto-generated or supplied)." },
+        "officeKey":   { "type": "string",  "description": "Key of the issuing office (e.g. pmo, treasury, monarch)." },
+        "officeName":  { "type": "string",  "description": "Display name of the issuing office." },
+        "recipient":   { "type": "string",  "description": "Addressee of the letter (To:)." },
+        "subject":     { "type": "string",  "description": "Subject / title line of the letter." },
+        "body":        { "type": "string",  "description": "Full letter body text." },
+        "author":      { "type": "string",  "description": "Signatory name or character name." },
+        "createdAtSim":{ "type": "string",  "description": "Simulation month/year when the letter was issued." },
+        "score":       { "description": "Moderator score (-5 to +5); null until marked." },
+        "impact":      { "type": "array", "items": { "type": "string" }, "description": "Party codes affected by the score." },
+        "is_marked":   { "type": "boolean", "description": "True once a moderator has scored this letter." }
+      }
+    },
     "PollingEntry": {
       "$id": "#/$defs/PollingEntry",
       "title": "PollingEntry",
@@ -1035,8 +1080,8 @@
     "press": {
       "type": "object",
       "required": ["releases", "conferences"],
-      "additionalProperties": false,
-      "description": "Press releases and press conferences.",
+      "additionalProperties": true,
+      "description": "Press channels: releases, conferences, comments, speeches, and official letters.",
       "properties": {
         "releases": {
           "type": "array",
@@ -1047,6 +1092,16 @@
           "type": "array",
           "items": { "$ref": "#/$defs/PressConference" },
           "description": "All press conferences."
+        },
+        "speeches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PressSpeech" },
+          "description": "All speeches."
+        },
+        "letters": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PressOfficialLetter" },
+          "description": "All official letters."
         }
       }
     },
