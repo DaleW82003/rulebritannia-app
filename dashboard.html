@@ -92,25 +92,25 @@
   </div>
 </header>
 
-<main class="wrap">
+<main class="wrap" id="main-content">
   <div class="bbc-masthead"><div class="bbc-title">Your Office</div></div>
 
   <!-- What's Going On -->
-  <section class="panel">
-    <h2>What’s Going On</h2>
-    <div id="whats-going-on">Loading…</div>
+  <section class="panel" aria-labelledby="wgo-heading">
+    <h2 id="wgo-heading">What’s Going On</h2>
+    <div id="whats-going-on" role="status" aria-busy="true">Loading…</div>
   </section>
 
   <!-- Live Docket -->
-  <section class="panel">
-    <h2>Live Docket</h2>
-    <div id="live-docket">Loading…</div>
+  <section class="panel" aria-labelledby="docket-heading">
+    <h2 id="docket-heading">Live Docket</h2>
+    <div id="live-docket" role="status" aria-busy="true">Loading…</div>
   </section>
 
   <!-- Order Paper -->
-  <section class="panel">
-    <h2>Order Paper</h2>
-    <div id="order-paper">Loading…</div>
+  <section class="panel" aria-labelledby="order-heading">
+    <h2 id="order-heading">Order Paper</h2>
+    <div id="order-paper" role="status" aria-busy="true">Loading…</div>
   </section>
 </main>
 

@@ -181,7 +181,38 @@ function injectSimBadge(clock) {
   }
 }
 
+/**
+ * Return a block of animated loading-skeleton HTML.
+ * @param {number} [lines=3]   - Number of placeholder lines.
+ * @param {"tile"|"plain"} [layout="tile"] - "tile" wraps in a skel-tile card.
+ * @returns {string} HTML string.
+ */
+export function skeletonHTML(lines = 3, layout = "tile") {
+  const sizes = ["wide", "mid", "short"];
+  const inner = Array.from({ length: lines }, (_, i) =>
+    `<span class="skel skel-line ${sizes[i % sizes.length]}" aria-hidden="true"></span>`
+  ).join("") + `<span class="skel skel-btn" aria-hidden="true"></span>`;
+  if (layout === "tile") {
+    return `<div class="skel-tile" role="status" aria-label="Loading…">${inner}</div>`;
+  }
+  return `<div role="status" aria-label="Loading…">${inner}</div>`;
+}
+
 export function initNavUI(user, clock) {
+  // Inject skip-to-content link for keyboard / screen-reader users
+  if (!document.getElementById("rb-skip-link")) {
+    const mainEl = document.querySelector("main");
+    if (mainEl && !mainEl.id) mainEl.id = "main-content";
+    const mainId = mainEl?.id || "main-content";
+
+    const skip = document.createElement("a");
+    skip.id = "rb-skip-link";
+    skip.className = "skip-link";
+    skip.href = `#${mainId}`;
+    skip.textContent = "Skip to content";
+    document.body.prepend(skip);
+  }
+
   // Demo mode banner — shown whenever no authenticated user is present
   if (!user) {
     insertDemoBanner();
@@ -198,16 +229,43 @@ export function initNavUI(user, clock) {
     const btn = g.querySelector(".nav-toggle");
     if (!btn) return;
 
+    // Set initial ARIA state
+    btn.setAttribute("aria-expanded", "false");
+    const drop = g.querySelector(".dropdown");
+    if (drop) drop.setAttribute("role", "menu");
+
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      // close others
-      groups.forEach(other => { if (other !== g) other.classList.remove("open"); });
-      g.classList.toggle("open");
+      const isOpen = g.classList.contains("open");
+      // close all others
+      groups.forEach(other => {
+        if (other !== g) {
+          other.classList.remove("open");
+          other.querySelector(".nav-toggle")?.setAttribute("aria-expanded", "false");
+        }
+      });
+      g.classList.toggle("open", !isOpen);
+      btn.setAttribute("aria-expanded", String(!isOpen));
+    });
+
+    // Keyboard: Escape to close
+    g.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && g.classList.contains("open")) {
+        g.classList.remove("open");
+        btn.setAttribute("aria-expanded", "false");
+        btn.focus();
+      }
     });
   });
 
-  document.addEventListener("click", () => {
-    groups.forEach(g => g.classList.remove("open"));
+  // Close dropdowns only when clicking *outside* any nav-group
+  document.addEventListener("click", (e) => {
+    groups.forEach(g => {
+      if (!g.contains(e.target)) {
+        g.classList.remove("open");
+        g.querySelector(".nav-toggle")?.setAttribute("aria-expanded", "false");
+      }
+    });
   });
 
   // Active nav highlighting

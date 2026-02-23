@@ -564,24 +564,53 @@ function renderDivision(bill, data) {
   voting.style.display = "block";
   progress.style.display = "block";
 
+  const countdown = division.closesAtSim
+    ? countdownToSimMonth(division.closesAtSim.month, division.closesAtSim.year, data.gameState)
+    : msToHuman(Number(division.closesAt || 0) - now);
+
+  const myVoteClass = current ? `voted-${current}` : "";
+  const myVoteLabel = current ? `Your vote: <b>${esc(current.charAt(0).toUpperCase() + current.slice(1))}</b>` : "Not yet voted";
+
   voting.innerHTML = `
-    <h2>Division</h2>
-    <p class="muted">Weighted division. Vote closes in <b>${esc(division.closesAtSim ? countdownToSimMonth(division.closesAtSim.month, division.closesAtSim.year, data.gameState) : msToHuman(Number(division.closesAt || 0) - now))}</b> or early once all playable and NPC allocations are recorded.</p>
-    <p class="muted">Your current vote weight: <b>${esc(myWeight.toFixed(2))}</b>. Absent members transfer weight to their party leader; if the leader is absent, delegated votes apply.</p>
-    ${pendingAmendmentDivisions ? `<p class="muted">Main bill division paused until amendment divisions are finished.</p>` : ""}
-    ${!partyMeta.playable ? `<p class="muted">Your party is NPC in this cycle; only Speaker allocation applies.</p>` : ""}
-    ${partyMeta.playable && !canVote ? `<p class="muted">You currently have no vote weight (likely absent without delegated weight).</p>` : ""}
-    <div class="tile-bottom" style="padding-top:0;">
-      <button class="btn ${current === "aye" ? "primary" : ""}" data-vote="aye" ${canVote && !pendingAmendmentDivisions ? "" : "disabled"}>Aye</button>
-      <button class="btn ${current === "no" ? "primary" : ""}" data-vote="no" ${canVote && !pendingAmendmentDivisions ? "" : "disabled"}>No</button>
-      <button class="btn ${current === "abstain" ? "primary" : ""}" data-vote="abstain" ${canVote && !pendingAmendmentDivisions ? "" : "disabled"}>Abstain</button>
-    </div>
-    ${isSpeaker(data) && division.status === "closed" && totals.aye === totals.no ? `
-      <div style="margin-top:12px;" class="tile-bottom">
-        <button class="btn" data-speaker="move-on">Speaker: Move On (status quo)</button>
-        <button class="btn danger" data-speaker="tie-break">Speaker: Cast Tie-break Vote</button>
+    <div class="division-panel">
+      <div class="division-header">
+        <div class="division-title">🗳️ Division</div>
+        ${division.status === "open" ? `<span class="division-countdown">Closes in ${esc(countdown)}</span>` : `<span class="division-countdown">Closed</span>`}
       </div>
-    ` : ""}
+
+      <div class="division-totals">
+        <div class="division-total-cell aye">
+          <div class="dc-num">${totals.aye}</div>
+          <div class="dc-lbl">Aye</div>
+        </div>
+        <div class="division-total-cell no">
+          <div class="dc-num">${totals.no}</div>
+          <div class="dc-lbl">No</div>
+        </div>
+        <div class="division-total-cell">
+          <div class="dc-num">${totals.abstain}</div>
+          <div class="dc-lbl">Abstain</div>
+        </div>
+      </div>
+
+      <div class="division-my-vote ${esc(myVoteClass)}">${myVoteLabel} · Weight: <b>${esc(myWeight.toFixed(2))}</b></div>
+
+      ${pendingAmendmentDivisions ? `<p class="muted">Main bill division paused until amendment divisions are finished.</p>` : ""}
+      ${!partyMeta.playable ? `<p class="muted">Your party is NPC in this cycle; only Speaker allocation applies.</p>` : ""}
+      ${partyMeta.playable && !canVote ? `<p class="muted">You currently have no vote weight (likely absent without delegated weight).</p>` : ""}
+
+      <div class="tile-bottom" style="padding-top:10px;">
+        <button class="btn ${current === "aye" ? "primary" : ""}" data-vote="aye" ${canVote && !pendingAmendmentDivisions ? "" : "disabled"}>Aye</button>
+        <button class="btn ${current === "no" ? "primary" : ""}" data-vote="no" ${canVote && !pendingAmendmentDivisions ? "" : "disabled"}>No</button>
+        <button class="btn ${current === "abstain" ? "primary" : ""}" data-vote="abstain" ${canVote && !pendingAmendmentDivisions ? "" : "disabled"}>Abstain</button>
+      </div>
+      ${isSpeaker(data) && division.status === "closed" && totals.aye === totals.no ? `
+        <div style="margin-top:12px;" class="tile-bottom">
+          <button class="btn" data-speaker="move-on">Speaker: Move On (status quo)</button>
+          <button class="btn danger" data-speaker="tie-break">Speaker: Cast Tie-break Vote</button>
+        </div>
+      ` : ""}
+    </div>
   `;
 
   const npcParties = parties.filter((p) => !p.playable && Number(p.seats || 0) > 0 && !autoAbstainNpc.has(p.name));
@@ -621,10 +650,17 @@ function renderDivision(bill, data) {
 
   progress.innerHTML = `
     <h2>Division Progress</h2>
-    <div class="kv"><span>Aye</span><b>${totals.aye}</b></div>
-    <div class="kv"><span>No</span><b>${totals.no}</b></div>
-    <div class="kv"><span>Abstain</span><b>${totals.abstain}</b></div>
     <div class="kv"><span>Status</span><b>${esc(division.status)}</b></div>
+    <div class="division-party-breakdown">
+      ${parties.filter((p) => Number(p.seats || 0) > 0).map((p) => {
+        const partyVotes = Object.entries(division.votes || {}).filter(([, v]) => v.party === p.name);
+        const npcVote = division.npcVotes?.[p.name];
+        const label = p.playable
+          ? (partyVotes.length ? partyVotes.map(([n, v]) => `${esc(n)}: ${esc(v.choice)}`).join(", ") : "Not voted")
+          : (npcVote ? `NPC: ${esc(npcVote)}` : "NPC: unallocated");
+        return `<div class="division-party-row"><span><b>${esc(p.name)}</b> (${Number(p.seats || 0)})</span><span class="muted">${label}</span></div>`;
+      }).join("")}
+    </div>
   `;
 
   voting.querySelectorAll("[data-vote]").forEach((btn) => {

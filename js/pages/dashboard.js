@@ -2,6 +2,7 @@ import { canSeeAudienceItem, isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } f
 import { esc } from "../ui.js";
 import { nowMs } from "../core.js";
 import { countdownToSimMonth } from "../clock.js";
+import { errorTileHTML } from "../errors.js";
 
 // js/pages/dashboard.js
 // Dashboard (Your Office) — Chunk 1 implementation
@@ -292,7 +293,19 @@ function renderOrderPaper(data) {
 }
 
 export function initDashboardPage(data) {
-  renderWhatsGoingOn(data);
-  renderLiveDocket(data);
-  renderOrderPaper(data);
+  const sections = [
+    { id: "whats-going-on", fn: renderWhatsGoingOn, label: "What's Going On" },
+    { id: "live-docket",    fn: renderLiveDocket,   label: "Live Docket" },
+    { id: "order-paper",   fn: renderOrderPaper,   label: "Order Paper" },
+  ];
+  sections.forEach(({ id, fn, label }) => {
+    const root = document.getElementById(id);
+    if (!root) return;
+    try {
+      fn(data);
+    } catch (err) {
+      console.error(`[dashboard:${label}]`, err);
+      root.innerHTML = errorTileHTML(err, `Could not load ${label}`);
+    }
+  });
 }
