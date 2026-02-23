@@ -223,6 +223,11 @@ function renderParliamentSetupForm(data) {
 
   const allocated = parties.reduce((sum, p) => sum + Number(p.seats || 0), 0);
 
+  // Up to 3 custom extra parties (stored on parl.extraParties)
+  const MAX_EXTRA_PARTIES = 3;
+  const extraParties = Array.isArray(parl.extraParties) ? parl.extraParties : Array.from({ length: MAX_EXTRA_PARTIES }, () => ({ name: "", seats: 0 }));
+  while (extraParties.length < MAX_EXTRA_PARTIES) extraParties.push({ name: "", seats: 0 });
+
   formRoot.innerHTML = `
     <div class="form-grid">
       <label for="parlTotalSeats">Total Seats in Parliament</label>
@@ -247,6 +252,15 @@ function renderParliamentSetupForm(data) {
             <input type="number" min="0" max="2000" data-party-seats="${esc(p.name)}" value="${esc(String(p.seats || 0))}" style="width:80px;">
           </div>
         `).join("")}
+        <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px;">
+          <div class="muted" style="margin-bottom:6px;">Additional parties (up to 3)</div>
+          ${extraParties.slice(0, MAX_EXTRA_PARTIES).map((ep, i) => `
+            <div class="kv" style="margin-bottom:6px;">
+              <input type="text" placeholder="Party name" data-extra-party-name="${i}" value="${esc(ep.name || "")}" style="flex:1;min-width:120px;">
+              <input type="number" min="0" max="2000" data-extra-party-seats="${i}" value="${esc(String(ep.seats || 0))}" style="width:80px;">
+            </div>
+          `).join("")}
+        </div>
         <div class="kv" style="margin-top:8px;">
           <span>Total allocated</span>
           <b id="parlAllocated">${allocated} / ${totalSeats}</b>
@@ -261,14 +275,16 @@ function renderParliamentSetupForm(data) {
     </div>
   `;
 
-  // Live update allocated count
-  formRoot.querySelectorAll("[data-party-seats]").forEach((inp) => {
-    inp.addEventListener("input", () => {
-      const total = Number(formRoot.querySelector("#parlTotalSeats")?.value || 0);
-      const allocated2 = Array.from(formRoot.querySelectorAll("[data-party-seats]")).reduce((s, i) => s + Number(i.value || 0), 0);
-      const el = formRoot.querySelector("#parlAllocated");
-      if (el) el.textContent = `${allocated2} / ${total}`;
-    });
+  // Live update allocated count (standard + extra parties)
+  const updateAlloc = () => {
+    const total = Number(formRoot.querySelector("#parlTotalSeats")?.value || 0);
+    const std = Array.from(formRoot.querySelectorAll("[data-party-seats]")).reduce((s, i) => s + Number(i.value || 0), 0);
+    const extra = Array.from(formRoot.querySelectorAll("[data-extra-party-seats]")).reduce((s, i) => s + Number(i.value || 0), 0);
+    const el = formRoot.querySelector("#parlAllocated");
+    if (el) el.textContent = `${std + extra} / ${total}`;
+  };
+  formRoot.querySelectorAll("[data-party-seats], [data-extra-party-seats], #parlTotalSeats").forEach((inp) => {
+    inp.addEventListener("input", updateAlloc);
   });
 
   formRoot.querySelector("#parlSetupSave")?.addEventListener("click", () => {
@@ -277,7 +293,17 @@ function renderParliamentSetupForm(data) {
     const govPartiesRaw = formRoot.querySelector("#parlGovParties")?.value || "";
     const govParties2 = govPartiesRaw.split(",").map((s) => s.trim()).filter(Boolean);
 
-    const alloc = Array.from(formRoot.querySelectorAll("[data-party-seats]")).reduce((s, i) => s + Number(i.value || 0), 0);
+    // Collect extra parties
+    const newExtras = [];
+    for (let i = 0; i < MAX_EXTRA_PARTIES; i++) {
+      const name = String(formRoot.querySelector(`[data-extra-party-name="${i}"]`)?.value || "").trim();
+      const seats = Number(formRoot.querySelector(`[data-extra-party-seats="${i}"]`)?.value || 0);
+      newExtras.push({ name, seats });
+    }
+
+    const stdAlloc = Array.from(formRoot.querySelectorAll("[data-party-seats]")).reduce((s, i) => s + Number(i.value || 0), 0);
+    const extraAlloc = newExtras.reduce((s, ep) => s + (ep.name ? ep.seats : 0), 0);
+    const alloc = stdAlloc + extraAlloc;
     const msgEl = formRoot.querySelector("#parlSetupMsg");
     if (alloc !== total) {
       if (msgEl) msgEl.textContent = `⚠ Error: Seats allocated (${alloc}) must equal total seats (${total}). Please adjust party seat allocations.`;
@@ -288,12 +314,25 @@ function renderParliamentSetupForm(data) {
     data.parliament.totalSeats = total;
     data.parliament.governmentType = govType2;
     data.parliament.governingParties = govParties2;
+    data.parliament.extraParties = newExtras;
 
     formRoot.querySelectorAll("[data-party-seats]").forEach((inp) => {
       const pName = inp.getAttribute("data-party-seats");
       const party = (data.parliament.parties || []).find((p) => p.name === pName);
       if (party) party.seats = Number(inp.value || 0);
     });
+
+    // Merge named extra parties into parliament.parties
+    for (const ep of newExtras) {
+      if (!ep.name) continue;
+      const existing = (data.parliament.parties || []).find((p) => p.name === ep.name);
+      if (existing) {
+        existing.seats = ep.seats;
+      } else {
+        data.parliament.parties ??= [];
+        data.parliament.parties.push({ name: ep.name, seats: ep.seats });
+      }
+    }
 
     saveState(data);
     if (msgEl) msgEl.textContent = "Saved.";

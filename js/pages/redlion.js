@@ -1,13 +1,13 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isMod, isSpeaker } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker } from "../permissions.js";
 
 function getCharacter(data) {
   return data?.currentCharacter || data?.currentPlayer || {};
 }
 
 function canPostBarkeep(data) {
-  return isMod(data) || isSpeaker(data);
+  return isAdmin(data) || isMod(data) || isSpeaker(data);
 }
 
 function ensureRedLion(data) {

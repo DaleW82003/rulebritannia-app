@@ -524,6 +524,8 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
    Docket (generic list)
    ========================= */
 .docket-list{ display:flex; flex-direction:column; gap:10px; }
+.submission-route div label { display:flex; gap:8px; align-items:flex-start; }
+.submission-route div label input[type="radio"] { flex-shrink:0; margin-top:3px; }
 .docket-item{
   display:flex;
   justify-content:space-between;

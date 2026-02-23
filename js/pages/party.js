@@ -7,7 +7,7 @@ const DEFAULT_PARTIES = {
   Conservative: {
     name: "Conservative",
     short: "CON",
-    leader: { name: "Dale Weston MP", avatar: "", characterId: "" },
+    leader: { name: "", avatar: "", characterId: "" },
     treasury: { cash: 350000, debt: 50000, members: 176000 },
     hqUrl: null,
     drafts: []
@@ -15,7 +15,7 @@ const DEFAULT_PARTIES = {
   Labour: {
     name: "Labour",
     short: "LAB",
-    leader: { name: "Rachel Morgan MP", avatar: "", characterId: "" },
+    leader: { name: "", avatar: "", characterId: "" },
     treasury: { cash: 290000, debt: 120000, members: 145000 },
     hqUrl: null,
     drafts: []
@@ -23,7 +23,7 @@ const DEFAULT_PARTIES = {
   "Liberal Democrat": {
     name: "Liberal Democrat",
     short: "LDM",
-    leader: { name: "Alex Pritchard MP", avatar: "", characterId: "" },
+    leader: { name: "", avatar: "", characterId: "" },
     treasury: { cash: 95000, debt: 12000, members: 76000 },
     hqUrl: null,
     drafts: []
@@ -166,7 +166,6 @@ function render(data, state) {
             <img src="${esc(avatarFor(party.leader?.name, party.leader?.avatar))}" alt="Party leader avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
             <div>
               <div><b>${esc(party.leader?.name || "Vacant")}</b></div>
-              <div class="muted">${esc(party.short || "")}</div>
             </div>
           </div>
         </article>
