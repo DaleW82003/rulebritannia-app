@@ -226,7 +226,7 @@ function render(data, state) {
   const canArchive = canModerate(data);
   const canAnswer = canAnswerOffice(data, selectedOffice.id) || canModerate(data);
   const askGate = canAskMainQuestion(data, selectedOffice.id);
-  const canNpcPost = isAdmin(data) || isMod(data);
+  const canPostAsNpc = isAdmin(data) || isMod(data);
   const partyOptions = (Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [])
     .map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
 
@@ -283,8 +283,8 @@ function render(data, state) {
         <form id="qt-submit-question-form" class="tile">
           <h3 style="margin-top:0;">Submit a Question</h3>
           <label class="label" for="qt-question-text">Question text</label>
-          <textarea id="qt-question-text" class="input" name="text" rows="4" required placeholder="Type your parliamentary question" ${askGate.ok || canNpcPost ? "" : "disabled"}></textarea>
-          ${canNpcPost ? `
+          <textarea id="qt-question-text" class="input" name="text" rows="4" required placeholder="Type your parliamentary question" ${askGate.ok || canPostAsNpc ? "" : "disabled"}></textarea>
+          ${canPostAsNpc ? `
           <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line);">
             <label class="label" style="font-size:0.85em;color:var(--muted);">Post as NPC (mod/admin)</label>
             <input class="input" name="npcName" placeholder="NPC MP name (leave blank to post as yourself)" style="margin-bottom:4px;">
@@ -293,8 +293,8 @@ function render(data, state) {
               ${partyOptions}
             </select>
           </div>` : ""}
-          <button class="btn" type="submit" ${askGate.ok || canNpcPost ? "" : "disabled"}>Submit Question</button>
-          ${!askGate.ok && !canNpcPost ? `<p class="muted" style="margin-top:8px;">${esc(askGate.reason)}</p>` : ""}
+          <button class="btn" type="submit" ${askGate.ok || canPostAsNpc ? "" : "disabled"}>Submit Question</button>
+          ${!askGate.ok && !canPostAsNpc ? `<p class="muted" style="margin-top:8px;">${esc(askGate.reason)}</p>` : ""}
         </form>
 
         <form id="qt-answer-form" class="tile">
@@ -326,8 +326,8 @@ function render(data, state) {
     const text = String(fd.get("text") || "").trim();
     if (!text) return;
 
-    const npcName = canNpcPost ? String(fd.get("npcName") || "").trim() : "";
-    const npcParty = canNpcPost ? String(fd.get("npcParty") || "").trim() : "";
+    const npcName = canPostAsNpc ? String(fd.get("npcName") || "").trim() : "";
+    const npcParty = canPostAsNpc ? String(fd.get("npcParty") || "").trim() : "";
 
     if (!npcName && !askGate.ok) return;
 

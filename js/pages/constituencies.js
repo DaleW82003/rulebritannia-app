@@ -224,8 +224,9 @@ function renderParliamentSetupForm(data) {
   const allocated = parties.reduce((sum, p) => sum + Number(p.seats || 0), 0);
 
   // Up to 3 custom extra parties (stored on parl.extraParties)
-  const extraParties = Array.isArray(parl.extraParties) ? parl.extraParties : [{name:"",seats:0},{name:"",seats:0},{name:"",seats:0}];
-  while (extraParties.length < 3) extraParties.push({ name: "", seats: 0 });
+  const MAX_EXTRA_PARTIES = 3;
+  const extraParties = Array.isArray(parl.extraParties) ? parl.extraParties : Array.from({ length: MAX_EXTRA_PARTIES }, () => ({ name: "", seats: 0 }));
+  while (extraParties.length < MAX_EXTRA_PARTIES) extraParties.push({ name: "", seats: 0 });
 
   formRoot.innerHTML = `
     <div class="form-grid">
@@ -253,7 +254,7 @@ function renderParliamentSetupForm(data) {
         `).join("")}
         <div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px;">
           <div class="muted" style="margin-bottom:6px;">Additional parties (up to 3)</div>
-          ${extraParties.slice(0, 3).map((ep, i) => `
+          ${extraParties.slice(0, MAX_EXTRA_PARTIES).map((ep, i) => `
             <div class="kv" style="margin-bottom:6px;">
               <input type="text" placeholder="Party name" data-extra-party-name="${i}" value="${esc(ep.name || "")}" style="flex:1;min-width:120px;">
               <input type="number" min="0" max="2000" data-extra-party-seats="${i}" value="${esc(String(ep.seats || 0))}" style="width:80px;">
@@ -294,7 +295,7 @@ function renderParliamentSetupForm(data) {
 
     // Collect extra parties
     const newExtras = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < MAX_EXTRA_PARTIES; i++) {
       const name = String(formRoot.querySelector(`[data-extra-party-name="${i}"]`)?.value || "").trim();
       const seats = Number(formRoot.querySelector(`[data-extra-party-seats="${i}"]`)?.value || 0);
       newExtras.push({ name, seats });
