@@ -213,8 +213,10 @@ export function initNavUI(user, clock) {
     document.body.prepend(skip);
   }
 
-  // Demo mode banner — shown whenever no authenticated user is present
-  if (!user) {
+  // Demo mode banner — shown whenever no authenticated user is present,
+  // but not on the login page itself (which would disable the Login button).
+  const currentPage = document.body?.dataset?.page || "";
+  if (!user && currentPage !== "login") {
     insertDemoBanner();
   }
 
