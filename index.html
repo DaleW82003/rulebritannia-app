@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rule Britannia — Political Simulation</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* ── Landing-page specific styles ── */
+    .landing-hero {
+      position: relative;
+      min-height: 480px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: linear-gradient(180deg, var(--navy), var(--navy2));
+      margin-bottom: 32px;
+      color: #fff;
+    }
+    .landing-hero img.hero-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: .28;
+    }
+    .landing-hero-content {
+      position: relative;
+      z-index: 1;
+      padding: 48px 24px;
+      max-width: 780px;
+    }
+    .landing-hero-content h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 900;
+      margin: 0 0 18px;
+      letter-spacing: -.03em;
+      line-height: 1.1;
+    }
+    .landing-hero-content p {
+      font-size: clamp(1rem, 2.5vw, 1.2rem);
+      opacity: .9;
+      line-height: 1.65;
+      margin: 0 0 28px;
+    }
+    .landing-cta-row {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .btn-hero {
+      padding: 14px 28px;
+      border-radius: 999px;
+      font-weight: 800;
+      font-size: 1rem;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+    }
+    .btn-hero.primary {
+      background: var(--red);
+      color: #fff;
+    }
+    .btn-hero.secondary {
+      background: rgba(255,255,255,.15);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.3);
+    }
+
+    .landing-section { margin-bottom: 40px; }
+    .landing-section h2 {
+      font-size: 1.7rem;
+      font-weight: 900;
+      margin: 0 0 16px;
+      color: var(--navy);
+      letter-spacing: -.02em;
+    }
+
+    .what-it-does-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 10px;
+    }
+    .what-it-does-list li {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius2);
+      padding: 12px 16px;
+      padding-left: 42px;
+      position: relative;
+      font-size: .95rem;
+      box-shadow: var(--shadow);
+    }
+    .what-it-does-list li::before {
+      content: "✓";
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--green);
+      font-weight: 900;
+      font-size: 1.1rem;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 18px;
+    }
+    .feature-tile {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+    .feature-tile h3 {
+      margin: 0 0 10px;
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: var(--navy);
+    }
+    .feature-tile ul {
+      margin: 0;
+      padding: 0 0 0 18px;
+      color: var(--muted);
+      font-size: .9rem;
+      line-height: 1.7;
+    }
+    .feature-tile-icon {
+      font-size: 1.8rem;
+      margin-bottom: 10px;
+    }
+
+    .section-break {
+      position: relative;
+      min-height: 200px;
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin: 32px 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .section-break img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: .22;
+    }
+    .section-break-inner {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      padding: 32px 24px;
+      color: var(--navy);
+    }
+    .section-break-inner h2 {
+      font-size: 1.6rem;
+      font-weight: 900;
+      margin: 0 0 6px;
+    }
+    .section-break-inner p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .steps-list {
+      counter-reset: steps;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .steps-list li {
+      counter-increment: steps;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius2);
+      padding: 16px 18px 16px 64px;
+      position: relative;
+      box-shadow: var(--shadow);
+    }
+    .steps-list li::before {
+      content: counter(steps);
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: linear-gradient(180deg, var(--navy), var(--navy2));
+      color: #fff;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: .95rem;
+    }
+    .steps-list li strong {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--navy);
+    }
+    .steps-list li span {
+      font-size: .9rem;
+      color: var(--muted);
+    }
+
+    .landing-footer-cta {
+      background: linear-gradient(135deg, var(--navy), var(--navy2));
+      border-radius: var(--radius);
+      padding: 48px 32px;
+      text-align: center;
+      color: #fff;
+      margin-bottom: 40px;
+      position: relative;
+      overflow: hidden;
+    }
+    .landing-footer-cta img.cta-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: .15;
+    }
+    .landing-footer-cta-inner { position: relative; z-index: 1; }
+    .landing-footer-cta h2 {
+      font-size: 2rem;
+      font-weight: 900;
+      margin: 0 0 12px;
+    }
+    .landing-footer-cta p { opacity: .88; margin: 0 0 22px; }
+  </style>
+</head>
+
+<body class="theme-commons" data-page="landing">
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <img class="logo" src="./assets/RB%20Logo.png" alt="Rule Britannia">
+    </div>
+    <nav class="nav entry-nav" aria-label="Main Navigation">
+      <a href="register.html" class="nav-link">Register</a>
+      <a href="login.html" class="nav-link">Login</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" id="main-content">
+
+  <!-- Hero -->
+  <div class="landing-hero">
+    <img class="hero-bg" src="./assets/landing/hero-1.jpg" alt="">
+    <div class="landing-hero-content">
+      <h1>Rule Britannia</h1>
+      <p>
+        A live, database-backed political simulation platform where players govern, legislate, debate,
+        and compete within a structured parliamentary system driven by automation and enforced process.
+      </p>
+      <div class="landing-cta-row">
+        <a href="register.html" class="btn-hero primary">Apply to Join</a>
+        <a href="login.html" class="btn-hero secondary">Sign In</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- What it Does -->
+  <section class="landing-section" aria-labelledby="what-heading">
+    <h2 id="what-heading">What it Does</h2>
+    <ul class="what-it-does-list">
+      <li>Runs a persistent UK political simulation with a live backend state.</li>
+      <li>Enforces real parliamentary processes (stages, amendments, divisions, deadlines).</li>
+      <li>Automates voting, weighted majorities, and delegation for absences.</li>
+      <li>Tracks government and opposition roles dynamically.</li>
+      <li>Simulates Question Time with deadlines and structured follow-ups.</li>
+      <li>Integrates press, polling, and economic indicators into the political environment.</li>
+      <li>Logs all administrative actions for transparency and moderation stability.</li>
+      <li>Separates demo mode (public preview) from live simulation state.</li>
+    </ul>
+  </section>
+
+  <!-- Section break with image -->
+  <div class="section-break" style="background:linear-gradient(180deg,var(--navy),var(--navy2));">
+    <img src="./assets/landing/hero-2.jpg" alt="">
+    <div class="section-break-inner" style="color:#fff;">
+      <h2>The Simulation is Live</h2>
+      <p style="color:rgba(255,255,255,.8);">Every vote, every debate, every division — happening now.</p>
+    </div>
+  </div>
+
+  <!-- Feature Tiles -->
+  <section class="landing-section" aria-labelledby="features-heading">
+    <h2 id="features-heading">Platform Features</h2>
+    <div class="features-grid">
+
+      <div class="feature-tile">
+        <div class="feature-tile-icon">🏛️</div>
+        <h3>Govern &amp; Oppose</h3>
+        <ul>
+          <li>Take office as a minister or opposition frontbencher</li>
+          <li>Form and break coalitions</li>
+          <li>Manage party discipline and internal politics</li>
+        </ul>
+      </div>
+
+      <div class="feature-tile">
+        <div class="feature-tile-icon">📜</div>
+        <h3>Legislate</h3>
+        <ul>
+          <li>Draft and submit bills through all parliamentary stages</li>
+          <li>Propose amendments and respond to opposition</li>
+          <li>Secure majorities and navigate divisions</li>
+        </ul>
+      </div>
+
+      <div class="feature-tile">
+        <div class="feature-tile-icon">🎙️</div>
+        <h3>Question Ministers</h3>
+        <ul>
+          <li>Submit written and oral questions with deadlines</li>
+          <li>Receive structured follow-up and ministerial answers</li>
+          <li>Hold the executive to account in Question Time</li>
+        </ul>
+      </div>
+
+      <div class="feature-tile">
+        <div class="feature-tile-icon">🗳️</div>
+        <h3>Compete Politically</h3>
+        <ul>
+          <li>Campaign in constituencies and track polling</li>
+          <li>Contest general and by-elections</li>
+          <li>Build a public profile through press and media</li>
+        </ul>
+      </div>
+
+      <div class="feature-tile">
+        <div class="feature-tile-icon">💷</div>
+        <h3>Shape the Economy</h3>
+        <ul>
+          <li>Set fiscal policy through the Budget</li>
+          <li>Respond to live macroeconomic indicators</li>
+          <li>Manage public finances and departmental spending</li>
+        </ul>
+      </div>
+
+      <div class="feature-tile">
+        <div class="feature-tile-icon">💬</div>
+        <h3>Debate</h3>
+        <ul>
+          <li>Discourse forum integration ready</li>
+          <li>Linked debate threads for bills, motions, and statements</li>
+          <li>Rich cross-platform parliamentary discourse</li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Second image break -->
+  <div class="section-break" style="background:linear-gradient(180deg,#1a3a1a,#0d220d);">
+    <img src="./assets/landing/hero-3.jpg" alt="">
+    <div class="section-break-inner" style="color:#fff;">
+      <h2>How it Works</h2>
+      <p style="color:rgba(255,255,255,.8);">From application to office in five steps.</p>
+    </div>
+  </div>
+
+  <!-- How it Works -->
+  <section class="landing-section" aria-labelledby="how-heading">
+    <h2 id="how-heading" class="visually-hidden">How it Works</h2>
+    <ol class="steps-list">
+      <li>
+        <strong>Create Your Character</strong>
+        <span>Apply to join, get approved by an admin, and set up your player profile.</span>
+      </li>
+      <li>
+        <strong>Take Office &amp; Act</strong>
+        <span>Receive a parliamentary role, join a party, and begin participating in government or opposition.</span>
+      </li>
+      <li>
+        <strong>Debate &amp; Vote</strong>
+        <span>Engage in bills, questions, motions, and debates; cast divisions; represent your constituents.</span>
+      </li>
+      <li>
+        <strong>Simulation Advances</strong>
+        <span>The clock ticks forward automatically, advancing parliamentary business, elections, and the economy.</span>
+      </li>
+      <li>
+        <strong>Live State Persists</strong>
+        <span>Every action is recorded. The simulation state is always live, accessible, and historically logged.</span>
+      </li>
+    </ol>
+  </section>
+
+  <!-- Footer CTA -->
+  <div class="landing-footer-cta">
+    <img class="cta-bg" src="./assets/landing/hero-4.jpg" alt="">
+    <div class="landing-footer-cta-inner">
+      <h2>Ready to Take Your Seat?</h2>
+      <p>Applications are reviewed by our moderation team. Once approved, you'll be given access to the live simulation.</p>
+      <div class="landing-cta-row">
+        <a href="register.html" class="btn-hero primary">Apply to Join</a>
+        <a href="login.html" class="btn-hero secondary">Already a Member? Login</a>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script type="module" src="js/main.js"></script>
+
+</body>
+</html>

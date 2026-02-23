@@ -192,9 +192,10 @@ export function initNavUI(user, clock) {
   }
 
   // Demo mode banner — shown whenever no authenticated user is present,
-  // but not on the login page itself (which would disable the Login button).
+  // but not on entry pages (landing/register/login) which have their own CTAs.
   const currentPage = document.body?.dataset?.page || "";
-  if (!user && currentPage !== "login") {
+  const isEntryPage = currentPage === "login" || currentPage === "register" || currentPage === "landing";
+  if (!user && !isEntryPage) {
     insertDemoBanner();
   }
 
@@ -267,9 +268,11 @@ export function initNavUI(user, clock) {
     }
   }
 
-  // Topbar auth status — replace the static "Admin Login" element
+  // Topbar auth status — replace the static "Admin Login" element.
+  // Skipped for entry pages (landing/register/login) which use a minimal nav
+  // with explicit Register/Login links and no auth status element.
   const nav = document.querySelector(".nav");
-  if (nav) {
+  if (nav && !isEntryPage) {
     const existing = nav.querySelector('a[href="login.html"].nav-link, span.nav-link[aria-current="page"]');
     if (existing) existing.remove();
 
@@ -338,9 +341,10 @@ export function initNavUI(user, clock) {
     }
   }
 
-  // "Back to Your Office" affordance — inject into page header on non-dashboard pages
+  // "Back to Your Office" affordance — inject into page header on non-dashboard pages.
+  // Skipped for entry pages (landing/register/login).
   const page = document.body?.dataset?.page || "";
-  if (page && page !== "dashboard" && page !== "login") {
+  if (page && page !== "dashboard" && !isEntryPage) {
     const main = document.querySelector("main.wrap");
     if (main) {
       const backLink = document.createElement("a");

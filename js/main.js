@@ -51,6 +51,8 @@ import { initBillPage } from "./pages/bill.js";
 import { initControlPanelPage } from "./pages/control-panel.js";
 import { initAdminPanelPage } from "./pages/admin-panel.js";
 import { initLoginPage } from "./pages/login.js";
+import { initLandingPage } from "./pages/landing.js";
+import { initRegisterPage } from "./pages/register.js";
 
 function showBootError(err) {
   console.error(err);
@@ -165,6 +167,8 @@ function renderDataSourcePanel(sources) {
       "control-panel": initControlPanelPage,
       "admin-panel": initAdminPanelPage,
       login: initLoginPage,
+      landing: initLandingPage,
+      register: initRegisterPage,
     };
 
     const init = routes[page];

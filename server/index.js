@@ -462,6 +462,27 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS polling_entries_status_idx ON polling_entries ((data->>'status'));
   `);
+
+  // ── Pending Registrations ─────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pending_registrations (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      email           TEXT NOT NULL UNIQUE,
+      username        TEXT NOT NULL UNIQUE,
+      display_name    TEXT NOT NULL DEFAULT '',
+      password_hash   TEXT NOT NULL,
+      age_attested    BOOLEAN NOT NULL DEFAULT FALSE,
+      consent_version INTEGER NOT NULL DEFAULT 1,
+      consent_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      status          TEXT NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending', 'approved', 'rejected')),
+      reviewed_by     TEXT,
+      reviewed_at     TIMESTAMPTZ,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS pending_reg_status_idx ON pending_registrations (status);
+    CREATE INDEX IF NOT EXISTS pending_reg_email_idx  ON pending_registrations (email);
+  `);
 }
 
 /**
@@ -479,7 +500,7 @@ function generateCsrfToken() {
 
 // Paths that are explicitly exempt from CSRF validation because no session
 // (and therefore no token) exists when they are called.
-const CSRF_EXEMPT_PATHS = new Set(["/auth/login"]);
+const CSRF_EXEMPT_PATHS = new Set(["/auth/login", "/api/register"]);
 
 function verifyCsrfToken(req, res, next) {
   const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -878,9 +899,171 @@ app.post("/auth/logout", authLimit, (req, res) => {
 });
 
 /**
+ * REGISTRATION
+ * POST /api/register            — public, rate-limited, CSRF-exempt
+ * GET  /api/admin/registrations — admin only: list pending applications
+ * POST /api/admin/registrations/:id/approve — admin only
+ * POST /api/admin/registrations/:id/reject  — admin only
+ */
+const registerLimit = rateLimit({ windowMs: 60 * 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
+
+const USERNAME_RE = /^[a-zA-Z0-9_-]{3,30}$/;
+
+app.post("/api/register", registerLimit, async (req, res) => {
+  try {
+    const { name, username, email, password, age_attested } = req.body || {};
+
+    // Validate required fields
+    if (!name || !username || !email || !password) {
+      return res.status(400).json({ ok: false, error: "All fields are required." });
+    }
+    if (!USERNAME_RE.test(username)) {
+      return res.status(400).json({ ok: false, error: "Username must be 3–30 characters: letters, numbers, underscores, or hyphens only." });
+    }
+    if (typeof email !== "string" || !email.includes("@") || email.length > 254) {
+      return res.status(400).json({ ok: false, error: "A valid email address is required." });
+    }
+    if (typeof password !== "string" || password.length < 8) {
+      return res.status(400).json({ ok: false, error: "Password must be at least 8 characters." });
+    }
+    if (!age_attested) {
+      return res.status(400).json({ ok: false, error: "You must confirm you are 16 or older." });
+    }
+
+    const normalizedEmail    = email.toLowerCase().trim();
+    const normalizedUsername = username.trim();
+    const displayName        = String(name).trim().slice(0, 100);
+
+    // Hash password before any DB checks to avoid timing side-channels leaking existence
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    // Use a single INSERT — unique constraints on email/username produce conflict errors
+    // without leaking whether either already exists via separate SELECT queries.
+    try {
+      await pool.query(
+        `INSERT INTO pending_registrations
+           (email, username, display_name, password_hash, age_attested, consent_version, consent_at)
+         VALUES ($1, $2, $3, $4, TRUE, 1, NOW())`,
+        [normalizedEmail, normalizedUsername, displayName, passwordHash]
+      );
+    } catch (dbErr) {
+      // Unique violation — deliberately vague response to avoid email enumeration
+      if (dbErr.code === "23505") {
+        return res.json({ ok: true, message: "Your application has been submitted and is pending review. You will be contacted when it is approved." });
+      }
+      throw dbErr;
+    }
+
+    return res.json({ ok: true, message: "Your application has been submitted and is pending review. You will be contacted when it is approved." });
+  } catch (e) {
+    console.error("[register]", e);
+    res.status(500).json({ ok: false, error: "Server error. Please try again later." });
+  }
+});
+
+const regAdminLimit = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/admin/registrations", regAdminLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const status = req.query.status || "pending";
+    const { rows } = await pool.query(
+      `SELECT id, email, username, display_name, age_attested, consent_version, consent_at,
+              status, reviewed_by, reviewed_at, created_at
+         FROM pending_registrations
+        WHERE status = $1
+        ORDER BY created_at ASC`,
+      [status]
+    );
+    res.json({ ok: true, registrations: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/admin/registrations/:id/approve", regAdminLimit, verifyCsrfToken, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      `SELECT * FROM pending_registrations WHERE id = $1 AND status = 'pending'`,
+      [id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Registration not found or already reviewed." });
+    const reg = rows[0];
+
+    // Create the user account
+    const userId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query(
+      `INSERT INTO users (id, username, email, password_hash, roles)
+       VALUES ($1, $2, $3, $4, '[]'::jsonb)`,
+      [userId, reg.username, reg.email, reg.password_hash]
+    );
+
+    // Mark registration as approved
+    await pool.query(
+      `UPDATE pending_registrations
+          SET status = 'approved', reviewed_by = $1, reviewed_at = NOW()
+        WHERE id = $2`,
+      [req.session.userId, id]
+    );
+
+    // Audit log
+    pool.query(
+      `INSERT INTO audit_log (actor_id, action, target, details) VALUES ($1, $2, $3, $4::jsonb)`,
+      [req.session.userId, "registration-approved", reg.email, JSON.stringify({ userId, username: reg.username })]
+    ).catch((e) => console.error("audit-log failed:", e));
+
+    res.json({ ok: true, userId });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/admin/registrations/:id/reject", regAdminLimit, verifyCsrfToken, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      `SELECT email, username FROM pending_registrations WHERE id = $1 AND status = 'pending'`,
+      [id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Registration not found or already reviewed." });
+    const reg = rows[0];
+
+    await pool.query(
+      `UPDATE pending_registrations
+          SET status = 'rejected', reviewed_by = $1, reviewed_at = NOW()
+        WHERE id = $2`,
+      [req.session.userId, id]
+    );
+
+    pool.query(
+      `INSERT INTO audit_log (actor_id, action, target, details) VALUES ($1, $2, $3, $4::jsonb)`,
+      [req.session.userId, "registration-rejected", reg.email, JSON.stringify({ username: reg.username })]
+    ).catch((e) => console.error("audit-log failed:", e));
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
  * STATE
  */
-app.get("/api/state", async (req, res) => {
   try {
     if (!req.session?.userId) {
       return res.status(401).json({ error: "Not logged in" });

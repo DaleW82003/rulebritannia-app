@@ -10,6 +10,7 @@ import {
   apiAdminForceLogoutAll, apiAdminExportSnapshot, apiAdminImportSnapshot,
   apiGetSsoReadiness,
   apiGetAdminDashboard, apiAdminDiscourseSyncBills,
+  apiGetPendingRegistrations, apiApproveRegistration, apiRejectRegistration,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
@@ -34,6 +35,7 @@ export async function initAdminPanelPage(data) {
   let ssoReadiness = null; // null = not yet loaded; object = readiness check results
   let dashboardData = null; // moderator dashboard summary
   let billSyncResults = null; // results of last Discourse bill sync
+  let pendingRegistrations = []; // pending registration applications
 
   async function loadDashboard() {
     try {
@@ -42,6 +44,45 @@ export async function initAdminPanelPage(data) {
       console.error("Failed to load dashboard:", err);
       dashboardData = null;
     }
+  }
+
+  function renderPendingRegistrations() {
+    const rows = pendingRegistrations.map((r) => `
+      <tr data-reg-id="${esc(r.id)}">
+        <td style="padding:6px 8px;">${esc(r.display_name || "")}</td>
+        <td style="padding:6px 8px;">${esc(r.username)}</td>
+        <td style="padding:6px 8px;">${esc(r.email)}</td>
+        <td style="padding:6px 8px;">${r.age_attested ? "✓" : "✗"}</td>
+        <td style="padding:6px 8px;">${r.created_at ? new Date(r.created_at).toLocaleString("en-GB") : ""}</td>
+        <td style="padding:6px 8px;white-space:nowrap;">
+          <button class="btn btn-approve" data-id="${esc(r.id)}" style="margin-right:6px;">Approve</button>
+          <button class="btn danger btn-reject" data-id="${esc(r.id)}">Reject</button>
+        </td>
+      </tr>`).join("");
+
+    return `<section class="panel" style="max-width:900px;margin-top:12px;" id="pending-reg-section">
+      <h2 style="margin-top:0;">Pending Registrations
+        <span style="font-size:14px;font-weight:400;color:var(--muted);margin-left:8px;">(${pendingRegistrations.length} pending)</span>
+      </h2>
+      ${pendingRegistrations.length === 0
+        ? `<p class="muted">No pending applications.</p>`
+        : `<div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead>
+                <tr style="border-bottom:2px solid var(--line);">
+                  <th style="text-align:left;padding:6px 8px;">Name</th>
+                  <th style="text-align:left;padding:6px 8px;">Username</th>
+                  <th style="text-align:left;padding:6px 8px;">Email</th>
+                  <th style="text-align:left;padding:6px 8px;">16+</th>
+                  <th style="text-align:left;padding:6px 8px;">Applied</th>
+                  <th style="text-align:left;padding:6px 8px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`
+      }
+    </section>`;
   }
 
   function renderModDashboard() {
@@ -616,6 +657,8 @@ export async function initAdminPanelPage(data) {
 
       ${renderModDashboard()}
 
+      ${renderPendingRegistrations()}
+
       ${renderQuickLinks()}
 
       <section class="panel" style="max-width:600px;margin-top:12px;">
@@ -981,6 +1024,52 @@ export async function initAdminPanelPage(data) {
     });
   }
 
-  await Promise.all([loadConfig(), loadDiscourseConfig(), loadSnapshots(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard()]);
+  async function loadPendingRegistrations() {
+    try {
+      const res = await apiGetPendingRegistrations("pending");
+      pendingRegistrations = res.registrations || [];
+    } catch (err) {
+      console.error("Failed to load pending registrations:", err);
+      pendingRegistrations = [];
+    }
+  }
+
+  await Promise.all([loadConfig(), loadDiscourseConfig(), loadSnapshots(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard(), loadPendingRegistrations()]);
   render("");
+
+  // Event delegation for pending registration approve/reject buttons
+  host.addEventListener("click", async (e) => {
+    const approveBtn = e.target.closest(".btn-approve");
+    const rejectBtn  = e.target.closest(".btn-reject");
+    if (!approveBtn && !rejectBtn) return;
+
+    const id = (approveBtn || rejectBtn).dataset.id;
+    if (!id) return;
+
+    if (approveBtn) {
+      approveBtn.disabled = true;
+      try {
+        await apiApproveRegistration(id);
+        toastSuccess("Registration approved — user account created.");
+        await loadPendingRegistrations();
+        const section = host.querySelector("#pending-reg-section");
+        if (section) section.outerHTML = renderPendingRegistrations();
+      } catch (err) {
+        toastError(`Approve failed: ${err.message}`);
+        approveBtn.disabled = false;
+      }
+    } else {
+      rejectBtn.disabled = true;
+      try {
+        await apiRejectRegistration(id);
+        toastSuccess("Registration rejected.");
+        await loadPendingRegistrations();
+        const section = host.querySelector("#pending-reg-section");
+        if (section) section.outerHTML = renderPendingRegistrations();
+      } catch (err) {
+        toastError(`Reject failed: ${err.message}`);
+        rejectBtn.disabled = false;
+      }
+    }
+  });
 }

@@ -825,3 +825,33 @@ export async function apiSeedDemo() {
   return res.json();
 }
 
+
+// ── Pending Registrations (admin) ─────────────────────────────────────────
+
+export async function apiGetPendingRegistrations(status = "pending") {
+  const res = await fetch(`${API_BASE}/api/admin/registrations?status=${encodeURIComponent(status)}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiGetPendingRegistrations failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiApproveRegistration(id) {
+  const res = await fetch(`${API_BASE}/api/admin/registrations/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiApproveRegistration failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiRejectRegistration(id) {
+  const res = await fetch(`${API_BASE}/api/admin/registrations/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiRejectRegistration failed (${res.status})`);
+  return res.json();
+}

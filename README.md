@@ -222,3 +222,24 @@ Logged in:
   GET /api/bootstrap → ensureDefaults() → page init(data)
     → user action → mutate data → saveState() → POST /api/state
 ```
+
+## Registration & Approval Flow
+
+Rule Britannia uses a **gated registration** model — new users apply and must be approved by an admin before they can log in.
+
+### How it works
+
+1. **Applicant** visits `/register.html` and submits the registration form (display name, username, email, password, 16+ attestation). No date of birth is collected.
+2. The server stores the application as a **pending registration** in the `pending_registrations` table (password is bcrypt-hashed immediately; the email/username uniqueness check is intentionally non-disclosing).
+3. **Admin** visits the Admin Panel (`/admin-panel.html`) and reviews the _Pending Registrations_ section.
+4. Admin clicks **Approve** — this creates a live `users` record from the pending registration data and marks the application as approved. An audit log entry is created.
+5. Admin clicks **Reject** — the application is marked rejected without creating a user account. An audit log entry is created.
+6. Approved users can now log in via `/login.html`. Pending or rejected applicants cannot log in (no account exists until approval).
+
+### Enabling / operating
+
+No additional configuration is required. The `pending_registrations` table is created automatically on server start via `ensureSchema()`. The registration endpoint (`POST /api/register`) is public and rate-limited to 5 requests per hour per IP. Admin endpoints require an authenticated session with the `admin` role and a valid CSRF token.
+
+### Entry pages
+
+The three entry pages (`/index.html`, `/register.html`, `/login.html`) display a **minimal topbar** containing only the logo, the live simulation clock, a Register link, and a Login link. The "Not logged in" auth-status element and the "Back to Your Office" affordance are suppressed on these pages.
