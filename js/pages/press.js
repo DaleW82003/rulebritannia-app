@@ -448,5 +448,9 @@ function render(data, state) {
 
 export function initPressPage(data) {
   ensurePress(data);
-  render(data, { view: "releases", openRelease: null, openConference: null });
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("view") || "releases";
+  const validViews = ["releases", "conferences", "comments"];
+  const initialView = validViews.includes(requested) ? requested : "releases";
+  render(data, { view: initialView, openRelease: null, openConference: null });
 }
