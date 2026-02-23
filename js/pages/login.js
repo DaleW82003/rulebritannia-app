@@ -1,9 +1,21 @@
 import { apiLogin } from "../api.js";
 import { esc } from "../ui.js";
+import { getBootstrapConfig } from "../core.js";
 
-function render(host, errorMsg) {
+function render(host, errorMsg, ssoEnabled) {
+  const ssoSection = ssoEnabled ? `
+    <div style="display:flex;align-items:center;gap:10px;margin:8px 0;">
+      <hr style="flex:1;border:none;border-top:1px solid var(--line);">
+      <span class="muted" style="font-size:13px;white-space:nowrap;">or</span>
+      <hr style="flex:1;border:none;border-top:1px solid var(--line);">
+    </div>
+    <a class="btn" href="/api/discourse/sso" style="width:100%;justify-content:center;text-align:center;text-decoration:none;">
+      Login with Discourse
+    </a>
+  ` : "";
+
   host.innerHTML = `
-    <div class="bbc-masthead"><div class="bbc-title">Admin Login</div></div>
+    <div class="bbc-masthead"><div class="bbc-title">Login</div></div>
     <section class="panel" style="max-width:420px;">
       <form id="login-form" style="display:grid;gap:14px;">
         <label>
@@ -21,6 +33,7 @@ function render(host, errorMsg) {
         <div id="login-error" style="${errorMsg ? "" : "display:none;"}color:var(--red);font-size:13px;">${esc(errorMsg)}</div>
         <button class="btn primary" type="submit" style="width:100%;justify-content:center;">Login</button>
       </form>
+      ${ssoSection}
     </section>
   `;
 }
@@ -29,7 +42,10 @@ export function initLoginPage(_data) {
   const host = document.getElementById("login-root") || document.querySelector("main.wrap");
   if (!host) return;
 
-  render(host, "");
+  const cfg = getBootstrapConfig();
+  const ssoEnabled = cfg?.sso_enabled === true;
+
+  render(host, "", ssoEnabled);
 
   const form = host.querySelector("#login-form");
   const errorEl = host.querySelector("#login-error");
@@ -53,7 +69,7 @@ export function initLoginPage(_data) {
 
     apiLogin(email, password)
       .then(() => {
-        window.location.href = "admin-panel.html";
+        window.location.href = "dashboard.html";
       })
       .catch((err) => {
         const status = err?.message?.match(/\((\d+)\)/)?.[1];

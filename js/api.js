@@ -362,56 +362,6 @@ export async function apiDeleteRegulation(id) {
   return res.json();
 }
 
-// ── QUESTION TIME QUESTIONS ───────────────────────────────────────────────────
-
-export async function apiGetQTQuestions() {
-  const res = await fetch(`${API_BASE}/api/questiontime-questions`, { credentials: "include" });
-  if (res.status === 401 || res.status === 404) return null;
-  if (!res.ok) throw new Error(`apiGetQTQuestions failed (${res.status})`);
-  return res.json();
-}
-
-export async function apiGetQTQuestion(id) {
-  const res = await fetch(`${API_BASE}/api/questiontime-questions/${encodeURIComponent(id)}`, {
-    credentials: "include",
-  });
-  if (res.status === 401 || res.status === 404) return null;
-  if (!res.ok) throw new Error(`apiGetQTQuestion failed (${res.status})`);
-  return res.json();
-}
-
-export async function apiCreateQTQuestion(q) {
-  const res = await fetch(`${API_BASE}/api/questiontime-questions`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(q),
-  });
-  if (!res.ok) throw new Error(`apiCreateQTQuestion failed (${res.status})`);
-  return res.json();
-}
-
-export async function apiUpdateQTQuestion(id, q) {
-  const res = await fetch(`${API_BASE}/api/questiontime-questions/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(q),
-  });
-  if (!res.ok) throw new Error(`apiUpdateQTQuestion failed (${res.status})`);
-  return res.json();
-}
-
-export async function apiDeleteQTQuestion(id) {
-  const res = await fetch(`${API_BASE}/api/questiontime-questions/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    credentials: "include",
-    headers: { ...csrfHeaders() },
-  });
-  if (!res.ok) throw new Error(`apiDeleteQTQuestion failed (${res.status})`);
-  return res.json();
-}
-
 // ── CLOCK ─────────────────────────────────────────────────────────────────────
 
 export async function apiGetClock() {

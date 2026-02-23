@@ -2717,6 +2717,9 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     );
 
     // User — absent or session stale.
+    // Expose SSO availability so the login page can show the Discourse login button.
+    config.sso_enabled = ssoEnabled;
+
     if (isLoggedIn && !userRows.length) {
       // Session references a deleted user; destroy it silently.
       req.session.destroy(() => {});

@@ -4,20 +4,28 @@ A browser-based UK parliamentary political simulation.
 
 ## Quick Start
 
-Serve the project directory with any static file server (no build step required):
+### Demo mode (no server required)
+
+Serve the project directory with any static file server:
 
 ```bash
 npx serve .
 ```
 
-Open `dashboard.html` in your browser.
+Open `dashboard.html` in your browser. Without a backend session, all pages load read-only data from `data/demo.json`. Write actions are disabled and a **DEMO MODE** banner is shown.
+
+### Full live simulation (server required)
+
+1. Start the backend (see [Backend](#backend-server) below).
+2. Serve the frontend from the same origin as the backend, or set `window.RB_API_BASE` before `js/main.js` runs.
+3. Navigate to `login.html` and sign in. All state is now loaded from, and saved to, the PostgreSQL backend.
 
 ## Architecture
 
 - **Vanilla JavaScript** (ES2020+, native ES modules) — no framework, no bundler
-- **Multi-page HTML** — 38 standalone `.html` files, one per route
+- **Multi-page HTML** — one `.html` file per route
 - **Single CSS file** — `styles.css` with CSS custom properties for theming
-- **Client-side only** — all state stored in `localStorage`, seeded from `data/demo.json`
+- **Full-stack** — Express + PostgreSQL backend handles authentication, state persistence, and Discourse integration. `data/demo.json` is used only as a read-only preview for unauthenticated visitors.
 
 ## File Structure
 
@@ -25,8 +33,8 @@ Open `dashboard.html` in your browser.
 ├── data/demo.json          # Seed data (parliament, parties, economy, etc.)
 ├── js/
 │   ├── main.js             # Entry point + data-page router
-│   ├── core.js             # Boot, localStorage I/O, defaults
-│   ├── ui.js               # Nav init, HTML escaping, setHTML helper
+│   ├── core.js             # Boot, backend API calls, ensureDefaults, state helpers
+│   ├── ui.js               # Nav init, HTML escaping, demo banner
 │   ├── clock.js            # Real-time → sim-time mapping
 │   ├── permissions.js      # Role/office permission checks
 │   ├── divisions.js        # Vote weighting and delegation
@@ -79,6 +87,8 @@ Copy `server/.env.example` to `server/.env` and fill in real values:
 | `SESSION_SECRET` | ✅ | Long random string used to sign session cookies. **In production (`NODE_ENV=production`) the server will refuse to start if this is missing or uses the default value.** |
 | `PORT` | ✗ | Port to listen on (default: `3000`) |
 | `NODE_ENV` | ✗ | Set to `production` on Render to enable production-mode guards |
+| `DISCOURSE_SSO_ENABLED` | ✗ | Set to `true` to activate DiscourseConnect SSO endpoints (see below) |
+| `DISCOURSE_ENCRYPTION_KEY` | ✗ | 64-char hex AES-256 key for encrypting stored Discourse credentials (defaults to a key derived from `SESSION_SECRET`) |
 
 #### Setting SESSION_SECRET on Render
 
@@ -96,6 +106,21 @@ npm install
 cp .env.example .env   # then edit .env with real values
 node index.js
 ```
+
+### Discourse integration (DiscourseConnect SSO)
+
+The backend supports DiscourseConnect, where the Rule Britannia app acts as the **identity provider** for your Discourse forum. When enabled, users who visit your Discourse forum are redirected to `GET /api/discourse/sso`, authenticate there, and are returned to Discourse with a signed identity payload.
+
+Discourse credentials (base URL, API key, API username, SSO secret) are stored **encrypted** in the `app_config` database table and managed through the **Admin Panel → Discourse Integration** section — never in environment variables.
+
+**To enable SSO:**
+
+1. In the Admin Panel, fill in *Discourse Base URL*, *API Key*, *API Username*, and *SSO Secret*.
+2. In your Discourse admin settings, enable DiscourseConnect and set the SSO URL to `https://<your-backend>/api/discourse/sso`.
+3. Set `DISCOURSE_SSO_ENABLED=true` in your server's environment variables and restart.
+4. Use **Admin Panel → SSO Readiness** to verify all prerequisites are satisfied.
+
+When `DISCOURSE_SSO_ENABLED=true`, the login page automatically shows a **"Login with Discourse"** button alongside the email/password form.
 
 ## Manual Testing
 
@@ -165,9 +190,11 @@ node index.js
 
 Each HTML file has a `data-page` attribute on `<body>`. On load, `js/main.js`:
 
-1. Calls `bootData()` to fetch `demo.json` and merge with `localStorage`
-2. Reads `document.body.dataset.page`
-3. Dispatches to the matching `init*Page(data)` function from the route table
+1. Calls `bootData()`, which hits `GET /api/bootstrap` for clock + config + (when logged in) user + state
+2. When **not** logged in: loads read-only data from `data/demo.json`; writes are blocked
+3. When **logged in**: state comes from the PostgreSQL backend; every `saveState()` call persists to `POST /api/state`
+4. Reads `document.body.dataset.page`
+5. Dispatches to the matching `init*Page(data)` function from the route table
 
 ## Simulation Clock
 
@@ -188,6 +215,10 @@ This yields **2 sim months per real week**, starting from a configurable base ye
 ## Data Flow
 
 ```
-demo.json → merge with localStorage → ensureDefaults() → page init(data)
-         → user action → mutate data → saveData() → re-render
+Not logged in:
+  demo.json → ensureDefaults() → page init(data)  [read-only; no writes]
+
+Logged in:
+  GET /api/bootstrap → ensureDefaults() → page init(data)
+    → user action → mutate data → saveState() → POST /api/state
 ```
