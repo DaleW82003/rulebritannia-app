@@ -310,6 +310,34 @@ export function initNavUI(user, clock) {
     nav.appendChild(authEl);
   }
 
+  // Inject role-gated links into the Personal dropdown
+  if (user) {
+    const isAdmin = !!user.isAdmin || (user.roles || []).includes("admin");
+    const isMod   = !!user.isMod   || (user.roles || []).includes("mod");
+    const isSpeaker = !!user.isSpeaker || (user.roles || []).includes("speaker");
+
+    // Find the "Personal" nav-group by locating the dropdown that contains personal.html
+    const personalGroup = Array.from(qsa(".nav-group")).find((g) =>
+      g.querySelector('.dropdown a[href="personal.html"]')
+    );
+    const personalDrop = personalGroup?.querySelector(".dropdown");
+
+    if (personalDrop) {
+      if (isAdmin || isMod || isSpeaker) {
+        const cpLink = document.createElement("a");
+        cpLink.href = "control-panel.html";
+        cpLink.textContent = "Control Panel";
+        personalDrop.appendChild(cpLink);
+      }
+      if (isAdmin) {
+        const apLink = document.createElement("a");
+        apLink.href = "admin-panel.html";
+        apLink.textContent = "Admin Panel";
+        personalDrop.appendChild(apLink);
+      }
+    }
+  }
+
   // "Back to Your Office" affordance — inject into page header on non-dashboard pages
   const page = document.body?.dataset?.page || "";
   if (page && page !== "dashboard" && page !== "login") {
