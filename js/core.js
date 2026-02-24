@@ -122,8 +122,11 @@ export function ensureDefaults(data) {
       { key: "mirror", name: "The Daily Mirror", cls: "paper-mirror", issues: [] },
       { key: "independent", name: "The Independent", cls: "paper-independent", issues: [] },
       { key: "express", name: "The Daily Express", cls: "paper-express", issues: [] },
+      { key: "ft", name: "Financial Times", cls: "paper-ft", issues: [] },
     ];
     data.papers.papers = DEFAULT_PAPERS.map((p) => ({ ...p }));
+  } else if (!data.papers.papers.find((p) => p.key === "ft")) {
+    data.papers.papers.push({ key: "ft", name: "Financial Times", cls: "paper-ft", issues: [] });
   }
   data.questionTime ??= { offices: [], questions: [] };
   if (!Array.isArray(data.questionTime.offices)) data.questionTime.offices = [];
@@ -144,6 +147,24 @@ export function ensureDefaults(data) {
 
   data.parliament ??= { totalSeats: 650, parties: [] };
   if (!Array.isArray(data.parliament.parties)) data.parliament.parties = [];
+  if (data.parliament.parties.length === 0) {
+    data.parliament.parties = [
+      { name: "Conservative",      seats: 0, playable: true  },
+      { name: "Labour",            seats: 0, playable: true  },
+      { name: "Liberal Democrat",  seats: 0, playable: true  },
+      { name: "SNP",               seats: 0, playable: false },
+      { name: "Plaid Cymru",       seats: 0, playable: false },
+      { name: "Green",             seats: 0, playable: false },
+      { name: "UKIP",              seats: 0, playable: false },
+      { name: "DUP",               seats: 0, playable: false },
+      { name: "Sinn Féin",         seats: 0, playable: false },
+      { name: "SDLP",              seats: 0, playable: false },
+      { name: "Alliance",          seats: 0, playable: false },
+      { name: "TUP",               seats: 0, playable: false },
+      { name: "Independents",      seats: 0, playable: false },
+      { name: "Speaker",           seats: 0, playable: false },
+    ];
+  }
 
   data.polling ??= { tracker: [] };
   if (!Array.isArray(data.polling.tracker)) data.polling.tracker = [];

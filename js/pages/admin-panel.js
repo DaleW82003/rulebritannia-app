@@ -7,7 +7,7 @@ import {
   apiGetDiscourseConfig, apiSaveDiscourseConfig, apiTestDiscourse,
   apiGetDiscourseSyncPreview, apiAdminSyncDiscourseGroups, apiSetUserRoles,
   apiAdminClearCache, apiAdminRebuildCache, apiAdminRotateSessions,
-  apiAdminForceLogoutAll, apiAdminExportSnapshot, apiAdminImportSnapshot,
+  apiAdminForceLogoutAll,
   apiGetSsoReadiness,
   apiGetAdminDashboard, apiAdminDiscourseSyncBills,
   apiGetPendingRegistrations, apiApproveRegistration, apiRejectRegistration,
@@ -295,6 +295,7 @@ export async function initAdminPanelPage(data) {
 
   function renderSnapshotsList() {
     if (!snapshots.length) return '<p class="muted-block">No snapshots saved yet.</p>';
+    const recent = snapshots.slice(0, 5);
     return `
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
@@ -306,7 +307,7 @@ export async function initAdminPanelPage(data) {
           </tr>
         </thead>
         <tbody>
-          ${snapshots.map((s) => `
+          ${recent.map((s) => `
             <tr style="border-bottom:1px solid #eee;${s.id === currentSnapshotId ? "background:#f0f8f0;" : ""}">
               <td style="padding:4px 8px;">
                 ${esc(s.label)}
@@ -321,7 +322,8 @@ export async function initAdminPanelPage(data) {
               </td>
             </tr>`).join("")}
         </tbody>
-      </table>`;
+      </table>
+      ${snapshots.length > 5 ? `<p style="font-size:12px;color:#888;margin-top:6px;">Showing 5 most recent of ${snapshots.length} snapshots.</p>` : ""}`;
   }
 
   function renderAuditLog() {
@@ -577,80 +579,69 @@ export async function initAdminPanelPage(data) {
             <button class="btn" id="btn-force-logout-all" type="button" style="border-color:rgba(212,0,26,.3);color:#b00;">Force Logout All</button>
           </div>
 
-          <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-            <div>
-              <b>Export State Snapshot</b>
-              <p style="margin:4px 0 0;font-size:13px;color:#555;">
-                Downloads the current active snapshot as a JSON file.
-              </p>
-            </div>
-            <button class="btn" id="btn-export-snapshot" type="button">Export JSON</button>
-          </div>
-
-          <div class="muted-block" style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-            <div>
-              <b>Import State Snapshot</b>
-              <p style="margin:4px 0 0;font-size:13px;color:#555;">
-                Upload a previously exported JSON file to restore it as the active state.
-              </p>
-              <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                <input id="import-snapshot-file" type="file" accept=".json,application/json"
-                       style="font-size:13px;" />
-                <button class="btn" id="btn-import-snapshot" type="button">Import JSON</button>
-              </div>
-              <div id="import-snapshot-status" style="font-size:13px;margin-top:6px;"></div>
-            </div>
-          </div>
-
         </div>
       </section>`;
   }
 
-  function renderQuickLinks() {
+  function renderUserPermissions() {
+    if (!syncPreview.length) {
+      return `
+        <section class="panel" style="max-width:900px;margin-top:12px;">
+          <h2 style="margin-top:0;">User Permissions</h2>
+          <p style="font-size:13px;color:#888;">No users loaded. Refresh the Discourse Sync Preview above to populate.</p>
+        </section>`;
+    }
+
+    const rows = syncPreview.map((u) => `
+      <tr style="border-bottom:1px solid #eee;">
+        <td style="padding:6px 10px;font-size:13px;">${esc(u.username)}</td>
+        <td style="padding:6px 10px;font-size:12px;">${esc(u.email)}</td>
+        <td style="padding:6px 10px;font-size:12px;">${esc((u.roles || []).join(", ") || "—")}</td>
+        <td style="padding:6px 10px;">
+          <button class="btn btn-edit-user-roles" data-userid="${esc(u.userId)}"
+                  data-username="${esc(u.username)}"
+                  data-roles="${esc(JSON.stringify(u.roles || []))}"
+                  type="button" style="font-size:12px;padding:2px 8px;">Edit Roles</button>
+        </td>
+      </tr>`).join("");
+
     return `
-      <section class="panel" style="max-width:700px;margin-top:12px;">
-        <h2 style="margin-top:0;">Pages Without Nav Links</h2>
-        <p style="font-size:13px;color:#555;margin:0 0 10px;">
-          The following pages are not linked in the main navigation bar. They are admin-only or context-specific detail views.
+      <section class="panel" style="max-width:900px;margin-top:12px;" id="user-permissions-section">
+        <h2 style="margin-top:0;">User Permissions</h2>
+        <p style="font-size:13px;color:#555;margin-top:0;">
+          Assign admin, mod, and speaker roles to live users.
         </p>
-        <table style="width:100%;border-collapse:collapse;font-size:13px;">
-          <thead>
-            <tr style="border-bottom:2px solid #e0e0e0;text-align:left;">
-              <th style="padding:6px 10px;">Page</th>
-              <th style="padding:6px 10px;">Description</th>
-              <th style="padding:6px 10px;">Access</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr style="border-bottom:1px solid #eee;">
-              <td style="padding:6px 10px;"><a href="control-panel.html">control-panel.html</a></td>
-              <td style="padding:6px 10px;">Speaker's Control Panel — manage clock, state categories, pinned stats</td>
-              <td style="padding:6px 10px;">Admin / Mod</td>
-            </tr>
-            <tr style="border-bottom:1px solid #eee;">
-              <td style="padding:6px 10px;"><a href="bill.html">bill.html</a></td>
-              <td style="padding:6px 10px;">Individual Bill detail view — use <code>?id={billId}</code></td>
-              <td style="padding:6px 10px;">All users (linked from Bills list)</td>
-            </tr>
-            <tr style="border-bottom:1px solid #eee;">
-              <td style="padding:6px 10px;"><a href="motion.html">motion.html</a></td>
-              <td style="padding:6px 10px;">Individual Motion / EDM detail view — use <code>?id={motionId}</code></td>
-              <td style="padding:6px 10px;">All users (linked from Motions list)</td>
-            </tr>
-            <tr style="border-bottom:1px solid #eee;">
-              <td style="padding:6px 10px;"><a href="regulation.html">regulation.html</a></td>
-              <td style="padding:6px 10px;">Individual Regulation detail view — use <code>?id={regulationId}</code></td>
-              <td style="padding:6px 10px;">All users (linked from Regulations list)</td>
-            </tr>
-            <tr>
-              <td style="padding:6px 10px;"><a href="statement.html">statement.html</a></td>
-              <td style="padding:6px 10px;">Individual Statement detail view — use <code>?id={statementId}</code></td>
-              <td style="padding:6px 10px;">All users (linked from Statements list)</td>
-            </tr>
-          </tbody>
-        </table>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="border-bottom:2px solid #ccc;">
+                <th style="text-align:left;padding:6px 10px;">Username</th>
+                <th style="text-align:left;padding:6px 10px;">Email</th>
+                <th style="text-align:left;padding:6px 10px;">Current Roles</th>
+                <th style="padding:6px 10px;"></th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+
+        <div id="user-role-editor" style="display:none;margin-top:16px;padding:12px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px;">
+          <h3 style="margin-top:0;font-size:14px;">Edit roles for: <span id="user-role-editor-username"></span></h3>
+          <div id="user-role-checkboxes" style="display:flex;flex-wrap:wrap;gap:8px 16px;margin-bottom:12px;">
+            ${["admin", "mod", "speaker"].map((r) => `
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" class="user-role-checkbox" value="${esc(r)}" /> ${esc(r)}
+              </label>`).join("")}
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" id="btn-save-user-roles" type="button">Save Roles</button>
+            <button class="btn" id="btn-cancel-user-roles" type="button">Cancel</button>
+          </div>
+          <div id="user-role-editor-status" style="font-size:13px;margin-top:8px;"></div>
+        </div>
       </section>`;
   }
+
 
   function render(status) {
     host.innerHTML = `
@@ -665,8 +656,6 @@ export async function initAdminPanelPage(data) {
       ${renderModDashboard()}
 
       ${renderPendingRegistrations()}
-
-      ${renderQuickLinks()}
 
       <section class="panel" style="max-width:600px;margin-top:12px;">
         <h2 style="margin-top:0;">App Config</h2>
@@ -697,6 +686,8 @@ export async function initAdminPanelPage(data) {
       </section>
 
       ${renderAuditLog()}
+
+      ${renderUserPermissions()}
 
       ${renderDiscourseSyncPreview()}
 
@@ -978,55 +969,45 @@ export async function initAdminPanelPage(data) {
       }
     });
 
-    host.querySelector("#btn-export-snapshot")?.addEventListener("click", async () => {
-      try {
-        const response = await apiAdminExportSnapshot();
-        const blob = await response.blob();
-        const disposition = response.headers.get("Content-Disposition") || "";
-        const match = disposition.match(/filename="([^"]+)"/);
-        const filename = match ? match[1] : "rb-snapshot.json";
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
-        logAction({ action: "admin-export-snapshot" });
-        toastSuccess("Snapshot exported.");
-      } catch (err) {
-        toastError(`Export snapshot: ${err.message}`);
-      }
+    // ── User Permissions editor ────────────────────────────────────────────────
+    let userRoleEditorUserId = null;
+    host.querySelectorAll(".btn-edit-user-roles").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        userRoleEditorUserId = btn.dataset.userid;
+        const username = btn.dataset.username || userRoleEditorUserId;
+        const currentRoles = JSON.parse(btn.dataset.roles || "[]");
+        const editor = host.querySelector("#user-role-editor");
+        if (!editor) return;
+        editor.style.display = "block";
+        const nameEl = editor.querySelector("#user-role-editor-username");
+        if (nameEl) nameEl.textContent = username;
+        editor.querySelectorAll(".user-role-checkbox").forEach((cb) => {
+          cb.checked = currentRoles.includes(cb.value);
+        });
+        editor.querySelector("#user-role-editor-status").textContent = "";
+      });
     });
 
-    host.querySelector("#btn-import-snapshot")?.addEventListener("click", async () => {
-      const fileInput = host.querySelector("#import-snapshot-file");
-      const statusEl  = host.querySelector("#import-snapshot-status");
-      const file = fileInput?.files?.[0];
-      if (!file) {
-        if (statusEl) statusEl.textContent = "Please select a JSON file first.";
-        return;
-      }
-      if (statusEl) statusEl.textContent = "Importing…";
+    host.querySelector("#btn-cancel-user-roles")?.addEventListener("click", () => {
+      const editor = host.querySelector("#user-role-editor");
+      if (editor) editor.style.display = "none";
+      userRoleEditorUserId = null;
+    });
+
+    host.querySelector("#btn-save-user-roles")?.addEventListener("click", async () => {
+      if (!userRoleEditorUserId) return;
+      const statusEl = host.querySelector("#user-role-editor-status");
+      const roles = [...host.querySelectorAll(".user-role-checkbox:checked")].map((cb) => cb.value);
       try {
-        const text = await file.text();
-        const parsed = JSON.parse(text);
-        // Accept either a raw data object or an export envelope { data, label }
-        const importData  = parsed.data  ?? parsed;
-        const importLabel = parsed.label ? `imported: ${parsed.label}` : `imported: ${file.name}`;
-        if (!importData || typeof importData !== "object" || Array.isArray(importData)) {
-          if (statusEl) statusEl.textContent = "Invalid JSON: must include a data object.";
-          return;
-        }
-        const result = await apiAdminImportSnapshot(importLabel, importData);
-        logAction({ action: "admin-import-snapshot", details: { snapshotId: result.snapshotId, label: result.label } });
-        if (statusEl) statusEl.textContent = `✓ Imported as snapshot ${result.snapshotId?.slice(0, 8)}…`;
-        if (result.warning) toastError(result.warning);
-        else toastSuccess("Snapshot imported and set as current.");
-        await loadSnapshots();
+        if (statusEl) statusEl.textContent = "Saving…";
+        await apiSetUserRoles(userRoleEditorUserId, roles);
+        logAction({ action: "roles-assigned", target: userRoleEditorUserId, details: { roles } });
+        if (statusEl) statusEl.textContent = "✓ Roles saved.";
+        await loadSyncPreview();
         render(status);
       } catch (err) {
+        toastError(`Save roles: ${err.message}`);
         if (statusEl) statusEl.textContent = `Error: ${err.message}`;
-        toastError(`Import snapshot: ${err.message}`);
       }
     });
   }

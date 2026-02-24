@@ -116,9 +116,9 @@ function renderTypeControls(data) {
 
   return `
     <div class="muted-block">
-      <div class="wgo-kicker">Submission Route</div>
-      <div class="docket-list submission-route" style="margin-top:8px;">
-        ${opts.map((x) => `<div>${x}</div>`).join("")}
+      <h3 style="margin:0 0 8px;font-size:14px;">Submission Route</h3>
+      <div class="submission-route">
+        ${opts.map((x) => `<div style="margin-bottom:6px;">${x}</div>`).join("")}
       </div>
     </div>
   `;

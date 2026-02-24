@@ -96,8 +96,7 @@ function render(data, state) {
   if (!passedRoot || !failedRoot || !detailRoot) return;
 
   if (rollRoot) {
-    const log = data.hansard.rollLog;
-    rollRoot.innerHTML = `Log of the Sunday roll: <b>${esc(log.completedSinceStart)}</b> completed since sim start. Next roll in <b>${esc(log.nextRollCountdown)}</b>.`;
+    rollRoot.innerHTML = `This is the Parliamentary Record of Legislation, both Passed and Defeated.`;
   }
 
   const passed = data.hansard.passed;

@@ -444,20 +444,6 @@ function render(data, state) {
           </div>
         </details>
 
-        <details class="tile" open>
-          <summary><b>Admin Role &amp; Permission Assignment <span class="admin-badge">Admin only</span></b></summary>
-          <div style="margin-top:10px;display:grid;gap:8px;">
-            ${data.userManagement.accounts.map((a, idx) => `
-              <article class="tile" style="display:grid;grid-template-columns:minmax(120px,1fr) auto auto auto auto;gap:8px;align-items:center;">
-                <div><b>${esc(a.username)}</b><div class="muted">Character: ${esc(a.activeCharacter || "None")}</div></div>
-                <label><input type="checkbox" data-action="set-admin" data-idx="${idx}" ${a.isAdmin ? "checked" : ""}> Admin</label>
-                <label><input type="checkbox" data-action="set-mod" data-idx="${idx}" ${a.isMod ? "checked" : ""}> Mod</label>
-                <label><input type="checkbox" data-action="set-speaker" data-idx="${idx}" ${a.isSpeaker ? "checked" : ""}> Speaker</label>
-                <div class="danger-zone" style="margin-top:0;padding:8px 10px;"><button class="btn danger" type="button" data-action="toggle-active-account" data-idx="${idx}">${a.active ? "Deactivate Account" : "Activate Account"}</button></div>
-              </article>
-            `).join("")}
-          </div>
-        </details>
       ` : ""}
     </section>
 
@@ -709,48 +695,6 @@ function render(data, state) {
     saveState(data);
     state.message = `Monarch updated to ${data.adminSettings.monarchGender}.`;
     render(data, state);
-  });
-
-  const syncCurrentUserFlags = () => {
-    const cur = currentAccount(data);
-    if (!cur) return;
-    data.currentUser.isAdmin = !!cur.isAdmin;
-    data.currentUser.isMod = !!cur.isMod;
-    data.currentUser.isSpeaker = !!cur.isSpeaker;
-    const baseRoles = (cur.roles || []).filter((r) => !["admin", "mod", "speaker"].includes(r));
-    if (cur.isAdmin) baseRoles.push("admin");
-    if (cur.isMod) baseRoles.push("mod");
-    if (cur.isSpeaker) baseRoles.push("speaker");
-    data.currentUser.roles = [...new Set(baseRoles)];
-  };
-
-  host.querySelectorAll('[data-action="set-admin"], [data-action="set-mod"], [data-action="set-speaker"]').forEach((input) => {
-    input.addEventListener("change", () => {
-      if (!admin) return;
-      const idx = Number(input.dataset.idx || -1);
-      const acc = data.userManagement.accounts[idx];
-      if (!acc) return;
-      if (input.dataset.action === "set-admin") acc.isAdmin = input.checked;
-      if (input.dataset.action === "set-mod") acc.isMod = input.checked;
-      if (input.dataset.action === "set-speaker") acc.isSpeaker = input.checked;
-      syncCurrentUserFlags();
-      saveState(data);
-      state.message = `Updated permissions for ${acc.username}.`;
-      render(data, state);
-    });
-  });
-
-  host.querySelectorAll('[data-action="toggle-active-account"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (!admin) return;
-      const idx = Number(btn.dataset.idx || -1);
-      const acc = data.userManagement.accounts[idx];
-      if (!acc) return;
-      acc.active = !acc.active;
-      saveState(data);
-      state.message = `${acc.username} marked ${acc.active ? "active" : "inactive"}.`;
-      render(data, state);
-    });
   });
 }
 
