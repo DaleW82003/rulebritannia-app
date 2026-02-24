@@ -169,9 +169,13 @@ function render(data, state) {
                     <option value="">Vacant</option>
                     ${choices.map((c) => `<option value="${esc(c.name)}" ${c.name === office.holderName ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
                   </select>
-                ` : `<div><b>${esc(name)}</b></div>`}
+                ` : office.holderName ? `
+                  <div style="font-weight:700;text-align:center;">${esc(office.holderName)}</div>
+                ` : `
+                  <div style="text-align:center;color:var(--muted,#888);font-style:italic;">Vacant</div>
+                `}
               </div>
-              <div style="justify-self:end;">
+              <div style="justify-self:center;">
                 ${avatar ? `<img src="${esc(avatar)}" alt="${esc(name)}" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid #ddd;">` : `<div class="muted-block" style="width:72px;height:72px;display:grid;place-items:center;padding:0;">👤</div>`}
               </div>
             </article>

@@ -197,7 +197,7 @@ function renderQuestionLine(question, office, canAnswer, canArchive, canDeleteQ,
         </form>
       ` : ""}
 
-      ${canArchive && !question.archived && !question.answer && question.speakerDemandAvailable && !question.speakerDemandedAtTs ? `<button class="btn" data-action="demand" data-question-id="${esc(question.id)}" type="button">Speaker Demand: Answer within 1 sim month</button>` : ""}
+      ${canArchive && !question.archived && !question.answer && question.speakerDemandAvailable && !question.speakerDemandedAtTs ? `<button class="btn" data-action="demand" data-question-id="${esc(question.id)}" type="button">Speaker Demand: Answer within 1 month</button>` : ""}
       ${canArchive && !question.archived ? `<button class="btn" data-action="archive" data-question-id="${esc(question.id)}" type="button">Close Question (Mod/Speaker)</button>` : ""}
       ${canAnswer && !question.archived && !question.answer ? `<button class="btn" data-action="quick-answer" data-question-id="${esc(question.id)}" type="button">Answer This Question</button>` : ""}
       ${canDeleteQ ? `<button class="btn danger" data-action="delete-question" data-question-id="${esc(question.id)}" type="button">Delete</button>` : ""}
@@ -251,7 +251,7 @@ function render(data, state) {
       <h2 style="margin-top:0;">How Question Time Works</h2>
       <p><b>PMQs:</b> Backbenchers may ask the Prime Minister with 1 outstanding PMQ max and 3 outstanding total questions across all ministers. Leader of the Opposition gets up to 3 follow-ups to PMQs; Third Party Leader gets 2; backbenchers get 1.</p>
       <p><b>Outside PMQs:</b> Shadow Secretaries/Ministers may only ask within matching portfolios; no cross-portfolio questions. Backbenchers may ask any secretary. Follow-ups: Shadow Secretaries/Ministers get 2, backbenchers get 1.</p>
-      <p>Secretaries have <b>1 simulation month</b> to answer. After that, the Speaker may issue a demand for answer within <b>1 more simulation month</b>. Mod/Speaker closes questions after checks.</p>
+      <p>Secretaries have <b>1 month</b> to answer. After that, the Speaker may issue a demand for answer within <b>1 more month</b>. Mod/Speaker closes questions after checks.</p>
       <p class="muted">Prime Minister and Leader of the House can step in and answer any department question.</p>
     </section>
 

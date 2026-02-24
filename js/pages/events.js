@@ -79,7 +79,7 @@ function render(data, state) {
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
           <article class="tile">
             <h2 class="tile-title">Party Conference</h2>
-            <p>Only Party Leaders can host conferences (location + opening remarks). Conferences run for 2 simulation months after approval, and all members of that party can post a "Speech at Conference" while open.</p>
+            <p>Only Party Leaders can host conferences (location + opening remarks). Conferences run for 2 months after approval, and all members of that party can post a "Speech at Conference" while open.</p>
             ${canHostConference ? `<button class="btn" data-action="show-form" data-type="conference" type="button">Host</button>` : `<div class="muted">Only Party Leaders can host conferences.</div>`}
           </article>
           <article class="tile">

@@ -348,11 +348,12 @@ function renderScandalSection(scandalData, modData, templates, mod, state) {
     <section class="panel" style="margin-bottom:12px;" id="scandal-optin-section">
       <h2 style="margin-top:0;">Local Scandal Opt-In</h2>
       <p class="muted">Opt in to allow moderators to trigger local constituency scandals for your character. Scandals progress through stages and affect your reputation and optics.</p>
-      <div style="display:flex;gap:10px;align-items:center;">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <label class="label" style="margin:0;" for="cw-scandal-optin">
           <input id="cw-scandal-optin" type="checkbox" ${sd.opted_in ? "checked" : ""}> Opted in to local scandals
         </label>
         <button type="button" class="btn" id="cw-save-optin">Save Preference</button>
+        ${state.optinSaved === true ? `<span class="muted" style="color:green;">Saved ✓</span>` : state.optinSaved === false ? `<span class="muted" style="color:var(--danger);">Failed to save</span>` : ""}
       </div>
     </section>
 
@@ -504,9 +505,11 @@ function render(data, state = {}) {
     try {
       await apiScandalsOptIn(opted_in);
       if (_scandalData) _scandalData.opted_in = opted_in;
+      state.optinSaved = true;
       renderScandalRoot(data, state);
     } catch (e) {
-      alert("Failed to save opt-in preference. Please try again.");
+      state.optinSaved = false;
+      renderScandalRoot(data, state);
       console.error(e);
     }
   });
@@ -677,9 +680,11 @@ function attachScandalListeners(data, state, mod) {
     try {
       await apiScandalsOptIn(opted_in);
       if (_scandalData) _scandalData.opted_in = opted_in;
+      state.optinSaved = true;
       renderScandalRoot(data, state);
     } catch (e) {
-      alert("Failed to save opt-in preference. Please try again.");
+      state.optinSaved = false;
+      renderScandalRoot(data, state);
       console.error(e);
     }
   });
