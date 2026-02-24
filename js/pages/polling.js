@@ -14,8 +14,6 @@ function ensurePolling(data) {
   data.polling.nextId = Number(data.polling.nextId || 1);
 }
 
-/**
-
 function currentSimLabel(data) {
   return formatSimMonthYear(data?.gameState || {});
 }
