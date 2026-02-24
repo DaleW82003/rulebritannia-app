@@ -5,7 +5,7 @@ import pgSession from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from "crypto";
-import nodemailer from "nodemailer";
+import sgMail from "@sendgrid/mail";
 import { pool } from "./db.js";
 import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload } from "./discourse.js";
 import {
@@ -42,32 +42,23 @@ async function verifyTurnstileToken(token, remoteip) {
   }
 }
 
-// ── Email (SMTP) config ────────────────────────────────────────────────────────
-const SMTP_HOST = process.env.SMTP_HOST || "";
-const SMTP_PORT = parseInt(process.env.SMTP_PORT || "465", 10);
-const SMTP_USER = process.env.SMTP_USER || "";
-const SMTP_PASS = process.env.SMTP_PASS || "";
-const APP_BASE_URL = process.env.APP_BASE_URL || "https://www.rulebritannia.org";
+// ── Email (SendGrid) config ───────────────────────────────────────────────────
+const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
+const SENDGRID_FROM    = process.env.SENDGRID_FROM    || "support@rulebritannia.org";
+const APP_BASE_URL     = process.env.APP_BASE_URL     || "https://www.rulebritannia.org";
 
-function createMailTransport() {
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
-  return nodemailer.createTransport({
-    host:   SMTP_HOST,
-    port:   SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth:   { user: SMTP_USER, pass: SMTP_PASS },
-  });
+if (SENDGRID_API_KEY) {
+  sgMail.setApiKey(SENDGRID_API_KEY);
 }
 
 async function sendVerificationEmail(email, token) {
-  const transport = createMailTransport();
-  if (!transport) {
-    console.warn("[email] SMTP not configured; skipping verification email to", email);
+  if (!SENDGRID_API_KEY) {
+    console.warn("[email] SENDGRID_API_KEY not configured; skipping verification email to", email);
     return;
   }
   const verifyUrl = `${APP_BASE_URL}/verify-email.html?token=${encodeURIComponent(token)}`;
-  await transport.sendMail({
-    from:    `"Rule Britannia" <${SMTP_USER}>`,
+  await sgMail.send({
+    from:    { name: "Rule Britannia", email: SENDGRID_FROM },
     to:      email,
     subject: "Verify your Rule Britannia email address",
     text: [
@@ -1108,7 +1099,7 @@ app.post("/api/register", registerLimit, async (req, res) => {
       } else if (prev.status === "pending") {
         // Application already under review — resend verification email if not yet verified.
         // Fire-and-forget: same deliberate pattern used for the first-send below; we must
-        // not block the response waiting for SMTP, and any failure is non-fatal.
+        // not block the response waiting for email delivery, and any failure is non-fatal.
         if (!prev.email_verified && prev.email_verification_token) {
           sendVerificationEmail(normalizedEmail, prev.email_verification_token).catch((e) =>
             console.error("[email] resend failed:", e)
