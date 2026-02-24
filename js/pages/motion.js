@@ -1,11 +1,17 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isSpeaker, canVoteDivision } from "../permissions.js";
-import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolveDivisionResult } from "../engines/division-engine.js";
+import { isSpeaker, canAdminOrMod, canVoteDivision } from "../permissions.js";
 import { buildDivisionWeights } from "../divisions.js";
 import { getPartySeatMap } from "../engines/core-engine.js";
 import { ensureMotions, isGovernmentMember } from "./motions.js";
 import { getSimDate, simDateToObj, formatSimMonthYear, isDeadlinePassed, compareSimDates, countdownToSimMonth } from "../clock.js";
+import {
+  apiGetDivisionForEntity, apiCreateDivision, apiCastVote, apiCloseDivision,
+  apiGetPartyInstruction, apiSetPartyInstruction,
+  apiGetRebelRequest, apiSubmitRebelRequest,
+} from "../api.js";
+
+const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line whip"];
 
 function getCharacter(data) {
   return data?.currentCharacter || data?.currentPlayer || {};
@@ -34,33 +40,146 @@ function edmWeightedSignatures(item, data) {
   return personal + npc;
 }
 
-function renderHouse(root, data, motion) {
+// ── DB-backed division rendering ─────────────────────────────────────────
+
+function renderWhipInstruction(instr) {
+  if (!instr) {
+    return `<div class="whip-instruction free"><span class="whip-badge free">Free vote</span> No party instruction set.</div>`;
+  }
+  const level = Number(instr.whip_level || 0);
+  const levelLabel = WHIP_LEVEL_LABELS[level] || "Free vote";
+  const posLabel = instr.position === "free" ? "Free vote"
+    : instr.position.charAt(0).toUpperCase() + instr.position.slice(1);
+  return `
+    <div class="whip-instruction whip-level-${level}">
+      <span class="whip-badge level-${level}">${esc(levelLabel)}</span>
+      Party instruction: <b>${esc(posLabel)}</b>
+      ${instr.set_by_name ? `· Set by ${esc(instr.set_by_name)}` : ""}
+      ${instr.set_at_sim ? `· ${esc(instr.set_at_sim)}` : ""}
+      ${instr.note ? `<br><span class="muted">${esc(instr.note)}</span>` : ""}
+    </div>
+  `;
+}
+
+function renderWhipEditor(divisionId, partySlug, instr) {
+  const pos = instr?.position || "free";
+  const level = instr?.whip_level ?? 0;
+  const note = instr?.note || "";
+  return `
+    <form id="whip-instr-form" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+      <div>
+        <label class="label">Instruction</label>
+        <select name="position" class="input">
+          <option value="free"    ${pos==="free"    ?"selected":""}>Free vote</option>
+          <option value="aye"     ${pos==="aye"     ?"selected":""}>Aye</option>
+          <option value="no"      ${pos==="no"      ?"selected":""}>No</option>
+          <option value="abstain" ${pos==="abstain" ?"selected":""}>Abstain</option>
+        </select>
+      </div>
+      <div>
+        <label class="label">Whip level</label>
+        <select name="whipLevel" class="input">
+          <option value="0" ${level===0?"selected":""}>0 – Free</option>
+          <option value="1" ${level===1?"selected":""}>1-line</option>
+          <option value="2" ${level===2?"selected":""}>2-line</option>
+          <option value="3" ${level===3?"selected":""}>3-line</option>
+        </select>
+      </div>
+      <div style="flex:1;min-width:120px;">
+        <label class="label">Note (optional)</label>
+        <input name="note" class="input" value="${esc(note)}" placeholder="Optional note…">
+      </div>
+      <button type="submit" class="btn">Save Instruction</button>
+    </form>
+    <p id="whip-instr-msg" class="muted" style="margin-top:4px;"></p>
+  `;
+}
+
+function renderRebelWidget(rebelReq, myVote, divStatus) {
+  if (divStatus !== "open") return "";
+  if (rebelReq && rebelReq.status === "pending") {
+    return `<div class="rebel-request pending"><b>Rebel request pending</b> — awaiting whip decision for <b>${esc(rebelReq.requested_vote)}</b>.</div>`;
+  }
+  if (rebelReq && rebelReq.status === "granted") {
+    return `<div class="rebel-request granted"><b>Rebel permission granted</b> — you may vote <b>${esc(rebelReq.requested_vote)}</b>.</div>`;
+  }
+  if (rebelReq && rebelReq.status === "refused") {
+    return `<div class="rebel-request refused"><b>Rebel request refused</b> — please vote with the party line.</div>`;
+  }
+  return `
+    <details style="margin-top:8px;">
+      <summary class="muted" style="cursor:pointer;">Request permission to vote differently</summary>
+      <form id="rebel-req-form" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+        <div>
+          <label class="label">Intended vote</label>
+          <select name="requestedVote" class="input">
+            <option value="aye">Aye</option>
+            <option value="no">No</option>
+            <option value="abstain">Abstain</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:120px;">
+          <label class="label">Message (optional)</label>
+          <input name="message" class="input" placeholder="Brief reason…">
+        </div>
+        <button type="submit" class="btn">Submit Request</button>
+      </form>
+      <p id="rebel-req-msg" class="muted" style="margin-top:4px;"></p>
+    </details>
+  `;
+}
+
+async function renderHouseDb(root, data, motion) {
   const char = getCharacter(data);
   const speaker = isSpeaker(data);
+  const isStaff = canAdminOrMod(data) || speaker;
   const voteWeight = currentWeight(data);
-  const simCurrentObj = simDateToObj(getSimDate(data.gameState));
+  const charParty = char?.party || "";
+  const debateCountdown = motion.debateEndSimObj
+    ? countdownToSimMonth(motion.debateEndSimObj.month, motion.debateEndSimObj.year, data.gameState)
+    : "";
 
-  // Auto-close division if deadline passed
-  if (motion.division?.status === "open" && motion.division.endSimObj && compareSimDates(simCurrentObj, motion.division.endSimObj) >= 0) {
-    closeDivision(motion);
-    motion.outcome = resolveDivisionResult(motion, data);
-    motion.status = "archived";
-    motion.archivedAtSim = formatSimMonthYear(data.gameState);
-    saveState(data);
+  // Load DB division state (or null if no division created yet)
+  let dbDiv = null, tally = { aye: 0, no: 0, abstain: 0 }, myVote = null;
+  try {
+    const result = await apiGetDivisionForEntity("motion", motion.id);
+    if (result) { dbDiv = result.division; tally = result.tally; myVote = result.myVote; }
+  } catch (_) { /* no division yet */ }
+
+  // Load party instruction for current user's party
+  let instr = null;
+  if (dbDiv && charParty) {
+    try {
+      const r = await apiGetPartyInstruction(dbDiv.id, charParty);
+      instr = r.instruction;
+    } catch (_) {}
   }
 
-  ensureDivision(motion);
-  const totals = tallyDivision(motion, data);
-  const myVote = motion.division?.votes?.[char?.name || ""]?.choice || "";
-  const debateCountdown = motion.debateEndSimObj ? countdownToSimMonth(motion.debateEndSimObj.month, motion.debateEndSimObj.year, data.gameState) : "";
-  const divisionCountdown = motion.division?.endSimObj ? countdownToSimMonth(motion.division.endSimObj.month, motion.division.endSimObj.year, data.gameState) : "";
+  // Determine if caller can set party instruction (chief whip / leader / admin+mod)
+  // We rely on the server to enforce; show the form if the user has admin/mod role
+  // or if they are the current party leader/chief whip (checked via dbState set at initMotionPage).
+  const canSetInstruction = isStaff || data._canSetWhipInstruction === charParty;
+
+  // Load rebel request for current character
+  let rebelReq = null;
+  if (dbDiv && charParty && !isStaff) {
+    try {
+      const r = await apiGetRebelRequest(dbDiv.id);
+      rebelReq = r.request;
+    } catch (_) {}
+  }
+
+  const divisionCountdown = dbDiv?.closes_at_sim
+    ? `closes ${dbDiv.closes_at_sim}`
+    : dbDiv?.closes_at
+      ? `closes ${new Date(dbDiv.closes_at).toLocaleDateString("en-GB")}`
+      : "";
 
   root.innerHTML = `
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Motion ${esc(motion.number)}: ${esc(motion.title)}</h2>
-      <p class="muted">By ${esc(motion.author)} • Status: ${esc(motion.status || "open")}</p>
+      <p class="muted">By ${esc(motion.author || motion.proposedBy || "")} • Status: ${esc(motion.status || "open")}</p>
       <p class="muted">Debate: ${esc(motion.debateStartSim || "—")} → ${esc(motion.debateEndSim || "—")}${debateCountdown ? ` (${debateCountdown})` : ""}</p>
-      <p class="muted">Division: ${esc(motion.division?.startSim || "—")} → ${esc(motion.division?.endSim || "—")}${divisionCountdown ? ` (${divisionCountdown})` : ""}</p>
       <p style="white-space:pre-wrap;"><b>That this House</b> ${esc(motion.body || "")}</p>
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
         ${(motion.debate?.topicUrl || motion.discourse_topic_url || motion.discourseTopicUrl || motion.debateUrl) ? `<a class="btn" href="${esc(motion.debate?.topicUrl || motion.discourse_topic_url || motion.discourseTopicUrl || motion.debateUrl)}" target="_blank" rel="noopener">Open Debate</a>` : `<span class="muted">No debate yet</span>`}
@@ -68,49 +187,125 @@ function renderHouse(root, data, motion) {
       </div>
     </section>
 
+    ${dbDiv ? `
+    <section class="tile" style="margin-bottom:12px;">
+      ${charParty ? renderWhipInstruction(instr) : ""}
+      ${charParty && canSetInstruction ? renderWhipEditor(dbDiv.id, charParty, instr) : ""}
+      ${charParty && !isStaff && instr && instr.position !== "free" ? renderRebelWidget(rebelReq, myVote?.vote, dbDiv.status) : ""}
+    </section>
+
     <section class="tile">
       <div class="division-panel">
         <div class="division-header">
           <div class="division-title">🗳️ Division</div>
-          ${motion.division.status === "open" && divisionCountdown ? `<span class="division-countdown">Closes in ${esc(divisionCountdown)}</span>` : `<span class="division-countdown">${esc(motion.division.status)}</span>`}
+          <span class="division-countdown">${dbDiv.status === "open" ? (divisionCountdown || "Open") : `Closed${dbDiv.outcome ? ` · ${dbDiv.outcome}` : ""}`}</span>
         </div>
         <div class="division-totals">
-          <div class="division-total-cell aye"><div class="dc-num">${totals.aye}</div><div class="dc-lbl">Aye</div></div>
-          <div class="division-total-cell no"><div class="dc-num">${totals.no}</div><div class="dc-lbl">No</div></div>
-          <div class="division-total-cell"><div class="dc-num">${totals.abstain}</div><div class="dc-lbl">Abstain</div></div>
+          <div class="division-total-cell aye"><div class="dc-num">${tally.aye}</div><div class="dc-lbl">Aye</div></div>
+          <div class="division-total-cell no"><div class="dc-num">${tally.no}</div><div class="dc-lbl">No</div></div>
+          <div class="division-total-cell"><div class="dc-num">${tally.abstain}</div><div class="dc-lbl">Abstain</div></div>
         </div>
-        ${myVote ? `<div class="division-my-vote voted-${esc(myVote)}">Your vote: <b>${esc(myVote.charAt(0).toUpperCase() + myVote.slice(1))}</b> · Weight: <b>${voteWeight.toFixed(2)}</b></div>` : `<div class="division-my-vote">Not yet voted · Weight: <b>${voteWeight.toFixed(2)}</b></div>`}
-        ${motion.division.status === "open" ? `
+        ${myVote ? `<div class="division-my-vote voted-${esc(myVote.vote)}">Your vote: <b>${esc(myVote.vote.charAt(0).toUpperCase() + myVote.vote.slice(1))}</b> · Weight: <b>${voteWeight.toFixed(2)}</b></div>` : `<div class="division-my-vote">Not yet voted · Weight: <b>${voteWeight.toFixed(2)}</b></div>`}
+        ${dbDiv.status === "open" ? `
           <div class="tile-bottom" style="padding-top:10px;">
-            <button class="btn ${myVote === "aye" ? "primary" : ""}" data-action="vote" data-choice="aye" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Aye</button>
-            <button class="btn ${myVote === "no" ? "primary" : ""}" data-action="vote" data-choice="no" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>No</button>
-            <button class="btn ${myVote === "abstain" ? "primary" : ""}" data-action="vote" data-choice="abstain" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Abstain</button>
+            <button class="btn ${myVote?.vote === "aye" ? "primary" : ""}" data-action="vote" data-choice="aye" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Aye</button>
+            <button class="btn ${myVote?.vote === "no" ? "primary" : ""}" data-action="vote" data-choice="no" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>No</button>
+            <button class="btn ${myVote?.vote === "abstain" ? "primary" : ""}" data-action="vote" data-choice="abstain" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Abstain</button>
           </div>
-        ` : `<p class="muted">Division closed. Outcome: <b>${esc(motion.outcome || resolveDivisionResult(motion, data))}</b></p>`}
-        ${speaker ? `<div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;"><button class="btn danger" data-action="close-division">Close Division</button></div>` : ""}
+        ` : `<p class="muted">Division closed. Outcome: <b>${esc(dbDiv.outcome || "—")}</b></p>`}
+        ${speaker ? `<div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;"><button class="btn danger" data-action="close-division" ${dbDiv.status === "closed" ? "disabled" : ""}>Close Division</button></div>` : ""}
+        <p id="div-msg" class="muted" style="margin-top:6px;"></p>
       </div>
     </section>
+    ` : `
+    <section class="tile">
+      <div class="division-panel">
+        <div class="division-title">🗳️ Division</div>
+        <p class="muted">No division opened for this motion yet.</p>
+        ${speaker || isStaff ? `<button class="btn" data-action="create-division">Open Division</button>` : ""}
+        <p id="div-msg" class="muted" style="margin-top:6px;"></p>
+      </div>
+    </section>
+    `}
   `;
 
+  // Vote buttons
   root.querySelectorAll("[data-action='vote']").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (motion.division.status !== "open") return;
+    btn.addEventListener("click", async () => {
+      if (!dbDiv || dbDiv.status !== "open") return;
+      if (voteWeight <= 0 || !canVoteDivision(data)) return;
       const choice = btn.getAttribute("data-choice");
-      const name = char?.name || "MP";
-      if (voteWeight <= 0) return;
-      castDivisionVote(motion, name, { party: char?.party || "Independent", weight: voteWeight, choice });
-      saveState(data);
-      renderHouse(root, data, motion);
+      const msg = root.querySelector("#div-msg");
+      if (msg) msg.textContent = "Voting…";
+      try {
+        const result = await apiCastVote(dbDiv.id, choice, Math.round(voteWeight));
+        if (msg) msg.textContent = "Vote recorded.";
+        // Re-render with updated data
+        await renderHouseDb(root, data, motion);
+      } catch (err) {
+        if (msg) msg.textContent = `Error: ${err.message}`;
+      }
     });
   });
 
-  root.querySelector("[data-action='close-division']")?.addEventListener("click", () => {
-    if (!speaker) return;
-    closeDivision(motion);
-    motion.outcome = resolveDivisionResult(motion, data);
-    motion.status = "archived";
-    saveState(data);
-    renderHouse(root, data, motion);
+  // Close division (speaker/admin)
+  root.querySelector("[data-action='close-division']")?.addEventListener("click", async () => {
+    if (!speaker && !isStaff) return;
+    const msg = root.querySelector("#div-msg");
+    if (msg) msg.textContent = "Closing…";
+    try {
+      await apiCloseDivision(dbDiv.id);
+      await renderHouseDb(root, data, motion);
+    } catch (err) {
+      if (msg) msg.textContent = `Error: ${err.message}`;
+    }
+  });
+
+  // Create division (speaker/admin, when no dbDiv yet)
+  root.querySelector("[data-action='create-division']")?.addEventListener("click", async () => {
+    const msg = root.querySelector("#div-msg");
+    if (msg) msg.textContent = "Opening division…";
+    try {
+      await apiCreateDivision("motion", motion.id, motion.title || "");
+      await renderHouseDb(root, data, motion);
+    } catch (err) {
+      if (msg) msg.textContent = `Error: ${err.message}`;
+    }
+  });
+
+  // Set whip instruction form
+  root.querySelector("#whip-instr-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const msgEl = root.querySelector("#whip-instr-msg");
+    if (msgEl) msgEl.textContent = "Saving…";
+    try {
+      await apiSetPartyInstruction(dbDiv.id, {
+        partySlug: charParty,
+        position: fd.get("position"),
+        whipLevel: Number(fd.get("whipLevel")),
+        note: fd.get("note") || "",
+      });
+      if (msgEl) msgEl.textContent = "Instruction saved.";
+      await renderHouseDb(root, data, motion);
+    } catch (err) {
+      if (msgEl) msgEl.textContent = `Error: ${err.message}`;
+    }
+  });
+
+  // Rebel request form
+  root.querySelector("#rebel-req-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const msgEl = root.querySelector("#rebel-req-msg");
+    if (msgEl) msgEl.textContent = "Submitting…";
+    try {
+      await apiSubmitRebelRequest(dbDiv.id, fd.get("requestedVote"), fd.get("message") || "");
+      if (msgEl) msgEl.textContent = "Request submitted.";
+      await renderHouseDb(root, data, motion);
+    } catch (err) {
+      if (msgEl) msgEl.textContent = `Error: ${err.message}`;
+    }
   });
 }
 
@@ -185,7 +380,7 @@ function renderEdm(root, data, edm) {
   });
 }
 
-export function initMotionPage(data) {
+export async function initMotionPage(data) {
   const root = document.getElementById("motion-root") || document.querySelector("#motions-root");
   if (!root) return;
   ensureMotions(data);
@@ -202,5 +397,5 @@ export function initMotionPage(data) {
     return;
   }
 
-  renderHouse(root, data, item);
+  await renderHouseDb(root, data, item);
 }
