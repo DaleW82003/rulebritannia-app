@@ -815,6 +815,19 @@ export async function apiSeedDemo() {
   return res.json();
 }
 
+// ── Admin wipe-content ─────────────────────────────────────────────────────
+
+export async function apiWipeContent() {
+  const res = await fetch(`${API_BASE}/api/admin/wipe-content`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ confirm: "WIPE CONTENT" }),
+  });
+  if (!res.ok) throw new Error(`apiWipeContent failed (${res.status})`);
+  return res.json();
+}
+
 
 // ── Pending Registrations (admin) ─────────────────────────────────────────
 

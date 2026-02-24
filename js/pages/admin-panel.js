@@ -11,6 +11,7 @@ import {
   apiGetSsoReadiness,
   apiGetAdminDashboard, apiAdminDiscourseSyncBills,
   apiGetPendingRegistrations, apiApproveRegistration, apiRejectRegistration,
+  apiSeedDemo, apiWipeContent,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
@@ -450,6 +451,10 @@ export async function initAdminPanelPage(data) {
           Shows what Discourse groups each user would be assigned to based on their current roles.
           Use "Sync Now" to apply these groups via the Discourse API.
         </p>
+        <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:8px 12px;font-size:13px;margin-bottom:10px;">
+          <b>Note:</b> Discourse group syncing is <b>off by default</b> during the trial period.
+          Only enable and use "Sync Now" once the UI/UX is ready and Discourse group roles have been confirmed.
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
           <button class="btn" id="btn-refresh-sync-preview" type="button">Refresh Preview</button>
           <button class="btn" id="btn-sync-discourse-groups" type="button">Sync Discourse Groups Now</button>
@@ -583,6 +588,58 @@ export async function initAdminPanelPage(data) {
       </section>`;
   }
 
+  function renderDangerZone() {
+    return `
+      <section class="panel" style="max-width:700px;margin-top:12px;border:2px solid #c00;background:#fff8f8;">
+        <h2 style="margin-top:0;color:#c00;">&#9888; Danger Zone &#8212; Trial Reset</h2>
+        <p style="font-size:13px;color:#555;margin-top:0;">
+          These actions perform a <b>full sim content wipe</b> to reset the simulation after trial testing.
+          <b>User accounts and pending registrations are never deleted.</b>
+        </p>
+
+        <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 14px;font-size:13px;margin-bottom:14px;">
+          <b>What will be wiped:</b> bills, motions, statements, regulations, question time questions,
+          press items, polling entries.<br>
+          <b>What will be reset:</b> sim clock &#8594; August 1997, sim state &#8594; paused, app state pointer &#8594; fresh empty snapshot.<br>
+          <b>What will NOT be touched:</b> user accounts, pending registrations, audit log, Discourse credentials, app config.
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px;">
+
+          <div style="padding:12px;background:#fff;border:1px solid #e0a0a0;border-radius:6px;">
+            <b>Wipe Content</b>
+            <p style="margin:4px 0 8px;font-size:13px;color:#555;">
+              Wipes all gameplay content and resets the sim clock to August 1997.
+              No demo seed data is inserted — the sim starts blank.
+            </p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input id="wipe-confirm-input" type="text" placeholder="Type WIPE CONTENT to confirm"
+                     style="flex:1;min-width:220px;padding:4px 8px;border:1px solid #c00;border-radius:4px;font-size:13px;" />
+              <button class="btn" id="btn-wipe-content" type="button"
+                      style="background:#c00;color:#fff;border-color:#c00;">Wipe Content</button>
+            </div>
+            <div id="wipe-status" style="margin-top:8px;font-size:13px;"></div>
+          </div>
+
+          <div style="padding:12px;background:#fff;border:1px solid #e0a0a0;border-radius:6px;">
+            <b>Wipe + Seed Demo Baseline</b>
+            <p style="margin:4px 0 8px;font-size:13px;color:#555;">
+              Same as Wipe Content, then immediately seeds the August 1997 demo baseline
+              (bills, motions, statements, press items, polling entries).
+            </p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input id="wipe-seed-confirm-input" type="text" placeholder="Type WIPE CONTENT to confirm"
+                     style="flex:1;min-width:220px;padding:4px 8px;border:1px solid #c00;border-radius:4px;font-size:13px;" />
+              <button class="btn" id="btn-wipe-seed" type="button"
+                      style="background:#c00;color:#fff;border-color:#c00;">Wipe + Seed</button>
+            </div>
+            <div id="wipe-seed-status" style="margin-top:8px;font-size:13px;"></div>
+          </div>
+
+        </div>
+      </section>`;
+  }
+
   function renderUserPermissions() {
     if (!syncPreview.length) {
       return `
@@ -694,6 +751,8 @@ export async function initAdminPanelPage(data) {
       ${renderSsoReadinessSection()}
 
       ${renderMaintenanceSection()}
+
+      ${renderDangerZone()}
 
       <section class="panel" style="max-width:600px;margin-top:12px;">
         <h2 style="margin-top:0;">Session</h2>
@@ -966,6 +1025,59 @@ export async function initAdminPanelPage(data) {
         toastSuccess(result.message || "All other sessions terminated.");
       } catch (err) {
         toastError(`Force logout all: ${err.message}`);
+      }
+    });
+
+    // ── Danger Zone buttons ────────────────────────────────────────────────────
+
+    host.querySelector("#btn-wipe-content")?.addEventListener("click", async () => {
+      const confirmInput = host.querySelector("#wipe-confirm-input");
+      const statusEl     = host.querySelector("#wipe-status");
+      if (confirmInput?.value !== "WIPE CONTENT") {
+        if (statusEl) statusEl.textContent = "Type WIPE CONTENT in the box above to confirm.";
+        return;
+      }
+      const btn = host.querySelector("#btn-wipe-content");
+      if (btn) { btn.disabled = true; btn.textContent = "Wiping…"; }
+      if (statusEl) statusEl.textContent = "";
+      try {
+        const result = await apiWipeContent();
+        logAction({ action: "admin.wipe-content", details: { wiped: result.wiped } });
+        toastSuccess(result.message);
+        if (statusEl) statusEl.textContent = `✓ ${result.message}`;
+        if (confirmInput) confirmInput.value = "";
+      } catch (err) {
+        toastError(`Wipe failed: ${err.message}`);
+        if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "Wipe Content"; }
+      }
+    });
+
+    host.querySelector("#btn-wipe-seed")?.addEventListener("click", async () => {
+      const confirmInput = host.querySelector("#wipe-seed-confirm-input");
+      const statusEl     = host.querySelector("#wipe-seed-status");
+      if (confirmInput?.value !== "WIPE CONTENT") {
+        if (statusEl) statusEl.textContent = "Type WIPE CONTENT in the box above to confirm.";
+        return;
+      }
+      const btn = host.querySelector("#btn-wipe-seed");
+      if (btn) { btn.disabled = true; btn.textContent = "Wiping & Seeding…"; }
+      if (statusEl) statusEl.textContent = "";
+      try {
+        const wipeResult = await apiWipeContent();
+        logAction({ action: "admin.wipe-content", details: { wiped: wipeResult.wiped } });
+        const seedResult = await apiSeedDemo();
+        logAction({ action: "admin.seed-demo", details: seedResult.counts });
+        const msg = `Content wiped and demo baseline seeded. Sim reset to August 1997.`;
+        toastSuccess(msg);
+        if (statusEl) statusEl.textContent = `✓ ${msg}`;
+        if (confirmInput) confirmInput.value = "";
+      } catch (err) {
+        toastError(`Wipe + Seed failed: ${err.message}`);
+        if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "Wipe + Seed"; }
       }
     });
 
