@@ -4609,7 +4609,7 @@ app.post("/api/parties/:partyId/leadership", partyWriteLimit, async (req, res) =
         [character_id]
       );
       if (!charRows.length) return res.status(404).json({ error: "Character not found or inactive" });
-      if (charRows[0].party.toLowerCase() !== partyData.name.toLowerCase()) {
+      if (charRows[0].party.toLowerCase() !== partyData.slug.toLowerCase()) {
         return res.status(409).json({ error: "Character does not belong to this party" });
       }
     }
@@ -4668,7 +4668,7 @@ app.post("/api/parties/:partyId/chief-whip", partyWriteLimit, async (req, res) =
         "SELECT party FROM characters WHERE id = $1 AND is_active = TRUE", [chiefWhipId]
       );
       if (!charRows.length) return res.status(404).json({ error: "Chief whip character not found or inactive" });
-      if (charRows[0].party.toLowerCase() !== partyData.name.toLowerCase()) {
+      if (charRows[0].party.toLowerCase() !== partyData.slug.toLowerCase()) {
         return res.status(409).json({ error: "Chief whip character does not belong to this party" });
       }
     }
@@ -4977,8 +4977,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
             await pool.query(
               `INSERT INTO division_rebellion_log
                  (division_id, character_id, party_slug, party_position, mp_vote, whip_level, recorded_at_sim)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
-               ON CONFLICT DO NOTHING`,
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
               [req.params.id, charId, charParty, instr.position, vote, instr.whip_level, simStr]
             );
           }
@@ -5029,16 +5028,15 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
       const tally = { aye: 0, no: 0, abstain: 0 };
       votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
 
-      // Add NPC votes
+      // Add NPC votes — npc_votes: { "Labour": "aye" }, rebels_by_party: { "Labour_seats": 400, "Labour": 5 }
+      // Seat counts are stored under the `${party}_seats` key in rebels_by_party by the caller (admin/speaker).
       const npcVotes    = divRows[0].npc_votes    || {};
       const rebelsByPty = divRows[0].rebels_by_party || {};
       for (const [party, npcVote] of Object.entries(npcVotes)) {
         if (tally[npcVote] === undefined) continue;
+        const seats  = Number(rebelsByPty[`${party}_seats`] || 0);
         const rebels = Number(rebelsByPty[party] || 0);
-        // NPC seats are tracked by weight stored in the game state; here we record via the npcVotes field
-        // For simplicity, if a party has a recorded NPC weight (integer), use it
-        const npcWeight = Number(npcVote === "aye" || npcVote === "no" || npcVote === "abstain" ? (rebelsByPty[`${party}_seats`] || 0) : 0);
-        if (npcWeight > 0) tally[npcVote] += Math.max(0, npcWeight - rebels);
+        if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
       }
 
       const outcome = tally.aye > tally.no ? "passed" : tally.no > tally.aye ? "failed" : "tied";
