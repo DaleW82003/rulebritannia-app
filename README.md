@@ -109,10 +109,8 @@ Copy `server/.env.example` to `server/.env` and fill in real values:
 | `NODE_ENV` | ✗ | Set to `production` on Render to enable production-mode guards |
 | `DISCOURSE_SSO_ENABLED` | ✗ | Set to `true` to activate DiscourseConnect SSO endpoints (see below) |
 | `DISCOURSE_ENCRYPTION_KEY` | ✗ | 64-char hex AES-256 key for encrypting stored Discourse credentials (defaults to a key derived from `SESSION_SECRET`) |
-| `SMTP_HOST` | ✗ | SMTP server hostname for sending email verification messages (e.g. `smtpout.secureserver.net`) |
-| `SMTP_PORT` | ✗ | SMTP port (default: `465`; uses SSL/TLS when port is 465) |
-| `SMTP_USER` | ✗ | SMTP username / From address (e.g. `support@rulebritannia.org`) |
-| `SMTP_PASS` | ✗ | SMTP password — **never commit this** |
+| `SENDGRID_API_KEY` | ✗ | SendGrid API key for sending email verification messages — **never commit this** |
+| `SENDGRID_FROM` | ✗ | Sender address used in outgoing emails (default: `support@rulebritannia.org`) |
 | `APP_BASE_URL` | ✗ | Base URL for building links in emails (default: `https://www.rulebritannia.org`) |
 | `TURNSTILE_ENABLED` | ✗ | Set to `true` to activate the Cloudflare Turnstile anti-bot widget on registration |
 | `TURNSTILE_SITE_KEY` | ✗ | Cloudflare Turnstile site key (public; safe to expose to the frontend) |
