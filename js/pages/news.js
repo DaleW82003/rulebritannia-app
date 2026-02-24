@@ -1,10 +1,21 @@
-import { formatSimMonthYear } from "../clock.js";
+import { formatSimMonthYear, getSimDate } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
 import { canPostNews, canAdminOrMod } from "../permissions.js";
 import { saveState, nowMs } from "../core.js";
 
-const LIVE_WINDOW_MONTHS = 2;
-const LIVE_WINDOW_MS = LIVE_WINDOW_MONTHS * 30 * 24 * 60 * 60 * 1000;
+// 4 simulation months = 2 real weeks (2 sim months per real week per clock rules)
+const LIVE_WINDOW_SIM_MONTHS = 4;
+
+function simMonthsElapsed(gameState, fromTs, toTs) {
+  const from = getSimDate(gameState, new Date(fromTs));
+  const to = getSimDate(gameState, new Date(toTs));
+  return (to.year - from.year) * 12 + (to.monthIndex - from.monthIndex);
+}
+
+function isLive(story, gameState, nowTs) {
+  if (!story?.createdAt) return true;
+  return simMonthsElapsed(gameState, story.createdAt, nowTs) < LIVE_WINDOW_SIM_MONTHS;
+}
 
 function byNewest(a, b) {
   return Number(b?.createdAt || 0) - Number(a?.createdAt || 0);
@@ -14,10 +25,10 @@ function byOldest(a, b) {
   return Number(a?.createdAt || 0) - Number(b?.createdAt || 0);
 }
 
-function splitNewsBuckets(stories) {
-  const cutoff = nowMs() - LIVE_WINDOW_MS;
-  const live = stories.filter((s) => Number(s.createdAt || 0) >= cutoff).sort(byNewest);
-  const archive = stories.filter((s) => Number(s.createdAt || 0) < cutoff).sort(byOldest);
+function splitNewsBuckets(stories, gameState) {
+  const nowTs = nowMs();
+  const live = stories.filter((s) => isLive(s, gameState, nowTs)).sort(byNewest);
+  const archive = stories.filter((s) => !isLive(s, gameState, nowTs)).sort(byOldest);
 
   const liveMain = live.filter((s) => !s.flavour);
   const liveOther = live.filter((s) => Boolean(s.flavour));
@@ -132,7 +143,7 @@ export function initNewsPage(data) {
 
   const renderAll = () => {
     const stories = (data.news?.stories || []).slice().sort(byNewest);
-    const { liveMain, liveOther, liveBreaking, archive } = splitNewsBuckets(stories);
+    const { liveMain, liveOther, liveBreaking, archive } = splitNewsBuckets(stories, data.gameState);
 
     const breakingPanel = document.getElementById("bbcBreakingPanel");
     if (breakingPanel) breakingPanel.style.display = liveBreaking.length ? "" : "none";

@@ -3,6 +3,26 @@ import { saveState } from "../core.js";
 import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { apiGetCharacters } from "../api.js";
 
+// Canonical fixed party list — never pulled from demo.json or runtime state.
+// 3 playable parties + 12 NPC parties = 15 total (5 columns × 3 rows).
+const CONSTITUENCY_PARTIES = [
+  { name: "Conservative",     playable: true  },
+  { name: "Labour",           playable: true  },
+  { name: "Liberal Democrat", playable: true  },
+  { name: "SNP",              playable: false },
+  { name: "Plaid Cymru",      playable: false },
+  { name: "Green",            playable: false },
+  { name: "UKIP",             playable: false },
+  { name: "DUP",              playable: false },
+  { name: "Sinn Féin",        playable: false },
+  { name: "SDLP",             playable: false },
+  { name: "Alliance",         playable: false },
+  { name: "TUP",              playable: false },
+  { name: "UUP",              playable: false },
+  { name: "Independents",     playable: false },
+  { name: "Speaker",          playable: false },
+];
+
 const REGION_TEMPLATE = [
   ["England", "North East", 25],
   ["England", "North West", 70],
@@ -127,17 +147,20 @@ function renderStateOfParliament(data) {
 }
 
 function renderPartyTiles(data) {
-  const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
-  if (!parties.length) return `<div class="muted-block">No parties configured.</div>`;
+  // Seat counts come from live parliament data; fall back to 0 if not set.
+  const liveParties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
+  const seatsMap = new Map(liveParties.map((p) => [p.name, Number(p.seats || 0)]));
 
   return `
     <div class="wgo-grid">
-      ${parties.map((p) => {
+      ${CONSTITUENCY_PARTIES.map((p) => {
+        const seats = seatsMap.get(p.name) || 0;
         const constCount = (data.constituencies || []).filter((c) => c.party === p.name).length;
+        const npcTag = !p.playable ? `<span class="muted" style="font-size:11px;margin-left:4px;">(NPC)</span>` : "";
         return `
           <div class="wgo-tile card-flex">
-            <div class="wgo-kicker">${esc(p.name)}</div>
-            <div class="wgo-title">${esc(String(p.seats || 0))} seats</div>
+            <div class="wgo-kicker">${esc(p.name)}${npcTag}</div>
+            <div class="wgo-title">${esc(String(seats))} seats</div>
             <div class="wgo-strap">${esc(String(constCount))} constituencies assigned</div>
             <div class="tile-bottom">
               <button class="btn" type="button" data-party-list="${esc(p.name)}">View Constituencies</button>
@@ -191,8 +214,7 @@ function refreshAll(data) {
 
   const partySelect = document.getElementById("constParty");
   if (partySelect) {
-    const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
-    partySelect.innerHTML = parties.map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
+    partySelect.innerHTML = CONSTITUENCY_PARTIES.map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
   }
 
   const mpType = document.getElementById("constMpType");

@@ -127,7 +127,7 @@ function renderTypeControls(data) {
 function renderBuilder(canPostAsNpc, partyOptions) {
   return `
     <form id="submitBillForm">
-      <div class="form-grid" style="grid-template-columns:minmax(220px,max-content) 1fr;align-items:start;">
+      <div class="form-grid" style="align-items:start;">
         <label for="billTitleInput">Title of the Bill</label>
         <input id="billTitleInput" type="text" maxlength="160" required>
 

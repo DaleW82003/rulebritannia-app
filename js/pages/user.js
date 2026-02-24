@@ -96,6 +96,7 @@ function normaliseUserData(data) {
 
   data.adminSettings ??= {};
   data.adminSettings.monarchGender ??= "Queen";
+  data.adminSettings.libDemClosedToNewChars ??= false;
 
   data.parliament ??= {};
   data.parliament.totalSeats ??= 650;
@@ -343,7 +344,12 @@ function render(data, state) {
           <select class="input" name="constituency" required>
             ${openConstituencyOptions(data).map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("") || `<option value="">No open constituencies available</option>`}
           </select>
-          <input class="input" name="party" placeholder="Party" required>
+          <select class="input" name="party" required>
+            <option value="">Select party</option>
+            <option value="Conservative">Conservative</option>
+            <option value="Labour">Labour</option>
+            ${!data.adminSettings.libDemClosedToNewChars ? `<option value="Liberal Democrat">Liberal Democrat</option>` : ""}
+          </select>
           <input class="input" name="avatar" placeholder="Avatar URL (optional)">
           <input class="input" name="twitter_handle" placeholder="Twitter handle (without @, optional)">
           <input class="input" name="year_first_elected" placeholder="Year first elected" required>
@@ -474,6 +480,16 @@ function render(data, state) {
                 </select>
               </div>
               <button class="btn" type="submit">Save Monarch</button>
+            </form>
+            <form id="libdem-toggle-form" style="display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:8px;align-items:end;">
+              <div>
+                <label class="label" for="libDemClosed">Liberal Democrat — Open to New Characters</label>
+                <select id="libDemClosed" class="input" name="libDemClosed">
+                  <option value="open" ${!data.adminSettings.libDemClosedToNewChars ? "selected" : ""}>Open (new characters can join)</option>
+                  <option value="closed" ${data.adminSettings.libDemClosedToNewChars ? "selected" : ""}>Closed (no new characters)</option>
+                </select>
+              </div>
+              <button class="btn" type="submit">Save</button>
             </form>
           </div>
         </details>
@@ -733,6 +749,17 @@ function render(data, state) {
     data.adminSettings.monarchGender = gender === "King" ? "King" : "Queen";
     saveState(data);
     state.message = `Monarch updated to ${data.adminSettings.monarchGender}.`;
+    render(data, state);
+  });
+
+  host.querySelector("#libdem-toggle-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!admin) return;
+    const closed = String(new FormData(e.currentTarget).get("libDemClosed") || "open") === "closed";
+    data.adminSettings ??= {};
+    data.adminSettings.libDemClosedToNewChars = closed;
+    saveState(data);
+    state.message = `Liberal Democrat is now ${closed ? "closed" : "open"} to new characters.`;
     render(data, state);
   });
 }

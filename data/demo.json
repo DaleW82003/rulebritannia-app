@@ -38,7 +38,7 @@
         "playable": false
       },
       {
-        "name": "Sinn F\u00e9in",
+        "name": "Sinn Féin",
         "seats": 18,
         "playable": false
       },
@@ -346,7 +346,7 @@
             "id": "sun-issue-001",
             "createdAt": 1739520000000,
             "simDate": "August 1997",
-            "headline": "NEW PM, NEW ERA \u2014 BUT WHO PAYS?",
+            "headline": "NEW PM, NEW ERA — BUT WHO PAYS?",
             "imageUrl": "",
             "bylineName": "Political Correspondent",
             "text": "The government promises bold plans. Critics warn of costs. Ministers insist reforms will be funded without burdening working families."
@@ -394,7 +394,7 @@
             "id": "mirror-issue-001",
             "createdAt": 1739520000000,
             "simDate": "August 1997",
-            "headline": "NHS FIRST \u2014 MINISTERS PROMISE ACTION",
+            "headline": "NHS FIRST — MINISTERS PROMISE ACTION",
             "imageUrl": "",
             "bylineName": "Political Correspondent",
             "text": "Waiting times and access remain central. The government says it will prioritise reforms and investment. Opposition calls for targets and timelines."
@@ -489,7 +489,7 @@
           ],
           [
             "GDP",
-            "\u00a30.9tn"
+            "£0.9tn"
           ],
           [
             "GDP Growth",
@@ -497,7 +497,7 @@
           ],
           [
             "GDP per Capita",
-            "\u00a315,500"
+            "£15,500"
           ],
           [
             "Investment (% of GDP)",
@@ -513,7 +513,7 @@
           ],
           [
             "Average UK Income (Full Time Salary)",
-            "\u00a323,900"
+            "£23,900"
           ]
         ]
       },
@@ -524,15 +524,15 @@
         "rows": [
           [
             "Revenue Last Year",
-            "\u00a3355.0bn"
+            "£355.0bn"
           ],
           [
             "Expenses Last Year",
-            "\u00a3383.0bn"
+            "£383.0bn"
           ],
           [
             "Surplus/Deficit Last Year",
-            "-\u00a328.0bn"
+            "-£28.0bn"
           ],
           [
             "Real Growth (GDP Growth minus Inflation)",
@@ -540,11 +540,11 @@
           ],
           [
             "National Debt",
-            "\u00a3560.0bn"
+            "£560.0bn"
           ],
           [
             "Debt Interest",
-            "\u00a323.0bn"
+            "£23.0bn"
           ],
           [
             "Debt as a % of GDP",
@@ -860,7 +860,7 @@
             "seats": 20
           },
           {
-            "name": "Sinn F\u00e9in",
+            "name": "Sinn Féin",
             "seats": 18
           },
           {
@@ -6761,7 +6761,7 @@
       "status": "in-progress",
       "createdAt": 1739491200000,
       "stageStartedAt": 1739491200000,
-      "billText": "A Bill to make provision about NHS Foundation Trusts; to establish governance and financial duties; and for connected purposes.\n\nPART 1 \u2014 FOUNDATION TRUST STATUS\n1. Eligibility and designation.\n2. Governance requirements.\n\nPART 2 \u2014 FINANCE AND ACCOUNTABILITY\n3. Accounts and reporting.\n4. Oversight and intervention powers.\n\nPART 3 \u2014 GENERAL\n5. Commencement and extent.",
+      "billText": "A Bill to make provision about NHS Foundation Trusts; to establish governance and financial duties; and for connected purposes.\n\nPART 1 — FOUNDATION TRUST STATUS\n1. Eligibility and designation.\n2. Governance requirements.\n\nPART 2 — FINANCE AND ACCOUNTABILITY\n3. Accounts and reporting.\n4. Oversight and intervention powers.\n\nPART 3 — GENERAL\n5. Commencement and extent.",
       "amendments": [
         {
           "id": "A1",
@@ -7134,7 +7134,7 @@
       {
         "type": "division",
         "title": "Division: Finance Act 2000",
-        "detail": "Vote open now \u2014 closes 19:00.",
+        "detail": "Vote open now — closes 19:00.",
         "ctaLabel": "Vote",
         "href": "bill.html?id=finance-2000",
         "priority": "high",
@@ -7380,7 +7380,7 @@
         "askedBy": "Dale Weston MP",
         "askedRole": "backbencher",
         "askedAtSim": "August 1997",
-        "text": "Will the Prime Minister commit to publishing a timetable for the next Queen\u2019s Speech and the government\u2019s priorities for this session?",
+        "text": "Will the Prime Minister commit to publishing a timetable for the next Queen’s Speech and the government’s priorities for this session?",
         "status": "answered",
         "answer": "The department has completed its review and published updated guidance.",
         "followUps": [
@@ -7422,7 +7422,7 @@
         "askedBy": "Grant Kingston MP",
         "askedRole": "leader-opposition",
         "askedAtSim": "July 1997",
-        "text": "Will the Leader of the House confirm the government\u2019s legislative timetable for the next two sitting weeks, including opposition day allocation?",
+        "text": "Will the Leader of the House confirm the government’s legislative timetable for the next two sitting weeks, including opposition day allocation?",
         "status": "closed",
         "answer": "A business statement will be issued outlining the next two sitting weeks, including one opposition day within that period.",
         "answeredAtSim": "July 1997",
@@ -7477,7 +7477,7 @@
         "askedBy": "Leah Cunningham MP",
         "askedRole": "shadow",
         "askedAtSim": "August 1997",
-        "text": "What is the government\u2019s current assessment of UK export support in emerging markets?",
+        "text": "What is the government’s current assessment of UK export support in emerging markets?",
         "status": "submitted",
         "answer": "",
         "followUps": [
@@ -7718,7 +7718,7 @@
         "number": 1,
         "title": "Public Sector Procurement Transparency",
         "author": "Dale Weston MP",
-        "body": "calls on all departments to publish quarterly procurement award summaries and ministerial exception notices for contracts above \u00a31 million.",
+        "body": "calls on all departments to publish quarterly procurement award summaries and ministerial exception notices for contracts above £1 million.",
         "status": "archived",
         "debateStartSim": "May 1997",
         "debateEndSim": "July 1997",
@@ -7838,7 +7838,7 @@
         ],
         "npcSignatures": {
           "SNP": true,
-          "Sinn F\u00e9in": true
+          "Sinn Féin": true
         },
         "archivedAtSim": "October 2000"
       }
@@ -7856,7 +7856,7 @@
         "simYear": 1997,
         "shortTitle": "Public Procurement Reporting Regulations",
         "author": "Alice Thorne MP",
-        "body": "These Regulations require all central departments to publish quarterly procurement award summaries for contracts above \u00a31 million, including ministerial exemptions and justifications.",
+        "body": "These Regulations require all central departments to publish quarterly procurement award summaries for contracts above £1 million, including ministerial exemptions and justifications.",
         "laidAtSim": "May 1997",
         "comesIntoForce": "July 1997",
         "debateUrl": "https://forum.rulebritannia.org/t/reg-1997-no-1-public-procurement-reporting-regulations",
@@ -8282,7 +8282,7 @@
             "ref": "CON DRAFT 1",
             "title": "Police Visibility and Neighbourhood Safety Bill",
             "purpose": "strengthening neighbourhood policing standards and local accountability",
-            "body": "Article 1 \u2014 Minimum neighbourhood patrol standards.\nArticle 2 \u2014 Commissioner annual plans and reporting duties.\nFinal Article \u2014 Extent, commencement and short title.",
+            "body": "Article 1 — Minimum neighbourhood patrol standards.\nArticle 2 — Commissioner annual plans and reporting duties.\nFinal Article — Extent, commencement and short title.",
             "discussUrl": "https://forum.rulebritannia.org/t/con-draft-police-visibility-1",
             "authorName": "Dale Weston MP",
             "authorId": "Dale Weston MP",
@@ -8311,7 +8311,7 @@
             "ref": "LAB DRAFT 2",
             "title": "NHS Workforce Stability Bill",
             "purpose": "improving NHS staff retention and training provision",
-            "body": "Article 1 \u2014 NHS retention targets and reporting.\nArticle 2 \u2014 Expanded clinical training bursaries.\nFinal Article \u2014 Extent, commencement and short title.",
+            "body": "Article 1 — NHS retention targets and reporting.\nArticle 2 — Expanded clinical training bursaries.\nFinal Article — Extent, commencement and short title.",
             "discussUrl": "https://forum.rulebritannia.org/t/lab-draft-nhs-workforce-2",
             "authorName": "Rachel Morgan MP",
             "authorId": "Rachel Morgan MP",
@@ -8340,7 +8340,7 @@
             "ref": "LDM DRAFT 3",
             "title": "Local Rail Access Bill",
             "purpose": "improving regional rail access and late-night services",
-            "body": "Article 1 \u2014 Regional rail service guarantees.\nArticle 2 \u2014 Rural route protection framework.\nFinal Article \u2014 Extent, commencement and short title.",
+            "body": "Article 1 — Regional rail service guarantees.\nArticle 2 — Rural route protection framework.\nFinal Article — Extent, commencement and short title.",
             "discussUrl": "https://forum.rulebritannia.org/t/ldm-draft-local-rail-3",
             "authorName": "Alex Pritchard MP",
             "authorId": "Alex Pritchard MP",
@@ -9026,7 +9026,7 @@
             "vote": 20.2
           },
           {
-            "party": "Sinn F\u00e9in",
+            "party": "Sinn Féin",
             "seats": 20,
             "vote": 18.6
           },
@@ -9139,7 +9139,7 @@
             "vote": 22.6
           },
           {
-            "party": "Sinn F\u00e9in",
+            "party": "Sinn Féin",
             "seats": 118,
             "vote": 20.8
           }
@@ -10284,7 +10284,7 @@
         "ref": "CAB 1",
         "title": "Economic Stability and Fiscal Responsibility Bill",
         "purpose": "strengthen fiscal rules and improve long-term debt management transparency",
-        "body": "Article 1 \u2014 Fiscal Charter\nThe Treasury shall publish an annual fiscal charter with debt and borrowing anchors.\n\nArticle 2 \u2014 Reporting\nQuarterly compliance reports must be laid before the House.\n\nFinal Article \u2014 Extent and Commencement\nThis Act extends to the whole United Kingdom and comes into force one month after Royal Assent.",
+        "body": "Article 1 — Fiscal Charter\nThe Treasury shall publish an annual fiscal charter with debt and borrowing anchors.\n\nArticle 2 — Reporting\nQuarterly compliance reports must be laid before the House.\n\nFinal Article — Extent and Commencement\nThis Act extends to the whole United Kingdom and comes into force one month after Royal Assent.",
         "authorName": "Alice Thorne MP",
         "authorId": "Alice Thorne MP",
         "createdAt": "17/02/2026, 19:15:00",
@@ -10295,7 +10295,7 @@
         "ref": "CAB 2",
         "title": "Neighbourhood Safety Partnerships Bill",
         "purpose": "create statutory local safety partnerships and targeted prevention plans",
-        "body": "Article 1 \u2014 Establishment\nEach local authority area shall maintain a Neighbourhood Safety Partnership.\n\nArticle 2 \u2014 Duty to Publish Plan\nA rolling 12-month safety plan must be published with measurable outcomes.\n\nFinal Article \u2014 Extent and Commencement\nThis Act extends to England and Wales and comes into force two months after Royal Assent.",
+        "body": "Article 1 — Establishment\nEach local authority area shall maintain a Neighbourhood Safety Partnership.\n\nArticle 2 — Duty to Publish Plan\nA rolling 12-month safety plan must be published with measurable outcomes.\n\nFinal Article — Extent and Commencement\nThis Act extends to England and Wales and comes into force two months after Royal Assent.",
         "authorName": "Graham Pike MP",
         "authorId": "Graham Pike MP",
         "createdAt": "18/02/2026, 09:45:00",
@@ -10317,7 +10317,7 @@
         "ref": "SHD 1",
         "title": "NHS Waiting Time Guarantee Bill",
         "purpose": "set statutory maximum waiting time standards and annual recovery plans",
-        "body": "Article 1 \u2014 National Standard\nA national maximum waiting-time standard shall be set by regulation and reviewed annually.\n\nArticle 2 \u2014 Recovery Plans\nNHS trusts must publish annual recovery plans and quarterly progress updates.\n\nFinal Article \u2014 Extent and Commencement\nThis Act extends to England and comes into force two months after Royal Assent.",
+        "body": "Article 1 — National Standard\nA national maximum waiting-time standard shall be set by regulation and reviewed annually.\n\nArticle 2 — Recovery Plans\nNHS trusts must publish annual recovery plans and quarterly progress updates.\n\nFinal Article — Extent and Commencement\nThis Act extends to England and comes into force two months after Royal Assent.",
         "authorName": "Maya Patel MP",
         "authorId": "Maya Patel MP",
         "createdAt": "17/02/2026, 21:10:00",
@@ -10328,7 +10328,7 @@
         "ref": "SHD 2",
         "title": "Clean Transport Transition Bill",
         "purpose": "accelerate low-emission transport infrastructure and targeted freight support",
-        "body": "Article 1 \u2014 Strategic Corridors\nThe Secretary of State shall designate strategic clean transport corridors.\n\nArticle 2 \u2014 Transition Support\nA time-limited transition support scheme shall be created for freight operators.\n\nFinal Article \u2014 Extent and Commencement\nThis Act extends to Great Britain and comes into force one month after Royal Assent.",
+        "body": "Article 1 — Strategic Corridors\nThe Secretary of State shall designate strategic clean transport corridors.\n\nArticle 2 — Transition Support\nA time-limited transition support scheme shall be created for freight operators.\n\nFinal Article — Extent and Commencement\nThis Act extends to Great Britain and comes into force one month after Royal Assent.",
         "authorName": "Liam Cross MP",
         "authorId": "Liam Cross MP",
         "createdAt": "18/02/2026, 10:00:00",

@@ -205,9 +205,9 @@ function render(data, state) {
 
     <section class="panel">
       <h2 style="margin-top:0;">Budget Archive</h2>
-      <div><b>This Years Budget:</b> ${esc(ty.label || "Current")}</div>
-      <div><b>Last Years Budget:</b> ${esc(ly.label || "Last")}</div>
-      ${data.budget.archive.length ? data.budget.archive.slice().reverse().map((b) => `<div class="muted">${esc(b.label || "Budget")} • approved ${esc(b.approvedAt || "")}</div>`).join("") : `<div class="muted">No archived budgets yet.</div>`}
+      <div><b>Current Year's Budget:</b> ${ty.label ? esc(ty.label) : `<span class="muted" style="font-style:italic;">Not yet submitted — Chancellor submits each year.</span>`}</div>
+      <div><b>Last Year's Budget:</b> ${ly.label ? esc(ly.label) : `<span class="muted" style="font-style:italic;">Not yet set — Mods/Admins set this at the start of the simulation.</span>`}</div>
+      ${data.budget.archive.length ? `<div style="margin-top:8px;"><b>Previous Budgets:</b></div>${data.budget.archive.slice().reverse().map((b) => `<div class="muted">${esc(b.label || "Budget")} • approved ${esc(b.approvedAt || "")}</div>`).join("")}` : `<div class="muted" style="margin-top:8px;">No previously approved budgets on record yet.</div>`}
     </section>
   `;
 
