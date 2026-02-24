@@ -1099,12 +1099,14 @@ app.post("/api/register", registerLimit, async (req, res) => {
 
 const regAdminLimit = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
 
+const verifyEmailLimit = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+
 /**
  * GET /api/auth/verify-email?token=...
  * Verifies the email address associated with a pending registration token.
  * Marks email_verified=true and stores verified_at.
  */
-app.get("/api/auth/verify-email", async (req, res) => {
+app.get("/api/auth/verify-email", verifyEmailLimit, async (req, res) => {
   const { token } = req.query;
   if (!token || typeof token !== "string" || token.length > 128) {
     return res.status(400).json({ ok: false, error: "Invalid or missing token." });
