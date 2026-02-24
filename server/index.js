@@ -1076,8 +1076,49 @@ app.post("/api/register", registerLimit, async (req, res) => {
     const verificationToken    = randomBytes(32).toString("hex");
     const verificationTokenExp = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    // Use a single INSERT — unique constraints on email/username produce conflict errors
-    // without leaking whether either already exists via separate SELECT queries.
+    const REGISTRATION_SUCCESS_MSG = "Your application has been submitted. Please check your email to verify your address, then wait for admin approval before logging in.";
+
+    // Check for a pre-existing registration or user account with this email.
+    // Done before the INSERT so we can give a meaningful response instead of
+    // silently swallowing a unique-constraint violation.
+    const [pendingRes, userRes] = await Promise.all([
+      pool.query(
+        `SELECT id, status, email_verified, email_verification_token
+           FROM pending_registrations WHERE email = $1`,
+        [normalizedEmail]
+      ),
+      pool.query(`SELECT id FROM users WHERE email = $1`, [normalizedEmail]),
+    ]);
+
+    if (pendingRes.rows.length > 0) {
+      const prev = pendingRes.rows[0];
+      if (prev.status === "rejected") {
+        // Previous application was rejected — remove it so the user can apply again.
+        await pool.query(`DELETE FROM pending_registrations WHERE id = $1`, [prev.id]);
+        // Fall through to insert a fresh registration below.
+      } else if (prev.status === "pending") {
+        // Application already under review — resend verification email if not yet verified.
+        // Fire-and-forget: same deliberate pattern used for the first-send below; we must
+        // not block the response waiting for SMTP, and any failure is non-fatal.
+        if (!prev.email_verified && prev.email_verification_token) {
+          sendVerificationEmail(normalizedEmail, prev.email_verification_token).catch((e) =>
+            console.error("[email] resend failed:", e)
+          );
+        }
+        return res.json({ ok: true, message: REGISTRATION_SUCCESS_MSG });
+      } else {
+        // status === "approved": account already exists — return deliberate vague success
+        // to avoid leaking account existence.
+        return res.json({ ok: true, message: REGISTRATION_SUCCESS_MSG });
+      }
+    } else if (userRes.rows.length > 0) {
+      // Email already has a user account (e.g. added directly by an admin).
+      // Return deliberate vague success to avoid email enumeration.
+      return res.json({ ok: true, message: REGISTRATION_SUCCESS_MSG });
+    }
+
+    // Insert the new application — unique constraint on username is the only remaining
+    // conflict possible here (email was already checked above).
     try {
       await pool.query(
         `INSERT INTO pending_registrations
@@ -1091,9 +1132,9 @@ app.post("/api/register", registerLimit, async (req, res) => {
          optIn, verificationToken, verificationTokenExp]
       );
     } catch (dbErr) {
-      // Unique violation — deliberately vague response to avoid email enumeration
       if (dbErr.code === "23505") {
-        return res.json({ ok: true, message: "Your application has been submitted. Please check your email to verify your address, then wait for admin approval before logging in." });
+        // Username already taken — safe to reveal without leaking email existence.
+        return res.status(409).json({ ok: false, error: "Username is already taken. Please choose a different username." });
       }
       throw dbErr;
     }
@@ -1103,7 +1144,7 @@ app.post("/api/register", registerLimit, async (req, res) => {
       console.error("[email] verification send failed:", e)
     );
 
-    return res.json({ ok: true, message: "Your application has been submitted. Please check your email to verify your address, then wait for admin approval before logging in." });
+    return res.json({ ok: true, message: REGISTRATION_SUCCESS_MSG });
   } catch (e) {
     console.error("[register]", e);
     res.status(500).json({ ok: false, error: "Server error. Please try again later." });
@@ -1257,14 +1298,30 @@ app.post("/api/admin/registrations/:id/approve", regAdminLimit, verifyCsrfToken,
     if (!rows.length) return res.status(404).json({ error: "Registration not found or already reviewed." });
     const reg = rows[0];
 
-    // Create the user account (carry over email_verified from pending registration)
-    const userId = `user-${randomBytes(16).toString("hex")}`;
-    await pool.query(
-      `INSERT INTO users (id, username, email, password_hash, roles, email_verified, email_verified_at)
-       VALUES ($1, $2, $3, $4, '[]'::jsonb, $5, $6)`,
-      [userId, reg.username, reg.email, reg.password_hash,
-       reg.email_verified || false, reg.email_verified_at || null]
+    // Guard: if a user account already exists for this email (e.g. the applicant was
+    // previously registered by another route), skip creating a duplicate.
+    const { rows: existingUsers } = await pool.query(
+      `SELECT id FROM users WHERE email = $1`,
+      [reg.email]
     );
+
+    let userId;
+    if (existingUsers.length > 0) {
+      // An account already exists for this email (e.g. added directly by an admin or via a
+      // previous approval that left the pending row un-cleaned).  Reuse it rather than
+      // attempting a duplicate INSERT.  The existing account's credentials and roles are
+      // preserved — the password_hash from this registration is intentionally discarded.
+      userId = existingUsers[0].id;
+    } else {
+      // Create the user account (carry over email_verified from pending registration)
+      userId = `user-${randomBytes(16).toString("hex")}`;
+      await pool.query(
+        `INSERT INTO users (id, username, email, password_hash, roles, email_verified, email_verified_at)
+         VALUES ($1, $2, $3, $4, '[]'::jsonb, $5, $6)`,
+        [userId, reg.username, reg.email, reg.password_hash,
+         reg.email_verified || false, reg.email_verified_at || null]
+      );
+    }
 
     // Mark registration as approved
     await pool.query(
