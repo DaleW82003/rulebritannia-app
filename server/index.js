@@ -644,18 +644,79 @@ async function ensureSchema() {
   `);
 
   // ── Parties ───────────────────────────────────────────────────────────────
+  // New installs: create with UUID PK + slug.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS parties (
-      id                    TEXT PRIMARY KEY,
-      name                  TEXT NOT NULL,
-      short_name            TEXT NOT NULL DEFAULT '',
-      leader_character_id   UUID REFERENCES characters(id) ON DELETE SET NULL,
-      chairman_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
-      whip_character_id     UUID REFERENCES characters(id) ON DELETE SET NULL,
-      treasury              JSONB NOT NULL DEFAULT '{}'::jsonb,
-      hq_url                TEXT,
-      updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      slug                     TEXT UNIQUE NOT NULL,
+      name                     TEXT NOT NULL,
+      short_name               TEXT NOT NULL DEFAULT '',
+      leader_character_id      UUID REFERENCES characters(id) ON DELETE SET NULL,
+      chairman_character_id    UUID REFERENCES characters(id) ON DELETE SET NULL,
+      whip_character_id        UUID REFERENCES characters(id) ON DELETE SET NULL,
+      chief_whip_character_id  UUID REFERENCES characters(id) ON DELETE SET NULL,
+      deputy_whip_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      treasury                 JSONB NOT NULL DEFAULT '{}'::jsonb,
+      hq_url                   TEXT,
+      updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  // Migration: if the table still has a TEXT primary key (legacy install), recreate it with UUID PK.
+  // The parties table has no inbound FK references so this rename-recreate is safe.
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'parties' AND column_name = 'id' AND data_type = 'text'
+      ) THEN
+        ALTER TABLE parties RENAME TO parties_text_backup;
+        CREATE TABLE parties (
+          id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          slug                     TEXT UNIQUE NOT NULL,
+          name                     TEXT NOT NULL,
+          short_name               TEXT NOT NULL DEFAULT '',
+          leader_character_id      UUID REFERENCES characters(id) ON DELETE SET NULL,
+          chairman_character_id    UUID REFERENCES characters(id) ON DELETE SET NULL,
+          whip_character_id        UUID REFERENCES characters(id) ON DELETE SET NULL,
+          chief_whip_character_id  UUID REFERENCES characters(id) ON DELETE SET NULL,
+          deputy_whip_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+          treasury                 JSONB NOT NULL DEFAULT '{}'::jsonb,
+          hq_url                   TEXT,
+          updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        INSERT INTO parties
+          (slug, name, short_name, leader_character_id, chairman_character_id,
+           whip_character_id, treasury, hq_url, updated_at)
+        SELECT id, name, short_name, leader_character_id, chairman_character_id,
+               whip_character_id, treasury, hq_url, updated_at
+          FROM parties_text_backup;
+        DROP TABLE parties_text_backup;
+      END IF;
+    END $$;
+  `);
+
+  // Idempotent migrations for existing UUID-pk parties tables.
+  await pool.query(`
+    ALTER TABLE parties
+      ADD COLUMN IF NOT EXISTS slug                     TEXT,
+      ADD COLUMN IF NOT EXISTS chief_whip_character_id  UUID REFERENCES characters(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS deputy_whip_character_id UUID REFERENCES characters(id) ON DELETE SET NULL;
+  `);
+  // Backfill slug = name where slug is NULL (covers any edge case before UNIQUE constraint).
+  await pool.query(`UPDATE parties SET slug = name WHERE slug IS NULL`);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'parties_slug_key'
+      ) THEN
+        ALTER TABLE parties ALTER COLUMN slug SET NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS parties_slug_key ON parties (slug);
+        ALTER TABLE parties ADD CONSTRAINT parties_slug_key UNIQUE USING INDEX parties_slug_key;
+      END IF;
+    END $$;
   `);
 
   // ── Scandal system ────────────────────────────────────────────────────────
@@ -762,7 +823,85 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS scandal_mod_decisions_scandal_idx ON scandal_mod_decisions (scandal_id);
   `);
 
+  // ── Division whip system tables ───────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS division_party_instructions (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      division_id     TEXT NOT NULL,
+      party_slug      TEXT NOT NULL,
+      position        TEXT NOT NULL CHECK (position IN ('aye','no','abstain','free')),
+      whip_level      INT  NOT NULL DEFAULT 0 CHECK (whip_level IN (0,1,2,3)),
+      note            TEXT,
+      set_by_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      set_by_user_id  TEXT,
+      set_at_sim      TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (division_id, party_slug)
+    );
+    CREATE INDEX IF NOT EXISTS dpi_division_idx ON division_party_instructions (division_id);
+    CREATE INDEX IF NOT EXISTS dpi_party_idx    ON division_party_instructions (party_slug);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS division_rebellion_log (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      division_id      TEXT NOT NULL,
+      character_id     UUID REFERENCES characters(id) ON DELETE SET NULL,
+      party_slug       TEXT NOT NULL,
+      party_position   TEXT NOT NULL,
+      mp_vote          TEXT NOT NULL,
+      whip_level       INT  NOT NULL DEFAULT 0,
+      recorded_at_sim  TEXT,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS drl_division_idx  ON division_rebellion_log (division_id);
+    CREATE INDEX IF NOT EXISTS drl_char_idx      ON division_rebellion_log (character_id);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS division_rebel_requests (
+      id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      division_id             TEXT NOT NULL,
+      character_id            UUID REFERENCES characters(id) ON DELETE SET NULL,
+      party_slug              TEXT NOT NULL,
+      requested_vote          TEXT NOT NULL CHECK (requested_vote IN ('aye','no','abstain')),
+      message                 TEXT,
+      status                  TEXT NOT NULL DEFAULT 'pending'
+                              CHECK (status IN ('pending','granted','refused','cancelled')),
+      decided_by_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      decided_by_user_id      TEXT,
+      decided_at_sim          TEXT,
+      created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS drr_division_idx  ON division_rebel_requests (division_id);
+    CREATE INDEX IF NOT EXISTS drr_char_idx      ON division_rebel_requests (character_id);
+  `);
+
+  await seedPlayableParties();
   await seedScandalTemplates();
+}
+
+// The three playable parties for Rule Britannia.
+const PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
+
+/**
+ * Idempotent upsert of the three canonical parties.
+ */
+async function seedPlayableParties() {
+  const parties = [
+    { slug: "Conservative",     name: "Conservative",     short_name: "CON" },
+    { slug: "Labour",           name: "Labour",           short_name: "LAB" },
+    { slug: "Liberal Democrat", name: "Liberal Democrat", short_name: "LDM" },
+  ];
+  for (const p of parties) {
+    await pool.query(
+      `INSERT INTO parties (slug, name, short_name)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (slug) DO NOTHING`,
+      [p.slug, p.name, p.short_name]
+    );
+  }
 }
 
 /**
