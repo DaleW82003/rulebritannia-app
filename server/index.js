@@ -5,6 +5,7 @@ import pgSession from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import nodemailer from "nodemailer";
 import { pool } from "./db.js";
 import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload } from "./discourse.js";
 import {
@@ -13,6 +14,95 @@ import {
   withRetry as dcWithRetry,
 } from "./discourseClient.js";
 import { ALL_VALID_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP } from "./roles.js";
+
+// ── Turnstile config ──────────────────────────────────────────────────────────
+const TURNSTILE_ENABLED    = process.env.TURNSTILE_ENABLED === "true";
+const TURNSTILE_SITE_KEY   = process.env.TURNSTILE_SITE_KEY  || "";
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || "";
+
+async function verifyTurnstileToken(token, remoteip) {
+  if (!TURNSTILE_ENABLED) return true;
+  if (!token) return false;
+  try {
+    const body = new URLSearchParams({
+      secret:   TURNSTILE_SECRET_KEY,
+      response: token,
+    });
+    if (remoteip) body.set("remoteip", remoteip);
+    const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method:  "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body:    body.toString(),
+    });
+    const json = await r.json();
+    return json.success === true;
+  } catch (e) {
+    console.error("[turnstile]", e);
+    return false;
+  }
+}
+
+// ── Email (SMTP) config ────────────────────────────────────────────────────────
+const SMTP_HOST = process.env.SMTP_HOST || "";
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || "465", 10);
+const SMTP_USER = process.env.SMTP_USER || "";
+const SMTP_PASS = process.env.SMTP_PASS || "";
+const APP_BASE_URL = process.env.APP_BASE_URL || "https://rulebritannia.org";
+
+function createMailTransport() {
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
+  return nodemailer.createTransport({
+    host:   SMTP_HOST,
+    port:   SMTP_PORT,
+    secure: SMTP_PORT === 465,
+    auth:   { user: SMTP_USER, pass: SMTP_PASS },
+  });
+}
+
+async function sendVerificationEmail(email, token) {
+  const transport = createMailTransport();
+  if (!transport) {
+    console.warn("[email] SMTP not configured; skipping verification email to", email);
+    return;
+  }
+  const verifyUrl = `${APP_BASE_URL}/verify-email.html?token=${encodeURIComponent(token)}`;
+  await transport.sendMail({
+    from:    `"Rule Britannia" <${SMTP_USER}>`,
+    to:      email,
+    subject: "Verify your Rule Britannia email address",
+    text: [
+      "Thank you for applying to join Rule Britannia.",
+      "",
+      "Please verify your email address by visiting the link below:",
+      verifyUrl,
+      "",
+      "This link expires in 24 hours and can only be used once.",
+      "",
+      "If you did not register, you can safely ignore this email.",
+      "",
+      "— The Rule Britannia Team",
+      "  support@rulebritannia.org",
+    ].join("\n"),
+    html: `
+      <p>Thank you for applying to join <strong>Rule Britannia</strong>.</p>
+      <p>Please verify your email address by clicking the button below:</p>
+      <p style="margin:24px 0;">
+        <a href="${verifyUrl}" style="background:#001e5a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">
+          Verify Email Address
+        </a>
+      </p>
+      <p style="font-size:13px;color:#666;">Or copy and paste this URL into your browser:<br>
+        <a href="${verifyUrl}">${verifyUrl}</a></p>
+      <p style="font-size:13px;color:#666;">This link expires in 24 hours and can only be used once.</p>
+      <p style="font-size:13px;color:#666;">If you did not register, you can safely ignore this email.</p>
+      <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
+      <p style="font-size:12px;color:#999;">
+        The Rule Britannia Team &mdash;
+        <a href="mailto:support@rulebritannia.org">support@rulebritannia.org</a>
+      </p>
+    `,
+  });
+}
 
 /**
  * Discourse credential encryption (AES-256-GCM).
@@ -188,6 +278,13 @@ async function ensureSchema() {
       roles JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  // Add email_verified columns to users if they don't exist yet (idempotent migration)
+  await pool.query(`
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS email_verified    BOOLEAN   NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
   `);
 
   // sessions table is handled by connect-pg-simple when createTableIfMissing:true
@@ -482,6 +579,18 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS pending_reg_status_idx ON pending_registrations (status);
     CREATE INDEX IF NOT EXISTS pending_reg_email_idx  ON pending_registrations (email);
+  `);
+
+  // Idempotent migrations for pending_registrations
+  await pool.query(`
+    ALTER TABLE pending_registrations
+      ADD COLUMN IF NOT EXISTS marketing_opt_in              BOOLEAN   NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS marketing_opt_in_at           TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS email_verified                BOOLEAN   NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS email_verified_at             TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS email_verification_token      TEXT,
+      ADD COLUMN IF NOT EXISTS email_verification_token_exp  TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS verification_resent_at        TIMESTAMPTZ;
   `);
 }
 
@@ -798,7 +907,7 @@ app.post("/auth/login", authLimit, async (req, res) => {
     const normalizedEmail = email.toLowerCase().trim();
 
     const { rows } = await pool.query(
-      "SELECT id, username, email, password_hash, roles FROM users WHERE email = $1",
+      "SELECT id, username, email, password_hash, roles, email_verified FROM users WHERE email = $1",
       [normalizedEmail]
     );
 
@@ -811,6 +920,11 @@ app.post("/auth/login", authLimit, async (req, res) => {
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) {
       return res.status(401).json({ ok: false, error: "Invalid email or password" });
+    }
+
+    // Require email verification
+    if (!user.email_verified) {
+      return res.status(403).json({ ok: false, error: "Please verify your email address before logging in. Check your inbox for a verification link, or visit the login page to request a new one." });
     }
 
     // Save to session
@@ -911,7 +1025,7 @@ const USERNAME_RE = /^[a-zA-Z0-9_-]{3,30}$/;
 
 app.post("/api/register", registerLimit, async (req, res) => {
   try {
-    const { name, username, email, password, age_attested } = req.body || {};
+    const { name, username, email, password, age_attested, marketing_opt_in, turnstile_token } = req.body || {};
 
     // Validate required fields
     if (!name || !username || !email || !password) {
@@ -930,31 +1044,53 @@ app.post("/api/register", registerLimit, async (req, res) => {
       return res.status(400).json({ ok: false, error: "You must confirm you are 16 or older." });
     }
 
+    // Verify Turnstile token (if enabled)
+    const remoteIp = req.ip || req.headers["x-forwarded-for"] || "";
+    const turnstileOk = await verifyTurnstileToken(turnstile_token, remoteIp);
+    if (!turnstileOk) {
+      return res.status(400).json({ ok: false, error: "Anti-bot check failed. Please try again." });
+    }
+
     const normalizedEmail    = email.toLowerCase().trim();
     const normalizedUsername = username.trim();
     const displayName        = String(name).trim().slice(0, 100);
+    const optIn              = Boolean(marketing_opt_in);
 
     // Hash password before any DB checks to avoid timing side-channels leaking existence
     const passwordHash = await bcrypt.hash(password, 12);
+
+    // Generate a single-use email verification token (expires in 24 h)
+    const verificationToken    = randomBytes(32).toString("hex");
+    const verificationTokenExp = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     // Use a single INSERT — unique constraints on email/username produce conflict errors
     // without leaking whether either already exists via separate SELECT queries.
     try {
       await pool.query(
         `INSERT INTO pending_registrations
-           (email, username, display_name, password_hash, age_attested, consent_version, consent_at)
-         VALUES ($1, $2, $3, $4, TRUE, 1, NOW())`,
-        [normalizedEmail, normalizedUsername, displayName, passwordHash]
+           (email, username, display_name, password_hash, age_attested, consent_version, consent_at,
+            marketing_opt_in, marketing_opt_in_at,
+            email_verification_token, email_verification_token_exp)
+         VALUES ($1, $2, $3, $4, TRUE, 1, NOW(),
+                 $5, CASE WHEN $5 THEN NOW() ELSE NULL END,
+                 $6, $7)`,
+        [normalizedEmail, normalizedUsername, displayName, passwordHash,
+         optIn, verificationToken, verificationTokenExp]
       );
     } catch (dbErr) {
       // Unique violation — deliberately vague response to avoid email enumeration
       if (dbErr.code === "23505") {
-        return res.json({ ok: true, message: "Your application has been submitted and is pending review. You will be contacted when it is approved." });
+        return res.json({ ok: true, message: "Your application has been submitted. Please check your email to verify your address, then wait for admin approval before logging in." });
       }
       throw dbErr;
     }
 
-    return res.json({ ok: true, message: "Your application has been submitted and is pending review. You will be contacted when it is approved." });
+    // Send verification email (fire-and-forget — do not block the response)
+    sendVerificationEmail(normalizedEmail, verificationToken).catch((e) =>
+      console.error("[email] verification send failed:", e)
+    );
+
+    return res.json({ ok: true, message: "Your application has been submitted. Please check your email to verify your address, then wait for admin approval before logging in." });
   } catch (e) {
     console.error("[register]", e);
     res.status(500).json({ ok: false, error: "Server error. Please try again later." });
@@ -962,6 +1098,113 @@ app.post("/api/register", registerLimit, async (req, res) => {
 });
 
 const regAdminLimit = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+/**
+ * GET /api/auth/verify-email?token=...
+ * Verifies the email address associated with a pending registration token.
+ * Marks email_verified=true and stores verified_at.
+ */
+app.get("/api/auth/verify-email", async (req, res) => {
+  const { token } = req.query;
+  if (!token || typeof token !== "string" || token.length > 128) {
+    return res.status(400).json({ ok: false, error: "Invalid or missing token." });
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, email, status, email_verified, email_verification_token_exp
+         FROM pending_registrations
+        WHERE email_verification_token = $1
+          AND status IN ('pending', 'approved')`,
+      [token]
+    );
+    if (!rows.length) {
+      return res.status(400).json({ ok: false, error: "Invalid or expired verification link." });
+    }
+    const reg = rows[0];
+    if (reg.email_verified) {
+      return res.json({ ok: true, message: "Email already verified." });
+    }
+    if (reg.email_verification_token_exp && new Date(reg.email_verification_token_exp) < new Date()) {
+      return res.status(400).json({ ok: false, error: "Verification link has expired. Please request a new one." });
+    }
+    await pool.query(
+      `UPDATE pending_registrations
+          SET email_verified = TRUE,
+              email_verified_at = NOW(),
+              email_verification_token = NULL,
+              email_verification_token_exp = NULL
+        WHERE id = $1`,
+      [reg.id]
+    );
+    // Also mark verified on the users table if already approved
+    await pool.query(
+      `UPDATE users
+          SET email_verified = TRUE, email_verified_at = NOW()
+        WHERE email = $1`,
+      [reg.email]
+    );
+    // Tailor message based on application status
+    const successMsg = reg.status === "approved"
+      ? "Email verified successfully. You can now log in."
+      : "Email verified successfully. Your application is awaiting admin approval — you will be able to log in once approved.";
+    return res.json({ ok: true, message: successMsg });
+  } catch (e) {
+    console.error("[verify-email]", e);
+    res.status(500).json({ ok: false, error: "Server error." });
+  }
+});
+
+/**
+ * POST /api/auth/resend-verification
+ * Resends the verification email (rate-limited, non-disclosing).
+ */
+const resendVerifyLimit = rateLimit({ windowMs: 60 * 60_000, max: 3, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/auth/resend-verification", resendVerifyLimit, async (req, res) => {
+  const genericOk = { ok: true, message: "If your email is pending verification, a new link has been sent." };
+  try {
+    const { email } = req.body || {};
+    if (!email || typeof email !== "string") return res.json(genericOk);
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const { rows } = await pool.query(
+      `SELECT id, email, email_verified, verification_resent_at
+         FROM pending_registrations
+        WHERE email = $1 AND status = 'pending'`,
+      [normalizedEmail]
+    );
+    if (!rows.length) return res.json(genericOk); // do not reveal existence
+
+    const reg = rows[0];
+    if (reg.email_verified) return res.json(genericOk);
+
+    // Rate-limit resends: minimum 5 minutes between resends
+    if (reg.verification_resent_at) {
+      const elapsed = Date.now() - new Date(reg.verification_resent_at).getTime();
+      if (elapsed < 5 * 60_000) return res.json(genericOk);
+    }
+
+    const newToken    = randomBytes(32).toString("hex");
+    const newTokenExp = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await pool.query(
+      `UPDATE pending_registrations
+          SET email_verification_token     = $1,
+              email_verification_token_exp = $2,
+              verification_resent_at       = NOW()
+        WHERE id = $3`,
+      [newToken, newTokenExp, reg.id]
+    );
+
+    sendVerificationEmail(normalizedEmail, newToken).catch((e) =>
+      console.error("[email] resend failed:", e)
+    );
+    return res.json(genericOk);
+  } catch (e) {
+    console.error("[resend-verification]", e);
+    return res.json(genericOk); // always generic
+  }
+});
 
 app.get("/api/admin/registrations", regAdminLimit, async (req, res) => {
   try {
@@ -999,12 +1242,13 @@ app.post("/api/admin/registrations/:id/approve", regAdminLimit, verifyCsrfToken,
     if (!rows.length) return res.status(404).json({ error: "Registration not found or already reviewed." });
     const reg = rows[0];
 
-    // Create the user account
+    // Create the user account (carry over email_verified from pending registration)
     const userId = `user-${randomBytes(16).toString("hex")}`;
     await pool.query(
-      `INSERT INTO users (id, username, email, password_hash, roles)
-       VALUES ($1, $2, $3, $4, '[]'::jsonb)`,
-      [userId, reg.username, reg.email, reg.password_hash]
+      `INSERT INTO users (id, username, email, password_hash, roles, email_verified, email_verified_at)
+       VALUES ($1, $2, $3, $4, '[]'::jsonb, $5, $6)`,
+      [userId, reg.username, reg.email, reg.password_hash,
+       reg.email_verified || false, reg.email_verified_at || null]
     );
 
     // Mark registration as approved
@@ -2903,6 +3147,9 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     // User — absent or session stale.
     // Expose SSO availability so the login page can show the Discourse login button.
     config.sso_enabled = ssoEnabled;
+    // Expose Turnstile config (site key is public; secret key is never sent to client).
+    config.turnstile_enabled  = TURNSTILE_ENABLED;
+    config.turnstile_site_key = TURNSTILE_SITE_KEY;
 
     if (isLoggedIn && !userRows.length) {
       // Session references a deleted user; destroy it silently.

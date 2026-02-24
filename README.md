@@ -89,6 +89,14 @@ Copy `server/.env.example` to `server/.env` and fill in real values:
 | `NODE_ENV` | ✗ | Set to `production` on Render to enable production-mode guards |
 | `DISCOURSE_SSO_ENABLED` | ✗ | Set to `true` to activate DiscourseConnect SSO endpoints (see below) |
 | `DISCOURSE_ENCRYPTION_KEY` | ✗ | 64-char hex AES-256 key for encrypting stored Discourse credentials (defaults to a key derived from `SESSION_SECRET`) |
+| `SMTP_HOST` | ✗ | SMTP server hostname for sending email verification messages (e.g. `smtpout.secureserver.net`) |
+| `SMTP_PORT` | ✗ | SMTP port (default: `465`; uses SSL/TLS when port is 465) |
+| `SMTP_USER` | ✗ | SMTP username / From address (e.g. `support@rulebritannia.org`) |
+| `SMTP_PASS` | ✗ | SMTP password — **never commit this** |
+| `APP_BASE_URL` | ✗ | Base URL for building links in emails (default: `https://rulebritannia.org`) |
+| `TURNSTILE_ENABLED` | ✗ | Set to `true` to activate the Cloudflare Turnstile anti-bot widget on registration |
+| `TURNSTILE_SITE_KEY` | ✗ | Cloudflare Turnstile site key (public; safe to expose to the frontend) |
+| `TURNSTILE_SECRET_KEY` | ✗ | Cloudflare Turnstile secret key — **never commit this** |
 
 #### Setting SESSION_SECRET on Render
 
@@ -225,21 +233,42 @@ Logged in:
 
 ## Registration & Approval Flow
 
-Rule Britannia uses a **gated registration** model — new users apply and must be approved by an admin before they can log in.
+Rule Britannia uses a **gated registration** model. New users must both **verify their email** and be **approved by an admin** before they can log in.
 
 ### How it works
 
-1. **Applicant** visits `/register.html` and submits the registration form (display name, username, email, password, 16+ attestation). No date of birth is collected.
-2. The server stores the application as a **pending registration** in the `pending_registrations` table (password is bcrypt-hashed immediately; the email/username uniqueness check is intentionally non-disclosing).
-3. **Admin** visits the Admin Panel (`/admin-panel.html`) and reviews the _Pending Registrations_ section.
-4. Admin clicks **Approve** — this creates a live `users` record from the pending registration data and marks the application as approved. An audit log entry is created.
-5. Admin clicks **Reject** — the application is marked rejected without creating a user account. An audit log entry is created.
-6. Approved users can now log in via `/login.html`. Pending or rejected applicants cannot log in (no account exists until approval).
+1. **Applicant** visits `/register.html` and submits the registration form (display name, username, email, password, 16+ attestation, optional marketing opt-in). No date of birth is collected. If Cloudflare Turnstile is enabled, the anti-bot challenge is verified server-side before the application is stored.
+2. The server stores the application as a **pending registration** and sends a **verification email** containing a single-use token link (expires after 24 hours).
+3. **Applicant** clicks the link in the email, which loads `/verify-email.html` and calls `GET /api/auth/verify-email?token=…`. This marks `email_verified = true` on the pending registration.
+4. **Admin** visits the Admin Panel (`/admin-panel.html`) and reviews the _Pending Registrations_ section.
+5. Admin clicks **Approve** — this creates a live `users` record from the pending registration data (including the `email_verified` status) and marks the application as approved. An audit log entry is created.
+6. Admin clicks **Reject** — the application is marked rejected without creating a user account.
+7. An approved user can log in **only if their email is also verified**. If verification is outstanding, login is blocked with a clear message.
+
+### Email verification resend
+
+Applicants may request a new verification email via `POST /api/auth/resend-verification` (rate-limited: 3 requests/hour per IP; 5-minute minimum between resends per email). The endpoint is non-disclosing — it always returns a generic success message.
+
+### Marketing opt-in
+
+The registration form includes an **opt-in** checkbox for marketing emails (unchecked by default). Consent and its timestamp are stored in `pending_registrations.marketing_opt_in` / `marketing_opt_in_at`. Transactional emails (e.g. verification) are sent regardless of this preference.
 
 ### Enabling / operating
 
-No additional configuration is required. The `pending_registrations` table is created automatically on server start via `ensureSchema()`. The registration endpoint (`POST /api/register`) is public and rate-limited to 5 requests per hour per IP. Admin endpoints require an authenticated session with the `admin` role and a valid CSRF token.
+No additional configuration is required for basic operation. The relevant tables are created automatically on server start via `ensureSchema()`. For email sending and Turnstile, set the corresponding environment variables (see [Environment variables](#environment-variables) above).
+
+### Policy pages
+
+The following static pages are included:
+
+| Page | URL |
+|---|---|
+| Privacy Notice | `/privacy.html` |
+| Terms of Use | `/terms.html` |
+| Community Rules | `/community-rules.html` |
+| Moderation & Reporting | `/report.html` |
+| Email Verification | `/verify-email.html` |
 
 ### Entry pages
 
-The three entry pages (`/index.html`, `/register.html`, `/login.html`) display a **minimal topbar** containing only the logo, the live simulation clock, a Register link, and a Login link. The "Not logged in" auth-status element and the "Back to Your Office" affordance are suppressed on these pages.
+The four entry pages (`/index.html`, `/register.html`, `/login.html`, `/verify-email.html`) display a **minimal topbar** and a footer linking to the policy pages.

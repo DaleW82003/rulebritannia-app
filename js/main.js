@@ -53,6 +53,7 @@ import { initAdminPanelPage } from "./pages/admin-panel.js";
 import { initLoginPage } from "./pages/login.js";
 import { initLandingPage } from "./pages/landing.js";
 import { initRegisterPage } from "./pages/register.js";
+import { initVerifyEmailPage } from "./pages/verify-email.js";
 
 function showBootError(err) {
   console.error(err);
@@ -169,6 +170,7 @@ function renderDataSourcePanel(sources) {
       login: initLoginPage,
       landing: initLandingPage,
       register: initRegisterPage,
+      "verify-email": initVerifyEmailPage,
     };
 
     const init = routes[page];
