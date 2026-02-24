@@ -694,14 +694,17 @@ export async function apiGetDivision(id) {
   return res.json();
 }
 
-export async function apiCreateDivision(payload) {
+export async function apiCreateDivision(entityType, entityId, title = "", closesAtSim = null) {
   const res = await fetch(`${API_BASE}/api/divisions/create`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ entity_type: entityType, entity_id: entityId, title, closes_at_sim: closesAtSim }),
   });
-  if (!res.ok) throw new Error(`apiCreateDivision failed (${res.status})`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiCreateDivision failed (${res.status})`);
+  }
   return res.json();
 }
 
@@ -721,8 +724,26 @@ export async function apiCloseDivision(id) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: "{}",
   });
-  if (!res.ok) throw new Error(`apiCloseDivision failed (${res.status})`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiCloseDivision failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiCastVote(divisionId, vote, weight = 1) {
+  const res = await fetch(`${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}/vote`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ vote, weight }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiCastVote failed (${res.status})`);
+  }
   return res.json();
 }
 
@@ -1055,5 +1076,113 @@ export async function apiModScandalTemplateUpsert(payload) {
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`apiModScandalTemplateUpsert failed (${res.status})`);
+  return res.json();
+}
+
+// ── Divisions (DB-backed) ──────────────────────────────────────────────────
+
+export async function apiGetDivisionForEntity(entityType, entityId) {
+  const res = await fetch(
+    `${API_BASE}/api/divisions/for-entity/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`,
+    { credentials: "include" }
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetDivisionForEntity failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSetNpcVotes(divisionId, npcVotes, rebelsByParty = {}) {
+  const res = await fetch(`${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}/npc-votes`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ npc_votes: npcVotes, rebels_by_party: rebelsByParty }),
+  });
+  if (!res.ok) throw new Error(`apiSetNpcVotes failed (${res.status})`);
+  return res.json();
+}
+
+// ── Whip system ───────────────────────────────────────────────────────────
+
+export async function apiSetChiefWhip(partyId, chiefWhipId, deputyWhipId = null) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/chief-whip`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ chiefWhipId, deputyWhipId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiSetChiefWhip failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiGetPartyInstruction(divisionId, partySlug) {
+  const res = await fetch(
+    `${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}/party-instruction/${encodeURIComponent(partySlug)}`,
+    { credentials: "include" }
+  );
+  if (!res.ok) throw new Error(`apiGetPartyInstruction failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSetPartyInstruction(divisionId, body) {
+  const res = await fetch(
+    `${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}/party-instruction`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...csrfHeaders() },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b.error || `apiSetPartyInstruction failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiGetRebelRequest(divisionId) {
+  const res = await fetch(
+    `${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}/rebel-request`,
+    { credentials: "include" }
+  );
+  if (!res.ok) throw new Error(`apiGetRebelRequest failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSubmitRebelRequest(divisionId, requestedVote, message = "") {
+  const res = await fetch(
+    `${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}/rebel-request`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...csrfHeaders() },
+      body: JSON.stringify({ requestedVote, message }),
+    }
+  );
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b.error || `apiSubmitRebelRequest failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiDecideRebelRequest(divisionId, requestId, decision) {
+  const res = await fetch(
+    `${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}/rebel-request/${encodeURIComponent(requestId)}/decide`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...csrfHeaders() },
+      body: JSON.stringify({ status: decision }),
+    }
+  );
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b.error || `apiDecideRebelRequest failed (${res.status})`);
+  }
   return res.json();
 }

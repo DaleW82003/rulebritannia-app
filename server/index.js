@@ -644,18 +644,79 @@ async function ensureSchema() {
   `);
 
   // ── Parties ───────────────────────────────────────────────────────────────
+  // New installs: create with UUID PK + slug.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS parties (
-      id                    TEXT PRIMARY KEY,
-      name                  TEXT NOT NULL,
-      short_name            TEXT NOT NULL DEFAULT '',
-      leader_character_id   UUID REFERENCES characters(id) ON DELETE SET NULL,
-      chairman_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
-      whip_character_id     UUID REFERENCES characters(id) ON DELETE SET NULL,
-      treasury              JSONB NOT NULL DEFAULT '{}'::jsonb,
-      hq_url                TEXT,
-      updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      slug                     TEXT UNIQUE NOT NULL,
+      name                     TEXT NOT NULL,
+      short_name               TEXT NOT NULL DEFAULT '',
+      leader_character_id      UUID REFERENCES characters(id) ON DELETE SET NULL,
+      chairman_character_id    UUID REFERENCES characters(id) ON DELETE SET NULL,
+      whip_character_id        UUID REFERENCES characters(id) ON DELETE SET NULL,
+      chief_whip_character_id  UUID REFERENCES characters(id) ON DELETE SET NULL,
+      deputy_whip_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      treasury                 JSONB NOT NULL DEFAULT '{}'::jsonb,
+      hq_url                   TEXT,
+      updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  // Migration: if the table still has a TEXT primary key (legacy install), recreate it with UUID PK.
+  // The parties table has no inbound FK references so this rename-recreate is safe.
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'parties' AND column_name = 'id' AND data_type = 'text'
+      ) THEN
+        ALTER TABLE parties RENAME TO parties_text_backup;
+        CREATE TABLE parties (
+          id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          slug                     TEXT UNIQUE NOT NULL,
+          name                     TEXT NOT NULL,
+          short_name               TEXT NOT NULL DEFAULT '',
+          leader_character_id      UUID REFERENCES characters(id) ON DELETE SET NULL,
+          chairman_character_id    UUID REFERENCES characters(id) ON DELETE SET NULL,
+          whip_character_id        UUID REFERENCES characters(id) ON DELETE SET NULL,
+          chief_whip_character_id  UUID REFERENCES characters(id) ON DELETE SET NULL,
+          deputy_whip_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+          treasury                 JSONB NOT NULL DEFAULT '{}'::jsonb,
+          hq_url                   TEXT,
+          updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        INSERT INTO parties
+          (slug, name, short_name, leader_character_id, chairman_character_id,
+           whip_character_id, treasury, hq_url, updated_at)
+        SELECT id, name, short_name, leader_character_id, chairman_character_id,
+               whip_character_id, treasury, hq_url, updated_at
+          FROM parties_text_backup;
+        DROP TABLE parties_text_backup;
+      END IF;
+    END $$;
+  `);
+
+  // Idempotent migrations for existing UUID-pk parties tables.
+  await pool.query(`
+    ALTER TABLE parties
+      ADD COLUMN IF NOT EXISTS slug                     TEXT,
+      ADD COLUMN IF NOT EXISTS chief_whip_character_id  UUID REFERENCES characters(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS deputy_whip_character_id UUID REFERENCES characters(id) ON DELETE SET NULL;
+  `);
+  // Backfill slug = name where slug is NULL (covers any edge case before UNIQUE constraint).
+  await pool.query(`UPDATE parties SET slug = name WHERE slug IS NULL`);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'parties_slug_key'
+      ) THEN
+        ALTER TABLE parties ALTER COLUMN slug SET NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS parties_slug_key ON parties (slug);
+        ALTER TABLE parties ADD CONSTRAINT parties_slug_key UNIQUE USING INDEX parties_slug_key;
+      END IF;
+    END $$;
   `);
 
   // ── Scandal system ────────────────────────────────────────────────────────
@@ -762,7 +823,94 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS scandal_mod_decisions_scandal_idx ON scandal_mod_decisions (scandal_id);
   `);
 
+  // ── Extra divisions columns (idempotent) ──────────────────────────────────
+  await pool.query(`
+    ALTER TABLE divisions
+      ADD COLUMN IF NOT EXISTS closes_at_sim   TEXT,
+      ADD COLUMN IF NOT EXISTS npc_votes       JSONB NOT NULL DEFAULT '{}',
+      ADD COLUMN IF NOT EXISTS rebels_by_party JSONB NOT NULL DEFAULT '{}',
+      ADD COLUMN IF NOT EXISTS outcome         TEXT;
+  `);
+
+  // ── Division whip system tables ───────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS division_party_instructions (
+      id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      division_id         UUID NOT NULL REFERENCES divisions(id) ON DELETE CASCADE,
+      party_slug          TEXT NOT NULL,
+      position            TEXT NOT NULL CHECK (position IN ('aye','no','abstain','free')),
+      whip_level          INT  NOT NULL DEFAULT 0 CHECK (whip_level IN (0,1,2,3)),
+      note                TEXT,
+      set_by_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      set_by_user_id      TEXT,
+      set_at_sim          TEXT,
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (division_id, party_slug)
+    );
+    CREATE INDEX IF NOT EXISTS dpi_division_idx ON division_party_instructions (division_id);
+    CREATE INDEX IF NOT EXISTS dpi_party_idx    ON division_party_instructions (party_slug);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS division_rebellion_log (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      division_id     UUID NOT NULL REFERENCES divisions(id) ON DELETE CASCADE,
+      character_id    UUID REFERENCES characters(id) ON DELETE SET NULL,
+      party_slug      TEXT NOT NULL,
+      party_position  TEXT NOT NULL,
+      mp_vote         TEXT NOT NULL,
+      whip_level      INT  NOT NULL DEFAULT 0,
+      recorded_at_sim TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS drl_division_idx ON division_rebellion_log (division_id);
+    CREATE INDEX IF NOT EXISTS drl_char_idx     ON division_rebellion_log (character_id);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS division_rebel_requests (
+      id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      division_id             UUID NOT NULL REFERENCES divisions(id) ON DELETE CASCADE,
+      character_id            UUID REFERENCES characters(id) ON DELETE SET NULL,
+      party_slug              TEXT NOT NULL,
+      requested_vote          TEXT NOT NULL CHECK (requested_vote IN ('aye','no','abstain')),
+      message                 TEXT,
+      status                  TEXT NOT NULL DEFAULT 'pending'
+                              CHECK (status IN ('pending','granted','refused','cancelled')),
+      decided_by_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      decided_by_user_id      TEXT,
+      decided_at_sim          TEXT,
+      created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS drr_division_idx ON division_rebel_requests (division_id);
+    CREATE INDEX IF NOT EXISTS drr_char_idx     ON division_rebel_requests (character_id);
+  `);
+
+  await seedPlayableParties();
   await seedScandalTemplates();
+}
+
+// The three playable parties for Rule Britannia.
+const PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
+
+/**
+ * Idempotent upsert of the three canonical parties.
+ */
+async function seedPlayableParties() {
+  const parties = [
+    { slug: "Conservative",     name: "Conservative",     short_name: "CON" },
+    { slug: "Labour",           name: "Labour",           short_name: "LAB" },
+    { slug: "Liberal Democrat", name: "Liberal Democrat", short_name: "LDM" },
+  ];
+  for (const p of parties) {
+    await pool.query(
+      `INSERT INTO parties (slug, name, short_name)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (slug) DO NOTHING`,
+      [p.slug, p.name, p.short_name]
+    );
+  }
 }
 
 /**
@@ -4158,6 +4306,11 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
       return res.status(400).json({ error: "name is required" });
     }
 
+    // Only the three canonical playable parties are accepted.
+    if (party && !PLAYABLE_PARTIES.includes(party)) {
+      return res.status(400).json({ error: `party must be one of: ${PLAYABLE_PARTIES.join(", ")}` });
+    }
+
     // Check applicant has no active character
     const { rows: existing } = await pool.query(
       "SELECT id FROM characters WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
@@ -4395,14 +4548,18 @@ app.get("/api/parties/:partyId", partyReadLimit, async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT p.*,
-              lc.id   AS leader_id,   lc.name AS leader_name,   lc.avatar AS leader_avatar,
-              cc.id   AS chairman_id, cc.name AS chairman_name, cc.avatar AS chairman_avatar,
-              wc.id   AS whip_id,     wc.name AS whip_name,     wc.avatar AS whip_avatar
+              lc.id   AS leader_id,      lc.name AS leader_name,      lc.avatar AS leader_avatar,
+              cc.id   AS chairman_id,    cc.name AS chairman_name,    cc.avatar AS chairman_avatar,
+              wc.id   AS whip_id,        wc.name AS whip_name,        wc.avatar AS whip_avatar,
+              cw.id   AS chief_whip_id,  cw.name AS chief_whip_name,  cw.avatar AS chief_whip_avatar,
+              dw.id   AS deputy_whip_id, dw.name AS deputy_whip_name, dw.avatar AS deputy_whip_avatar
          FROM parties p
          LEFT JOIN characters lc ON lc.id = p.leader_character_id
          LEFT JOIN characters cc ON cc.id = p.chairman_character_id
          LEFT JOIN characters wc ON wc.id = p.whip_character_id
-        WHERE p.id = $1`,
+         LEFT JOIN characters cw ON cw.id = p.chief_whip_character_id
+         LEFT JOIN characters dw ON dw.id = p.deputy_whip_character_id
+        WHERE p.slug = $1`,
       [req.params.partyId]
     );
     if (!rows.length) return res.status(404).json({ error: "Party not found" });
@@ -4431,7 +4588,7 @@ app.post("/api/parties/:partyId/leadership", partyWriteLimit, async (req, res) =
         return res.status(403).json({ error: "No active character selected" });
       }
       const { rows: partyRows } = await pool.query(
-        "SELECT leader_character_id FROM parties WHERE id = $1",
+        "SELECT leader_character_id FROM parties WHERE slug = $1",
         [req.params.partyId]
       );
       if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
@@ -4441,7 +4598,7 @@ app.post("/api/parties/:partyId/leadership", partyWriteLimit, async (req, res) =
     }
 
     // Validate party exists
-    const { rows: partyRows } = await pool.query("SELECT * FROM parties WHERE id = $1", [req.params.partyId]);
+    const { rows: partyRows } = await pool.query("SELECT * FROM parties WHERE slug = $1", [req.params.partyId]);
     if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
     const partyData = partyRows[0];
 
@@ -4452,7 +4609,7 @@ app.post("/api/parties/:partyId/leadership", partyWriteLimit, async (req, res) =
         [character_id]
       );
       if (!charRows.length) return res.status(404).json({ error: "Character not found or inactive" });
-      if (charRows[0].party.toLowerCase() !== partyData.name.toLowerCase()) {
+      if (charRows[0].party.toLowerCase() !== partyData.slug.toLowerCase()) {
         return res.status(409).json({ error: "Character does not belong to this party" });
       }
     }
@@ -4460,18 +4617,70 @@ app.post("/api/parties/:partyId/leadership", partyWriteLimit, async (req, res) =
     // Use conditional to avoid string interpolation in SQL (no dynamic column names)
     let updateQ, colKey;
     if (role === "chairman") {
-      updateQ = "UPDATE parties SET chairman_character_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *";
+      updateQ = "UPDATE parties SET chairman_character_id = $1, updated_at = NOW() WHERE slug = $2 RETURNING *";
       colKey = "chairman_character_id";
     } else {
-      updateQ = "UPDATE parties SET whip_character_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *";
+      updateQ = "UPDATE parties SET whip_character_id = $1, updated_at = NOW() WHERE slug = $2 RETURNING *";
       colKey = "whip_character_id";
     }
     const { rows: updated } = await pool.query(updateQ, [character_id || null, req.params.partyId]);
 
     await writeAuditLog(
-      req.session.userId, `party.leadership.set_${role}`, "party", req.params.partyId,
+      req.session.userId, `party.leadership.set_${role}`, "party", partyData.id,
       { [colKey]: partyData[colKey] },
       { [colKey]: character_id || null }
+    );
+    res.json({ ok: true, party: updated[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/parties/:partyId/chief-whip
+// Body: { chiefWhipId: UUID|null, deputyWhipId?: UUID|null }
+// Requires: party leader OR admin/mod
+app.post("/api/parties/:partyId/chief-whip", partyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { chiefWhipId = null, deputyWhipId = null } = req.body || {};
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+
+    const { rows: partyRows } = await pool.query(
+      "SELECT * FROM parties WHERE slug = $1", [req.params.partyId]
+    );
+    if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
+    const partyData = partyRows[0];
+
+    if (!isAdminOrMod) {
+      if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
+      if (String(partyData.leader_character_id) !== String(req.session.characterId)) {
+        return res.status(403).json({ error: "Only the party leader (or admin/mod) can assign whips" });
+      }
+    }
+
+    // Validate chief whip belongs to party if given
+    if (chiefWhipId) {
+      const { rows: charRows } = await pool.query(
+        "SELECT party FROM characters WHERE id = $1 AND is_active = TRUE", [chiefWhipId]
+      );
+      if (!charRows.length) return res.status(404).json({ error: "Chief whip character not found or inactive" });
+      if (charRows[0].party.toLowerCase() !== partyData.slug.toLowerCase()) {
+        return res.status(409).json({ error: "Chief whip character does not belong to this party" });
+      }
+    }
+
+    const { rows: updated } = await pool.query(
+      `UPDATE parties SET chief_whip_character_id = $1, deputy_whip_character_id = $2, updated_at = NOW()
+        WHERE slug = $3 RETURNING *`,
+      [chiefWhipId || null, deputyWhipId || null, req.params.partyId]
+    );
+    await writeAuditLog(req.session.userId, "party.chief_whip.set", "party", partyData.id,
+      { chief_whip_character_id: partyData.chief_whip_character_id, deputy_whip_character_id: partyData.deputy_whip_character_id },
+      { chief_whip_character_id: chiefWhipId || null, deputy_whip_character_id: deputyWhipId || null }
     );
     res.json({ ok: true, party: updated[0] });
   } catch (e) {
@@ -4637,18 +4846,23 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
   }
 });
 
+// POST /api/divisions/create — admin/mod/speaker: create a division for a given entity
 app.post("/api/divisions/create", divWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
-    const { entity_type, entity_id, title = "", closes_at } = req.body || {};
+    if (!requireAuth(req, res)) return;
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const canCreate = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    if (!canCreate) return res.status(403).json({ error: "admin, mod or speaker role required" });
+
+    const { entity_type, entity_id, title = "", closes_at, closes_at_sim } = req.body || {};
     if (!entity_type || !entity_id) {
       return res.status(400).json({ error: "entity_type and entity_id are required" });
     }
     const { rows } = await pool.query(
-      `INSERT INTO divisions (entity_type, entity_id, title, closes_at)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, entity_type, entity_id, title, status, closes_at, created_at`,
-      [entity_type, String(entity_id), title, closes_at || null]
+      `INSERT INTO divisions (entity_type, entity_id, title, closes_at, closes_at_sim)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, entity_type, entity_id, title, status, closes_at, closes_at_sim, npc_votes, rebels_by_party, outcome, created_at`,
+      [entity_type, String(entity_id), title, closes_at || null, closes_at_sim || null]
     );
     await writeAuditLog(req.session.userId, "division.create", "division", rows[0].id, null, rows[0]);
     res.status(201).json({ ok: true, division: rows[0] });
@@ -4658,32 +4872,65 @@ app.post("/api/divisions/create", divWriteLimit, async (req, res) => {
   }
 });
 
+// GET /api/divisions/for-entity/:entityType/:entityId — look up a division by entity
+app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { entityType, entityId } = req.params;
+    const { rows } = await pool.query(
+      `SELECT id, entity_type, entity_id, title, status, closes_at, closes_at_sim,
+              npc_votes, rebels_by_party, outcome, created_at
+         FROM divisions WHERE entity_type = $1 AND entity_id = $2
+        ORDER BY created_at DESC LIMIT 1`,
+      [entityType, entityId]
+    );
+    if (!rows.length) return res.status(404).json({ error: "No division found for this entity" });
+
+    const division = rows[0];
+
+    // Tally
+    const { rows: votes } = await pool.query(
+      `SELECT vote, SUM(weight) AS total_weight, COUNT(*) AS count
+         FROM division_votes WHERE division_id = $1
+        GROUP BY vote`,
+      [division.id]
+    );
+    const tally = { aye: 0, no: 0, abstain: 0 };
+    votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
+
+    // Caller's own vote
+    const charId = await getActiveCharacterId(req);
+    let myVote = null;
+    if (charId) {
+      const { rows: mv } = await pool.query(
+        "SELECT vote, weight FROM division_votes WHERE division_id = $1 AND character_id = $2",
+        [division.id, charId]
+      );
+      myVote = mv[0] || null;
+    }
+
+    res.json({ division, tally, myVote });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/divisions/:id/vote — cast or update the caller's vote
+// Body: { vote: 'aye'|'no'|'abstain', weight?: number }
 app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { character_id, vote, weight = 1 } = req.body || {};
-    if (!character_id || !vote) {
-      return res.status(400).json({ error: "character_id and vote are required" });
-    }
+    const { vote, weight = 1 } = req.body || {};
+    if (!vote) return res.status(400).json({ error: "vote is required" });
     const validVotes = ["aye", "no", "abstain"];
     if (!validVotes.includes(vote)) {
       return res.status(400).json({ error: `vote must be one of: ${validVotes.join(", ")}` });
     }
 
-    // Character ownership check: admin and mod may vote on behalf of any character;
-    // regular users may only vote with a character they own (user_id matches session).
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
-    if (!isStaff) {
-      const { rows: charRows } = await pool.query(
-        "SELECT user_id FROM characters WHERE id = $1",
-        [character_id]
-      );
-      if (!charRows.length) return res.status(404).json({ error: "Character not found" });
-      if (charRows[0].user_id !== req.session.userId) {
-        return res.status(403).json({ error: "Forbidden: you may only vote with your own character" });
-      }
-    }
+    // Resolve the active character for the caller
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(403).json({ error: "No active character. Select a character first." });
 
     // Verify division is open
     const { rows: divRows } = await pool.query(
@@ -4693,55 +4940,333 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
     if (!divRows.length) return res.status(404).json({ error: "Division not found" });
     if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
 
-    const { rows } = await pool.query(
+    // Get character party for rebellion check
+    const { rows: charRows } = await pool.query(
+      "SELECT party FROM characters WHERE id = $1", [charId]
+    );
+    const charParty = charRows[0]?.party || null;
+
+    // Save vote (upsert)
+    const { rows: voteRows } = await pool.query(
       `INSERT INTO division_votes (division_id, character_id, vote, weight)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (division_id, character_id)
        DO UPDATE SET vote = EXCLUDED.vote, weight = EXCLUDED.weight, voted_at = NOW()
        RETURNING id, division_id, character_id, vote, weight, voted_at`,
-      [req.params.id, character_id, vote, Math.max(1, parseInt(weight, 10) || 1)]
+      [req.params.id, charId, vote, Math.max(1, parseInt(weight, 10) || 1)]
     );
-    res.json({ ok: true, vote: rows[0] });
+
+    // Rebellion logging: check if party instruction exists and vote differs
+    if (charParty) {
+      try {
+        const { rows: instrRows } = await pool.query(
+          `SELECT position, whip_level, set_at_sim FROM division_party_instructions
+            WHERE division_id = $1 AND party_slug = $2`,
+          [req.params.id, charParty]
+        );
+        if (instrRows.length) {
+          const instr = instrRows[0];
+          if (instr.position !== "free" && instr.position !== vote) {
+            // Get current sim date for recording
+            const { rows: clk } = await pool.query(
+              "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+            );
+            const sm = clk[0]?.sim_current_month ?? 8;
+            const sy = clk[0]?.sim_current_year  ?? 1997;
+            const simStr = `${sy}-${String(sm).padStart(2, "0")}`;
+            await pool.query(
+              `INSERT INTO division_rebellion_log
+                 (division_id, character_id, party_slug, party_position, mp_vote, whip_level, recorded_at_sim)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              [req.params.id, charId, charParty, instr.position, vote, instr.whip_level, simStr]
+            );
+          }
+        }
+      } catch (rebErr) {
+        console.error("[division.vote rebellion-log]", rebErr.message);
+      }
+    }
+
+    // Return updated tally
+    const { rows: tallyRows } = await pool.query(
+      `SELECT vote, SUM(weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
+      [req.params.id]
+    );
+    const tally = { aye: 0, no: 0, abstain: 0 };
+    tallyRows.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
+
+    res.json({ ok: true, vote: voteRows[0], tally });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
   }
 });
 
+// POST /api/divisions/:id/close — admin/mod/speaker: close a division and compute outcome
 app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAuth(req, res)) return;
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const canClose = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    if (!canClose) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       const { rows: divRows } = await client.query(
-        "SELECT id, status, entity_type, entity_id, title FROM divisions WHERE id = $1 FOR UPDATE",
+        "SELECT id, status, entity_type, entity_id, title, npc_votes, rebels_by_party FROM divisions WHERE id = $1 FOR UPDATE",
         [req.params.id]
       );
       if (!divRows.length) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Division not found" }); }
       if (divRows[0].status === "closed") { await client.query("ROLLBACK"); return res.status(409).json({ error: "Already closed" }); }
 
-      await client.query("UPDATE divisions SET status = 'closed' WHERE id = $1", [req.params.id]);
-
-      // Compute weighted tally
+      // Compute player tally
       const { rows: votes } = await client.query(
-        `SELECT vote, SUM(weight) AS total_weight, COUNT(*) AS count
-           FROM division_votes WHERE division_id = $1 GROUP BY vote`,
+        `SELECT vote, SUM(weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
         [req.params.id]
       );
       const tally = { aye: 0, no: 0, abstain: 0 };
       votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
 
+      // Add NPC votes — npc_votes: { "Labour": "aye" }, rebels_by_party: { "Labour_seats": 400, "Labour": 5 }
+      // Seat counts are stored under the `${party}_seats` key in rebels_by_party by the caller (admin/speaker).
+      const npcVotes    = divRows[0].npc_votes    || {};
+      const rebelsByPty = divRows[0].rebels_by_party || {};
+      for (const [party, npcVote] of Object.entries(npcVotes)) {
+        if (tally[npcVote] === undefined) continue;
+        const seats  = Number(rebelsByPty[`${party}_seats`] || 0);
+        const rebels = Number(rebelsByPty[party] || 0);
+        if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
+      }
+
+      const outcome = tally.aye > tally.no ? "passed" : tally.no > tally.aye ? "failed" : "tied";
+      await client.query(
+        "UPDATE divisions SET status = 'closed', outcome = $2 WHERE id = $1",
+        [req.params.id, outcome]
+      );
+
       await client.query("COMMIT");
-      await writeAuditLog(req.session.userId, "division.close", "division", req.params.id, divRows[0], { ...divRows[0], status: "closed", tally });
-      res.json({ ok: true, division: { ...divRows[0], status: "closed" }, tally });
+      await writeAuditLog(req.session.userId, "division.close", "division", req.params.id, divRows[0], { ...divRows[0], status: "closed", tally, outcome });
+      res.json({ ok: true, division: { ...divRows[0], status: "closed", outcome }, tally });
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
     } finally {
       client.release();
     }
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PATCH /api/divisions/:id/npc-votes — admin/mod/speaker: set NPC vote positions and rebel counts
+app.patch("/api/divisions/:id/npc-votes", divWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const canSet = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    if (!canSet) return res.status(403).json({ error: "admin, mod or speaker role required" });
+
+    const { npc_votes = {}, rebels_by_party = {} } = req.body || {};
+    const { rows } = await pool.query(
+      `UPDATE divisions SET npc_votes = $1::jsonb, rebels_by_party = $2::jsonb
+        WHERE id = $3
+       RETURNING id, npc_votes, rebels_by_party`,
+      [JSON.stringify(npc_votes), JSON.stringify(rebels_by_party), req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Division not found" });
+    res.json({ ok: true, division: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Division party instruction endpoints ────────────────────────────────────
+// POST /api/divisions/:divisionId/party-instruction
+// Body: { partySlug, position, whipLevel, note? }
+// Requires: chief whip of that party, party leader, or admin/mod
+app.post("/api/divisions/:divisionId/party-instruction", divWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { partySlug, position, whipLevel = 0, note = "" } = req.body || {};
+    if (!partySlug || !position) return res.status(400).json({ error: "partySlug and position are required" });
+    const validPos = ["aye", "no", "abstain", "free"];
+    if (!validPos.includes(position)) return res.status(400).json({ error: `position must be one of: ${validPos.join(", ")}` });
+    if (![0,1,2,3].includes(Number(whipLevel))) return res.status(400).json({ error: "whipLevel must be 0, 1, 2 or 3" });
+
+    // Verify division exists
+    const { rows: divRows } = await pool.query("SELECT id FROM divisions WHERE id = $1", [req.params.divisionId]);
+    if (!divRows.length) return res.status(404).json({ error: "Division not found" });
+
+    // Permission: admin/mod OR chief whip/leader of the party
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      const charId = await getActiveCharacterId(req);
+      if (!charId) return res.status(403).json({ error: "No active character" });
+      const { rows: ptyRows } = await pool.query(
+        "SELECT leader_character_id, chief_whip_character_id FROM parties WHERE slug = $1", [partySlug]
+      );
+      if (!ptyRows.length) return res.status(404).json({ error: "Party not found" });
+      const allowed = [String(ptyRows[0].leader_character_id), String(ptyRows[0].chief_whip_character_id)];
+      if (!allowed.includes(String(charId))) {
+        return res.status(403).json({ error: "Only the party leader or chief whip can set party instructions" });
+      }
+    }
+
+    const charId = await getActiveCharacterId(req);
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+    const simStr = `${sy}-${String(sm).padStart(2, "0")}`;
+
+    const { rows } = await pool.query(
+      `INSERT INTO division_party_instructions
+         (division_id, party_slug, position, whip_level, note, set_by_character_id, set_by_user_id, set_at_sim)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (division_id, party_slug)
+       DO UPDATE SET position = EXCLUDED.position, whip_level = EXCLUDED.whip_level,
+                     note = EXCLUDED.note, set_by_character_id = EXCLUDED.set_by_character_id,
+                     set_by_user_id = EXCLUDED.set_by_user_id, set_at_sim = EXCLUDED.set_at_sim,
+                     updated_at = now()
+       RETURNING *`,
+      [req.params.divisionId, partySlug, position, Number(whipLevel), note || null, charId || null, req.session.userId, simStr]
+    );
+    res.json({ ok: true, instruction: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/divisions/:divisionId/party-instruction/:partySlug
+app.get("/api/divisions/:divisionId/party-instruction/:partySlug", divReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT dpi.*, c.name AS set_by_name
+         FROM division_party_instructions dpi
+         LEFT JOIN characters c ON c.id = dpi.set_by_character_id
+        WHERE dpi.division_id = $1 AND dpi.party_slug = $2`,
+      [req.params.divisionId, req.params.partySlug]
+    );
+    if (!rows.length) return res.json({ instruction: null });
+    res.json({ instruction: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/divisions/:divisionId/rebel-request
+// Body: { requestedVote, message? }
+app.post("/api/divisions/:divisionId/rebel-request", divWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { requestedVote, message = "" } = req.body || {};
+    if (!requestedVote || !["aye","no","abstain"].includes(requestedVote)) {
+      return res.status(400).json({ error: "requestedVote must be aye, no or abstain" });
+    }
+
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(403).json({ error: "No active character" });
+
+    const { rows: charRows } = await pool.query("SELECT party FROM characters WHERE id = $1", [charId]);
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+    const partySlug = charRows[0].party;
+
+    const { rows: divRows } = await pool.query("SELECT id FROM divisions WHERE id = $1", [req.params.divisionId]);
+    if (!divRows.length) return res.status(404).json({ error: "Division not found" });
+
+    // Cancel any existing pending request before creating a new one
+    await pool.query(
+      `UPDATE division_rebel_requests SET status = 'cancelled'
+        WHERE division_id = $1 AND character_id = $2 AND status = 'pending'`,
+      [req.params.divisionId, charId]
+    );
+
+    const { rows } = await pool.query(
+      `INSERT INTO division_rebel_requests (division_id, character_id, party_slug, requested_vote, message)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [req.params.divisionId, charId, partySlug, requestedVote, message || null]
+    );
+    res.status(201).json({ ok: true, request: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/divisions/:divisionId/rebel-request — caller's own rebel request
+app.get("/api/divisions/:divisionId/rebel-request", divReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.json({ request: null });
+    const { rows } = await pool.query(
+      `SELECT r.*, c.name AS decided_by_name
+         FROM division_rebel_requests r
+         LEFT JOIN characters c ON c.id = r.decided_by_character_id
+        WHERE r.division_id = $1 AND r.character_id = $2
+        ORDER BY r.created_at DESC LIMIT 1`,
+      [req.params.divisionId, charId]
+    );
+    res.json({ request: rows[0] || null });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/divisions/:divisionId/rebel-request/:requestId/decide
+// Body: { status: 'granted'|'refused' }
+// Requires: chief whip, party leader, or admin/mod
+app.post("/api/divisions/:divisionId/rebel-request/:requestId/decide", divWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { status: decision } = req.body || {};
+    if (!["granted","refused"].includes(decision)) {
+      return res.status(400).json({ error: "status must be 'granted' or 'refused'" });
+    }
+
+    const { rows: reqRows } = await pool.query(
+      "SELECT * FROM division_rebel_requests WHERE id = $1 AND division_id = $2",
+      [req.params.requestId, req.params.divisionId]
+    );
+    if (!reqRows.length) return res.status(404).json({ error: "Request not found" });
+    if (reqRows[0].status !== "pending") return res.status(409).json({ error: "Request is no longer pending" });
+
+    const partySlug = reqRows[0].party_slug;
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      const charId = await getActiveCharacterId(req);
+      if (!charId) return res.status(403).json({ error: "No active character" });
+      const { rows: ptyRows } = await pool.query(
+        "SELECT leader_character_id, chief_whip_character_id FROM parties WHERE slug = $1", [partySlug]
+      );
+      if (!ptyRows.length) return res.status(404).json({ error: "Party not found" });
+      const allowed = [String(ptyRows[0].leader_character_id), String(ptyRows[0].chief_whip_character_id)];
+      if (!allowed.includes(String(charId))) {
+        return res.status(403).json({ error: "Only the party leader or chief whip can decide rebel requests" });
+      }
+    }
+
+    const deciderId = await getActiveCharacterId(req);
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+    const simStr = `${sy}-${String(sm).padStart(2, "0")}`;
+
+    const { rows } = await pool.query(
+      `UPDATE division_rebel_requests
+          SET status = $1, decided_by_character_id = $2, decided_by_user_id = $3, decided_at_sim = $4
+        WHERE id = $5 RETURNING *`,
+      [decision, deciderId || null, req.session.userId, simStr, req.params.requestId]
+    );
+    res.json({ ok: true, request: rows[0] });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

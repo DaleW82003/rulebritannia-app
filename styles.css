@@ -1228,3 +1228,37 @@ input.invalid, textarea.invalid, select.invalid{
   border-bottom:1px dashed rgba(11,27,58,.08);
 }
 .division-party-row:last-child{ border-bottom:none; }
+
+/* ── Whip system styles ────────────────────────────────────────────────── */
+.whip-badge{
+  display:inline-block;
+  font-size:11px;
+  font-weight:700;
+  padding:2px 8px;
+  border-radius:10px;
+  margin-right:6px;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+.whip-badge.free{ background:#e8e8e8; color:#555; }
+.whip-badge.level-0{ background:#e8e8e8; color:#555; }
+.whip-badge.level-1{ background:#fff3cd; color:#856404; border:1px solid #ffc107; }
+.whip-badge.level-2{ background:#ffe0b2; color:#8a3a00; border:1px solid #ff9800; }
+.whip-badge.level-3{ background:#fdd; color:#9b0000; border:1px solid #e53935; }
+.whip-instruction{
+  padding:8px 12px;
+  border-radius:8px;
+  background:rgba(11,27,58,.04);
+  border:1px solid rgba(11,27,58,.10);
+  font-size:13px;
+  margin-bottom:8px;
+}
+.rebel-request{
+  padding:8px 12px;
+  border-radius:8px;
+  font-size:13px;
+  margin-top:8px;
+}
+.rebel-request.pending{ background:#fff8e1; border:1px solid #ffc107; }
+.rebel-request.granted{ background:#e8f5e9; border:1px solid #4caf50; }
+.rebel-request.refused{ background:#ffebed; border:1px solid #ef9a9a; }
