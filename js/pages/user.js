@@ -69,6 +69,17 @@ function openConstituencyOptions(data) {
   return all.filter((c) => !seatTaken(data, c.name) && !pending.has(String(c.name || "").toLowerCase()));
 }
 
+function openConstituencyOptionsForParty(data, partyName) {
+  const pending = new Set((data.userManagement?.pendingCharacters || []).map((p) => String(p.constituency || "").toLowerCase()));
+  const all = (data.constituencies || []).slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  return all.filter((c) => {
+    if (seatTaken(data, c.name)) return false;
+    if (pending.has(String(c.name || "").toLowerCase())) return false;
+    if (partyName && String(c.party || "") !== partyName) return false;
+    return true;
+  });
+}
+
 function normaliseUserData(data) {
   data.userManagement ??= {};
   data.userManagement.accounts ??= [
@@ -337,24 +348,46 @@ function render(data, state) {
         <summary><b>Create Character (Moderator approval required)</b></summary>
         <form id="create-character-form" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
           <input class="input" name="name" placeholder="Name" required>
-          <input class="input" name="date_of_birth" placeholder="Date of birth" required>
-          <input class="input" name="education" placeholder="Education" required>
+          <input class="input" type="date" name="date_of_birth" required>
+          <select class="input" name="education" required>
+            <option value="">Education level</option>
+            <option value="No Qualifications">No Qualifications</option>
+            <option value="GCSEs">GCSEs</option>
+            <option value="A Levels">A Levels</option>
+            <option value="Certificate of HE">Certificate of HE</option>
+            <option value="Diploma">Diploma</option>
+            <option value="Bachelors Degree">Bachelors Degree</option>
+            <option value="Masters Degree">Masters Degree</option>
+            <option value="Doctorate">Doctorate</option>
+          </select>
           <input class="input" name="career_background" placeholder="Career background" required>
           <input class="input" name="family" placeholder="Family" required>
-          <select class="input" name="constituency" required>
-            ${openConstituencyOptions(data).map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("") || `<option value="">No open constituencies available</option>`}
-          </select>
-          <select class="input" name="party" required>
+          <select class="input" name="party" id="char-party-select" required>
             <option value="">Select party</option>
             <option value="Conservative">Conservative</option>
             <option value="Labour">Labour</option>
             ${!data.adminSettings.libDemClosedToNewChars ? `<option value="Liberal Democrat">Liberal Democrat</option>` : ""}
           </select>
+          <select class="input" name="constituency" id="char-constituency-select" required>
+            <option value="">Select party first</option>
+          </select>
           <input class="input" name="avatar" placeholder="Avatar URL (optional)">
           <input class="input" name="twitter_handle" placeholder="Twitter handle (without @, optional)">
           <input class="input" name="year_first_elected" placeholder="Year first elected" required>
           <input class="input" name="personal_background" placeholder="Personal background" required>
-          <input class="input" name="financial_background_level" type="number" min="1" max="10" placeholder="Financial background level (1-10)" required>
+          <select class="input" name="financial_background_level" required>
+            <option value="">Financial background</option>
+            <option value="1">1 – Poverty</option>
+            <option value="2">2 – Financially Strained</option>
+            <option value="3">3 – Lower Working Class</option>
+            <option value="4">4 – Skilled Working / Lower Middle</option>
+            <option value="5">5 – Solid Middle Class</option>
+            <option value="6">6 – Upper Middle Class</option>
+            <option value="7">7 – Affluent Professional</option>
+            <option value="8">8 – High Net Worth Individual</option>
+            <option value="9">9 – Top 5%</option>
+            <option value="10">10 – Top 1%</option>
+          </select>
 
           <fieldset style="grid-column:1/-1;border:1px solid var(--border,#ccc);padding:8px;border-radius:4px;">
             <legend><b>Primary Home</b></legend>
@@ -364,7 +397,9 @@ function render(data, state) {
                 ${HOME_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
               </select>
               <input class="input" name="home_region" placeholder="Region / location (optional)">
-              <label class="label" style="display:flex;gap:6px;align-items:center;"><input type="checkbox" name="home_mortgaged"> Mortgaged</label>
+              <label class="label" style="display:flex;gap:6px;align-items:center;margin:0;">
+                <input type="checkbox" name="home_mortgaged"> <span>Mortgaged</span>
+              </label>
               <input class="input" name="home_notes" placeholder="Notes (optional)">
             </div>
           </fieldset>
@@ -381,17 +416,28 @@ function render(data, state) {
 
       <details class="tile">
         <summary><b>Absence & Delegation</b></summary>
-        <form id="absence-form" style="margin-top:10px;display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:8px;align-items:end;">
-          <div>
-            <label class="label" for="delegated-to">Delegate weighted voting to (same party)</label>
-            <select id="delegated-to" class="input" name="delegatedTo" required>
-              <option value="">Select character</option>
-              ${delegationChoices.map((name) => `<option value="${esc(name)}" ${name === (char?.delegatedTo || leaderForParty(data, char?.party) || "") ? "selected" : ""}>${esc(name)}</option>`).join("")}
-            </select>
-          </div>
-          <button class="btn" type="submit">Set Absent + Delegate</button>
-          <button class="btn" type="button" id="absence-clear">Return Active</button>
-        </form>
+        ${char?.partyLeader ? `
+          <p class="muted" style="margin-top:10px;">As Party Leader, you may select a delegate from your own party to receive weighted votes while absent.</p>
+          <form id="absence-form" style="margin-top:8px;display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:8px;align-items:end;">
+            <div>
+              <label class="label" for="delegated-to">Delegate weighted voting to (same party)</label>
+              <select id="delegated-to" class="input" name="delegatedTo" required>
+                <option value="">Select character</option>
+                ${delegationChoices.map((name) => `<option value="${esc(name)}" ${name === (char?.delegatedTo || "") ? "selected" : ""}>${esc(name)}</option>`).join("")}
+              </select>
+            </div>
+            <button class="btn" type="submit">Set Absent + Delegate</button>
+            <button class="btn" type="button" id="absence-clear">Return Active</button>
+          </form>
+        ` : `
+          <p class="muted" style="margin-top:10px;">When absent, your weighted votes are automatically delegated to your Party Leader.</p>
+          <form id="absence-form" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+            <input type="hidden" name="delegatedTo" value="${esc(leaderForParty(data, char?.party) || "")}">
+            <button class="btn" type="submit" ${!leaderForParty(data, char?.party) ? "disabled title='No Party Leader found'" : ""}>Set Absent (delegate to Party Leader)</button>
+            <button class="btn" type="button" id="absence-clear">Return Active</button>
+          </form>
+          ${!leaderForParty(data, char?.party) ? `<p class="muted" style="margin-top:6px;color:var(--danger);">No Party Leader is currently set for your party — absence cannot be delegated.</p>` : ""}
+        `}
       </details>
 
       ${(manager && dbPendingApps.length) ? `
@@ -410,6 +456,7 @@ function render(data, state) {
       ` : ""}
     </section>
 
+    ${manager ? `
     <section id="speaker-controls" class="panel">
       <h2 style="margin-top:0;">
         Control Panels
@@ -496,6 +543,7 @@ function render(data, state) {
 
       ` : ""}
     </section>
+    ` : ""}
 
     ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
   `;
@@ -512,16 +560,42 @@ function render(data, state) {
     div.dataset.rentalRow = idx;
     div.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:6px 0;border-top:1px solid var(--border,#eee);";
     div.innerHTML = `
-      <b style="grid-column:1/-1;">Rental #${idx}</b>
+      <div style="grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;">
+        <b>Rental #${idx}</b>
+        <button type="button" class="btn danger" data-remove-rental="${idx}" style="padding:4px 10px;font-size:12px;">Remove</button>
+      </div>
       <select class="input" name="rental_${idx}_type"><option value="">Type</option>${RENTAL_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}</select>
       <input class="input" name="rental_${idx}_location" placeholder="Location">
       <select class="input" name="rental_${idx}_status"><option value="">Status</option>${RENTAL_STATUSES.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")}</select>
       <input class="input" name="rental_${idx}_notes" placeholder="Notes (optional)">
     `;
+    div.querySelector(`[data-remove-rental="${idx}"]`)?.addEventListener("click", () => {
+      div.remove();
+      rentalCount = Math.max(0, rentalCount - 1);
+      const addBtn = host.querySelector("#add-rental-btn");
+      if (addBtn) addBtn.disabled = false;
+    });
     rentalsList?.appendChild(div);
     if (rentalCount >= 5) host.querySelector("#add-rental-btn").disabled = true;
   }
   host.querySelector("#add-rental-btn")?.addEventListener("click", addRentalRow);
+
+  // Party → constituency filtering
+  const partySelect = host.querySelector("#char-party-select");
+  const constSelect = host.querySelector("#char-constituency-select");
+  if (partySelect && constSelect) {
+    partySelect.addEventListener("change", () => {
+      const party = partySelect.value;
+      if (!party) {
+        constSelect.innerHTML = `<option value="">Select party first</option>`;
+        return;
+      }
+      const opts = openConstituencyOptionsForParty(data, party);
+      constSelect.innerHTML = opts.length
+        ? opts.map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("")
+        : `<option value="">No open constituencies for ${esc(party)}</option>`;
+    });
+  }
 
   host.querySelector("#create-character-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -577,16 +651,30 @@ function render(data, state) {
     if (!data.currentCharacter) return;
     const fd = new FormData(e.currentTarget);
     const delegatedTo = String(fd.get("delegatedTo") || "").trim();
-    const allowed = delegationChoicesForParty(data, data.currentCharacter?.party, data.currentCharacter?.name);
-    if (!delegatedTo || !allowed.includes(delegatedTo)) {
-      state.message = "Please select a valid delegate from your own party.";
-      render(data, state);
-      return;
+    const isLeader = !!data.currentCharacter.partyLeader;
+
+    if (isLeader) {
+      // Party leader must pick a valid delegate from same party
+      const allowed = delegationChoicesForParty(data, data.currentCharacter?.party, data.currentCharacter?.name);
+      if (!delegatedTo || !allowed.includes(delegatedTo)) {
+        state.message = "Please select a valid delegate from your own party.";
+        render(data, state);
+        return;
+      }
+    } else {
+      // Normal character: auto-delegate to party leader
+      const leader = leaderForParty(data, data.currentCharacter?.party);
+      if (!leader) {
+        state.message = "Cannot set absent: no Party Leader found for your party.";
+        render(data, state);
+        return;
+      }
     }
+
     data.currentCharacter.absent = true;
-    data.currentCharacter.delegatedTo = delegatedTo;
+    data.currentCharacter.delegatedTo = delegatedTo || leaderForParty(data, data.currentCharacter?.party);
     saveState(data);
-    state.message = "Absence and delegation saved.";
+    state.message = "Absence saved. Your votes are delegated.";
     render(data, state);
   });
 
