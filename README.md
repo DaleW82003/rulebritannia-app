@@ -61,9 +61,9 @@ All frontend code — including the admin panel — therefore calls `/api/...` r
 
 ### Production deployment (Cloudflare + Render)
 
-> **Canonical host:** `rulebritannia.org` — `www.rulebritannia.org` redirects to the apex domain.
+> **Canonical host:** `www.rulebritannia.org` — `rulebritannia.org` (apex) redirects to the `www` subdomain.
 
-The production frontend is served from `https://rulebritannia.org`. The Render backend is a separate service at `https://rulebritannia-app-backend.onrender.com`. To route `/api/*` requests correctly, configure a **Cloudflare Worker** (or Page Rule / Transform Rule) that proxies all requests matching `rulebritannia.org/api/*` to `https://rulebritannia-app-backend.onrender.com/api/*`.
+The production frontend is served from `https://www.rulebritannia.org`. The Render backend is a separate service at `https://rulebritannia-app-backend.onrender.com`. A **Cloudflare Worker** route (`www.rulebritannia.org/api/*`) proxies all `/api/*` requests to the backend, so the frontend only ever needs to call relative `/api/...` paths.
 
 Example Cloudflare Worker snippet:
 
@@ -113,7 +113,7 @@ Copy `server/.env.example` to `server/.env` and fill in real values:
 | `SMTP_PORT` | ✗ | SMTP port (default: `465`; uses SSL/TLS when port is 465) |
 | `SMTP_USER` | ✗ | SMTP username / From address (e.g. `support@rulebritannia.org`) |
 | `SMTP_PASS` | ✗ | SMTP password — **never commit this** |
-| `APP_BASE_URL` | ✗ | Base URL for building links in emails (default: `https://rulebritannia.org`) |
+| `APP_BASE_URL` | ✗ | Base URL for building links in emails (default: `https://www.rulebritannia.org`) |
 | `TURNSTILE_ENABLED` | ✗ | Set to `true` to activate the Cloudflare Turnstile anti-bot widget on registration |
 | `TURNSTILE_SITE_KEY` | ✗ | Cloudflare Turnstile site key (public; safe to expose to the frontend) |
 | `TURNSTILE_SECRET_KEY` | ✗ | Cloudflare Turnstile secret key — **never commit this** |
@@ -202,7 +202,7 @@ When `DISCOURSE_SSO_ENABLED=true`, the login page automatically shows a **"Login
 2. Verify the topbar shows "Not logged in" and a "Login" link.
 3. State is sourced from `/data/demo.json` (read-only). No network calls to `/api/state` are made and no writes occur in `localStorage`.
 4. Reload the page — demo state is always fresh from `demo.json`; local edits do not persist.
-5. Confirm that `GET /api/state` on the backend returns **401** when called without a session cookie (e.g. `curl https://rulebritannia.org/api/state`).
+5. Confirm that `GET /api/state` on the backend returns **401** when called without a session cookie (e.g. `curl https://www.rulebritannia.org/api/state`).
 
 ### Authenticated admin experience
 
@@ -213,7 +213,44 @@ When `DISCOURSE_SSO_ENABLED=true`, the login page automatically shows a **"Login
 5. Click **Save current state to server** — confirm the request to `POST /api/state` returns `200 { ok: true }`.
 6. Click **Reload from server** — confirm the page reflects the server state.
 7. Click **Logout** — session cookie is cleared, topbar reverts to "Not logged in", and `GET /api/state` returns `401` again.
-8. Verify `GET /auth/me` returns `{ ok: true, user: {...} }` while logged in, and `401` after logout.
+8. Verify `GET /api/auth/me` returns `{ ok: true, user: {...} }` while logged in, and `401` after logout.
+
+### API endpoint smoke tests
+
+Use `curl` (or a REST client) against `https://www.rulebritannia.org` to verify every auth endpoint is reachable under the `/api/*` prefix:
+
+```bash
+# 1. Register a new applicant
+curl -s -X POST https://www.rulebritannia.org/api/register \
+  -H "Content-Type: application/json" \
+  -d '{"displayName":"Test User","username":"testuser","email":"test@example.com","password":"Str0ng#P@ssw0rd!","ageConfirmed":true}' | jq .
+
+# 2. Verify email (replace TOKEN with the token from the verification email)
+curl -s "https://www.rulebritannia.org/api/auth/verify-email?token=TOKEN" | jq .
+
+# 3. Log in (returns csrfToken in the response body)
+curl -s -c /tmp/rb-cookies.txt -X POST https://www.rulebritannia.org/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"Str0ng#P@ssw0rd!"}' | jq .
+
+# 4. Check session / current user (uses the session cookie)
+curl -s -b /tmp/rb-cookies.txt https://www.rulebritannia.org/api/auth/me | jq .
+
+# 5. Bootstrap config (public — no cookie needed)
+curl -s https://www.rulebritannia.org/api/bootstrap | jq .
+
+# 6. Logout (replace CSRF_TOKEN with the csrfToken from step 3 or from /api/csrf-token)
+curl -s -b /tmp/rb-cookies.txt -X POST https://www.rulebritannia.org/api/auth/logout \
+  -H "X-CSRF-Token: CSRF_TOKEN" | jq .
+```
+
+Expected responses:
+- **POST /api/register** → `{ "ok": true }` (or a descriptive error)
+- **GET /api/auth/verify-email?token=…** → `{ "ok": true }` (or 400 if expired/invalid)
+- **POST /api/auth/login** → `{ "ok": true, "csrfToken": "…", "user": { … } }`
+- **GET /api/auth/me** → `{ "ok": true, "csrfToken": "…", "user": { … } }` (401 when not logged in)
+- **GET /api/bootstrap** → `{ "sso_enabled": false, "ui_base_url": "…", … }`
+- **POST /api/auth/logout** → `{ "ok": true }` (401 or error if CSRF token is wrong)
 
 
 Each HTML file has a `data-page` attribute on `<body>`. On load, `js/main.js`:

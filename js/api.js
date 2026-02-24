@@ -24,7 +24,7 @@ export async function apiGetPermissions(roles) {
 }
 
 export async function apiLogin(email, password) {
-  const res = await fetch(`${API_BASE}/auth/login`, {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -35,7 +35,7 @@ export async function apiLogin(email, password) {
 }
 
 export async function apiMe() {
-  const res = await fetch(`${API_BASE}/auth/me`, {
+  const res = await fetch(`${API_BASE}/api/auth/me`, {
     credentials: "include",
   });
   if (res.status === 401 || res.status === 404) return { user: null };
@@ -53,10 +53,10 @@ export async function apiBootstrap() {
 
 export async function apiLogout() {
   // Fetch the CSRF token required for state-changing POST requests.
-  const tokenRes = await fetch(`${API_BASE}/csrf-token`, { credentials: "include" });
+  const tokenRes = await fetch(`${API_BASE}/api/csrf-token`, { credentials: "include" });
   if (!tokenRes.ok) throw new Error(`apiLogout failed: could not fetch CSRF token (${tokenRes.status})`);
   const { csrfToken } = await tokenRes.json();
-  const res = await fetch(`${API_BASE}/auth/logout`, {
+  const res = await fetch(`${API_BASE}/api/auth/logout`, {
     method: "POST",
     credentials: "include",
     headers: { "X-CSRF-Token": csrfToken },

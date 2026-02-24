@@ -47,7 +47,7 @@ const SMTP_HOST = process.env.SMTP_HOST || "";
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || "465", 10);
 const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS || "";
-const APP_BASE_URL = process.env.APP_BASE_URL || "https://rulebritannia.org";
+const APP_BASE_URL = process.env.APP_BASE_URL || "https://www.rulebritannia.org";
 
 function createMailTransport() {
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
@@ -889,9 +889,10 @@ app.get("/api/permissions", (req, res) => {
 
 /**
  * CSRF token endpoint
- * GET /csrf-token — authenticated: returns (or creates) the CSRF token for the current session
+ * GET /api/csrf-token — authenticated: returns (or creates) the CSRF token for the current session
+ * GET /csrf-token    — legacy alias (backward-compatible)
  */
-app.get("/csrf-token", (req, res) => {
+app.get(["/csrf-token", "/api/csrf-token"], (req, res) => {
   if (!req.session?.userId) {
     return res.status(401).json({ error: "Not logged in" });
   }
@@ -903,14 +904,17 @@ app.get("/csrf-token", (req, res) => {
 
 /**
  * AUTH
- * POST /auth/login
- * GET  /auth/me
- * POST /auth/logout
+ * POST /api/auth/login   — canonical
+ * GET  /api/auth/me      — canonical
+ * POST /api/auth/logout  — canonical
+ * GET  /api/auth/verify-email?token=… — canonical (verify registration email token)
+ * POST /api/auth/resend-verification  — canonical (re-send verification email)
+ * Legacy aliases without /api prefix remain for backward compatibility.
  */
 
 const authLimit = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
 
-app.post("/auth/login", authLimit, async (req, res) => {
+app.post(["/auth/login", "/api/auth/login"], authLimit, async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) {
@@ -977,7 +981,7 @@ app.post("/auth/login", authLimit, async (req, res) => {
   }
 });
 
-app.get("/auth/me", authLimit, async (req, res) => {
+app.get(["/auth/me", "/api/auth/me"], authLimit, async (req, res) => {
   try {
     if (!req.session.userId) {
       return res.status(401).json({ ok: false });
@@ -1004,7 +1008,7 @@ app.get("/auth/me", authLimit, async (req, res) => {
   }
 });
 
-app.post("/auth/logout", authLimit, (req, res) => {
+app.post(["/auth/logout", "/api/auth/logout"], authLimit, (req, res) => {
   const logoutUserId = req.session?.userId;
   const logoutRoles  = req.session?.roles;
 
