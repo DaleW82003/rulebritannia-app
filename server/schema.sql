@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS sim_clock (
 -- Canonical user roles (admin/mod/speaker, party membership, government offices)
 CREATE TABLE IF NOT EXISTS user_roles (
   id          BIGSERIAL PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role        TEXT NOT NULL,
   assigned_by TEXT,
   assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
