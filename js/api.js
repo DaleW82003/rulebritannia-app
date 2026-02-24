@@ -961,3 +961,99 @@ export async function apiRejectRegistration(id) {
   if (!res.ok) throw new Error(`apiRejectRegistration failed (${res.status})`);
   return res.json();
 }
+
+// ── Scandal system ─────────────────────────────────────────────────────────
+
+export async function apiScandalsMine() {
+  const res = await fetch(`${API_BASE}/api/scandals/mine`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiScandalsMine failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiScandalsOptIn(opted_in) {
+  const res = await fetch(`${API_BASE}/api/scandals/optin`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ opted_in }),
+  });
+  if (!res.ok) throw new Error(`apiScandalsOptIn failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiScandalSituationRespond(situationId, action) {
+  const res = await fetch(`${API_BASE}/api/scandals/situations/${encodeURIComponent(situationId)}/respond`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ action }),
+  });
+  if (!res.ok) throw new Error(`apiScandalSituationRespond failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiScandalChoose(scandalId, choice_id) {
+  const res = await fetch(`${API_BASE}/api/scandals/${encodeURIComponent(scandalId)}/choose`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ choice_id }),
+  });
+  if (!res.ok) throw new Error(`apiScandalChoose failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiModScandalSituationCreate(payload) {
+  const res = await fetch(`${API_BASE}/api/mod/scandals/situations/create`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`apiModScandalSituationCreate failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiModScandalsOpen() {
+  const res = await fetch(`${API_BASE}/api/mod/scandals/open`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiModScandalsOpen failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiModScandalDecision(scandalId, payload) {
+  const res = await fetch(`${API_BASE}/api/mod/scandals/${encodeURIComponent(scandalId)}/decision`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`apiModScandalDecision failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiModScandalClose(scandalId) {
+  const res = await fetch(`${API_BASE}/api/mod/scandals/${encodeURIComponent(scandalId)}/close`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiModScandalClose failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiModScandalTemplates() {
+  const res = await fetch(`${API_BASE}/api/mod/scandal-templates`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiModScandalTemplates failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiModScandalTemplateUpsert(payload) {
+  const res = await fetch(`${API_BASE}/api/mod/scandal-templates`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`apiModScandalTemplateUpsert failed (${res.status})`);
+  return res.json();
+}
