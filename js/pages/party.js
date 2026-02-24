@@ -2,6 +2,7 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
+import { apiGetParty, apiSetPartyLeadership, apiGetCharacters, apiGetMyCharacters } from "../api.js";
 
 const DEFAULT_PARTIES = {
   Conservative: {
@@ -142,6 +143,24 @@ function render(data, state) {
 
   const drafts = party.drafts.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
 
+  // DB-backed party leadership data
+  const dbParty = state.dbState?.party || null;
+  const dbLeaderName    = dbParty?.leader_name    || party.leader?.name    || "";
+  const dbLeaderAvatar  = dbParty?.leader_avatar  || party.leader?.avatar  || "";
+  const dbChairmanName  = dbParty?.chairman_name  || "";
+  const dbChairmanAvatar= dbParty?.chairman_avatar || "";
+  const dbWhipName      = dbParty?.whip_name      || "";
+  const dbWhipAvatar    = dbParty?.whip_avatar     || "";
+
+  // Determine if caller is party leader (for leadership assignment)
+  const dbLeaderId = dbParty?.leader_character_id;
+  const sessionCharId = state.dbState?.sessionCharId || "";
+  const isPartyLeader = dbLeaderId && sessionCharId && String(dbLeaderId) === String(sessionCharId);
+  const canAssignLeadership = manager || isPartyLeader;
+
+  // Characters for party (for leadership dropdowns)
+  const partyCharacters = (state.dbState?.partyCharacters || []);
+
   root.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">${esc(party.name)} Party HQ</div></div>
 
@@ -159,14 +178,28 @@ function render(data, state) {
     ` : ""}
 
     <section class="panel" style="margin-bottom:12px;">
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
         <article class="tile">
-          <h2 style="margin-top:0;">Current Party Leader</h2>
+          <h2 style="margin-top:0;">Party Leader</h2>
           <div style="display:flex;gap:10px;align-items:center;">
-            <img src="${esc(avatarFor(party.leader?.name, party.leader?.avatar))}" alt="Party leader avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
-            <div>
-              <div><b>${esc(party.leader?.name || "Vacant")}</b></div>
-            </div>
+            <img src="${esc(avatarFor(dbLeaderName, dbLeaderAvatar))}" alt="Party leader avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
+            <div><b>${esc(dbLeaderName || "Vacant")}</b></div>
+          </div>
+        </article>
+
+        <article class="tile">
+          <h2 style="margin-top:0;">Party Chairman</h2>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <img src="${esc(avatarFor(dbChairmanName, dbChairmanAvatar))}" alt="Chairman avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
+            <div><b>${esc(dbChairmanName || "Vacant")}</b></div>
+          </div>
+        </article>
+
+        <article class="tile">
+          <h2 style="margin-top:0;">Party Whip</h2>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <img src="${esc(avatarFor(dbWhipName, dbWhipAvatar))}" alt="Whip avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
+            <div><b>${esc(dbWhipName || "Vacant")}</b></div>
           </div>
         </article>
 
@@ -178,6 +211,30 @@ function render(data, state) {
         </article>
       </div>
     </section>
+
+    ${(canAssignLeadership && dbParty) ? `
+      <section class="panel" style="margin-bottom:12px;">
+        <h2 style="margin-top:0;">Assign Leadership Roles ${isPartyLeader && !manager ? `<span class="muted" style="font-size:.85em;">(Leader only)</span>` : ""}</h2>
+        <form id="party-leadership-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;align-items:end;">
+          <div>
+            <label class="label" for="chairman-select">Chairman</label>
+            <select id="chairman-select" name="chairman_character_id" class="input">
+              <option value="">— Vacant —</option>
+              ${partyCharacters.map((c) => `<option value="${esc(c.id)}" ${String(c.id) === String(dbParty?.chairman_character_id || "") ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label class="label" for="whip-select">Whip</label>
+            <select id="whip-select" name="whip_character_id" class="input">
+              <option value="">— Vacant —</option>
+              ${partyCharacters.map((c) => `<option value="${esc(c.id)}" ${String(c.id) === String(dbParty?.whip_character_id || "") ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+            </select>
+          </div>
+          <button type="submit" class="btn">Save Leadership</button>
+        </form>
+        ${state.leadershipMessage ? `<p class="muted" style="margin-top:8px;">${esc(state.leadershipMessage)}</p>` : ""}
+      </section>
+    ` : ""}
 
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Enter Headquarters</h2>
@@ -255,11 +312,25 @@ function render(data, state) {
     ` : ""}
   `;
 
-  root.querySelector("#party-switch")?.addEventListener("change", (e) => {
+  root.querySelector("#party-switch")?.addEventListener("change", async (e) => {
     const next = String(e.currentTarget.value || "");
     if (!next) return;
     state.activeParty = next;
     state.openDraftId = null;
+    // Reload DB party data for the newly selected party
+    try {
+      const [partyResult, charsResult] = await Promise.all([
+        apiGetParty(next).catch(() => null),
+        apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] }))
+      ]);
+      if (partyResult?.party) state.dbState = { ...state.dbState, party: partyResult.party };
+      const partyNameLower = next.toLowerCase();
+      state.dbState.partyCharacters = (charsResult.characters || []).filter(
+        (c) => (c.party || "").toLowerCase() === partyNameLower
+      );
+    } catch (e) {
+      console.warn("[party-switch] DB reload failed:", e.message);
+    }
     render(data, state);
   });
 
@@ -360,10 +431,62 @@ function render(data, state) {
     saveState(data);
     render(data, state);
   });
+
+  root.querySelector("#party-leadership-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!canAssignLeadership) return;
+    const fd = new FormData(e.currentTarget);
+    const chairmanId = String(fd.get("chairman_character_id") || "").trim();
+    const whipId = String(fd.get("whip_character_id") || "").trim();
+    const partyId = state.activeParty;
+    try {
+      await Promise.all([
+        apiSetPartyLeadership(partyId, "chairman", chairmanId || null),
+        apiSetPartyLeadership(partyId, "whip", whipId || null)
+      ]);
+      const { party: updated } = await apiGetParty(partyId);
+      state.dbState = { ...state.dbState, party: updated };
+      state.leadershipMessage = "Leadership updated.";
+    } catch (err) {
+      state.leadershipMessage = String(err.message || "Update failed.");
+    }
+    render(data, state);
+  });
 }
 
-export function initPartyPage(data) {
+export async function initPartyPage(data) {
   ensurePartyData(data);
-  const state = { activeParty: getCharacter(data)?.party || "", openDraftId: null, editingDraftId: null };
+  const char = getCharacter(data);
+  const state = {
+    activeParty: char?.party || "",
+    openDraftId: null,
+    editingDraftId: null,
+    leadershipMessage: "",
+    dbState: { party: null, partyCharacters: [], sessionCharId: "" }
+  };
+
+  // Load DB-backed party data
+  const partyId = state.activeParty || Object.keys(data.party?.parties || {})[0] || "";
+  if (partyId) {
+    try {
+      const [partyResult, charsResult, myCharsResult] = await Promise.all([
+        apiGetParty(partyId).catch(() => null),
+        apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
+        apiGetMyCharacters().catch(() => ({ characters: [] }))
+      ]);
+      if (partyResult?.party) state.dbState.party = partyResult.party;
+      // Filter characters for this party
+      const partyNameLower = partyId.toLowerCase();
+      state.dbState.partyCharacters = (charsResult.characters || []).filter(
+        (c) => (c.party || "").toLowerCase() === partyNameLower
+      );
+      // Determine session character ID: use the caller's active character in this party
+      const myActive = (myCharsResult.characters || []).find((c) => c.is_active);
+      state.dbState.sessionCharId = myActive?.id || "";
+    } catch (e) {
+      console.warn("[initPartyPage] DB load failed:", e.message);
+    }
+  }
+
   render(data, state);
 }

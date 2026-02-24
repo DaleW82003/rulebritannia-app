@@ -546,6 +546,109 @@ export async function apiPatchCharacter(id, updates) {
   return res.json();
 }
 
+export async function apiGetMyCharacters() {
+  const res = await fetch(`${API_BASE}/api/characters/mine`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyCharacters failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSelectCharacter(character_id) {
+  const res = await fetch(`${API_BASE}/api/characters/select`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id }),
+  });
+  if (!res.ok) throw new Error(`apiSelectCharacter failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiApplyCharacter(fields) {
+  const res = await fetch(`${API_BASE}/api/characters/apply`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiApplyCharacter failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiGetMyApplications() {
+  const res = await fetch(`${API_BASE}/api/characters/applications/mine`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyApplications failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetCharacterApplications(status) {
+  const url = status
+    ? `${API_BASE}/api/admin/characters/applications?status=${encodeURIComponent(status)}`
+    : `${API_BASE}/api/admin/characters/applications`;
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetCharacterApplications failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiApproveCharacterApplication(id) {
+  const res = await fetch(`${API_BASE}/api/admin/characters/applications/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiApproveCharacterApplication failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiRejectCharacterApplication(id) {
+  const res = await fetch(`${API_BASE}/api/admin/characters/applications/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiRejectCharacterApplication failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiSetProperty(character_id, home, rentals) {
+  const res = await fetch(`${API_BASE}/api/mod/property/set`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id, home, rentals }),
+  });
+  if (!res.ok) throw new Error(`apiSetProperty failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetParty(partyId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetParty failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSetPartyLeadership(partyId, role, character_id) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/leadership`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ role, character_id }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiSetPartyLeadership failed (${res.status})`);
+  }
+  return res.json();
+}
+
 // ── Offices ────────────────────────────────────────────────────────────────
 
 export async function apiGetOffices() {

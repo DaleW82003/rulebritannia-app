@@ -596,6 +596,67 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS email_verification_token_exp  TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS verification_resent_at        TIMESTAMPTZ;
   `);
+
+  // ── Character profile columns (idempotent migrations) ─────────────────────
+  await pool.query(`
+    ALTER TABLE characters
+      ADD COLUMN IF NOT EXISTS date_of_birth             TEXT,
+      ADD COLUMN IF NOT EXISTS education                 TEXT,
+      ADD COLUMN IF NOT EXISTS career_background         TEXT,
+      ADD COLUMN IF NOT EXISTS family                    TEXT,
+      ADD COLUMN IF NOT EXISTS year_first_elected        TEXT,
+      ADD COLUMN IF NOT EXISTS personal_background       TEXT,
+      ADD COLUMN IF NOT EXISTS financial_background_level INTEGER NOT NULL DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS avatar                    TEXT,
+      ADD COLUMN IF NOT EXISTS twitter_handle            TEXT,
+      ADD COLUMN IF NOT EXISTS home                      JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS rentals                   JSONB NOT NULL DEFAULT '[]'::jsonb;
+  `);
+
+  // ── Pending Character Applications ────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pending_character_applications (
+      id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      applicant_user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      applicant_username         TEXT NOT NULL,
+      submitted_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      status                     TEXT NOT NULL DEFAULT 'pending'
+                                 CHECK (status IN ('pending','approved','rejected')),
+      reviewed_by                TEXT,
+      reviewed_at                TIMESTAMPTZ,
+      name                       TEXT NOT NULL,
+      party                      TEXT NOT NULL DEFAULT '',
+      constituency               TEXT NOT NULL DEFAULT '',
+      date_of_birth              TEXT,
+      education                  TEXT,
+      career_background          TEXT,
+      family                     TEXT,
+      year_first_elected         TEXT,
+      personal_background        TEXT,
+      financial_background_level INTEGER NOT NULL DEFAULT 1,
+      avatar                     TEXT,
+      twitter_handle             TEXT,
+      home                       JSONB NOT NULL DEFAULT '{}'::jsonb,
+      rentals                    JSONB NOT NULL DEFAULT '[]'::jsonb
+    );
+    CREATE INDEX IF NOT EXISTS pca_user_idx   ON pending_character_applications (applicant_user_id);
+    CREATE INDEX IF NOT EXISTS pca_status_idx ON pending_character_applications (status);
+  `);
+
+  // ── Parties ───────────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS parties (
+      id                    TEXT PRIMARY KEY,
+      name                  TEXT NOT NULL,
+      short_name            TEXT NOT NULL DEFAULT '',
+      leader_character_id   UUID REFERENCES characters(id) ON DELETE SET NULL,
+      chairman_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      whip_character_id     UUID REFERENCES characters(id) ON DELETE SET NULL,
+      treasury              JSONB NOT NULL DEFAULT '{}'::jsonb,
+      hq_url                TEXT,
+      updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 }
 
 /**
@@ -658,6 +719,19 @@ function requireAdmin(req, res) {
   }
   if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
     res.status(403).json({ error: "Forbidden: admin role required" });
+    return false;
+  }
+  return true;
+}
+
+function requireAdminOrMod(req, res) {
+  if (!req.session?.userId) {
+    res.status(401).json({ error: "Not logged in" });
+    return false;
+  }
+  const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  if (!roles.includes("admin") && !roles.includes("mod")) {
+    res.status(403).json({ error: "Forbidden: admin or mod role required" });
     return false;
   }
   return true;
@@ -3529,7 +3603,403 @@ app.patch("/api/characters/:id", charWriteLimit, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// OFFICES & ASSIGNMENTS
+// CHARACTER APPLICATIONS (DB-backed creation flow)
+// GET  /api/characters/mine                      — authenticated: list caller's characters
+// POST /api/characters/select                    — authenticated: set session active character
+// POST /api/characters/apply                     — authenticated: submit character application
+// GET  /api/characters/applications/mine         — authenticated: get own applications
+// GET  /api/admin/characters/applications        — admin/mod: list applications
+// POST /api/admin/characters/applications/:id/approve — admin/mod: approve application
+// POST /api/admin/characters/applications/:id/reject  — admin/mod: reject application
+// ═══════════════════════════════════════════════════════════════════════════
+
+const charAppReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const charAppWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
+
+// GET /api/characters/mine — list characters owned by the current user
+app.get("/api/characters/mine", charReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at,
+              date_of_birth, education, career_background, family, year_first_elected,
+              personal_background, financial_background_level, avatar, twitter_handle, home, rentals
+         FROM characters WHERE user_id = $1 ORDER BY created_at`,
+      [req.session.userId]
+    );
+    res.json({ characters: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/characters/select — set session active character
+app.post("/api/characters/select", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { character_id } = req.body || {};
+    if (!character_id) return res.status(400).json({ error: "character_id is required" });
+
+    const { rows } = await pool.query(
+      `SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at,
+              date_of_birth, education, career_background, family, year_first_elected,
+              personal_background, financial_background_level, avatar, twitter_handle, home, rentals
+         FROM characters WHERE id = $1 AND user_id = $2`,
+      [character_id, req.session.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Character not found or not yours" });
+
+    req.session.characterId = rows[0].id;
+    req.session.save((err) => {
+      if (err) return res.status(500).json({ error: "Session save failed" });
+      res.json({ ok: true, character: rows[0] });
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/characters/apply — submit a character application
+app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const {
+      name, party = "", constituency = "",
+      date_of_birth, education, career_background, family,
+      year_first_elected, personal_background,
+      financial_background_level = 1,
+      avatar = "", twitter_handle = "",
+      home = {}, rentals = []
+    } = req.body || {};
+
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ error: "name is required" });
+    }
+
+    // Check applicant has no active character
+    const { rows: existing } = await pool.query(
+      "SELECT id FROM characters WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
+      [req.session.userId]
+    );
+    if (existing.length) {
+      return res.status(409).json({ error: "You already have an active character. Mark it inactive before applying." });
+    }
+
+    // Check no pending application already
+    const { rows: pending } = await pool.query(
+      "SELECT id FROM pending_character_applications WHERE applicant_user_id = $1 AND status = 'pending' LIMIT 1",
+      [req.session.userId]
+    );
+    if (pending.length) {
+      return res.status(409).json({ error: "You already have a pending application." });
+    }
+
+    // Check constituency not already taken by an active character
+    if (constituency) {
+      const { rows: taken } = await pool.query(
+        "SELECT id FROM characters WHERE LOWER(constituency) = LOWER($1) AND is_active = TRUE LIMIT 1",
+        [constituency]
+      );
+      if (taken.length) {
+        return res.status(409).json({ error: "That constituency is already taken by an active character." });
+      }
+    }
+
+    // Get applicant username
+    const { rows: userRows } = await pool.query("SELECT username FROM users WHERE id = $1", [req.session.userId]);
+    const applicantUsername = userRows[0]?.username ?? req.session.userId;
+
+    const { rows } = await pool.query(
+      `INSERT INTO pending_character_applications
+         (applicant_user_id, applicant_username, name, party, constituency,
+          date_of_birth, education, career_background, family, year_first_elected,
+          personal_background, financial_background_level, avatar, twitter_handle, home, rentals)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb)
+       RETURNING *`,
+      [
+        req.session.userId, applicantUsername, name.trim(), party, constituency,
+        date_of_birth ?? null, education ?? null, career_background ?? null,
+        family ?? null, year_first_elected ?? null, personal_background ?? null,
+        Number(financial_background_level) || 1,
+        String(avatar || "").trim(),
+        String(twitter_handle || "").trim().replace(/^@+/, ""),
+        JSON.stringify(home), JSON.stringify(rentals)
+      ]
+    );
+    await writeAuditLog(req.session.userId, "character.apply", "pending_character_application", rows[0].id, null, rows[0]);
+    res.status(201).json({ ok: true, application: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/characters/applications/mine — list own applications
+app.get("/api/characters/applications/mine", charAppReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT * FROM pending_character_applications WHERE applicant_user_id = $1 ORDER BY submitted_at DESC",
+      [req.session.userId]
+    );
+    res.json({ applications: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/admin/characters/applications — list all applications (admin/mod)
+app.get("/api/admin/characters/applications", charAppReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { status } = req.query;
+    let q = "SELECT * FROM pending_character_applications";
+    const params = [];
+    if (status) { q += " WHERE status = $1"; params.push(status); }
+    q += " ORDER BY submitted_at DESC";
+    const { rows } = await pool.query(q, params);
+    res.json({ applications: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/characters/applications/:id/approve — approve and create character
+app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const { rows: appRows } = await pool.query(
+      "SELECT * FROM pending_character_applications WHERE id = $1",
+      [req.params.id]
+    );
+    if (!appRows.length) return res.status(404).json({ error: "Application not found" });
+    const app_ = appRows[0];
+    if (app_.status !== "pending") return res.status(409).json({ error: `Application is already ${app_.status}` });
+
+    // Server-side constituency check
+    if (app_.constituency) {
+      const { rows: taken } = await pool.query(
+        "SELECT id FROM characters WHERE LOWER(constituency) = LOWER($1) AND is_active = TRUE LIMIT 1",
+        [app_.constituency]
+      );
+      if (taken.length) {
+        return res.status(409).json({ error: "Constituency is already taken by an active character." });
+      }
+    }
+
+    // Deactivate any existing active characters for the applicant
+    await pool.query(
+      "UPDATE characters SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE",
+      [app_.applicant_user_id]
+    );
+
+    // Create the character
+    const { rows: charRows } = await pool.query(
+      `INSERT INTO characters
+         (user_id, name, party, constituency, roles, offices, is_active,
+          date_of_birth, education, career_background, family, year_first_elected,
+          personal_background, financial_background_level, avatar, twitter_handle, home, rentals)
+       VALUES ($1,$2,$3,$4,'[]'::jsonb,'[]'::jsonb,TRUE,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb)
+       RETURNING *`,
+      [
+        app_.applicant_user_id, app_.name, app_.party, app_.constituency,
+        app_.date_of_birth, app_.education, app_.career_background, app_.family,
+        app_.year_first_elected, app_.personal_background, app_.financial_background_level,
+        app_.avatar, app_.twitter_handle,
+        JSON.stringify(app_.home ?? {}), JSON.stringify(app_.rentals ?? [])
+      ]
+    );
+    const character = charRows[0];
+
+    // Mark application approved
+    await pool.query(
+      "UPDATE pending_character_applications SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+      [req.session.userId, req.params.id]
+    );
+
+    await writeAuditLog(
+      req.session.userId, "character.application.approve",
+      "pending_character_application", req.params.id,
+      app_, { ...app_, status: "approved", character_id: character.id }
+    );
+    res.json({ ok: true, character });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/characters/applications/:id/reject — reject application
+app.post("/api/admin/characters/applications/:id/reject", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const { rows: appRows } = await pool.query(
+      "SELECT * FROM pending_character_applications WHERE id = $1",
+      [req.params.id]
+    );
+    if (!appRows.length) return res.status(404).json({ error: "Application not found" });
+    const app_ = appRows[0];
+    if (app_.status !== "pending") return res.status(409).json({ error: `Application is already ${app_.status}` });
+
+    await pool.query(
+      "UPDATE pending_character_applications SET status='rejected', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+      [req.session.userId, req.params.id]
+    );
+
+    await writeAuditLog(
+      req.session.userId, "character.application.reject",
+      "pending_character_application", req.params.id,
+      app_, { ...app_, status: "rejected" }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PROPERTY MANAGEMENT (mod/admin)
+// POST /api/mod/property/set — update character home + rentals
+// ═══════════════════════════════════════════════════════════════════════════
+
+const propertyWriteLimit = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/mod/property/set", propertyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { character_id, home, rentals } = req.body || {};
+    if (!character_id) return res.status(400).json({ error: "character_id is required" });
+
+    const { rows: before } = await pool.query(
+      "SELECT id, name, home, rentals FROM characters WHERE id = $1",
+      [character_id]
+    );
+    if (!before.length) return res.status(404).json({ error: "Character not found" });
+
+    const { rows } = await pool.query(
+      `UPDATE characters SET home = $1::jsonb, rentals = $2::jsonb WHERE id = $3
+       RETURNING id, name, home, rentals`,
+      [JSON.stringify(home ?? before[0].home ?? {}), JSON.stringify(rentals ?? before[0].rentals ?? []), character_id]
+    );
+    await writeAuditLog(
+      req.session.userId, "character.property.set", "character", character_id,
+      { home: before[0].home, rentals: before[0].rentals },
+      { home: rows[0].home, rentals: rows[0].rentals }
+    );
+    res.json({ ok: true, character: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PARTIES (DB-backed leadership)
+// GET  /api/parties/:partyId           — authenticated: get party info
+// POST /api/parties/:partyId/leadership — authenticated: set chairman/whip (leader or admin/mod)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const partyReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const partyWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/parties/:partyId", partyReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { rows } = await pool.query(
+      `SELECT p.*,
+              lc.id   AS leader_id,   lc.name AS leader_name,   lc.avatar AS leader_avatar,
+              cc.id   AS chairman_id, cc.name AS chairman_name, cc.avatar AS chairman_avatar,
+              wc.id   AS whip_id,     wc.name AS whip_name,     wc.avatar AS whip_avatar
+         FROM parties p
+         LEFT JOIN characters lc ON lc.id = p.leader_character_id
+         LEFT JOIN characters cc ON cc.id = p.chairman_character_id
+         LEFT JOIN characters wc ON wc.id = p.whip_character_id
+        WHERE p.id = $1`,
+      [req.params.partyId]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Party not found" });
+    res.json({ party: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/parties/:partyId/leadership", partyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { role, character_id } = req.body || {};
+    if (!role || !["chairman", "whip"].includes(role)) {
+      return res.status(400).json({ error: "role must be 'chairman' or 'whip'" });
+    }
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+
+    // Non-admin/mod must be the active character who is party leader
+    if (!isAdminOrMod) {
+      if (!req.session.characterId) {
+        return res.status(403).json({ error: "No active character selected" });
+      }
+      const { rows: partyRows } = await pool.query(
+        "SELECT leader_character_id FROM parties WHERE id = $1",
+        [req.params.partyId]
+      );
+      if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
+      if (String(partyRows[0].leader_character_id) !== String(req.session.characterId)) {
+        return res.status(403).json({ error: "Only the party leader (or admin/mod) can assign chairman/whip" });
+      }
+    }
+
+    // Validate party exists
+    const { rows: partyRows } = await pool.query("SELECT * FROM parties WHERE id = $1", [req.params.partyId]);
+    if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
+    const partyData = partyRows[0];
+
+    // Validate character belongs to this party (if a character_id is given)
+    if (character_id) {
+      const { rows: charRows } = await pool.query(
+        "SELECT id, party FROM characters WHERE id = $1 AND is_active = TRUE",
+        [character_id]
+      );
+      if (!charRows.length) return res.status(404).json({ error: "Character not found or inactive" });
+      if (charRows[0].party.toLowerCase() !== partyData.name.toLowerCase()) {
+        return res.status(409).json({ error: "Character does not belong to this party" });
+      }
+    }
+
+    // Use conditional to avoid string interpolation in SQL (no dynamic column names)
+    let updateQ, colKey;
+    if (role === "chairman") {
+      updateQ = "UPDATE parties SET chairman_character_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *";
+      colKey = "chairman_character_id";
+    } else {
+      updateQ = "UPDATE parties SET whip_character_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *";
+      colKey = "whip_character_id";
+    }
+    const { rows: updated } = await pool.query(updateQ, [character_id || null, req.params.partyId]);
+
+    await writeAuditLog(
+      req.session.userId, `party.leadership.set_${role}`, "party", req.params.partyId,
+      { [colKey]: partyData[colKey] },
+      { [colKey]: character_id || null }
+    );
+    res.json({ ok: true, party: updated[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 // GET    /api/offices              — authenticated: list offices
 // POST   /api/offices              — admin: create office
 // POST   /api/offices/:id/assign   — admin: assign character to office
