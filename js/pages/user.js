@@ -3,6 +3,11 @@ import { runSundayRoll, setAbsenceState } from "../engines/core-engine.js";
 import { updateParliamentState } from "../engines/control-panel-engine.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
+import {
+  apiApplyCharacter, apiGetMyApplications, apiGetMyCharacters,
+  apiGetCharacterApplications, apiApproveCharacterApplication,
+  apiRejectCharacterApplication, apiSelectCharacter
+} from "../api.js";
 
 const CONTROL_LINKS = [
   { title: "Newsroom (BBC News)", href: "news.html", roles: ["mod", "admin"] },
@@ -281,11 +286,19 @@ function render(data, state) {
     activeCharacter: String(char?.name || ""),
     active: true
   };
-  const owned = ownedCharactersForAccount(data, account.username);
-  const hasActiveOwned = owned.some((p) => p?.active !== false);
-  const inactiveOwned = owned.filter((p) => p?.active === false);
-  const pendingByCurrent = (data.userManagement?.pendingCharacters || []).filter((p) => String(p.submittedBy || "") === account.username);
+
+  // DB-backed character data (loaded async before render)
+  const dbChars = Array.isArray(state.dbState?.myCharacters) ? state.dbState.myCharacters : [];
+  const dbMyApps = Array.isArray(state.dbState?.myApplications) ? state.dbState.myApplications : [];
+  const dbPendingApps = Array.isArray(state.dbState?.pendingApplications) ? state.dbState.pendingApplications : [];
+
+  const hasActiveOwned = dbChars.some((c) => c.is_active);
+  const inactiveOwned = dbChars.filter((c) => !c.is_active);
+  const pendingByCurrent = dbMyApps.filter((a) => a.status === "pending");
   const delegationChoices = delegationChoicesForParty(data, char?.party, char?.name);
+
+  const HOME_TYPES = ["Detached house", "Semi-detached house", "Terraced house", "Flat/apartment", "Town house", "Country estate", "Other"];
+  const RENTAL_STATUSES = ["Occupied", "Vacant", "Under renovation"];
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">User</div></div>
@@ -306,37 +319,57 @@ function render(data, state) {
       <h2 style="margin-top:0;">Character Data / Create Character</h2>
       <div class="tile" style="margin-bottom:10px;">
         <div><b>${esc(char?.name || "No character selected")}</b></div>
-        <div class="muted">DOB: ${esc(char?.dateOfBirth || "-")} · Education: ${esc(char?.education || "-")} · Career: ${esc(char?.careerBackground || "-")}</div>
-        <div class="muted">Family: ${esc(char?.family || "-")} · Constituency: ${esc(char?.constituency || "-")} · Party: ${esc(char?.party || "-")} · Twitter: ${esc(char?.twitterHandle || "-")}</div>
-        <div class="muted">First elected: ${esc(String(char?.yearFirstElected || "-"))} · Personal background: ${esc(char?.personalBackground || "-")} · Financial level: ${esc(String(char?.financialBackgroundLevel || "-"))}</div>
+        <div class="muted">DOB: ${esc(char?.dateOfBirth || char?.date_of_birth || "-")} · Education: ${esc(char?.education || "-")} · Career: ${esc(char?.careerBackground || char?.career_background || "-")}</div>
+        <div class="muted">Family: ${esc(char?.family || "-")} · Constituency: ${esc(char?.constituency || "-")} · Party: ${esc(char?.party || "-")} · Twitter: ${esc(char?.twitterHandle || char?.twitter_handle || "-")}</div>
+        <div class="muted">First elected: ${esc(String(char?.yearFirstElected || char?.year_first_elected || "-"))} · Personal background: ${esc(char?.personalBackground || char?.personal_background || "-")} · Financial level: ${esc(String(char?.financialBackgroundLevel || char?.financial_background_level || "-"))}</div>
         <div class="muted">Absence: ${char?.absent ? "Absent" : "Active"}${char?.absent ? ` · Delegated to ${esc(char?.delegatedTo || "None")}` : ""}</div>
       </div>
 
       <div class="tile" style="margin-bottom:10px;">
         <div><b>Roster Eligibility</b></div>
-        <div class="muted">Active characters you own: ${esc(String(owned.filter((p) => p?.active !== false).length))} · Pending submissions: ${esc(String(pendingByCurrent.length))}</div>
+        <div class="muted">Active characters you own: ${esc(String(dbChars.filter((c) => c.is_active).length))} · Pending submissions: ${esc(String(pendingByCurrent.length))}</div>
         ${hasActiveOwned ? `<div class="muted" style="margin-top:6px;">You already have an active character in this live simulation. Mark that character inactive before submitting a new one.</div>` : ""}
-        ${inactiveOwned.length ? `<div style="margin-top:8px;display:grid;gap:6px;">${inactiveOwned.map((p) => `<div class="tile" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><b>${esc(p.name)}</b> <span class="muted">(inactive)</span></div><button class="btn" type="button" data-action="reactivate-character" data-name="${esc(p.name)}">Re-Activate</button></div>`).join("")}</div>` : ""}
+        ${inactiveOwned.length ? `<div style="margin-top:8px;display:grid;gap:6px;">${inactiveOwned.map((c) => `<div class="tile" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><b>${esc(c.name)}</b> <span class="muted">(inactive)</span></div><button class="btn" type="button" data-action="reactivate-character" data-id="${esc(c.id)}" data-name="${esc(c.name)}">Re-Activate</button></div>`).join("")}</div>` : ""}
       </div>
 
       <details class="tile" style="margin-bottom:10px;">
         <summary><b>Create Character (Moderator approval required)</b></summary>
         <form id="create-character-form" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
           <input class="input" name="name" placeholder="Name" required>
-          <input class="input" name="dateOfBirth" placeholder="Date of birth" required>
+          <input class="input" name="date_of_birth" placeholder="Date of birth" required>
           <input class="input" name="education" placeholder="Education" required>
-          <input class="input" name="careerBackground" placeholder="Career background" required>
+          <input class="input" name="career_background" placeholder="Career background" required>
           <input class="input" name="family" placeholder="Family" required>
           <select class="input" name="constituency" required>
             ${openConstituencyOptions(data).map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("") || `<option value="">No open constituencies available</option>`}
           </select>
           <input class="input" name="party" placeholder="Party" required>
           <input class="input" name="avatar" placeholder="Avatar URL (optional)">
-          <input class="input" name="twitterHandle" placeholder="Twitter handle (without @, optional)">
-          <input class="input" name="yearFirstElected" placeholder="Year first elected" required>
-          <input class="input" name="personalBackground" placeholder="Personal background" required>
-          <input class="input" name="financialBackgroundLevel" type="number" min="1" max="10" placeholder="Financial background level (1-10)" required>
-          <button class="btn" type="submit">Submit Character for Approval</button>
+          <input class="input" name="twitter_handle" placeholder="Twitter handle (without @, optional)">
+          <input class="input" name="year_first_elected" placeholder="Year first elected" required>
+          <input class="input" name="personal_background" placeholder="Personal background" required>
+          <input class="input" name="financial_background_level" type="number" min="1" max="10" placeholder="Financial background level (1-10)" required>
+
+          <fieldset style="grid-column:1/-1;border:1px solid var(--border,#ccc);padding:8px;border-radius:4px;">
+            <legend><b>Primary Home</b></legend>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
+              <select class="input" name="home_type">
+                <option value="">Select home type (optional)</option>
+                ${HOME_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
+              </select>
+              <input class="input" name="home_region" placeholder="Region / location (optional)">
+              <label class="label" style="display:flex;gap:6px;align-items:center;"><input type="checkbox" name="home_mortgaged"> Mortgaged</label>
+              <input class="input" name="home_notes" placeholder="Notes (optional)">
+            </div>
+          </fieldset>
+
+          <fieldset style="grid-column:1/-1;border:1px solid var(--border,#ccc);padding:8px;border-radius:4px;">
+            <legend><b>Rental Properties (0–5)</b></legend>
+            <div id="rentals-list" style="display:grid;gap:8px;"></div>
+            <button type="button" class="btn" id="add-rental-btn" style="margin-top:8px;">+ Add Rental</button>
+          </fieldset>
+
+          <button class="btn" type="submit" style="grid-column:1/-1;">Submit Character for Approval</button>
         </form>
       </details>
 
@@ -355,15 +388,16 @@ function render(data, state) {
         </form>
       </details>
 
-      ${(manager && data.userManagement.pendingCharacters.length) ? `
+      ${(manager && dbPendingApps.length) ? `
         <h3 style="margin:10px 0 6px;">Pending Character Approvals</h3>
-        ${data.userManagement.pendingCharacters.map((p, idx) => `
+        ${dbPendingApps.map((p) => `
           <article class="tile" style="margin-bottom:8px;">
-            <b>${esc(p.name)}</b> (${esc(p.party)}) · Financial level ${esc(String(p.financialBackgroundLevel || "-"))}
-            <div class="muted">Submitted by ${esc(p.submittedBy || "User")} at ${esc(p.submittedAt || "")}</div>
+            <b>${esc(p.name)}</b> (${esc(p.party)}) · Financial level ${esc(String(p.financial_background_level || "-"))}
+            <div class="muted">Submitted by ${esc(p.applicant_username || "User")} at ${esc(p.submitted_at ? new Date(p.submitted_at).toLocaleString("en-GB") : "")}</div>
+            <div class="muted">Constituency: ${esc(p.constituency || "-")}</div>
             <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn" type="button" data-action="approve-character" data-idx="${idx}">Approve + Activate</button>
-              <button class="btn" type="button" data-action="reject-character" data-idx="${idx}">Reject</button>
+              <button class="btn" type="button" data-action="approve-character" data-id="${esc(p.id)}">Approve + Activate</button>
+              <button class="btn" type="button" data-action="reject-character" data-id="${esc(p.id)}">Reject</button>
             </div>
           </article>
         `).join("")}
@@ -450,32 +484,75 @@ function render(data, state) {
     ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
   `;
 
-  host.querySelector("#create-character-form")?.addEventListener("submit", (e) => {
+  // Rental builder
+  const rentalsList = host.querySelector("#rentals-list");
+  const RENTAL_TYPES = ["Detached house", "Semi-detached house", "Terraced house", "Flat/apartment", "Commercial", "Other"];
+  let rentalCount = 0;
+  function addRentalRow() {
+    if (rentalCount >= 5) return;
+    rentalCount++;
+    const idx = rentalCount;
+    const div = document.createElement("div");
+    div.dataset.rentalRow = idx;
+    div.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:6px 0;border-top:1px solid var(--border,#eee);";
+    div.innerHTML = `
+      <b style="grid-column:1/-1;">Rental #${idx}</b>
+      <select class="input" name="rental_${idx}_type"><option value="">Type</option>${RENTAL_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}</select>
+      <input class="input" name="rental_${idx}_location" placeholder="Location">
+      <select class="input" name="rental_${idx}_status"><option value="">Status</option>${RENTAL_STATUSES.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")}</select>
+      <input class="input" name="rental_${idx}_notes" placeholder="Notes (optional)">
+    `;
+    rentalsList?.appendChild(div);
+    if (rentalCount >= 5) host.querySelector("#add-rental-btn").disabled = true;
+  }
+  host.querySelector("#add-rental-btn")?.addEventListener("click", addRentalRow);
+
+  host.querySelector("#create-character-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const entry = Object.fromEntries(fd.entries());
-    entry.submittedBy = account.username;
-    entry.submittedAt = nowStamp();
-    const ownsAnyActive = ownedCharactersForAccount(data, account.username).some((p) => p?.active !== false);
-    const hasPending = (data.userManagement.pendingCharacters || []).some((p) => String(p.submittedBy || "") === account.username);
-    if (ownsAnyActive) {
-      state.message = "You already have an active character in this live simulation.";
-      render(data, state);
-      return;
+    // Build rentals array from dynamic rows
+    const rentals = [];
+    for (let i = 1; i <= rentalCount; i++) {
+      const type = String(fd.get(`rental_${i}_type`) || "").trim();
+      if (type) {
+        rentals.push({
+          type,
+          location: String(fd.get(`rental_${i}_location`) || "").trim(),
+          status: String(fd.get(`rental_${i}_status`) || "").trim(),
+          notes: String(fd.get(`rental_${i}_notes`) || "").trim()
+        });
+      }
     }
-    if (hasPending) {
-      state.message = "You already have a character pending moderator approval.";
-      render(data, state);
-      return;
+    const home = {
+      type: String(fd.get("home_type") || "").trim(),
+      region: String(fd.get("home_region") || "").trim(),
+      mortgaged: fd.get("home_mortgaged") === "on",
+      notes: String(fd.get("home_notes") || "").trim()
+    };
+    const fields = {
+      name: String(fd.get("name") || "").trim(),
+      party: String(fd.get("party") || "").trim(),
+      constituency: String(fd.get("constituency") || "").trim(),
+      date_of_birth: String(fd.get("date_of_birth") || "").trim(),
+      education: String(fd.get("education") || "").trim(),
+      career_background: String(fd.get("career_background") || "").trim(),
+      family: String(fd.get("family") || "").trim(),
+      year_first_elected: String(fd.get("year_first_elected") || "").trim(),
+      personal_background: String(fd.get("personal_background") || "").trim(),
+      financial_background_level: Number(fd.get("financial_background_level") || 1),
+      avatar: String(fd.get("avatar") || "").trim(),
+      twitter_handle: String(fd.get("twitter_handle") || "").trim(),
+      home,
+      rentals
+    };
+    try {
+      await apiApplyCharacter(fields);
+      const { applications } = await apiGetMyApplications();
+      state.dbState = { ...state.dbState, myApplications: applications };
+      state.message = "Character submitted for moderator approval.";
+    } catch (err) {
+      state.message = String(err.message || "Submission failed.");
     }
-    if (!entry.constituency || seatTaken(data, entry.constituency)) {
-      state.message = "Selected constituency is no longer available.";
-      render(data, state);
-      return;
-    }
-    data.userManagement.pendingCharacters.push(entry);
-    saveState(data);
-    state.message = "Character submitted for moderator approval.";
     render(data, state);
   });
 
@@ -505,77 +582,39 @@ function render(data, state) {
   });
 
   host.querySelectorAll('[data-action="approve-character"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!manager) return;
-      const idx = Number(btn.dataset.idx || -1);
-      const candidate = data.userManagement.pendingCharacters[idx];
-      if (!candidate) return;
-      if (seatTaken(data, candidate.constituency)) {
-        state.message = "Cannot approve: constituency already assigned.";
-        render(data, state);
-        return;
+      const id = String(btn.dataset.id || "").trim();
+      if (!id) return;
+      try {
+        await apiApproveCharacterApplication(id);
+        const [{ applications: pending }, { applications: mine }] = await Promise.all([
+          apiGetCharacterApplications("pending"),
+          apiGetMyApplications()
+        ]);
+        const { characters: myChars } = await apiGetMyCharacters();
+        state.dbState = { myApplications: mine, pendingApplications: pending, myCharacters: myChars };
+        state.message = "Application approved and character created.";
+      } catch (err) {
+        state.message = String(err.message || "Approval failed.");
       }
-
-      const ownerUsername = String(candidate.submittedBy || "").trim();
-      if (ownerUsername) {
-        for (const p of (data.players || [])) {
-          if (String(p.ownerUsername || "").trim() === ownerUsername && p.active !== false) {
-            setCharacterInactiveEverywhere(data, p.name);
-          }
-        }
-      }
-
-      const player = {
-        name: candidate.name,
-        party: candidate.party,
-        role: "backbencher",
-        office: null,
-        joinedAt: new Date().toISOString(),
-        lastLogin: new Date().toISOString(),
-        absent: false,
-        delegatedTo: null,
-        isSpeaker: false,
-        active: true,
-        mature: true,
-        dateOfBirth: candidate.dateOfBirth,
-        education: candidate.education,
-        careerBackground: candidate.careerBackground,
-        family: candidate.family,
-        constituency: candidate.constituency,
-        yearFirstElected: candidate.yearFirstElected,
-        personalBackground: candidate.personalBackground,
-        financialBackgroundLevel: Number(candidate.financialBackgroundLevel || 1),
-        avatar: String(candidate.avatar || "").trim(),
-        twitterHandle: String(candidate.twitterHandle || "").trim().replace(/^@+/, ""),
-        ownerUsername
-      };
-      data.players ??= [];
-      data.players.push(player);
-      data.constituencies ??= [];
-      const seat = data.constituencies.find((c) => String(c.name || "").toLowerCase() === String(player.constituency || "").toLowerCase());
-      if (seat) {
-        seat.mpType = "character";
-        seat.mpName = player.name;
-      }
-      data.userManagement.pendingCharacters.splice(idx, 1);
-      if (ownerUsername) {
-        const owner = (data.userManagement.accounts || []).find((a) => a.username === ownerUsername);
-        if (owner) owner.activeCharacter = player.name;
-      }
-      saveState(data);
-      state.message = `Approved and activated ${player.name}.`;
       render(data, state);
     });
   });
 
   host.querySelectorAll('[data-action="reject-character"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!manager) return;
-      const idx = Number(btn.dataset.idx || -1);
-      if (idx < 0 || idx >= data.userManagement.pendingCharacters.length) return;
-      data.userManagement.pendingCharacters.splice(idx, 1);
-      saveState(data);
-      state.message = "Rejected pending character.";
+      const id = String(btn.dataset.id || "").trim();
+      if (!id) return;
+      try {
+        await apiRejectCharacterApplication(id);
+        const { applications: pending } = await apiGetCharacterApplications("pending");
+        state.dbState = { ...state.dbState, pendingApplications: pending };
+        state.message = "Rejected pending character.";
+      } catch (err) {
+        state.message = String(err.message || "Rejection failed.");
+      }
       render(data, state);
     });
   });
@@ -594,23 +633,23 @@ function render(data, state) {
   });
 
   host.querySelectorAll('[data-action="reactivate-character"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
+      const id = String(btn.dataset.id || "").trim();
       const name = String(btn.dataset.name || "").trim();
-      if (!name) return;
-      const mine = ownedCharactersForAccount(data, account.username);
-      const target = mine.find((p) => p.name === name);
-      if (!target) return;
-      if (mine.some((p) => p.active !== false)) {
+      if (!id) return;
+      if (hasActiveOwned) {
         state.message = "You already have an active character. Set that character inactive before re-activating another.";
         render(data, state);
         return;
       }
-      target.active = true;
-      account.activeCharacter = target.name;
-      data.currentCharacter = target;
-      data.currentPlayer = target;
-      saveState(data);
-      state.message = `${target.name} re-activated.`;
+      try {
+        const { character } = await apiSelectCharacter(id);
+        const { characters: myChars } = await apiGetMyCharacters();
+        state.dbState = { ...state.dbState, myCharacters: myChars };
+        state.message = `${character?.name || name} re-activated.`;
+      } catch (err) {
+        state.message = String(err.message || "Re-activation failed.");
+      }
       render(data, state);
     });
   });
@@ -698,8 +737,28 @@ function render(data, state) {
   });
 }
 
-export function initUserPage(data) {
+export async function initUserPage(data) {
   normaliseUserData(data);
   saveState(data);
-  render(data, { message: "" });
+
+  // Load DB-backed character and application data
+  let myCharacters = [];
+  let myApplications = [];
+  let pendingApplications = [];
+  try {
+    [{ characters: myCharacters }, { applications: myApplications }] = await Promise.all([
+      apiGetMyCharacters().catch(() => ({ characters: [] })),
+      apiGetMyApplications().catch(() => ({ applications: [] }))
+    ]);
+    // Admin/mod also load all pending applications
+    if (canAdminOrMod(data)) {
+      const result = await apiGetCharacterApplications("pending").catch(() => ({ applications: [] }));
+      pendingApplications = result.applications;
+    }
+  } catch (e) {
+    console.warn("[initUserPage] DB load failed:", e.message);
+  }
+
+  const dbState = { myCharacters, myApplications, pendingApplications };
+  render(data, { message: "", dbState });
 }
