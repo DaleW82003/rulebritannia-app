@@ -14,12 +14,16 @@ var index_default = {
     // API proxy
     if (url.pathname.startsWith("/api/")) {
       const backendUrl = new URL(url.pathname + url.search, BACKEND_ORIGIN).toString();
-      return await fetch(new Request(backendUrl, {
+      const init = {
         method: request.method,
         headers: request.headers,
-        body: request.body,
-        redirect: "follow"
-      }));
+        redirect: "follow",
+      };
+      // GET and HEAD requests must not carry a body per the HTTP spec.
+      if (!["GET", "HEAD"].includes(request.method)) {
+        init.body = request.body;
+      }
+      return await fetch(new Request(backendUrl, init));
     }
 
     // All other requests: redirect to www
