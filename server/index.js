@@ -622,7 +622,12 @@ function generateCsrfToken() {
 
 // Paths that are explicitly exempt from CSRF validation because no session
 // (and therefore no token) exists when they are called.
-const CSRF_EXEMPT_PATHS = new Set(["/auth/login", "/api/register"]);
+const CSRF_EXEMPT_PATHS = new Set([
+  "/auth/login",
+  "/api/auth/login",
+  "/api/register",
+  "/api/auth/resend-verification", // no session exists when resending a verification email
+]);
 
 function verifyCsrfToken(req, res, next) {
   const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);

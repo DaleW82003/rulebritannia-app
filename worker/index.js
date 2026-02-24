@@ -17,11 +17,12 @@ export default {
 
     if (url.pathname.startsWith("/api/")) {
       const backendUrl = new URL(url.pathname + url.search, BACKEND_ORIGIN).toString();
+      const hasBody = request.method !== "GET" && request.method !== "HEAD";
       try {
         return await fetch(new Request(backendUrl, {
           method:  request.method,
           headers: request.headers,
-          body:    request.body,
+          ...(hasBody && { body: request.body, duplex: "half" }),
           redirect: "follow",
         }));
       } catch (err) {
