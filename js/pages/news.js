@@ -3,8 +3,8 @@ import { setHTML, esc } from "../ui.js";
 import { canPostNews, canAdminOrMod } from "../permissions.js";
 import { saveState, nowMs } from "../core.js";
 
-const LIVE_WINDOW_DAYS = 14;
-const LIVE_WINDOW_MS = LIVE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+const LIVE_WINDOW_MONTHS = 2;
+const LIVE_WINDOW_MS = LIVE_WINDOW_MONTHS * 30 * 24 * 60 * 60 * 1000;
 
 function byNewest(a, b) {
   return Number(b?.createdAt || 0) - Number(a?.createdAt || 0);
@@ -49,14 +49,14 @@ function renderGrid(items, small = false, emptyMessage = "No stories yet.", canD
 
 function renderTopStory(mainItems, canDelete = false) {
   const top = mainItems[0];
-  if (!top) return `<div class="muted-block">No Top Story in the last ${LIVE_WINDOW_DAYS} days.</div>`;
+  if (!top) return `<div class="muted-block">No Top Story available.</div>`;
   return renderStoryCard(top, false, canDelete);
 }
 
 function renderArchive(archiveStories, canDelete = false) {
   if (!archiveStories.length) return `<div class="muted-block">No archived stories yet.</div>`;
   return `
-    <div class="small" style="margin-bottom:10px;">Showing items older than ${LIVE_WINDOW_DAYS} days in chronological order (oldest first).</div>
+    <div class="small" style="margin-bottom:10px;">Archived items in chronological order (oldest first).</div>
     <div class="news-grid">${archiveStories.map((s) => renderStoryCard(s, true, canDelete)).join("")}</div>
   `;
 }
@@ -140,8 +140,8 @@ export function initNewsPage(data) {
     setHTML("bbcBreakingTicker", `<span class="bbc-breaking-track">${ticker}</span>`);
 
     setHTML("bbcTopStory", renderTopStory(liveMain, canDelete));
-    setHTML("bbcMainNews", renderGrid(liveMain, false, `No Main News in the last ${LIVE_WINDOW_DAYS} days.`, canDelete));
-    setHTML("bbcOtherNews", renderGrid(liveOther, true, `No Other News in the last ${LIVE_WINDOW_DAYS} days.`, canDelete));
+    setHTML("bbcMainNews", renderGrid(liveMain, false, `No Main News available.`, canDelete));
+    setHTML("bbcOtherNews", renderGrid(liveOther, true, `No Other News available.`, canDelete));
     setHTML("bbcArchive", renderArchive(archive, canDelete));
   };
 

@@ -1,11 +1,8 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
-import { formatSimMonthYear, getSimDate, getWeekdayName, isSunday } from "../clock.js";
+import { canAdminOrMod } from "../permissions.js";
+import { formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
-
-const POLL_DAY = "Sunday";
-const SIM_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 function canPublish(data) {
   return canAdminOrMod(data);
@@ -18,16 +15,6 @@ function ensurePolling(data) {
 }
 
 /**
- * Return the sim label for Saturday (the last active sim day).
- * Polls are published on Sunday (freeze), so the correct date label is
- * the sim month/year computed as of Saturday — one real day earlier.
- */
-function saturdaySimLabel(data) {
-  const saturday = new Date();
-  saturday.setDate(saturday.getDate() - 1); // step back to Saturday
-  const d = getSimDate(data?.gameState || {}, saturday);
-  return `${SIM_MONTHS[d.monthIndex]} ${d.year}`;
-}
 
 function currentSimLabel(data) {
   return formatSimMonthYear(data?.gameState || {});
@@ -99,8 +86,6 @@ function render(data) {
 
   ensurePolling(data);
   const isPublisher = canPublish(data);
-  const sunday = isSunday();
-  const weekday = getWeekdayName();
   const polls = data.polling.polls.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
   const latest = polls[0] || null;
   const previous = polls[1] || null;
@@ -111,9 +96,8 @@ function render(data) {
     <div class="bbc-masthead"><div class="bbc-title">Polling</div></div>
 
     <section class="panel" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Weekly Poll Publication</h2>
-      <p>Polls are published by moderators on <b>${POLL_DAY}s</b>. Only parties polling at <b>2%+</b> are displayed. Archive is chronological for the current simulation round.</p>
-      ${isPublisher && !sunday ? `<p class="muted">Poll publishing is locked on ${esc(weekday)}. Return on Sunday for the weekly release.</p>` : ""}
+      <h2 style="margin-top:0;">Poll Publication</h2>
+      <p>Polls are released every <b>2 months</b> by moderators. Only parties polling at <b>2%+</b> are displayed, with a <b>±2% margin of error</b>.</p>
     </section>
 
     ${latest ? `
@@ -149,15 +133,15 @@ function render(data) {
 
     ${isPublisher ? `
       <section class="panel" style="margin-bottom:12px;">
-        <h2 style="margin-top:0;">Publish Weekly Poll (Mods/Admins)</h2>
+        <h2 style="margin-top:0;">Publish Poll (Mods/Admins)</h2>
         <form id="poll-submit-form">
           <label class="label" for="polling-sim-date">Simulation Month &amp; Year</label>
-          <input id="polling-sim-date" name="simDate" class="input" value="${esc(saturdaySimLabel(data))}" readonly aria-readonly="true" style="background:#f0f4fb;cursor:default;">
+          <input id="polling-sim-date" name="simDate" class="input" value="${esc(currentSimLabel(data))}" readonly aria-readonly="true" style="background:#f0f4fb;cursor:default;">
 
           <label class="label" for="polling-results">Party shares (one per line: Party=Value)</label>
           <textarea id="polling-results" name="results" class="input" rows="6" required placeholder="Labour=34.5\nConservative=31.1\nLiberal Democrat=11.8\nGreen=5.0\nSNP=3.0"></textarea>
 
-          <button type="submit" class="btn" ${sunday ? "" : "disabled"}>Publish Poll</button>
+          <button type="submit" class="btn">Publish Poll</button>
         </form>
       </section>
     ` : ""}
@@ -179,7 +163,6 @@ function render(data) {
   root.querySelector("#poll-submit-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     if (!isPublisher) return;
-    if (!isSunday()) return;
     const fd = new FormData(e.currentTarget);
     const simDate = String(fd.get("simDate") || "").trim();
     const text = String(fd.get("results") || "").trim();

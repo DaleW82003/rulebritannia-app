@@ -493,7 +493,7 @@ function renderDbQtPanel(questions, data, host) {
   const panel = document.createElement("section");
   panel.className = "tile";
   panel.style.marginTop = "20px";
-  panel.innerHTML = `<h2 style="margin-top:0;">Question Time (DB Questions)</h2>
+  panel.innerHTML = `<h2 style="margin-top:0;">Question Time</h2>
     <p class="muted" style="margin-bottom:12px;">Questions submitted via the structured question bank.</p>
     <form id="db-qt-ask-form" style="margin-bottom:16px;">
       <label class="label" for="db-qt-office">Office</label>

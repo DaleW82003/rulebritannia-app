@@ -270,6 +270,7 @@ function renderParliamentSetupForm(data) {
       <div></div>
       <div class="tile-bottom" style="padding-top:0; margin-top:0;">
         <button class="btn primary" type="button" id="parlSetupSave">Save Parliament Setup</button>
+        <button class="btn danger" type="button" id="clearParliamentBtn">Clear Parliament</button>
         <span id="parlSetupMsg" class="muted" style="margin-left:8px;"></span>
       </div>
     </div>
@@ -338,6 +339,17 @@ function renderParliamentSetupForm(data) {
     if (msgEl) msgEl.textContent = "Saved.";
     refreshAll(data);
   });
+
+  formRoot.querySelector("#clearParliamentBtn")?.addEventListener("click", () => {
+    if (!isAdmin(data)) return;
+    if (!confirm("Clear all parliament seat allocations? This will reset all party seats to 0.")) return;
+    data.parliament ??= {};
+    (data.parliament.parties || []).forEach((p) => { p.seats = 0; });
+    data.parliament.extraParties = [];
+    saveState(data);
+    renderParliamentSetupForm(data);
+    refreshAll(data);
+  });
 }
 
 function bindEditorRowActions(data) {
@@ -370,6 +382,7 @@ function bindEditor(data) {
   const form = document.getElementById("constEditorForm");
   const resetBtn = document.getElementById("constEditorReset");
   const seedBtn = document.getElementById("constituencySeed650");
+  const clearAllBtn = document.getElementById("clearAllConstituencies");
   const closeListBtn = document.getElementById("partyConstituencyClose");
   if (!panel || !openBtn || !form || !resetBtn) return;
 
@@ -380,6 +393,14 @@ function bindEditor(data) {
   openBtn.addEventListener("click", () => { panel.style.display = panel.style.display === "none" ? "" : "none"; });
   seedBtn?.addEventListener("click", () => {
     data.constituencies = buildSynthetic650(data);
+    saveState(data);
+    refreshAll(data);
+  });
+
+  clearAllBtn?.addEventListener("click", () => {
+    if (!isAdmin(data)) return;
+    if (!confirm("Clear all constituencies? This cannot be undone.")) return;
+    data.constituencies = [];
     saveState(data);
     refreshAll(data);
   });

@@ -8,22 +8,31 @@ function byNewest(a, b) {
 }
 
 function renderPaperTiles(papers) {
+  const ftPaper = papers.find((p) => p.key === "ft");
+  const otherPapers = papers.filter((p) => p.key !== "ft");
+
+  function tileHtml(p) {
+    const latest = (p.issues || []).slice().sort(byNewest)[0];
+    return `
+      <div class="paper-tile ${esc(p.cls || "")} card-flex">
+        <div class="paper-masthead">${esc(p.name)}</div>
+        <div class="paper-headline">${esc(latest?.headline || "No articles yet")}</div>
+        <div class="paper-strap">${esc(latest?.simDate || "")}</div>
+        <div class="tile-bottom">
+          <button class="btn" type="button" data-paper="${esc(p.key)}">Open</button>
+        </div>
+      </div>
+    `;
+  }
+
   return `
     <div class="paper-grid">
-      ${papers.map((p) => {
-        const latest = (p.issues || []).slice().sort(byNewest)[0];
-        return `
-          <div class="paper-tile ${esc(p.cls || "")} card-flex">
-            <div class="paper-masthead">${esc(p.name)}</div>
-            <div class="paper-headline">${esc(latest?.headline || "No articles yet")}</div>
-            <div class="paper-strap">${esc(latest?.simDate || "")}</div>
-            <div class="tile-bottom">
-              <button class="btn" type="button" data-paper="${esc(p.key)}">Open</button>
-            </div>
-          </div>
-        `;
-      }).join("")}
+      ${otherPapers.map(tileHtml).join("")}
     </div>
+    ${ftPaper ? `
+    <div class="paper-ft-row">
+      ${tileHtml(ftPaper)}
+    </div>` : ""}
   `;
 }
 
