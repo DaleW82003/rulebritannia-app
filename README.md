@@ -61,6 +61,8 @@ All frontend code — including the admin panel — therefore calls `/api/...` r
 
 ### Production deployment (Cloudflare + Render)
 
+> **Canonical host:** `rulebritannia.org` — `www.rulebritannia.org` redirects to the apex domain.
+
 The production frontend is served from `https://rulebritannia.org`. The Render backend is a separate service at `https://rulebritannia-app-backend.onrender.com`. To route `/api/*` requests correctly, configure a **Cloudflare Worker** (or Page Rule / Transform Rule) that proxies all requests matching `rulebritannia.org/api/*` to `https://rulebritannia-app-backend.onrender.com/api/*`.
 
 Example Cloudflare Worker snippet:
