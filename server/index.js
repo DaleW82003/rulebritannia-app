@@ -287,6 +287,14 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
   `);
 
+  // Backfill: users that existed before email verification was introduced are already
+  // trusted (manually approved by an admin), so mark them as verified immediately.
+  // This is idempotent — it only updates rows where email_verified is still FALSE.
+  await pool.query(`
+    UPDATE users SET email_verified = TRUE, email_verified_at = NOW()
+     WHERE email_verified = FALSE;
+  `);
+
   // sessions table is handled by connect-pg-simple when createTableIfMissing:true
 
   await pool.query(`
