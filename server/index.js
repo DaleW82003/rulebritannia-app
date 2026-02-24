@@ -4,7 +4,7 @@ import session from "express-session";
 import pgSession from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "crypto";
 import sgMail from "@sendgrid/mail";
 import { pool } from "./db.js";
 import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload } from "./discourse.js";
@@ -262,7 +262,7 @@ async function ensureSchema() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       username TEXT NOT NULL UNIQUE,
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
@@ -291,6 +291,87 @@ async function ensureSchema() {
        );
   `);
 
+  // Migration: if the users table still has a TEXT primary key (legacy install), migrate to UUID PK.
+  // This also migrates the FK columns in user_roles, characters, and pending_character_applications.
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_name = 'users' AND column_name = 'id' AND data_type = 'text'
+      ) THEN
+        -- Invalidate all existing sessions; user IDs are being reassigned to new UUIDs,
+        -- so any stored session userId values will no longer match a valid users.id.
+        -- All users will need to log in again after this one-time migration.
+        DELETE FROM sessions;
+
+        -- Step 1: Add new UUID columns
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS new_uuid_id UUID DEFAULT gen_random_uuid();
+
+        -- Only add intermediate columns if the FK tables exist
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'user_roles') THEN
+          ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS new_uuid_user_id UUID;
+          UPDATE user_roles ur SET new_uuid_user_id = u.new_uuid_id FROM users u WHERE ur.user_id = u.id;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'characters') THEN
+          ALTER TABLE characters ADD COLUMN IF NOT EXISTS new_uuid_user_id UUID;
+          UPDATE characters c SET new_uuid_user_id = u.new_uuid_id FROM users u WHERE c.user_id = u.id;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pending_character_applications') THEN
+          ALTER TABLE pending_character_applications ADD COLUMN IF NOT EXISTS new_uuid_user_id UUID;
+          UPDATE pending_character_applications pca SET new_uuid_user_id = u.new_uuid_id FROM users u WHERE pca.applicant_user_id = u.id;
+        END IF;
+
+        -- Step 2: Drop FK constraints on dependent tables
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'user_roles') THEN
+          ALTER TABLE user_roles DROP CONSTRAINT IF EXISTS user_roles_user_id_fkey;
+          ALTER TABLE user_roles DROP COLUMN IF EXISTS user_id;
+          ALTER TABLE user_roles RENAME COLUMN new_uuid_user_id TO user_id;
+          ALTER TABLE user_roles ALTER COLUMN user_id SET NOT NULL;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'characters') THEN
+          ALTER TABLE characters DROP CONSTRAINT IF EXISTS characters_user_id_fkey;
+          ALTER TABLE characters DROP COLUMN IF EXISTS user_id;
+          ALTER TABLE characters RENAME COLUMN new_uuid_user_id TO user_id;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pending_character_applications') THEN
+          ALTER TABLE pending_character_applications DROP CONSTRAINT IF EXISTS pending_character_applications_applicant_user_id_fkey;
+          ALTER TABLE pending_character_applications DROP COLUMN IF EXISTS applicant_user_id;
+          ALTER TABLE pending_character_applications RENAME COLUMN new_uuid_user_id TO applicant_user_id;
+          ALTER TABLE pending_character_applications ALTER COLUMN applicant_user_id SET NOT NULL;
+        END IF;
+
+        -- Step 3: Swap users PK from TEXT to UUID
+        ALTER TABLE users DROP CONSTRAINT users_pkey;
+        ALTER TABLE users DROP COLUMN id;
+        ALTER TABLE users RENAME COLUMN new_uuid_id TO id;
+        ALTER TABLE users ADD PRIMARY KEY (id);
+
+        -- Step 4: Re-add FK constraints and unique indexes on dependent tables
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'user_roles') THEN
+          ALTER TABLE user_roles ADD CONSTRAINT user_roles_user_id_fkey
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'user_roles_user_id_role_key'
+          ) THEN
+            ALTER TABLE user_roles ADD CONSTRAINT user_roles_user_id_role_key UNIQUE (user_id, role);
+          END IF;
+          CREATE INDEX IF NOT EXISTS user_roles_user_idx ON user_roles (user_id);
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'characters') THEN
+          ALTER TABLE characters ADD CONSTRAINT characters_user_id_fkey
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+          CREATE INDEX IF NOT EXISTS characters_user_idx ON characters (user_id);
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pending_character_applications') THEN
+          ALTER TABLE pending_character_applications ADD CONSTRAINT pending_character_applications_applicant_user_id_fkey
+            FOREIGN KEY (applicant_user_id) REFERENCES users(id) ON DELETE CASCADE;
+          CREATE INDEX IF NOT EXISTS pca_user_idx ON pending_character_applications (applicant_user_id);
+        END IF;
+      END IF;
+    END $$;
+  `);
+
   // sessions table is handled by connect-pg-simple when createTableIfMissing:true
 
   await pool.query(`
@@ -304,7 +385,7 @@ async function ensureSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_roles (
       id          BIGSERIAL PRIMARY KEY,
-      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       role        TEXT NOT NULL,
       assigned_by TEXT,
       assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -418,7 +499,7 @@ async function ensureSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS characters (
       id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id       TEXT REFERENCES users(id) ON DELETE SET NULL,
+      user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
       name          TEXT NOT NULL,
       party         TEXT NOT NULL DEFAULT '',
       constituency  TEXT NOT NULL DEFAULT '',
@@ -617,7 +698,7 @@ async function ensureSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pending_character_applications (
       id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      applicant_user_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      applicant_user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       applicant_username         TEXT NOT NULL,
       submitted_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       status                     TEXT NOT NULL DEFAULT 'pending'
@@ -2015,7 +2096,7 @@ app.post("/api/admin/registrations/:id/approve", regAdminLimit, verifyCsrfToken,
       userId = existingUsers[0].id;
     } else {
       // Create the user account (carry over email_verified from pending registration)
-      userId = `user-${randomBytes(16).toString("hex")}`;
+      userId = randomUUID();
       await pool.query(
         `INSERT INTO users (id, username, email, password_hash, roles, email_verified, email_verified_at)
          VALUES ($1, $2, $3, $4, '[]'::jsonb, $5, $6)`,
@@ -2527,7 +2608,7 @@ app.get("/api/discourse/sso/callback", ssoRateLimit, async (req, res) => {
       localUser = existingRows[0];
     } else {
       // Auto-provision: create account with a random unusable password
-      const id = randomBytes(12).toString("hex");
+      const id = randomUUID();
       const unusableHash = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
       const { rows: newRows } = await pool.query(
         `INSERT INTO users (id, username, email, password_hash)
