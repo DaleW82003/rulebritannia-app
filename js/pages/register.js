@@ -1,9 +1,10 @@
 // js/pages/register.js
 import { esc } from "../ui.js";
+import { getBootstrapConfig } from "../core.js";
 
 const REGISTER_URL = "/api/register";
 
-function render(host, errorMsg = "", successMsg = "") {
+function render(host, errorMsg = "", successMsg = "", cfg = {}) {
   if (successMsg) {
     host.innerHTML = `
       <div class="bbc-masthead"><div class="bbc-title">Apply to Join</div></div>
@@ -19,12 +20,28 @@ function render(host, errorMsg = "", successMsg = "") {
     return;
   }
 
+  const turnstileEnabled = cfg.turnstile_enabled && cfg.turnstile_site_key;
+  const turnstileWidget  = turnstileEnabled
+    ? `<div style="margin-top:4px;">
+         <div class="cf-turnstile" data-sitekey="${esc(cfg.turnstile_site_key)}" data-theme="light"></div>
+         <noscript><p style="color:var(--red);font-size:13px;">JavaScript is required to complete the anti-bot check.</p></noscript>
+       </div>`
+    : "";
+
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Apply to Join</div></div>
     <section class="panel" style="max-width:540px;">
+      <div style="background:rgba(0,30,90,.05);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:18px;font-size:14px;line-height:1.6;">
+        <strong>Before you apply:</strong>
+        <ul style="margin:6px 0 0;padding-left:20px;color:var(--muted);">
+          <li>Rule Britannia is strictly <strong>16+ only</strong>. No date of birth is collected.</li>
+          <li>Your application will be <strong>reviewed by an admin</strong> before access is granted.</li>
+          <li>You will also need to <strong>verify your email address</strong> via the link sent on submission.</li>
+          <li>You <strong>cannot log in</strong> until both steps are complete.</li>
+        </ul>
+      </div>
       <p class="muted" style="margin:0 0 18px;font-size:14px;">
-        Rule Britannia is an invite-gated political simulation. Complete this form to apply for access.
-        Your application will be reviewed by the moderation team and you will be notified on approval.
+        Complete this form to apply. Your details will be reviewed by the moderation team.
       </p>
       <form id="register-form" style="display:grid;gap:16px;" novalidate>
         <label>
@@ -67,11 +84,27 @@ function render(host, errorMsg = "", successMsg = "") {
           </span>
         </label>
 
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+          <input id="reg-marketing" name="marketing_opt_in" type="checkbox"
+                 style="margin-top:3px;flex-shrink:0;width:16px;height:16px;">
+          <span style="font-size:14px;color:var(--muted);">
+            I would like to receive optional news and updates from Rule Britannia by email. (Optional — unchecked by default.)
+          </span>
+        </label>
+
+        ${turnstileWidget}
+
         <div id="reg-error" style="display:none;color:var(--red);font-size:13px;padding:8px 12px;background:rgba(212,0,26,.07);border-radius:8px;"></div>
         <button class="btn primary" type="submit" style="width:100%;justify-content:center;">Submit Application</button>
       </form>
       <p style="margin-top:14px;font-size:13px;color:var(--muted);text-align:center;">
         Already have an account? <a href="login.html" style="color:var(--blue);">Login here</a>
+      </p>
+      <p style="margin-top:6px;font-size:12px;color:var(--muted);text-align:center;">
+        By applying you agree to our
+        <a href="terms.html" style="color:var(--blue);">Terms of Use</a>,
+        <a href="privacy.html" style="color:var(--blue);">Privacy Notice</a>, and
+        <a href="community-rules.html" style="color:var(--blue);">Community Rules</a>.
       </p>
     </section>
   `;
@@ -81,7 +114,18 @@ export function initRegisterPage(_data, _user) {
   const host = document.getElementById("register-root") || document.querySelector("main.wrap");
   if (!host) return;
 
-  render(host);
+  const cfg = getBootstrapConfig() || {};
+  render(host, "", "", cfg);
+
+  // Inject Turnstile script if needed (once per page)
+  if (cfg.turnstile_enabled && cfg.turnstile_site_key &&
+      !document.querySelector('script[src*="challenges.cloudflare.com/turnstile"]')) {
+    const s = document.createElement("script");
+    s.src   = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+    s.async = true;
+    s.defer = true;
+    document.head.appendChild(s);
+  }
 
   const form = host.querySelector("#register-form");
   const errorEl = host.querySelector("#reg-error");
@@ -97,6 +141,18 @@ export function initRegisterPage(_data, _user) {
     const password = String(form.querySelector("#reg-password")?.value || "");
     const password2 = String(form.querySelector("#reg-password2")?.value || "");
     const ageOk   = form.querySelector("#reg-age")?.checked;
+    const marketingOptIn = Boolean(form.querySelector("#reg-marketing")?.checked);
+
+    // Collect Turnstile token if widget present
+    let turnstile_token = "";
+    if (cfg.turnstile_enabled && cfg.turnstile_site_key) {
+      if (window.turnstile) {
+        turnstile_token = window.turnstile.getResponse() || "";
+      } else {
+        const hiddenInput = host.querySelector("input[name='cf-turnstile-response']");
+        if (hiddenInput) turnstile_token = hiddenInput.value || "";
+      }
+    }
 
     // Client-side validation
     if (!name || !username || !email || !password) {
@@ -133,11 +189,11 @@ export function initRegisterPage(_data, _user) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ name, username, email, password, age_attested: true }),
+        body: JSON.stringify({ name, username, email, password, age_attested: true, marketing_opt_in: marketingOptIn, turnstile_token }),
       });
       const json = await resp.json().catch(() => ({}));
       if (resp.ok && json.ok) {
-        render(host, "", json.message || "Your application has been submitted and is pending review. You will be contacted when it is approved.");
+        render(host, "", json.message || "Your application has been submitted. Please check your email to verify your address, then wait for admin approval before logging in.", cfg);
       } else {
         errorEl.textContent = json.error || "Submission failed. Please try again.";
         errorEl.style.display = "block";
