@@ -53,6 +53,7 @@ export async function initAdminPanelPage(data) {
         <td style="padding:6px 8px;">${esc(r.username)}</td>
         <td style="padding:6px 8px;">${esc(r.email)}</td>
         <td style="padding:6px 8px;">${r.age_attested ? "✓" : "✗"}</td>
+        <td style="padding:6px 8px;">${r.email_verified ? "✓" : "✗"}</td>
         <td style="padding:6px 8px;">${r.created_at ? new Date(r.created_at).toLocaleString("en-GB") : ""}</td>
         <td style="padding:6px 8px;white-space:nowrap;">
           <button class="btn btn-approve" data-id="${esc(r.id)}" style="margin-right:6px;">Approve</button>
@@ -74,6 +75,7 @@ export async function initAdminPanelPage(data) {
                   <th style="text-align:left;padding:6px 8px;">Username</th>
                   <th style="text-align:left;padding:6px 8px;">Email</th>
                   <th style="text-align:left;padding:6px 8px;">16+</th>
+                  <th style="text-align:left;padding:6px 8px;">Email ✓</th>
                   <th style="text-align:left;padding:6px 8px;">Applied</th>
                   <th style="text-align:left;padding:6px 8px;">Actions</th>
                 </tr>
@@ -92,7 +94,7 @@ export async function initAdminPanelPage(data) {
         <p class="muted">Loading dashboard data…</p>
       </section>`;
     }
-    const { pendingQtQuestions, openDivisions, billsAwaitingDebate, recentAuditLog } = dashboardData;
+    const { pendingQtQuestions, openDivisions, billsAwaitingDebate, recentAuditLog, pendingRegistrations: pendingRegsCount } = dashboardData;
     const auditRows = (recentAuditLog || []).map((e) =>
       `<tr>
         <td>${esc(e.created_at ? new Date(e.created_at).toLocaleString("en-GB") : "")}</td>
@@ -111,6 +113,11 @@ export async function initAdminPanelPage(data) {
     return `<section class="panel" style="margin-top:12px;">
       <h2 style="margin-top:0;">Moderator Dashboard</h2>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px;">
+        <div class="tile" style="text-align:center;">
+          <div style="font-size:2rem;font-weight:700;">${pendingRegsCount ?? "—"}</div>
+          <div>Pending Registrations</div>
+          <a href="#pending-reg-section" class="btn btn-sm" style="margin-top:6px;">Review</a>
+        </div>
         <div class="tile" style="text-align:center;">
           <div style="font-size:2rem;font-weight:700;">${pendingQtQuestions ?? "—"}</div>
           <div>Pending QT Questions</div>

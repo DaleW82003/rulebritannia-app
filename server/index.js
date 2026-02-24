@@ -289,10 +289,15 @@ async function ensureSchema() {
 
   // Backfill: users that existed before email verification was introduced are already
   // trusted (manually approved by an admin), so mark them as verified immediately.
-  // This is idempotent — it only updates rows where email_verified is still FALSE.
+  // Scoped to users with NO entry in pending_registrations so that newly approved
+  // users who have not yet clicked their verification link are not auto-verified on
+  // every server restart.
   await pool.query(`
     UPDATE users SET email_verified = TRUE, email_verified_at = NOW()
-     WHERE email_verified = FALSE;
+     WHERE email_verified = FALSE
+       AND NOT EXISTS (
+         SELECT 1 FROM pending_registrations WHERE email = users.email
+       );
   `);
 
   // sessions table is handled by connect-pg-simple when createTableIfMissing:true
@@ -1225,7 +1230,7 @@ app.get("/api/admin/registrations", regAdminLimit, async (req, res) => {
     const status = req.query.status || "pending";
     const { rows } = await pool.query(
       `SELECT id, email, username, display_name, age_attested, consent_version, consent_at,
-              status, reviewed_by, reviewed_at, created_at
+              status, reviewed_by, reviewed_at, created_at, email_verified
          FROM pending_registrations
         WHERE status = $1
         ORDER BY created_at ASC`,
@@ -4281,7 +4286,7 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
 
-    const [qtPending, openDivisions, billsAwaitingDebate, recentAudit] = await Promise.all([
+    const [qtPending, openDivisions, billsAwaitingDebate, recentAudit, pendingRegs] = await Promise.all([
       pool.query(
         "SELECT COUNT(*) AS count FROM qt_questions WHERE status = 'open'"
       ),
@@ -4297,6 +4302,9 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
         `SELECT id, actor_id, action, target, created_at
            FROM audit_log ORDER BY created_at DESC LIMIT 10`
       ),
+      pool.query(
+        "SELECT COUNT(*) AS count FROM pending_registrations WHERE status = 'pending'"
+      ),
     ]);
 
     res.json({
@@ -4304,6 +4312,7 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
       openDivisions:        Number(openDivisions.rows[0].count),
       billsAwaitingDebate:  Number(billsAwaitingDebate.rows[0].count),
       recentAuditLog:       recentAudit.rows,
+      pendingRegistrations: Number(pendingRegs.rows[0].count),
     });
   } catch (e) {
     console.error(e);
