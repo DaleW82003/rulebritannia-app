@@ -33,6 +33,7 @@ export default {
       }
     }
 
+    
     // Pass through any non-/api/ request unchanged (should not normally occur
     // given the route is scoped to /api/*).
     return fetch(request);
