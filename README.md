@@ -55,8 +55,32 @@ Open `dashboard.html` in your browser. Without a backend session, all pages load
 The frontend calls the backend API (authentication, state persistence) using a base URL resolved at runtime by `js/api.js`:
 
 1. **`window.RB_API_BASE`** — if this global is set before `js/main.js` runs, it is used as-is.
-2. **Hostname inference** — if the page is served from `rulebritannia.org`, `*.rulebritannia.org`, or `rulebritannia-app.onrender.com`, the base is automatically set to `https://rulebritannia-app-backend.onrender.com`.
-3. **Fallback** — all other origins (e.g. `localhost`) default to `""`, meaning API requests go to the same origin. This is the correct behaviour for local development when you also run the backend on the same host/port.
+2. **Fallback** — all other origins (including production) default to `""`, meaning every `fetch('/api/...')` call goes to the same origin as the page. This is correct for both production and local development when the backend runs on the same host/port.
+
+All frontend code — including the admin panel — therefore calls `/api/...` relative to the current origin. There are no hard-coded backend hostnames in the frontend.
+
+### Production deployment (Cloudflare + Render)
+
+> **Canonical host:** `rulebritannia.org` — `www.rulebritannia.org` redirects to the apex domain.
+
+The production frontend is served from `https://rulebritannia.org`. The Render backend is a separate service at `https://rulebritannia-app-backend.onrender.com`. To route `/api/*` requests correctly, configure a **Cloudflare Worker** (or Page Rule / Transform Rule) that proxies all requests matching `rulebritannia.org/api/*` to `https://rulebritannia-app-backend.onrender.com/api/*`.
+
+Example Cloudflare Worker snippet:
+
+```js
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname.startsWith("/api/")) {
+      const backendUrl = "https://rulebritannia-app-backend.onrender.com" + url.pathname + url.search;
+      return fetch(new Request(backendUrl, request));
+    }
+    return fetch(request);
+  },
+};
+```
+
+With this in place the frontend only ever calls `/api/*` and Cloudflare transparently forwards those requests to Render. Both the registration UI and the admin panel hit the same backend and therefore the same database.
 
 ### Local development
 
@@ -68,10 +92,6 @@ If you are running the backend on a different port (e.g. `http://localhost:4000`
 ```
 
 Or set it once in your browser console before navigating to the page.
-
-### Production (Render)
-
-No extra configuration is needed. The hostname-inference rule in `js/api.js` automatically resolves the correct backend URL when the frontend is served from `rulebritannia.org` or `rulebritannia-app.onrender.com`.
 
 ## Backend (server/)
 
@@ -182,7 +202,7 @@ When `DISCOURSE_SSO_ENABLED=true`, the login page automatically shows a **"Login
 2. Verify the topbar shows "Not logged in" and a "Login" link.
 3. State is sourced from `/data/demo.json` (read-only). No network calls to `/api/state` are made and no writes occur in `localStorage`.
 4. Reload the page — demo state is always fresh from `demo.json`; local edits do not persist.
-5. Confirm that `GET /api/state` on the backend returns **401** when called without a session cookie (e.g. `curl https://rulebritannia-app-backend.onrender.com/api/state`).
+5. Confirm that `GET /api/state` on the backend returns **401** when called without a session cookie (e.g. `curl https://rulebritannia.org/api/state`).
 
 ### Authenticated admin experience
 
