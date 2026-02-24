@@ -327,3 +327,12 @@ The following static pages are included:
 ### Entry pages
 
 The four entry pages (`/index.html`, `/register.html`, `/login.html`, `/verify-email.html`) display a **minimal topbar** and a footer linking to the policy pages.
+
+## Live Trial
+
+See **[docs/trial-runbook.md](docs/trial-runbook.md)** for the 3-user live trial runbook, including:
+
+- Pre-trial checklist
+- How to approve users and assign roles
+- How to reset the sim between rounds using the Admin Panel **Danger Zone** tools
+- Discourse integration notes (SSO enabled; group syncing off-by-default)

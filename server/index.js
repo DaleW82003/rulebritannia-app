@@ -4171,6 +4171,88 @@ app.post("/api/admin/discourse-sync-bills", discourseBillSyncLimit, async (req, 
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ADMIN: wipe-content — safe sim reset (no user/registration deletion)
+// POST /api/admin/wipe-content
+//
+// Wipes gameplay/content tables and resets the sim clock + state to the
+// August 1997 baseline.  User accounts and pending registrations are
+// NOT touched.  Requires a typed confirmation body: { confirm: "WIPE CONTENT" }
+// ═══════════════════════════════════════════════════════════════════════════
+
+const wipeContentLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { confirm: confirmText } = req.body || {};
+    if (confirmText !== "WIPE CONTENT") {
+      return res.status(400).json({
+        ok: false,
+        error: "Confirmation text mismatch. Type WIPE CONTENT exactly to proceed.",
+      });
+    }
+
+    // Wipe all gameplay/content tables
+    await pool.query(
+      "TRUNCATE bills, motions, statements, regulations, questiontime_questions, press_items, polling_entries"
+    );
+
+    // Reset sim clock to August 1997
+    await pool.query(`
+      INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+      VALUES ('main', 8, 1997, 1)
+      ON CONFLICT (id) DO UPDATE SET
+        sim_current_month = 8,
+        sim_current_year  = 1997,
+        rate              = 1,
+        real_last_tick    = NOW()
+    `);
+
+    // Reset sim_state to August 1997
+    await pool.query(`
+      INSERT INTO sim_state (id, year, month, is_paused)
+      VALUES ('main', 1997, 8, true)
+      ON CONFLICT (id) DO UPDATE SET
+        year        = 1997,
+        month       = 8,
+        is_paused   = true,
+        last_tick_at = NULL
+    `);
+
+    // Reset app_state_current — create a fresh empty snapshot and point to it
+    const { rows: snapRows } = await pool.query(
+      `INSERT INTO state_snapshots (label, data)
+         VALUES ('Post-wipe baseline (August 1997)', '{}'::jsonb)
+       RETURNING id`
+    );
+    const newSnapshotId = snapRows[0].id;
+    await pool.query(
+      `INSERT INTO app_state_current (id, snapshot_id)
+         VALUES ('main', $1)
+       ON CONFLICT (id) DO UPDATE SET snapshot_id = $1`,
+      [newSnapshotId]
+    );
+
+    await writeAuditLog(req.session.userId, "admin.wipe-content", "all", "*", null, {
+      tables: ["bills", "motions", "statements", "regulations", "questiontime_questions", "press_items", "polling_entries"],
+      simResetTo: "August 1997",
+      newSnapshotId,
+    });
+
+    res.json({
+      ok: true,
+      message: "Content wiped and sim reset to August 1997. User accounts are intact.",
+      wiped: ["bills", "motions", "statements", "regulations", "questiontime_questions", "press_items", "polling_entries"],
+      simResetTo: "August 1997",
+    });
+  } catch (e) {
+    console.error("[wipe-content]", e);
+    res.status(500).json({ ok: false, error: "Server error during wipe" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ADMIN: seed-demo — reset DB to a fully-populated baseline state
 // POST /api/admin/seed-demo   — admin: idempotent demo data seeder
 // POST /api/admin/seed        — canonical alias (same handler)
