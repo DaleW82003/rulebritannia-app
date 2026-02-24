@@ -1,6 +1,17 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import {
+  apiScandalsMine,
+  apiScandalsOptIn,
+  apiScandalSituationRespond,
+  apiScandalChoose,
+  apiModScandalSituationCreate,
+  apiModScandalsOpen,
+  apiModScandalDecision,
+  apiModScandalClose,
+  apiModScandalTemplates,
+} from "../api.js";
 
 const TASKS = [
   "Meeting Local Businesses",
@@ -14,45 +25,6 @@ const TASKS = [
 ];
 
 const LOCK_MONTHS = 6;
-
-// ── Scandal templates (mod may use these as starting points) ─────────────────
-const SCANDAL_TEMPLATES = [
-  {
-    id: "tpl-planning",
-    title: "Planning Permission Controversy",
-    stages: [
-      { id: "s1", title: "Allegation Surfaces", text: "A local newspaper claims you may have improperly influenced a planning decision in your constituency. The story is gathering momentum.", options: [
-        { id: "a", label: "Deny everything publicly", nextStageIdx: 1 },
-        { id: "b", label: "Offer a measured response and await investigation", nextStageIdx: 2 }
-      ]},
-      { id: "s2", title: "Fallout — Denial Backfires", text: "Your denial is contradicted by documents obtained by the newspaper. Scrutiny intensifies.", options: [
-        { id: "a", label: "Refer matter to your solicitor", nextStageIdx: 3 }
-      ]},
-      { id: "s3", title: "Measured Response — Story Dies Down", text: "Your thoughtful statement buys time. The investigation finds insufficient evidence to continue.", options: [
-        { id: "a", label: "Resume normal activities", nextStageIdx: null }
-      ]},
-      { id: "s4", title: "Legal Action Threatened", text: "The newspaper stands its ground. Legal costs begin to mount and the story dominates local media.", options: [
-        { id: "a", label: "Settle privately", nextStageIdx: null }
-      ]}
-    ]
-  },
-  {
-    id: "tpl-expenses",
-    title: "Expenses Irregularity",
-    stages: [
-      { id: "s1", title: "Leak Emerges", text: "A whistleblower has reportedly passed information about your expenses claims to a national paper. Your party whip has been in touch.", options: [
-        { id: "a", label: "Proactively publish all expenses", nextStageIdx: 1 },
-        { id: "b", label: "Stay silent and hope it passes", nextStageIdx: 2 }
-      ]},
-      { id: "s2", title: "Transparency Applauded", text: "Publishing your expenses pre-empts the story. The paper runs a positive piece on your openness.", options: [
-        { id: "a", label: "Continue as normal", nextStageIdx: null }
-      ]},
-      { id: "s3", title: "Story Published — Crisis Deepens", text: "The paper runs the story. The whip demands a meeting.", options: [
-        { id: "a", label: "Meet the whip and offer to repay any disputed claims", nextStageIdx: null }
-      ]}
-    ]
-  }
-];
 
 function canModerate(data) {
   return canAdminOrMod(data);
@@ -76,17 +48,11 @@ function simLabel(index) {
   return `${names[m]} ${y}`;
 }
 
-function nowStamp() {
-  return new Date().toLocaleString("en-GB", { hour12: false });
-}
-
 // ── Normalisation ─────────────────────────────────────────────────────────────
 
 function ensureWork(data) {
   data.constituencyWork ??= { plansByCharacter: {} };
   data.constituencyWork.plansByCharacter ??= {};
-  data.constituencyWork.scandals ??= [];
-  data.constituencyWork.nextScandalId ??= 1;
 
   const char = getCharacter(data);
   const key = char?.name || "default";
@@ -104,45 +70,9 @@ function ensureWork(data) {
         "Do Second Job": 0
       },
       secondJobTitleCompany: "",
-      scandalOptIn: false,
       lastSavedSimIndex: null,
       updatedAt: null
     };
-  }
-
-  const plan = data.constituencyWork.plansByCharacter[key];
-  plan.scandalOptIn = !!plan.scandalOptIn;
-
-  for (const s of data.constituencyWork.scandals) {
-    s.id = Number(s.id || 0);
-    s.characterKey = String(s.characterKey || "");
-    s.title = String(s.title || "").trim();
-    s.status = s.status === "closed" ? "closed" : "open";
-    s.currentStageIdx = s.status === "closed" ? null : Number(s.currentStageIdx ?? 0);
-    s.createdAt = String(s.createdAt || nowStamp());
-    s.createdBy = String(s.createdBy || "Moderator");
-    s.reputationImpact = Number(s.reputationImpact || 0);
-    s.auditLog = Array.isArray(s.auditLog) ? s.auditLog : [];
-    s.stages = Array.isArray(s.stages) ? s.stages : [];
-    for (const stage of s.stages) {
-      stage.id = String(stage.id || "");
-      stage.title = String(stage.title || "").trim();
-      stage.text = String(stage.text || "").trim();
-      stage.options = Array.isArray(stage.options) ? stage.options : [];
-      for (const o of stage.options) {
-        o.id = String(o.id || "");
-        o.label = String(o.label || "").trim();
-        o.nextStageIdx = o.nextStageIdx != null ? Number(o.nextStageIdx) : null;
-        o.reputationDelta = Number(o.reputationDelta || 0);
-      }
-    }
-    for (const entry of s.auditLog) {
-      entry.stageTitle = String(entry.stageTitle || "");
-      entry.chosenOptionLabel = String(entry.chosenOptionLabel || "");
-      entry.reputationDelta = Number(entry.reputationDelta || 0);
-      entry.actorName = String(entry.actorName || "Unknown");
-      entry.at = String(entry.at || "");
-    }
   }
 
   return key;
@@ -152,63 +82,109 @@ function totalHours(hours) {
   return TASKS.reduce((sum, t) => sum + Number(hours?.[t] || 0), 0);
 }
 
-// ── Scandal card renderer ────────────────────────────────────────────────────
+// ── Scandal helpers ──────────────────────────────────────────────────────────
 
-function renderScandalCard(data, scandal, state) {
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
+function simMonthLabel(year, month) {
+  return `${MONTH_NAMES[(month - 1) % 12]} ${year}`;
+}
+
+function stageBadge(status) {
+  if (status === "awaiting_mod") return "🟡 Awaiting moderator decision";
+  if (status === "closed") return "✅ Resolved";
+  return "🔴 Active";
+}
+
+// ── Scandal card renderers ────────────────────────────────────────────────────
+
+function renderSituationCard(sit, mod) {
+  const title = sit.title_override || sit.title;
+  return `
+    <article class="tile" style="margin-top:10px;border-left:4px solid #e07b00;">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap;">
+        <div>
+          <b>⚠️ Sensitive Situation: ${esc(title)}</b>
+          <div class="muted">${esc(sit.category)} • Expires ${esc(simMonthLabel(sit.expires_sim_year, sit.expires_sim_month))}</div>
+        </div>
+      </div>
+      <p style="margin:8px 0 4px;font-size:.95em;">${esc(sit.stages?.[0]?.text || "A sensitive situation has emerged. How will you respond?")}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button type="button" class="btn" data-action="situation-respond" data-id="${esc(sit.id)}" data-response="investigate">Investigate</button>
+        <button type="button" class="btn" data-action="situation-respond" data-id="${esc(sit.id)}" data-response="report_party">Report to Party</button>
+        <button type="button" class="btn" data-action="situation-respond" data-id="${esc(sit.id)}" data-response="ignore" style="opacity:.7;">Ignore</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderScandalCard(scandal, playerChoices, state) {
   const open = state.openScandalId === scandal.id;
-  const mod = canModerate(data);
-  const char = getCharacter(data);
-  const charKey = char?.name || "default";
-  const isOwn = scandal.characterKey === charKey;
-  const canAct = isOwn && scandal.status === "open";
+  const myChoices = (playerChoices || []).filter((c) => c.scandal_id === scandal.id);
+  const isAwaiting = scandal.status === "awaiting_mod";
+  const isClosed = scandal.status === "closed";
+  const canAct = !isClosed && !isAwaiting;
 
-  const stage = (scandal.stages.length > 0 && scandal.currentStageIdx != null)
-    ? scandal.stages[scandal.currentStageIdx] || null
-    : null;
+  // Find current stage choices from template stages (not stored on scandal row itself)
+  // The template stages are returned in the situations/scandals query — but for active scandals
+  // we get stage info via the player_choices history; choices are shown from the scandal row.
+  // We'll look up choices from the passed-in template stages if available.
+  const templateStages = Array.isArray(scandal.stages) ? scandal.stages : [];
+  const currentStage = templateStages.find((s) => s.key === scandal.stage_key) || null;
+  const choices = currentStage?.choices || [];
 
   return `
     <article class="tile" style="margin-top:10px;">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
         <div>
-          <b>Scandal #${scandal.id}: ${esc(scandal.title)}</b>
-          <div class="muted">For: ${esc(scandal.characterKey)} • ${scandal.status === "open" ? "🔴 Active" : "✅ Resolved"}</div>
-          <div class="muted">Reputation impact so far: ${scandal.reputationImpact > 0 ? `+${scandal.reputationImpact}` : scandal.reputationImpact}</div>
+          <b>${esc(scandal.title)}</b>
+          <div class="muted">${stageBadge(scandal.status)} • Stage: <em>${esc(scandal.stage_key)}</em></div>
+          <div class="muted">Severity: ${esc(String(scandal.severity_current))} • Deadline: ${esc(simMonthLabel(scandal.stage_deadline_sim_year, scandal.stage_deadline_sim_month))}</div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          ${mod && scandal.status === "open" ? `<button type="button" class="btn" data-action="close-scandal" data-id="${scandal.id}">Close Scandal</button>` : ""}
-          <button type="button" class="btn" data-action="toggle-scandal" data-id="${scandal.id}">${open ? "Collapse" : "View"}</button>
-        </div>
+        <button type="button" class="btn" data-action="toggle-scandal" data-id="${esc(scandal.id)}">${open ? "Collapse" : "View"}</button>
       </div>
 
       ${open ? `
         <div style="margin-top:10px;">
-          ${stage ? `
+          ${isAwaiting ? `<div class="tile" style="background:#fff7e0;border-left:3px solid #e07b00;margin-bottom:8px;padding:8px;">
+            🟡 <b>Awaiting moderator decision.</b> Your choices have been recorded and the matter is now under review. No further action is required from you at this time.
+          </div>` : ""}
+
+          ${(scandal.public_notes || []).length ? `
+            <div style="margin-bottom:8px;">
+              ${scandal.public_notes.map((n) => `
+                <div class="tile" style="background:#f0f8ff;border-left:3px solid #00529b;padding:8px;margin-bottom:4px;">
+                  <b>📢 Party Statement</b> (${esc(simMonthLabel(n.at_sim_year, n.at_sim_month))}): ${esc(n.statement)}
+                </div>
+              `).join("")}
+            </div>
+          ` : ""}
+
+          ${currentStage && canAct ? `
             <div class="tile" style="background:var(--color-bg,#f8f8f8);margin-bottom:8px;">
-              <h3 style="margin:0 0 4px;">${esc(stage.title)}</h3>
-              <p style="white-space:pre-wrap;margin:0 0 8px;">${esc(stage.text)}</p>
-              ${canAct && stage.options.length ? `
+              <h3 style="margin:0 0 4px;">${esc(currentStage.title)}</h3>
+              <p style="white-space:pre-wrap;margin:0 0 8px;">${esc(currentStage.text)}</p>
+              ${choices.length ? `
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                  ${stage.options.map((opt) => `
-                    <button type="button" class="btn" data-action="choose-scandal-option"
-                      data-scandal-id="${scandal.id}" data-stage-idx="${scandal.currentStageIdx}"
-                      data-opt-id="${esc(opt.id)}" data-opt-label="${esc(opt.label)}"
-                      data-reputation-delta="${opt.reputationDelta}"
-                      data-next-stage-idx="${opt.nextStageIdx != null ? opt.nextStageIdx : ""}">
-                      ${esc(opt.label)}
+                  ${choices.map((c) => `
+                    <button type="button" class="btn" data-action="choose-scandal"
+                      data-scandal-id="${esc(scandal.id)}" data-choice-id="${esc(c.id)}">
+                      ${esc(c.label)}
                     </button>
                   `).join("")}
                 </div>
-              ` : (!canAct && scandal.status === "open" ? '<div class="muted">Awaiting your response.</div>' : "")}
+              ` : '<div class="muted">No choices available for this stage.</div>'}
             </div>
-          ` : `<div class="muted-block">No active stage — scandal ${scandal.status === "closed" ? "resolved" : "has no stages configured"}.</div>`}
+          ` : ""}
 
-          ${scandal.auditLog.length ? `
+          ${myChoices.length ? `
             <details style="margin-top:8px;">
-              <summary class="muted" style="cursor:pointer;">Decision log (${scandal.auditLog.length})</summary>
-              ${scandal.auditLog.map((entry) => `
+              <summary class="muted" style="cursor:pointer;">Your decision log (${myChoices.length})</summary>
+              ${myChoices.map((entry) => `
                 <div class="muted" style="margin-top:4px;font-size:.9em;">
-                  <b>${esc(entry.actorName)}</b> chose "<em>${esc(entry.chosenOptionLabel)}</em>" on "${esc(entry.stageTitle)}"
-                  (reputation: ${entry.reputationDelta >= 0 ? `+${entry.reputationDelta}` : entry.reputationDelta}) at ${esc(entry.at)}
+                  Stage <em>${esc(entry.stage_key)}</em>: chose "<em>${esc(entry.choice_label)}</em>"
+                  — ${esc(simMonthLabel(entry.created_sim_year, entry.created_sim_month))}
                 </div>
               `).join("")}
             </details>
@@ -218,6 +194,215 @@ function renderScandalCard(data, scandal, state) {
     </article>
   `;
 }
+
+// ── Mod scandal panels ────────────────────────────────────────────────────────
+
+function renderModScandalCreate(templates) {
+  const tplOptions = (templates || []).map((t) =>
+    `<option value="${esc(t.id)}">${esc(t.title)} (${esc(t.category)})</option>`
+  ).join("");
+  return `
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Moderator: Create Sensitive Situation</h2>
+      <p class="muted">Create a situation for a character who has opted in. They will see a 'Sensitive Situation Discovered' card and can Investigate, Report to Party, or Ignore.</p>
+      <form id="cw-mod-situation-form">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:8px;">
+          <div>
+            <label class="label" for="sc-char-id">Character UUID</label>
+            <input id="sc-char-id" class="input" name="character_id" required placeholder="UUID of character">
+          </div>
+          <div>
+            <label class="label" for="sc-template">Template</label>
+            <select id="sc-template" class="input" name="template_id" required>
+              <option value="">— select template —</option>
+              ${tplOptions}
+            </select>
+          </div>
+          <div>
+            <label class="label" for="sc-title-override">Title Override (optional)</label>
+            <input id="sc-title-override" class="input" name="title_override" placeholder="Leave blank to use template title">
+          </div>
+          <div>
+            <label class="label" for="sc-expires">Expires in (months, optional)</label>
+            <input id="sc-expires" class="input" name="expires_in_months" type="number" min="1" max="24" placeholder="Default: template value">
+          </div>
+        </div>
+        <button type="submit" class="btn">Create Situation</button>
+      </form>
+    </section>
+  `;
+}
+
+function renderModOpenScandals(modData, state) {
+  const scandals = modData?.scandals || [];
+  const choices  = modData?.player_choices || [];
+  const decisions = modData?.mod_decisions || [];
+
+  if (!scandals.length) {
+    return `<section class="panel" style="margin-bottom:12px;"><h2 style="margin-top:0;">Moderator: Open Scandals</h2><div class="muted-block">No open scandals.</div></section>`;
+  }
+
+  const cards = scandals.map((s) => {
+    const open = state.openModScandalId === s.id;
+    const sc = choices.filter((c) => c.scandal_id === s.id);
+    const sd = decisions.filter((d) => d.scandal_id === s.id);
+    return `
+      <article class="tile" style="margin-top:8px;">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+          <div>
+            <b>${esc(s.title)}</b> — <em>${esc(s.character_name || "Unknown")}</em>
+            <div class="muted">${stageBadge(s.status)} • Stage: ${esc(s.stage_key)} • Severity: ${esc(String(s.severity_current))}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button type="button" class="btn" data-action="mod-toggle-scandal" data-id="${esc(s.id)}">${open ? "Collapse" : "Manage"}</button>
+          </div>
+        </div>
+        ${open ? `
+          <div style="margin-top:10px;">
+            ${sc.length ? `
+              <details open>
+                <summary class="muted" style="cursor:pointer;">Player choices (${sc.length})</summary>
+                ${sc.map((c) => `
+                  <div class="muted" style="font-size:.9em;margin-top:3px;">
+                    Stage <em>${esc(c.stage_key)}</em>: "<em>${esc(c.choice_label)}</em>" — ${esc(simMonthLabel(c.created_sim_year, c.created_sim_month))}
+                    ${Object.keys(c.flags_patch || {}).length ? `<span style="color:#555;"> [${esc(Object.keys(c.flags_patch).join(", "))}]</span>` : ""}
+                  </div>
+                `).join("")}
+              </details>
+            ` : '<div class="muted">No player choices yet.</div>'}
+            ${sd.length ? `
+              <details style="margin-top:6px;">
+                <summary class="muted" style="cursor:pointer;">Mod decisions (${sd.length})</summary>
+                ${sd.map((d) => `
+                  <div class="muted" style="font-size:.9em;margin-top:3px;">
+                    <b>${esc(d.decision_type)}</b> (Δ${d.severity_delta >= 0 ? "+" : ""}${esc(String(d.severity_delta))})
+                    ${d.next_stage_key ? `→ ${esc(d.next_stage_key)}` : ""}
+                    ${d.public_statement ? `<br>📢 ${esc(d.public_statement)}` : ""}
+                    ${d.internal_notes ? `<br>🔒 Internal: ${esc(d.internal_notes)}` : ""}
+                    — ${esc(simMonthLabel(d.created_sim_year, d.created_sim_month))}
+                  </div>
+                `).join("")}
+              </details>
+            ` : ""}
+            <form class="mod-decision-form" data-scandal-id="${esc(s.id)}" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;">
+              <div>
+                <label class="label">Decision Type</label>
+                <select class="input" name="decision_type" required>
+                  <option value="severity_update">Severity Update</option>
+                  <option value="advance_stage">Advance Stage</option>
+                  <option value="public_statement">Public Statement</option>
+                  <option value="close">Close Scandal</option>
+                  <option value="escalate">Escalate</option>
+                </select>
+              </div>
+              <div>
+                <label class="label">Next Stage Key (optional)</label>
+                <input class="input" name="next_stage_key" placeholder="e.g. resolution">
+              </div>
+              <div>
+                <label class="label">Severity Delta</label>
+                <input class="input" name="severity_delta" type="number" value="0">
+              </div>
+              <div>
+                <label class="label">Public Statement (optional)</label>
+                <input class="input" name="public_statement" placeholder="Shown to player">
+              </div>
+              <div>
+                <label class="label">Internal Notes (mod only)</label>
+                <input class="input" name="internal_notes" placeholder="Hidden from player">
+              </div>
+              <div style="display:flex;align-items:flex-end;gap:6px;">
+                <button type="submit" class="btn">Apply Decision</button>
+                <button type="button" class="btn" data-action="mod-close-scandal" data-id="${esc(s.id)}" style="background:#c00;color:#fff;">Close Scandal</button>
+              </div>
+            </form>
+          </div>
+        ` : ""}
+      </article>
+    `;
+  });
+
+  return `
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Moderator: Open Scandals</h2>
+      ${cards.join("")}
+    </section>
+  `;
+}
+
+// ── Scandal section renderer (uses API data) ──────────────────────────────────
+
+function renderScandalSection(scandalData, modData, templates, mod, state) {
+  const sd = scandalData || { opted_in: false, situations: [], scandals: [], player_choices: [] };
+
+  // Enrich scandal rows with template stages for choice rendering
+  const enriched = (sd.scandals || []).map((s) => {
+    const tpl = (templates || []).find((t) => t.id === s.template_id);
+    return { ...s, stages: tpl?.stages || [] };
+  });
+
+  const openScandals = enriched.filter((s) => s.status !== "closed");
+  const closedScandals = enriched.filter((s) => s.status === "closed");
+
+  return `
+    <section class="panel" style="margin-bottom:12px;" id="scandal-optin-section">
+      <h2 style="margin-top:0;">Local Scandal Opt-In</h2>
+      <p class="muted">Opt in to allow moderators to trigger local constituency scandals for your character. Scandals progress through stages and affect your reputation and optics.</p>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <label class="label" style="margin:0;" for="cw-scandal-optin">
+          <input id="cw-scandal-optin" type="checkbox" ${sd.opted_in ? "checked" : ""}> Opted in to local scandals
+        </label>
+        <button type="button" class="btn" id="cw-save-optin">Save Preference</button>
+      </div>
+    </section>
+
+    ${sd.situations.length ? `
+      <section class="panel" style="margin-bottom:12px;" id="scandal-situations-section">
+        <h2 style="margin-top:0;">⚠️ Sensitive Situations</h2>
+        <p class="muted">The following situations have come to your attention. Choose how to respond.</p>
+        ${sd.situations.map((sit) => renderSituationCard(sit, mod)).join("")}
+      </section>
+    ` : ""}
+
+    <section class="panel" style="margin-bottom:12px;" id="scandal-active-section">
+      <h2 style="margin-top:0;">Local Scandals</h2>
+      ${openScandals.length
+        ? openScandals.map((s) => renderScandalCard(s, sd.player_choices, state)).join("")
+        : '<div class="muted-block">No active local scandals.</div>'}
+      ${closedScandals.length ? `
+        <details style="margin-top:8px;">
+          <summary class="muted" style="cursor:pointer;">Closed scandals (${closedScandals.length})</summary>
+          ${closedScandals.map((s) => renderScandalCard(s, sd.player_choices, state)).join("")}
+        </details>
+      ` : ""}
+    </section>
+  `;
+}
+
+// ── Module state ───────────────────────────────────────────────────────────────
+
+let _scandalData = null;
+let _modScandalData = null;
+let _templates = null;
+
+async function loadScandalData(mod) {
+  try {
+    const [mine, tpls] = await Promise.all([
+      apiScandalsMine(),
+      mod ? apiModScandalTemplates() : Promise.resolve({ templates: [] }),
+    ]);
+    _scandalData = mine;
+    _templates = tpls.templates || [];
+    if (mod) {
+      _modScandalData = await apiModScandalsOpen();
+    }
+  } catch (e) {
+    console.error("[scandal] loadScandalData failed:", e);
+    if (!_scandalData) _scandalData = { opted_in: false, situations: [], scandals: [], player_choices: [] };
+  }
+}
+
+// ── Main render ────────────────────────────────────────────────────────────────
 
 function render(data, state = {}) {
   const root = document.getElementById("constituency-work-root");
@@ -233,11 +418,6 @@ function render(data, state = {}) {
   const locked = Number.isFinite(lastSaved) && (simIndex - lastSaved) < LOCK_MONTHS;
   const unlockIndex = Number.isFinite(lastSaved) ? lastSaved + LOCK_MONTHS : simIndex;
   const weeklyTotal = totalHours(plan.hours);
-
-  // Scandals visible to this user.
-  const myScandals = mod
-    ? data.constituencyWork.scandals
-    : data.constituencyWork.scandals.filter((s) => s.characterKey === key);
 
   root.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Constituency Work</div></div>
@@ -270,47 +450,13 @@ function render(data, state = {}) {
       </form>
     </section>
 
-    <section class="panel" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Local Scandal Opt-In</h2>
-      <p class="muted">Opt in to allow moderators to trigger local constituency scandals for your character. Scandals progress through stages and affect your reputation and optics.</p>
-      <div style="display:flex;gap:10px;align-items:center;">
-        <label class="label" style="margin:0;" for="cw-scandal-optin">
-          <input id="cw-scandal-optin" type="checkbox" ${plan.scandalOptIn ? "checked" : ""}> Opted in to local scandals
-        </label>
-        <button type="button" class="btn" id="cw-save-optin">Save Preference</button>
-      </div>
-    </section>
-
-    <section class="panel" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Local Scandals</h2>
-      ${myScandals.length
-        ? myScandals.sort((a, b) => b.id - a.id).map((s) => renderScandalCard(data, s, state)).join("")
-        : '<div class="muted-block">No active local scandals.</div>'}
-    </section>
+    <div id="scandal-section-root">
+      ${renderScandalSection(_scandalData, _modScandalData, _templates, mod, state)}
+    </div>
 
     ${mod ? `
-      <section class="panel" style="margin-bottom:12px;">
-        <h2 style="margin-top:0;">Moderator: Trigger Scandal</h2>
-        <p class="muted">Trigger a scandal scenario for a character who has opted in. You may customise the title and use a template for the stages.</p>
-        <form id="cw-mod-scandal-form">
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:8px;">
-            <div>
-              <label class="label" for="sc-char-key">Character Key (name)</label>
-              <input id="sc-char-key" class="input" name="characterKey" required placeholder="Character name">
-            </div>
-            <div>
-              <label class="label" for="sc-template">Use Template</label>
-              <select id="sc-template" class="input" name="templateId">
-                <option value="">— custom (no template) —</option>
-                ${SCANDAL_TEMPLATES.map((t) => `<option value="${esc(t.id)}">${esc(t.title)}</option>`).join("")}
-              </select>
-            </div>
-          </div>
-          <label class="label" for="sc-title">Scandal Title (overrides template title if set)</label>
-          <input id="sc-title" class="input" name="title" placeholder="e.g. Planning Permission Row">
-          <button type="submit" class="btn">Trigger Scandal</button>
-        </form>
-      </section>
+      ${renderModScandalCreate(_templates)}
+      ${renderModOpenScandals(_modScandalData, state)}
 
       <section class="panel">
         <h2 style="margin-top:0;">Moderator Check Panel</h2>
@@ -325,6 +471,7 @@ function render(data, state = {}) {
     ` : ""}
   `;
 
+  // ── Working week form ──────────────────────────────────────────────────────
   root.querySelector("#cw-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     if (locked) return;
@@ -337,8 +484,7 @@ function render(data, state = {}) {
 
     const sum = totalHours(nextHours);
     if (sum > 40) {
-      state.error = "You cannot allocate more than 40 hours.";
-      alert(state.error);
+      alert("You cannot allocate more than 40 hours.");
       return;
     }
 
@@ -351,112 +497,148 @@ function render(data, state = {}) {
     render(data, state);
   });
 
-  root.querySelector("#cw-save-optin")?.addEventListener("click", () => {
+  // ── Opt-in toggle ─────────────────────────────────────────────────────────
+  root.querySelector("#cw-save-optin")?.addEventListener("click", async () => {
     const checkbox = root.querySelector("#cw-scandal-optin");
-    plan.scandalOptIn = !!checkbox?.checked;
-    saveState(data);
-    render(data, state);
+    const opted_in = !!checkbox?.checked;
+    try {
+      await apiScandalsOptIn(opted_in);
+      if (_scandalData) _scandalData.opted_in = opted_in;
+      renderScandalRoot(data, state);
+    } catch (e) {
+      alert("Failed to save opt-in preference. Please try again.");
+      console.error(e);
+    }
   });
 
-  // Scandal stage option choices
-  root.querySelectorAll('[data-action="choose-scandal-option"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const scandalId = Number(btn.dataset.scandalId || 0);
-      const stageIdx = Number(btn.dataset.stageIdx || 0);
-      const optLabel = String(btn.dataset.optLabel || "");
-      const reputationDelta = Number(btn.dataset.reputationDelta || 0);
-      const nextRaw = btn.dataset.nextStageIdx;
-      const nextStageIdx = nextRaw !== "" && nextRaw != null ? Number(nextRaw) : null;
-
-      const scandal = data.constituencyWork.scandals.find((s) => s.id === scandalId);
-      if (!scandal || scandal.status === "closed") return;
-      if (scandal.characterKey !== key) return;
-      if (scandal.currentStageIdx !== stageIdx) return;
-
-      const stage = scandal.stages[stageIdx];
-      scandal.auditLog.push({
-        stageTitle: stage?.title || String(stageIdx),
-        chosenOptionLabel: optLabel,
-        reputationDelta,
-        actorName: String(char?.name || "Unknown"),
-        at: nowStamp()
-      });
-      scandal.reputationImpact += reputationDelta;
-
-      if (nextStageIdx != null && nextStageIdx < scandal.stages.length) {
-        scandal.currentStageIdx = nextStageIdx;
-      } else {
-        scandal.status = "closed";
-        scandal.currentStageIdx = null;
+  // ── Situation respond ─────────────────────────────────────────────────────
+  root.querySelectorAll('[data-action="situation-respond"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const action = btn.dataset.response;
+      btn.disabled = true;
+      try {
+        await apiScandalSituationRespond(id, action);
+        await loadScandalData(mod);
+        renderScandalRoot(data, state);
+      } catch (e) {
+        alert("Failed to respond to situation. Please try again.");
+        console.error(e);
+        btn.disabled = false;
       }
-
-      saveState(data);
-      render(data, state);
     });
   });
 
+  // ── Player scandal stage choice ───────────────────────────────────────────
+  root.querySelectorAll('[data-action="choose-scandal"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const scandalId = btn.dataset.scandalId;
+      const choiceId  = btn.dataset.choiceId;
+      btn.disabled = true;
+      try {
+        await apiScandalChoose(scandalId, choiceId);
+        await loadScandalData(mod);
+        renderScandalRoot(data, state);
+      } catch (e) {
+        alert("Failed to record choice. Please try again.");
+        console.error(e);
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // ── Toggle scandal card ───────────────────────────────────────────────────
   root.querySelectorAll('[data-action="toggle-scandal"]').forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = Number(btn.dataset.id || 0);
+      const id = btn.dataset.id;
       state.openScandalId = state.openScandalId === id ? null : id;
-      render(data, state);
+      renderScandalRoot(data, state);
     });
   });
 
-  // Mod: close scandal
-  root.querySelectorAll('[data-action="close-scandal"]').forEach((btn) => {
+  // ── Mod: toggle open scandal ──────────────────────────────────────────────
+  root.querySelectorAll('[data-action="mod-toggle-scandal"]').forEach((btn) => {
     btn.addEventListener("click", () => {
-      if (!mod) return;
-      const id = Number(btn.dataset.id || 0);
-      const scandal = data.constituencyWork.scandals.find((s) => s.id === id);
-      if (!scandal || scandal.status === "closed") return;
-      scandal.status = "closed";
-      scandal.currentStageIdx = null;
-      saveState(data);
+      const id = btn.dataset.id;
+      state.openModScandalId = state.openModScandalId === id ? null : id;
       render(data, state);
     });
   });
 
-  // Mod: trigger scandal
-  root.querySelector("#cw-mod-scandal-form")?.addEventListener("submit", (e) => {
+  // ── Mod: close scandal ────────────────────────────────────────────────────
+  root.querySelectorAll('[data-action="mod-close-scandal"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!mod) return;
+      const id = btn.dataset.id;
+      btn.disabled = true;
+      try {
+        await apiModScandalClose(id);
+        await loadScandalData(mod);
+        render(data, state);
+      } catch (e) {
+        alert("Failed to close scandal. Please try again.");
+        console.error(e);
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // ── Mod: apply decision ───────────────────────────────────────────────────
+  root.querySelectorAll(".mod-decision-form").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!mod) return;
+      const scandalId = form.dataset.scandalId;
+      const fd = new FormData(form);
+      const payload = {
+        decision_type:    String(fd.get("decision_type") || ""),
+        next_stage_key:   String(fd.get("next_stage_key") || "").trim() || null,
+        severity_delta:   Number(fd.get("severity_delta") || 0),
+        public_statement: String(fd.get("public_statement") || "").trim() || null,
+        internal_notes:   String(fd.get("internal_notes") || "").trim(),
+      };
+      const submitBtn = form.querySelector('[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        await apiModScandalDecision(scandalId, payload);
+        state.openModScandalId = null;
+        await loadScandalData(mod);
+        render(data, state);
+      } catch (e) {
+        alert("Failed to apply decision. Please try again.");
+        console.error(e);
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  });
+
+  // ── Mod: create situation ─────────────────────────────────────────────────
+  root.querySelector("#cw-mod-situation-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!mod) return;
     const fd = new FormData(e.currentTarget);
-    const characterKey = String(fd.get("characterKey") || "").trim();
-    const templateId = String(fd.get("templateId") || "").trim();
-    const customTitle = String(fd.get("title") || "").trim();
-
-    if (!characterKey) return;
-
-    // Check character has opted in.
-    const charPlan = data.constituencyWork.plansByCharacter[characterKey];
-    if (!charPlan?.scandalOptIn) {
-      alert(`"${characterKey}" has not opted in to local scandals.`);
-      return;
-    }
-
-    const template = SCANDAL_TEMPLATES.find((t) => t.id === templateId);
-    const title = customTitle || template?.title || "Local Scandal";
-    const stages = template ? JSON.parse(JSON.stringify(template.stages)) : [];
-
-    const scandal = {
-      id: data.constituencyWork.nextScandalId++,
-      characterKey,
-      title,
-      status: "open",
-      currentStageIdx: stages.length ? 0 : null,
-      createdAt: nowStamp(),
-      createdBy: String(char?.name || data?.currentUser?.username || "Moderator"),
-      reputationImpact: 0,
-      auditLog: [],
-      stages
+    const payload = {
+      character_id:    String(fd.get("character_id") || "").trim(),
+      template_id:     String(fd.get("template_id") || "").trim(),
+      title_override:  String(fd.get("title_override") || "").trim() || null,
+      expires_in_months: fd.get("expires_in_months") ? Number(fd.get("expires_in_months")) : undefined,
     };
-    data.constituencyWork.scandals.unshift(scandal);
-    saveState(data);
-    state.openScandalId = scandal.id;
-    render(data, state);
+    if (!payload.character_id || !payload.template_id) return;
+    const submitBtn = e.currentTarget.querySelector('[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiModScandalSituationCreate(payload);
+      alert("Sensitive situation created successfully.");
+      e.currentTarget.reset();
+    } catch (err) {
+      alert(`Failed to create situation: ${err.message}`);
+      console.error(err);
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
   });
 
+  // ── Mod: working week ─────────────────────────────────────────────────────
   root.querySelector("#cw-mod-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
     if (!mod) return;
@@ -475,7 +657,80 @@ function render(data, state = {}) {
   });
 }
 
-export function initConstituencyWorkPage(data) {
+// Partial re-render: refresh only the scandal section without re-rendering the whole page
+function renderScandalRoot(data, state) {
+  const mod = canModerate(data);
+  const root = document.getElementById("scandal-section-root");
+  if (!root) return render(data, state); // fall back to full render
+  root.innerHTML = renderScandalSection(_scandalData, _modScandalData, _templates, mod, state);
+  // Re-attach event listeners for scandal section
+  attachScandalListeners(data, state, mod);
+}
+
+function attachScandalListeners(data, state, mod) {
+  const root = document.getElementById("constituency-work-root");
+  if (!root) return;
+
+  root.querySelector("#cw-save-optin")?.addEventListener("click", async () => {
+    const checkbox = root.querySelector("#cw-scandal-optin");
+    const opted_in = !!checkbox?.checked;
+    try {
+      await apiScandalsOptIn(opted_in);
+      if (_scandalData) _scandalData.opted_in = opted_in;
+      renderScandalRoot(data, state);
+    } catch (e) {
+      alert("Failed to save opt-in preference. Please try again.");
+      console.error(e);
+    }
+  });
+
+  root.querySelectorAll('[data-action="situation-respond"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const action = btn.dataset.response;
+      btn.disabled = true;
+      try {
+        await apiScandalSituationRespond(id, action);
+        await loadScandalData(mod);
+        renderScandalRoot(data, state);
+      } catch (e) {
+        alert("Failed to respond to situation. Please try again.");
+        console.error(e);
+        btn.disabled = false;
+      }
+    });
+  });
+
+  root.querySelectorAll('[data-action="choose-scandal"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const scandalId = btn.dataset.scandalId;
+      const choiceId  = btn.dataset.choiceId;
+      btn.disabled = true;
+      try {
+        await apiScandalChoose(scandalId, choiceId);
+        await loadScandalData(mod);
+        renderScandalRoot(data, state);
+      } catch (e) {
+        alert("Failed to record choice. Please try again.");
+        console.error(e);
+        btn.disabled = false;
+      }
+    });
+  });
+
+  root.querySelectorAll('[data-action="toggle-scandal"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      state.openScandalId = state.openScandalId === id ? null : id;
+      renderScandalRoot(data, state);
+    });
+  });
+}
+
+export async function initConstituencyWorkPage(data) {
   ensureWork(data);
+  const mod = canModerate(data);
+  render(data, {});
+  await loadScandalData(mod);
   render(data, {});
 }

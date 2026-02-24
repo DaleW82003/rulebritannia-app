@@ -657,6 +657,459 @@ async function ensureSchema() {
       updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  // ── Scandal system ────────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scandal_opt_in (
+      character_id UUID PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+      opted_in     BOOLEAN NOT NULL DEFAULT false,
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scandal_templates (
+      id                 TEXT PRIMARY KEY,
+      title              TEXT NOT NULL,
+      category           TEXT NOT NULL,
+      severity_base      INT  NOT NULL,
+      time_window_months INT  NOT NULL,
+      stages             JSONB NOT NULL,
+      is_enabled         BOOLEAN NOT NULL DEFAULT true
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scandal_situations (
+      id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id       UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      template_id        TEXT NOT NULL REFERENCES scandal_templates(id),
+      title_override     TEXT,
+      status             TEXT NOT NULL DEFAULT 'open'
+                         CHECK (status IN ('open','closed','expired')),
+      created_sim_year   INT NOT NULL,
+      created_sim_month  INT NOT NULL,
+      expires_sim_year   INT NOT NULL,
+      expires_sim_month  INT NOT NULL,
+      created_by_user_id TEXT NOT NULL,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS scandal_situations_char_idx   ON scandal_situations (character_id);
+    CREATE INDEX IF NOT EXISTS scandal_situations_status_idx ON scandal_situations (status);
+    CREATE INDEX IF NOT EXISTS scandal_situations_created_idx ON scandal_situations (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scandals (
+      id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id            UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      template_id             TEXT NOT NULL REFERENCES scandal_templates(id),
+      title                   TEXT NOT NULL,
+      category                TEXT NOT NULL,
+      severity_base           INT  NOT NULL,
+      severity_current        INT  NOT NULL,
+      stage_key               TEXT NOT NULL,
+      status                  TEXT NOT NULL DEFAULT 'open'
+                              CHECK (status IN ('open','awaiting_mod','closed')),
+      stage_started_sim_year  INT NOT NULL,
+      stage_started_sim_month INT NOT NULL,
+      stage_deadline_sim_year INT NOT NULL,
+      stage_deadline_sim_month INT NOT NULL,
+      time_window_months      INT NOT NULL,
+      flags                   JSONB NOT NULL DEFAULT '{}'::jsonb,
+      public_notes            JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_by_user_id      TEXT NOT NULL,
+      created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+      closed_at               TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS scandals_char_idx    ON scandals (character_id);
+    CREATE INDEX IF NOT EXISTS scandals_status_idx  ON scandals (status);
+    CREATE INDEX IF NOT EXISTS scandals_created_idx ON scandals (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scandal_player_choices (
+      id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      scandal_id         UUID NOT NULL REFERENCES scandals(id) ON DELETE CASCADE,
+      stage_key          TEXT NOT NULL,
+      choice_id          TEXT NOT NULL,
+      choice_label       TEXT NOT NULL,
+      flags_patch        JSONB NOT NULL DEFAULT '{}'::jsonb,
+      actor_character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      created_sim_year   INT NOT NULL,
+      created_sim_month  INT NOT NULL,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS scandal_choices_scandal_idx ON scandal_player_choices (scandal_id);
+    CREATE INDEX IF NOT EXISTS scandal_choices_actor_idx   ON scandal_player_choices (actor_character_id);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scandal_mod_decisions (
+      id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      scandal_id         UUID NOT NULL REFERENCES scandals(id) ON DELETE CASCADE,
+      decision_type      TEXT NOT NULL,
+      severity_delta     INT NOT NULL DEFAULT 0,
+      next_stage_key     TEXT,
+      public_statement   TEXT,
+      internal_notes     TEXT NOT NULL DEFAULT '',
+      decided_by_user_id TEXT NOT NULL,
+      created_sim_year   INT NOT NULL,
+      created_sim_month  INT NOT NULL,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS scandal_mod_decisions_scandal_idx ON scandal_mod_decisions (scandal_id);
+  `);
+
+  await seedScandalTemplates();
+}
+
+/**
+ * Seed the 15 canonical scandal templates.  Idempotent — uses ON CONFLICT DO NOTHING.
+ */
+async function seedScandalTemplates() {
+  const templates = [
+    {
+      id: "tpl-expenses",
+      title: "Expenses Irregularity",
+      category: "financial",
+      severity_base: 3,
+      time_window_months: 4,
+      stages: [
+        { key: "rumour", title: "Leak Emerges", text: "A whistleblower has reportedly passed information about your expenses claims to a national paper. Your party whip has been in touch.", choices: [
+          { id: "a", label: "Proactively publish all expenses and issue a statement", flags_patch: { transparent: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Stay silent and wait for the story to develop", flags_patch: { silent: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Media Picks Up the Story", text: "Journalists are now running the expenses story. Your office is fielding calls.", choices: [
+          { id: "a", label: "Hold a short press briefing and answer questions openly", flags_patch: { press_briefing: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Issue a written statement only and decline interviews", flags_patch: { written_only: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Party Whip Demands Answers", text: "The Chief Whip has asked for a full written account of the disputed claims and your explanation.", choices: [
+          { id: "a", label: "Provide full account and offer to repay any disputed amounts", flags_patch: { cooperative: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Provide a partial account and contest the characterisation", flags_patch: { contested: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Party Reaches a Decision", text: "The party has reviewed the matter. The moderators will communicate the outcome.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-lobbyist-hospitality",
+      title: "Lobbyist Hospitality",
+      category: "financial",
+      severity_base: 2,
+      time_window_months: 3,
+      stages: [
+        { key: "rumour", title: "Hospitality Register Scrutinised", text: "A journalist has noted that you attended a private dinner hosted by a major lobbying firm and asks for comment.", choices: [
+          { id: "a", label: "Confirm attendance and note it is properly registered", flags_patch: { registered: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Decline to comment", flags_patch: { no_comment: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Lobby Groups Scrutinised", text: "The paper is examining whether the lobbying firm has any interests before Parliament that you have voted on.", choices: [
+          { id: "a", label: "Proactively recuse yourself from relevant upcoming votes", flags_patch: { recused: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Assert no conflict of interest exists", flags_patch: { denied_conflict: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Ethics Committee Notified", text: "The party's ethics officer has been informed and wants to review the register entry.", choices: [
+          { id: "a", label: "Cooperate fully and supply all documentation", flags_patch: { full_cooperation: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Provide minimum required information", flags_patch: { minimal_cooperation: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Ethics Review Concluded", text: "The ethics officer's review is complete. The moderators will decide the outcome.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-messages-leak",
+      title: "Private Messages Leak",
+      category: "communications",
+      severity_base: 3,
+      time_window_months: 3,
+      stages: [
+        { key: "rumour", title: "Rumours of a Leak", text: "Word has reached you that private communications — possibly WhatsApp messages or emails — have been obtained by a journalist.", choices: [
+          { id: "a", label: "Alert your whip and legal team immediately", flags_patch: { informed_whip: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Make discreet enquiries to find the source", flags_patch: { investigating_source: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Messages Published", text: "Several messages have appeared in a newspaper. The content is embarrassing but not conclusively damaging.", choices: [
+          { id: "a", label: "Acknowledge the messages and provide context", flags_patch: { contextualised: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Question the authenticity of the messages", flags_patch: { disputed_authenticity: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Party Leadership Meeting", text: "You are called in for a conversation with senior party figures.", choices: [
+          { id: "a", label: "Be fully candid about the contents and their context", flags_patch: { candid: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Maintain that the messages were taken out of context", flags_patch: { context_defence: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Party's Response Agreed", text: "The party has agreed on a response. Moderators will determine the consequences.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-bullying-allegations",
+      title: "Bullying Allegations",
+      category: "conduct",
+      severity_base: 4,
+      time_window_months: 5,
+      stages: [
+        { key: "rumour", title: "Complaint Filed", text: "A member of your staff has filed a formal complaint alleging bullying behaviour. The party's HR process has been triggered.", choices: [
+          { id: "a", label: "Engage fully with the HR process and cooperate", flags_patch: { cooperating: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Seek legal advice before responding", flags_patch: { legal_advice: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Story Reaches the Press", text: "The allegation has been reported. Several former staff members have been approached for comment.", choices: [
+          { id: "a", label: "Issue a statement expressing regret for any distress caused", flags_patch: { expressed_regret: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Strongly deny the allegations and prepare to challenge them", flags_patch: { strong_denial: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Independent Panel Convened", text: "The party has appointed an independent panel to review the complaint.", choices: [
+          { id: "a", label: "Submit a written statement and attend any hearing requested", flags_patch: { attended_hearing: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Provide written statement only and decline to attend", flags_patch: { declined_attendance: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Panel Report Issued", text: "The independent panel has issued its findings. Moderators will determine the outcome.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-undeclared-donation",
+      title: "Undeclared Donation",
+      category: "financial",
+      severity_base: 3,
+      time_window_months: 4,
+      stages: [
+        { key: "rumour", title: "Donation Queried", text: "A journalist has found a donation to your constituency party that does not appear on the electoral register.", choices: [
+          { id: "a", label: "Check records urgently and contact the Electoral Commission", flags_patch: { self_reported: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Insist all donations were properly declared", flags_patch: { insists_compliant: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Electoral Commission Enquiry", text: "The Electoral Commission has confirmed it is looking into the matter.", choices: [
+          { id: "a", label: "Publish a full statement of all donations received", flags_patch: { published_all: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Await the Commission's findings before commenting further", flags_patch: { awaiting_commission: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Party Treasurer Called In", text: "Your party treasurer and you are asked to brief party leadership.", choices: [
+          { id: "a", label: "Present a full and transparent account of all donations", flags_patch: { full_account: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Argue the matter is procedural and will be resolved administratively", flags_patch: { procedural_defence: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Commission Conclusion", text: "The Electoral Commission has completed its review. Moderators will decide the consequences.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-media-sting",
+      title: "Media Sting Operation",
+      category: "conduct",
+      severity_base: 4,
+      time_window_months: 3,
+      stages: [
+        { key: "rumour", title: "Contact from Undercover Reporter", text: "You receive an approach from someone claiming to represent a foreign business. You are later told by a source it may be a sting operation.", choices: [
+          { id: "a", label: "Immediately alert your whip and do not take the meeting", flags_patch: { alerted_whip: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Attend the initial meeting to assess what is being asked", flags_patch: { attended_meeting: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Footage or Recording Published", text: "A newspaper publishes an account of the meeting. How you handled it shapes the narrative.", choices: [
+          { id: "a", label: "Confirm you identified the approach as suspicious and acted accordingly", flags_patch: { proactive_response: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Issue a statement that your conduct was entirely proper", flags_patch: { proper_conduct_claimed: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Parliamentary Standards Notified", text: "The party has notified the Parliamentary Standards Commissioner as a precaution.", choices: [
+          { id: "a", label: "Cooperate proactively with any Standards enquiry", flags_patch: { standards_cooperation: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Await formal notification before engaging", flags_patch: { awaiting_formal: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Standards Process Concluded", text: "The Standards process has concluded. Moderators will communicate the outcome.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-conflict-of-interest",
+      title: "Conflict of Interest",
+      category: "financial",
+      severity_base: 3,
+      time_window_months: 4,
+      stages: [
+        { key: "rumour", title: "Shareholding Discovered", text: "A researcher has identified that you hold shares in a company directly affected by legislation you voted on.", choices: [
+          { id: "a", label: "Sell the shares and update the register immediately", flags_patch: { divested: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Review the register entry and consult the registrar", flags_patch: { consulting_registrar: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Media Questions Voting Record", text: "Journalists are examining each vote where the shareholding could be seen as relevant.", choices: [
+          { id: "a", label: "Publish a full statement explaining each vote", flags_patch: { votes_explained: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Deny any impropriety and stand by your voting record", flags_patch: { record_defended: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Party Ethics Review", text: "The party ethics officer is conducting a formal review of the register entries and voting record.", choices: [
+          { id: "a", label: "Submit all relevant documentation voluntarily", flags_patch: { submitted_voluntarily: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Await a formal request before providing documents", flags_patch: { awaiting_request: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Ethics Review Outcome", text: "The ethics review is complete. Moderators will determine the outcome.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-faction-leak",
+      title: "Faction Internal Leak",
+      category: "party",
+      severity_base: 2,
+      time_window_months: 3,
+      stages: [
+        { key: "rumour", title: "Party Strategy Leaked", text: "Details of a private faction meeting you attended have appeared in the press. Leadership wants to know the source.", choices: [
+          { id: "a", label: "Assist leadership in identifying the source", flags_patch: { assisting: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Deny being the source and say nothing further", flags_patch: { denied: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Your Name Linked to Leak", text: "A journalist has suggested you may have been the source of the leak.", choices: [
+          { id: "a", label: "Voluntarily speak to party officials to clear your name", flags_patch: { volunteered: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Issue a flat denial through your spokesperson", flags_patch: { flat_denial: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Party Disciplinary Process", text: "The party is conducting an internal disciplinary review.", choices: [
+          { id: "a", label: "Cooperate fully and provide any evidence requested", flags_patch: { full_cooperation: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Provide a written statement and decline further comment", flags_patch: { written_only: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Disciplinary Decision", text: "The disciplinary process has concluded. Moderators will communicate the decision.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-plagiarised-speech",
+      title: "Plagiarised Speech",
+      category: "conduct",
+      severity_base: 2,
+      time_window_months: 2,
+      stages: [
+        { key: "rumour", title: "Speech Similarities Noted", text: "A sharp-eyed academic has posted on a forum that parts of your recent conference speech closely mirror a speech given by a US politician.", choices: [
+          { id: "a", label: "Acknowledge the overlap and explain it was inadvertent", flags_patch: { acknowledged: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Argue the ideas are common currency and the comparison is unfair", flags_patch: { disputed: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Media Runs the Comparison", text: "Side-by-side comparisons are circulating on social media and in broadsheet columns.", choices: [
+          { id: "a", label: "Issue a full apology and commit to reviewing speech-writing processes", flags_patch: { full_apology: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Say the speech drew on shared progressive values, not specific text", flags_patch: { deflected: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Communications Director Review", text: "The party's communications director wants to discuss speech-writing and attribution protocols.", choices: [
+          { id: "a", label: "Agree to new oversight procedures for future speeches", flags_patch: { accepted_oversight: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Note the concern but maintain your speech-writing autonomy", flags_patch: { maintained_autonomy: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Matter Resolved or Noted", text: "The party's communications team has concluded its review. Moderators decide the impact.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-resources-misuse",
+      title: "Parliamentary Resources Misuse",
+      category: "financial",
+      severity_base: 3,
+      time_window_months: 4,
+      stages: [
+        { key: "rumour", title: "Staffing Query", text: "Questions are being asked about whether parliamentary staff or resources were used for party-political or personal activities.", choices: [
+          { id: "a", label: "Commission an internal audit of office resource usage", flags_patch: { audit_ordered: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Deny any misuse and stand by your office management", flags_patch: { denied: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "IPSA Enquiry Reported", text: "The Independent Parliamentary Standards Authority has confirmed it is looking at your case.", choices: [
+          { id: "a", label: "Publish audit findings and cooperate with IPSA", flags_patch: { published_audit: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Await IPSA's formal notification before taking action", flags_patch: { awaiting_ipsa: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Chief Whip Called In", text: "The Chief Whip has requested a full briefing on the matter.", choices: [
+          { id: "a", label: "Brief the whip in full and offer to return any disputed amounts", flags_patch: { full_briefing: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Maintain that all resource use was within the rules", flags_patch: { within_rules: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "IPSA and Party Decision", text: "Both IPSA and the party have concluded their reviews. Moderators will determine the outcome.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-foreign-trip-funding",
+      title: "Foreign Trip Funding",
+      category: "financial",
+      severity_base: 3,
+      time_window_months: 4,
+      stages: [
+        { key: "rumour", title: "Trip Costs Questioned", text: "A freedom-of-information request has surfaced questions about who funded a trip you made to a foreign country.", choices: [
+          { id: "a", label: "Voluntarily publish full details of the trip and its funding", flags_patch: { self_disclosed: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "State the trip was properly registered and leave it there", flags_patch: { registered_claim: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Funding Source Identified", text: "The press has identified the funding source. Questions are being asked about the nature of the relationship.", choices: [
+          { id: "a", label: "Provide a detailed account of all meetings and discussions during the trip", flags_patch: { full_account: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Describe the trip as a standard diplomatic engagement", flags_patch: { framed_as_diplomatic: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Foreign Affairs Committee Notified", text: "The committee has been notified and the party is conducting a separate internal review.", choices: [
+          { id: "a", label: "Cooperate with both the committee and internal review", flags_patch: { dual_cooperation: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Engage with one process at a time and await formal requests", flags_patch: { sequential_engagement: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Reviews Concluded", text: "Both reviews have been completed. Moderators will communicate the outcome.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-campaign-finance",
+      title: "Campaign Finance Irregularity",
+      category: "financial",
+      severity_base: 4,
+      time_window_months: 5,
+      stages: [
+        { key: "rumour", title: "Return Filing Queried", text: "Your election return is being examined after a local party member raised concerns about undisclosed contributions.", choices: [
+          { id: "a", label: "Self-report to the Electoral Commission immediately", flags_patch: { self_reported: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Seek legal advice and await formal notification", flags_patch: { legal_advice: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Electoral Commission Formal Notice", text: "The Electoral Commission has issued a formal notice requesting clarification.", choices: [
+          { id: "a", label: "Respond fully within the deadline and publish the response", flags_patch: { responded_publicly: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Respond to the Commission only, not publicly", flags_patch: { responded_privately: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Party Central Office Involved", text: "Central Office has become involved given the potential reputational impact.", choices: [
+          { id: "a", label: "Work openly with Central Office to resolve any issues", flags_patch: { central_office_cooperation: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Handle the matter independently and brief Central Office after", flags_patch: { independent_handling: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Electoral Commission Decision", text: "The Electoral Commission has issued its findings. Moderators will determine the consequences.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-staff-relationship",
+      title: "Staff Relationship Allegation",
+      category: "conduct",
+      severity_base: 3,
+      time_window_months: 4,
+      stages: [
+        { key: "rumour", title: "Allegation Made", text: "A current or former member of your team has raised concerns about the nature of your relationship with them.", choices: [
+          { id: "a", label: "Engage the party's confidential HR process immediately", flags_patch: { engaged_hr: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Strongly deny the allegation and consult a solicitor", flags_patch: { denial_legal: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Allegation Reported", text: "The allegation has appeared in a newspaper. The paper is seeking further corroboration.", choices: [
+          { id: "a", label: "Make a brief public statement and let the HR process take its course", flags_patch: { public_statement: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Say nothing publicly pending the HR process", flags_patch: { silence: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Independent HR Review", text: "An independent reviewer has been appointed to look at the allegation.", choices: [
+          { id: "a", label: "Cooperate fully and submit to any interview requested", flags_patch: { full_cooperation: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Provide written submissions only", flags_patch: { written_only: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "HR Review Outcome", text: "The independent review is complete. Moderators will communicate the outcome.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-hot-mic",
+      title: "Hot Mic Comment",
+      category: "communications",
+      severity_base: 2,
+      time_window_months: 2,
+      stages: [
+        { key: "rumour", title: "Recording Surfaces", text: "An audio clip is circulating that appears to capture you making an unguarded comment that could be construed as offensive or impolitic.", choices: [
+          { id: "a", label: "Get ahead of the story with an immediate apology", flags_patch: { immediate_apology: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Question the context and accuracy of the clip", flags_patch: { context_challenged: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Clip Goes Viral", text: "The clip has been widely shared. Commentators are divided on its significance.", choices: [
+          { id: "a", label: "Give a broadcast interview to clarify your remarks and apologise", flags_patch: { broadcast_apology: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Issue a written statement and decline broadcast interviews", flags_patch: { written_statement: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Communications Team Review", text: "The party's communications team wants to discuss the incident and your media handling.", choices: [
+          { id: "a", label: "Engage constructively and agree to a media handling protocol", flags_patch: { agreed_protocol: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Note the concern and assert you will handle future situations independently", flags_patch: { independence_asserted: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Party Decides Next Steps", text: "The party has reached a view on the incident. Moderators will determine the outcome.", choices: [] }
+      ]
+    },
+    {
+      id: "tpl-protest-backlash",
+      title: "Protest Backlash",
+      category: "political",
+      severity_base: 2,
+      time_window_months: 3,
+      stages: [
+        { key: "rumour", title: "Constituency Protest Planned", text: "A group of constituents is organising a protest outside your surgery in response to your stance on a local issue.", choices: [
+          { id: "a", label: "Invite protest organisers to a meeting to discuss their concerns", flags_patch: { invited_dialogue: true }, next_stage_key: "media_interest" },
+          { id: "b", label: "Issue a statement defending your position", flags_patch: { position_defended: true }, next_stage_key: "media_interest" }
+        ]},
+        { key: "media_interest", title: "Protest Covered in Local Press", text: "The protest attracted media coverage. Your response is now part of the story.", choices: [
+          { id: "a", label: "Attend the protest area and speak directly with demonstrators", flags_patch: { direct_engagement: true }, next_stage_key: "party_review" },
+          { id: "b", label: "Continue to engage via written and social media channels only", flags_patch: { remote_engagement: true }, next_stage_key: "party_review" }
+        ]},
+        { key: "party_review", title: "Party Assesses Local Impact", text: "The party's local campaigning team is assessing the impact on your standing in the constituency.", choices: [
+          { id: "a", label: "Accept party support for a local community engagement programme", flags_patch: { accepted_support: true }, next_stage_key: "resolution" },
+          { id: "b", label: "Continue to handle the matter independently", flags_patch: { independent: true }, next_stage_key: "resolution" }
+        ]},
+        { key: "resolution", title: "Local Situation Assessment", text: "The party has assessed the local situation. Moderators will decide the political impact.", choices: [] }
+      ]
+    }
+  ];
+
+  for (const t of templates) {
+    await pool.query(
+      `INSERT INTO scandal_templates (id, title, category, severity_base, time_window_months, stages)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+       ON CONFLICT (id) DO NOTHING`,
+      [t.id, t.title, t.category, t.severity_base, t.time_window_months, JSON.stringify(t.stages)]
+    );
+  }
 }
 
 /**
@@ -822,6 +1275,32 @@ function attachLifecycle(obj, simMonth, simYear, realNow) {
       : defaults.autoArchiveAfterSimMonths,
     debate: obj.debate ? { ...defaults.debate, ...obj.debate } : defaults.debate,
   };
+}
+
+/**
+ * Add n simulation months to a (year, month) pair, rolling year over.
+ * Returns { sim_year, sim_month }.
+ */
+function addSimMonths(year, month, n) {
+  const total = (month - 1) + n;
+  return {
+    sim_year:  year + Math.floor(total / 12),
+    sim_month: (total % 12) + 1,
+  };
+}
+
+/**
+ * Resolve the active character UUID for the logged-in user.
+ * Uses req.session.characterId if set, otherwise queries the DB.
+ * Returns null if none found.
+ */
+async function getActiveCharacterId(req) {
+  if (req.session.characterId) return req.session.characterId;
+  const { rows } = await pool.query(
+    `SELECT id FROM characters WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1`,
+    [req.session.userId]
+  );
+  return rows.length ? rows[0].id : null;
 }
 
 /**
@@ -4925,6 +5404,522 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
     });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCANDAL SYSTEM
+// ═══════════════════════════════════════════════════════════════════════════
+
+const scandalReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const scandalWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+// ── GET /api/scandals/mine ────────────────────────────────────────────────
+app.get("/api/scandals/mine", scandalReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const characterId = await getActiveCharacterId(req);
+    if (!characterId) return res.status(400).json({ error: "No active character" });
+
+    const [optInRows, situationRows, scandalRows, choiceRows] = await Promise.all([
+      pool.query(
+        `SELECT opted_in FROM scandal_opt_in WHERE character_id = $1`,
+        [characterId]
+      ),
+      pool.query(
+        `SELECT ss.id, ss.template_id, ss.title_override, ss.status,
+                ss.created_sim_year, ss.created_sim_month,
+                ss.expires_sim_year, ss.expires_sim_month, ss.created_at,
+                st.title, st.category, st.severity_base, st.time_window_months, st.stages
+           FROM scandal_situations ss
+           JOIN scandal_templates  st ON st.id = ss.template_id
+          WHERE ss.character_id = $1 AND ss.status = 'open'
+          ORDER BY ss.created_at DESC`,
+        [characterId]
+      ),
+      pool.query(
+        `SELECT id, template_id, title, category, severity_base, severity_current,
+                stage_key, status, stage_started_sim_year, stage_started_sim_month,
+                stage_deadline_sim_year, stage_deadline_sim_month, time_window_months,
+                flags, public_notes, created_at, closed_at
+           FROM scandals
+          WHERE character_id = $1
+          ORDER BY created_at DESC`,
+        [characterId]
+      ),
+      pool.query(
+        `SELECT spc.id, spc.scandal_id, spc.stage_key, spc.choice_id,
+                spc.choice_label, spc.flags_patch, spc.created_sim_year,
+                spc.created_sim_month, spc.created_at
+           FROM scandal_player_choices spc
+           JOIN scandals s ON s.id = spc.scandal_id
+          WHERE s.character_id = $1
+          ORDER BY spc.created_at ASC`,
+        [characterId]
+      ),
+    ]);
+
+    res.json({
+      opted_in:      optInRows.rows[0]?.opted_in ?? false,
+      situations:    situationRows.rows,
+      scandals:      scandalRows.rows,
+      player_choices: choiceRows.rows,
+    });
+  } catch (e) {
+    console.error("[GET /api/scandals/mine]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── POST /api/scandals/optin ──────────────────────────────────────────────
+app.post("/api/scandals/optin", scandalWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const characterId = await getActiveCharacterId(req);
+    if (!characterId) return res.status(400).json({ error: "No active character" });
+
+    const opted_in = !!req.body?.opted_in;
+    await pool.query(
+      `INSERT INTO scandal_opt_in (character_id, opted_in, updated_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (character_id) DO UPDATE SET opted_in = EXCLUDED.opted_in, updated_at = now()`,
+      [characterId, opted_in]
+    );
+    res.json({ ok: true, opted_in });
+  } catch (e) {
+    console.error("[POST /api/scandals/optin]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── POST /api/scandals/situations/:id/respond ─────────────────────────────
+app.post("/api/scandals/situations/:id/respond", scandalWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const characterId = await getActiveCharacterId(req);
+    if (!characterId) return res.status(400).json({ error: "No active character" });
+
+    const { action } = req.body || {};
+    if (!["investigate", "ignore", "report_party"].includes(action)) {
+      return res.status(400).json({ error: "action must be investigate, ignore, or report_party" });
+    }
+
+    // Load situation and verify it belongs to this character
+    const { rows: sitRows } = await pool.query(
+      `SELECT ss.*, st.title, st.category, st.severity_base, st.time_window_months, st.stages
+         FROM scandal_situations ss
+         JOIN scandal_templates  st ON st.id = ss.template_id
+        WHERE ss.id = $1 AND ss.character_id = $2 AND ss.status = 'open'`,
+      [req.params.id, characterId]
+    );
+    if (!sitRows.length) return res.status(404).json({ error: "Situation not found or not open" });
+    const sit = sitRows[0];
+
+    const { rows: clockRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const simMonth = clockRows[0]?.sim_current_month ?? 8;
+    const simYear  = clockRows[0]?.sim_current_year  ?? 1997;
+
+    if (action === "ignore") {
+      await pool.query(
+        `UPDATE scandal_situations SET status = 'closed' WHERE id = $1`,
+        [sit.id]
+      );
+      return res.json({ ok: true, action: "ignored" });
+    }
+
+    // investigate or report_party → create a scandal
+    const stages = Array.isArray(sit.stages) ? sit.stages : [];
+    const firstStageKey = stages.length ? stages[0].key : "rumour";
+    const deadline = addSimMonths(simYear, simMonth, sit.time_window_months);
+    const title = sit.title_override || sit.title;
+    const flags = action === "report_party" ? { reported_to_party: true } : {};
+
+    const { rows: newRows } = await pool.query(
+      `INSERT INTO scandals
+         (character_id, template_id, title, category, severity_base, severity_current,
+          stage_key, status, stage_started_sim_year, stage_started_sim_month,
+          stage_deadline_sim_year, stage_deadline_sim_month, time_window_months,
+          flags, created_by_user_id)
+       VALUES ($1,$2,$3,$4,$5,$5,$6,'open',$7,$8,$9,$10,$11,$12::jsonb,$13)
+       RETURNING id`,
+      [
+        characterId, sit.template_id, title, sit.category, sit.severity_base,
+        firstStageKey, simYear, simMonth,
+        deadline.sim_year, deadline.sim_month, sit.time_window_months,
+        JSON.stringify(flags), sit.created_by_user_id,
+      ]
+    );
+
+    // Close the situation
+    await pool.query(
+      `UPDATE scandal_situations SET status = 'closed' WHERE id = $1`,
+      [sit.id]
+    );
+
+    res.json({ ok: true, action, scandal_id: newRows[0].id });
+  } catch (e) {
+    console.error("[POST /api/scandals/situations/:id/respond]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── POST /api/scandals/:id/choose ─────────────────────────────────────────
+app.post("/api/scandals/:id/choose", scandalWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const characterId = await getActiveCharacterId(req);
+    if (!characterId) return res.status(400).json({ error: "No active character" });
+
+    const { choice_id } = req.body || {};
+    if (!choice_id) return res.status(400).json({ error: "choice_id is required" });
+
+    // Load scandal and verify ownership
+    const { rows: scandalRows } = await pool.query(
+      `SELECT s.*, st.stages
+         FROM scandals s
+         JOIN scandal_templates st ON st.id = s.template_id
+        WHERE s.id = $1 AND s.character_id = $2 AND s.status IN ('open')`,
+      [req.params.id, characterId]
+    );
+    if (!scandalRows.length) return res.status(404).json({ error: "Scandal not found, not yours, or not open" });
+    const scandal = scandalRows[0];
+
+    // Find the current stage in the template
+    const stages = Array.isArray(scandal.stages) ? scandal.stages : [];
+    const currentStage = stages.find((s) => s.key === scandal.stage_key);
+    if (!currentStage) return res.status(400).json({ error: "Current stage not found in template" });
+
+    // Find the choice
+    const choices = Array.isArray(currentStage.choices) ? currentStage.choices : [];
+    const choice = choices.find((c) => c.id === choice_id);
+    if (!choice) return res.status(400).json({ error: "Invalid choice_id for this stage" });
+
+    const { rows: clockRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const simMonth = clockRows[0]?.sim_current_month ?? 8;
+    const simYear  = clockRows[0]?.sim_current_year  ?? 1997;
+
+    // Append player choice
+    await pool.query(
+      `INSERT INTO scandal_player_choices
+         (scandal_id, stage_key, choice_id, choice_label, flags_patch,
+          actor_character_id, created_sim_year, created_sim_month)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8)`,
+      [
+        scandal.id, scandal.stage_key, choice.id, choice.label,
+        JSON.stringify(choice.flags_patch || {}),
+        characterId, simYear, simMonth,
+      ]
+    );
+
+    // Merge flags_patch into scandal.flags
+    const newFlags = { ...(scandal.flags || {}), ...(choice.flags_patch || {}) };
+
+    // Determine next stage
+    const nextStageKey = choice.next_stage_key || null;
+    let newStatus = "open";
+    let closedAt = null;
+
+    if (!nextStageKey) {
+      newStatus = "closed";
+      closedAt = new Date().toISOString();
+    } else if (nextStageKey === "party_review") {
+      newStatus = "awaiting_mod";
+    }
+
+    const deadline = nextStageKey
+      ? addSimMonths(simYear, simMonth, scandal.time_window_months)
+      : { sim_year: simYear, sim_month: simMonth };
+
+    await pool.query(
+      `UPDATE scandals SET
+         stage_key               = COALESCE($2, stage_key),
+         status                  = $3,
+         stage_started_sim_year  = $4,
+         stage_started_sim_month = $5,
+         stage_deadline_sim_year = $6,
+         stage_deadline_sim_month= $7,
+         flags                   = $8::jsonb,
+         closed_at               = $9
+       WHERE id = $1`,
+      [
+        scandal.id,
+        nextStageKey,
+        newStatus,
+        simYear, simMonth,
+        deadline.sim_year, deadline.sim_month,
+        JSON.stringify(newFlags),
+        closedAt,
+      ]
+    );
+
+    res.json({ ok: true, next_stage_key: nextStageKey, status: newStatus });
+  } catch (e) {
+    console.error("[POST /api/scandals/:id/choose]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── GET /api/mod/scandal-templates ───────────────────────────────────────
+app.get("/api/mod/scandal-templates", scandalReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT id, title, category, severity_base, time_window_months, stages, is_enabled
+         FROM scandal_templates
+        ORDER BY title`
+    );
+    res.json({ templates: rows });
+  } catch (e) {
+    console.error("[GET /api/mod/scandal-templates]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── POST /api/mod/scandal-templates ──────────────────────────────────────
+app.post("/api/mod/scandal-templates", scandalWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { id, title, category, severity_base, time_window_months, stages, is_enabled = true } = req.body || {};
+    if (!id || !title || !category || !severity_base || !time_window_months || !stages) {
+      return res.status(400).json({ error: "id, title, category, severity_base, time_window_months, stages are required" });
+    }
+    await pool.query(
+      `INSERT INTO scandal_templates (id, title, category, severity_base, time_window_months, stages, is_enabled)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)
+       ON CONFLICT (id) DO UPDATE SET
+         title              = EXCLUDED.title,
+         category           = EXCLUDED.category,
+         severity_base      = EXCLUDED.severity_base,
+         time_window_months = EXCLUDED.time_window_months,
+         stages             = EXCLUDED.stages,
+         is_enabled         = EXCLUDED.is_enabled`,
+      [id, title, category, Number(severity_base), Number(time_window_months), JSON.stringify(stages), is_enabled]
+    );
+    res.json({ ok: true, id });
+  } catch (e) {
+    console.error("[POST /api/mod/scandal-templates]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── POST /api/mod/scandals/situations/create ──────────────────────────────
+app.post("/api/mod/scandals/situations/create", scandalWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { character_id, template_id, title_override, expires_in_months } = req.body || {};
+    if (!character_id || !template_id) {
+      return res.status(400).json({ error: "character_id and template_id are required" });
+    }
+
+    // Enforce opt-in server-side
+    const { rows: optRows } = await pool.query(
+      `SELECT opted_in FROM scandal_opt_in WHERE character_id = $1`,
+      [character_id]
+    );
+    if (!optRows.length || !optRows[0].opted_in) {
+      return res.status(403).json({ error: "Character has not opted in to scandals" });
+    }
+
+    // Verify template exists
+    const { rows: tplRows } = await pool.query(
+      `SELECT id, time_window_months FROM scandal_templates WHERE id = $1 AND is_enabled = true`,
+      [template_id]
+    );
+    if (!tplRows.length) return res.status(404).json({ error: "Template not found or disabled" });
+    const tpl = tplRows[0];
+
+    const { rows: clockRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const simMonth = clockRows[0]?.sim_current_month ?? 8;
+    const simYear  = clockRows[0]?.sim_current_year  ?? 1997;
+
+    const windowMonths = expires_in_months ? Number(expires_in_months) : tpl.time_window_months;
+    const expires = addSimMonths(simYear, simMonth, windowMonths);
+
+    const { rows: newRows } = await pool.query(
+      `INSERT INTO scandal_situations
+         (character_id, template_id, title_override, status,
+          created_sim_year, created_sim_month, expires_sim_year, expires_sim_month,
+          created_by_user_id)
+       VALUES ($1,$2,$3,'open',$4,$5,$6,$7,$8)
+       RETURNING id`,
+      [
+        character_id, template_id, title_override || null,
+        simYear, simMonth, expires.sim_year, expires.sim_month,
+        req.session.userId,
+      ]
+    );
+
+    await writeAuditLog(req.session.userId, "scandal.situation.create", "scandal_situations", newRows[0].id, null, {
+      character_id, template_id, title_override,
+    });
+
+    res.json({ ok: true, id: newRows[0].id });
+  } catch (e) {
+    console.error("[POST /api/mod/scandals/situations/create]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── GET /api/mod/scandals/open ────────────────────────────────────────────
+app.get("/api/mod/scandals/open", scandalReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const [scandalRows, choiceRows, decisionRows, situationRows] = await Promise.all([
+      pool.query(
+        `SELECT s.*, c.name AS character_name
+           FROM scandals s
+           JOIN characters c ON c.id = s.character_id
+          WHERE s.status IN ('open','awaiting_mod')
+          ORDER BY s.created_at DESC`
+      ),
+      pool.query(
+        `SELECT spc.*
+           FROM scandal_player_choices spc
+           JOIN scandals s ON s.id = spc.scandal_id
+          WHERE s.status IN ('open','awaiting_mod')
+          ORDER BY spc.created_at ASC`
+      ),
+      pool.query(
+        `SELECT smd.*
+           FROM scandal_mod_decisions smd
+           JOIN scandals s ON s.id = smd.scandal_id
+          WHERE s.status IN ('open','awaiting_mod')
+          ORDER BY smd.created_at ASC`
+      ),
+      pool.query(
+        `SELECT ss.*, st.title, st.category, c.name AS character_name
+           FROM scandal_situations ss
+           JOIN scandal_templates st ON st.id = ss.template_id
+           JOIN characters c ON c.id = ss.character_id
+          WHERE ss.status = 'open'
+          ORDER BY ss.created_at DESC`
+      ),
+    ]);
+
+    res.json({
+      scandals:   scandalRows.rows,
+      player_choices: choiceRows.rows,
+      mod_decisions:  decisionRows.rows,
+      situations:     situationRows.rows,
+    });
+  } catch (e) {
+    console.error("[GET /api/mod/scandals/open]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── POST /api/mod/scandals/:id/decision ──────────────────────────────────
+app.post("/api/mod/scandals/:id/decision", scandalWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const { decision_type, severity_delta = 0, next_stage_key, public_statement, internal_notes = "" } = req.body || {};
+    if (!decision_type) return res.status(400).json({ error: "decision_type is required" });
+
+    // Load scandal
+    const { rows: scandalRows } = await pool.query(
+      `SELECT * FROM scandals WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!scandalRows.length) return res.status(404).json({ error: "Scandal not found" });
+    const scandal = scandalRows[0];
+
+    const { rows: clockRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const simMonth = clockRows[0]?.sim_current_month ?? 8;
+    const simYear  = clockRows[0]?.sim_current_year  ?? 1997;
+
+    // Append mod decision
+    await pool.query(
+      `INSERT INTO scandal_mod_decisions
+         (scandal_id, decision_type, severity_delta, next_stage_key, public_statement,
+          internal_notes, decided_by_user_id, created_sim_year, created_sim_month)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        scandal.id, decision_type, Number(severity_delta), next_stage_key || null,
+        public_statement || null, internal_notes, req.session.userId,
+        simYear, simMonth,
+      ]
+    );
+
+    // Compute updated scandal fields
+    const newSeverity = scandal.severity_current + Number(severity_delta);
+    let newStageKey = next_stage_key || scandal.stage_key;
+    let newStatus = "open";
+    let closedAt = scandal.closed_at;
+
+    if (decision_type === "close" || (!next_stage_key && decision_type !== "severity_update")) {
+      newStatus = "closed";
+      closedAt = new Date().toISOString();
+    } else if (next_stage_key === "party_review") {
+      newStatus = "awaiting_mod";
+    }
+
+    // Update public_notes if statement provided
+    const publicNotes = Array.isArray(scandal.public_notes) ? scandal.public_notes : [];
+    if (public_statement) {
+      publicNotes.push({ statement: public_statement, at_sim_year: simYear, at_sim_month: simMonth });
+    }
+
+    const deadline = addSimMonths(simYear, simMonth, scandal.time_window_months);
+
+    await pool.query(
+      `UPDATE scandals SET
+         severity_current        = $2,
+         stage_key               = $3,
+         status                  = $4,
+         stage_started_sim_year  = $5,
+         stage_started_sim_month = $6,
+         stage_deadline_sim_year = $7,
+         stage_deadline_sim_month= $8,
+         public_notes            = $9::jsonb,
+         closed_at               = $10
+       WHERE id = $1`,
+      [
+        scandal.id, newSeverity, newStageKey, newStatus,
+        simYear, simMonth, deadline.sim_year, deadline.sim_month,
+        JSON.stringify(publicNotes), closedAt,
+      ]
+    );
+
+    await writeAuditLog(req.session.userId, "scandal.mod.decision", "scandals", scandal.id, scandal, {
+      decision_type, severity_delta, next_stage_key,
+    });
+
+    res.json({ ok: true, status: newStatus, stage_key: newStageKey });
+  } catch (e) {
+    console.error("[POST /api/mod/scandals/:id/decision]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── POST /api/mod/scandals/:id/close ─────────────────────────────────────
+app.post("/api/mod/scandals/:id/close", scandalWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const { rows } = await pool.query(
+      `UPDATE scandals SET status = 'closed', closed_at = now()
+        WHERE id = $1 AND status != 'closed'
+        RETURNING id`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Scandal not found or already closed" });
+
+    await writeAuditLog(req.session.userId, "scandal.mod.close", "scandals", req.params.id, null, null);
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/mod/scandals/:id/close]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
