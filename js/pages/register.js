@@ -192,7 +192,7 @@ export function initRegisterPage(_data, _user) {
         body: JSON.stringify({ name, username, email, password, age_attested: true, marketing_opt_in: marketingOptIn, turnstile_token }),
       });
       const json = await resp.json().catch(() => ({}));
-      if (resp.ok && json.ok) {
+      if (resp.ok && json.ok !== false) {
         render(host, "", json.message || "Your application has been submitted. Please check your email to verify your address, then wait for admin approval before logging in.", cfg);
       } else {
         errorEl.textContent = json.error || "Submission failed. Please try again.";

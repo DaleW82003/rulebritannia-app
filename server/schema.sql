@@ -132,7 +132,14 @@ CREATE TABLE IF NOT EXISTS pending_registrations (
                   CHECK (status IN ('pending', 'approved', 'rejected')),
   reviewed_by     TEXT,
   reviewed_at     TIMESTAMPTZ,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  marketing_opt_in             BOOLEAN   NOT NULL DEFAULT FALSE,
+  marketing_opt_in_at          TIMESTAMPTZ,
+  email_verified               BOOLEAN   NOT NULL DEFAULT FALSE,
+  email_verified_at            TIMESTAMPTZ,
+  email_verification_token     TEXT,
+  email_verification_token_exp TIMESTAMPTZ,
+  verification_resent_at       TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS pending_reg_status_idx ON pending_registrations (status);
 CREATE INDEX IF NOT EXISTS pending_reg_email_idx  ON pending_registrations (email);
