@@ -5077,6 +5077,76 @@ app.post("/api/admin/characters/applications/:id/reject", charAppWriteLimit, asy
   }
 });
 
+// POST /api/admin/characters/:id/set-inactive — admin/mod: mark a character inactive
+app.post("/api/admin/characters/:id/set-inactive", charWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const { rows: before } = await pool.query(
+      "SELECT id, user_id, name, is_active FROM characters WHERE id = $1",
+      [req.params.id]
+    );
+    if (!before.length) return res.status(404).json({ error: "Character not found" });
+    if (!before[0].is_active) return res.status(409).json({ error: "Character is already inactive" });
+
+    const { rows } = await pool.query(
+      "UPDATE characters SET is_active = FALSE WHERE id = $1 RETURNING id, user_id, name, party, constituency, is_active",
+      [req.params.id]
+    );
+    await writeAuditLog(
+      req.session.userId, "character.set-inactive", "character", req.params.id,
+      before[0], rows[0]
+    );
+    res.json({ ok: true, character: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/repair/character-owner-pointers — admin: reconcile approved applications
+// whose created characters have a missing or incorrect user_id owner pointer.
+app.post("/api/admin/repair/character-owner-pointers", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    // Find all approved applications. For each, update any matching character whose
+    // user_id is NULL or differs from the application's applicant_user_id.
+    // Matching is by case-insensitive name; party and constituency are used as
+    // tiebreakers when non-empty to avoid clobbering unrelated characters.
+    const { rows: fixed } = await pool.query(`
+      UPDATE characters c
+         SET user_id = pca.applicant_user_id
+        FROM pending_character_applications pca
+       WHERE pca.status = 'approved'
+         AND LOWER(c.name) = LOWER(pca.name)
+         AND (pca.party       = '' OR LOWER(c.party)        = LOWER(pca.party))
+         AND (pca.constituency = '' OR LOWER(c.constituency) = LOWER(pca.constituency))
+         AND (c.user_id IS NULL OR c.user_id != pca.applicant_user_id)
+    RETURNING c.id, c.name, pca.applicant_user_id AS new_user_id, pca.applicant_username
+    `);
+
+    if (fixed.length) {
+      await writeAuditLog(
+        req.session.userId, "admin.repair.character-owner-pointers", "characters", null,
+        null, { fixed_count: fixed.length, fixed }
+      );
+    }
+
+    res.json({
+      ok: true,
+      fixed_count: fixed.length,
+      fixed: fixed.map((r) => ({ id: r.id, name: r.name, new_user_id: r.new_user_id, applicant_username: r.applicant_username })),
+      message: fixed.length
+        ? `Repaired ${fixed.length} character(s) with missing/incorrect owner pointers.`
+        : "No characters needed repair.",
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // BIOGRAPHY CHANGE REQUESTS
 // POST /api/characters/bio-change — submit a bio change request

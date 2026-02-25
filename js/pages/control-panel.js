@@ -6,6 +6,7 @@ import {
   apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange,
   apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange,
   apiGetCharacterApplications, apiApproveCharacterApplication, apiRejectCharacterApplication,
+  apiGetCharacters, apiAdminSetCharacterInactive,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -75,14 +76,17 @@ export async function initControlPanelPage(data) {
 
   if (!rolePanels) return;
 
-  // Load pending character applications for manager review
+  // Load pending character applications and active characters from DB
   let pendingApplications = [];
-  if (manager) {
-    try {
-      const result = await apiGetCharacterApplications("pending").catch(() => ({ applications: [] }));
-      pendingApplications = result.applications;
-    } catch { /* ignore */ }
-  }
+  let activeDbChars = [];
+  await Promise.all([
+    manager
+      ? apiGetCharacterApplications("pending").catch(() => ({ applications: [] })).then((r) => { pendingApplications = r.applications; })
+      : Promise.resolve(),
+    canEdit
+      ? apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })).then((r) => { activeDbChars = r.characters; })
+      : Promise.resolve(),
+  ]);
 
   rolePanels.innerHTML = `
     <section class="panel" style="margin-bottom:12px;">
@@ -137,32 +141,40 @@ export async function initControlPanelPage(data) {
     ${canEdit ? `
     <details class="tile" style="margin-bottom:10px;" open>
       <summary style="cursor:pointer;"><b>Active Player Roster <span class="mod-badge">Mod / Admin</span></b></summary>
-      <div class="muted" style="margin-top:10px;">Mods can only set characters inactive.</div>
+      <div class="muted" style="margin-top:10px;">Shows all active characters from the database. Mods can set characters inactive.</div>
       <div style="margin-top:10px;display:grid;gap:8px;" id="cp-player-roster">
-        ${(Array.isArray(data.players) ? data.players : []).slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))).map((p) => `
-          <article class="tile" style="display:grid;grid-template-columns:minmax(180px,2fr) minmax(180px,2fr) auto;gap:8px;align-items:center;">
+        ${activeDbChars.slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))).map((p) => `
+          <article class="tile" style="display:grid;grid-template-columns:minmax(180px,2fr) minmax(180px,2fr) auto;gap:8px;align-items:center;" data-char-id="${esc(p.id)}">
             <div><b>${esc(String(p.name || "Unknown"))}</b><div class="muted">${esc(String(p.party || "No party"))}</div></div>
-            <div class="muted">${p.active === false ? "Inactive" : "Active"}</div>
-            ${p.active === false ? `<span class="muted">Inactive (user can re-activate)</span>` : `<button class="btn danger" type="button" data-action="set-inactive-player" data-name="${esc(String(p.name || ""))}">Set Inactive</button>`}
+            <div class="muted">${esc(String(p.constituency || "No constituency"))}</div>
+            <button class="btn danger" type="button" data-action="set-inactive-player" data-id="${esc(p.id)}" data-name="${esc(String(p.name || ""))}">Set Inactive</button>
           </article>
-        `).join("") || `<div class="muted-block">No players configured.</div>`}
+        `).join("") || `<div class="muted-block">No active characters in the database.</div>`}
       </div>
     </details>
     ` : ""}
   `;
 
   rolePanels.querySelectorAll('[data-action="set-inactive-player"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!canEdit) return;
+      const id = String(btn.dataset.id || "").trim();
       const name = String(btn.dataset.name || "").trim();
-      if (!name) return;
-      const players = Array.isArray(data.players) ? data.players : [];
-      const p = players.find((pl) => pl.name === name);
-      if (p) {
-        p.active = false;
-        saveState(data);
-        btn.closest("article")?.querySelector(".muted")?.remove();
-        btn.replaceWith(Object.assign(document.createElement("span"), { className: "muted", textContent: "Inactive (user can re-activate)" }));
+      if (!id) return;
+      btn.disabled = true;
+      btn.textContent = "Setting inactive…";
+      try {
+        await apiAdminSetCharacterInactive(id);
+        const article = btn.closest("article");
+        if (article) article.remove();
+        const roster = rolePanels.querySelector("#cp-player-roster");
+        if (roster && !roster.querySelector("article")) {
+          roster.innerHTML = '<div class="muted-block">No active characters in the database.</div>';
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "Set Inactive";
+        alert(`Error: ${err.message}`);
       }
     });
   });

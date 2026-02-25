@@ -14,6 +14,7 @@ import {
   apiGetAdminDashboard, apiAdminDiscourseSyncBills,
   apiGetPendingRegistrations, apiApproveRegistration, apiRejectRegistration,
   apiSeedDemo, apiWipeContent,
+  apiAdminRepairCharacterOwners,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
@@ -587,6 +588,18 @@ export async function initAdminPanelPage(data) {
 
           <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
             <div>
+              <b>Repair Character Owner Pointers</b>
+              <p style="margin:4px 0 0;font-size:13px;color:#555;">
+                Reconciles approved character applications whose created characters have a missing or
+                incorrect <code>user_id</code>. Safe to run multiple times — only fixes records that need it.
+              </p>
+              <div id="repair-char-owners-status" style="font-size:13px;margin-top:6px;"></div>
+            </div>
+            <button class="btn" id="btn-repair-char-owners" type="button">Run Repair</button>
+          </div>
+
+          <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
               <b>Force Logout All Users</b>
               <p style="margin:4px 0 0;font-size:13px;color:#555;">
                 Terminates every active session except yours. All other users will be logged out immediately.
@@ -1133,6 +1146,30 @@ export async function initAdminPanelPage(data) {
         setTimeout(() => window.location.reload(), 1000);
       } catch (err) {
         toastError(`Rotate session: ${err.message}`);
+      }
+    });
+
+    host.querySelector("#btn-repair-char-owners")?.addEventListener("click", async () => {
+      const btn = host.querySelector("#btn-repair-char-owners");
+      const statusEl = host.querySelector("#repair-char-owners-status");
+      if (btn) { btn.disabled = true; btn.textContent = "Running…"; }
+      if (statusEl) statusEl.textContent = "";
+      try {
+        const result = await apiAdminRepairCharacterOwners();
+        logAction({ action: "admin.repair.character-owner-pointers", details: { fixed_count: result.fixed_count } });
+        if (statusEl) {
+          statusEl.style.color = result.fixed_count ? "#1a7a1a" : "#555";
+          statusEl.textContent = result.message || "Done.";
+          if (result.fixed_count && result.fixed?.length) {
+            statusEl.textContent += " Fixed: " + result.fixed.map((r) => `${r.name} → ${r.applicant_username}`).join(", ");
+          }
+        }
+        toastSuccess(result.message || "Repair complete.");
+      } catch (err) {
+        if (statusEl) { statusEl.style.color = "#c00"; statusEl.textContent = err.message; }
+        toastError(`Repair failed: ${err.message}`);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "Run Repair"; }
       }
     });
 

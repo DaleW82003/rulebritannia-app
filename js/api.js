@@ -618,6 +618,32 @@ export async function apiRejectCharacterApplication(id) {
   return res.json();
 }
 
+export async function apiAdminSetCharacterInactive(id) {
+  const res = await fetch(`${API_BASE}/api/admin/characters/${encodeURIComponent(id)}/set-inactive`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminSetCharacterInactive failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiAdminRepairCharacterOwners() {
+  const res = await fetch(`${API_BASE}/api/admin/repair/character-owner-pointers`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminRepairCharacterOwners failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function apiSubmitBioChange(proposed_bio) {
   const res = await fetch(`${API_BASE}/api/characters/bio-change`, {
     method: "POST",
