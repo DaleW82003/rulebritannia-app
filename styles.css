@@ -232,11 +232,14 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
    ========================= */
 .wgo-grid{
   display:grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap:14px;
   width:100%;
 }
 @media (max-width: 900px){
+  .wgo-grid{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+}
+@media (max-width: 600px){
   .wgo-grid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 @media (max-width: 480px){
@@ -256,6 +259,22 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
 .wgo-actions{ margin-top:14px; }
 
 .wgo-strap-lines{ white-space:pre-line; }
+
+/* Press page — 5-tile navigation row */
+.press-tile-grid{
+  display:grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap:12px;
+}
+@media (max-width: 900px){
+  .press-tile-grid{ grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 600px){
+  .press-tile-grid{ grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px){
+  .press-tile-grid{ grid-template-columns: 1fr; }
+}
 
 .bill-type-government{ color:#0b6b2f; font-weight:900; }
 .bill-type-pmb{ color:#1e54ff; font-weight:900; }
@@ -577,6 +596,13 @@ input, select, textarea{
   background:#fff;
   color:var(--text);
   outline:none;
+}
+input[type="radio"], input[type="checkbox"]{
+  width:auto;
+  padding:0;
+  border:none;
+  background:transparent;
+  border-radius:0;
 }
 textarea{ resize:vertical; }
 label{ font-weight:850; color:var(--navy); }

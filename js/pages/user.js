@@ -874,7 +874,7 @@ export async function initUserPage(data) {
   try {
     const urlParam = new URL(window.location.href).searchParams.get("account") || "";
     const selfUsername = String(data?.currentUser?.username || "").trim();
-    if (urlParam && urlParam !== selfUsername && canAdminOrMod(data)) {
+    if (urlParam && urlParam !== selfUsername && canAdminModOrSpeaker(data)) {
       viewingUsername = urlParam;
     }
   } catch { /* non-browser or URL parse error — ignore */ }

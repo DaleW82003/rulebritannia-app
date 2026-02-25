@@ -205,7 +205,7 @@ function render(data, state) {
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
+      <div class="press-tile-grid">
         <article class="wgo-tile card-flex">
           <div class="wgo-title">Press Releases &amp; Statements</div>
           <div class="tile-bottom"><button class="btn" data-action="switch" data-view="releases" type="button">Open</button></div>
