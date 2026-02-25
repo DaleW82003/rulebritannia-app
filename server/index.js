@@ -3746,7 +3746,7 @@ app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
  * MOTIONS
  * GET    /api/motions          — authenticated: list all motions (optional ?type=house|edm)
  * GET    /api/motions/:id      — authenticated: get one motion
- * POST   /api/motions          — admin/mod: create a motion
+ * POST   /api/motions          — authenticated: create a motion
  * PUT    /api/motions/:id      — admin/mod: update a motion
  * DELETE /api/motions/:id      — admin/mod/speaker: delete a motion
  */
@@ -3786,7 +3786,7 @@ app.get("/api/motions/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/motions", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const { motion_type = "house", ...motion } = req.body || {};
     if (!motion.id) {
       return res.status(400).json({ error: "Body must be a motion object with an id" });

@@ -6,7 +6,7 @@ import { toastSuccess } from "../components/toast.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
-import { apiCreateDebateTopic } from "../api.js";
+import { apiCreateDebateTopic, apiCreateMotion } from "../api.js";
 import { handleApiError } from "../errors.js";
 import { npcPartyOptions } from "../parties.js";
 
@@ -187,13 +187,16 @@ export function initMotionsPage(data) {
     })}
   `;
 
-  root.querySelector("#house-motion-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#house-motion-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!hasActiveChar) return;
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
     const body = String(fd.get("body") || "").trim();
     if (!title || !body) return;
+
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
 
     const npcName = canPostAsNpc ? String(fd.get("npcName") || "").trim() : "";
     const npcParty = canPostAsNpc ? String(fd.get("npcParty") || "").trim() : "";
@@ -218,6 +221,16 @@ export function initMotionsPage(data) {
       debate: { topicId: null, topicUrl: null, opensAtSim: null, closesAtSim: null },
       division: { status: "open", startSim: formatSimDate(debateEndObj), endSim: formatSimDate(divisionEndObj), endSimObj: divisionEndObj, votes: {}, rebelsByParty: {}, npcVotes: {} }
     };
+
+    try {
+      await apiCreateMotion("house", motion);
+    } catch (err) {
+      console.error("[motions] Failed to persist house motion to DB:", err);
+      handleApiError(err, "Submit motion");
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+
     data.motions.house.push(motion);
     data.motions.nextHouseNumber = number + 1;
     saveState(data);
@@ -235,7 +248,7 @@ export function initMotionsPage(data) {
     window.location.href = `motion.html?kind=house&id=${encodeURIComponent(id)}`;
   });
 
-  root.querySelector("#edm-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#edm-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!hasActiveChar) return;
     // Government members cannot submit EDMs
@@ -247,6 +260,9 @@ export function initMotionsPage(data) {
     const title = String(fd.get("title") || "").trim();
     const body = String(fd.get("body") || "").trim();
     if (!title || !body) return;
+
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
 
     const npcName = canPostAsNpc ? String(fd.get("npcName") || "").trim() : "";
     const npcParty = canPostAsNpc ? String(fd.get("npcParty") || "").trim() : "";
@@ -271,6 +287,16 @@ export function initMotionsPage(data) {
       signatures: [],
       npcSignatures: {}
     };
+
+    try {
+      await apiCreateMotion("edm", edm);
+    } catch (err) {
+      console.error("[motions] Failed to persist EDM to DB:", err);
+      handleApiError(err, "Submit EDM");
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+
     data.motions.edm.push(edm);
     data.motions.nextEdmNumber = number + 1;
     saveState(data);

@@ -147,7 +147,7 @@ function render(data, state) {
           <label class="label" for="fb-name">Display Name</label>
           <input id="fb-name" name="displayName" class="input" value="${esc(char?.name || "Character")}" ${mod ? "" : "readonly"}>
           <label class="label" for="fb-avatar">Avatar URL (optional)</label>
-          <input id="fb-avatar" name="avatar" class="input" placeholder="https://...">
+          <input id="fb-avatar" name="avatar" class="input" placeholder="https://..." value="${esc(char?.avatar || "")}">
           <label class="label" for="fb-body">Post</label>
           <textarea id="fb-body" name="body" class="input" rows="4" required></textarea>
           <button class="btn" type="submit">Post to Facebook</button>
@@ -248,7 +248,7 @@ function render(data, state) {
     data.online.facebookPosts.push({
       id: data.online.nextId++,
       displayName: mod ? displayName : (char?.name || displayName),
-      avatar: String(fd.get("avatar") || "").trim(),
+      avatar: String(fd.get("avatar") || "").trim() || String(char?.avatar || "").trim(),
       body,
       createdAt: new Date().toLocaleString("en-GB"),
       createdTs: Date.now()
