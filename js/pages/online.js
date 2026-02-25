@@ -1,6 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import { apiCreateOnlinePost, apiGetOnlinePosts } from "../api.js";
 
 const CHANNELS = {
   webPost: "Post to the Web",
@@ -147,7 +148,7 @@ function render(data, state) {
           <label class="label" for="fb-name">Display Name</label>
           <input id="fb-name" name="displayName" class="input" value="${esc(char?.name || "Character")}" ${mod ? "" : "readonly"}>
           <label class="label" for="fb-avatar">Avatar URL (optional)</label>
-          <input id="fb-avatar" name="avatar" class="input" placeholder="https://...">
+          <input id="fb-avatar" name="avatar" class="input" placeholder="https://..." value="${esc(char?.avatar || "")}">
           <label class="label" for="fb-body">Post</label>
           <textarea id="fb-body" name="body" class="input" rows="4" required></textarea>
           <button class="btn" type="submit">Post to Facebook</button>
@@ -215,7 +216,7 @@ function render(data, state) {
     });
   });
 
-  root.querySelector("#online-web-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#online-web-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
@@ -224,40 +225,60 @@ function render(data, state) {
     const author = String(fd.get("author") || "").trim() || (char?.name || "Character");
     if (!title || !body) return;
 
-    data.online.webPosts.push({
-      id: data.online.nextId++,
+    const post = {
+      id: `web-${Date.now()}`,
       title,
       body,
       imageUrl,
       author: mod ? author : (char?.name || author),
       createdAt: new Date().toLocaleString("en-GB"),
       createdTs: Date.now()
-    });
+    };
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreateOnlinePost("web", post);
+    } catch (err) {
+      console.error(err);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+    data.online.webPosts.push(post);
     saveState(data);
     state.view = "webHistory";
     render(data, state);
   });
 
-  root.querySelector("#online-facebook-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#online-facebook-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const body = String(fd.get("body") || "").trim();
     if (!body) return;
     const displayName = String(fd.get("displayName") || "").trim() || (char?.name || "Character");
 
-    data.online.facebookPosts.push({
-      id: data.online.nextId++,
+    const post = {
+      id: `fb-${Date.now()}`,
       displayName: mod ? displayName : (char?.name || displayName),
-      avatar: String(fd.get("avatar") || "").trim(),
+      avatar: String(fd.get("avatar") || "").trim() || String(char?.avatar || "").trim(),
       body,
       createdAt: new Date().toLocaleString("en-GB"),
       createdTs: Date.now()
-    });
+    };
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreateOnlinePost("facebook", post);
+    } catch (err) {
+      console.error(err);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+    data.online.facebookPosts.push(post);
     saveState(data);
     render(data, state);
   });
 
-  root.querySelector("#online-twitter-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#online-twitter-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const body = String(fd.get("body") || "").trim();
@@ -273,14 +294,24 @@ function render(data, state) {
       ? (String(fd.get("customDisplayName") || "").trim() || "NPC")
       : (char?.name || "Character");
 
-    data.online.twitterPosts.push({
-      id: data.online.nextId++,
+    const post = {
+      id: `tw-${Date.now()}`,
       handle,
       displayName,
       body,
       createdAt: new Date().toLocaleString("en-GB"),
       createdTs: Date.now()
-    });
+    };
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreateOnlinePost("twitter", post);
+    } catch (err) {
+      console.error(err);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+    data.online.twitterPosts.push(post);
     saveState(data);
     render(data, state);
   });
@@ -288,8 +319,8 @@ function render(data, state) {
   root.querySelectorAll("[data-action='delete-web']").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (!mod) return;
-      const id = Number(btn.getAttribute("data-id") || 0);
-      data.online.webPosts = data.online.webPosts.filter((p) => p.id !== id);
+      const id = String(btn.getAttribute("data-id") || "");
+      data.online.webPosts = data.online.webPosts.filter((p) => String(p.id) !== id);
       saveState(data);
       render(data, state);
     });
@@ -298,8 +329,8 @@ function render(data, state) {
   root.querySelectorAll("[data-action='delete-fb']").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (!mod) return;
-      const id = Number(btn.getAttribute("data-id") || 0);
-      data.online.facebookPosts = data.online.facebookPosts.filter((p) => p.id !== id);
+      const id = String(btn.getAttribute("data-id") || "");
+      data.online.facebookPosts = data.online.facebookPosts.filter((p) => String(p.id) !== id);
       saveState(data);
       render(data, state);
     });
@@ -308,15 +339,31 @@ function render(data, state) {
   root.querySelectorAll("[data-action='delete-tw']").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (!mod) return;
-      const id = Number(btn.getAttribute("data-id") || 0);
-      data.online.twitterPosts = data.online.twitterPosts.filter((p) => p.id !== id);
+      const id = String(btn.getAttribute("data-id") || "");
+      data.online.twitterPosts = data.online.twitterPosts.filter((p) => String(p.id) !== id);
       saveState(data);
       render(data, state);
     });
   });
 }
 
-export function initOnlinePage(data) {
+export async function initOnlinePage(data) {
   ensureOnline(data);
+  try {
+    const r = await apiGetOnlinePosts();
+    if (r?.posts?.length) {
+      const seenWeb = new Set(data.online.webPosts.map((x) => String(x.id)));
+      const seenFb = new Set(data.online.facebookPosts.map((x) => String(x.id)));
+      const seenTw = new Set(data.online.twitterPosts.map((x) => String(x.id)));
+      for (const post of r.posts) {
+        const pt = post._post_type || post.post_type || "web";
+        if (pt === "web" && !seenWeb.has(String(post.id))) data.online.webPosts.push(post);
+        else if (pt === "facebook" && !seenFb.has(String(post.id))) data.online.facebookPosts.push(post);
+        else if (pt === "twitter" && !seenTw.has(String(post.id))) data.online.twitterPosts.push(post);
+      }
+    }
+  } catch (err) {
+    console.error("[online] DB load failed:", err);
+  }
   render(data, { view: null });
 }

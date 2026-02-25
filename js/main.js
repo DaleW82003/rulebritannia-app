@@ -180,7 +180,7 @@ function renderDataSourcePanel(sources) {
     const init = routes[page];
 
     if (typeof init === "function") {
-      init(data, user);
+      await init(data, user);
       document.body.dataset.bootState = "ready";
       return;
     }

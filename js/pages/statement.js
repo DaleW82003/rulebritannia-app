@@ -1,5 +1,6 @@
 import { esc } from "../ui.js";
 import { countdownToSimMonth, formatSimMonthYear } from "../clock.js";
+import { apiGetStatement } from "../api.js";
 
 function ensureStatements(data) {
   data.statements ??= {};
@@ -14,14 +15,29 @@ function getIdFromUrl() {
   return new URL(window.location.href).searchParams.get("id");
 }
 
-export function initStatementPage(data) {
+export async function initStatementPage(data) {
   const root = document.getElementById("statement-root");
   if (!root) return;
 
   ensureStatements(data);
   const id = getIdFromUrl();
-  const items = data.statements.items || [];
-  const statement = items.find((s) => s.id === id) || items[0] || null;
+  let statement = (data.statements.items || []).find((s) => s.id === id) || null;
+
+  if (!statement && id) {
+    try {
+      const r = await apiGetStatement(id);
+      if (r?.statement) {
+        statement = r.statement;
+        data.statements.items.push(statement);
+      }
+    } catch (err) {
+      console.error("[statement] DB fallback failed:", err);
+    }
+  }
+
+  if (!statement) {
+    statement = data.statements.items[0] || null;
+  }
 
   if (!statement) {
     root.innerHTML = `<div class="muted-block">No statements are available.</div>`;

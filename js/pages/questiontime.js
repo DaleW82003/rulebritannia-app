@@ -6,6 +6,7 @@ import { logAction } from "../audit.js";
 import {
   apiGetQtQuestions, apiSubmitQtQuestion, apiAnswerQtQuestion,
   apiFollowupQtQuestion, apiPatchQtQuestion,
+  apiGetQtLegacyQuestions, apiCreateQtLegacyQuestion,
 } from "../api.js";
 import { npcPartyOptions } from "../parties.js";
 
@@ -337,7 +338,7 @@ function render(data, state) {
     const askedBy = npcName || char?.name || "Backbench MP";
     const askedRole = npcName ? "backbencher" : normaliseRole(char?.role || "backbencher");
 
-    data.questionTime.questions.unshift({
+    const question = {
       id: nowId("qt"),
       office: selectedOffice.id,
       askedBy,
@@ -354,7 +355,10 @@ function render(data, state) {
       answerSeenByAsker: false,
       speakerDemandedAtTs: 0,
       speakerDemandAvailable: false
-    });
+    };
+
+    data.questionTime.questions.unshift(question);
+    apiCreateQtLegacyQuestion(question).catch(console.error);
 
     saveState(data);
     render(data, state);
@@ -567,6 +571,20 @@ function renderDbQtPanel(questions, data, host) {
  */
 export async function initQuestionTimePage(data) {
   normaliseQuestionTime(data);
+
+  // Hydrate legacy questions from DB
+  try {
+    const r = await apiGetQtLegacyQuestions();
+    if (r?.questions?.length) {
+      const seen = new Set(data.questionTime.questions.map((q) => String(q.id)));
+      for (const q of r.questions) {
+        if (!seen.has(String(q.id))) data.questionTime.questions.push(q);
+      }
+    }
+  } catch (err) {
+    console.error("[questiontime] legacy DB load failed:", err);
+  }
+
   const state = { selectedOfficeId: data.questionTime.offices[0]?.id || null };
   render(data, state);
 

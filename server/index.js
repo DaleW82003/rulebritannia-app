@@ -1243,6 +1243,33 @@ async function ensureSchema() {
     ALTER TABLE character_finance
       ADD COLUMN IF NOT EXISTS shop_monthly_upkeep NUMERIC NOT NULL DEFAULT 0;
   `);
+
+  // ── New social/parliamentary entity tables ────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS red_lion_posts (
+      id          TEXT PRIMARY KEY,
+      data        JSONB NOT NULL DEFAULT '{}',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS game_events (
+      id          TEXT PRIMARY KEY,
+      data        JSONB NOT NULL DEFAULT '{}',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS online_posts (
+      id          TEXT PRIMARY KEY,
+      post_type   TEXT NOT NULL DEFAULT 'web',
+      data        JSONB NOT NULL DEFAULT '{}',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS fundraising_items (
+      id          TEXT PRIMARY KEY,
+      data        JSONB NOT NULL DEFAULT '{}',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 }
 
 // ── 1997 baseline salary scale (idempotent) ────────────────────────────────
@@ -3654,7 +3681,7 @@ app.get("/api/audit-log", auditReadLimit, async (req, res) => {
  * BILLS  (orderPaperCommons items)
  * GET    /api/bills          — authenticated: list all bills
  * GET    /api/bills/:id      — authenticated: get one bill
- * POST   /api/bills          — admin/mod: create a bill
+ * POST   /api/bills          — authenticated: create a bill
  * PUT    /api/bills/:id      — admin/mod: update a bill
  * DELETE /api/bills/:id      — admin/mod/speaker: delete a bill
  */
@@ -3687,7 +3714,7 @@ app.get("/api/bills/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/bills", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const bill = req.body;
     if (!bill || typeof bill !== "object" || !bill.id) {
       return res.status(400).json({ error: "Body must be a bill object with an id" });
@@ -3746,7 +3773,7 @@ app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
  * MOTIONS
  * GET    /api/motions          — authenticated: list all motions (optional ?type=house|edm)
  * GET    /api/motions/:id      — authenticated: get one motion
- * POST   /api/motions          — admin/mod: create a motion
+ * POST   /api/motions          — authenticated: create a motion
  * PUT    /api/motions/:id      — admin/mod: update a motion
  * DELETE /api/motions/:id      — admin/mod/speaker: delete a motion
  */
@@ -3786,7 +3813,7 @@ app.get("/api/motions/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/motions", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const { motion_type = "house", ...motion } = req.body || {};
     if (!motion.id) {
       return res.status(400).json({ error: "Body must be a motion object with an id" });
@@ -3851,7 +3878,7 @@ app.delete("/api/motions/:id", crudWriteLimit, async (req, res) => {
  * STATEMENTS
  * GET    /api/statements          — authenticated: list all statements
  * GET    /api/statements/:id      — authenticated: get one statement
- * POST   /api/statements          — admin: create a statement
+ * POST   /api/statements          — authenticated: create a statement
  * PUT    /api/statements/:id      — admin/mod: update a statement
  * DELETE /api/statements/:id      — admin/mod/speaker: delete a statement
  */
@@ -3883,7 +3910,7 @@ app.get("/api/statements/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/statements", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const stmt = req.body;
     if (!stmt || typeof stmt !== "object" || !stmt.id) {
       return res.status(400).json({ error: "Body must be a statement object with an id" });
@@ -3942,7 +3969,7 @@ app.delete("/api/statements/:id", crudWriteLimit, async (req, res) => {
  * REGULATIONS
  * GET    /api/regulations          — authenticated: list all regulations
  * GET    /api/regulations/:id      — authenticated: get one regulation
- * POST   /api/regulations          — admin: create a regulation
+ * POST   /api/regulations          — authenticated: create a regulation
  * PUT    /api/regulations/:id      — admin: update a regulation
  * DELETE /api/regulations/:id      — admin/mod/speaker: delete a regulation
  */
@@ -3974,7 +4001,7 @@ app.get("/api/regulations/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/regulations", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const reg = req.body;
     if (!reg || typeof reg !== "object" || !reg.id) {
       return res.status(400).json({ error: "Body must be a regulation object with an id" });
@@ -4033,7 +4060,7 @@ app.delete("/api/regulations/:id", crudWriteLimit, async (req, res) => {
  * QUESTION TIME QUESTIONS
  * GET    /api/questiontime-questions          — authenticated: list all questions
  * GET    /api/questiontime-questions/:id      — authenticated: get one question
- * POST   /api/questiontime-questions          — admin: create a question
+ * POST   /api/questiontime-questions          — authenticated: create a question
  * PUT    /api/questiontime-questions/:id      — admin: update a question
  * DELETE /api/questiontime-questions/:id      — admin: delete a question
  */
@@ -4067,7 +4094,7 @@ app.get("/api/questiontime-questions/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/questiontime-questions", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const q = req.body;
     if (!q || typeof q !== "object" || !q.id) {
       return res.status(400).json({ error: "Body must be a question object with an id" });
@@ -4296,13 +4323,14 @@ app.get("/api/press/:id", pressReadLimit, async (req, res) => {
 
 app.post("/api/press", pressWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const { press_type = "release", ...item } = req.body || {};
     if (!item.id) {
       return res.status(400).json({ error: "Body must have an id field" });
     }
-    if (press_type !== "release" && press_type !== "conference") {
-      return res.status(400).json({ error: "press_type must be 'release' or 'conference'" });
+    const VALID_PRESS_TYPES = new Set(["release", "conference", "speech", "comment", "letter"]);
+    if (!VALID_PRESS_TYPES.has(press_type)) {
+      return res.status(400).json({ error: "press_type must be 'release', 'conference', 'speech', 'comment', or 'letter'" });
     }
     const { rows: clk } = await pool.query(
       "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
@@ -9708,6 +9736,129 @@ app.post("/api/admin/salary-scales/uprate", financeLimit, async (req, res) => {
     console.error("[POST /api/admin/salary-scales/uprate]", e);
     res.status(500).json({ error: "Server error" });
   }
+});
+
+// ── RED LION ──────────────────────────────────────────────────────────────────
+app.get("/api/redlion", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT id, data, created_at FROM red_lion_posts ORDER BY created_at ASC");
+    res.json({ posts: rows.map((r) => ({ ...r.data, _createdAt: r.created_at })) });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/redlion", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const post = req.body;
+    if (!post?.id) return res.status(400).json({ error: "id required" });
+    await pool.query(
+      `INSERT INTO red_lion_posts (id, data) VALUES ($1, $2::jsonb) ON CONFLICT (id) DO NOTHING`,
+      [post.id, JSON.stringify(post)]
+    );
+    res.status(201).json({ ok: true, id: post.id });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/redlion/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    await pool.query("DELETE FROM red_lion_posts WHERE id = $1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── EVENTS ────────────────────────────────────────────────────────────────────
+app.get("/api/events", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT id, data, created_at FROM game_events ORDER BY created_at ASC");
+    res.json({ events: rows.map((r) => ({ ...r.data, _createdAt: r.created_at })) });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/events", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const event = req.body;
+    if (!event?.id) return res.status(400).json({ error: "id required" });
+    await pool.query(
+      `INSERT INTO game_events (id, data) VALUES ($1, $2::jsonb) ON CONFLICT (id) DO NOTHING`,
+      [event.id, JSON.stringify(event)]
+    );
+    res.status(201).json({ ok: true, id: event.id });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/api/events/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const event = req.body;
+    await pool.query(
+      `UPDATE game_events SET data = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify(event), req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── ONLINE POSTS ──────────────────────────────────────────────────────────────
+app.get("/api/online", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const type = req.query.type;
+    const { rows } = type
+      ? await pool.query("SELECT id, post_type, data, created_at FROM online_posts WHERE post_type = $1 ORDER BY created_at ASC", [type])
+      : await pool.query("SELECT id, post_type, data, created_at FROM online_posts ORDER BY created_at ASC");
+    res.json({ posts: rows.map((r) => ({ ...r.data, _post_type: r.post_type, _createdAt: r.created_at })) });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/online", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { post_type = "web", ...post } = req.body || {};
+    if (!post?.id) return res.status(400).json({ error: "id required" });
+    await pool.query(
+      `INSERT INTO online_posts (id, post_type, data) VALUES ($1, $2, $3::jsonb) ON CONFLICT (id) DO NOTHING`,
+      [post.id, post_type, JSON.stringify(post)]
+    );
+    res.status(201).json({ ok: true, id: post.id });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── FUNDRAISING ───────────────────────────────────────────────────────────────
+app.get("/api/fundraising", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT id, data, created_at FROM fundraising_items ORDER BY created_at ASC");
+    res.json({ items: rows.map((r) => ({ ...r.data, _createdAt: r.created_at })) });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/fundraising", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const item = req.body;
+    if (!item?.id) return res.status(400).json({ error: "id required" });
+    await pool.query(
+      `INSERT INTO fundraising_items (id, data) VALUES ($1, $2::jsonb) ON CONFLICT (id) DO NOTHING`,
+      [item.id, JSON.stringify(item)]
+    );
+    res.status(201).json({ ok: true, id: item.id });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/api/fundraising/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const item = req.body;
+    await pool.query(
+      `UPDATE fundraising_items SET data = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify(item), req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
 });
 
 

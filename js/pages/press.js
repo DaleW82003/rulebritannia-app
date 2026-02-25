@@ -2,6 +2,7 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, getWeekdayName, isSunday } from "../clock.js";
+import { apiCreatePressItem, apiGetPressItems } from "../api.js";
 
 const PARTY_CODES = {
   Conservative: "CON",
@@ -492,7 +493,7 @@ function render(data, state) {
     });
   });
 
-  section.querySelector("#release-form")?.addEventListener("submit", (e) => {
+  section.querySelector("#release-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const subject = String(fd.get("subject") || "").trim();
@@ -500,7 +501,7 @@ function render(data, state) {
     if (!subject || !body) return;
     const prefix = makePrefix(char, "PR");
     const serial = nextSerial(data, "PR", prefix);
-    data.press.releases.push({
+    const item = {
       id: `press-${Date.now()}-${data.press.nextId++}`,
       reference: `${prefix} PR ${serial}`,
       subject,
@@ -509,7 +510,17 @@ function render(data, state) {
       createdAtSim: now,
       score: null,
       impact: []
-    });
+    };
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreatePressItem({ press_type: "release", ...item });
+    } catch (err) {
+      console.error(err);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+    data.press.releases.push(item);
     saveState(data);
     render(data, state);
   });
@@ -534,7 +545,7 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelector("#conference-form")?.addEventListener("submit", (e) => {
+  section.querySelector("#conference-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const subject = String(fd.get("subject") || "").trim();
@@ -543,7 +554,7 @@ function render(data, state) {
     const prefix = makePrefix(char, "PC");
     const serial = nextSerial(data, "PC", prefix);
     const id = `press-${Date.now()}-${data.press.nextId++}`;
-    data.press.conferences.push({
+    const item = {
       id,
       reference: `${prefix} PC ${serial}`,
       subject,
@@ -556,7 +567,17 @@ function render(data, state) {
       transcript: [],
       score: null,
       impact: []
-    });
+    };
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreatePressItem({ press_type: "conference", ...item });
+    } catch (err) {
+      console.error(err);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+    data.press.conferences.push(item);
     saveState(data);
     render(data, state);
   });
@@ -633,18 +654,28 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelector("#comment-form")?.addEventListener("submit", (e) => {
+  section.querySelector("#comment-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const body = String(fd.get("body") || "").trim();
     if (!body) return;
-    data.press.comments.push({
+    const item = {
       id: `press-${Date.now()}-${data.press.nextId++}`,
       author: char?.name || "MP",
       avatar: findCharacterAvatar(data, char?.name || "MP", char?.avatar || ""),
       body,
       createdAtSim: now
-    });
+    };
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreatePressItem({ press_type: "comment", ...item });
+    } catch (err) {
+      console.error(err);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+    data.press.comments.push(item);
     saveState(data);
     render(data, state);
   });
@@ -673,7 +704,7 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelector("#speech-form")?.addEventListener("submit", (e) => {
+  section.querySelector("#speech-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
@@ -684,7 +715,7 @@ function render(data, state) {
     if (!title || !audience || !topOfSpeech || !body) return;
     const prefix = makePrefix(char, "SP");
     const serial = nextSerial(data, "SP", prefix);
-    data.press.speeches.push({
+    const item = {
       id: `press-${Date.now()}-${data.press.nextId++}`,
       reference: `${prefix} SP ${serial}`,
       title,
@@ -698,7 +729,17 @@ function render(data, state) {
       score: null,
       impact: [],
       is_marked: false
-    });
+    };
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreatePressItem({ press_type: "speech", ...item });
+    } catch (err) {
+      console.error(err);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+    data.press.speeches.push(item);
     saveState(data);
     render(data, state);
   });
@@ -731,7 +772,7 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelector("#letter-form")?.addEventListener("submit", (e) => {
+  section.querySelector("#letter-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const officeKey = String(fd.get("officeKey") || "").trim();
@@ -758,7 +799,7 @@ function render(data, state) {
     const prefix = isNpc ? (NPC_OFFICE_PREFIXES[officeKey] || officeKey.toUpperCase().slice(0, 3)) : makePrefix(char, "LTR");
     const serial = nextSerial(data, "LTR", prefix);
     const autoRef = `${prefix}-LTR-${serial}`;
-    data.press.letters.push({
+    const item = {
       id: `press-${Date.now()}-${data.press.nextId++}`,
       reference: refCode || autoRef,
       officeKey,
@@ -771,7 +812,17 @@ function render(data, state) {
       score: null,
       impact: [],
       is_marked: false
-    });
+    };
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreatePressItem({ press_type: "letter", ...item });
+    } catch (err) {
+      console.error(err);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+    data.press.letters.push(item);
     saveState(data);
     render(data, state);
   });
@@ -805,8 +856,22 @@ function render(data, state) {
   }));
 }
 
-export function initPressPage(data) {
+export async function initPressPage(data) {
   ensurePress(data);
+
+  try {
+    const r = await apiGetPressItems();
+    const byType = { release: "releases", conference: "conferences", comment: "comments", speech: "speeches", letter: "letters" };
+    for (const item of (r?.items ?? [])) {
+      const key = byType[item._pressType || item.press_type] || "releases";
+      data.press[key] ??= [];
+      const seen = new Set(data.press[key].map((x) => String(x.id)));
+      if (!seen.has(String(item.id))) data.press[key].push(item);
+    }
+  } catch (err) {
+    console.error("[press] DB load failed:", err);
+  }
+
   const params = new URLSearchParams(window.location.search);
   const requested = params.get("view") || "releases";
   const validViews = ["releases", "conferences", "comments", "speeches", "letters"];

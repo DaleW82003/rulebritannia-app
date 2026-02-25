@@ -3,6 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
+import { apiCreateFundraisingItem, apiGetFundraisingItems } from "../api.js";
 
 const FUNDRAISERS = [
   {
@@ -200,13 +201,13 @@ function render(data, state) {
               <div>${status}</div>
             </div>
             <div class="tile-bottom">
-              <button class="btn" type="button" data-action="open" data-id="${esc(String(item.id))}">${state.openId === item.id ? "Close" : "Open"}</button>
+              <button class="btn" type="button" data-action="open" data-id="${esc(String(item.id))}">${String(state.openId) === String(item.id) ? "Close" : "Open"}</button>
               ${mod && item.status === "pending" ? `
                 <button class="btn" type="button" data-action="approve" data-id="${esc(String(item.id))}">Approve + Allocate Revenue</button>
                 <button class="btn danger" type="button" data-action="cancel" data-id="${esc(String(item.id))}">Refuse</button>
               ` : ""}
             </div>
-            ${state.openId === item.id ? `
+            ${String(state.openId) === String(item.id) ? `
               <div style="margin-top:8px;">
                 <div><b>Type:</b> ${esc(spec.title)}</div>
                 <div><b>Location:</b> ${esc(item.location)}</div>
@@ -254,7 +255,7 @@ function render(data, state) {
     render(data, state);
   });
 
-  root.querySelector("#fr-host-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#fr-host-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const type = state.formType || FUNDRAISERS[0].key;
@@ -266,8 +267,8 @@ function render(data, state) {
     const speech = String(fd.get("speech") || "").trim();
     if (!location || !speech) return;
 
-    data.fundraising.items.push({
-      id: data.fundraising.nextId++,
+    const item = {
+      id: `fr-${Date.now()}`,
       type,
       scope: spec.scope,
       party: char?.party || "",
@@ -283,8 +284,19 @@ function render(data, state) {
       netRevenue: null,
       createdAt: new Date().toLocaleString("en-GB"),
       createdTs: Date.now()
-    });
+    };
 
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreateFundraisingItem(item);
+    } catch (err) {
+      console.error(err);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+
+    data.fundraising.items.push(item);
     state.showForm = false;
     saveState(data);
     toastSuccess(`${spec.title} submitted for approval.`);
@@ -293,7 +305,7 @@ function render(data, state) {
 
   root.querySelectorAll("[data-action='open']").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = Number(btn.getAttribute("data-id") || 0);
+      const id = String(btn.getAttribute("data-id") || "");
       state.openId = state.openId === id ? null : id;
       render(data, state);
     });
@@ -302,8 +314,8 @@ function render(data, state) {
   root.querySelectorAll("[data-action='cancel']").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (!mod) return;
-      const id = Number(btn.getAttribute("data-id") || 0);
-      const item = data.fundraising.items.find((x) => x.id === id);
+      const id = String(btn.getAttribute("data-id") || "");
+      const item = data.fundraising.items.find((x) => String(x.id) === id);
       if (!item) return;
       item.status = "cancelled";
       saveState(data);
@@ -315,8 +327,8 @@ function render(data, state) {
     form.addEventListener("submit", (e) => {
       e.preventDefault();
       if (!mod) return;
-      const id = Number(form.getAttribute("data-id") || 0);
-      const item = data.fundraising.items.find((x) => x.id === id);
+      const id = String(form.getAttribute("data-id") || "");
+      const item = data.fundraising.items.find((x) => String(x.id) === id);
       if (!item || item.status !== "pending") return;
       const spec = byKey(item.type);
       const fd = new FormData(form);
@@ -350,14 +362,25 @@ function render(data, state) {
 
   root.querySelectorAll("[data-action='approve']").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = Number(btn.getAttribute("data-id") || 0);
+      const id = String(btn.getAttribute("data-id") || "");
       state.openId = id;
       render(data, state);
     });
   });
 }
 
-export function initFundraisingPage(data) {
+export async function initFundraisingPage(data) {
   ensureFundraising(data);
+  try {
+    const r = await apiGetFundraisingItems();
+    if (r?.items?.length) {
+      const seen = new Set(data.fundraising.items.map((x) => String(x.id)));
+      for (const item of r.items) {
+        if (!seen.has(String(item.id))) data.fundraising.items.push(item);
+      }
+    }
+  } catch (err) {
+    console.error("[fundraising] DB load failed:", err);
+  }
   render(data, { showForm: false, formType: FUNDRAISERS[0].key, openId: null });
 }

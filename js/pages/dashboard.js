@@ -3,6 +3,8 @@ import { esc } from "../ui.js";
 import { nowMs, saveState } from "../core.js";
 import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
+import { apiGetBills } from "../api.js";
+import { apiGetMotions, apiGetStatements, apiGetRegulations, apiGetPressItems, apiGetEvents } from "../api.js";
 
 // js/pages/dashboard.js
 // Dashboard (Your Office) — Chunk 1 implementation
@@ -384,7 +386,61 @@ function renderOrderPaper(data) {
   `;
 }
 
-export function initDashboardPage(data) {
+export async function initDashboardPage(data) {
+  // Helper: merge DB items into a state array (deduplicates by id)
+  function mergeInto(arr, dbItems) {
+    if (!Array.isArray(dbItems) || !dbItems.length) return;
+    const seen = new Set(arr.map((x) => String(x.id)));
+    for (const item of dbItems) {
+      if (!seen.has(String(item.id))) arr.push(item);
+    }
+  }
+
+  await Promise.allSettled([
+    // Bills → order paper + live docket
+    apiGetBills().then((r) => {
+      data.orderPaperCommons ??= [];
+      mergeInto(data.orderPaperCommons, r?.bills);
+    }),
+    // Motions → live docket
+    apiGetMotions().then((r) => {
+      data.motions ??= { house: [], edm: [], nextHouseNumber: 1, nextEdmNumber: 1 };
+      data.motions.house ??= [];
+      data.motions.edm ??= [];
+      const all = r?.motions ?? [];
+      mergeInto(data.motions.house, all.filter((m) => (m._motionType || m.motion_type) === "house"));
+      mergeInto(data.motions.edm,   all.filter((m) => (m._motionType || m.motion_type) === "edm"));
+    }),
+    // Statements → live docket
+    apiGetStatements().then((r) => {
+      data.statements ??= { items: [] };
+      data.statements.items ??= [];
+      mergeInto(data.statements.items, r?.statements);
+    }),
+    // Regulations → live docket
+    apiGetRegulations().then((r) => {
+      data.regulations ??= { items: [] };
+      data.regulations.items ??= [];
+      mergeInto(data.regulations.items, r?.regulations);
+    }),
+    // Press items → live docket (conferences, comments, speeches, letters)
+    apiGetPressItems().then((r) => {
+      data.press ??= { releases: [], conferences: [], comments: [], speeches: [], letters: [] };
+      const byType = { release: "releases", conference: "conferences", comment: "comments", speech: "speeches", letter: "letters" };
+      for (const item of (r?.items ?? [])) {
+        const key = byType[item._pressType] || "releases";
+        data.press[key] ??= [];
+        mergeInto(data.press[key], [item]);
+      }
+    }),
+    // Events → live docket
+    apiGetEvents().then((r) => {
+      data.events ??= { items: [] };
+      data.events.items ??= [];
+      mergeInto(data.events.items, r?.events);
+    }),
+  ]);
+
   const sections = [
     { id: "whats-going-on", fn: renderWhatsGoingOn, label: "What's Going On" },
     { id: "live-docket",    fn: renderLiveDocket,   label: "Live Docket" },

@@ -9,6 +9,7 @@ import {
   apiGetDivisionForEntity, apiCreateDivision, apiCastVote, apiCloseDivision,
   apiGetPartyInstruction, apiSetPartyInstruction,
   apiGetRebelRequest, apiSubmitRebelRequest,
+  apiGetMotion,
 } from "../api.js";
 
 const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line whip"];
@@ -386,13 +387,37 @@ export async function initMotionPage(data) {
   ensureMotions(data);
 
   const { kind, id } = getParams();
-  const item = getMotion(data, kind, id);
+  let item = getMotion(data, kind, id);
+
+  // If not found in local state (e.g. newly created by another user or race condition),
+  // try fetching directly from the DB via the API.
+  if (!item && id) {
+    try {
+      const result = await apiGetMotion(id);
+      if (result?.motion) {
+        item = result.motion;
+        // Merge into local state so subsequent lookups work.
+        const motionKind = item.motion_type || item._motionType || kind;
+        if (motionKind === "edm") {
+          data.motions.edm.push(item);
+        } else {
+          data.motions.house.push(item);
+        }
+      }
+    } catch (err) {
+      console.error("[motion] API fallback failed:", err);
+    }
+  }
+
   if (!item) {
     root.innerHTML = `<div class="muted-block">Motion/EDM not found.</div>`;
     return;
   }
 
-  if (kind === "edm") {
+  // Determine kind from item if it came from the API (may carry _motionType).
+  const resolvedKind = item.motion_type || item._motionType || kind;
+
+  if (resolvedKind === "edm") {
     renderEdm(root, data, item);
     return;
   }

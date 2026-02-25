@@ -1,7 +1,7 @@
 import { saveState } from "../core.js";
 import { getSimDate, createDeadline } from "../clock.js";
 import { esc } from "../ui.js";
-import { apiCreateDebateTopic } from "../api.js";
+import { apiCreateDebateTopic, apiCreateBill } from "../api.js";
 import { tileSection } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
@@ -290,7 +290,7 @@ export function initSubmitBillPage(data) {
   paintArticles();
   countInput.addEventListener("input", paintArticles);
 
-  form.addEventListener("submit", (ev) => {
+  form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const typeChoice = (typeRoot.querySelector('input[name="billTypeChoice"]:checked') || {}).value || "pmb";
     const articleCount = Math.max(1, Math.min(20, Number(countInput.value || 1)));
@@ -356,6 +356,18 @@ export function initSubmitBillPage(data) {
       debate: { topicId: null, topicUrl: null, opensAtSim: null, closesAtSim: null }
     };
 
+    const submitBtn = form.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
+      await apiCreateBill(bill);
+    } catch (err) {
+      console.error("[submit-bill] Failed to persist bill to DB:", err);
+      handleApiError(err, "Submit bill");
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+
     data.orderPaperCommons ??= [];
     data.orderPaperCommons.unshift(bill);
 
@@ -380,6 +392,7 @@ export function initSubmitBillPage(data) {
 
     toastSuccess(`Bill submitted: ${title} (${stage}).`);
     if (success) success.style.display = "none";
+    if (submitBtn) submitBtn.disabled = false;
     form.reset();
     countInput.value = 3;
     paintArticles();
