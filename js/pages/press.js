@@ -2,7 +2,7 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, getWeekdayName, isSunday } from "../clock.js";
-import { apiCreatePressItem, apiGetPressItems } from "../api.js";
+import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry } from "../api.js";
 
 const PARTY_CODES = {
   Conservative: "CON",
@@ -618,25 +618,46 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelectorAll("form[data-action='answer']").forEach((f) => f.addEventListener("submit", (e) => {
+  section.querySelectorAll("form[data-action='answer']").forEach((f) => f.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = e.currentTarget.getAttribute("data-id");
     const conf = data.press.conferences.find((c) => c.id === id);
     if (!conf || conf.status === "closed" || conf.author !== char?.name) return;
     const text = String(new FormData(e.currentTarget).get("text") || "").trim();
     if (!text) return;
-    conf.transcript.push({ from: conf.author, text });
-    saveState(data);
+    const submitBtn = e.currentTarget.querySelector("button[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    const entry = { from: conf.author, text };
+    conf.transcript.push(entry);
+    try {
+      await apiAddPressTranscriptEntry(id, entry);
+      saveState(data);
+    } catch (err) {
+      console.error("[press] conference answer persist failed:", err);
+      conf.transcript.pop(); // revert
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
     render(data, state);
   }));
 
-  section.querySelectorAll("[data-action='walk-off']").forEach((btn) => btn.addEventListener("click", () => {
+  section.querySelectorAll("[data-action='walk-off']").forEach((btn) => btn.addEventListener("click", async () => {
     const id = btn.getAttribute("data-id");
     const conf = data.press.conferences.find((c) => c.id === id);
     if (!conf || conf.author !== char?.name || conf.status === "closed") return;
-    conf.transcript.push({ from: conf.author, text: "[Walked off without answering further questions.]" });
+    btn.disabled = true;
+    const entry = { from: conf.author, text: "[Walked off without answering further questions.]", walkOff: true };
+    conf.transcript.push(entry);
     conf.status = "closed";
-    saveState(data);
+    try {
+      await apiAddPressTranscriptEntry(id, { ...entry });
+      saveState(data);
+    } catch (err) {
+      console.error("[press] walk-off persist failed:", err);
+      conf.transcript.pop(); // revert
+      conf.status = "open";
+      btn.disabled = false;
+    }
     render(data, state);
   }));
 

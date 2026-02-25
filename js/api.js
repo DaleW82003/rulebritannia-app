@@ -1029,6 +1029,18 @@ export async function apiAnswerQtQuestion(id, payload) {
   return res.json();
 }
 
+export async function apiSubmitQtFollowup(id, payload) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(id)}/followup`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSubmitQtFollowup failed (${res.status})`);
+  return body;
+}
+
 export async function apiFollowupQtQuestion(id, payload) {
   const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(id)}/followup`, {
     method: "POST",
@@ -1171,6 +1183,18 @@ export async function apiDeletePressItem(id) {
   });
   if (!res.ok) throw new Error(`apiDeletePressItem failed (${res.status})`);
   return res.json();
+}
+
+export async function apiAddPressTranscriptEntry(id, entry) {
+  const res = await fetch(`${API_BASE}/api/press/${encodeURIComponent(id)}/transcript`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ entry }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAddPressTranscriptEntry failed (${res.status})`);
+  return body;
 }
 
 // ── Polling entries ────────────────────────────────────────────────────────
@@ -1980,6 +2004,26 @@ export async function apiUpdateEvent(id, event) {
   });
   if (!res.ok) throw new Error(`apiUpdateEvent failed (${res.status})`);
   return res.json();
+}
+
+// ── Character work plan ──────────────────────────────────────────────────────
+
+export async function apiGetMyWorkPlan() {
+  const res = await fetch(`${API_BASE}/api/me/work-plan`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyWorkPlan failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSaveMyWorkPlan(plan) {
+  const res = await fetch(`${API_BASE}/api/me/work-plan`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(plan),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSaveMyWorkPlan failed (${res.status})`);
+  return body;
 }
 
 // ── Online posts ─────────────────────────────────────────────────────────────

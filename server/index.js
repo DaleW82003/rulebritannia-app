@@ -1443,6 +1443,17 @@ async function ensureSchema() {
 
   // ── Party drafts column (party bill drafts, admin/chairman only) ──────────
   await pool.query(`ALTER TABLE parties ADD COLUMN IF NOT EXISTS drafts JSONB NOT NULL DEFAULT '[]'::jsonb`);
+
+  // ── Character work plans (constituency work allocation per character) ──────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS character_work_plans (
+      character_id          UUID         PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+      hours                 JSONB        NOT NULL DEFAULT '{}',
+      second_job_title_company TEXT      NOT NULL DEFAULT '',
+      last_saved_sim_index  INTEGER      NOT NULL DEFAULT 0,
+      updated_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )
+  `);
 }
 
 // ── 1997 baseline salary scale (idempotent) ────────────────────────────────
@@ -4568,6 +4579,57 @@ app.delete("/api/press/:id", pressWriteLimit, async (req, res) => {
   }
 });
 
+// PATCH /api/press/:id/transcript — player appends to their own press conference transcript
+// Allows the conference author to add an answer entry or walk-off entry
+app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { entry } = req.body || {};
+    if (!entry || typeof entry !== "object" || typeof entry.text !== "string") {
+      return res.status(400).json({ error: "entry.text required" });
+    }
+
+    const { rows } = await pool.query("SELECT data FROM press_items WHERE id = $1", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Press item not found" });
+    const item = rows[0].data;
+
+    // Only the conference author may append transcript entries
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isStaff) {
+      if (!req.session.characterId) return res.status(403).json({ error: "No active character" });
+      // Verify the character belongs to the session and authored the conference
+      const { rows: charRows } = await pool.query(
+        "SELECT name FROM characters WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
+        [req.session.characterId, req.session.userId]
+      );
+      if (!charRows.length) return res.status(403).json({ error: "Forbidden" });
+      if (item.author !== charRows[0].name) return res.status(403).json({ error: "Only the conference author may add transcript entries" });
+    }
+
+    if (item.status === "closed") return res.status(409).json({ error: "Conference is closed" });
+
+    const safeEntry = {
+      from:      typeof entry.from === "string" ? entry.from.slice(0, 200) : "Character",
+      text:      entry.text.slice(0, 2000),
+      createdAt: new Date().toISOString(),
+    };
+    if (!item.transcript) item.transcript = [];
+    item.transcript.push(safeEntry);
+
+    if (entry.walkOff) item.status = "closed";
+
+    const { rows: updated } = await pool.query(
+      "UPDATE press_items SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at",
+      [JSON.stringify(item), req.params.id]
+    );
+    res.json({ ok: true, id: updated[0].id, updatedAt: updated[0].updated_at });
+  } catch (e) {
+    console.error("[PATCH /api/press/:id/transcript]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 /**
  * POLLING ENTRIES
  * GET    /api/polling            — public: list polling entries
@@ -7383,6 +7445,78 @@ app.post("/api/parties/:partyId/drafts", partyWriteLimit, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/parties/:partyId/drafts]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Character work plan (constituency work allocation) ────────────────────────
+const cwpReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const cwpWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
+
+// GET /api/me/work-plan — return active character's work plan
+app.get("/api/me/work-plan", cwpReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows: charRows } = await pool.query(
+      `SELECT c.id FROM characters c
+        WHERE c.user_id = $1 AND c.is_active = TRUE
+        ORDER BY (c.id = (SELECT active_character_id FROM users WHERE id = $1)) DESC, c.created_at DESC
+        LIMIT 1`,
+      [req.session.userId]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "No active character" });
+    const charId = charRows[0].id;
+
+    const { rows } = await pool.query(
+      "SELECT hours, second_job_title_company, last_saved_sim_index, updated_at FROM character_work_plans WHERE character_id = $1",
+      [charId]
+    );
+    if (!rows.length) return res.json({ workPlan: null });
+    res.json({
+      workPlan: {
+        hours:                   rows[0].hours || {},
+        secondJobTitleCompany:   rows[0].second_job_title_company || "",
+        lastSavedSimIndex:       rows[0].last_saved_sim_index,
+        updatedAt:               rows[0].updated_at,
+      },
+    });
+  } catch (e) {
+    console.error("[GET /api/me/work-plan]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/me/work-plan — upsert active character's work plan
+app.post("/api/me/work-plan", cwpWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows: charRows } = await pool.query(
+      `SELECT c.id FROM characters c
+        WHERE c.user_id = $1 AND c.is_active = TRUE
+        ORDER BY (c.id = (SELECT active_character_id FROM users WHERE id = $1)) DESC, c.created_at DESC
+        LIMIT 1`,
+      [req.session.userId]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "No active character" });
+    const charId = charRows[0].id;
+
+    const { hours, secondJobTitleCompany = "", lastSavedSimIndex = 0 } = req.body || {};
+    if (!hours || typeof hours !== "object") return res.status(400).json({ error: "hours object required" });
+
+    await pool.query(
+      `INSERT INTO character_work_plans (character_id, hours, second_job_title_company, last_saved_sim_index, updated_at)
+       VALUES ($1, $2::jsonb, $3, $4, NOW())
+       ON CONFLICT (character_id) DO UPDATE
+         SET hours                    = EXCLUDED.hours,
+             second_job_title_company = EXCLUDED.second_job_title_company,
+             last_saved_sim_index     = EXCLUDED.last_saved_sim_index,
+             updated_at               = NOW()`,
+      [charId, JSON.stringify(hours), String(secondJobTitleCompany).slice(0, 200), Number(lastSavedSimIndex) || 0]
+    );
+    await writeAuditLog(req.session.userId, "work_plan.save", "character_work_plans", charId, null, { lastSavedSimIndex });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/me/work-plan]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
