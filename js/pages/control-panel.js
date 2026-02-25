@@ -6,7 +6,7 @@ import {
   apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange,
   apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange,
   apiGetCharacterApplications, apiApproveCharacterApplication, apiRejectCharacterApplication,
-  apiGetCharacters, apiAdminSetCharacterInactive,
+  apiGetCharacters, apiAdminSetCharacterInactive, apiAdminRepairCharacterOwners,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -152,6 +152,21 @@ export async function initControlPanelPage(data) {
         `).join("") || `<div class="muted-block">No active characters in the database.</div>`}
       </div>
     </details>
+
+    <details class="tile" style="margin-bottom:10px;">
+      <summary style="cursor:pointer;"><b>Repair Character Owner Pointers <span class="mod-badge">Mod / Admin</span></b></summary>
+      <div style="margin-top:10px;">
+        <p class="muted" style="margin:0 0 8px;">
+          Reconciles characters whose <code>user_id</code> is missing or incorrect by matching
+          them to their approved applications. Also clears stale session pointers.
+          Safe to run multiple times.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="btn" type="button" id="cp-btn-repair-char-owners">Run Repair</button>
+          <span id="cp-repair-char-owners-status" style="font-size:13px;"></span>
+        </div>
+      </div>
+    </details>
     ` : ""}
   `;
 
@@ -178,6 +193,31 @@ export async function initControlPanelPage(data) {
       }
     });
   });
+
+  // Repair character owner pointers
+  const repairBtn = rolePanels.querySelector("#cp-btn-repair-char-owners");
+  const repairStatus = rolePanels.querySelector("#cp-repair-char-owners-status");
+  if (repairBtn) {
+    repairBtn.addEventListener("click", async () => {
+      if (!canEdit) return;
+      repairBtn.disabled = true;
+      repairBtn.textContent = "Running…";
+      if (repairStatus) repairStatus.textContent = "";
+      try {
+        const result = await apiAdminRepairCharacterOwners();
+        logAction({ action: "admin.repair.character-owner-pointers", details: { fixed_count: result.fixed_count, sessions_cleared: result.sessions_cleared } });
+        if (repairStatus) {
+          repairStatus.style.color = (result.fixed_count || result.sessions_cleared) ? "#1a7a1a" : "#555";
+          repairStatus.textContent = result.message || "Done.";
+        }
+      } catch (err) {
+        if (repairStatus) { repairStatus.style.color = "var(--danger,#c00)"; repairStatus.textContent = `Error: ${err.message}`; }
+      } finally {
+        repairBtn.disabled = false;
+        repairBtn.textContent = "Run Repair";
+      }
+    });
+  }
 
   // Pending character approval handlers
   rolePanels.querySelectorAll('[data-action="cp-approve-character"]').forEach((btn) => {
