@@ -30,7 +30,7 @@ export function initRegulationPage(data) {
   }
 
   root.innerHTML = `
-    <section class="tile" style="margin-bottom:12px;">
+    <section class="tile tile-form" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">${esc(item.department)} Regulation ${esc(item.regulationNumber)}: ${esc(item.shortTitle)}</h2>
       <p class="muted">By ${esc(item.author)} • Status: ${esc(item.status === "closed" ? "Debate Closed" : "Debate Open")}</p>
       <p class="muted">Laid: ${esc(item.laidAtSim || "—")} • In force: ${esc(item.comesIntoForce || "—")} • Debate closes: ${esc(item.debateClosesAtSim || "—")}${item.debateClosesAtSimObj && item.status !== "closed" ? ` (${countdownToSimMonth(item.debateClosesAtSimObj.month, item.debateClosesAtSimObj.year, data.gameState)})` : ""}</p>
@@ -47,18 +47,18 @@ export function initRegulationPage(data) {
     </section>
 
     ${speaker ? `
-      <section class="tile">
+      <section class="tile tile-form">
         <h3 style="margin-top:0;">Speaker Controls</h3>
         <form id="speaker-edit-form">
           <label class="label" for="reg-edit-title">Edit short title</label>
           <input id="reg-edit-title" class="input" name="title" value="${esc(item.shortTitle || "")}">
           <label class="label" for="reg-edit-body">Edit body</label>
           <textarea id="reg-edit-body" class="input" name="body" rows="6">${esc(item.body || "")}</textarea>
-          <button class="btn" type="submit">Save Edits</button>
+          <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn" type="submit">Save Edits</button>
+            <button class="btn danger" type="button" data-action="close-early" ${item.status === "closed" ? "disabled" : ""}>Close Debate Early</button>
+          </div>
         </form>
-        <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn danger" data-action="close-early" ${item.status === "closed" ? "disabled" : ""}>Close Debate Early</button>
-        </div>
       </section>
     ` : ""}
   `;

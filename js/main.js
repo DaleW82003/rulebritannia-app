@@ -45,6 +45,7 @@ import { initShadowCabinetPage } from "./pages/shadowcabinet.js";
 import { initPersonalPage } from "./pages/personal.js";
 import { initUserPage } from "./pages/user.js";
 import { initTeamPage } from "./pages/team.js";
+import { initProfilePage } from "./pages/profile.js";
 import { initRulesPage } from "./pages/rules.js";
 import { initGuidesPage } from "./pages/guides.js";
 import { initBillPage } from "./pages/bill.js";
@@ -162,6 +163,7 @@ function renderDataSourcePanel(sources) {
       personal: initPersonalPage,
       user: initUserPage,
       team: initTeamPage,
+      profile: initProfilePage,
       rules: initRulesPage,
       guides: initGuidesPage,
       bill: initBillPage,

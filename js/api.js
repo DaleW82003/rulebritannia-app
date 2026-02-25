@@ -1582,6 +1582,14 @@ export async function apiGetTeam() {
   return res.json();
 }
 
+// ── Public profile read-only ────────────────────────────────────────────────
+
+export async function apiGetPublicProfile(username) {
+  const res = await fetch(`${API_BASE}/api/profile?user=${encodeURIComponent(username)}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPublicProfile failed (${res.status})`);
+  return res.json();
+}
+
 // ── Admin: user management ─────────────────────────────────────────────────
 
 export async function apiAdminGetUsers() {

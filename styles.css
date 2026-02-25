@@ -116,6 +116,7 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
 
 /* Make cards consistently place buttons at bottom */
 .card-flex{ display:flex; flex-direction:column; min-height: 230px; }
+.tile-form{ display:flex; flex-direction:column; }
 .tile-bottom{ margin-top:auto; padding-top:14px; display:flex; gap:10px; flex-wrap:wrap; }
 
 /* =========================

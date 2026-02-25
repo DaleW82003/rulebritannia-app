@@ -196,12 +196,23 @@ function normalisePersonal(data) {
     profile.modifiers = computeModifiers(profile);
   }
 
-  // Sync bio from DB character record if available.
+  // Sync bio and display fields from DB character record if available.
   const dbChar = data?.currentCharacter;
   if (dbChar && dbChar.name === name) {
     const p = data.personal.profiles[name];
-    if (p && (dbChar.bio != null || dbChar.personal_background != null)) {
-      p.bio = String(dbChar.bio ?? dbChar.personal_background ?? p.bio ?? "");
+    if (p) {
+      if (dbChar.bio != null || dbChar.personal_background != null) {
+        p.bio = String(dbChar.bio ?? dbChar.personal_background ?? p.bio ?? "");
+      }
+      // Sync DB creation fields into the profile display (do not overwrite with empty string).
+      if (dbChar.dateOfBirth)      p.profile.dateOfBirth      = dbChar.dateOfBirth;
+      if (dbChar.education)        p.profile.education        = dbChar.education;
+      if (dbChar.careerBackground) p.profile.careerBackground = dbChar.careerBackground;
+      if (dbChar.family)           p.profile.family           = dbChar.family;
+      if (dbChar.constituency)     p.profile.constituency     = dbChar.constituency;
+      if (dbChar.party)            p.profile.party            = dbChar.party;
+      if (dbChar.yearFirstElected) p.profile.yearFirstElected = dbChar.yearFirstElected;
+      if (dbChar.avatar)           p.avatar                   = dbChar.avatar;
     }
   }
 
