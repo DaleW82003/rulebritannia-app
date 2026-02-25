@@ -269,6 +269,12 @@ function render(data, state) {
   const pendingByCurrent = dbMyApps.filter((a) => a.status === "pending");
   const delegationChoices = delegationChoicesForParty(data, char?.party, char?.name);
 
+  // Derive active character name from DB when state snapshot hasn't been updated yet.
+  // This covers the window after a mod approves an application before the auto-select
+  // in initUserPage has propagated (e.g. cached render, or viewing own page via state).
+  const dbActiveChar = !isViewingOther ? dbChars.find((c) => c.is_active) : null;
+  const displayActiveChar = account.activeCharacter || dbActiveChar?.name || "None";
+
   const HOME_TYPES = [
     "Studio Flat", "One-Bed Flat", "Two-Bed Flat", "Terraced House", "End-Terrace",
     "Semi-Detached House", "Detached Suburban House", "Townhouse",
@@ -300,7 +306,7 @@ function render(data, state) {
       <div class="tile">
         <div class="kv"><span>Username</span><b>${esc(account.username)}</b></div>
         <div class="kv"><span>Role Set</span><b>${esc(roleChips(account))}</b></div>
-        <div class="kv"><span>Active Character</span><b>${esc(account.activeCharacter || "None")}</b></div>
+        <div class="kv"><span>Active Character</span><b>${esc(displayActiveChar)}</b>${!account.activeCharacter && dbActiveChar && canAdminOrMod(data) ? `<span class="muted" style="font-size:.8em;margin-left:6px;">⚠️ DB active (state snapshot pending sync — will resolve on next full page load)</span>` : ""}</div>
         <div class="kv"><span>Active Party</span><b>${esc(isViewingOther ? (account.activeCharacter ? "-" : "-") : (char?.party || "-"))}</b></div>
         <div class="kv"><span>Status</span><b>${account.active ? "Active" : "Inactive"}</b></div>
         ${!isViewingOther && activeRoleBadgeHTML(data) ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">${activeRoleBadgeHTML(data)}</div>` : ""}
@@ -324,6 +330,13 @@ function render(data, state) {
         ${inactiveOwned.length ? `<div style="margin-top:8px;display:grid;gap:6px;">${inactiveOwned.map((c) => `<div class="tile" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><b>${esc(c.name)}</b> <span class="muted">(inactive)</span></div><button class="btn" type="button" data-action="reactivate-character" data-id="${esc(c.id)}" data-name="${esc(c.name)}">Re-Activate</button></div>`).join("")}</div>` : ""}
       </div>
 
+      ${(hasActiveOwned || pendingByCurrent.length > 0) ? `
+        <div class="tile muted-block" style="margin-bottom:10px;">
+          ${hasActiveOwned
+            ? `<b>Create Character</b> — You already have an active character (<b>${esc(dbActiveChar?.name || "")}</b>). You cannot apply for a new one while one is active.`
+            : `<b>Create Character</b> — Your character application is currently pending moderator review. You cannot submit another until it is resolved.`}
+        </div>
+      ` : `
       <details class="tile" style="margin-bottom:10px;">
         <summary><b>Create Character (Moderator approval required)</b></summary>
         <form id="create-character-form" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
@@ -423,6 +436,7 @@ function render(data, state) {
           <button class="btn" type="submit" style="grid-column:1/-1;">Submit Character for Approval</button>
         </form>
       </details>
+      `}
 
       <details class="tile">
         <summary><b>Absence & Delegation</b></summary>
@@ -673,6 +687,13 @@ function render(data, state) {
       }
       try {
         const { character } = await apiSelectCharacter(id);
+        if (character) {
+          data.currentCharacter = character;
+          const selfUsername = String(data?.currentUser?.username || "").trim();
+          const myAccount = (data.userManagement?.accounts || []).find((a) => a.username === selfUsername);
+          if (myAccount) myAccount.activeCharacter = character.name;
+          saveState(data);
+        }
         const { characters: myChars } = await apiGetMyCharacters();
         state.dbState = { ...state.dbState, myCharacters: myChars };
         state.message = `${character?.name || name} re-activated.`;
@@ -738,6 +759,34 @@ export async function initUserPage(data) {
     }
   } catch (e) {
     console.warn("[initUserPage] Constituency load failed:", e.message);
+  }
+
+  // Auto-select the DB-active character into the user's session and state when they
+  // diverge. This handles the post-approval flow: a mod/admin approves a character
+  // application, which creates the character in DB (is_active=TRUE, user_id set) but
+  // cannot update the applicant's session. On the applicant's next page load, we
+  // detect the mismatch and call /api/characters/select so session + state stay in sync.
+  // Only runs for the current user's own page (not when an admin views another user).
+  if (!viewingUsername) {
+    const activeDbChar = myCharacters.find((c) => c.is_active);
+    if (activeDbChar) {
+      const currentName = String(data.currentCharacter?.name || "").trim();
+      if (!currentName || currentName !== String(activeDbChar.name || "").trim()) {
+        try {
+          const { character } = await apiSelectCharacter(activeDbChar.id);
+          if (character) {
+            data.currentCharacter = character;
+            const selfUsername = String(data?.currentUser?.username || "").trim();
+            const myAccount = (data.userManagement?.accounts || []).find((a) => a.username === selfUsername);
+            if (myAccount) myAccount.activeCharacter = character.name;
+            saveState(data);
+          }
+        } catch (e) {
+          // Non-critical: character will still be visible in the DB list below.
+          console.warn("[initUserPage] Auto-select active character failed:", e.message);
+        }
+      }
+    }
   }
 
   const dbState = { myCharacters, myApplications, pendingApplications };
