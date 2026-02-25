@@ -102,8 +102,7 @@
   <!-- Empty-state callout (shown to admin/mod/speaker when no constituencies exist) -->
   <div id="constEmptyCallout" class="panel" style="display:none; margin-bottom:14px; border-left:4px solid var(--accent, #c00); padding:14px 18px;">
     <strong>No constituencies initialised.</strong>
-    To get started, open the <em>Parliament Control Panel</em> and click
-    <em>Load May 1997 constituencies</em>.
+    Constituencies are seeded automatically on world reset.
   </div>
 
   <section class="panel">
@@ -132,67 +131,36 @@
   <section class="panel" id="constituencyEditorPanel" style="display:none; margin-top:14px;">
     <h2>Parliament Control Panel</h2>
 
-    <h3>Parliament Setup</h3>
-    <div id="parliamentSetupForm" class="muted-block" style="margin-bottom:16px;">Loading…</div>
-
     <h3>Constituency Management</h3>
-    <div class="muted-block" style="margin-bottom:12px;">Add/edit/remove constituencies and assign MPs (Character/NPC). Constituencies with any MP are unavailable for character creation.</div>
-
-    <div class="tile-bottom" style="padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--line);">
-      <button class="btn primary" type="button" id="constituencyInit1997">Load May 1997 constituencies</button>
-      <span id="init1997Msg" class="muted" style="margin-left:8px;"></span>
-    </div>
+    <div class="muted-block" style="margin-bottom:12px;">Select a constituency from the list below to edit its party holding, MP, and record the reason for change.</div>
 
     <form id="constEditorForm" class="form-grid">
       <input id="constId" type="hidden">
 
-      <label for="constName">Constituency Name</label>
-      <input id="constName" type="text" maxlength="120" required>
-
-      <label for="constNation">Nation</label>
-      <select id="constNation" required>
-        <option value="England">England</option>
-        <option value="Scotland">Scotland</option>
-        <option value="Wales">Wales</option>
-        <option value="Northern Ireland">Northern Ireland</option>
-      </select>
-
-      <label for="constRegion">Region</label>
-      <input id="constRegion" type="text" maxlength="120" required>
+      <label for="constName">Constituency</label>
+      <input id="constName" type="text" readonly disabled style="background:var(--bg-2,#f4f4f4); color:var(--muted,#666);">
 
       <label for="constParty">Party Holding</label>
       <select id="constParty" required></select>
 
-      <label for="constMpType">MP Type</label>
-      <select id="constMpType">
-        <option value="">Available (no MP)</option>
-        <option value="character">Character</option>
-        <option value="npc">NPC</option>
-      </select>
-
-      <label for="constMpName">MP Name (character or NPC)</label>
+      <label for="constMpName">MP Name (optional)</label>
       <input id="constMpName" type="text" maxlength="120" placeholder="Leave blank if seat is open">
 
-      <label for="constChangeType">Change Type (for event log)</label>
-      <select id="constChangeType">
-        <option value="">— no event log —</option>
-        <option value="by-election">By-Election</option>
+      <label for="constChangeType">Reason for Change</label>
+      <select id="constChangeType" required>
+        <option value="">— select reason —</option>
+        <option value="by-election">By Election</option>
         <option value="defection">Defection</option>
-        <option value="correction">Correction</option>
-        <option value="admin_override">Admin Override</option>
+        <option value="whip-removal">Whip Removal</option>
       </select>
 
-      <label for="constEffectiveDate">Effective Date (optional)</label>
-      <input id="constEffectiveDate" type="date">
-
-      <label for="constNotes">Notes (optional)</label>
-      <input id="constNotes" type="text" maxlength="300" placeholder="Reason for change">
+      <label for="constEffectiveDate">Effective Date</label>
+      <input id="constEffectiveDate" type="date" required>
 
       <div></div>
       <div class="tile-bottom" style="padding-top:0; margin-top:0;">
-        <button class="btn primary" type="submit">Add Constituency</button>
-        <button class="btn" type="button" id="constEditorReset">Reset</button>
-        <button class="btn danger" type="button" id="clearAllConstituencies">Clear All Constituencies</button>
+        <button class="btn primary" type="submit" id="constEditorSubmit" disabled>Apply Change</button>
+        <button class="btn" type="button" id="constEditorReset">Cancel</button>
       </div>
     </form>
 

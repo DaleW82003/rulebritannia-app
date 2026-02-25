@@ -6210,6 +6210,9 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
       newSnapshotId,
     });
 
+    // Ensure baseline constituencies are present after reset (idempotent — skips if already seeded)
+    await seedConstituencies1997();
+
     res.json({
       ok: true,
       message: "Content wiped and sim reset to August 1997. User accounts are intact.",
