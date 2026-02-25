@@ -420,9 +420,12 @@ function bindEditor(constituencies, data) {
     const party = form.querySelector("#constParty").value;
     const mpType = form.querySelector("#constMpType").value;
     const mpName = form.querySelector("#constMpName").value.trim();
+    const changeType = form.querySelector("#constChangeType")?.value || "";
+    const effectiveDate = form.querySelector("#constEffectiveDate")?.value || "";
+    const notes = form.querySelector("#constNotes")?.value?.trim() || "";
     if (!name || !nation || !region || !party) return;
 
-    const payload = { name, nation, region, party, mpType, mpName };
+    const payload = { name, nation, region, party, mpType, mpName, changeType, effectiveDate, notes };
     try {
       if (id) {
         await apiUpdateConstituency(id, payload);

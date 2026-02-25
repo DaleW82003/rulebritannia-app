@@ -1297,3 +1297,85 @@ export async function apiClearConstituencies() {
   });
   return res.json();
 }
+
+// ── Elections (DB-backed) ─────────────────────────────────────────────────────
+
+export async function apiGetCanonicalParties() {
+  const res = await fetch(`${API_BASE}/api/parties/canonical`, { credentials: "include" });
+  return res.json();
+}
+
+export async function apiGetElectionSeatTotals() {
+  const res = await fetch(`${API_BASE}/api/elections/seat-totals`, { credentials: "include" });
+  return res.json();
+}
+
+export async function apiGetCurrentElection() {
+  const res = await fetch(`${API_BASE}/api/elections/current`, { credentials: "include" });
+  return res.json();
+}
+
+export async function apiGetElections() {
+  const res = await fetch(`${API_BASE}/api/elections`, { credentials: "include" });
+  return res.json();
+}
+
+export async function apiCreateElection(payload) {
+  const res = await fetch(`${API_BASE}/api/elections`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function apiUpdateElection(id, payload) {
+  const res = await fetch(`${API_BASE}/api/elections/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function apiGetElectionChanges(id) {
+  const res = await fetch(`${API_BASE}/api/elections/${encodeURIComponent(id)}/changes`, { credentials: "include" });
+  return res.json();
+}
+
+export async function apiSaveElectionChanges(id, payload) {
+  const res = await fetch(`${API_BASE}/api/elections/${encodeURIComponent(id)}/changes`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function apiFinalizeElection(id) {
+  const res = await fetch(`${API_BASE}/api/elections/${encodeURIComponent(id)}/finalize`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({}),
+  });
+  return res.json();
+}
+
+export async function apiSeedElection1997() {
+  const res = await fetch(`${API_BASE}/api/admin/elections/seed-1997`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({}),
+  });
+  return res.json();
+}
+
+export async function apiGetConstituencyEvents(id) {
+  const res = await fetch(`${API_BASE}/api/constituencies/${encodeURIComponent(id)}/events`, { credentials: "include" });
+  return res.json();
+}
