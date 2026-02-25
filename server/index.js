@@ -738,6 +738,41 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS characters_application_idx ON characters (application_id);
   `);
 
+  // Migration: add active_character_id to users (DB-canonical pointer to the user's active character)
+  await pool.query(`
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS active_character_id UUID
+        REFERENCES characters(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS users_active_character_idx ON users (active_character_id);
+  `);
+
+  // Migration: partial unique index enforcing one active character per user.
+  // First, resolve any existing duplicates by keeping only the newest active character per user.
+  await pool.query(`
+    DO $$
+    BEGIN
+      -- Deactivate extra active characters (keep only the newest per user)
+      UPDATE characters SET is_active = FALSE
+       WHERE id IN (
+         SELECT id FROM (
+           SELECT id,
+                  ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC) AS rn
+             FROM characters
+            WHERE is_active = TRUE AND user_id IS NOT NULL
+         ) ranked
+          WHERE rn > 1
+       );
+      -- Now safe to create the partial unique index
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes
+         WHERE tablename = 'characters' AND indexname = 'characters_one_active_per_user_idx'
+      ) THEN
+        CREATE UNIQUE INDEX characters_one_active_per_user_idx
+          ON characters (user_id) WHERE is_active = TRUE;
+      END IF;
+    END $$;
+  `);
+
   // ── Pending Bio Changes ────────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pending_bio_changes (
@@ -2013,16 +2048,26 @@ function addSimMonths(year, month, n) {
  * Returns null if none found.
  */
 async function getActiveCharacterId(req) {
+  // Prefer session cache if it still points to a valid active character owned by this user
   if (req.session.characterId) {
-    // Verify the session character is still active and owned by this user
     const { rows: check } = await pool.query(
       `SELECT id FROM characters WHERE id = $1 AND user_id = $2 AND is_active = true LIMIT 1`,
       [req.session.characterId, req.session.userId]
     );
     if (check.length) return check[0].id;
-    // Stale/invalid — clear from session so DB fallback is used going forward
+    // Stale/invalid — clear from session so DB canonical pointer is used going forward
     req.session.characterId = null;
   }
+  // DB canonical pointer: users.active_character_id
+  const { rows: ptr } = await pool.query(
+    `SELECT c.id FROM users u
+       JOIN characters c ON c.id = u.active_character_id
+      WHERE u.id = $1 AND c.user_id = $1 AND c.is_active = TRUE
+      LIMIT 1`,
+    [req.session.userId]
+  );
+  if (ptr.length) return ptr[0].id;
+  // Fallback: find any active character owned by this user (e.g. if pointer is not yet set)
   const { rows } = await pool.query(
     `SELECT id FROM characters WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1`,
     [req.session.userId]
@@ -4863,10 +4908,16 @@ app.post("/api/characters/select", charAppWriteLimit, async (req, res) => {
       `SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at,
               date_of_birth, education, career_background, family, year_first_elected,
               personal_background, bio, financial_background_level, avatar, twitter_handle, home, rentals
-         FROM characters WHERE id = $1 AND user_id = $2`,
+         FROM characters WHERE id = $1 AND user_id = $2 AND is_active = TRUE`,
       [character_id, req.session.userId]
     );
     if (!rows.length) return res.status(404).json({ error: "Character not found or not yours" });
+
+    // Set DB-canonical pointer
+    await pool.query(
+      "UPDATE users SET active_character_id = $1 WHERE id = $2",
+      [rows[0].id, req.session.userId]
+    );
 
     req.session.characterId = rows[0].id;
     req.session.save((err) => {
@@ -4905,7 +4956,14 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
       return res.status(400).json({ error: `party must be one of: ${PLAYABLE_PARTIES.join(", ")}` });
     }
 
-    // Check applicant has no active character
+    // Check applicant has no active character (DB-canonical pointer or any active character)
+    const { rows: userRow } = await pool.query(
+      "SELECT active_character_id FROM users WHERE id = $1",
+      [req.session.userId]
+    );
+    if (userRow[0]?.active_character_id) {
+      return res.status(409).json({ error: "You already have an active character. Mark it inactive before applying." });
+    }
     const { rows: existing } = await pool.query(
       "SELECT id FROM characters WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
       [req.session.userId]
@@ -4997,10 +5055,11 @@ app.get("/api/admin/characters/applications", charAppReadLimit, async (req, res)
 
 // POST /api/admin/characters/applications/:id/approve — approve and create character
 app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, async (req, res) => {
+  const client = await pool.connect();
   try {
     if (!requireAdminOrMod(req, res)) return;
 
-    const { rows: appRows } = await pool.query(
+    const { rows: appRows } = await client.query(
       "SELECT * FROM pending_character_applications WHERE id = $1",
       [req.params.id]
     );
@@ -5010,7 +5069,7 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
 
     // Server-side constituency check
     if (app_.constituency) {
-      const { rows: taken } = await pool.query(
+      const { rows: taken } = await client.query(
         "SELECT id FROM characters WHERE LOWER(constituency) = LOWER($1) AND is_active = TRUE LIMIT 1",
         [app_.constituency]
       );
@@ -5019,14 +5078,16 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
       }
     }
 
+    await client.query("BEGIN");
+
     // Deactivate any existing active characters for the applicant
-    await pool.query(
+    await client.query(
       "UPDATE characters SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE",
       [app_.applicant_user_id]
     );
 
     // Create the character, linking it back to the originating application
-    const { rows: charRows } = await pool.query(
+    const { rows: charRows } = await client.query(
       `INSERT INTO characters
          (user_id, application_id, name, party, constituency, roles, offices, is_active,
           date_of_birth, education, career_background, family, year_first_elected,
@@ -5044,16 +5105,21 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
     );
     const character = charRows[0];
 
+    // Set DB-canonical active character pointer on the user
+    await client.query(
+      "UPDATE users SET active_character_id = $1 WHERE id = $2",
+      [character.id, app_.applicant_user_id]
+    );
+
     // Mark application approved
-    await pool.query(
+    await client.query(
       "UPDATE pending_character_applications SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
       [req.session.userId, req.params.id]
     );
 
-    // Update the applicant's active sessions to reflect the new active character.
-    // This ensures their next request finds the correct characterId without requiring
-    // a manual select. Errors here are non-fatal — DB fallback in getActiveCharacterId
-    // will pick up the character via is_active=TRUE even if session update fails.
+    await client.query("COMMIT");
+
+    // Update the applicant's active sessions to reflect the new active character (best-effort).
     try {
       await pool.query(
         `UPDATE sessions
@@ -5072,8 +5138,11 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
     );
     res.json({ ok: true, character });
   } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
     console.error(e);
     res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
   }
 });
 
@@ -5123,6 +5192,15 @@ app.post("/api/admin/characters/:id/set-inactive", charWriteLimit, async (req, r
       "UPDATE characters SET is_active = FALSE WHERE id = $1 RETURNING id, user_id, name, party, constituency, is_active",
       [req.params.id]
     );
+
+    // Clear DB-canonical active character pointer if it points to this character
+    if (before[0].user_id) {
+      await pool.query(
+        "UPDATE users SET active_character_id = NULL WHERE id = $1 AND active_character_id = $2",
+        [before[0].user_id, req.params.id]
+      );
+    }
+
     await writeAuditLog(
       req.session.userId, "character.set-inactive", "character", req.params.id,
       before[0], rows[0]
@@ -5157,34 +5235,70 @@ app.post("/api/admin/repair/character-owner-pointers", charAppWriteLimit, async 
   try {
     if (!requireAdminOrMod(req, res)) return;
 
+    // Diagnostic counts — collected before repairs so they reflect the "problem" state
+    const { rows: orphanRows } = await pool.query(`
+      SELECT id, name, party, constituency, is_active, created_at
+        FROM characters WHERE user_id IS NULL ORDER BY created_at DESC LIMIT 50
+    `);
+    const orphansCount = orphanRows.length;
+
+    const { rows: approvedAppsRows } = await pool.query(`
+      SELECT COUNT(*) AS cnt FROM pending_character_applications WHERE status = 'approved'
+    `);
+    const approvedAppsCount = Number(approvedAppsRows[0]?.cnt ?? 0);
+
     // Step 1: Fix user_id on characters linked to approved applications.
     // Prefer matching by application_id (exact link set during approval).
     // Fall back to case-insensitive name match with whitespace normalization;
     // party and constituency used as tiebreakers when non-empty.
-    const { rows: fixed } = await pool.query(`
+    const { rows: fixedById } = await pool.query(`
       UPDATE characters c
          SET user_id = pca.applicant_user_id,
              application_id = COALESCE(c.application_id, pca.id)
         FROM pending_character_applications pca
        WHERE pca.status = 'approved'
-         AND (
-               c.application_id = pca.id
-               OR (
-                 c.application_id IS NULL
-                 AND REGEXP_REPLACE(LOWER(c.name),    '\\s+', ' ', 'g') =
-                     REGEXP_REPLACE(LOWER(pca.name),  '\\s+', ' ', 'g')
-                 AND (pca.party        = '' OR LOWER(c.party)        = LOWER(pca.party))
-                 AND (pca.constituency = '' OR LOWER(c.constituency) = LOWER(pca.constituency))
-               )
-             )
+         AND c.application_id = pca.id
          AND (c.user_id IS NULL OR c.user_id != pca.applicant_user_id)
-    RETURNING c.id, c.name, pca.applicant_user_id AS new_user_id, pca.applicant_username
+      RETURNING c.id, c.name, pca.applicant_user_id AS new_user_id, pca.applicant_username
     `);
 
-    // Step 2: Clear stale session characterId pointers.
-    // Any session whose characterId points to a character that is either inactive
-    // or not owned by that session's user gets cleared.  This forces getActiveCharacterId
-    // to re-evaluate from the DB (finding the now-correctly-owned active character).
+    const { rows: fixedByName } = await pool.query(`
+      UPDATE characters c
+         SET user_id = pca.applicant_user_id,
+             application_id = COALESCE(c.application_id, pca.id)
+        FROM pending_character_applications pca
+       WHERE pca.status = 'approved'
+         AND c.application_id IS NULL
+         AND REGEXP_REPLACE(LOWER(c.name),    '\\s+', ' ', 'g') =
+             REGEXP_REPLACE(LOWER(pca.name),  '\\s+', ' ', 'g')
+         AND (pca.party        = '' OR LOWER(c.party)        = LOWER(pca.party))
+         AND (pca.constituency = '' OR LOWER(c.constituency) = LOWER(pca.constituency))
+         AND (c.user_id IS NULL OR c.user_id != pca.applicant_user_id)
+      RETURNING c.id, c.name, pca.applicant_user_id AS new_user_id, pca.applicant_username
+    `);
+
+    const fixed = [...fixedById, ...fixedByName];
+
+    // Step 2: Repair users.active_character_id where it is NULL but deterministically resolvable.
+    // If a user owns exactly one active character, set the pointer.
+    const { rows: activePointerFixed } = await pool.query(`
+      UPDATE users u
+         SET active_character_id = c.id
+        FROM (
+          SELECT user_id, MIN(id) AS char_id
+            FROM characters
+           WHERE is_active = TRUE AND user_id IS NOT NULL
+           GROUP BY user_id
+          HAVING COUNT(*) = 1
+        ) sub
+        JOIN characters c ON c.id = sub.char_id
+       WHERE u.id = sub.user_id
+         AND (u.active_character_id IS NULL OR u.active_character_id != c.id)
+      RETURNING u.id, c.id AS char_id
+    `);
+    const activePointerFixedCount = activePointerFixed.length;
+
+    // Step 3: Clear stale session characterId pointers.
     let sessionsCleared = 0;
     try {
       const { rowCount } = await pool.query(`
@@ -5203,21 +5317,33 @@ app.post("/api/admin/repair/character-owner-pointers", charAppWriteLimit, async 
       console.warn("[repair] session cleanup failed (non-fatal):", sessErr.message);
     }
 
-    if (fixed.length || sessionsCleared > 0) {
+    if (fixed.length || activePointerFixedCount > 0 || sessionsCleared > 0) {
       await writeAuditLog(
         req.session.userId, "admin.repair.character-owner-pointers", "characters", null,
-        null, { fixed_count: fixed.length, sessions_cleared: sessionsCleared, fixed }
+        null, {
+          fixed_count: fixed.length,
+          active_pointer_fixed_count: activePointerFixedCount,
+          sessions_cleared: sessionsCleared,
+          fixed,
+        }
       );
     }
 
     const parts = [];
     if (fixed.length) parts.push(`Repaired ${fixed.length} character owner pointer(s).`);
+    if (activePointerFixedCount > 0) parts.push(`Fixed ${activePointerFixedCount} active character pointer(s) on users.`);
     if (sessionsCleared > 0) parts.push(`Cleared ${sessionsCleared} stale session pointer(s).`);
 
     res.json({
       ok: true,
+      orphans_count: orphansCount,
+      approved_applications_count: approvedAppsCount,
+      matched_by_application_id_count: fixedById.length,
+      matched_by_name_fallback_count: fixedByName.length,
       fixed_count: fixed.length,
+      active_pointer_fixed_count: activePointerFixedCount,
       sessions_cleared: sessionsCleared,
+      orphans: orphanRows.map((r) => ({ id: r.id, name: r.name, party: r.party, constituency: r.constituency, is_active: r.is_active, created_at: r.created_at })),
       fixed: fixed.map((r) => ({ id: r.id, name: r.name, new_user_id: r.new_user_id, applicant_username: r.applicant_username })),
       message: parts.length ? parts.join(" ") : "No characters needed repair.",
     });
@@ -8405,24 +8531,171 @@ app.get("/api/admin/users", adminUsersLimit, async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { rows } = await pool.query(`
       SELECT u.id, u.username, u.email,
+             u.active_character_id,
              COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles,
-             (SELECT c.name FROM characters c WHERE c.user_id = u.id AND c.is_active = true LIMIT 1) AS active_character
+             (SELECT c.name FROM characters c WHERE c.id = u.active_character_id LIMIT 1) AS active_character_name
         FROM users u
         LEFT JOIN user_roles ur ON ur.user_id = u.id
-       GROUP BY u.id, u.username, u.email
+       GROUP BY u.id, u.username, u.email, u.active_character_id
        ORDER BY u.username
     `);
     res.json({
       users: rows.map((r) => ({
-        id:              r.id,
-        username:        r.username,
-        email:           r.email,
-        roles:           r.roles || [],
-        activeCharacter: r.active_character || "",
+        id:                  r.id,
+        username:            r.username,
+        email:               r.email,
+        roles:               r.roles || [],
+        activeCharacterId:   r.active_character_id || null,
+        activeCharacter:     r.active_character_name || "",
       })),
     });
   } catch (e) {
     console.error("[GET /api/admin/users]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Admin: User–Character Management endpoints ─────────────────────────────
+
+const adminCharMgmtLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+
+// GET /api/admin/characters — list characters with optional filters
+// Query params: owned=unowned|owned, active=true|false
+app.get("/api/admin/characters", adminCharMgmtLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { owned, active } = req.query;
+    const conditions = [];
+    const params = [];
+    if (owned === "unowned") {
+      conditions.push("c.user_id IS NULL");
+    } else if (owned === "owned") {
+      conditions.push("c.user_id IS NOT NULL");
+    }
+    if (active === "true") {
+      conditions.push("c.is_active = TRUE");
+    } else if (active === "false") {
+      conditions.push("c.is_active = FALSE");
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const { rows } = await pool.query(`
+      SELECT c.id, c.name, c.party, c.constituency, c.is_active, c.user_id, c.created_at,
+             u.username AS owner_username
+        FROM characters c
+        LEFT JOIN users u ON u.id = c.user_id
+      ${where}
+       ORDER BY c.is_active DESC, c.name ASC
+    `, params);
+    res.json({ characters: rows });
+  } catch (e) {
+    console.error("[GET /api/admin/characters]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/characters/:id/assign-owner — assign a character to a user
+app.post("/api/admin/characters/:id/assign-owner", adminCharMgmtLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { user_id, set_active = false } = req.body || {};
+    if (!user_id) return res.status(400).json({ error: "user_id is required" });
+
+    const { rows: charRows } = await client.query(
+      "SELECT id, name, user_id, is_active FROM characters WHERE id = $1",
+      [req.params.id]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+    const char = charRows[0];
+
+    const { rows: userRows } = await client.query(
+      "SELECT id, username FROM users WHERE id = $1",
+      [user_id]
+    );
+    if (!userRows.length) return res.status(404).json({ error: "User not found" });
+
+    await client.query("BEGIN");
+
+    if (set_active) {
+      // Deactivate any other active characters for this user
+      await client.query(
+        "UPDATE characters SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE AND id <> $2",
+        [user_id, req.params.id]
+      );
+    }
+
+    const { rows: updated } = await client.query(
+      `UPDATE characters SET user_id = $1, is_active = $2 WHERE id = $3
+       RETURNING id, name, user_id, is_active`,
+      [user_id, set_active ? true : char.is_active, req.params.id]
+    );
+
+    if (set_active) {
+      await client.query(
+        "UPDATE users SET active_character_id = $1 WHERE id = $2",
+        [req.params.id, user_id]
+      );
+    } else if (char.user_id && char.user_id !== user_id) {
+      // Character is being re-assigned away from previous owner — clear old owner's pointer if needed
+      await client.query(
+        "UPDATE users SET active_character_id = NULL WHERE id = $1 AND active_character_id = $2",
+        [char.user_id, req.params.id]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    await writeAuditLog(
+      req.session.userId, "admin.character.assign-owner", "character", req.params.id,
+      { user_id: char.user_id, is_active: char.is_active },
+      { user_id, set_active }
+    );
+    res.json({ ok: true, character: updated[0] });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /api/admin/characters/:id/assign-owner]", e);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/admin/users/:id/active-character — set or clear a user's active character pointer
+app.post("/api/admin/users/:id/active-character", adminCharMgmtLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { character_id } = req.body || {}; // null = clear pointer
+
+    const { rows: userRows } = await pool.query("SELECT id FROM users WHERE id = $1", [req.params.id]);
+    if (!userRows.length) return res.status(404).json({ error: "User not found" });
+
+    if (character_id) {
+      // Validate character is owned by this user and active
+      const { rows: charRows } = await pool.query(
+        "SELECT id FROM characters WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
+        [character_id, req.params.id]
+      );
+      if (!charRows.length) {
+        return res.status(404).json({ error: "Character not found, not owned by user, or not active" });
+      }
+      await pool.query(
+        "UPDATE users SET active_character_id = $1 WHERE id = $2",
+        [character_id, req.params.id]
+      );
+    } else {
+      await pool.query(
+        "UPDATE users SET active_character_id = NULL WHERE id = $1",
+        [req.params.id]
+      );
+    }
+
+    await writeAuditLog(
+      req.session.userId, "admin.user.set-active-character", "user", req.params.id,
+      null, { character_id: character_id || null }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/admin/users/:id/active-character]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
