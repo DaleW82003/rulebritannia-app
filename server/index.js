@@ -7532,6 +7532,8 @@ app.post("/api/admin/reset-baseline", resetBaselineLimit, async (req, res) => {
 
 
 // Refuse to start in production with the default insecure secret.
+const PORT = process.env.PORT || 3000;
+
 if (process.env.NODE_ENV === "production") {
   const secret = process.env.SESSION_SECRET || "";
   if (!secret || secret === "dev-secret-change-me") {
