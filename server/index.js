@@ -4551,6 +4551,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
       isLoggedIn
         ? pool.query(
             `SELECT c.id, c.name, c.party, c.constituency, c.avatar, c.bio, c.personal_background,
+                    c.date_of_birth, c.education, c.career_background, c.family, c.year_first_elected,
                     c.is_active, c.user_id
                FROM characters c
               WHERE c.user_id = $1 AND c.is_active = TRUE
@@ -4600,13 +4601,18 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     if (charRows[0]) {
       const c = charRows[0];
       currentCharacter = {
-        id:           c.id,
-        name:         c.name,
-        party:        c.party || "",
-        constituency: c.constituency || "",
-        avatar:       c.avatar || "",
-        bio:          c.bio || c.personal_background || "",
-        is_active:    c.is_active,
+        id:                 c.id,
+        name:               c.name,
+        party:              c.party || "",
+        constituency:       c.constituency || "",
+        avatar:             c.avatar || "",
+        bio:                c.bio || c.personal_background || "",
+        is_active:          c.is_active,
+        dateOfBirth:        c.date_of_birth || "",
+        education:          c.education || "",
+        careerBackground:   c.career_background || "",
+        family:             c.family || "",
+        yearFirstElected:   c.year_first_elected || "",
       };
     }
 
@@ -8580,6 +8586,52 @@ app.get("/api/team", teamReadLimit, async (req, res) => {
     res.json({ users: rows.map((r) => ({ username: r.username, roles: r.roles || [], activeCharacter: r.active_character || "" })) });
   } catch (e) {
     console.error("[GET /api/team]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Public profile — read-only character summary for a user (logged-in required)
+// GET /api/profile?user=<username>
+// Returns safe public fields only: name, party, constituency, avatar, bio.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const profileReadLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/profile", profileReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Login required" });
+    const username = String(req.query.user || "").trim();
+    if (!username) return res.status(400).json({ error: "Missing ?user= parameter" });
+
+    const { rows } = await pool.query(
+      `SELECT u.username,
+              c.name        AS char_name,
+              c.party,
+              c.constituency,
+              c.avatar,
+              COALESCE(c.bio, c.personal_background, '') AS bio
+         FROM users u
+         LEFT JOIN characters c ON c.id = u.active_character_id
+        WHERE LOWER(u.username) = LOWER($1)
+        LIMIT 1`,
+      [username]
+    );
+
+    if (!rows.length) return res.status(404).json({ error: "User not found" });
+    const r = rows[0];
+    res.json({
+      username:     r.username,
+      character: r.char_name ? {
+        name:         r.char_name,
+        party:        r.party        || "",
+        constituency: r.constituency || "",
+        avatar:       r.avatar       || "",
+        bio:          r.bio          || "",
+      } : null,
+    });
+  } catch (e) {
+    console.error("[GET /api/profile]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

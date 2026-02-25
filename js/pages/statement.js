@@ -43,7 +43,7 @@ export function initStatementPage(data) {
       <div class="muted-block" style="white-space:pre-wrap;">${esc(statement.body || "No statement text provided.")}</div>
     </section>
 
-    <section class="tile">
+    <section class="tile tile-form">
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
         ${debateUrl ? `<a class="btn" href="${esc(debateUrl)}" target="_blank" rel="noopener">Open Debate</a>` : `<span class="muted">No debate yet</span>`}
         <a class="btn" href="statements.html">Back to Statements</a>

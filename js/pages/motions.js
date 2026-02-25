@@ -94,7 +94,7 @@ export function initMotionsPage(data) {
         ? `<div class="muted-block">You must have an active character to submit motions or EDMs. <a href="user.html">Create or activate a character</a> first.</div>`
         : `
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
-          <form id="house-motion-form" class="tile">
+          <form id="house-motion-form" class="tile tile-form">
             <h3 class="tile-title">Raise House Motion</h3>
             <div class="form-row">
               <label for="house-motion-title">Title</label>
@@ -114,10 +114,10 @@ export function initMotionsPage(data) {
               </select>
             </div>` : ""}
             <p class="muted" style="margin-top:8px;margin-bottom:4px;">Submitting as <b>${esc(char?.name || "MP")}</b>.</p>
-            <button class="btn primary" type="submit">Submit House Motion</button>
+            <div class="tile-bottom"><button class="btn primary" type="submit">Submit House Motion</button></div>
           </form>
 
-          <form id="edm-form" class="tile">
+          <form id="edm-form" class="tile tile-form">
             <h3 class="tile-title">Raise Early Day Motion</h3>
             <p class="muted" style="font-size:0.9em;margin-top:0;">EDMs may not be submitted by Government members.</p>
             <div class="form-row">
@@ -138,7 +138,7 @@ export function initMotionsPage(data) {
               </select>
             </div>` : ""}
             <p class="muted" style="margin-top:8px;margin-bottom:4px;">Submitting as <b>${esc(char?.name || "MP")}</b>.</p>
-            <button class="btn primary" type="submit">Submit EDM</button>
+            <div class="tile-bottom"><button class="btn primary" type="submit">Submit EDM</button></div>
           </form>
         </div>
       `

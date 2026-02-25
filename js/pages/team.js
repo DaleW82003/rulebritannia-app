@@ -27,7 +27,9 @@ function renderLevel(level, members, adminMode) {
             <div><b>${esc(m.username)}</b></div>
             <div class="muted">Character: ${esc(m.activeCharacter || "None")}</div>
           </div>
-          <a class="btn" href="user.html?account=${encodeURIComponent(m.username)}">Open User Page</a>
+          ${adminMode
+            ? `<a class="btn" href="user.html?account=${encodeURIComponent(m.username)}">Open User Page</a>`
+            : `<a class="btn" href="profile.html?user=${encodeURIComponent(m.username)}">View Profile</a>`}
         </article>
       `).join("") : `<div class="muted-block">No ${esc(level.label.toLowerCase())} assigned.</div>`}
       ${adminMode ? `<button class="btn" type="button" data-action="open-editor" data-level="${esc(level.id)}">Manage ${esc(level.label)}</button>` : ""}

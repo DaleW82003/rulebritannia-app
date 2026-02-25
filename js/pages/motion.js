@@ -176,7 +176,7 @@ async function renderHouseDb(root, data, motion) {
       : "";
 
   root.innerHTML = `
-    <section class="tile" style="margin-bottom:12px;">
+    <section class="tile tile-form" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Motion ${esc(motion.number)}: ${esc(motion.title)}</h2>
       <p class="muted">By ${esc(motion.author || motion.proposedBy || "")} • Status: ${esc(motion.status || "open")}</p>
       <p class="muted">Debate: ${esc(motion.debateStartSim || "—")} → ${esc(motion.debateEndSim || "—")}${debateCountdown ? ` (${debateCountdown})` : ""}</p>
@@ -331,7 +331,7 @@ function renderEdm(root, data, edm) {
   const edmCountdown = edm.closesAtSimObj ? countdownToSimMonth(edm.closesAtSimObj.month, edm.closesAtSimObj.year, data.gameState) : "";
 
   root.innerHTML = `
-    <section class="tile" style="margin-bottom:12px;">
+    <section class="tile tile-form" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">EDM ${esc(edm.number)}: ${esc(edm.title)}</h2>
       <p class="muted">By ${esc(edm.author)} • Status: ${esc(edm.status || "open")}</p>
       <p class="muted">Open: ${esc(edm.openedAtSim || "—")} → ${esc(edm.closesAtSim || "—")}${edmCountdown ? ` (${edmCountdown})` : ""}</p>
