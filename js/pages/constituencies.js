@@ -46,13 +46,14 @@ function seatLabel(c, data) {
   return "Available";
 }
 
-function getLargestParty(data) {
-  const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
-  if (!parties.length) return "—";
-  // Speaker is a presiding office, not a party — exclude from "largest party" determination
-  const eligible = parties.filter((p) => p.name !== "Speaker");
-  const sorted = eligible.slice().sort((a, b) => Number(b.seats || 0) - Number(a.seats || 0));
-  return sorted[0]?.name || "—";
+function getLargestParty(constituencies) {
+  if (!constituencies.length) return "—";
+  const counts = new Map();
+  for (const c of constituencies) {
+    if (c.party && c.party !== "Speaker") counts.set(c.party, (counts.get(c.party) || 0) + 1);
+  }
+  if (!counts.size) return "—";
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
 function getPM(data) {
@@ -65,19 +66,21 @@ function getLeaderOfOpposition(data) {
   return offices.find((o) => o.id === "leader-opposition")?.holderName || "Vacant";
 }
 
-function renderStateOfParliament(data, parlStatus) {
+function renderStateOfParliament(constituencies, data, parlStatus) {
   const parl = data.parliament || {};
-  const liveParties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
 
-  // Derive voting seat total: exclude Speaker and Sinn Féin
+  // Derive seat counts from constituencies (single source of truth)
   const MAJORITY_EXCLUDES = ["Speaker", "Sinn Féin"];
-  const seatsMap = new Map(liveParties.map((p) => [p.name, Number(p.seats || 0)]));
-  const totalSeats = parl.totalSeats || 650;
+  const seatsMap = new Map();
+  for (const c of constituencies) {
+    if (c.party) seatsMap.set(c.party, (seatsMap.get(c.party) || 0) + 1);
+  }
+  const totalSeats = constituencies.length || parl.totalSeats || 650;
   const excludedSeats = MAJORITY_EXCLUDES.reduce((sum, name) => sum + (seatsMap.get(name) || 0), 0);
   const votingSeats = totalSeats - excludedSeats;
   const majorityThreshold = Math.floor(votingSeats / 2) + 1;
 
-  const largestParty = getLargestParty(data);
+  const largestParty = getLargestParty(constituencies);
 
   // Use DB parliament status if available, fall back to state
   const govType = (parlStatus?.governmentType) || parl.governmentType || parl.governmentSetup || "—";
@@ -115,22 +118,17 @@ function renderStateOfParliament(data, parlStatus) {
   `;
 }
 
-function renderPartyTiles(constituencies, data) {
-  // Seat counts come from live parliament data; fall back to 0 if not set.
-  const liveParties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
-  const seatsMap = new Map(liveParties.map((p) => [p.name, Number(p.seats || 0)]));
-
+function renderPartyTiles(constituencies) {
   return `
     <div class="wgo-grid party-tiles-grid">
       ${CONSTITUENCY_PARTIES.map((p) => {
-        const seats = seatsMap.get(p.name) || 0;
-        const constCount = constituencies.filter((c) => c.party === p.name).length;
+        const seats = constituencies.filter((c) => c.party === p.name).length;
         const npcTag = !p.playable ? `<span class="muted" style="font-size:11px;margin-left:4px;">(NPC)</span>` : "";
         return `
           <div class="wgo-tile card-flex">
             <div class="wgo-kicker">${esc(p.name)}${npcTag}</div>
             <div class="wgo-title">${esc(String(seats))} seats</div>
-            <div class="wgo-strap">${esc(String(constCount))} constituencies assigned</div>
+            <div class="wgo-strap">${esc(String(seats))} constituencies assigned</div>
             <div class="tile-bottom">
               <button class="btn" type="button" data-party-list="${esc(p.name)}">View Constituencies</button>
             </div>
@@ -175,14 +173,15 @@ function bindPartyListButtons(constituencies, data) {
 }
 
 function refreshAll(constituencies, data, parlStatus) {
+  _constituencies = constituencies;
   // Show / hide empty-state callout
   const emptyCallout = document.getElementById("constEmptyCallout");
   if (emptyCallout) {
     emptyCallout.style.display = constituencies.length === 0 && canManage(data) ? "" : "none";
   }
 
-  setHTML("parliament-summary", renderStateOfParliament(data, parlStatus));
-  setHTML("party-seats", renderPartyTiles(constituencies, data));
+  setHTML("parliament-summary", renderStateOfParliament(constituencies, data, parlStatus));
+  setHTML("party-seats", renderPartyTiles(constituencies));
   bindPartyListButtons(constituencies, data);
 
   const partySelect = document.getElementById("constParty");
@@ -304,6 +303,8 @@ function bindEditor(constituencies, data) {
 
 // Module-level cache so post-save refresh can pass parlStatus through.
 let _lastParlStatus = null;
+// Module-level cache of current constituencies for use in bindGovStatusPanel validation.
+let _constituencies = [];
 
 // Parties eligible to be part of a coalition or C&S arrangement
 // (excludes Speaker as it's a presiding office, not a party in government)
@@ -367,19 +368,19 @@ function bindGovStatusPanel(data, parlStatus) {
       confidenceSupplyParties = Array.from(form.querySelectorAll("#govCSParties input[name=govPartyCheck]:checked")).map((cb) => cb.value);
       if (!confidenceSupplyParties.length) { alert("Please tick at least one confidence-and-supply party."); return; }
     } else if (govType === "Majority" || govType === "Minority") {
-      // Derive largest party and validate seat count against majority threshold
-      const liveParties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
-      const seatsMap = new Map(liveParties.map((p) => [p.name, Number(p.seats || 0)]));
-      const totalSeats = data?.parliament?.totalSeats || 650;
+      // Derive largest party and validate seat count from constituencies (single source of truth)
+      const seatsMap = new Map();
+      for (const c of _constituencies) {
+        if (c.party) seatsMap.set(c.party, (seatsMap.get(c.party) || 0) + 1);
+      }
+      const totalSeats = _constituencies.length || data?.parliament?.totalSeats || 650;
       const MAJORITY_EXCLUDES = ["Speaker", "Sinn Féin"];
       const excludedSeats = MAJORITY_EXCLUDES.reduce((sum, name) => sum + (seatsMap.get(name) || 0), 0);
       const votingSeats = totalSeats - excludedSeats;
       const majorityThreshold = Math.floor(votingSeats / 2) + 1;
 
-      const eligibleForLargest = liveParties.filter((p) => p.name !== "Speaker");
-      const sortedEligible = eligibleForLargest.slice().sort((a, b) => Number(b.seats || 0) - Number(a.seats || 0));
-      const largestPartyName = sortedEligible[0]?.name || "";
-      const largestPartySeats = Number(sortedEligible[0]?.seats || 0);
+      const largestPartyName = getLargestParty(_constituencies);
+      const largestPartySeats = seatsMap.get(largestPartyName) || 0;
 
       if (govType === "Majority" && largestPartySeats < majorityThreshold) {
         msgEl.innerHTML = `<span style="color:var(--danger,red);">Cannot save as Majority: ${esc(largestPartyName)} holds ${largestPartySeats} seats, but majority threshold is ${majorityThreshold}.</span>`;
