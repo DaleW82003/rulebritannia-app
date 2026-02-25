@@ -152,7 +152,7 @@ function renderPartyTiles(data) {
   const seatsMap = new Map(liveParties.map((p) => [p.name, Number(p.seats || 0)]));
 
   return `
-    <div class="wgo-grid">
+    <div class="wgo-grid party-tiles-grid">
       ${CONSTITUENCY_PARTIES.map((p) => {
         const seats = seatsMap.get(p.name) || 0;
         const constCount = (data.constituencies || []).filter((c) => c.party === p.name).length;
