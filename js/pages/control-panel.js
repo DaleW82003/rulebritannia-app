@@ -4,6 +4,7 @@ import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "
 import { logAction } from "../audit.js";
 import {
   apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange,
+  apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange,
   apiGetCharacterApplications, apiApproveCharacterApplication, apiRejectCharacterApplication,
 } from "../api.js";
 
@@ -125,6 +126,11 @@ export async function initControlPanelPage(data) {
     <details class="tile" style="margin-bottom:10px;" open>
       <summary style="cursor:pointer;"><b>Pending Biography Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></b></summary>
       <div style="margin-top:10px;" id="cp-bio-changes-list"><div class="muted-block">Loading…</div></div>
+    </details>
+
+    <details class="tile" style="margin-bottom:10px;" open>
+      <summary style="cursor:pointer;"><b>Pending Avatar Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></b></summary>
+      <div style="margin-top:10px;" id="cp-avatar-changes-list"><div class="muted-block">Loading…</div></div>
     </details>
     ` : ""}
 
@@ -248,6 +254,58 @@ export async function initControlPanelPage(data) {
         });
       }).catch(() => {
         if (bioListEl) bioListEl.innerHTML = '<div class="muted-block">Could not load biography change requests.</div>';
+      });
+    }
+
+    // Load avatar change requests async
+    const avatarListEl = rolePanels.querySelector("#cp-avatar-changes-list");
+    if (avatarListEl) {
+      apiGetAllAvatarChanges("pending").then(({ changes }) => {
+        if (!changes.length) {
+          avatarListEl.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
+          return;
+        }
+        avatarListEl.innerHTML = changes.map((c) => `
+          <article class="tile" style="margin-bottom:8px;" data-avatar-change-id="${esc(c.id)}">
+            <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
+            <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
+            <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;font-size:.9em;word-break:break-all;">${esc(c.proposed_avatar)}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn primary" type="button" data-action="cp-approve-avatar-change" data-id="${esc(c.id)}">Approve</button>
+              <button class="btn" type="button" data-action="cp-reject-avatar-change" data-id="${esc(c.id)}">Reject</button>
+            </div>
+          </article>
+        `).join("");
+
+        avatarListEl.querySelectorAll('[data-action="cp-approve-avatar-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiApproveAvatarChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!avatarListEl.querySelector("article")) {
+                avatarListEl.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
+              }
+            } catch (err) {
+              alert(`Error: ${err.message}`);
+            }
+          });
+        });
+
+        avatarListEl.querySelectorAll('[data-action="cp-reject-avatar-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiRejectAvatarChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!avatarListEl.querySelector("article")) {
+                avatarListEl.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
+              }
+            } catch (err) {
+              alert(`Error: ${err.message}`);
+            }
+          });
+        });
+      }).catch(() => {
+        if (avatarListEl) avatarListEl.innerHTML = '<div class="muted-block">Could not load avatar change requests.</div>';
       });
     }
   }

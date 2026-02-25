@@ -375,6 +375,7 @@ function render(data, state) {
             <option value="">Select party first</option>
           </select>
           <input class="input" name="avatar" placeholder="Avatar URL (optional)">
+          <span class="muted" style="font-size:.8em;margin-top:2px;">Recommended: 512×512 px (min 256×256 px)</span>
           <input class="input" name="twitter_handle" placeholder="Twitter handle (without @, optional)">
           <input class="input" name="year_first_elected" placeholder="Year first elected" required>
           <textarea class="input" name="bio" placeholder="Biography (max 2000 characters)" maxlength="2000" required style="grid-column:1/-1;resize:vertical;min-height:80px;"></textarea>

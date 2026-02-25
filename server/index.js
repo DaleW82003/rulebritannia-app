@@ -749,6 +749,23 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS pbc_status_idx ON pending_bio_changes (status);
   `);
 
+  // ── Pending Avatar Changes ─────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pending_avatar_changes (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id     UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      submitted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      status           TEXT NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending','approved','rejected')),
+      reviewed_by      TEXT,
+      reviewed_at      TIMESTAMPTZ,
+      proposed_avatar  TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS pac_char_idx   ON pending_avatar_changes (character_id);
+    CREATE INDEX IF NOT EXISTS pac_status_idx ON pending_avatar_changes (status);
+  `);
+
   // ── Parties ───────────────────────────────────────────────────────────────
   // New installs: create with UUID PK + slug.
   await pool.query(`
@@ -5202,6 +5219,150 @@ app.post("/api/admin/bio-changes/:id/reject", charAppWriteLimit, async (req, res
     );
     await writeAuditLog(
       req.session.userId, "bio_change.reject", "pending_bio_changes", req.params.id,
+      change, { ...change, status: "rejected" }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Avatar Change Requests ────────────────────────────────────────────────────
+// POST /api/characters/avatar-change — submit an avatar change request
+// GET  /api/characters/avatar-changes/mine — list own pending avatar changes
+// GET  /api/admin/avatar-changes — list all pending avatar changes (admin/mod/speaker)
+// POST /api/admin/avatar-changes/:id/approve — approve an avatar change
+// POST /api/admin/avatar-changes/:id/reject  — reject an avatar change
+// ═══════════════════════════════════════════════════════════════════════════
+
+app.post("/api/characters/avatar-change", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { proposed_avatar } = req.body || {};
+    if (!proposed_avatar || typeof proposed_avatar !== "string" || !proposed_avatar.trim()) {
+      return res.status(400).json({ error: "proposed_avatar is required" });
+    }
+
+    const { rows: charRows } = await pool.query(
+      "SELECT id FROM characters WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
+      [req.session.userId]
+    );
+    if (!charRows.length) {
+      return res.status(404).json({ error: "No active character found" });
+    }
+    const character_id = charRows[0].id;
+
+    const { rows: existing } = await pool.query(
+      "SELECT id FROM pending_avatar_changes WHERE character_id = $1 AND status = 'pending' LIMIT 1",
+      [character_id]
+    );
+    if (existing.length) {
+      return res.status(409).json({ error: "You already have a pending avatar change request." });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO pending_avatar_changes (character_id, user_id, proposed_avatar)
+       VALUES ($1,$2,$3) RETURNING *`,
+      [character_id, req.session.userId, proposed_avatar.trim()]
+    );
+    await writeAuditLog(req.session.userId, "avatar_change.submit", "pending_avatar_changes", rows[0].id, null, rows[0]);
+    res.status(201).json({ ok: true, change: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/characters/avatar-changes/mine", charAppReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows: charRows } = await pool.query(
+      "SELECT id FROM characters WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
+      [req.session.userId]
+    );
+    if (!charRows.length) return res.json({ changes: [] });
+    const { rows } = await pool.query(
+      "SELECT * FROM pending_avatar_changes WHERE character_id = $1 ORDER BY submitted_at DESC",
+      [charRows[0].id]
+    );
+    res.json({ changes: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/admin/avatar-changes", charAppReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { status } = req.query;
+    let q = `SELECT pac.*, c.name AS character_name, u.username AS submitter_username
+             FROM pending_avatar_changes pac
+             JOIN characters c ON c.id = pac.character_id
+             JOIN users u ON u.id = pac.user_id`;
+    const params = [];
+    if (status) { q += " WHERE pac.status = $1"; params.push(status); }
+    q += " ORDER BY pac.submitted_at DESC";
+    const { rows } = await pool.query(q, params);
+    res.json({ changes: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/admin/avatar-changes/:id/approve", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { rows: changeRows } = await pool.query(
+      "SELECT * FROM pending_avatar_changes WHERE id = $1",
+      [req.params.id]
+    );
+    if (!changeRows.length) return res.status(404).json({ error: "Avatar change request not found" });
+    const change = changeRows[0];
+    if (change.status !== "pending") {
+      return res.status(409).json({ error: `Avatar change request is already ${change.status}` });
+    }
+
+    await pool.query(
+      "UPDATE characters SET avatar = $1 WHERE id = $2",
+      [change.proposed_avatar, change.character_id]
+    );
+    await pool.query(
+      "UPDATE pending_avatar_changes SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+      [req.session.userId, req.params.id]
+    );
+    await writeAuditLog(
+      req.session.userId, "avatar_change.approve", "pending_avatar_changes", req.params.id,
+      change, { ...change, status: "approved" }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/admin/avatar-changes/:id/reject", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { rows: changeRows } = await pool.query(
+      "SELECT * FROM pending_avatar_changes WHERE id = $1",
+      [req.params.id]
+    );
+    if (!changeRows.length) return res.status(404).json({ error: "Avatar change request not found" });
+    const change = changeRows[0];
+    if (change.status !== "pending") {
+      return res.status(409).json({ error: `Avatar change request is already ${change.status}` });
+    }
+
+    await pool.query(
+      "UPDATE pending_avatar_changes SET status='rejected', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+      [req.session.userId, req.params.id]
+    );
+    await writeAuditLog(
+      req.session.userId, "avatar_change.reject", "pending_avatar_changes", req.params.id,
       change, { ...change, status: "rejected" }
     );
     res.json({ ok: true });
