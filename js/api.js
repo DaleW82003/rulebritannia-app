@@ -1375,6 +1375,16 @@ export async function apiSeedElection1997() {
   return res.json();
 }
 
+export async function apiResetBaseline() {
+  const res = await fetch(`${API_BASE}/api/admin/reset-baseline`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ confirm: "RESET BASELINE" }),
+  });
+  return res.json();
+}
+
 export async function apiGetConstituencyEvents(id) {
   const res = await fetch(`${API_BASE}/api/constituencies/${encodeURIComponent(id)}/events`, { credentials: "include" });
   return res.json();
