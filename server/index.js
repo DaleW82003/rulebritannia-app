@@ -731,6 +731,12 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS pca_status_idx ON pending_character_applications (status);
     ALTER TABLE pending_character_applications ADD COLUMN IF NOT EXISTS bio TEXT;
   `);
+  // Migration: add application_id FK on characters (links character back to its originating application)
+  await pool.query(`
+    ALTER TABLE characters ADD COLUMN IF NOT EXISTS application_id UUID
+      REFERENCES pending_character_applications(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS characters_application_idx ON characters (application_id);
+  `);
 
   // ── Pending Bio Changes ────────────────────────────────────────────────────
   await pool.query(`
@@ -2003,11 +2009,20 @@ function addSimMonths(year, month, n) {
 
 /**
  * Resolve the active character UUID for the logged-in user.
- * Uses req.session.characterId if set, otherwise queries the DB.
+ * Uses req.session.characterId if set and still valid, otherwise queries the DB.
  * Returns null if none found.
  */
 async function getActiveCharacterId(req) {
-  if (req.session.characterId) return req.session.characterId;
+  if (req.session.characterId) {
+    // Verify the session character is still active and owned by this user
+    const { rows: check } = await pool.query(
+      `SELECT id FROM characters WHERE id = $1 AND user_id = $2 AND is_active = true LIMIT 1`,
+      [req.session.characterId, req.session.userId]
+    );
+    if (check.length) return check[0].id;
+    // Stale/invalid — clear from session so DB fallback is used going forward
+    req.session.characterId = null;
+  }
   const { rows } = await pool.query(
     `SELECT id FROM characters WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1`,
     [req.session.userId]
@@ -5010,16 +5025,16 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
       [app_.applicant_user_id]
     );
 
-    // Create the character
+    // Create the character, linking it back to the originating application
     const { rows: charRows } = await pool.query(
       `INSERT INTO characters
-         (user_id, name, party, constituency, roles, offices, is_active,
+         (user_id, application_id, name, party, constituency, roles, offices, is_active,
           date_of_birth, education, career_background, family, year_first_elected,
           personal_background, bio, financial_background_level, avatar, twitter_handle, home, rentals)
-       VALUES ($1,$2,$3,$4,'[]'::jsonb,'[]'::jsonb,TRUE,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb)
+       VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'[]'::jsonb,TRUE,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb)
        RETURNING *`,
       [
-        app_.applicant_user_id, app_.name, app_.party, app_.constituency,
+        app_.applicant_user_id, req.params.id, app_.name, app_.party, app_.constituency,
         app_.date_of_birth, app_.education, app_.career_background, app_.family,
         app_.year_first_elected, app_.personal_background, app_.bio ?? null,
         app_.financial_background_level,
@@ -5034,6 +5049,21 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
       "UPDATE pending_character_applications SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
       [req.session.userId, req.params.id]
     );
+
+    // Update the applicant's active sessions to reflect the new active character.
+    // This ensures their next request finds the correct characterId without requiring
+    // a manual select. Errors here are non-fatal — DB fallback in getActiveCharacterId
+    // will pick up the character via is_active=TRUE even if session update fails.
+    try {
+      await pool.query(
+        `UPDATE sessions
+            SET sess = jsonb_set(sess::jsonb, '{characterId}', to_jsonb($1::text))::json
+          WHERE sess::jsonb->>'userId' = $2`,
+        [character.id, app_.applicant_user_id]
+      );
+    } catch (sessErr) {
+      console.warn("[approve] session update for applicant failed (non-fatal):", sessErr.message);
+    }
 
     await writeAuditLog(
       req.session.userId, "character.application.approve",
@@ -5097,6 +5127,23 @@ app.post("/api/admin/characters/:id/set-inactive", charWriteLimit, async (req, r
       req.session.userId, "character.set-inactive", "character", req.params.id,
       before[0], rows[0]
     );
+
+    // Clear the characterId pointer from any sessions belonging to the character's owner
+    // so they are forced to re-select (and getActiveCharacterId will return NULL via DB).
+    if (before[0].user_id) {
+      try {
+        await pool.query(
+          `UPDATE sessions
+              SET sess = (sess::jsonb - 'characterId')::json
+            WHERE sess::jsonb->>'userId'     = $1
+              AND sess::jsonb->>'characterId' = $2`,
+          [before[0].user_id, req.params.id]
+        );
+      } catch (sessErr) {
+        console.warn("[set-inactive] session clear failed (non-fatal):", sessErr.message);
+      }
+    }
+
     res.json({ ok: true, character: rows[0] });
   } catch (e) {
     console.error(e);
@@ -5104,42 +5151,75 @@ app.post("/api/admin/characters/:id/set-inactive", charWriteLimit, async (req, r
   }
 });
 
-// POST /api/admin/repair/character-owner-pointers — admin: reconcile approved applications
+// POST /api/admin/repair/character-owner-pointers — admin/mod: reconcile approved applications
 // whose created characters have a missing or incorrect user_id owner pointer.
 app.post("/api/admin/repair/character-owner-pointers", charAppWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
 
-    // Find all approved applications. For each, update any matching character whose
-    // user_id is NULL or differs from the application's applicant_user_id.
-    // Matching is by case-insensitive name; party and constituency are used as
-    // tiebreakers when non-empty to avoid clobbering unrelated characters.
+    // Step 1: Fix user_id on characters linked to approved applications.
+    // Prefer matching by application_id (exact link set during approval).
+    // Fall back to case-insensitive name match with whitespace normalization;
+    // party and constituency used as tiebreakers when non-empty.
     const { rows: fixed } = await pool.query(`
       UPDATE characters c
-         SET user_id = pca.applicant_user_id
+         SET user_id = pca.applicant_user_id,
+             application_id = COALESCE(c.application_id, pca.id)
         FROM pending_character_applications pca
        WHERE pca.status = 'approved'
-         AND LOWER(c.name) = LOWER(pca.name)
-         AND (pca.party       = '' OR LOWER(c.party)        = LOWER(pca.party))
-         AND (pca.constituency = '' OR LOWER(c.constituency) = LOWER(pca.constituency))
+         AND (
+               c.application_id = pca.id
+               OR (
+                 c.application_id IS NULL
+                 AND REGEXP_REPLACE(LOWER(c.name),    '\\s+', ' ', 'g') =
+                     REGEXP_REPLACE(LOWER(pca.name),  '\\s+', ' ', 'g')
+                 AND (pca.party        = '' OR LOWER(c.party)        = LOWER(pca.party))
+                 AND (pca.constituency = '' OR LOWER(c.constituency) = LOWER(pca.constituency))
+               )
+             )
          AND (c.user_id IS NULL OR c.user_id != pca.applicant_user_id)
     RETURNING c.id, c.name, pca.applicant_user_id AS new_user_id, pca.applicant_username
     `);
 
-    if (fixed.length) {
+    // Step 2: Clear stale session characterId pointers.
+    // Any session whose characterId points to a character that is either inactive
+    // or not owned by that session's user gets cleared.  This forces getActiveCharacterId
+    // to re-evaluate from the DB (finding the now-correctly-owned active character).
+    let sessionsCleared = 0;
+    try {
+      const { rowCount } = await pool.query(`
+        UPDATE sessions
+           SET sess = (sess::jsonb - 'characterId')::json
+         WHERE sess::jsonb->>'characterId' IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM characters c
+              WHERE c.id::text      = sess::jsonb->>'characterId'
+                AND c.user_id::text = sess::jsonb->>'userId'
+                AND c.is_active     = TRUE
+           )
+      `);
+      sessionsCleared = rowCount ?? 0;
+    } catch (sessErr) {
+      console.warn("[repair] session cleanup failed (non-fatal):", sessErr.message);
+    }
+
+    if (fixed.length || sessionsCleared > 0) {
       await writeAuditLog(
         req.session.userId, "admin.repair.character-owner-pointers", "characters", null,
-        null, { fixed_count: fixed.length, fixed }
+        null, { fixed_count: fixed.length, sessions_cleared: sessionsCleared, fixed }
       );
     }
+
+    const parts = [];
+    if (fixed.length) parts.push(`Repaired ${fixed.length} character owner pointer(s).`);
+    if (sessionsCleared > 0) parts.push(`Cleared ${sessionsCleared} stale session pointer(s).`);
 
     res.json({
       ok: true,
       fixed_count: fixed.length,
+      sessions_cleared: sessionsCleared,
       fixed: fixed.map((r) => ({ id: r.id, name: r.name, new_user_id: r.new_user_id, applicant_username: r.applicant_username })),
-      message: fixed.length
-        ? `Repaired ${fixed.length} character(s) with missing/incorrect owner pointers.`
-        : "No characters needed repair.",
+      message: parts.length ? parts.join(" ") : "No characters needed repair.",
     });
   } catch (e) {
     console.error(e);
