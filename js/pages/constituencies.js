@@ -4,6 +4,8 @@ import {
   apiGetCharacters,
   apiGetConstituencies,
   apiUpdateConstituency,
+  apiGetParliamentStatus,
+  apiUpdateParliamentStatus,
 } from "../api.js";
 
 // Canonical fixed party list — never pulled from demo.json or runtime state.
@@ -61,14 +63,31 @@ function getLeaderOfOpposition(data) {
   return offices.find((o) => o.id === "leader-opposition")?.holderName || "Vacant";
 }
 
-function renderStateOfParliament(data) {
+function renderStateOfParliament(data, parlStatus) {
   const parl = data.parliament || {};
+  const liveParties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
+
+  // Derive voting seat total: exclude Speaker and Sinn Féin
+  const MAJORITY_EXCLUDES = ["Speaker", "Sinn Féin"];
+  const seatsMap = new Map(liveParties.map((p) => [p.name, Number(p.seats || 0)]));
   const totalSeats = parl.totalSeats || 650;
+  const excludedSeats = MAJORITY_EXCLUDES.reduce((sum, name) => sum + (seatsMap.get(name) || 0), 0);
+  const votingSeats = totalSeats - excludedSeats;
+  const majorityThreshold = Math.floor(votingSeats / 2) + 1;
+
   const largestParty = getLargestParty(data);
-  const governingParties = Array.isArray(parl.governingParties) && parl.governingParties.length
-    ? parl.governingParties.join(", ")
-    : "—";
-  const govType = parl.governmentType || "—";
+
+  // Use DB parliament status if available, fall back to state
+  const govType = (parlStatus?.governmentType) || parl.governmentType || parl.governmentSetup || "—";
+  const governingParties = Array.isArray(parlStatus?.governingParties) && parlStatus.governingParties.length
+    ? parlStatus.governingParties.join(", ")
+    : (Array.isArray(parl.governingParties) && parl.governingParties.length
+      ? parl.governingParties.join(", ")
+      : (parl.governmentParty || "—"));
+  const csParties = Array.isArray(parlStatus?.confidenceSupplyParties) && parlStatus.confidenceSupplyParties.length
+    ? `<div class="kv"><span>C&amp;S Support</span><b>${esc(parlStatus.confidenceSupplyParties.join(", "))}</b></div>`
+    : "";
+
   const pm = getPM(data);
   const loto = getLeaderOfOpposition(data);
 
@@ -76,9 +95,12 @@ function renderStateOfParliament(data) {
     <div class="wgo-tile">
       <div class="wgo-kicker">STATE OF PARLIAMENT</div>
       <div class="kv"><span>Total Seats</span><b>${esc(String(totalSeats))}</b></div>
+      <div class="kv"><span>Voting Seats (excl. Speaker &amp; Sinn Féin)</span><b>${esc(String(votingSeats))}</b></div>
+      <div class="kv"><span>Majority Threshold</span><b>${esc(String(majorityThreshold))}</b></div>
       <div class="kv"><span>Government Type</span><b>${esc(govType)}</b></div>
       <div class="kv"><span>Largest Party</span><b>${esc(largestParty)}</b></div>
       <div class="kv"><span>Governing Party/Parties</span><b>${esc(governingParties)}</b></div>
+      ${csParties}
       <div class="kv"><span>Prime Minister</span><b>${esc(pm)}</b></div>
       <div class="kv"><span>Leader of the Opposition</span><b>${esc(loto)}</b></div>
     </div>
@@ -144,14 +166,14 @@ function bindPartyListButtons(constituencies, data) {
   });
 }
 
-function refreshAll(constituencies, data) {
+function refreshAll(constituencies, data, parlStatus) {
   // Show / hide empty-state callout
   const emptyCallout = document.getElementById("constEmptyCallout");
   if (emptyCallout) {
     emptyCallout.style.display = constituencies.length === 0 && canManage(data) ? "" : "none";
   }
 
-  setHTML("parliament-summary", renderStateOfParliament(data));
+  setHTML("parliament-summary", renderStateOfParliament(data, parlStatus));
   setHTML("party-seats", renderPartyTiles(constituencies, data));
   bindPartyListButtons(constituencies, data);
 
@@ -183,6 +205,8 @@ function bindEditorRowActions(constituencies, data) {
     form.querySelector("#constId").value = c.id;
     form.querySelector("#constName").value = c.name;
     form.querySelector("#constParty").value = c.party;
+    const mpTypeEl = form.querySelector("#constMpType");
+    if (mpTypeEl) mpTypeEl.value = c.mpType || "";
     form.querySelector("#constMpName").value = c.mpName || "";
     form.querySelector("#constChangeType").value = "";
     form.querySelector("#constEffectiveDate").value = "";
@@ -223,6 +247,7 @@ function bindEditor(constituencies, data) {
     const id = form.querySelector("#constId").value.trim();
     if (!id) return; // edit-only; no id means nothing selected
     const party = form.querySelector("#constParty").value;
+    const mpType = form.querySelector("#constMpType")?.value || "";
     const mpName = form.querySelector("#constMpName").value.trim();
     const changeType = form.querySelector("#constChangeType")?.value || "";
     const effectiveDate = form.querySelector("#constEffectiveDate")?.value || "";
@@ -234,7 +259,7 @@ function bindEditor(constituencies, data) {
     // Whip Removal always sets party to Independents
     const resolvedParty = changeType === "whip-removal" ? "Independents" : party;
 
-    const payload = { party: resolvedParty, mpName, changeType, effectiveDate };
+    const payload = { party: resolvedParty, mpType, mpName, changeType, effectiveDate };
     try {
       await apiUpdateConstituency(id, payload);
       form.reset();
@@ -242,9 +267,94 @@ function bindEditor(constituencies, data) {
       const submitBtn = document.getElementById("constEditorSubmit");
       if (submitBtn) submitBtn.disabled = true;
       const fresh = await apiGetConstituencies();
-      refreshAll(fresh.constituencies || [], data);
+      refreshAll(fresh.constituencies || [], data, _lastParlStatus);
     } catch (err) {
       alert(`Error saving constituency: ${err.message}`);
+    }
+  });
+}
+
+// Module-level cache so post-save refresh can pass parlStatus through.
+let _lastParlStatus = null;
+
+// Parties eligible to be part of a coalition or C&S arrangement
+// (excludes Speaker as it's a presiding office, not a party in government)
+const GOV_PARTY_OPTIONS = CONSTITUENCY_PARTIES.filter((p) => p.name !== "Speaker").map((p) => p.name);
+
+function buildPartyCheckboxes(containerId, selectedNames) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = GOV_PARTY_OPTIONS.map((name) => `
+    <label style="display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--line,#ddd);border-radius:4px;cursor:pointer;">
+      <input type="checkbox" name="govPartyCheck" value="${esc(name)}" ${selectedNames.includes(name) ? "checked" : ""}>
+      ${esc(name)}
+    </label>
+  `).join("");
+}
+
+function buildCSGoverningSelect(selectId, selectedParty) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = `<option value="">— select governing party —</option>` +
+    GOV_PARTY_OPTIONS.map((name) => `<option value="${esc(name)}" ${name === selectedParty ? "selected" : ""}>${esc(name)}</option>`).join("");
+}
+
+function bindGovStatusPanel(data, parlStatus) {
+  const panel = document.getElementById("govStatusPanel");
+  const form  = document.getElementById("govStatusForm");
+  const typeEl = document.getElementById("govType");
+  const coalitionRow = document.getElementById("govCoalitionRow");
+  const csRow = document.getElementById("govCSRow");
+  const msgEl = document.getElementById("govStatusMsg");
+  if (!panel || !form || !typeEl) return;
+
+  // Populate from current parlStatus
+  const current = parlStatus || { governmentType: "Majority", governingParties: [], confidenceSupplyParties: [] };
+  typeEl.value = current.governmentType || "Majority";
+  buildPartyCheckboxes("govCoalitionParties", current.governmentType === "Coalition" ? (current.governingParties || []) : []);
+  buildCSGoverningSelect("govCSGoverning", current.governmentType === "Confidence and Supply" ? (current.governingParties?.[0] || "") : "");
+  buildPartyCheckboxes("govCSParties", current.governmentType === "Confidence and Supply" ? (current.confidenceSupplyParties || []) : []);
+
+  function updateVisibility() {
+    const t = typeEl.value;
+    coalitionRow.style.display = t === "Coalition" ? "" : "none";
+    csRow.style.display = t === "Confidence and Supply" ? "" : "none";
+  }
+  updateVisibility();
+  typeEl.addEventListener("change", updateVisibility);
+
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const govType = typeEl.value;
+    let governingParties = [];
+    let confidenceSupplyParties = [];
+
+    if (govType === "Coalition") {
+      governingParties = Array.from(form.querySelectorAll("#govCoalitionParties input[name=govPartyCheck]:checked")).map((cb) => cb.value);
+      if (!governingParties.length) { alert("Please tick at least one coalition party."); return; }
+    } else if (govType === "Confidence and Supply") {
+      const gov = document.getElementById("govCSGoverning")?.value || "";
+      if (!gov) { alert("Please select the governing party."); return; }
+      governingParties = [gov];
+      confidenceSupplyParties = Array.from(form.querySelectorAll("#govCSParties input[name=govPartyCheck]:checked")).map((cb) => cb.value);
+      if (!confidenceSupplyParties.length) { alert("Please tick at least one confidence-and-supply party."); return; }
+    }
+    // For Majority / Minority, governing parties are not explicitly set here
+    // (they are derived from the largest party / PM page)
+
+    try {
+      await apiUpdateParliamentStatus({ governmentType: govType, governingParties, confidenceSupplyParties });
+      _lastParlStatus = { governmentType: govType, governingParties, confidenceSupplyParties };
+      msgEl.innerHTML = `<span style="color:var(--success,green);">Government status saved.</span>`;
+      // Re-render State of Parliament tile
+      const constResult = await apiGetConstituencies();
+      refreshAll(constResult.constituencies || [], data, _lastParlStatus);
+      // Re-init checkboxes with fresh data
+      buildPartyCheckboxes("govCoalitionParties", govType === "Coalition" ? governingParties : []);
+      buildCSGoverningSelect("govCSGoverning", govType === "Confidence and Supply" ? (governingParties[0] || "") : "");
+      buildPartyCheckboxes("govCSParties", govType === "Confidence and Supply" ? confidenceSupplyParties : []);
+    } catch (err) {
+      msgEl.innerHTML = `<span style="color:var(--danger,red);">${esc(err.message)}</span>`;
     }
   });
 }
@@ -256,11 +366,17 @@ function bindEditor(constituencies, data) {
 export async function initConstituenciesPage(data) {
   data.parliament ??= {};
 
-  // Fetch constituencies from DB
+  // Fetch constituencies and parliament status from DB in parallel
   let constituencies = [];
+  let parlStatus = null;
   try {
-    const result = await apiGetConstituencies();
-    constituencies = result.constituencies || [];
+    const [constResult, statusResult] = await Promise.all([
+      apiGetConstituencies().catch(() => ({ constituencies: [] })),
+      apiGetParliamentStatus().catch(() => null),
+    ]);
+    constituencies = constResult.constituencies || [];
+    parlStatus = statusResult;
+    _lastParlStatus = parlStatus;
   } catch {
     // Non-critical: may not be logged in or server unavailable
   }
@@ -288,6 +404,7 @@ export async function initConstituenciesPage(data) {
     // Non-critical: fall back to state-based players list
   }
 
-  refreshAll(constituencies, data);
+  refreshAll(constituencies, data, parlStatus);
   bindEditor(constituencies, data);
+  bindGovStatusPanel(data, parlStatus);
 }
