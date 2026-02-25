@@ -687,6 +687,7 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS family                    TEXT,
       ADD COLUMN IF NOT EXISTS year_first_elected        TEXT,
       ADD COLUMN IF NOT EXISTS personal_background       TEXT,
+      ADD COLUMN IF NOT EXISTS bio                       TEXT,
       ADD COLUMN IF NOT EXISTS financial_background_level INTEGER NOT NULL DEFAULT 1,
       ADD COLUMN IF NOT EXISTS avatar                    TEXT,
       ADD COLUMN IF NOT EXISTS twitter_handle            TEXT,
@@ -714,6 +715,7 @@ async function ensureSchema() {
       family                     TEXT,
       year_first_elected         TEXT,
       personal_background        TEXT,
+      bio                        TEXT,
       financial_background_level INTEGER NOT NULL DEFAULT 1,
       avatar                     TEXT,
       twitter_handle             TEXT,
@@ -722,6 +724,24 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS pca_user_idx   ON pending_character_applications (applicant_user_id);
     CREATE INDEX IF NOT EXISTS pca_status_idx ON pending_character_applications (status);
+    ALTER TABLE pending_character_applications ADD COLUMN IF NOT EXISTS bio TEXT;
+  `);
+
+  // ── Pending Bio Changes ────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pending_bio_changes (
+      id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id     UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      submitted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      status           TEXT NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending','approved','rejected')),
+      reviewed_by      TEXT,
+      reviewed_at      TIMESTAMPTZ,
+      proposed_bio     TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS pbc_char_idx   ON pending_bio_changes (character_id);
+    CREATE INDEX IF NOT EXISTS pbc_status_idx ON pending_bio_changes (status);
   `);
 
   // ── Parties ───────────────────────────────────────────────────────────────
@@ -1414,6 +1434,19 @@ function requireAdminOrMod(req, res) {
   const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
   if (!roles.includes("admin") && !roles.includes("mod")) {
     res.status(403).json({ error: "Forbidden: admin or mod role required" });
+    return false;
+  }
+  return true;
+}
+
+function requireAdminModOrSpeaker(req, res) {
+  if (!req.session?.userId) {
+    res.status(401).json({ error: "Not logged in" });
+    return false;
+  }
+  const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  if (!roles.includes("admin") && !roles.includes("mod") && !roles.includes("speaker")) {
+    res.status(403).json({ error: "Forbidden: admin, mod, or speaker role required" });
     return false;
   }
   return true;
@@ -4331,7 +4364,7 @@ app.get("/api/characters/mine", charReadLimit, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at,
               date_of_birth, education, career_background, family, year_first_elected,
-              personal_background, financial_background_level, avatar, twitter_handle, home, rentals
+              personal_background, bio, financial_background_level, avatar, twitter_handle, home, rentals
          FROM characters WHERE user_id = $1 ORDER BY created_at`,
       [req.session.userId]
     );
@@ -4352,7 +4385,7 @@ app.post("/api/characters/select", charAppWriteLimit, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at,
               date_of_birth, education, career_background, family, year_first_elected,
-              personal_background, financial_background_level, avatar, twitter_handle, home, rentals
+              personal_background, bio, financial_background_level, avatar, twitter_handle, home, rentals
          FROM characters WHERE id = $1 AND user_id = $2`,
       [character_id, req.session.userId]
     );
@@ -4377,7 +4410,7 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
     const {
       name, party = "", constituency = "",
       date_of_birth, education, career_background, family,
-      year_first_elected, personal_background,
+      year_first_elected, personal_background, bio,
       financial_background_level = 1,
       avatar = "", twitter_handle = "",
       home = {}, rentals = []
@@ -4386,6 +4419,9 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "name is required" });
     }
+
+    // Enforce bio max length
+    const bioValue = bio != null ? String(bio).slice(0, 2000) : (personal_background ?? null);
 
     // Only the three canonical playable parties are accepted.
     if (party && !PLAYABLE_PARTIES.includes(party)) {
@@ -4429,13 +4465,13 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
       `INSERT INTO pending_character_applications
          (applicant_user_id, applicant_username, name, party, constituency,
           date_of_birth, education, career_background, family, year_first_elected,
-          personal_background, financial_background_level, avatar, twitter_handle, home, rentals)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb)
+          personal_background, bio, financial_background_level, avatar, twitter_handle, home, rentals)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb)
        RETURNING *`,
       [
         req.session.userId, applicantUsername, name.trim(), party, constituency,
         date_of_birth ?? null, education ?? null, career_background ?? null,
-        family ?? null, year_first_elected ?? null, personal_background ?? null,
+        family ?? null, year_first_elected ?? null, personal_background ?? null, bioValue,
         Number(financial_background_level) || 1,
         String(avatar || "").trim(),
         String(twitter_handle || "").trim().replace(/^@+/, ""),
@@ -4517,13 +4553,14 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
       `INSERT INTO characters
          (user_id, name, party, constituency, roles, offices, is_active,
           date_of_birth, education, career_background, family, year_first_elected,
-          personal_background, financial_background_level, avatar, twitter_handle, home, rentals)
-       VALUES ($1,$2,$3,$4,'[]'::jsonb,'[]'::jsonb,TRUE,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb)
+          personal_background, bio, financial_background_level, avatar, twitter_handle, home, rentals)
+       VALUES ($1,$2,$3,$4,'[]'::jsonb,'[]'::jsonb,TRUE,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb)
        RETURNING *`,
       [
         app_.applicant_user_id, app_.name, app_.party, app_.constituency,
         app_.date_of_birth, app_.education, app_.career_background, app_.family,
-        app_.year_first_elected, app_.personal_background, app_.financial_background_level,
+        app_.year_first_elected, app_.personal_background, app_.bio ?? null,
+        app_.financial_background_level,
         app_.avatar, app_.twitter_handle,
         JSON.stringify(app_.home ?? {}), JSON.stringify(app_.rentals ?? [])
       ]
@@ -4579,9 +4616,155 @@ app.post("/api/admin/characters/applications/:id/reject", charAppWriteLimit, asy
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PROPERTY MANAGEMENT (mod/admin)
-// POST /api/mod/property/set — update character home + rentals
+// BIOGRAPHY CHANGE REQUESTS
+// POST /api/characters/bio-change — submit a bio change request
+// GET  /api/characters/bio-changes/mine — list own pending bio changes
+// GET  /api/admin/bio-changes — list all pending bio changes (admin/mod/speaker)
+// POST /api/admin/bio-changes/:id/approve — approve a bio change
+// POST /api/admin/bio-changes/:id/reject  — reject a bio change
 // ═══════════════════════════════════════════════════════════════════════════
+
+app.post("/api/characters/bio-change", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { proposed_bio } = req.body || {};
+    if (!proposed_bio || typeof proposed_bio !== "string" || !proposed_bio.trim()) {
+      return res.status(400).json({ error: "proposed_bio is required" });
+    }
+    if (proposed_bio.length > 2000) {
+      return res.status(400).json({ error: "Biography must be 2000 characters or fewer" });
+    }
+
+    // Resolve active character for this user
+    const { rows: charRows } = await pool.query(
+      "SELECT id FROM characters WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
+      [req.session.userId]
+    );
+    if (!charRows.length) {
+      return res.status(404).json({ error: "No active character found" });
+    }
+    const character_id = charRows[0].id;
+
+    // Only one pending bio change per character at a time
+    const { rows: existing } = await pool.query(
+      "SELECT id FROM pending_bio_changes WHERE character_id = $1 AND status = 'pending' LIMIT 1",
+      [character_id]
+    );
+    if (existing.length) {
+      return res.status(409).json({ error: "You already have a pending biography change request." });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO pending_bio_changes (character_id, user_id, proposed_bio)
+       VALUES ($1,$2,$3) RETURNING *`,
+      [character_id, req.session.userId, proposed_bio.trim()]
+    );
+    await writeAuditLog(req.session.userId, "bio_change.submit", "pending_bio_changes", rows[0].id, null, rows[0]);
+    res.status(201).json({ ok: true, change: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/characters/bio-changes/mine", charAppReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows: charRows } = await pool.query(
+      "SELECT id FROM characters WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
+      [req.session.userId]
+    );
+    if (!charRows.length) return res.json({ changes: [] });
+    const { rows } = await pool.query(
+      "SELECT * FROM pending_bio_changes WHERE character_id = $1 ORDER BY submitted_at DESC",
+      [charRows[0].id]
+    );
+    res.json({ changes: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/admin/bio-changes", charAppReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { status } = req.query;
+    let q = `SELECT pbc.*, c.name AS character_name, u.username AS submitter_username
+             FROM pending_bio_changes pbc
+             JOIN characters c ON c.id = pbc.character_id
+             JOIN users u ON u.id = pbc.user_id`;
+    const params = [];
+    if (status) { q += " WHERE pbc.status = $1"; params.push(status); }
+    q += " ORDER BY pbc.submitted_at DESC";
+    const { rows } = await pool.query(q, params);
+    res.json({ changes: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/admin/bio-changes/:id/approve", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { rows: changeRows } = await pool.query(
+      "SELECT * FROM pending_bio_changes WHERE id = $1",
+      [req.params.id]
+    );
+    if (!changeRows.length) return res.status(404).json({ error: "Bio change request not found" });
+    const change = changeRows[0];
+    if (change.status !== "pending") {
+      return res.status(409).json({ error: `Bio change request is already ${change.status}` });
+    }
+
+    // Apply the bio to the character record
+    await pool.query(
+      "UPDATE characters SET bio = $1 WHERE id = $2",
+      [change.proposed_bio, change.character_id]
+    );
+    await pool.query(
+      "UPDATE pending_bio_changes SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+      [req.session.userId, req.params.id]
+    );
+    await writeAuditLog(
+      req.session.userId, "bio_change.approve", "pending_bio_changes", req.params.id,
+      change, { ...change, status: "approved" }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/admin/bio-changes/:id/reject", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { rows: changeRows } = await pool.query(
+      "SELECT * FROM pending_bio_changes WHERE id = $1",
+      [req.params.id]
+    );
+    if (!changeRows.length) return res.status(404).json({ error: "Bio change request not found" });
+    const change = changeRows[0];
+    if (change.status !== "pending") {
+      return res.status(409).json({ error: `Bio change request is already ${change.status}` });
+    }
+
+    await pool.query(
+      "UPDATE pending_bio_changes SET status='rejected', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+      [req.session.userId, req.params.id]
+    );
+    await writeAuditLog(
+      req.session.userId, "bio_change.reject", "pending_bio_changes", req.params.id,
+      change, { ...change, status: "rejected" }
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 const propertyWriteLimit = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false });
 

@@ -6,6 +6,7 @@ import { tileSection } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
 import { isAdmin, isMod } from "../permissions.js";
+import { npcPartyOptions } from "../parties.js";
 
 const DEPARTMENTS = [
   "Cabinet Office (General)",
@@ -264,10 +265,7 @@ export function initSubmitBillPage(data) {
   const eligibility = computeEligibility(data);
   const canPostAsNpc = isAdmin(data) || isMod(data);
 
-  const partyOptions = (Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [])
-    .filter((p) => Number(p.seats || 0) > 0 && p.name !== "Others")
-    .map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`)
-    .join("");
+  const partyOptions = npcPartyOptions();
 
   typeRoot.innerHTML = renderTypeControls(data);
   builderRoot.innerHTML = renderBuilder(canPostAsNpc, partyOptions);

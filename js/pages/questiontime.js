@@ -7,6 +7,7 @@ import {
   apiGetQtQuestions, apiSubmitQtQuestion, apiAnswerQtQuestion,
   apiFollowupQtQuestion, apiPatchQtQuestion,
 } from "../api.js";
+import { npcPartyOptions } from "../parties.js";
 
 /** Static list of Question Time departments — mirrors government.js OFFICE_SPECS */
 const QT_OFFICES = [
@@ -229,8 +230,7 @@ function render(data, state) {
   const canDeleteQ = isAdmin(data) || isMod(data);
   const askGate = canAskMainQuestion(data, selectedOffice.id);
   const canPostAsNpc = isAdmin(data) || isMod(data);
-  const partyOptions = (Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [])
-    .map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
+  const partyOptions = npcPartyOptions();
 
   const officeQuestions = questions
     .filter((q) => q.office === selectedOffice.id)

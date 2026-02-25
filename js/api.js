@@ -618,6 +618,61 @@ export async function apiRejectCharacterApplication(id) {
   return res.json();
 }
 
+export async function apiSubmitBioChange(proposed_bio) {
+  const res = await fetch(`${API_BASE}/api/characters/bio-change`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ proposed_bio }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiSubmitBioChange failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiGetMyBioChanges() {
+  const res = await fetch(`${API_BASE}/api/characters/bio-changes/mine`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyBioChanges failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetAllBioChanges(status) {
+  const url = status
+    ? `${API_BASE}/api/admin/bio-changes?status=${encodeURIComponent(status)}`
+    : `${API_BASE}/api/admin/bio-changes`;
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetAllBioChanges failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiApproveBioChange(id) {
+  const res = await fetch(`${API_BASE}/api/admin/bio-changes/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiApproveBioChange failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiRejectBioChange(id) {
+  const res = await fetch(`${API_BASE}/api/admin/bio-changes/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiRejectBioChange failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function apiSetProperty(character_id, home, rentals) {
   const res = await fetch(`${API_BASE}/api/mod/property/set`, {
     method: "POST",
