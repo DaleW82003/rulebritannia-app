@@ -178,33 +178,35 @@ function render(data, state) {
     ` : ""}
 
     <section class="panel" style="margin-bottom:12px;">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <article class="tile">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:stretch;">
+        <article class="tile" style="min-height:110px;display:flex;flex-direction:column;">
           <h2 style="margin-top:0;">Party Leader</h2>
-          <div style="display:flex;gap:10px;align-items:center;">
+          <div style="display:flex;gap:10px;align-items:center;flex:1;">
             <img src="${esc(avatarFor(dbLeaderName, dbLeaderAvatar))}" alt="Party leader avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
             <div><b>${esc(dbLeaderName || "Vacant")}</b></div>
           </div>
         </article>
 
-        <article class="tile">
+        <article class="tile" style="min-height:110px;display:flex;flex-direction:column;">
           <h2 style="margin-top:0;">Party Treasury</h2>
-          <div><b>Cash on hand:</b> ${esc(formatMoney(party.treasury?.cash))}</div>
-          <div><b>Debt:</b> ${esc(formatMoney(party.treasury?.debt))}</div>
-          <div><b>Members:</b> ${esc(Number(party.treasury?.members || 0).toLocaleString("en-GB"))}</div>
+          <div style="flex:1;">
+            <div><b>Cash on hand:</b> ${esc(formatMoney(party.treasury?.cash))}</div>
+            <div><b>Debt:</b> ${esc(formatMoney(party.treasury?.debt))}</div>
+            <div><b>Members:</b> ${esc(Number(party.treasury?.members || 0).toLocaleString("en-GB"))}</div>
+          </div>
         </article>
 
-        <article class="tile">
+        <article class="tile" style="min-height:110px;display:flex;flex-direction:column;">
           <h2 style="margin-top:0;">Party Chairman</h2>
-          <div style="display:flex;gap:10px;align-items:center;">
+          <div style="display:flex;gap:10px;align-items:center;flex:1;">
             <img src="${esc(avatarFor(dbChairmanName, dbChairmanAvatar))}" alt="Chairman avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
             <div><b>${esc(dbChairmanName || "Vacant")}</b></div>
           </div>
         </article>
 
-        <article class="tile">
+        <article class="tile" style="min-height:110px;display:flex;flex-direction:column;">
           <h2 style="margin-top:0;">Chief Whip</h2>
-          <div style="display:flex;gap:10px;align-items:center;">
+          <div style="display:flex;gap:10px;align-items:center;flex:1;">
             <img src="${esc(avatarFor(dbChiefWhipName, dbChiefWhipAvatar))}" alt="Chief Whip avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
             <div><b>${esc(dbChiefWhipName || "Vacant")}</b></div>
           </div>
