@@ -83,6 +83,8 @@ function avatarFromCharacterProfile(data, name) {
   if (!target) return "";
 
   const pools = [
+    // DB characters are the live source of truth — checked first.
+    ...(Array.isArray(data?._dbCharacters) ? data._dbCharacters : []),
     ...(Array.isArray(data?.players) ? data.players : []),
     ...(Array.isArray(data?.government?.activeCharacters) ? data.government.activeCharacters : []),
     ...(Array.isArray(data?.opposition?.activeCharacters) ? data.opposition.activeCharacters : []),
@@ -99,6 +101,13 @@ function avatarFromCharacterProfile(data, name) {
 }
 
 function getActiveCharacterChoices(data) {
+  // DB characters (fetched in initGovernmentPage) are the live source of truth.
+  // The state-based roster is belt-and-braces fallback only.
+  if (Array.isArray(data._dbCharacters) && data._dbCharacters.length) {
+    return data._dbCharacters
+      .filter((c) => c.name)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
   const fromGov = Array.isArray(data.government?.activeCharacters)
     ? data.government.activeCharacters.filter((c) => c.name && c.active)
     : [];

@@ -288,7 +288,10 @@ function render(data, state) {
             <div>
               <label class="label" for="party-leader-name">Leader (active character)</label>
               <select id="party-leader-name" name="leaderName" class="input">
-                ${activeCharactersForParty(data, party.name).map((c) => `<option value="${esc(c.name)}" ${c.name === (party.leader?.name || "") ? "selected" : ""}>${esc(c.name)}</option>`).join("") || `<option value="">No active character available</option>`}
+                ${(state.dbState?.partyCharacters?.length
+                    ? state.dbState.partyCharacters.slice().sort((a, b) => a.name.localeCompare(b.name))
+                    : activeCharactersForParty(data, party.name)
+                  ).map((c) => `<option value="${esc(c.name)}" ${c.name === (party.leader?.name || "") ? "selected" : ""}>${esc(c.name)}</option>`).join("") || `<option value="">No active character available</option>`}
               </select>
             </div>
             <div>
@@ -419,7 +422,10 @@ function render(data, state) {
     if (!manager) return;
     const fd = new FormData(e.currentTarget);
     const leaderName = String(fd.get("leaderName") || "").trim();
-    const candidates = activeCharactersForParty(data, party.name);
+    // Use DB characters as the live source of truth; fall back to state pools.
+    const candidates = state.dbState?.partyCharacters?.length
+      ? state.dbState.partyCharacters
+      : activeCharactersForParty(data, party.name);
     const selected = candidates.find((c) => c.name === leaderName);
     if (selected) {
       party.leader.name = selected.name;
