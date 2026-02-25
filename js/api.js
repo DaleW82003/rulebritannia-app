@@ -1635,3 +1635,111 @@ export async function apiAdminSetUserActiveCharacter(userId, characterId) {
   }
   return res.json();
 }
+
+// ── Playerbase & Finance APIs ──────────────────────────────────────────────
+
+export async function apiGetPlayerbase() {
+  const res = await fetch(`${API_BASE}/api/admin/playerbase`, { credentials: "include" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiGetPlayerbase failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiAdminSetBank(characterId, bankBalance) {
+  const res = await fetch(`${API_BASE}/api/admin/finance/set-bank`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id: characterId, bank_balance: bankBalance }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminSetBank failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiAdminSetSalaryOverride(characterId, override) {
+  const res = await fetch(`${API_BASE}/api/admin/finance/set-salary-override`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id: characterId, annual_salary_override: override }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminSetSalaryOverride failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiAdminSetPositions(characterId, positions) {
+  const res = await fetch(`${API_BASE}/api/admin/finance/set-positions`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id: characterId, positions }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminSetPositions failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiAdminCreateRevenue(characterId, label, annualAmount) {
+  const res = await fetch(`${API_BASE}/api/admin/finance/revenue`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id: characterId, label, annual_amount: annualAmount }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminCreateRevenue failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiAdminUpdateRevenue(id, updates) {
+  const res = await fetch(`${API_BASE}/api/admin/finance/revenue/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminUpdateRevenue failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiAdminDeleteRevenue(id) {
+  const res = await fetch(`${API_BASE}/api/admin/finance/revenue/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminDeleteRevenue failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiAdminUprateScale(name, effectiveFromSimIndex, pctUplift) {
+  const res = await fetch(`${API_BASE}/api/admin/salary-scales/uprate`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ name, effective_from_sim_index: effectiveFromSimIndex, pct_uplift: pctUplift }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminUprateScale failed (${res.status})`);
+  }
+  return res.json();
+}

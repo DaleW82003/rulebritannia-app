@@ -328,8 +328,7 @@ function render(data, state) {
       <article class="tile">
         <h2 style="margin-top:0;">Bank Balance</h2>
         <p><b>Current Balance:</b> ${money(profile.bankBalance)}</p>
-        <p class="muted">Projected next Sunday credit (salary + additional revenue): ${money(weekly)}</p>
-        ${manager ? `<button type="button" class="btn" id="personal-apply-credit">Apply Sunday Credit Now</button>` : ""}
+        <p class="muted">Projected next salary credit (annual ÷ 6, every 2 sim months): ${money(weekly)}</p>
       </article>
 
       <article class="tile">
@@ -482,16 +481,6 @@ function render(data, state) {
   host.querySelector("#personal-profile-select")?.addEventListener("change", (e) => {
     state.selectedName = String(e.currentTarget.value || "");
     state.message = "";
-    render(data, state);
-  });
-
-  host.querySelector("#personal-apply-credit")?.addEventListener("click", () => {
-    if (!manager) return;
-    profile.bankBalance = Number(profile.bankBalance || 0) + weekly;
-    profile.lastSundayCreditAt = nowStamp();
-    profile.updatedAt = nowStamp();
-    saveState(data);
-    state.message = `Applied Sunday credit of ${money(weekly)}.`;
     render(data, state);
   });
 

@@ -1171,10 +1171,223 @@ async function ensureSchema() {
     INSERT INTO budget_data (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
   `);
 
+  // ── Salary scales (economy system) ───────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS salary_scales (
+      id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name                     TEXT NOT NULL,
+      effective_from_sim_index INT  NOT NULL,
+      created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS salary_scales_idx ON salary_scales (effective_from_sim_index DESC);
+
+    CREATE TABLE IF NOT EXISTS salary_scale_roles (
+      scale_id      UUID NOT NULL REFERENCES salary_scales(id) ON DELETE CASCADE,
+      role_key      TEXT NOT NULL,
+      annual_salary NUMERIC NOT NULL DEFAULT 0,
+      PRIMARY KEY (scale_id, role_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS character_positions (
+      character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      position_key TEXT NOT NULL,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (character_id, position_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS character_finance (
+      character_id            UUID PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+      bank_balance            NUMERIC NOT NULL DEFAULT 0,
+      annual_salary_override  NUMERIC,
+      last_paid_sim_index     INT,
+      updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS character_additional_revenue (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      label        TEXT NOT NULL,
+      annual_amount NUMERIC NOT NULL DEFAULT 0,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS char_add_rev_idx ON character_additional_revenue (character_id);
+  `);
+
   await seedPlayableParties();
   await seedScandalTemplates();
   await seedElection1997();
   await seedConstituencies1997();
+  await seedSalaryScale1997();
+}
+
+// ── 1997 baseline salary scale (idempotent) ────────────────────────────────
+// effective_from_sim_index = 1997*12 + (8-1) = 23964 + 7 = 23971 (August 1997)
+const SALARY_1997_SIM_INDEX = 1997 * 12 + 7; // August 1997 = index 23971
+
+const SALARY_1997_ROLES = {
+  prime_minister:            101749,
+  leader_opposition:          63024,
+  leader_third_party:         60387,
+  speaker:                    60387,
+  secretary_of_state:         63047,
+  minister_of_state:          53800,
+  shadow_secretary_of_state:  53800,
+  committee_chairman:         48860,
+  committee_member:           46860,
+  backbencher:                43860,
+};
+
+async function seedSalaryScale1997() {
+  // Check if a scale for sim_index 23971 already exists
+  const { rows: existing } = await pool.query(
+    "SELECT id FROM salary_scales WHERE effective_from_sim_index = $1 LIMIT 1",
+    [SALARY_1997_SIM_INDEX]
+  );
+  if (existing.length) return; // already seeded
+  const { rows } = await pool.query(
+    "INSERT INTO salary_scales (name, effective_from_sim_index) VALUES ($1, $2) RETURNING id",
+    ["1997 Baseline", SALARY_1997_SIM_INDEX]
+  );
+  const scaleId = rows[0].id;
+  for (const [roleKey, salary] of Object.entries(SALARY_1997_ROLES)) {
+    await pool.query(
+      "INSERT INTO salary_scale_roles (scale_id, role_key, annual_salary) VALUES ($1, $2, $3)",
+      [scaleId, roleKey, salary]
+    );
+  }
+  console.log("[seed] 1997 salary scale seeded, id =", scaleId);
+}
+
+// ── Salary computation helpers ────────────────────────────────────────────────
+
+/**
+ * Returns the active salary scale row + its roles for the given sim index.
+ * "Active" = latest scale where effective_from_sim_index <= simIndex.
+ */
+async function resolveActiveSalaryScale(simIndex) {
+  const { rows: scales } = await pool.query(
+    `SELECT s.id, s.name, s.effective_from_sim_index,
+            json_object_agg(r.role_key, r.annual_salary) AS roles
+       FROM salary_scales s
+       JOIN salary_scale_roles r ON r.scale_id = s.id
+      WHERE s.effective_from_sim_index <= $1
+      GROUP BY s.id, s.name, s.effective_from_sim_index
+      ORDER BY s.effective_from_sim_index DESC
+      LIMIT 1`,
+    [simIndex]
+  );
+  return scales[0] ?? null;
+}
+
+/**
+ * Compute a character's base annual salary using Rule 1 (highest-wins) from DB positions.
+ * Returns { annualSalary, positionKeys, scaleId }.
+ */
+async function computeCharacterAnnualSalary(characterId, simIndex) {
+  const scale = await resolveActiveSalaryScale(simIndex);
+  if (!scale) return { annualSalary: 0, positionKeys: [], scaleId: null };
+
+  const { rows: positions } = await pool.query(
+    "SELECT position_key FROM character_positions WHERE character_id = $1",
+    [characterId]
+  );
+  const positionKeys = positions.map((p) => p.position_key);
+
+  // Rule 1: highest salary wins
+  let maxSalary = 0;
+  const rolesMap = scale.roles || {};
+  for (const key of positionKeys) {
+    const s = Number(rolesMap[key] ?? 0);
+    if (s > maxSalary) maxSalary = s;
+  }
+
+  return { annualSalary: maxSalary, positionKeys, scaleId: scale.id };
+}
+
+/**
+ * Resolve annual salary for a character: override takes precedence over computed.
+ */
+async function resolvedAnnualSalary(characterId, simIndex) {
+  const { rows: fin } = await pool.query(
+    "SELECT annual_salary_override FROM character_finance WHERE character_id = $1",
+    [characterId]
+  );
+  const override = fin[0]?.annual_salary_override;
+  if (override != null) return { annualSalary: Number(override), isOverride: true };
+  const { annualSalary, positionKeys, scaleId } = await computeCharacterAnnualSalary(characterId, simIndex);
+  return { annualSalary, positionKeys, scaleId, isOverride: false };
+}
+
+/**
+ * Automatically credit salary for all player characters that have missed periods.
+ * Called on every clock tick. simIndex = year*12 + (month-1).
+ */
+async function runSalaryCrediting(month, year) {
+  const simIndex = year * 12 + (month - 1);
+  try {
+    // Get all characters with a user_id (player characters)
+    const { rows: chars } = await pool.query(
+      "SELECT id, user_id FROM characters WHERE user_id IS NOT NULL"
+    );
+
+    for (const char of chars) {
+      try {
+        // Ensure character_finance row exists
+        await pool.query(`
+          INSERT INTO character_finance (character_id, bank_balance, last_paid_sim_index)
+          VALUES ($1, 0, $2)
+          ON CONFLICT (character_id) DO NOTHING
+        `, [char.id, simIndex]);
+
+        const { rows: fin } = await pool.query(
+          "SELECT bank_balance, last_paid_sim_index FROM character_finance WHERE character_id = $1",
+          [char.id]
+        );
+        if (!fin.length) continue;
+
+        const lastPaid = fin[0].last_paid_sim_index;
+
+        // On first seen (just inserted), start payments going forward — no back-pay
+        if (lastPaid === simIndex) continue;
+        if (lastPaid == null) {
+          await pool.query(
+            "UPDATE character_finance SET last_paid_sim_index = $1, updated_at = NOW() WHERE character_id = $2",
+            [simIndex, char.id]
+          );
+          continue;
+        }
+
+        const periodsMissed = Math.floor((simIndex - lastPaid) / 2);
+        if (periodsMissed <= 0) continue;
+
+        const { annualSalary } = await resolvedAnnualSalary(char.id, simIndex);
+
+        // Sum additional revenue
+        const { rows: rev } = await pool.query(
+          "SELECT COALESCE(SUM(annual_amount), 0) AS total FROM character_additional_revenue WHERE character_id = $1",
+          [char.id]
+        );
+        const additional = Number(rev[0]?.total ?? 0);
+
+        const periodCredit = (annualSalary + additional) / 6;
+        const totalCredit = periodsMissed * periodCredit;
+        const newLastPaid = lastPaid + periodsMissed * 2;
+
+        await pool.query(
+          `UPDATE character_finance
+              SET bank_balance = bank_balance + $1,
+                  last_paid_sim_index = $2,
+                  updated_at = NOW()
+            WHERE character_id = $3`,
+          [totalCredit, newLastPaid, char.id]
+        );
+      } catch (charErr) {
+        console.error(`[salary] error crediting character ${char.id}:`, charErr.message);
+      }
+    }
+  } catch (e) {
+    console.error("[salary] runSalaryCrediting error:", e.message);
+  }
 }
 
 // The three playable parties for Rule Britannia.
@@ -3919,6 +4132,10 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
     }
 
     await writeAuditLog(req.session.userId, "clock.tick", "sim_clock", "main", null, { ...rows[0], archivedItems: archived });
+
+    // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
+    runSalaryCrediting(newMonth, newYear).catch((e) => console.error("[clock/tick] salary crediting failed:", e.message));
+
     res.json({ ok: true, clock: rows[0], archivedItems: archived });
   } catch (e) {
     console.error(e);
@@ -6700,6 +6917,10 @@ app.post("/api/sim/tick", simWriteLimit, async (req, res) => {
       [rows[0].month, rows[0].year]
     );
     await writeAuditLog(req.session.userId, "sim.tick", "sim_state", "main", null, rows[0]);
+
+    // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
+    runSalaryCrediting(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] salary crediting failed:", e.message));
+
     res.json({ ok: true, sim: rows[0] });
   } catch (e) {
     console.error(e);
@@ -8891,7 +9112,325 @@ app.post("/api/admin/reset-baseline", resetBaselineLimit, async (req, res) => {
 
 
 
-// Refuse to start in production with the default insecure secret.
+// ═══════════════════════════════════════════════════════════════════════════
+// PLAYERBASE — staff roster page + finance management APIs
+// GET  /api/admin/playerbase
+// POST /api/admin/finance/set-bank
+// POST /api/admin/finance/set-positions
+// POST /api/admin/finance/revenue            (create)
+// PATCH /api/admin/finance/revenue/:id       (update)
+// DELETE /api/admin/finance/revenue/:id      (delete)
+// POST /api/admin/salary-scales/uprate
+// ═══════════════════════════════════════════════════════════════════════════
+
+const playerbaseLimit = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+const financeLimit    = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+
+// GET /api/admin/playerbase — full roster with characters and finance context
+app.get("/api/admin/playerbase", playerbaseLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+
+    // All users with roles
+    const { rows: users } = await pool.query(`
+      SELECT u.id, u.username,
+             COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+       GROUP BY u.id, u.username
+       ORDER BY u.username
+    `);
+
+    // All characters (owned by any user) with their finance + positions
+    const { rows: chars } = await pool.query(`
+      SELECT c.id, c.user_id, c.name, c.party, c.constituency, c.is_active,
+             cf.bank_balance,
+             cf.annual_salary_override,
+             cf.last_paid_sim_index,
+             COALESCE(
+               (SELECT json_agg(cp.position_key ORDER BY cp.position_key)
+                  FROM character_positions cp WHERE cp.character_id = c.id),
+               '[]'::json
+             ) AS positions,
+             COALESCE(
+               (SELECT json_agg(json_build_object('id', ar.id, 'label', ar.label, 'annual_amount', ar.annual_amount)
+                                ORDER BY ar.created_at)
+                  FROM character_additional_revenue ar WHERE ar.character_id = c.id),
+               '[]'::json
+             ) AS additional_revenue
+        FROM characters c
+        LEFT JOIN character_finance cf ON cf.character_id = c.id
+       WHERE c.user_id IS NOT NULL
+       ORDER BY c.name ASC
+    `);
+
+    // Get current sim index for salary computation
+    const { rows: simRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const simMonth = simRows[0]?.sim_current_month ?? 8;
+    const simYear  = simRows[0]?.sim_current_year  ?? 1997;
+    const simIndex = simYear * 12 + (simMonth - 1);
+
+    // Resolve salary scale roles for quick client-side salary display
+    const scale = await resolveActiveSalaryScale(simIndex);
+    const scaleRoles = scale?.roles ?? {};
+
+    // Group characters by user_id
+    const charsByUser = {};
+    for (const c of chars) {
+      if (!charsByUser[c.user_id]) charsByUser[c.user_id] = [];
+      charsByUser[c.user_id].push({
+        id:                   c.id,
+        name:                 c.name,
+        party:                c.party,
+        constituency:         c.constituency,
+        is_active:            c.is_active,
+        bankBalance:          Number(c.bank_balance ?? 0),
+        annualSalaryOverride: c.annual_salary_override != null ? Number(c.annual_salary_override) : null,
+        lastPaidSimIndex:     c.last_paid_sim_index ?? null,
+        positions:            Array.isArray(c.positions) ? c.positions : [],
+        additionalRevenue:    Array.isArray(c.additional_revenue) ? c.additional_revenue : [],
+      });
+    }
+
+    // Build roster
+    const roster = users.map((u) => ({
+      id:         u.id,
+      username:   u.username,
+      roles:      u.roles || [],
+      characters: (charsByUser[u.id] || []).map((ch) => {
+        // Compute annual salary from positions (Rule 1: highest wins)
+        let computedSalary = 0;
+        for (const pos of ch.positions) {
+          const s = Number(scaleRoles[pos] ?? 0);
+          if (s > computedSalary) computedSalary = s;
+        }
+        const annualSalary = ch.annualSalaryOverride != null ? ch.annualSalaryOverride : computedSalary;
+        return { ...ch, computedSalary, annualSalary };
+      }),
+    }));
+
+    res.json({ roster, scaleRoles, simIndex });
+  } catch (e) {
+    console.error("[GET /api/admin/playerbase]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/finance/set-bank — set bank balance for a character
+app.post("/api/admin/finance/set-bank", financeLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { character_id, bank_balance } = req.body || {};
+    if (!character_id) return res.status(400).json({ error: "character_id is required" });
+    const balance = parseFloat(bank_balance);
+    if (!Number.isFinite(balance)) return res.status(400).json({ error: "bank_balance must be a number" });
+
+    const { rows: charRows } = await pool.query("SELECT id FROM characters WHERE id = $1", [character_id]);
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+
+    await pool.query(`
+      INSERT INTO character_finance (character_id, bank_balance)
+      VALUES ($1, $2)
+      ON CONFLICT (character_id) DO UPDATE SET bank_balance = $2, updated_at = NOW()
+    `, [character_id, balance]);
+
+    await writeAuditLog(req.session.userId, "admin.finance.set-bank", "character", character_id, null, { bank_balance: balance });
+    res.json({ ok: true, bank_balance: balance });
+  } catch (e) {
+    console.error("[POST /api/admin/finance/set-bank]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/finance/set-salary-override — set/clear salary override
+app.post("/api/admin/finance/set-salary-override", financeLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { character_id, annual_salary_override } = req.body || {};
+    if (!character_id) return res.status(400).json({ error: "character_id is required" });
+
+    const override = annual_salary_override != null && annual_salary_override !== ""
+      ? parseFloat(annual_salary_override)
+      : null;
+    if (override != null && !Number.isFinite(override)) {
+      return res.status(400).json({ error: "annual_salary_override must be a number or null" });
+    }
+
+    await pool.query(`
+      INSERT INTO character_finance (character_id, annual_salary_override)
+      VALUES ($1, $2)
+      ON CONFLICT (character_id) DO UPDATE SET annual_salary_override = $2, updated_at = NOW()
+    `, [character_id, override]);
+
+    await writeAuditLog(req.session.userId, "admin.finance.set-salary-override", "character", character_id, null, { annual_salary_override: override });
+    res.json({ ok: true, annual_salary_override: override });
+  } catch (e) {
+    console.error("[POST /api/admin/finance/set-salary-override]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/finance/set-positions — set character positions (replaces all)
+app.post("/api/admin/finance/set-positions", financeLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { character_id, positions } = req.body || {};
+    if (!character_id) return res.status(400).json({ error: "character_id is required" });
+    if (!Array.isArray(positions)) return res.status(400).json({ error: "positions must be an array" });
+
+    const { rows: charRows } = await pool.query("SELECT id FROM characters WHERE id = $1", [character_id]);
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM character_positions WHERE character_id = $1", [character_id]);
+      for (const pos of positions) {
+        const key = String(pos || "").trim();
+        if (key) {
+          await client.query(
+            "INSERT INTO character_positions (character_id, position_key) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            [character_id, key]
+          );
+        }
+      }
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    await writeAuditLog(req.session.userId, "admin.finance.set-positions", "character", character_id, null, { positions });
+    res.json({ ok: true, positions });
+  } catch (e) {
+    console.error("[POST /api/admin/finance/set-positions]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/finance/revenue — create additional revenue entry
+app.post("/api/admin/finance/revenue", financeLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { character_id, label, annual_amount } = req.body || {};
+    if (!character_id) return res.status(400).json({ error: "character_id is required" });
+    if (!label || !String(label).trim()) return res.status(400).json({ error: "label is required" });
+    const amount = parseFloat(annual_amount);
+    if (!Number.isFinite(amount)) return res.status(400).json({ error: "annual_amount must be a number" });
+
+    const { rows } = await pool.query(
+      "INSERT INTO character_additional_revenue (character_id, label, annual_amount) VALUES ($1, $2, $3) RETURNING id, label, annual_amount, created_at",
+      [character_id, String(label).trim(), amount]
+    );
+    await writeAuditLog(req.session.userId, "admin.finance.revenue.create", "character", character_id, null, rows[0]);
+    res.json({ ok: true, revenue: rows[0] });
+  } catch (e) {
+    console.error("[POST /api/admin/finance/revenue]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PATCH /api/admin/finance/revenue/:id — update additional revenue entry
+app.patch("/api/admin/finance/revenue/:id", financeLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { label, annual_amount } = req.body || {};
+    const updates = [];
+    const params = [];
+    if (label != null) { params.push(String(label).trim()); updates.push(`label = $${params.length}`); }
+    if (annual_amount != null) {
+      const amount = parseFloat(annual_amount);
+      if (!Number.isFinite(amount)) return res.status(400).json({ error: "annual_amount must be a number" });
+      params.push(amount); updates.push(`annual_amount = $${params.length}`);
+    }
+    if (!updates.length) return res.status(400).json({ error: "Nothing to update" });
+    params.push(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE character_additional_revenue SET ${updates.join(", ")} WHERE id = $${params.length} RETURNING id, character_id, label, annual_amount`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ error: "Revenue entry not found" });
+    await writeAuditLog(req.session.userId, "admin.finance.revenue.update", "revenue", req.params.id, null, rows[0]);
+    res.json({ ok: true, revenue: rows[0] });
+  } catch (e) {
+    console.error("[PATCH /api/admin/finance/revenue/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// DELETE /api/admin/finance/revenue/:id — delete additional revenue entry
+app.delete("/api/admin/finance/revenue/:id", financeLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { rows } = await pool.query(
+      "DELETE FROM character_additional_revenue WHERE id = $1 RETURNING id, character_id",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Revenue entry not found" });
+    await writeAuditLog(req.session.userId, "admin.finance.revenue.delete", "revenue", req.params.id, null, rows[0]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[DELETE /api/admin/finance/revenue/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/salary-scales/uprate — create new scale with % uplift from current
+app.post("/api/admin/salary-scales/uprate", financeLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { name, effective_from_sim_index, pct_uplift } = req.body || {};
+    const simIdx = parseInt(effective_from_sim_index, 10);
+    if (!Number.isFinite(simIdx)) return res.status(400).json({ error: "effective_from_sim_index must be an integer" });
+    const uplift = parseFloat(pct_uplift ?? 0);
+    if (!Number.isFinite(uplift)) return res.status(400).json({ error: "pct_uplift must be a number" });
+    if (!name || !String(name).trim()) return res.status(400).json({ error: "name is required" });
+
+    // Get current scale roles as basis
+    const scale = await resolveActiveSalaryScale(simIdx);
+    if (!scale) return res.status(404).json({ error: "No active salary scale found to base uplift on" });
+
+    const factor = 1 + uplift / 100;
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows: newScale } = await client.query(
+        "INSERT INTO salary_scales (name, effective_from_sim_index) VALUES ($1, $2) RETURNING id",
+        [String(name).trim(), simIdx]
+      );
+      const newScaleId = newScale[0].id;
+      const { rows: oldRoles } = await client.query(
+        "SELECT role_key, annual_salary FROM salary_scale_roles WHERE scale_id = $1",
+        [scale.id]
+      );
+      for (const r of oldRoles) {
+        await client.query(
+          "INSERT INTO salary_scale_roles (scale_id, role_key, annual_salary) VALUES ($1, $2, $3)",
+          [newScaleId, r.role_key, Math.round(Number(r.annual_salary) * factor)]
+        );
+      }
+      await client.query("COMMIT");
+      await writeAuditLog(req.session.userId, "admin.salary-scales.uprate", "salary_scales", newScaleId, null,
+        { basedOn: scale.id, pct_uplift: uplift, effective_from_sim_index: simIdx });
+      res.json({ ok: true, scale_id: newScaleId, based_on: scale.id, pct_uplift: uplift });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error("[POST /api/admin/salary-scales/uprate]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+
 const PORT = process.env.PORT || 3000;
 
 if (process.env.NODE_ENV === "production") {
