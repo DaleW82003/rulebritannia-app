@@ -738,6 +738,9 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS characters_application_idx ON characters (application_id);
   `);
 
+  // Migration: ensure created_at exists on characters (may be absent if table predates this column)
+  await pool.query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+
   // Migration: add active_character_id to users (DB-canonical pointer to the user's active character)
   await pool.query(`
     ALTER TABLE users
@@ -4799,6 +4802,25 @@ app.get("/api/characters", charReadLimit, async (req, res) => {
   }
 });
 
+// IMPORTANT: /mine must be registered BEFORE /:id so Express does not treat
+// the literal string "mine" as a UUID parameter (which would cause a 500).
+app.get("/api/characters/mine", charReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at,
+              date_of_birth, education, career_background, family, year_first_elected,
+              personal_background, bio, financial_background_level, avatar, twitter_handle, home, rentals
+         FROM characters WHERE user_id = $1 ORDER BY created_at`,
+      [req.session.userId]
+    );
+    res.json({ characters: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.get("/api/characters/:id", charReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
@@ -4878,24 +4900,6 @@ app.patch("/api/characters/:id", charWriteLimit, async (req, res) => {
 
 const charAppReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
 const charAppWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
-
-// GET /api/characters/mine — list characters owned by the current user
-app.get("/api/characters/mine", charReadLimit, async (req, res) => {
-  try {
-    if (!requireAuth(req, res)) return;
-    const { rows } = await pool.query(
-      `SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at,
-              date_of_birth, education, career_background, family, year_first_elected,
-              personal_background, bio, financial_background_level, avatar, twitter_handle, home, rentals
-         FROM characters WHERE user_id = $1 ORDER BY created_at`,
-      [req.session.userId]
-    );
-    res.json({ characters: rows });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Server error" });
-  }
-});
 
 // POST /api/characters/select — set session active character
 app.post("/api/characters/select", charAppWriteLimit, async (req, res) => {
@@ -5237,8 +5241,8 @@ app.post("/api/admin/repair/character-owner-pointers", charAppWriteLimit, async 
 
     // Diagnostic counts — collected before repairs so they reflect the "problem" state
     const { rows: orphanRows } = await pool.query(`
-      SELECT id, name, party, constituency, is_active, created_at
-        FROM characters WHERE user_id IS NULL ORDER BY created_at DESC LIMIT 50
+      SELECT id, name, party, constituency, is_active
+        FROM characters WHERE user_id IS NULL ORDER BY name LIMIT 50
     `);
     const orphansCount = orphanRows.length;
 
@@ -5343,13 +5347,14 @@ app.post("/api/admin/repair/character-owner-pointers", charAppWriteLimit, async 
       fixed_count: fixed.length,
       active_pointer_fixed_count: activePointerFixedCount,
       sessions_cleared: sessionsCleared,
-      orphans: orphanRows.map((r) => ({ id: r.id, name: r.name, party: r.party, constituency: r.constituency, is_active: r.is_active, created_at: r.created_at })),
+      orphans: orphanRows.map((r) => ({ id: r.id, name: r.name, party: r.party, constituency: r.constituency, is_active: r.is_active })),
       fixed: fixed.map((r) => ({ id: r.id, name: r.name, new_user_id: r.new_user_id, applicant_username: r.applicant_username })),
       message: parts.length ? parts.join(" ") : "No characters needed repair.",
     });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Server error" });
+    const errId = Date.now().toString(36);
+    console.error(`[repair/character-owner-pointers] errId=${errId}`, e);
+    res.status(500).json({ error: "Server error", errId });
   }
 });
 

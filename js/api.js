@@ -639,7 +639,8 @@ export async function apiAdminRepairCharacterOwners() {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `apiAdminRepairCharacterOwners failed (${res.status})`);
+    const msg = body.error || `apiAdminRepairCharacterOwners failed (${res.status})`;
+    throw new Error(body.errId ? `${msg} (errId: ${body.errId})` : msg);
   }
   return res.json();
 }

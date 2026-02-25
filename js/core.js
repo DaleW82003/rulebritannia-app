@@ -76,7 +76,8 @@ export function saveData(data) {
 
 /**
  * Persist simulation state.
- * - When logged in: writes to localStorage (optimistic) and POSTs to the backend.
+ * - When logged in as admin/mod/speaker: writes to localStorage and POSTs to the backend.
+ * - When logged in as a regular user: writes to localStorage only (server rejects writes).
  * - When not logged in: shows a "Login required" notice and does not persist.
  * This is the sole write function; no page may call the API or localStorage directly.
  * @param {object} data - The full state object to persist.
@@ -91,7 +92,13 @@ export function saveState(data) {
     return;
   }
   saveData(data);
-  apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
+  // Only admin/mod/speaker may write the shared game state to the server.
+  // Regular players save to localStorage only (local session cache).
+  const roles = Array.isArray(_user?.roles) ? _user.roles : [];
+  const canPersist = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
+  if (canPersist) {
+    apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
+  }
 }
 
 export function ensureDefaults(data) {

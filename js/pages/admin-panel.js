@@ -827,10 +827,22 @@ export async function initAdminPanelPage(data) {
           <label class="label" style="margin:0;"><input type="checkbox" id="sim-pause-clock-check" ${gs.isPaused ? "checked" : ""}> Pause game clock (unpause on Sunday only)</label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn" type="button" id="sim-save-pause-clock">Save Pause Setting</button>
-            <button class="btn" type="button" id="sim-force-sunday-roll">Force Sunday Roll</button>
             <button class="btn" type="button" id="sim-start-simulation" ${gs.started || !isSundayToday() ? "disabled" : ""}>Start Simulation (Sunday Only)</button>
           </div>
           ${!gs.started && !isSundayToday() ? `<div class="muted">Start unlocks on Sunday. Next Sunday anchor: <b>${esc(nextSundayIso().slice(0, 10))}</b>.</div>` : ""}
+          <details style="margin-top:8px;border:1px solid #c00;border-radius:6px;padding:8px 12px;">
+            <summary style="cursor:pointer;color:#c00;font-weight:600;">⚠ Danger Zone — Clock Tools</summary>
+            <div style="margin-top:10px;display:grid;gap:8px;">
+              <p style="margin:0;font-size:13px;color:#555;">
+                These actions affect the simulation clock in ways that cannot be easily undone.
+                Use only for testing or emergency correction.
+              </p>
+              <div>
+                <button class="btn" type="button" id="sim-force-sunday-roll"
+                        style="background:#c00;color:#fff;border-color:#c00;">Force Sunday Roll</button>
+              </div>
+            </div>
+          </details>
           <form id="sim-monarch-form" style="display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:8px;align-items:end;">
             <div>
               <label class="label" for="sim-monarchGender">Monarch</label>
@@ -931,6 +943,19 @@ export async function initAdminPanelPage(data) {
         await apiSaveConfig(updates);
         logAction({ action: "config-saved", target: "app-config", details: updates });
         currentConfig = { ...currentConfig, ...updates };
+
+        // If sim_start_date was updated and the sim has not yet started (or is paused),
+        // update gameState's anchor so the masthead clock reflects the new date immediately.
+        if (updates.sim_start_date && !data.gameState?.started) {
+          const parsed = new Date(updates.sim_start_date);
+          if (!Number.isNaN(parsed.getTime())) {
+            data.gameState ??= {};
+            data.gameState.startSimMonth = parsed.getMonth() + 1; // 1-12
+            data.gameState.startSimYear  = parsed.getFullYear();
+            saveState(data);
+          }
+        }
+
         render("cfg:Config saved.");
       } catch (err) {
         toastError(`Save config: ${err.message}`);
@@ -1141,6 +1166,7 @@ export async function initAdminPanelPage(data) {
     });
 
     host.querySelector("#sim-force-sunday-roll")?.addEventListener("click", () => {
+      if (!confirm("⚠ Force Sunday Roll will trigger all Sunday roll logic immediately. This cannot be undone. Proceed?")) return;
       runSundayRoll(data);
       const statusEl = host.querySelector("#sim-control-status");
       if (statusEl) statusEl.textContent = "Sunday roll forced.";
