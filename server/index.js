@@ -1096,6 +1096,20 @@ async function ensureSchema() {
     ALTER TABLE election_party_summary ADD COLUMN IF NOT EXISTS votes BIGINT NOT NULL DEFAULT 0;
   `);
 
+  // Budget data table (single-row, JSONB)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS budget_data (
+      id               TEXT PRIMARY KEY,
+      last_year        JSONB,
+      current_year     JSONB,
+      admin_controls   JSONB NOT NULL DEFAULT '{"debtInterestPercent":7.2,"debtInterestExpenditure":31.11,"charityReliefExpenditure":0.41,"otherExpensesExpenditure":-0.66}'::jsonb,
+      archive          JSONB NOT NULL DEFAULT '[]'::jsonb,
+      pending          JSONB,
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    INSERT INTO budget_data (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
+  `);
+
   await seedPlayableParties();
   await seedScandalTemplates();
   await seedElection1997();
@@ -1687,6 +1701,97 @@ async function seedScandalTemplates() {
       [t.id, t.title, t.category, t.severity_base, t.time_window_months, JSON.stringify(t.stages)]
     );
   }
+}
+
+/**
+ * Seed the 1996–97 baseline budget figures.  Idempotent by default:
+ * does nothing if last_year is already set, unless force=true.
+ */
+async function seedBudgetBaseline(force = false) {
+  if (!force) {
+    const { rows } = await pool.query(`SELECT last_year FROM budget_data WHERE id = 'main'`);
+    if (rows.length && rows[0].last_year !== null) return; // already seeded
+  }
+  const lastYear = {
+    label: "1996–97 Baseline",
+    gdp: 1930,
+    revenues: {
+      "Income Tax": 102.65,
+      "Corporate Tax": 34.74,
+      "Value Added Tax": 92.17,
+      "National Insurance": 66.62,
+      "Fuel Duty": 23.28,
+      "Stamp Duty": 9.96,
+      "Business Rate Appropriations": 14.14,
+    },
+    expenditures: {
+      "Health": 40.96,
+      "Social Security": 59.42,
+      "Education": 88.10,
+      "Home Office": 34.94,
+      "Ministry of Defense": 34.11,
+      "Transport": 18.69,
+      "Local Government": 61.21,
+      "Environment": 6.54,
+      "Energy": 5.58,
+      "Culture": 0.06,
+      "Housing": -2.45,
+      "Business": -5.50,
+      "Scottish Office": 21.14,
+      "Welsh Office": 7.10,
+      "Northern Ireland Office": 3.58,
+    },
+    capital: { "Capital Expenditure": 35.21 },
+  };
+  const currentYear = {
+    label: "1997–98 (Seeded Baseline)",
+    gdp: 1950,
+    revenues: {
+      "Income Tax": 104.40,
+      "Corporate Tax": 36.10,
+      "Value Added Tax": 93.20,
+      "National Insurance": 67.15,
+      "Fuel Duty": 24.04,
+      "Stamp Duty": 12.81,
+      "Business Rate Appropriations": 15.96,
+    },
+    expenditures: {
+      "Health": 42.10,
+      "Social Security": 60.20,
+      "Education": 89.24,
+      "Home Office": 29.25,
+      "Ministry of Defense": 34.53,
+      "Transport": 15.96,
+      "Local Government": 63.98,
+      "Environment": 6.67,
+      "Energy": 5.58,
+      "Culture": 0.01,
+      "Housing": -11.88,
+      "Business": 2.88,
+      "Scottish Office": 22.51,
+      "Welsh Office": 7.55,
+      "Northern Ireland Office": 3.27,
+    },
+    capital: { "Capital Expenditure": 14.14 },
+  };
+  const adminControls = {
+    debtInterestPercent: 7.20,
+    debtInterestExpenditure: 31.11,
+    charityReliefExpenditure: 0.41,
+    otherExpensesExpenditure: -0.66,
+  };
+  await pool.query(
+    `INSERT INTO budget_data (id, last_year, current_year, admin_controls, archive, pending, updated_at)
+     VALUES ('main', $1::jsonb, $2::jsonb, $3::jsonb, '[]'::jsonb, NULL, NOW())
+     ON CONFLICT (id) DO UPDATE SET
+       last_year      = EXCLUDED.last_year,
+       current_year   = EXCLUDED.current_year,
+       admin_controls = EXCLUDED.admin_controls,
+       archive        = EXCLUDED.archive,
+       pending        = NULL,
+       updated_at     = NOW()`,
+    [JSON.stringify(lastYear), JSON.stringify(currentYear), JSON.stringify(adminControls)]
+  );
 }
 
 /**
@@ -7841,6 +7946,162 @@ app.put("/api/parliament/status", parlStatusWriteLimit, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error("[PUT /api/parliament/status]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BUDGET API
+// GET  /api/budget                  — authenticated: fetch current budget from DB
+// POST /api/admin/budget/seed       — admin-only: seed 1996–97 baseline (idempotent)
+// PUT  /api/admin/budget/controls   — admin-only: update static admin controls
+// POST /api/budget/draft            — admin/mod: submit a new budget draft
+// POST /api/admin/budget/approve    — admin-only: approve pending draft
+// POST /api/admin/budget/reject     — admin-only: reject pending draft
+// ═══════════════════════════════════════════════════════════════════════════
+
+const budgetReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const budgetWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/budget", budgetReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(`SELECT last_year, current_year, admin_controls, archive, pending FROM budget_data WHERE id = 'main'`);
+    if (!rows.length) return res.json({ lastYear: null, currentYear: null, adminControls: {}, archive: [], pending: null });
+    const r = rows[0];
+    res.json({
+      lastYear:      r.last_year,
+      currentYear:   r.current_year,
+      adminControls: r.admin_controls || {},
+      archive:       r.archive || [],
+      pending:       r.pending || null,
+    });
+  } catch (e) {
+    console.error("[GET /api/budget]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/admin/budget/seed", budgetWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { force = false } = req.body || {};
+    if (!force) {
+      const { rows } = await pool.query(`SELECT last_year FROM budget_data WHERE id = 'main'`);
+      if (rows.length && rows[0].last_year !== null) {
+        return res.status(409).json({ error: "Budget already seeded. Send { force: true } to overwrite.", alreadySeeded: true });
+      }
+    }
+    await seedBudgetBaseline(true);
+    await writeAuditLog(req.session.userId, "admin.budget.seed", "budget_data", "main", null, { force });
+    res.json({ ok: true, message: "Budget baseline seeded successfully." });
+  } catch (e) {
+    console.error("[POST /api/admin/budget/seed]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/admin/budget/controls", budgetWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { debtInterestPercent, debtInterestExpenditure, charityReliefExpenditure, otherExpensesExpenditure } = req.body || {};
+    const controls = {
+      debtInterestPercent:       Number(debtInterestPercent       ?? 7.2),
+      debtInterestExpenditure:   Number(debtInterestExpenditure   ?? 31.11),
+      charityReliefExpenditure:  Number(charityReliefExpenditure  ?? 0.41),
+      otherExpensesExpenditure:  Number(otherExpensesExpenditure  ?? -0.66),
+    };
+    await pool.query(
+      `UPDATE budget_data SET admin_controls = $1::jsonb, updated_at = NOW() WHERE id = 'main'`,
+      [JSON.stringify(controls)]
+    );
+    res.json({ ok: true, adminControls: controls });
+  } catch (e) {
+    console.error("[PUT /api/admin/budget/controls]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/budget/draft", budgetWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { budget, submittedBy } = req.body || {};
+    if (!budget || typeof budget !== "object") return res.status(400).json({ error: "budget object required" });
+    const pending = { budget, submittedBy: String(submittedBy || ""), submittedAt: new Date().toLocaleString("en-GB") };
+    await pool.query(
+      `UPDATE budget_data SET pending = $1::jsonb, updated_at = NOW() WHERE id = 'main'`,
+      [JSON.stringify(pending)]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/budget/draft]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/admin/budget/approve", budgetWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows } = await pool.query(`SELECT last_year, current_year, archive, pending FROM budget_data WHERE id = 'main'`);
+    if (!rows.length) return res.status(404).json({ error: "Budget data not found" });
+    const { last_year, current_year, archive, pending } = rows[0];
+    if (!pending) return res.status(400).json({ error: "No pending budget to approve" });
+    const approved = { ...pending.budget, label: `Approved ${new Date().toLocaleDateString("en-GB")}`, approvedAt: new Date().toLocaleString("en-GB") };
+    const newArchive = [...(archive || [])];
+    if (last_year) newArchive.push(last_year);
+    await pool.query(
+      `UPDATE budget_data SET last_year = $1::jsonb, current_year = $2::jsonb, archive = $3::jsonb, pending = NULL, updated_at = NOW() WHERE id = 'main'`,
+      [JSON.stringify(current_year), JSON.stringify(approved), JSON.stringify(newArchive)]
+    );
+    await writeAuditLog(req.session.userId, "admin.budget.approve", "budget_data", "main", null, {});
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/admin/budget/approve]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/admin/budget/reject", budgetWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    await pool.query(`UPDATE budget_data SET pending = NULL, updated_at = NOW() WHERE id = 'main'`);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/admin/budget/reject]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMIN: users — list all DB users with their roles
+// GET /api/admin/users
+// ═══════════════════════════════════════════════════════════════════════════
+
+const adminUsersLimit = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/admin/users", adminUsersLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows } = await pool.query(`
+      SELECT u.id, u.username, u.email,
+             COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles,
+             (SELECT c.name FROM characters c WHERE c.user_id = u.id AND c.is_active = true LIMIT 1) AS active_character
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+       GROUP BY u.id, u.username, u.email
+       ORDER BY u.username
+    `);
+    res.json({
+      users: rows.map((r) => ({
+        id:              r.id,
+        username:        r.username,
+        email:           r.email,
+        roles:           r.roles || [],
+        activeCharacter: r.active_character || "",
+      })),
+    });
+  } catch (e) {
+    console.error("[GET /api/admin/users]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

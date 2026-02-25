@@ -199,7 +199,8 @@ function renderScandalCard(scandal, playerChoices, state) {
 // ── Mod scandal panels ────────────────────────────────────────────────────────
 
 function renderModScandalCreate(templates, optedInCharacters) {
-  const tplOptions = (templates || []).map((t) =>
+  const tpls = templates || [];
+  const tplOptions = tpls.map((t) =>
     `<option value="${esc(t.id)}">${esc(t.title)} (${esc(t.category)})</option>`
   ).join("");
   const chars = optedInCharacters || [];
@@ -210,6 +211,7 @@ function renderModScandalCreate(templates, optedInCharacters) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Moderator: Create Sensitive Situation</h2>
       <p class="muted">Create a situation for a character who has opted in. They will see a 'Sensitive Situation Discovered' card and can Investigate, Report to Party, or Ignore.</p>
+      ${!tpls.length ? `<div class="muted-block">No scandal templates available. Templates are seeded automatically at server startup — check server logs if this persists.</div>` : `
       <form id="cw-mod-situation-form">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:8px;">
           <div>
@@ -239,7 +241,7 @@ function renderModScandalCreate(templates, optedInCharacters) {
           </div>
         </div>
         <button type="submit" class="btn">Create Situation</button>
-      </form>
+      </form>`}
     </section>
   `;
 }
@@ -401,24 +403,29 @@ let _templates = null;
 let _optedInCharacters = null;
 
 async function loadScandalData(mod) {
+  // Fetch player's own scandal data — may fail if the user has no active character.
   try {
-    const [mine, tpls] = await Promise.all([
-      apiScandalsMine(),
-      mod ? apiModScandalTemplates() : Promise.resolve({ templates: [] }),
-    ]);
-    _scandalData = mine;
-    _templates = tpls.templates || [];
-    if (mod) {
-      const [modOpen, optedIn] = await Promise.all([
+    _scandalData = await apiScandalsMine();
+  } catch (e) {
+    console.error("[scandal] apiScandalsMine failed:", e);
+    if (!_scandalData) _scandalData = { opted_in: false, situations: [], scandals: [], player_choices: [] };
+  }
+
+  // Fetch mod-only data independently so a missing active character doesn't block templates.
+  if (mod) {
+    try {
+      const [tpls, modOpen, optedIn] = await Promise.all([
+        apiModScandalTemplates(),
         apiModScandalsOpen(),
         apiModScandalOptedInCharacters(),
       ]);
+      _templates = tpls.templates || [];
       _modScandalData = modOpen;
       _optedInCharacters = optedIn.characters || [];
+    } catch (e) {
+      console.error("[scandal] mod scandal data load failed:", e);
+      _templates = _templates || [];
     }
-  } catch (e) {
-    console.error("[scandal] loadScandalData failed:", e);
-    if (!_scandalData) _scandalData = { opted_in: false, situations: [], scandals: [], player_choices: [] };
   }
 }
 
