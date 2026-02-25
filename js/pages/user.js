@@ -315,7 +315,20 @@ function render(data, state) {
   const pendingByCurrent = dbMyApps.filter((a) => a.status === "pending");
   const delegationChoices = delegationChoicesForParty(data, char?.party, char?.name);
 
-  const HOME_TYPES = ["Detached house", "Semi-detached house", "Terraced house", "Flat/apartment", "Town house", "Country estate", "Other"];
+  const HOME_TYPES = [
+    "Studio Flat", "One-Bed Flat", "Two-Bed Flat", "Terraced House", "End-Terrace",
+    "Semi-Detached House", "Detached Suburban House", "Townhouse",
+    "Country House", "Country Estate", "Mansion"
+  ];
+  const RENTAL_TYPES = [
+    "Single Room Let", "Studio Flat", "One/Two-Bed Flat", "Terraced House",
+    "Semi-Detached House", "Detached House",
+    "High Street Retail Unit", "Office Unit", "Warehouse", "Holiday Let"
+  ];
+  const PROPERTY_VALUES = [
+    "Under £100,000", "£100,001 to £200,000", "£200,001 to £300,000",
+    "£300,001 to £400,000", "£400,001 to £500,000", "Over £500,000"
+  ];
   const RENTAL_STATUSES = ["Occupied", "Vacant", "Under renovation"];
 
   host.innerHTML = `
@@ -409,8 +422,12 @@ function render(data, state) {
                 <option value="">Select home type (optional)</option>
                 ${HOME_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
               </select>
+              <select class="input" name="home_value">
+                <option value="">Estimated value (optional)</option>
+                ${PROPERTY_VALUES.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}
+              </select>
               <input class="input" name="home_region" placeholder="Region / location (optional)">
-              <label class="label" style="display:flex;gap:6px;align-items:center;margin:0;padding:10px 12px;border:1px solid var(--line,#cdd9f2);border-radius:14px;background:#fff;font-weight:400;color:var(--text);">
+              <label style="display:flex;gap:8px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:#fff;font-weight:400;color:var(--text);cursor:pointer;">
                 <input type="checkbox" name="home_mortgaged"> <span>Mortgaged</span>
               </label>
               <input class="input" name="home_notes" placeholder="Notes (optional)">
@@ -563,7 +580,6 @@ function render(data, state) {
 
   // Rental builder
   const rentalsList = host.querySelector("#rentals-list");
-  const RENTAL_TYPES = ["Detached house", "Semi-detached house", "Terraced house", "Flat/apartment", "Commercial", "Other"];
   let rentalCount = 0;
   function addRentalRow() {
     if (rentalCount >= 5) return;
@@ -578,6 +594,7 @@ function render(data, state) {
         <button type="button" class="btn danger" data-remove-rental="${idx}" style="padding:4px 10px;font-size:12px;">Remove</button>
       </div>
       <select class="input" name="rental_${idx}_type"><option value="">Type</option>${RENTAL_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}</select>
+      <select class="input" name="rental_${idx}_value"><option value="">Estimated value (optional)</option>${PROPERTY_VALUES.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select>
       <input class="input" name="rental_${idx}_location" placeholder="Location">
       <select class="input" name="rental_${idx}_status"><option value="">Status</option>${RENTAL_STATUSES.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")}</select>
       <input class="input" name="rental_${idx}_notes" placeholder="Notes (optional)">
@@ -620,6 +637,7 @@ function render(data, state) {
       if (type) {
         rentals.push({
           type,
+          value: String(fd.get(`rental_${i}_value`) || "").trim(),
           location: String(fd.get(`rental_${i}_location`) || "").trim(),
           status: String(fd.get(`rental_${i}_status`) || "").trim(),
           notes: String(fd.get(`rental_${i}_notes`) || "").trim()
@@ -628,6 +646,7 @@ function render(data, state) {
     }
     const home = {
       type: String(fd.get("home_type") || "").trim(),
+      value: String(fd.get("home_value") || "").trim(),
       region: String(fd.get("home_region") || "").trim(),
       mortgaged: fd.get("home_mortgaged") === "on",
       notes: String(fd.get("home_notes") || "").trim()
@@ -874,7 +893,7 @@ export async function initUserPage(data) {
   try {
     const urlParam = new URL(window.location.href).searchParams.get("account") || "";
     const selfUsername = String(data?.currentUser?.username || "").trim();
-    if (urlParam && urlParam !== selfUsername && canAdminOrMod(data)) {
+    if (urlParam && urlParam !== selfUsername && canAdminModOrSpeaker(data)) {
       viewingUsername = urlParam;
     }
   } catch { /* non-browser or URL parse error — ignore */ }
