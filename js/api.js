@@ -1435,3 +1435,73 @@ export async function apiGetConstituencyEvents(id) {
   const res = await fetch(`${API_BASE}/api/constituencies/${encodeURIComponent(id)}/events`, { credentials: "include" });
   return res.json();
 }
+
+// ── Budget (DB-backed) ─────────────────────────────────────────────────────
+
+export async function apiGetBudget() {
+  const res = await fetch(`${API_BASE}/api/budget`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetBudget failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAdminSeedBudget(force = false) {
+  const res = await fetch(`${API_BASE}/api/admin/budget/seed`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ force }),
+  });
+  return res.json();
+}
+
+export async function apiAdminUpdateBudgetControls(controls) {
+  const res = await fetch(`${API_BASE}/api/admin/budget/controls`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(controls),
+  });
+  if (!res.ok) throw new Error(`apiAdminUpdateBudgetControls failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSubmitBudgetDraft(budget, submittedBy) {
+  const res = await fetch(`${API_BASE}/api/budget/draft`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ budget, submittedBy }),
+  });
+  if (!res.ok) throw new Error(`apiSubmitBudgetDraft failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAdminApproveBudget() {
+  const res = await fetch(`${API_BASE}/api/admin/budget/approve`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error(`apiAdminApproveBudget failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAdminRejectBudget() {
+  const res = await fetch(`${API_BASE}/api/admin/budget/reject`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error(`apiAdminRejectBudget failed (${res.status})`);
+  return res.json();
+}
+
+// ── Admin: user management ─────────────────────────────────────────────────
+
+export async function apiAdminGetUsers() {
+  const res = await fetch(`${API_BASE}/api/admin/users`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiAdminGetUsers failed (${res.status})`);
+  return res.json();
+}

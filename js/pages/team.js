@@ -1,37 +1,20 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin } from "../permissions.js";
+import { apiAdminGetUsers, apiSetUserRoles } from "../api.js";
+
+const SYSTEM_ROLES = ["admin", "mod", "speaker"];
 
 const TEAM_LEVELS = [
-  { id: "admins", label: "Admins", roleKey: "isAdmin" },
-  { id: "mods", label: "Mods", roleKey: "isMod" },
-  { id: "speaker", label: "Mod Mountain", roleKey: "isSpeaker" }
+  { id: "admins", label: "Admins", role: "admin" },
+  { id: "mods", label: "Mods", role: "mod" },
+  { id: "speaker", label: "Mod Mountain", role: "speaker" }
 ];
 
-function normaliseTeam(data) {
-  data.userManagement ??= {};
-  data.userManagement.accounts ??= [];
-  data.aTeam ??= { admins: [], mods: [], speaker: [] };
-
-  // Sync aTeam lists from accounts for consistency.
-  const admins = [];
-  const mods = [];
-  const speaker = [];
-  for (const a of data.userManagement.accounts) {
-    if (!a?.username) continue;
-    const entry = {
-      username: String(a.username),
-      activeCharacter: String(a.activeCharacter || ""),
-      active: a.active !== false
-    };
-    if (a.isAdmin) admins.push(entry);
-    if (a.isMod) mods.push(entry);
-    if (a.isSpeaker) speaker.push(entry);
-  }
-
-  data.aTeam.admins = admins;
-  data.aTeam.mods = mods;
-  data.aTeam.speaker = speaker;
+function buildTeamFromUsers(users) {
+  const admins = users.filter((u) => u.roles.includes("admin"));
+  const mods   = users.filter((u) => u.roles.includes("mod"));
+  const speaker = users.filter((u) => u.roles.includes("speaker"));
+  return { admins, mods, speaker };
 }
 
 function renderLevel(level, members, adminMode) {
@@ -42,7 +25,7 @@ function renderLevel(level, members, adminMode) {
         <article class="tile" style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
           <div>
             <div><b>${esc(m.username)}</b></div>
-            <div class="muted">Character: ${esc(m.activeCharacter || "None")} • Status: ${m.active ? "Active" : "Inactive"}</div>
+            <div class="muted">Character: ${esc(m.activeCharacter || "None")}</div>
           </div>
           <a class="btn" href="user.html?account=${encodeURIComponent(m.username)}">Open User Page</a>
         </article>
@@ -52,18 +35,17 @@ function renderLevel(level, members, adminMode) {
   `;
 }
 
-function renderEditor(data, state) {
+function renderEditor(users, state) {
   if (!state.editLevel) return "";
   const level = TEAM_LEVELS.find((l) => l.id === state.editLevel);
   if (!level) return "";
 
-  const options = (data.userManagement.accounts || []).map((a, idx) => {
-    const key = String(a.username || "");
-    const checked = state.draftAssignments?.[key] ?? !!a[level.roleKey];
+  const options = users.map((u) => {
+    const checked = state.draftAssignments?.[u.id] ?? u.roles.includes(level.role);
     return `
       <label style="display:flex;gap:8px;align-items:center;">
-        <input type="checkbox" data-action="set-level" data-level="${esc(level.id)}" data-index="${idx}" ${checked ? "checked" : ""}>
-        <span><b>${esc(a.username)}</b> <span class="muted">(${esc(a.activeCharacter || "No character")})</span></span>
+        <input type="checkbox" data-action="set-level" data-level="${esc(level.id)}" data-userid="${esc(u.id)}" ${checked ? "checked" : ""}>
+        <span><b>${esc(u.username)}</b> <span class="muted">(${esc(u.activeCharacter || "No character")})</span></span>
       </label>
     `;
   }).join("");
@@ -78,26 +60,26 @@ function renderEditor(data, state) {
         <button class="btn" type="button" data-action="save-level" ${state.dirty ? "" : "disabled"}>Save ${esc(level.label)} Changes</button>
         <button class="btn" type="button" data-action="cancel-level">Cancel</button>
       </div>
-      <p class="muted" style="margin-top:8px;">Changes are staged until you press Save.</p>
+      <p class="muted" style="margin-top:8px;">Changes take effect immediately on save. Roles are stored in the database.</p>
     </section>
   `;
 }
 
-function render(data, state) {
+function render(users, state) {
   const host = document.getElementById("team-root") || document.querySelector("main.wrap");
   if (!host) return;
 
-  normaliseTeam(data);
-  const adminMode = isAdmin(data);
+  const adminMode = isAdmin(state.currentData);
+  const team = buildTeamFromUsers(users);
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Mod Mountain</div></div>
 
-    ${renderLevel(TEAM_LEVELS[0], data.aTeam.admins || [], adminMode)}
-    ${renderLevel(TEAM_LEVELS[1], data.aTeam.mods || [], adminMode)}
-    ${renderLevel(TEAM_LEVELS[2], data.aTeam.speaker || [], adminMode)}
+    ${renderLevel(TEAM_LEVELS[0], team.admins, adminMode)}
+    ${renderLevel(TEAM_LEVELS[1], team.mods, adminMode)}
+    ${renderLevel(TEAM_LEVELS[2], team.speaker, adminMode)}
 
-    ${adminMode ? renderEditor(data, state) : ""}
+    ${adminMode ? renderEditor(users, state) : ""}
 
     ${state.message ? `<p class="muted">${esc(state.message)}</p>` : ""}
   `;
@@ -108,28 +90,25 @@ function render(data, state) {
       const level = TEAM_LEVELS.find((l) => l.id === state.editLevel);
       state.draftAssignments = {};
       if (level) {
-        for (const account of (data.userManagement.accounts || [])) {
-          state.draftAssignments[String(account.username || "")] = !!account[level.roleKey];
+        for (const u of users) {
+          state.draftAssignments[u.id] = u.roles.includes(level.role);
         }
       }
       state.dirty = false;
-      render(data, state);
+      render(users, state);
     });
   });
 
   host.querySelectorAll('[data-action="set-level"]').forEach((input) => {
     input.addEventListener("change", () => {
       if (!adminMode) return;
-      const levelId = String(input.dataset.level || "");
-      const idx = Number(input.dataset.index || -1);
-      const account = data.userManagement.accounts[idx];
-      const level = TEAM_LEVELS.find((l) => l.id === levelId);
-      if (!account || !level) return;
+      const userId = String(input.dataset.userid || "");
       state.draftAssignments ??= {};
-      state.draftAssignments[String(account.username || "")] = input.checked;
+      state.draftAssignments[userId] = input.checked;
       state.dirty = true;
-      state.message = `Staged ${level.label} changes. Press Save to apply.`;
-      render(data, state);
+      const level = TEAM_LEVELS.find((l) => l.id === state.editLevel);
+      state.message = `Staged ${level?.label || ""} changes. Press Save to apply.`;
+      render(users, state);
     });
   });
 
@@ -138,45 +117,58 @@ function render(data, state) {
     state.dirty = false;
     state.draftAssignments = {};
     state.message = "Discarded staged role changes.";
-    render(data, state);
+    render(users, state);
   });
 
-  host.querySelector('[data-action="save-level"]')?.addEventListener("click", () => {
+  host.querySelector('[data-action="save-level"]')?.addEventListener("click", async () => {
     if (!adminMode || !state.editLevel) return;
     const level = TEAM_LEVELS.find((l) => l.id === state.editLevel);
     if (!level) return;
 
-    for (const account of (data.userManagement.accounts || [])) {
-      const key = String(account.username || "");
-      account[level.roleKey] = !!state.draftAssignments?.[key];
+    const saveBtn = host.querySelector('[data-action="save-level"]');
+    if (saveBtn) saveBtn.disabled = true;
 
-      const baseRoles = (account.roles || []).filter((r) => !["admin", "mod", "speaker"].includes(r));
-      if (account.isAdmin) baseRoles.push("admin");
-      if (account.isMod) baseRoles.push("mod");
-      if (account.isSpeaker) baseRoles.push("speaker");
-      account.roles = [...new Set(baseRoles)];
-
-      const currentUsername = String(data.currentUser?.username || "");
-      if (account.username === currentUsername) {
-        data.currentUser.isAdmin = !!account.isAdmin;
-        data.currentUser.isMod = !!account.isMod;
-        data.currentUser.isSpeaker = !!account.isSpeaker;
-        data.currentUser.roles = [...account.roles];
-      }
+    try {
+      // Apply role changes for each user whose assignment changed
+      const updated = await Promise.all(
+        users.map(async (u) => {
+          const shouldHave = !!state.draftAssignments?.[u.id];
+          const currentlyHas = u.roles.includes(level.role);
+          if (shouldHave === currentlyHas) return u;
+          const newRoles = shouldHave
+            ? [...new Set([...u.roles, level.role])]
+            : u.roles.filter((r) => r !== level.role);
+          await apiSetUserRoles(u.id, newRoles);
+          return { ...u, roles: newRoles };
+        })
+      );
+      users.splice(0, users.length, ...updated);
+      state.dirty = false;
+      state.editLevel = "";
+      state.draftAssignments = {};
+      state.message = `Saved ${level.label} assignments.`;
+      render(users, state);
+    } catch (err) {
+      state.message = `Save failed: ${err.message}`;
+      render(users, state);
     }
-
-    normaliseTeam(data);
-    saveState(data);
-    state.dirty = false;
-    state.editLevel = "";
-    state.draftAssignments = {};
-    state.message = `Saved ${level.label} assignments.`;
-    render(data, state);
   });
 }
 
-export function initTeamPage(data) {
-  normaliseTeam(data);
-  saveState(data);
-  render(data, { editLevel: "", message: "", dirty: false, draftAssignments: {} });
+export async function initTeamPage(data) {
+  const host = document.getElementById("team-root") || document.querySelector("main.wrap");
+  if (host) host.innerHTML = `<div class="muted-block" style="margin:16px;">Loading team…</div>`;
+
+  let users = [];
+  try {
+    const result = await apiAdminGetUsers();
+    users = result.users || [];
+  } catch (err) {
+    console.warn("[team] Could not load DB users:", err.message);
+    // Non-admin users can still see the read-only view with empty lists
+  }
+
+
+  const state = { editLevel: "", message: "", dirty: false, draftAssignments: {}, currentData: data };
+  render(users, state);
 }

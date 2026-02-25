@@ -1,5 +1,7 @@
 import { requireAdmin } from "../auth.js";
 import { esc } from "../ui.js";
+import { saveState } from "../core.js";
+import { runSundayRoll } from "../engines/core-engine.js";
 import {
   apiLogout, apiGetState, apiGetConfig, apiSaveConfig,
   apiGetSnapshots, apiSaveSnapshot, apiRestoreSnapshot,
@@ -16,6 +18,15 @@ import {
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
 import { toastSuccess } from "../components/toast.js";
+
+function isSundayToday() { return new Date().getDay() === 0; }
+function nextSundayIso() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const add = (7 - d.getDay()) % 7 || 7;
+  d.setDate(d.getDate() + add);
+  return d.toISOString();
+}
 
 export async function initAdminPanelPage(data) {
   const user = await requireAdmin();
@@ -700,6 +711,48 @@ export async function initAdminPanelPage(data) {
   }
 
 
+  function renderSimControl() {
+    const gs = data?.gameState || {};
+    const as = data?.adminSettings || {};
+    return `
+      <section class="panel" style="max-width:700px;margin-top:12px;">
+        <h2 style="margin-top:0;">Simulation Control <span class="admin-badge">Admin only</span></h2>
+        <div style="display:grid;gap:8px;">
+          <div class="muted">Simulation must be started by an admin on Sunday. The sim clock advances from Monday onward.</div>
+          <div class="kv"><span>Simulation status</span><b>${gs.started ? "Running" : "Not started"}</b></div>
+          <div class="kv"><span>Clock anchor (real date)</span><b>${esc(String(gs.startRealDate || "Not set"))}</b></div>
+          <label class="label" style="margin:0;"><input type="checkbox" id="sim-pause-clock-check" ${gs.isPaused ? "checked" : ""}> Pause game clock (unpause on Sunday only)</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn" type="button" id="sim-save-pause-clock">Save Pause Setting</button>
+            <button class="btn" type="button" id="sim-force-sunday-roll">Force Sunday Roll</button>
+            <button class="btn" type="button" id="sim-start-simulation" ${gs.started || !isSundayToday() ? "disabled" : ""}>Start Simulation (Sunday Only)</button>
+          </div>
+          ${!gs.started && !isSundayToday() ? `<div class="muted">Start unlocks on Sunday. Next Sunday anchor: <b>${esc(nextSundayIso().slice(0, 10))}</b>.</div>` : ""}
+          <form id="sim-monarch-form" style="display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:8px;align-items:end;">
+            <div>
+              <label class="label" for="sim-monarchGender">Monarch</label>
+              <select id="sim-monarchGender" class="input" name="monarchGender">
+                <option value="Queen" ${as.monarchGender === "Queen" ? "selected" : ""}>Queen</option>
+                <option value="King" ${as.monarchGender === "King" ? "selected" : ""}>King</option>
+              </select>
+            </div>
+            <button class="btn" type="submit">Save Monarch</button>
+          </form>
+          <form id="sim-libdem-toggle-form" style="display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:8px;align-items:end;">
+            <div>
+              <label class="label" for="sim-libDemClosed">Liberal Democrat — Open to New Characters</label>
+              <select id="sim-libDemClosed" class="input" name="libDemClosed">
+                <option value="open" ${!as.libDemClosedToNewChars ? "selected" : ""}>Open (new characters can join)</option>
+                <option value="closed" ${as.libDemClosedToNewChars ? "selected" : ""}>Closed (no new characters)</option>
+              </select>
+            </div>
+            <button class="btn" type="submit">Save</button>
+          </form>
+          <div id="sim-control-status" style="font-size:13px;"></div>
+        </div>
+      </section>`;
+  }
+
   function render(status) {
     host.innerHTML = `
       <div class="bbc-masthead"><div class="bbc-title">Admin Panel</div></div>
@@ -709,6 +762,8 @@ export async function initAdminPanelPage(data) {
         <div class="kv"><span>Email</span><b>${esc(user.email || "—")}</b></div>
         <div class="kv"><span>Roles</span><b>${esc((user.roles || []).join(", ") || "—")}</b></div>
       </section>
+
+      ${renderSimControl()}
 
       ${renderModDashboard()}
 
@@ -951,6 +1006,70 @@ export async function initAdminPanelPage(data) {
         toastError(`Save roles: ${err.message}`);
         if (statusEl) statusEl.textContent = `Error: ${err.message}`;
       }
+    });
+
+    // ── Simulation Control ────────────────────────────────────────────────────
+    host.querySelector("#sim-save-pause-clock")?.addEventListener("click", () => {
+      const wantPaused = !!host.querySelector("#sim-pause-clock-check")?.checked;
+      const wasPaused = !!data.gameState.isPaused;
+      const statusEl = host.querySelector("#sim-control-status");
+      if (wantPaused !== wasPaused) {
+        if (wantPaused && !wasPaused) {
+          data.gameState.isPaused = true;
+          data.gameState.pausedAtRealDate = new Date().toISOString();
+        } else if (!wantPaused && wasPaused) {
+          if (!isSundayToday()) {
+            if (statusEl) statusEl.textContent = "Cannot unpause: the simulation may only be unpaused on a Sunday.";
+            return;
+          }
+          const pausedAt = new Date(data.gameState.pausedAtRealDate || new Date().toISOString());
+          const now = new Date();
+          const pauseDurationMs = now.getTime() - pausedAt.getTime();
+          data.gameState.startRealDate = new Date(new Date(data.gameState.startRealDate).getTime() + pauseDurationMs).toISOString();
+          data.gameState.isPaused = false;
+          data.gameState.pausedAtRealDate = "";
+        }
+        saveState(data);
+        if (statusEl) statusEl.textContent = `Game clock ${data.gameState.isPaused ? "paused" : "unpaused"}.`;
+        render();
+      }
+    });
+
+    host.querySelector("#sim-force-sunday-roll")?.addEventListener("click", () => {
+      runSundayRoll(data);
+      const statusEl = host.querySelector("#sim-control-status");
+      if (statusEl) statusEl.textContent = "Sunday roll forced.";
+    });
+
+    host.querySelector("#sim-start-simulation")?.addEventListener("click", () => {
+      if (data.gameState.started || !isSundayToday()) return;
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      data.gameState.started = true;
+      data.gameState.startRealDate = now.toISOString();
+      data.gameState.isPaused = false;
+      saveState(data);
+      render();
+    });
+
+    host.querySelector("#sim-monarch-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const gender = String(new FormData(e.currentTarget).get("monarchGender") || "Queen");
+      data.adminSettings ??= {};
+      data.adminSettings.monarchGender = gender === "King" ? "King" : "Queen";
+      saveState(data);
+      const statusEl = host.querySelector("#sim-control-status");
+      if (statusEl) statusEl.textContent = `Monarch updated to ${data.adminSettings.monarchGender}.`;
+    });
+
+    host.querySelector("#sim-libdem-toggle-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const closed = String(new FormData(e.currentTarget).get("libDemClosed") || "open") === "closed";
+      data.adminSettings ??= {};
+      data.adminSettings.libDemClosedToNewChars = closed;
+      saveState(data);
+      const statusEl = host.querySelector("#sim-control-status");
+      if (statusEl) statusEl.textContent = `Liberal Democrat is now ${closed ? "closed" : "open"} to new characters.`;
     });
 
     host.querySelector("#btn-logout")?.addEventListener("click", async () => {

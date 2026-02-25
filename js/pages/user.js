@@ -1,5 +1,5 @@
 import { saveState } from "../core.js";
-import { runSundayRoll, setAbsenceState } from "../engines/core-engine.js";
+import { setAbsenceState } from "../engines/core-engine.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import {
@@ -10,37 +10,8 @@ import {
   apiGetConstituencies, apiGetCharacters,
 } from "../api.js";
 
-const CONTROL_LINKS = [
-  { title: "Newsroom (BBC News)", href: "news.html", roles: ["mod", "admin"] },
-  { title: "Papers Desk", href: "papers.html", roles: ["mod", "admin"] },
-  { title: "Bodies Control", href: "bodies.html", roles: ["speaker", "mod", "admin"] },
-  { title: "Locals Control", href: "locals.html", roles: ["speaker", "mod", "admin"] },
-  { title: "Roles & Office Assignments", href: "government.html", roles: ["mod", "admin"] },
-  { title: "Opposition Office Assignments", href: "opposition.html", roles: ["mod", "admin"] },
-  { title: "Order Paper / Legislative Agenda", href: "dashboard.html", roles: ["pm", "leader-commons", "speaker", "mod", "admin"] },
-  { title: "Polling Control", href: "polling.html", roles: ["mod", "admin"] },
-  { title: "Elections Results Control", href: "elections.html", roles: ["mod", "admin"] },
-  { title: "Press Scoring & Moderation", href: "press.html", roles: ["speaker", "mod", "admin"] },
-  { title: "Budget Controls", href: "budget.html", roles: ["mod", "admin"] },
-  { title: "Economy Control Panel", href: "economy.html", roles: ["mod", "admin"] },
-  { title: "Speaker Control Panel", href: "user.html#speaker-controls", roles: ["speaker", "mod", "admin"] },
-  { title: "Parliament Control Panel", href: "constituencies.html", roles: ["speaker", "mod", "admin"] }
-];
-
 function nowStamp() {
   return new Date().toLocaleString("en-GB", { hour12: false });
-}
-
-function isSundayToday() {
-  return new Date().getDay() === 0;
-}
-
-function nextSundayIso() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  const add = (7 - d.getDay()) % 7;
-  d.setDate(d.getDate() + add);
-  return d.toISOString();
 }
 
 function canManage(data) {
@@ -168,23 +139,6 @@ function activeRoleBadgeHTML(data) {
   if (isAdmin(data))    return `<span class="admin-badge">🔒 Admin</span>`;
   if (isMod(data))      return `<span class="mod-badge">🔧 Mod</span>`;
   if (isSpeaker(data))  return `<span class="speaker-badge">🔔 Speaker</span>`;
-  return "";
-}
-
-/**
- * Return the set of role badges that apply to the Control Panels section heading.
- * Admins see all three; mods see Mod + Speaker; speakers see Speaker only.
- */
-function controlPanelBadgesHTML(admin, data) {
-  if (admin) {
-    return `<span class="admin-badge">Admin</span> <span class="mod-badge">Mod</span> <span class="speaker-badge">Speaker</span>`;
-  }
-  if (isMod(data)) {
-    return `<span class="mod-badge">Mod</span> <span class="speaker-badge">Speaker</span>`;
-  }
-  if (isSpeaker(data)) {
-    return `<span class="speaker-badge">Speaker</span>`;
-  }
   return "";
 }
 
@@ -516,83 +470,6 @@ function render(data, state) {
       ` : ""}
     </section>
 
-    ${manager ? `
-    <section id="speaker-controls" class="panel">
-      <h2 style="margin-top:0;">
-        Control Panels
-        ${controlPanelBadgesHTML(admin, data)}
-      </h2>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-bottom:10px;">
-        ${CONTROL_LINKS.map((c) => {
-          const allowed = admin || (manager && c.roles.some((r) => {
-            if (r === "admin") return admin;
-            if (r === "mod") return isMod(data);
-            if (r === "speaker") return isSpeaker(data);
-            if (r === "pm") return String(char?.office || "") === "prime-minister";
-            if (r === "leader-commons") return String(char?.office || "") === "leader-commons";
-            return false;
-          }));
-          return `<a class="tile" style="text-decoration:none;${allowed ? "" : "opacity:.5;pointer-events:none;"}" href="${esc(c.href)}"><b>${esc(c.title)}</b><div class="muted">${allowed ? "Access granted" : "Restricted"}</div></a>`;
-        }).join("")}
-      </div>
-
-      ${(manager) ? `
-        <details class="tile" style="margin-bottom:10px;" open>
-          <summary><b>Active Player Roster <span class="mod-badge">Mod / Admin</span></b></summary>
-          <div class="muted" style="margin-top:10px;">Control moved here from Government/Opposition pages. Mods can only set characters inactive.</div>
-          <div style="margin-top:10px;display:grid;gap:8px;">
-            ${(Array.isArray(data.players) ? data.players : []).slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))).map((p) => `
-              <article class="tile" style="display:grid;grid-template-columns:minmax(180px,2fr) minmax(180px,2fr) auto;gap:8px;align-items:center;">
-                <div><b>${esc(String(p.name || "Unknown"))}</b><div class="muted">${esc(String(p.party || "No party"))}</div></div>
-                <div class="muted">${p.active === false ? "Inactive" : "Active"}</div>
-                ${p.active === false ? `<span class="muted">Inactive (user can re-activate)</span>` : `<button class="btn danger" type="button" data-action="set-inactive-player" data-name="${esc(String(p.name || ""))}">Set Inactive</button>`}
-              </article>
-            `).join("") || `<div class="muted-block">No players configured.</div>`}
-          </div>
-        </details>
-      ` : ""}
-
-      ${(admin) ? `
-        <details class="tile" style="margin-bottom:10px;" open>
-          <summary><b>Simulation Control <span class="admin-badge">Admin only</span></b></summary>
-          <div style="margin-top:10px;display:grid;gap:8px;">
-            <div class="muted">Simulation must be started by an admin on Sunday. The sim clock advances from Monday onward.</div>
-            <div class="kv"><span>Simulation status</span><b>${data.gameState.started ? "Running" : "Not started"}</b></div>
-            <div class="kv"><span>Clock anchor (real date)</span><b>${esc(String(data.gameState.startRealDate || "Not set"))}</b></div>
-            <label class="label" style="margin:0;"><input type="checkbox" id="pause-clock-check" ${data.gameState.isPaused ? "checked" : ""}> Pause game clock (unpause on Sunday only)</label>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn" type="button" id="save-pause-clock">Save Pause Setting</button>
-              <button class="btn" type="button" id="force-sunday-roll">Force Sunday Roll</button>
-              <button class="btn" type="button" id="start-simulation" ${data.gameState.started || !isSundayToday() ? "disabled" : ""}>Start Simulation (Sunday Only)</button>
-            </div>
-            ${!data.gameState.started && !isSundayToday() ? `<div class="muted">Start unlocks on Sunday. Next Sunday anchor: <b>${esc(nextSundayIso().slice(0, 10))}</b>.</div>` : ""}
-            <form id="monarch-form" style="display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:8px;align-items:end;">
-              <div>
-                <label class="label" for="monarchGender">Monarch</label>
-                <select id="monarchGender" class="input" name="monarchGender">
-                  <option value="Queen" ${data.adminSettings.monarchGender === "Queen" ? "selected" : ""}>Queen</option>
-                  <option value="King" ${data.adminSettings.monarchGender === "King" ? "selected" : ""}>King</option>
-                </select>
-              </div>
-              <button class="btn" type="submit">Save Monarch</button>
-            </form>
-            <form id="libdem-toggle-form" style="display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:8px;align-items:end;">
-              <div>
-                <label class="label" for="libDemClosed">Liberal Democrat — Open to New Characters</label>
-                <select id="libDemClosed" class="input" name="libDemClosed">
-                  <option value="open" ${!data.adminSettings.libDemClosedToNewChars ? "selected" : ""}>Open (new characters can join)</option>
-                  <option value="closed" ${data.adminSettings.libDemClosedToNewChars ? "selected" : ""}>Closed (no new characters)</option>
-                </select>
-              </div>
-              <button class="btn" type="submit">Save</button>
-            </form>
-          </div>
-        </details>
-
-      ` : ""}
-    </section>
-    ` : ""}
-
     ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
   `;
 
@@ -862,76 +739,6 @@ function render(data, state) {
       }
       render(data, state);
     });
-  });
-
-  host.querySelector("#save-pause-clock")?.addEventListener("click", () => {
-    if (!admin) return;
-    const wantPaused = !!host.querySelector("#pause-clock-check")?.checked;
-    const wasPaused = !!data.gameState.isPaused;
-
-    if (wantPaused !== wasPaused) {
-      if (wantPaused && !wasPaused) {
-        data.gameState.isPaused = true;
-        data.gameState.pausedAtRealDate = new Date().toISOString();
-      } else if (!wantPaused && wasPaused) {
-        if (!isSundayToday()) {
-          state.message = "Cannot unpause: the simulation may only be unpaused on a Sunday.";
-          render(data, state);
-          return;
-        }
-        const pausedAt = new Date(data.gameState.pausedAtRealDate || new Date().toISOString());
-        const now = new Date();
-        const pauseDurationMs = now.getTime() - pausedAt.getTime();
-        const oldStart = new Date(data.gameState.startRealDate);
-        data.gameState.startRealDate = new Date(oldStart.getTime() + pauseDurationMs).toISOString();
-        data.gameState.isPaused = false;
-        data.gameState.pausedAtRealDate = "";
-      }
-      saveState(data);
-      state.message = `Game clock ${data.gameState.isPaused ? "paused" : "unpaused"}.`;
-      render(data, state);
-    }
-  });
-
-  host.querySelector("#force-sunday-roll")?.addEventListener("click", () => {
-    if (!manager) return;
-    runSundayRoll(data);
-    state.message = "Sunday roll forced.";
-    render(data, state);
-  });
-
-  host.querySelector("#start-simulation")?.addEventListener("click", () => {
-    if (!admin || data.gameState.started || !isSundayToday()) return;
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    data.gameState.started = true;
-    data.gameState.startRealDate = now.toISOString();
-    data.gameState.isPaused = false;
-    saveState(data);
-    state.message = `Simulation started on ${now.toLocaleDateString("en-GB")}. Clock advances from Monday.`;
-    render(data, state);
-  });
-
-  host.querySelector("#monarch-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    if (!admin) return;
-    const gender = String(new FormData(e.currentTarget).get("monarchGender") || "Queen");
-    data.adminSettings ??= {};
-    data.adminSettings.monarchGender = gender === "King" ? "King" : "Queen";
-    saveState(data);
-    state.message = `Monarch updated to ${data.adminSettings.monarchGender}.`;
-    render(data, state);
-  });
-
-  host.querySelector("#libdem-toggle-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    if (!admin) return;
-    const closed = String(new FormData(e.currentTarget).get("libDemClosed") || "open") === "closed";
-    data.adminSettings ??= {};
-    data.adminSettings.libDemClosedToNewChars = closed;
-    saveState(data);
-    state.message = `Liberal Democrat is now ${closed ? "closed" : "open"} to new characters.`;
-    render(data, state);
   });
 }
 

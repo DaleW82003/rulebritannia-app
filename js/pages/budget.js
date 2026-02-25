@@ -1,6 +1,13 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
+import {
+  apiGetBudget,
+  apiAdminSeedBudget,
+  apiAdminUpdateBudgetControls,
+  apiSubmitBudgetDraft,
+  apiAdminApproveBudget,
+  apiAdminRejectBudget,
+} from "../api.js";
 
 const REVENUE_LINES = [
   "Income Tax", "Corporate Tax", "Value Added Tax", "National Insurance", "Fuel Duty", "Stamp Duty", "Business Rate Appropriations"
@@ -20,56 +27,6 @@ function canDraftBudget(data) {
 function money(n) { return `£${Number(n || 0).toFixed(2)}`; }
 
 function sum(obj, keys) { return keys.reduce((a, k) => a + Number(obj?.[k] || 0), 0); }
-
-const SEED_LAST_YEAR_BASELINE = {
-  label: "1996–97 Baseline (seeded)",
-  gdp: 1930,
-  revenues: {
-    "Income Tax": 75.6,
-    "Corporate Tax": 30.3,
-    "Value Added Tax": 48.2,
-    "National Insurance": 47.2,
-    "Fuel Duty": 18.7,
-    "Stamp Duty": 4.2,
-    "Business Rate Appropriations": 13.8
-  },
-  expenditures: {
-    "Health": 42.3,
-    "Social Security": 92.8,
-    "Education": 36.5,
-    "Home Office": 7.5,
-    "Ministry of Defense": 21.3,
-    "Transport": 5.4,
-    "Local Government": 26.8,
-    "Environment": 4.1,
-    "Energy": 0.8,
-    "Culture": 1.2,
-    "Housing": 3.4,
-    "Business": 2.6,
-    "Scottish Office": 14.1,
-    "Welsh Office": 7.4,
-    "Northern Ireland Office": 7.1
-  },
-  capital: {
-    "Capital Expenditure": 10.2
-  }
-};
-
-function ensureBudget(data) {
-  data.budget ??= {};
-  data.budget.archive ??= [];
-  data.budget.pending ??= null;
-  data.budget.adminControls ??= {
-    debtInterestPercent: 7.2,
-    debtInterestExpenditure: 31.11,
-    charityReliefExpenditure: 0.41,
-    otherExpensesExpenditure: -0.66
-  };
-  // lastYear and currentYear start as null (blank) until mods/admins seed them.
-  // Do NOT set hardcoded defaults here — the archive is blank until seeded.
-  data.budget.lastYear ??= null;
-  data.budget.currentYear ??= null;
-}
 
 function calculateTotals(budget, adminControls) {
   const rev = sum(budget.revenues, REVENUE_LINES);
@@ -152,16 +109,23 @@ function renderBudgetTable(ly, ty, adminControls) {
   `;
 }
 
-function render(data, state) {
+function render(budgetDb, data, state) {
   const root = document.getElementById("budget-root");
   if (!root) return;
-  ensureBudget(data);
 
   const mod = isMod(data);
   const admin = isAdmin(data);
   const drafter = canDraftBudget(data);
-  const ly = data.budget.lastYear;
-  const ty = data.budget.currentYear;
+  const ly = budgetDb.lastYear;
+  const ty = budgetDb.currentYear;
+  const adminControls = budgetDb.adminControls || {
+    debtInterestPercent: 7.2,
+    debtInterestExpenditure: 31.11,
+    charityReliefExpenditure: 0.41,
+    otherExpensesExpenditure: -0.66
+  };
+  const pending = budgetDb.pending;
+  const archive = budgetDb.archive || [];
   // Fallback empty structures for the draft form so inputs don't throw on null ty.
   const tyDraft = ty || { revenues: {}, expenditures: {}, capital: {}, gdp: 1930.0 };
 
@@ -171,7 +135,7 @@ function render(data, state) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Current Budget (view only)</h2>
       <button class="btn" type="button" data-action="open-current">${state.openCurrent ? "Close" : "Open"}</button>
-      ${state.openCurrent ? (ly && ty ? renderBudgetTable(ly, ty, data.budget.adminControls) : '<div class="muted-block" style="margin-top:8px;">No budget data available yet. Mods/Admins must seed the Last Year budget first.</div>') : ""}
+      ${state.openCurrent ? (ly && ty ? renderBudgetTable(ly, ty, adminControls) : '<div class="muted-block" style="margin-top:8px;">No budget data available yet. Mods/Admins must seed the Last Year budget first.</div>') : ""}
     </section>
 
     ${drafter ? `
@@ -203,24 +167,25 @@ function render(data, state) {
         <h2 style="margin-top:0;">Admin Budget Controls</h2>
         <form id="budget-admin-form">
           <label class="label">Debt Interest %
-            <input class="input" name="debtInterestPercent" type="number" step="0.01" value="${esc(String(data.budget.adminControls.debtInterestPercent))}">
+            <input class="input" name="debtInterestPercent" type="number" step="0.01" value="${esc(String(adminControls.debtInterestPercent))}">
           </label>
           <label class="label">Debt Interest Expenditure
-            <input class="input" name="debtInterestExpenditure" type="number" step="0.01" value="${esc(String(data.budget.adminControls.debtInterestExpenditure))}">
+            <input class="input" name="debtInterestExpenditure" type="number" step="0.01" value="${esc(String(adminControls.debtInterestExpenditure))}">
           </label>
           <label class="label">Charity Relief Expenditure
-            <input class="input" name="charityReliefExpenditure" type="number" step="0.01" value="${esc(String(data.budget.adminControls.charityReliefExpenditure))}">
+            <input class="input" name="charityReliefExpenditure" type="number" step="0.01" value="${esc(String(adminControls.charityReliefExpenditure))}">
           </label>
           <label class="label">Other Expenses Expenditure
-            <input class="input" name="otherExpensesExpenditure" type="number" step="0.01" value="${esc(String(data.budget.adminControls.otherExpensesExpenditure))}">
+            <input class="input" name="otherExpensesExpenditure" type="number" step="0.01" value="${esc(String(adminControls.otherExpensesExpenditure))}">
           </label>
           <button class="btn" type="submit">Save Admin Controls</button>
         </form>
+        ${state.adminMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.adminMessage)}</p>` : ""}
 
-        ${data.budget.pending ? `
+        ${pending ? `
           <div class="tile" style="margin-top:10px;">
             <h4 style="margin-top:0;">Pending Budget Submission</h4>
-            <div>Submitted by ${esc(data.budget.pending.submittedBy)} at ${esc(data.budget.pending.submittedAt)}</div>
+            <div>Submitted by ${esc(pending.submittedBy)} at ${esc(pending.submittedAt)}</div>
             <button class="btn" type="button" data-action="approve-budget">Approve</button>
             <button class="btn" type="button" data-action="reject-budget">Reject</button>
           </div>
@@ -228,10 +193,11 @@ function render(data, state) {
 
         <div class="tile" style="margin-top:10px;">
           <h4 style="margin-top:0;">Seed Last Year's Budget</h4>
-          <p class="muted" style="margin:0 0 8px;">Populate the Last Year column with the 1996–97 baseline figures so the Budget table can be displayed. Only needed once at simulation start.</p>
+          <p class="muted" style="margin:0 0 8px;">Populate the Last Year and This Year columns with the 1996–97 baseline figures. Only needed once at simulation start.</p>
           ${ly
             ? `<button class="btn" type="button" disabled title="Last Year's budget is already set">Last Year Already Seeded ✓</button>`
             : `<button class="btn" type="button" data-action="seed-last-year">Seed Last Year's Budget (1996–97 Baseline)</button>`}
+          ${state.seedMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.seedMessage)}</p>` : ""}
         </div>
       </section>
     ` : ""}
@@ -240,69 +206,108 @@ function render(data, state) {
       <h2 style="margin-top:0;">Budget Archive</h2>
       <div><b>Current Year's Budget:</b> ${ty?.label ? esc(ty.label) : `<span class="muted" style="font-style:italic;">Not yet submitted — Chancellor submits each year.</span>`}</div>
       <div><b>Last Year's Budget:</b> ${ly?.label ? esc(ly.label) : `<span class="muted" style="font-style:italic;">Not yet set — Mods/Admins set this at the start of the simulation.</span>`}</div>
-      ${data.budget.archive.length ? `<div style="margin-top:8px;"><b>Previous Budgets:</b></div>${data.budget.archive.slice().reverse().map((b) => `<div class="muted">${esc(b.label || "Budget")} • approved ${esc(b.approvedAt || "")}</div>`).join("")}` : `<div class="muted" style="margin-top:8px;">No previously approved budgets on record yet.</div>`}
+      ${archive.length ? `<div style="margin-top:8px;"><b>Previous Budgets:</b></div>${archive.slice().reverse().map((b) => `<div class="muted">${esc(b.label || "Budget")} • approved ${esc(b.approvedAt || "")}</div>`).join("")}` : `<div class="muted" style="margin-top:8px;">No previously approved budgets on record yet.</div>`}
     </section>
   `;
 
-  root.querySelector("[data-action='open-current']")?.addEventListener("click", () => { state.openCurrent = !state.openCurrent; render(data, state); });
-  root.querySelector("[data-action='open-draft']")?.addEventListener("click", () => { state.openDraft = !state.openDraft; render(data, state); });
+  root.querySelector("[data-action='open-current']")?.addEventListener("click", () => { state.openCurrent = !state.openCurrent; render(budgetDb, data, state); });
+  root.querySelector("[data-action='open-draft']")?.addEventListener("click", () => { state.openDraft = !state.openDraft; render(budgetDb, data, state); });
 
-  root.querySelector("#budget-draft-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#budget-draft-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!drafter) return;
     const fd = new FormData(e.currentTarget);
-    const base = data.budget.currentYear || { revenues: {}, expenditures: {}, capital: {}, gdp: 1930.0 };
-    const draft = structuredClone(base);
-    draft.revenues = { ...draft.revenues };
-    draft.expenditures = { ...draft.expenditures };
-    draft.capital = { ...draft.capital };
+    const base = ty || { revenues: {}, expenditures: {}, capital: {}, gdp: 1930.0 };
+    const draft = { ...base, revenues: { ...base.revenues }, expenditures: { ...base.expenditures }, capital: { ...base.capital } };
     REVENUE_LINES.forEach((k) => { draft.revenues[k] = Number(fd.get(`rev:${k}`) || 0); });
     EXPENDITURE_LINES.forEach((k) => { draft.expenditures[k] = Number(fd.get(`exp:${k}`) || 0); });
     CAPITAL_LINES.forEach((k) => { draft.capital[k] = Number(fd.get(`cap:${k}`) || 0); });
     draft.label = "Draft submission";
-    data.budget.pending = { budget: draft, submittedBy: getCharacter(data)?.name || "User", submittedAt: new Date().toLocaleString("en-GB") };
-    saveState(data);
-    render(data, state);
+    try {
+      await apiSubmitBudgetDraft(draft, getCharacter(data)?.name || "User");
+      const updated = await apiGetBudget();
+      Object.assign(budgetDb, updated);
+      state.openDraft = false;
+      render(budgetDb, data, state);
+    } catch (err) {
+      alert(`Failed to submit draft: ${err.message}`);
+    }
   });
 
-  root.querySelector("#budget-admin-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#budget-admin-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!admin) return;
     const fd = new FormData(e.currentTarget);
-    Object.keys(data.budget.adminControls).forEach((k) => { data.budget.adminControls[k] = Number(fd.get(k) || 0); });
-    saveState(data);
-    render(data, state);
+    const controls = {
+      debtInterestPercent:      Number(fd.get("debtInterestPercent") || 0),
+      debtInterestExpenditure:  Number(fd.get("debtInterestExpenditure") || 0),
+      charityReliefExpenditure: Number(fd.get("charityReliefExpenditure") || 0),
+      otherExpensesExpenditure: Number(fd.get("otherExpensesExpenditure") || 0),
+    };
+    try {
+      await apiAdminUpdateBudgetControls(controls);
+      budgetDb.adminControls = controls;
+      state.adminMessage = "Admin controls saved.";
+      render(budgetDb, data, state);
+    } catch (err) {
+      state.adminMessage = `Save failed: ${err.message}`;
+      render(budgetDb, data, state);
+    }
   });
 
-  root.querySelector("[data-action='approve-budget']")?.addEventListener("click", () => {
-    if (!admin || !data.budget.pending) return;
-    const approved = data.budget.pending.budget;
-    approved.label = `Approved ${new Date().toLocaleDateString("en-GB")}`;
-    approved.approvedAt = new Date().toLocaleString("en-GB");
-    if (data.budget.lastYear) data.budget.archive.push(structuredClone(data.budget.lastYear));
-    data.budget.lastYear = data.budget.currentYear ? structuredClone(data.budget.currentYear) : null;
-    data.budget.currentYear = approved;
-    data.budget.pending = null;
-    saveState(data);
-    render(data, state);
+  root.querySelector("[data-action='approve-budget']")?.addEventListener("click", async () => {
+    if (!admin || !pending) return;
+    try {
+      await apiAdminApproveBudget();
+      const updated = await apiGetBudget();
+      Object.assign(budgetDb, updated);
+      render(budgetDb, data, state);
+    } catch (err) {
+      alert(`Approve failed: ${err.message}`);
+    }
   });
 
-  root.querySelector("[data-action='reject-budget']")?.addEventListener("click", () => {
+  root.querySelector("[data-action='reject-budget']")?.addEventListener("click", async () => {
     if (!admin) return;
-    data.budget.pending = null;
-    saveState(data);
-    render(data, state);
+    try {
+      await apiAdminRejectBudget();
+      budgetDb.pending = null;
+      render(budgetDb, data, state);
+    } catch (err) {
+      alert(`Reject failed: ${err.message}`);
+    }
   });
 
-  root.querySelector("[data-action='seed-last-year']")?.addEventListener("click", () => {
-    if (!admin || data.budget.lastYear) return;
-    data.budget.lastYear = structuredClone(SEED_LAST_YEAR_BASELINE);
-    saveState(data);
-    render(data, state);
+  root.querySelector("[data-action='seed-last-year']")?.addEventListener("click", async () => {
+    if (!admin) return;
+    const btn = root.querySelector("[data-action='seed-last-year']");
+    if (btn) btn.disabled = true;
+    try {
+      const result = await apiAdminSeedBudget(false);
+      if (result.error && !result.alreadySeeded) {
+        state.seedMessage = `Seed failed: ${result.error}`;
+        render(budgetDb, data, state);
+        return;
+      }
+      const updated = await apiGetBudget();
+      Object.assign(budgetDb, updated);
+      state.seedMessage = "Budget seeded successfully.";
+      render(budgetDb, data, state);
+    } catch (err) {
+      state.seedMessage = `Seed failed: ${err.message}`;
+      render(budgetDb, data, state);
+    }
   });
 }
 
-export function initBudgetPage(data) {
-  ensureBudget(data);
-  render(data, { openCurrent: false, openDraft: false });
+export async function initBudgetPage(data) {
+  const root = document.getElementById("budget-root");
+  if (root) root.innerHTML = `<div class="muted-block" style="margin:16px;">Loading budget…</div>`;
+  let budgetDb = { lastYear: null, currentYear: null, adminControls: {}, archive: [], pending: null };
+  try {
+    budgetDb = await apiGetBudget();
+  } catch (err) {
+    console.error("[budget] Failed to load budget from DB:", err);
+  }
+  render(budgetDb, data, { openCurrent: false, openDraft: false });
 }
