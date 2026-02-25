@@ -3,11 +3,11 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
 import { logAction } from "../audit.js";
+import { handleApiError } from "../errors.js";
 import {
   apiGetQtQuestions, apiSubmitQtQuestion, apiAnswerQtQuestion,
   apiFollowupQtQuestion, apiPatchQtQuestion,
   apiGetQtLegacyQuestions, apiCreateQtLegacyQuestion,
-  apiSubmitQtFollowup,
 } from "../api.js";
 import { npcPartyOptions } from "../parties.js";
 
@@ -426,13 +426,13 @@ function render(data, state) {
       question.followUps.push(followupEntry);
 
       try {
-        await apiSubmitQtFollowup(qid, {
+        await apiFollowupQtQuestion(qid, {
           followup_text: text,
           asked_by_character_id: char?.id || char?.characterId || null,
         });
         saveState(data);
       } catch (err) {
-        console.error("[questiontime] followup persist failed:", err);
+        handleApiError(err, "Submit follow-up");
         question.followUps.pop(); // revert
       } finally {
         if (submitBtn) submitBtn.disabled = false;

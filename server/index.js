@@ -4482,6 +4482,8 @@ app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
  */
 const pressReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
 const pressWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+const MAX_TRANSCRIPT_FROM_LENGTH = 200;
+const MAX_TRANSCRIPT_TEXT_LENGTH = 2000;
 
 app.get("/api/press", pressReadLimit, async (req, res) => {
   try {
@@ -4597,21 +4599,22 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
     const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
     if (!isStaff) {
-      if (!req.session.characterId) return res.status(403).json({ error: "No active character" });
+      if (!req.session.characterId) return res.status(403).json({ error: "Forbidden: no active character" });
       // Verify the character belongs to the session and authored the conference
       const { rows: charRows } = await pool.query(
         "SELECT name FROM characters WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
         [req.session.characterId, req.session.userId]
       );
-      if (!charRows.length) return res.status(403).json({ error: "Forbidden" });
-      if (item.author !== charRows[0].name) return res.status(403).json({ error: "Only the conference author may add transcript entries" });
+      if (!charRows.length || item.author !== charRows[0].name) {
+        return res.status(403).json({ error: "Only the conference author may add transcript entries" });
+      }
     }
 
     if (item.status === "closed") return res.status(409).json({ error: "Conference is closed" });
 
     const safeEntry = {
-      from:      typeof entry.from === "string" ? entry.from.slice(0, 200) : "Character",
-      text:      entry.text.slice(0, 2000),
+      from:      typeof entry.from === "string" ? entry.from.slice(0, MAX_TRANSCRIPT_FROM_LENGTH) : "Character",
+      text:      entry.text.slice(0, MAX_TRANSCRIPT_TEXT_LENGTH),
       createdAt: new Date().toISOString(),
     };
     if (!item.transcript) item.transcript = [];
@@ -7452,6 +7455,7 @@ app.post("/api/parties/:partyId/drafts", partyWriteLimit, async (req, res) => {
 // ── Character work plan (constituency work allocation) ────────────────────────
 const cwpReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
 const cwpWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
+const MAX_JOB_TITLE_LENGTH = 200;
 
 // GET /api/me/work-plan — return active character's work plan
 app.get("/api/me/work-plan", cwpReadLimit, async (req, res) => {
@@ -7511,7 +7515,7 @@ app.post("/api/me/work-plan", cwpWriteLimit, async (req, res) => {
              second_job_title_company = EXCLUDED.second_job_title_company,
              last_saved_sim_index     = EXCLUDED.last_saved_sim_index,
              updated_at               = NOW()`,
-      [charId, JSON.stringify(hours), String(secondJobTitleCompany).slice(0, 200), Number(lastSavedSimIndex) || 0]
+      [charId, JSON.stringify(hours), String(secondJobTitleCompany).slice(0, MAX_JOB_TITLE_LENGTH), Number(lastSavedSimIndex) || 0]
     );
     await writeAuditLog(req.session.userId, "work_plan.save", "character_work_plans", charId, null, { lastSavedSimIndex });
     res.json({ ok: true });
@@ -11167,6 +11171,28 @@ app.post("/api/events", crudWriteLimit, async (req, res) => {
 app.put("/api/events/:id", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+
+    // Non-staff may only update their own event (verified by character name on the stored record)
+    if (!isStaff) {
+      const { rows: existing } = await pool.query(
+        "SELECT data FROM game_events WHERE id = $1", [req.params.id]
+      );
+      if (!existing.length) return res.status(404).json({ error: "Event not found" });
+
+      if (!req.session.characterId) return res.status(403).json({ error: "Forbidden: no active character" });
+      const { rows: charRows } = await pool.query(
+        "SELECT name FROM characters WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
+        [req.session.characterId, req.session.userId]
+      );
+      if (!charRows.length) return res.status(403).json({ error: "Forbidden" });
+      const storedAuthor = existing[0].data?.submittedBy || existing[0].data?.author || "";
+      if (storedAuthor !== charRows[0].name) {
+        return res.status(403).json({ error: "Only the event author or staff may update this event" });
+      }
+    }
+
     const event = req.body;
     await pool.query(
       `UPDATE game_events SET data = $1::jsonb, updated_at = NOW() WHERE id = $2`,

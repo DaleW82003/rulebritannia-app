@@ -1,6 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import { handleApiError } from "../errors.js";
 import {
   apiScandalsMine,
   apiScandalsOptIn,
@@ -521,6 +522,11 @@ function render(data, state = {}) {
     const submitBtn = e.currentTarget.querySelector("button[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
 
+    // Save old values so we can revert if the API call fails
+    const prevHours          = { ...plan.hours };
+    const prevSecondJob      = plan.secondJobTitleCompany;
+    const prevSimIndex       = plan.lastSavedSimIndex;
+
     plan.hours = nextHours;
     plan.secondJobTitleCompany = String(fd.get("secondJobTitleCompany") || "").trim();
     plan.lastSavedSimIndex = simIndex;
@@ -534,7 +540,12 @@ function render(data, state = {}) {
       });
       saveState(data);
     } catch (err) {
-      console.error("[constituency-work] work plan save failed:", err);
+      // Revert local state so UI matches DB on next reload (R3: no silent local-only mutations)
+      plan.hours = prevHours;
+      plan.secondJobTitleCompany = prevSecondJob;
+      plan.lastSavedSimIndex = prevSimIndex;
+      delete plan.updatedAt;
+      handleApiError(err, "Save work plan");
     } finally {
       if (submitBtn) submitBtn.disabled = false;
     }
@@ -787,8 +798,8 @@ export async function initConstituencyWorkPage(data) {
     try {
       const result = await apiGetMyWorkPlan();
       if (result?.workPlan) {
-        const key = ensureWork(data);
-        const plan = data.constituencyWork.plansByCharacter[key];
+        const workPlanKey = ensureWork(data);
+        const plan = data.constituencyWork.plansByCharacter[workPlanKey];
         if (plan && result.workPlan.hours) {
           plan.hours = result.workPlan.hours;
           plan.secondJobTitleCompany = result.workPlan.secondJobTitleCompany || "";

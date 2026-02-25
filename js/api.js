@@ -1029,18 +1029,6 @@ export async function apiAnswerQtQuestion(id, payload) {
   return res.json();
 }
 
-export async function apiSubmitQtFollowup(id, payload) {
-  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(id)}/followup`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `apiSubmitQtFollowup failed (${res.status})`);
-  return body;
-}
-
 export async function apiFollowupQtQuestion(id, payload) {
   const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(id)}/followup`, {
     method: "POST",
@@ -1048,8 +1036,9 @@ export async function apiFollowupQtQuestion(id, payload) {
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`apiFollowupQtQuestion failed (${res.status})`);
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiFollowupQtQuestion failed (${res.status})`);
+  return body;
 }
 
 // ── Question Time (legacy CRUD endpoint) ────────────────────────────────────

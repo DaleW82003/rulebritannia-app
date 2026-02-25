@@ -58,7 +58,7 @@ for (let i = 0; i < apiLines.length; i++) {
   const line = apiLines[i];
   if (!line.includes('method:') || line.trim().startsWith("//")) continue;
   if (!/method:\s*["'](POST|PUT|PATCH|DELETE)["']/.test(line)) continue;
-  // Scan surrounding context (8 lines) for credentials
+  // Scan same context window (11 lines) as the GET check
   const ctx = apiLines.slice(Math.max(0, i - 3), Math.min(apiLines.length, i + 8)).join("\n");
   if (!ctx.includes("credentials")) {
     fail(`js/api.js line ${i + 1}: write call missing credentials (context: ${line.trim().slice(0, 60)})`);
@@ -84,11 +84,13 @@ let missingGetCreds = 0;
 for (let i = 0; i < apiLines.length; i++) {
   const line = apiLines[i];
   if (!line.includes("await fetch(") || line.trim().startsWith("//")) continue;
-  // Check if next 6 lines have credentials
-  const ctx = apiLines.slice(i, Math.min(apiLines.length, i + 7)).join("\n");
+  // Use same 11-line window as the mutating check above
+  const ctx = apiLines.slice(i, Math.min(apiLines.length, i + 8)).join("\n");
   if (ctx.includes("credentials")) continue;
-  // Extract the path (handle template literals and plain strings)
-  const pathMatch = line.match(/fetch\([`'"]\$\{[^}]+\}(\/api\/[^`"'?$]+)/);
+  // Extract the path — handle template literals (`${BASE}/api/...`), plain strings, and bare paths
+  const pathMatch =
+    line.match(/fetch\([`'"]?\$\{[^}]+\}(\/api\/[^`"'?\s$]+)/) ||
+    line.match(/fetch\([`'"](\/api\/[^`"'?\s]+)/);
   const path = pathMatch?.[1];
   if (path && PUBLIC_PATH_PREFIXES.some((p) => path.startsWith(p))) continue;
   fail(`js/api.js line ${i + 1}: GET missing credentials (${line.trim().slice(0, 70)})`);

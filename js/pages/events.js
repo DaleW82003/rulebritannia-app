@@ -3,6 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
+import { handleApiError } from "../errors.js";
 import { apiCreateEvent, apiGetEvents, apiUpdateEvent } from "../api.js";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -219,7 +220,7 @@ function render(data, state) {
     try {
       await apiCreateEvent(item);
     } catch (err) {
-      console.error(err);
+      handleApiError(err, "Submit event");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
@@ -293,7 +294,7 @@ function render(data, state) {
         await apiUpdateEvent(id, item);
         saveState(data);
       } catch (err) {
-        console.error("[events] speech persist failed:", err);
+        handleApiError(err, "Add speech");
         // Revert local state on failure
         item.speeches.pop();
       } finally {

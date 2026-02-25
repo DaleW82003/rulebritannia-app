@@ -2,6 +2,7 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, getWeekdayName, isSunday } from "../clock.js";
+import { handleApiError } from "../errors.js";
 import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry } from "../api.js";
 
 const PARTY_CODES = {
@@ -516,7 +517,7 @@ function render(data, state) {
     try {
       await apiCreatePressItem({ press_type: "release", ...item });
     } catch (err) {
-      console.error(err);
+      handleApiError(err, "Submit press release");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
@@ -573,7 +574,7 @@ function render(data, state) {
     try {
       await apiCreatePressItem({ press_type: "conference", ...item });
     } catch (err) {
-      console.error(err);
+      handleApiError(err, "Submit press conference");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
@@ -633,7 +634,7 @@ function render(data, state) {
       await apiAddPressTranscriptEntry(id, entry);
       saveState(data);
     } catch (err) {
-      console.error("[press] conference answer persist failed:", err);
+      handleApiError(err, "Conference answer");
       conf.transcript.pop(); // revert
     } finally {
       if (submitBtn) submitBtn.disabled = false;
@@ -650,10 +651,10 @@ function render(data, state) {
     conf.transcript.push(entry);
     conf.status = "closed";
     try {
-      await apiAddPressTranscriptEntry(id, { ...entry });
+      await apiAddPressTranscriptEntry(id, entry);
       saveState(data);
     } catch (err) {
-      console.error("[press] walk-off persist failed:", err);
+      handleApiError(err, "Conference walk-off");
       conf.transcript.pop(); // revert
       conf.status = "open";
       btn.disabled = false;
