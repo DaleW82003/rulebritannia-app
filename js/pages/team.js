@@ -7,7 +7,7 @@ const SYSTEM_ROLES = ["admin", "mod", "speaker"];
 const TEAM_LEVELS = [
   { id: "admins", label: "Admins", role: "admin" },
   { id: "mods", label: "Mods", role: "mod" },
-  { id: "speaker", label: "Mod Mountain", role: "speaker" }
+  { id: "speaker", label: "Speaker", role: "speaker" }
 ];
 
 function buildTeamFromUsers(users) {
