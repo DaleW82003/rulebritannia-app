@@ -1574,6 +1574,14 @@ export async function apiAdminRejectBudget() {
   return res.json();
 }
 
+// ── Public team read-only ───────────────────────────────────────────────────
+
+export async function apiGetTeam() {
+  const res = await fetch(`${API_BASE}/api/team`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetTeam failed (${res.status})`);
+  return res.json();
+}
+
 // ── Admin: user management ─────────────────────────────────────────────────
 
 export async function apiAdminGetUsers() {

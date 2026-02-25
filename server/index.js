@@ -4523,8 +4523,8 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     const SENSITIVE = new Set(["discourse_api_key", "discourse_api_username"]);
     const isLoggedIn = Boolean(req.session?.userId);
 
-    // Always fetch: clock + config.  Conditionally fetch: user row + state.
-    const [clockRows, configRows, userRows, stateRows] = await Promise.all([
+    // Always fetch: clock + config.  Conditionally fetch: user row + state + active character.
+    const [clockRows, configRows, userRows, stateRows, charRows] = await Promise.all([
       pool.query(
         "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
       ).then((r) => r.rows),
@@ -4544,6 +4544,20 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
                FROM app_state_current c
                JOIN state_snapshots s ON s.id = c.snapshot_id
               WHERE c.id = 'main'`
+          ).then((r) => r.rows)
+        : Promise.resolve([]),
+
+      // Canonical active character: prefer session pointer, then DB pointer, then any active char.
+      isLoggedIn
+        ? pool.query(
+            `SELECT c.id, c.name, c.party, c.constituency, c.avatar, c.bio, c.personal_background,
+                    c.is_active, c.user_id
+               FROM characters c
+              WHERE c.user_id = $1 AND c.is_active = TRUE
+              ORDER BY (c.id = (SELECT active_character_id FROM users WHERE id = $1)) DESC,
+                       c.created_at DESC
+              LIMIT 1`,
+            [req.session.userId]
           ).then((r) => r.rows)
         : Promise.resolve([]),
     ]);
@@ -4581,7 +4595,22 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     const user = userRows[0];
     const state = stateRows[0] ? { data: stateRows[0].data, updatedAt: stateRows[0].updated_at } : null;
 
-    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state, is_demo: false });
+    // Build canonical currentCharacter from the DB row (null when no active character).
+    let currentCharacter = null;
+    if (charRows[0]) {
+      const c = charRows[0];
+      currentCharacter = {
+        id:           c.id,
+        name:         c.name,
+        party:        c.party || "",
+        constituency: c.constituency || "",
+        avatar:       c.avatar || "",
+        bio:          c.bio || c.personal_background || "",
+        is_active:    c.is_active,
+      };
+    }
+
+    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state, currentCharacter, is_demo: false });
   } catch (e) {
     console.error("[bootstrap]", e);
     res.status(500).json({ error: "Server error" });
@@ -8523,6 +8552,34 @@ app.post("/api/admin/budget/reject", budgetWriteLimit, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/admin/budget/reject]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PUBLIC TEAM READ-ONLY
+// GET /api/team — returns Admins/Mods/Speaker with only safe public fields.
+// Available to any logged-in user (not just admins).
+// ═══════════════════════════════════════════════════════════════════════════
+
+const teamReadLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/team", teamReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Login required" });
+    const { rows } = await pool.query(`
+      SELECT u.username,
+             COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles,
+             (SELECT c.name FROM characters c WHERE c.id = u.active_character_id LIMIT 1) AS active_character
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+       WHERE ur.role IN ('admin', 'mod', 'speaker')
+       GROUP BY u.id, u.username, u.active_character_id
+       ORDER BY u.username
+    `);
+    res.json({ users: rows.map((r) => ({ username: r.username, roles: r.roles || [], activeCharacter: r.active_character || "" })) });
+  } catch (e) {
+    console.error("[GET /api/team]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
