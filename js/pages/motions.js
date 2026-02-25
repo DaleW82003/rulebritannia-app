@@ -113,6 +113,7 @@ export function initMotionsPage(data) {
                 ${partyOptions}
               </select>
             </div>` : ""}
+            <p class="muted" style="margin-top:8px;margin-bottom:4px;">Submitting as <b>${esc(char?.name || "MP")}</b>.</p>
             <button class="btn primary" type="submit">Submit House Motion</button>
           </form>
 
@@ -136,10 +137,10 @@ export function initMotionsPage(data) {
                 ${partyOptions}
               </select>
             </div>` : ""}
+            <p class="muted" style="margin-top:8px;margin-bottom:4px;">Submitting as <b>${esc(char?.name || "MP")}</b>.</p>
             <button class="btn primary" type="submit">Submit EDM</button>
           </form>
         </div>
-        <p class="muted" style="margin-top:8px;">Submitting as ${esc(char?.name || "MP")}.</p>
       `
     })}
 

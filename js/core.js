@@ -195,6 +195,8 @@ export async function bootData() {
 
   const user   = bootstrap?.user  ?? null;
   const clock  = bootstrap?.clock ?? null;
+  // Canonical active character from bootstrap (DB-derived, never stale localStorage).
+  const bootstrapCharacter = bootstrap?.currentCharacter ?? null;
 
   if (bootstrap?.csrfToken) setCsrfToken(bootstrap.csrfToken);
 
@@ -228,6 +230,9 @@ export async function bootData() {
 
   const ensured = ensureDefaults(serverData);
   ensured.currentUser = user;
+  // Always overwrite currentCharacter with the DB-canonical value from bootstrap.
+  // This prevents stale localStorage from a previous session (e.g. different account) bleeding in.
+  ensured.currentCharacter = bootstrapCharacter;
   saveData(ensured);
   return { data: ensured, user, clock, sources };
 }

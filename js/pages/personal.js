@@ -123,11 +123,11 @@ function canManage(data) {
 }
 
 function getCharacterName(data) {
-  return String(data?.currentCharacter?.name || data?.currentPlayer?.name || "").trim();
+  return String(data?.currentCharacter?.name || "").trim();
 }
 
 function getCharacterParty(data) {
-  return String(data?.currentCharacter?.party || data?.currentPlayer?.party || "").trim();
+  return String(data?.currentCharacter?.party || "").trim();
 }
 
 function normalisePersonal(data) {
@@ -145,7 +145,7 @@ function normalisePersonal(data) {
       education: "",
       careerBackground: "",
       family: "",
-      constituency: String(data?.currentCharacter?.constituency || data?.currentPlayer?.constituency || "").trim(),
+      constituency: String(data?.currentCharacter?.constituency || "").trim(),
       party: getCharacterParty(data) || "",
       yearFirstElected: ""
     },

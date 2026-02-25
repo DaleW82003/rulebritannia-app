@@ -1,6 +1,6 @@
 import { esc } from "../ui.js";
 import { isAdmin } from "../permissions.js";
-import { apiAdminGetUsers, apiSetUserRoles } from "../api.js";
+import { apiAdminGetUsers, apiGetTeam, apiSetUserRoles } from "../api.js";
 
 const SYSTEM_ROLES = ["admin", "mod", "speaker"];
 
@@ -159,15 +159,21 @@ export async function initTeamPage(data) {
   const host = document.getElementById("team-root") || document.querySelector("main.wrap");
   if (host) host.innerHTML = `<div class="muted-block" style="margin:16px;">Loading team…</div>`;
 
+  const adminMode = isAdmin(data);
   let users = [];
   try {
-    const result = await apiAdminGetUsers();
-    users = result.users || [];
+    if (adminMode) {
+      // Admins get the full user list (includes emails, IDs) for role editing.
+      const result = await apiAdminGetUsers();
+      users = result.users || [];
+    } else {
+      // Non-admins get the read-only team list (safe public fields only).
+      const result = await apiGetTeam();
+      users = result.users || [];
+    }
   } catch (err) {
-    console.warn("[team] Could not load DB users:", err.message);
-    // Non-admin users can still see the read-only view with empty lists
+    console.warn("[team] Could not load team data:", err.message);
   }
-
 
   const state = { editLevel: "", message: "", dirty: false, draftAssignments: {}, currentData: data };
   render(users, state);
