@@ -1,7 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
-import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange } from "../api.js";
+import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep } from "../api.js";
 
 const PROFILE_FIELDS = [
   { key: "dateOfBirth", label: "Date of birth" },
@@ -13,80 +13,563 @@ const PROFILE_FIELDS = [
   { key: "yearFirstElected", label: "Year first elected" }
 ];
 
-// ── Shop catalogue ────────────────────────────────────────────────────────────
-// Each item has: id, name, category, price, description,
-//   modifiers: { pressImpactPct, pollingBoostPct },
-//   scrutinyRisk: integer (added to scrutiny score on purchase).
+// ── Personal Shop catalogue ───────────────────────────────────────────────────
+// Schema: id, name, category, basePrice1997, baseMonthlyUpkeep1997,
+//         caps, effects[], riskModifier?, flavour
+// Computed at render time: price = round(base * priceIndex), upkeep = round(baseUpkeep * priceIndex)
 
 const SHOP_ITEMS = [
+  // ── A) Constituency & Office ──────────────────────────────────────────────
+  {
+    id: "const-office-basic",
+    name: "Basic Constituency Office Lease",
+    category: "Constituency & Office",
+    basePrice1997: 8000, baseMonthlyUpkeep1997: 500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "constituencyPresence", value: 1 }],
+    riskModifier: null,
+    flavour: "A modest high-street lease in your constituency. Essential for visible casework and surgeries."
+  },
+  {
+    id: "const-office-refurb",
+    name: "Office Refurbishment",
+    category: "Constituency & Office",
+    basePrice1997: 4500, baseMonthlyUpkeep1997: 0,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "constituencyPresence", value: 1 }],
+    riskModifier: null,
+    flavour: "Strip the tired carpet, repaint the walls, add some signage. First impressions matter."
+  },
+  {
+    id: "caseworker-pt",
+    name: "Caseworker (Part-Time)",
+    category: "Constituency & Office",
+    basePrice1997: 0, baseMonthlyUpkeep1997: 600,
+    caps: { maxOwned: 2 },
+    effects: [{ type: "constituencyCapacity", value: 1 }],
+    riskModifier: null,
+    flavour: "Three days a week dealing with constituents' housing, benefits, and passport nightmares."
+  },
+  {
+    id: "caseworker-ft",
+    name: "Caseworker (Full-Time)",
+    category: "Constituency & Office",
+    basePrice1997: 0, baseMonthlyUpkeep1997: 1200,
+    caps: { maxOwned: 2 },
+    effects: [{ type: "constituencyCapacity", value: 2 }],
+    riskModifier: null,
+    flavour: "Full-time casework support. Vital for high-need seats with complex caseloads."
+  },
+  {
+    id: "parliamentary-researcher",
+    name: "Parliamentary Researcher",
+    category: "Constituency & Office",
+    basePrice1997: 0, baseMonthlyUpkeep1997: 1800,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "policyResearch", value: 1 }],
+    riskModifier: null,
+    flavour: "A bright graduate to draft briefings, prep speeches, and make you look like you've read the bill."
+  },
+  {
+    id: "diary-manager",
+    name: "Diary Manager",
+    category: "Constituency & Office",
+    basePrice1997: 0, baseMonthlyUpkeep1997: 1400,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "efficiencyBoost", value: 1 }],
+    riskModifier: null,
+    flavour: "Someone to stop you double-booking Select Committee and a school visit in Skegness."
+  },
+  {
+    id: "newsletter-system",
+    name: "Local Newsletter System",
+    category: "Constituency & Office",
+    basePrice1997: 1500, baseMonthlyUpkeep1997: 200,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "pollingBoost", value: 1 }],
+    riskModifier: null,
+    flavour: "Regular printed updates to households. Keeps your name front of mind between elections."
+  },
+  {
+    id: "website-upgrade",
+    name: "Constituency Website Upgrade",
+    category: "Constituency & Office",
+    basePrice1997: 1200, baseMonthlyUpkeep1997: 50,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "pressImpact", value: 5 }],
+    riskModifier: null,
+    flavour: "Move beyond the Geocities-era design. A professional web presence in 1997 is genuinely novel."
+  },
+  {
+    id: "surgery-hall-hire",
+    name: "Community Surgery Hall Hire Credits",
+    category: "Constituency & Office",
+    basePrice1997: 800, baseMonthlyUpkeep1997: 100,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "constituencyPresence", value: 1 }],
+    riskModifier: null,
+    flavour: "Pre-book village hall and community centre slots for monthly public surgeries."
+  },
+  {
+    id: "mobile-office-kit",
+    name: "Mobile Office Equipment Kit",
+    category: "Constituency & Office",
+    basePrice1997: 2500, baseMonthlyUpkeep1997: 0,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "efficiencyBoost", value: 1 }],
+    riskModifier: null,
+    flavour: "Laptop, printer, mobile phone, and fax machine. A self-contained office in a bag."
+  },
+
+  // ── B) Travel & Logistics ─────────────────────────────────────────────────
+  {
+    id: "rail-travel-pass",
+    name: "Rail Travel Pass",
+    category: "Travel & Logistics",
+    basePrice1997: 1200, baseMonthlyUpkeep1997: 0,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "efficiencyBoost", value: 1 }],
+    riskModifier: null,
+    flavour: "Annual unlimited rail travel between constituency and Westminster. The workhorse of MP logistics."
+  },
+  {
+    id: "chauffeur-service",
+    name: "Chauffeur Service",
+    category: "Travel & Logistics",
+    basePrice1997: 0, baseMonthlyUpkeep1997: 2500,
+    caps: { maxOwned: 1 },
+    effects: [],
+    riskModifier: { scandalExposure: 3 },
+    flavour: "A personal driver on retainer. Convenient — but constituents tend to notice."
+  },
+  {
+    id: "first-class-rail",
+    name: "First Class Rail Upgrade",
+    category: "Travel & Logistics",
+    basePrice1997: 2000, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [],
+    riskModifier: { scandalExposure: 2 },
+    flavour: "Charged to expenses, naturally. The buffet car and a quiet seat. What could go wrong?"
+  },
+  {
+    id: "london-second-flat",
+    name: "London Second Flat",
+    category: "Travel & Logistics",
+    basePrice1997: 120000, baseMonthlyUpkeep1997: 800,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "efficiencyBoost", value: 2 }],
+    riskModifier: { scandalExposure: 8 },
+    flavour: "A pied-à-terre near Westminster. Extremely useful — and extremely scrutinised."
+  },
+  {
+    id: "hotel-allowance",
+    name: "Hotel Allowance Upgrade",
+    category: "Travel & Logistics",
+    basePrice1997: 2500, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [],
+    riskModifier: { scandalExposure: 1 },
+    flavour: "Upgrade your accommodation allowance for overnight Westminster stays. Nothing extravagant."
+  },
+  {
+    id: "domestic-flight",
+    name: "Domestic Flight Allowance",
+    category: "Travel & Logistics",
+    basePrice1997: 2000, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [],
+    riskModifier: null,
+    flavour: "For constituencies beyond the reach of a sensible train journey. Scotland, Cornwall, etc."
+  },
+  {
+    id: "tour-minibus",
+    name: "Constituency Tour Minibus Hire",
+    category: "Travel & Logistics",
+    basePrice1997: 3500, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "constituencyPresence", value: 1 }],
+    riskModifier: null,
+    flavour: "Hire a minibus and do a full constituency tour. Photo opportunities in every market town."
+  },
+  {
+    id: "factfinding-trip",
+    name: "International Fact-Finding Trip",
+    category: "Travel & Logistics",
+    basePrice1997: 7000, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "policyResearch", value: 1 }],
+    riskModifier: { scandalExposure: 4 },
+    flavour: "A week in Barbados studying their parliamentary system. Very educational, apparently."
+  },
+
+  // ── C) Legal & Compliance ─────────────────────────────────────────────────
+  {
+    id: "legal-retainer",
+    name: "Legal Retainer",
+    category: "Legal & Compliance",
+    basePrice1997: 4000, baseMonthlyUpkeep1997: 800,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "scandalDefence", value: 1 }],
+    riskModifier: null,
+    flavour: "A solicitor on retainer for any unexpected legal difficulties. Preventative, not reactive."
+  },
+  {
+    id: "enhanced-legal",
+    name: "Enhanced Legal Team",
+    category: "Legal & Compliance",
+    basePrice1997: 8000, baseMonthlyUpkeep1997: 2000,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "scandalDefence", value: 3 }],
+    riskModifier: null,
+    flavour: "A full legal team for serious matters. Barristers, libel specialists, parliamentary privilege experts."
+  },
+  {
+    id: "compliance-audit",
+    name: "Compliance Audit",
+    category: "Legal & Compliance",
+    basePrice1997: 2500, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "scandalDefence", value: 1 }],
+    riskModifier: null,
+    flavour: "An independent review of your expenses, interests, and declarations. Get ahead of the story."
+  },
+  {
+    id: "reputation-firm",
+    name: "Reputation Management Firm",
+    category: "Legal & Compliance",
+    basePrice1997: 7000, baseMonthlyUpkeep1997: 1500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "pressImpact", value: 15 }, { type: "scandalDefence", value: 2 }],
+    riskModifier: { scandalExposure: 1 },
+    flavour: "Specialists in burying bad news and reshaping narratives. Effective — until it leaks."
+  },
+  {
+    id: "crisis-pr",
+    name: "Crisis PR Hotline",
+    category: "Legal & Compliance",
+    basePrice1997: 4500, baseMonthlyUpkeep1997: 500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "scandalDefence", value: 2 }],
+    riskModifier: null,
+    flavour: "24-hour access to a crisis communications team. For when the call comes on a Sunday morning."
+  },
+
+  // ── D) Media & Influence ──────────────────────────────────────────────────
   {
     id: "media-trainer",
     name: "Media Training Session",
-    category: "Communications",
-    price: 5000,
-    description: "A professional media coaching session. Improves press release effectiveness.",
-    modifiers: { pressImpactPct: 10, pollingBoostPct: 0 },
-    scrutinyRisk: 0
+    category: "Media & Influence",
+    basePrice1997: 5000, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "pressImpact", value: 10 }],
+    riskModifier: null,
+    flavour: "A professional media coaching session. Camera technique, key messages, handling hostile questions."
   },
   {
-    id: "polling-consultant",
-    name: "Polling Consultant",
-    category: "Communications",
-    price: 8000,
-    description: "Commission a specialist polling consultant. Small but sustained polling lift.",
-    modifiers: { pressImpactPct: 0, pollingBoostPct: 2 },
-    scrutinyRisk: 1
+    id: "senior-press-adviser",
+    name: "Senior Press Adviser",
+    category: "Media & Influence",
+    basePrice1997: 0, baseMonthlyUpkeep1997: 3500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "pressImpact", value: 20 }],
+    riskModifier: null,
+    flavour: "A former lobby journalist who knows every editor and every trick. Invaluable."
   },
   {
-    id: "luxury-car",
-    name: "Luxury Car (chauffeur-driven)",
-    category: "Lifestyle",
-    price: 45000,
-    description: "A high-end chauffeured vehicle. Status symbol — but attracts media scrutiny.",
-    modifiers: { pressImpactPct: 0, pollingBoostPct: 0 },
-    scrutinyRisk: 5
+    id: "photography-package",
+    name: "Professional Photography Package",
+    category: "Media & Influence",
+    basePrice1997: 2500, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "pressImpact", value: 5 }],
+    riskModifier: null,
+    flavour: "High-quality constituency and Westminster photos for press releases and social media."
   },
   {
-    id: "second-home",
-    name: "Second Home (London)",
-    category: "Property",
-    price: 120000,
-    description: "A London property. Expensive and scrutiny-attracting, but convenient.",
-    modifiers: { pressImpactPct: 0, pollingBoostPct: 0 },
-    scrutinyRisk: 8
+    id: "social-media-campaign",
+    name: "Targeted Social Media Campaign",
+    category: "Media & Influence",
+    basePrice1997: 3500, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "pollingBoost", value: 1 }, { type: "pressImpact", value: 5 }],
+    riskModifier: null,
+    flavour: "Paid digital targeting in the constituency. Novel in 1997 — cutting edge."
   },
   {
-    id: "constituency-event",
-    name: "Constituency Summer Fair",
-    category: "Outreach",
-    price: 3000,
-    description: "Fund a local constituency event. Modest polling boost from community goodwill.",
-    modifiers: { pressImpactPct: 0, pollingBoostPct: 1 },
-    scrutinyRisk: 0
+    id: "opinion-column",
+    name: "Opinion Column Placement",
+    category: "Media & Influence",
+    basePrice1997: 1800, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "pressImpact", value: 8 }],
+    riskModifier: null,
+    flavour: "A placed opinion piece in a regional or national publication under your byline."
   },
   {
-    id: "pr-firm",
-    name: "PR Firm Retainer",
-    category: "Communications",
-    price: 15000,
-    description: "Retain a PR firm for ongoing positive press management.",
-    modifiers: { pressImpactPct: 20, pollingBoostPct: 1 },
-    scrutinyRisk: 2
-  }
+    id: "broadcast-consultant",
+    name: "Broadcast Media Consultant",
+    category: "Media & Influence",
+    basePrice1997: 5500, baseMonthlyUpkeep1997: 1200,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "pressImpact", value: 15 }],
+    riskModifier: null,
+    flavour: "Specialist in TV and radio appearances. Knows when to stay quiet and when to attack."
+  },
+  {
+    id: "speechwriting",
+    name: "Speechwriting Consultant",
+    category: "Media & Influence",
+    basePrice1997: 3500, baseMonthlyUpkeep1997: 800,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "pressImpact", value: 10 }, { type: "policyResearch", value: 1 }],
+    riskModifier: null,
+    flavour: "Someone to ensure your big speeches land. Also useful for writing things you haven't read."
+  },
+  {
+    id: "podcast-studio",
+    name: "Podcast Studio Setup",
+    category: "Media & Influence",
+    basePrice1997: 7000, baseMonthlyUpkeep1997: 200,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "pressImpact", value: 5 }, { type: "pollingBoost", value: 1 }],
+    riskModifier: null,
+    flavour: "An in-office podcast setup. Very forward-thinking for 1997. Your producer is twenty-four."
+  },
+
+  // ── E) Frivolous / Expenses-Era Inspired ─────────────────────────────────
+  {
+    id: "garden-landscaping",
+    name: "Garden Landscaping",
+    category: "Frivolous",
+    basePrice1997: 3500, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [],
+    riskModifier: { scandalExposure: 3 },
+    flavour: "An extensive redesign of the garden at your second home. Charged to office expenses."
+  },
+  {
+    id: "duck-house",
+    name: "Ornamental Duck House",
+    category: "Frivolous",
+    basePrice1997: 1645, baseMonthlyUpkeep1997: 0,
+    caps: { maxOwned: 1 },
+    effects: [],
+    riskModifier: { scandalExposure: 8 },
+    flavour: "A hand-crafted floating duck island for the moat. You will never live this down."
+  },
+  {
+    id: "luxury-curtains",
+    name: "Luxury Curtains",
+    category: "Frivolous",
+    basePrice1997: 2500, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [],
+    riskModifier: { scandalExposure: 4 },
+    flavour: "Bespoke hand-sewn drapes for the second home. The Daily Mail will love this."
+  },
+  {
+    id: "home-office-reno",
+    name: "Home Office Renovation",
+    category: "Frivolous",
+    basePrice1997: 5500, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "efficiencyBoost", value: 1 }],
+    riskModifier: { scandalExposure: 3 },
+    flavour: "Convert the spare room into a proper study. Claimed under the second home allowance."
+  },
+  {
+    id: "designer-furniture",
+    name: "Designer Furniture Allowance",
+    category: "Frivolous",
+    basePrice1997: 3800, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [],
+    riskModifier: { scandalExposure: 3 },
+    flavour: "Eames chairs, a bespoke desk, and a sofa from a catalogued supplier. Expenses, obviously."
+  },
+  {
+    id: "premium-broadband",
+    name: "Premium Broadband Installation",
+    category: "Frivolous",
+    basePrice1997: 500, baseMonthlyUpkeep1997: 50,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "efficiencyBoost", value: 1 }],
+    riskModifier: null,
+    flavour: "64kbps ISDN line. Blazing fast in 1997 — and technically claimable as an office expense."
+  },
+  {
+    id: "chauffeur-car",
+    name: "Chauffeur-Driven Car",
+    category: "Frivolous",
+    basePrice1997: 35000, baseMonthlyUpkeep1997: 1800,
+    caps: { maxOwned: 1 },
+    effects: [],
+    riskModifier: { scandalExposure: 6 },
+    flavour: "A Jaguar with a driver. Immensely practical. Utterly indefensible to a tabloid journalist."
+  },
+  {
+    id: "personal-branding",
+    name: "Personal Branding Consultant",
+    category: "Frivolous",
+    basePrice1997: 4500, baseMonthlyUpkeep1997: 600,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "pressImpact", value: 8 }],
+    riskModifier: { scandalExposure: 2 },
+    flavour: "Logo, colour palette, personal stationery, brand guidelines. For the MP as a product."
+  },
+  {
+    id: "luxury-watch",
+    name: "Luxury Watch Purchase",
+    category: "Frivolous",
+    basePrice1997: 4200, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [],
+    riskModifier: { scandalExposure: 4 },
+    flavour: "A Rolex or Patek Philippe. Not claimable — but you bought it anyway. People notice."
+  },
+
+  // ── F) Property & Investment ──────────────────────────────────────────────
+  {
+    id: "rental-property-reno",
+    name: "Rental Property Renovation",
+    category: "Property & Investment",
+    basePrice1997: 22000, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "additionalRevenue", value: 1 }],
+    riskModifier: { scandalExposure: 2 },
+    flavour: "Refurbish a buy-to-let between tenancies. Maximise the rental yield — and the optics risk."
+  },
+  {
+    id: "commercial-unit",
+    name: "Commercial Unit Purchase",
+    category: "Property & Investment",
+    basePrice1997: 80000, baseMonthlyUpkeep1997: 0,
+    caps: { maxOwned: 2 },
+    effects: [{ type: "additionalRevenue", value: 2 }],
+    riskModifier: { scandalExposure: 3 },
+    flavour: "A freehold commercial unit — shop, office, storage. Diversify the portfolio."
+  },
+  {
+    id: "holiday-let",
+    name: "Holiday Let Investment",
+    category: "Property & Investment",
+    basePrice1997: 55000, baseMonthlyUpkeep1997: 300,
+    caps: { maxOwned: 2 },
+    effects: [{ type: "additionalRevenue", value: 2 }],
+    riskModifier: { scandalExposure: 4 },
+    flavour: "A cottage in Cornwall or a flat in Bath. Good returns — better if no one notices."
+  },
+  {
+    id: "property-management",
+    name: "Property Management Service",
+    category: "Property & Investment",
+    basePrice1997: 0, baseMonthlyUpkeep1997: 400,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "efficiencyBoost", value: 1 }],
+    riskModifier: null,
+    flavour: "Let an agent handle everything. Tenant complaints, repairs, rent collection. Hands-off."
+  },
+  {
+    id: "mortgage-overpayment",
+    name: "Mortgage Overpayment",
+    category: "Property & Investment",
+    basePrice1997: 5000, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [],
+    riskModifier: null,
+    flavour: "Pay down the mortgage on the second home — using the second home allowance. Technically legal."
+  },
+
+  // ── G) Political Power Tools ──────────────────────────────────────────────
+  {
+    id: "policy-dossier",
+    name: "Policy Research Dossier Commission",
+    category: "Political Power Tools",
+    basePrice1997: 5500, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "policyResearch", value: 2 }],
+    riskModifier: null,
+    flavour: "Commission a specialist research dossier on a policy area. Useful for Select Committees and PMQs prep."
+  },
+  {
+    id: "lobbying-engagement",
+    name: "Lobbying Consultancy Engagement",
+    category: "Political Power Tools",
+    basePrice1997: 9000, baseMonthlyUpkeep1997: 1500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "policyResearch", value: 1 }],
+    riskModifier: { scandalExposure: 5 },
+    flavour: "Retain a lobbying firm for access and intelligence. Valuable. Registerable. Risky."
+  },
+  {
+    id: "think-tank-membership",
+    name: "Think Tank Membership",
+    category: "Political Power Tools",
+    basePrice1997: 2500, baseMonthlyUpkeep1997: 500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "policyResearch", value: 1 }, { type: "pressImpact", value: 5 }],
+    riskModifier: null,
+    flavour: "Associate membership of a major policy institute. Conferences, papers, and influential contacts."
+  },
+  {
+    id: "private-members-club",
+    name: "Private Member's Club Membership",
+    category: "Political Power Tools",
+    basePrice1997: 1200, baseMonthlyUpkeep1997: 200,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "pollingBoost", value: 1 }],
+    riskModifier: { scandalExposure: 1 },
+    flavour: "The Garrick, Groucho, or Reform Club. Networking and discretion — old-money Westminster."
+  },
+  {
+    id: "grant-microfund",
+    name: "Constituency Grant Micro-Fund",
+    category: "Political Power Tools",
+    basePrice1997: 10000, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "pollingBoost", value: 2 }, { type: "constituencyPresence", value: 1 }],
+    riskModifier: null,
+    flavour: "Set up a small grants fund for local community projects. Visible, popular, and genuinely good."
+  },
 ];
 
 // Compute aggregate modifiers for a profile from its purchases.
+// Handles both the new effects[] format and legacy modifiers/scrutinyRisk format.
 function computeModifiers(profile) {
   const purchases = Array.isArray(profile.shopPurchases) ? profile.shopPurchases : [];
   let pressImpactPct = 0;
   let pollingBoostPct = 0;
   let scrutinyScore = 0;
   for (const p of purchases) {
-    pressImpactPct += Number(p.modifiers?.pressImpactPct || 0);
+    // New effects[] format
+    if (Array.isArray(p.effects)) {
+      for (const e of p.effects) {
+        if (e.type === "pressImpact")   pressImpactPct  += Number(e.value || 0);
+        if (e.type === "pollingBoost")  pollingBoostPct += Number(e.value || 0);
+      }
+    }
+    // Legacy modifiers format (backward compat)
+    pressImpactPct  += Number(p.modifiers?.pressImpactPct  || 0);
     pollingBoostPct += Number(p.modifiers?.pollingBoostPct || 0);
-    scrutinyScore += Number(p.scrutinyRisk || 0);
+    // New riskModifier format + legacy scrutinyRisk
+    scrutinyScore += Number(p.riskModifier?.scandalExposure || p.scrutinyRisk || 0);
   }
   return { pressImpactPct, pollingBoostPct, scrutinyScore };
+}
+
+// Compute total monthly upkeep from active purchases (using priceIndex for new items).
+function computeMonthlyUpkeep(profile) {
+  const purchases = Array.isArray(profile.shopPurchases) ? profile.shopPurchases : [];
+  return purchases.reduce((sum, p) => sum + Number(p.monthlyUpkeep || 0), 0);
+}
+
+// Compute price using priceIndex (falls back to legacy price field).
+function currentPrice(item, priceIndex) {
+  return Math.round(item.basePrice1997 * priceIndex);
+}
+function currentUpkeep(item, priceIndex) {
+  return Math.round(item.baseMonthlyUpkeep1997 * priceIndex);
 }
 
 // Persist computed modifiers to state (used by press/polling pipeline).
@@ -187,7 +670,11 @@ function normalisePersonal(data) {
       p.itemId = String(p.itemId || "");
       p.name = String(p.name || "");
       p.price = Number(p.price || 0);
+      p.monthlyUpkeep = Number(p.monthlyUpkeep || 0);
       p.purchasedAt = String(p.purchasedAt || "");
+      p.effects = Array.isArray(p.effects) ? p.effects : [];
+      p.riskModifier = p.riskModifier || null;
+      // Backward compat: keep legacy fields if present
       p.modifiers ??= { pressImpactPct: 0, pollingBoostPct: 0 };
       p.scrutinyRisk = Number(p.scrutinyRisk || 0);
     }
@@ -368,43 +855,102 @@ function render(data, state) {
 
     <section class="panel" style="margin-top:12px;">
       <h2 style="margin-top:0;">MP Shop</h2>
-      <p class="muted">Purchase items to gain soft modifiers. High-luxury and property purchases attract media scrutiny (visible to mods).</p>
+      <p class="muted">
+        All prices are 1997 base prices × current price index
+        (<b>${esc(state.priceIndex?.toFixed(4) ?? "1.0000")}</b>).
+        Monthly upkeep is deducted automatically each sim month.
+      </p>
 
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:12px;">
-        ${SHOP_ITEMS.map((item) => `
-          <article class="tile card-flex">
-            <div>
-              <div><b>${esc(item.name)}</b> <span class="muted">(${esc(item.category)})</span></div>
-              <div class="muted" style="margin-top:4px;font-size:.9em;">${esc(item.description)}</div>
-              <div class="muted" style="margin-top:4px;">
-                ${item.modifiers.pressImpactPct ? `+${item.modifiers.pressImpactPct}% press impact ` : ""}
-                ${item.modifiers.pollingBoostPct ? `+${item.modifiers.pollingBoostPct}% polling boost ` : ""}
-                ${item.scrutinyRisk ? `⚠️ +${item.scrutinyRisk} scrutiny` : ""}
-              </div>
+      ${Object.entries(
+        SHOP_ITEMS.reduce((groups, item) => {
+          (groups[item.category] = groups[item.category] || []).push(item);
+          return groups;
+        }, {})
+      ).map(([cat, items]) => {
+        const pi = state.priceIndex || 1;
+        return `
+          <details open style="margin-bottom:10px;">
+            <summary style="cursor:pointer;font-weight:600;font-size:1em;margin-bottom:6px;">${esc(cat)}</summary>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:8px;margin-top:6px;">
+              ${items.map((item) => {
+                const price = currentPrice(item, pi);
+                const upkeep = currentUpkeep(item, pi);
+                const ownedCount = profile.shopPurchases.filter((p) => p.itemId === item.id).length;
+                const maxOwned = item.caps?.maxOwned;
+                const atCap = maxOwned != null && ownedCount >= maxOwned;
+                const canAfford = profile.bankBalance >= price;
+                const effectTags = item.effects.map((e) => {
+                  if (e.type === "pressImpact")         return `+${e.value}% press`;
+                  if (e.type === "pollingBoost")         return `+${e.value}% polling`;
+                  if (e.type === "constituencyPresence") return `📍 constituency`;
+                  if (e.type === "constituencyCapacity") return `👥 casework`;
+                  if (e.type === "policyResearch")       return `📄 research`;
+                  if (e.type === "efficiencyBoost")      return `⚡ efficiency`;
+                  if (e.type === "scandalDefence")       return `🛡️ scandal defence`;
+                  if (e.type === "additionalRevenue")    return `💰 revenue`;
+                  return e.type;
+                }).join(" · ");
+                const riskTag = item.riskModifier?.scandalExposure
+                  ? `⚠️ +${item.riskModifier.scandalExposure} scandal risk`
+                  : "";
+                const capNote = maxOwned != null
+                  ? `${ownedCount}/${maxOwned} owned`
+                  : (ownedCount > 0 ? `${ownedCount} owned` : "");
+                return `
+                  <article class="tile card-flex">
+                    <div>
+                      <div style="display:flex;justify-content:space-between;gap:4px;flex-wrap:wrap;align-items:baseline;">
+                        <b>${esc(item.name)}</b>
+                        ${capNote ? `<span class="muted" style="font-size:.8em;">${esc(capNote)}</span>` : ""}
+                      </div>
+                      <div class="muted" style="margin-top:4px;font-size:.88em;line-height:1.4;">${esc(item.flavour)}</div>
+                      <div style="margin-top:5px;font-size:.82em;display:flex;gap:6px;flex-wrap:wrap;">
+                        ${effectTags ? `<span style="color:#1a6a1a;">${esc(effectTags)}</span>` : ""}
+                        ${riskTag ? `<span style="color:#b00;">${esc(riskTag)}</span>` : ""}
+                      </div>
+                    </div>
+                    <div class="tile-bottom" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;">
+                      <div>
+                        <b>${money(price)}</b>
+                        ${upkeep > 0 ? `<div class="muted" style="font-size:.82em;">+ ${money(upkeep)}/month</div>` : ""}
+                      </div>
+                      ${canShop ? `<button type="button" class="btn" data-action="buy-item" data-item-id="${esc(item.id)}"
+                        ${!canAfford ? `disabled title="Insufficient funds"` : ""}
+                        ${atCap ? `disabled title="Maximum owned"` : ""}
+                      >Buy</button>` : ""}
+                    </div>
+                  </article>
+                `;
+              }).join("")}
             </div>
-            <div class="tile-bottom" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-              <b>${money(item.price)}</b>
-              ${canShop ? `<button type="button" class="btn" data-action="buy-item" data-item-id="${esc(item.id)}" ${profile.bankBalance < item.price ? "disabled title=\"Insufficient funds\"" : ""}>Buy</button>` : ""}
-            </div>
-          </article>
-        `).join("")}
-      </div>
+          </details>
+        `;
+      }).join("")}
 
       <h3 style="margin:0 0 6px;">Purchased Items</h3>
-      ${profile.shopPurchases.length ? profile.shopPurchases.map((p, idx) => `
-        <article class="tile" style="margin-bottom:8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
-          <div>
-            <b>${esc(p.name)}</b>
-            <div class="muted">Purchased ${esc(p.purchasedAt)} — ${money(p.price)}</div>
-            <div class="muted" style="font-size:.9em;">
-              ${p.modifiers?.pressImpactPct ? `+${p.modifiers.pressImpactPct}% press ` : ""}
-              ${p.modifiers?.pollingBoostPct ? `+${p.modifiers.pollingBoostPct}% polling ` : ""}
-              ${p.scrutinyRisk ? `+${p.scrutinyRisk} scrutiny` : ""}
+      ${profile.shopPurchases.length ? `
+        <div class="muted" style="margin-bottom:8px;">
+          Total monthly upkeep: <b>${money(computeMonthlyUpkeep(profile))}</b>
+        </div>
+        ${profile.shopPurchases.map((p, idx) => `
+          <article class="tile" style="margin-bottom:8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
+            <div>
+              <b>${esc(p.name)}</b>
+              <div class="muted">Purchased ${esc(p.purchasedAt)} — ${money(p.price)}</div>
+              ${p.monthlyUpkeep > 0 ? `<div class="muted" style="font-size:.85em;">Upkeep: ${money(p.monthlyUpkeep)}/month</div>` : ""}
+              <div class="muted" style="font-size:.9em;">
+                ${Array.isArray(p.effects) && p.effects.length ? p.effects.map((e) => {
+                  if (e.type === "pressImpact")  return `+${e.value}% press`;
+                  if (e.type === "pollingBoost") return `+${e.value}% polling`;
+                  return e.type;
+                }).join(" · ") : ""}
+                ${(p.riskModifier?.scandalExposure || p.scrutinyRisk) ? `⚠️ +${p.riskModifier?.scandalExposure || p.scrutinyRisk} scandal risk` : ""}
+              </div>
             </div>
-          </div>
-          ${manager ? `<button type="button" class="btn" data-action="remove-purchase" data-idx="${idx}">Remove</button>` : ""}
-        </article>
-      `).join("") : '<div class="muted-block">No items purchased.</div>'}
+            ${manager ? `<button type="button" class="btn" data-action="remove-purchase" data-idx="${idx}">Remove</button>` : ""}
+          </article>
+        `).join("")}
+      ` : '<div class="muted-block">No items purchased.</div>'}
     </section>
 
     ${manager ? `
@@ -491,21 +1037,34 @@ function render(data, state) {
       const itemId = String(btn.dataset.itemId || "");
       const item = SHOP_ITEMS.find((i) => i.id === itemId);
       if (!item) return;
-      if (profile.bankBalance < item.price) return;
-      profile.bankBalance -= item.price;
+      const pi = state.priceIndex || 1;
+      const price = currentPrice(item, pi);
+      const upkeep = currentUpkeep(item, pi);
+      // Check cap
+      const ownedCount = profile.shopPurchases.filter((p) => p.itemId === item.id).length;
+      if (item.caps?.maxOwned != null && ownedCount >= item.caps.maxOwned) return;
+      if (profile.bankBalance < price) return;
+      profile.bankBalance -= price;
       profile.shopPurchases.push({
         itemId: item.id,
         name: item.name,
-        price: item.price,
-        modifiers: { ...item.modifiers },
-        scrutinyRisk: item.scrutinyRisk,
+        price,
+        monthlyUpkeep: upkeep,
+        effects: item.effects ? [...item.effects] : [],
+        riskModifier: item.riskModifier || null,
+        // Legacy compat fields
+        modifiers: { pressImpactPct: 0, pollingBoostPct: 0 },
+        scrutinyRisk: item.riskModifier?.scandalExposure || 0,
         purchasedAt: nowStamp()
       });
       profile.modifiers = computeModifiers(profile);
       syncModifiers(data, activeName);
       profile.updatedAt = nowStamp();
       saveState(data);
-      state.message = `Purchased "${item.name}" for ${money(item.price)}.`;
+      // Update server-side upkeep total for clock tick deductions
+      const totalUpkeep = computeMonthlyUpkeep(profile);
+      apiUpdateCharacterShopUpkeep(totalUpkeep).catch(() => {});
+      state.message = `Purchased "${item.name}" for ${money(price)}.${upkeep > 0 ? ` Upkeep: ${money(upkeep)}/month.` : ""}`;
       render(data, state);
     });
   });
@@ -521,6 +1080,8 @@ function render(data, state) {
       syncModifiers(data, activeName);
       profile.updatedAt = nowStamp();
       saveState(data);
+      // Sync upkeep total with server
+      apiUpdateCharacterShopUpkeep(computeMonthlyUpkeep(profile)).catch(() => {});
       state.message = `Purchase removed.`;
       render(data, state);
     });
@@ -720,8 +1281,16 @@ function render(data, state) {
   }
 }
 
-export function initPersonalPage(data) {
+export async function initPersonalPage(data) {
   normalisePersonal(data);
   saveState(data);
-  render(data, { selectedName: getCharacterName(data), message: "" });
+  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0 };
+  // Load current shop price index from server (non-blocking; falls back to 1.0)
+  apiGetShopPriceIndex().then(({ priceIndex }) => {
+    if (Number.isFinite(priceIndex) && priceIndex > 0) {
+      state.priceIndex = priceIndex;
+      render(data, state);
+    }
+  }).catch(() => {});
+  render(data, state);
 }
