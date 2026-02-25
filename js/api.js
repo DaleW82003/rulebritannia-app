@@ -1580,3 +1580,41 @@ export async function apiAdminGetUsers() {
   if (!res.ok) throw new Error(`apiAdminGetUsers failed (${res.status})`);
   return res.json();
 }
+
+export async function apiAdminGetCharacters(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.owned !== undefined) qs.set("owned", params.owned);
+  if (params.active !== undefined) qs.set("active", String(params.active));
+  const url = `${API_BASE}/api/admin/characters${qs.toString() ? `?${qs}` : ""}`;
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiAdminGetCharacters failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAdminAssignCharacterOwner(characterId, userId, setActive = false) {
+  const res = await fetch(`${API_BASE}/api/admin/characters/${encodeURIComponent(characterId)}/assign-owner`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ user_id: userId, set_active: setActive }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminAssignCharacterOwner failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiAdminSetUserActiveCharacter(userId, characterId) {
+  const res = await fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}/active-character`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id: characterId || null }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminSetUserActiveCharacter failed (${res.status})`);
+  }
+  return res.json();
+}

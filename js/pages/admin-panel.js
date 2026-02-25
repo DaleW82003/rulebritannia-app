@@ -15,6 +15,8 @@ import {
   apiGetPendingRegistrations, apiApproveRegistration, apiRejectRegistration,
   apiSeedDemo, apiWipeContent,
   apiAdminRepairCharacterOwners,
+  apiAdminGetUsers, apiAdminGetCharacters,
+  apiAdminAssignCharacterOwner, apiAdminSetUserActiveCharacter,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
@@ -49,6 +51,11 @@ export async function initAdminPanelPage(data) {
   let dashboardData = null; // moderator dashboard summary
   let billSyncResults = null; // results of last Discourse bill sync
   let pendingRegistrations = []; // pending registration applications
+
+  // ── User–Character Management state ─────────────────────────────────────
+  let charMgmtUsers = [];        // users with active_character info
+  let charMgmtUnowned = [];      // unowned characters
+  let charMgmtUserChars = {};    // map userId → owned characters (loaded on demand)
 
   async function loadDashboard() {
     try {
@@ -591,9 +598,11 @@ export async function initAdminPanelPage(data) {
               <b>Repair Character Owner Pointers</b>
               <p style="margin:4px 0 0;font-size:13px;color:#555;">
                 Reconciles approved character applications whose created characters have a missing or
-                incorrect <code>user_id</code>. Safe to run multiple times — only fixes records that need it.
+                incorrect <code>user_id</code>, and repairs missing <code>users.active_character_id</code> pointers.
+                Safe to run multiple times — only fixes records that need it.
               </p>
               <div id="repair-char-owners-status" style="font-size:13px;margin-top:6px;"></div>
+              <div id="repair-char-owners-diagnostics" style="font-size:12px;margin-top:4px;color:#555;"></div>
             </div>
             <button class="btn" id="btn-repair-char-owners" type="button">Run Repair</button>
           </div>
@@ -609,6 +618,87 @@ export async function initAdminPanelPage(data) {
           </div>
 
         </div>
+      </section>`;
+  }
+
+  function renderUserCharacterManagement() {
+    const unownedRows = charMgmtUnowned.map((c) => `
+      <tr data-char-id="${esc(c.id)}">
+        <td style="padding:6px 8px;">${esc(c.name)}</td>
+        <td style="padding:6px 8px;">${esc(c.party || "—")}</td>
+        <td style="padding:6px 8px;">${esc(c.constituency || "—")}</td>
+        <td style="padding:6px 8px;">${c.is_active ? "✓ Active" : "Inactive"}</td>
+        <td style="padding:6px 8px;white-space:nowrap;">
+          <select class="input ucm-user-select" style="font-size:12px;padding:2px 6px;margin-right:4px;" data-char-id="${esc(c.id)}">
+            <option value="">— select user —</option>
+            ${charMgmtUsers.map((u) => `<option value="${esc(u.id)}">${esc(u.username)}</option>`).join("")}
+          </select>
+          <button class="btn ucm-assign-btn" data-char-id="${esc(c.id)}" type="button" style="font-size:12px;padding:2px 8px;margin-right:4px;">Assign</button>
+          <button class="btn ucm-assign-active-btn" data-char-id="${esc(c.id)}" type="button" style="font-size:12px;padding:2px 8px;">Assign + Set Active</button>
+        </td>
+      </tr>`).join("");
+
+    const userRows = charMgmtUsers.map((u) => `
+      <tr data-user-id="${esc(u.id)}">
+        <td style="padding:6px 8px;">${esc(u.username)}</td>
+        <td style="padding:6px 8px;">${u.activeCharacterId ? `${esc(u.activeCharacter || u.activeCharacterId)}` : '<span style="color:#aaa;">None</span>'}</td>
+        <td style="padding:6px 8px;white-space:nowrap;">
+          ${u.activeCharacterId ? `<button class="btn ucm-clear-active-btn" data-user-id="${esc(u.id)}" type="button" style="font-size:12px;padding:2px 8px;margin-right:4px;">Clear</button>` : ""}
+          <select class="input ucm-set-active-select" style="font-size:12px;padding:2px 6px;margin-right:4px;" data-user-id="${esc(u.id)}">
+            <option value="">— owned characters —</option>
+          </select>
+          <button class="btn ucm-set-active-btn" data-user-id="${esc(u.id)}" type="button" style="font-size:12px;padding:2px 8px;">Set Active</button>
+        </td>
+      </tr>`).join("");
+
+    return `
+      <section class="panel" style="max-width:960px;margin-top:12px;" id="ucm-section">
+        <h2 style="margin-top:0;">User–Character Management <span class="admin-badge">Admin only</span></h2>
+        <p style="font-size:13px;color:#555;margin-top:0;">
+          Assign unowned characters to users and manage active character pointers. Use this as a backup if the
+          normal approval flow did not correctly set ownership.
+        </p>
+        <div style="margin-bottom:10px;">
+          <button class="btn" id="btn-ucm-reload" type="button" style="font-size:12px;">↺ Reload</button>
+          <span id="ucm-load-status" style="font-size:12px;color:#555;margin-left:8px;"></span>
+        </div>
+
+        <h3 style="margin:16px 0 6px;font-size:14px;">Unowned Characters</h3>
+        ${charMgmtUnowned.length === 0
+          ? `<p class="muted" style="font-size:13px;">No unowned characters found.</p>`
+          : `<div style="overflow-x:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                  <tr style="border-bottom:2px solid var(--line);">
+                    <th style="text-align:left;padding:6px 8px;">Name</th>
+                    <th style="text-align:left;padding:6px 8px;">Party</th>
+                    <th style="text-align:left;padding:6px 8px;">Constituency</th>
+                    <th style="text-align:left;padding:6px 8px;">Status</th>
+                    <th style="text-align:left;padding:6px 8px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>${unownedRows}</tbody>
+              </table>
+            </div>`
+        }
+
+        <h3 style="margin:20px 0 6px;font-size:14px;">Users — Active Character Management</h3>
+        ${charMgmtUsers.length === 0
+          ? `<p class="muted" style="font-size:13px;">No users loaded.</p>`
+          : `<div style="overflow-x:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                  <tr style="border-bottom:2px solid var(--line);">
+                    <th style="text-align:left;padding:6px 8px;">Username</th>
+                    <th style="text-align:left;padding:6px 8px;">Active Character</th>
+                    <th style="text-align:left;padding:6px 8px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>${userRows}</tbody>
+              </table>
+            </div>`
+        }
+        <div id="ucm-action-status" style="font-size:13px;margin-top:8px;"></div>
       </section>`;
   }
 
@@ -813,6 +903,8 @@ export async function initAdminPanelPage(data) {
       ${renderAuditLog()}
 
       ${renderUserPermissions()}
+
+      ${renderUserCharacterManagement()}
 
       ${renderDiscourseSyncPreview()}
 
@@ -1152,16 +1244,32 @@ export async function initAdminPanelPage(data) {
     host.querySelector("#btn-repair-char-owners")?.addEventListener("click", async () => {
       const btn = host.querySelector("#btn-repair-char-owners");
       const statusEl = host.querySelector("#repair-char-owners-status");
+      const diagEl = host.querySelector("#repair-char-owners-diagnostics");
       if (btn) { btn.disabled = true; btn.textContent = "Running…"; }
       if (statusEl) statusEl.textContent = "";
+      if (diagEl) diagEl.textContent = "";
       try {
         const result = await apiAdminRepairCharacterOwners();
         logAction({ action: "admin.repair.character-owner-pointers", details: { fixed_count: result.fixed_count } });
         if (statusEl) {
-          statusEl.style.color = result.fixed_count ? "#1a7a1a" : "#555";
+          statusEl.style.color = (result.fixed_count || result.active_pointer_fixed_count) ? "#1a7a1a" : "#555";
           statusEl.textContent = result.message || "Done.";
           if (result.fixed_count && result.fixed?.length) {
             statusEl.textContent += " Fixed: " + result.fixed.map((r) => `${r.name} → ${r.applicant_username}`).join(", ");
+          }
+        }
+        if (diagEl) {
+          const diag = [
+            `Orphans: ${result.orphans_count ?? 0}`,
+            `Approved apps: ${result.approved_applications_count ?? 0}`,
+            `Matched by app ID: ${result.matched_by_application_id_count ?? 0}`,
+            `Matched by name: ${result.matched_by_name_fallback_count ?? 0}`,
+            `Active pointer fixed: ${result.active_pointer_fixed_count ?? 0}`,
+            `Sessions cleared: ${result.sessions_cleared ?? 0}`,
+          ].join(" | ");
+          diagEl.textContent = diag;
+          if (result.orphans_count > 0 && result.orphans?.length) {
+            diagEl.textContent += ` — Orphans: ${result.orphans.slice(0, 5).map((o) => o.name).join(", ")}${result.orphans_count > 5 ? " …" : ""}`;
           }
         }
         toastSuccess(result.message || "Repair complete.");
@@ -1172,6 +1280,120 @@ export async function initAdminPanelPage(data) {
         if (btn) { btn.disabled = false; btn.textContent = "Run Repair"; }
       }
     });
+
+    // ── User–Character Management handlers ──────────────────────────────────────
+
+    async function loadUcmData() {
+      const statusEl = host.querySelector("#ucm-load-status");
+      if (statusEl) statusEl.textContent = "Loading…";
+      try {
+        const [usersResult, unownedResult] = await Promise.all([
+          apiAdminGetUsers(),
+          apiAdminGetCharacters({ owned: "unowned" }),
+        ]);
+        charMgmtUsers = usersResult.users || [];
+        charMgmtUnowned = unownedResult.characters || [];
+        if (statusEl) statusEl.textContent = "";
+        // Re-render the UCM section in place
+        const section = host.querySelector("#ucm-section");
+        if (section) section.outerHTML = renderUserCharacterManagement();
+        attachUcmHandlers();
+        // Populate owned-character dropdowns for each user
+        await loadOwnedCharDropdowns();
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Load failed: ${err.message}`;
+        toastError(`UCM load failed: ${err.message}`);
+      }
+    }
+
+    async function loadOwnedCharDropdowns() {
+      const selects = host.querySelectorAll(".ucm-set-active-select");
+      await Promise.all(Array.from(selects).map(async (sel) => {
+        const userId = sel.dataset.userId;
+        if (!userId) return;
+        try {
+          const result = await apiAdminGetCharacters({ owned: "owned" });
+          const userChars = (result.characters || []).filter((c) => c.user_id === userId);
+          sel.innerHTML = `<option value="">— owned characters —</option>` +
+            userChars.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.is_active ? " ✓" : ""}</option>`).join("");
+        } catch (_) { /* non-fatal */ }
+      }));
+    }
+
+    function attachUcmHandlers() {
+      const actionStatus = host.querySelector("#ucm-action-status");
+      function setStatus(msg, ok = true) {
+        if (!actionStatus) return;
+        actionStatus.style.color = ok ? "#1a7a1a" : "#c00";
+        actionStatus.textContent = msg;
+      }
+
+      host.querySelector("#btn-ucm-reload")?.addEventListener("click", () => loadUcmData());
+
+      // Assign / Assign+Active buttons for unowned characters
+      host.querySelectorAll(".ucm-assign-btn,.ucm-assign-active-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const charId = btn.dataset.charId;
+          const setActive = btn.classList.contains("ucm-assign-active-btn");
+          const sel = host.querySelector(`.ucm-user-select[data-char-id="${CSS.escape(charId)}"]`);
+          const userId = sel?.value;
+          if (!userId) { setStatus("Select a user first.", false); return; }
+          try {
+            btn.disabled = true;
+            await apiAdminAssignCharacterOwner(charId, userId, setActive);
+            toastSuccess(`Character assigned${setActive ? " and set active" : ""}.`);
+            setStatus(`Character assigned${setActive ? " and set active" : ""}.`);
+            await loadUcmData();
+          } catch (err) {
+            setStatus(err.message, false);
+            toastError(err.message);
+            btn.disabled = false;
+          }
+        });
+      });
+
+      // Clear active character
+      host.querySelectorAll(".ucm-clear-active-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const userId = btn.dataset.userId;
+          try {
+            btn.disabled = true;
+            await apiAdminSetUserActiveCharacter(userId, null);
+            toastSuccess("Active character cleared.");
+            setStatus("Active character cleared.");
+            await loadUcmData();
+          } catch (err) {
+            setStatus(err.message, false);
+            toastError(err.message);
+            btn.disabled = false;
+          }
+        });
+      });
+
+      // Set active character from dropdown
+      host.querySelectorAll(".ucm-set-active-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const userId = btn.dataset.userId;
+          const sel = host.querySelector(`.ucm-set-active-select[data-user-id="${CSS.escape(userId)}"]`);
+          const charId = sel?.value;
+          if (!charId) { setStatus("Select an owned character first.", false); return; }
+          try {
+            btn.disabled = true;
+            await apiAdminSetUserActiveCharacter(userId, charId);
+            toastSuccess("Active character updated.");
+            setStatus("Active character updated.");
+            await loadUcmData();
+          } catch (err) {
+            setStatus(err.message, false);
+            toastError(err.message);
+            btn.disabled = false;
+          }
+        });
+      });
+    }
+
+    // Initial load
+    loadUcmData();
 
     host.querySelector("#btn-force-logout-all")?.addEventListener("click", async () => {
       if (!confirm("Force-logout all other users? Every active session except yours will be terminated immediately.")) return;
