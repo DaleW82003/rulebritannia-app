@@ -673,6 +673,55 @@ export async function apiRejectBioChange(id) {
   return res.json();
 }
 
+export async function apiSubmitAvatarChange(proposed_avatar) {
+  const res = await fetch(`${API_BASE}/api/characters/avatar-change`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ proposed_avatar }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiSubmitAvatarChange failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiGetAllAvatarChanges(status) {
+  const url = status
+    ? `${API_BASE}/api/admin/avatar-changes?status=${encodeURIComponent(status)}`
+    : `${API_BASE}/api/admin/avatar-changes`;
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetAllAvatarChanges failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiApproveAvatarChange(id) {
+  const res = await fetch(`${API_BASE}/api/admin/avatar-changes/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiApproveAvatarChange failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiRejectAvatarChange(id) {
+  const res = await fetch(`${API_BASE}/api/admin/avatar-changes/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiRejectAvatarChange failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function apiSetProperty(character_id, home, rentals) {
   const res = await fetch(`${API_BASE}/api/mod/property/set`, {
     method: "POST",

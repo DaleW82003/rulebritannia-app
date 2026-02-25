@@ -1,7 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
-import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange } from "../api.js";
+import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange } from "../api.js";
 
 const PROFILE_FIELDS = [
   { key: "dateOfBirth", label: "Date of birth" },
@@ -269,6 +269,19 @@ function render(data, state) {
             <div class="muted">${esc(profile.profile.party || "")}</div>
           </div>
         </div>
+        ${isOwnProfile ? `
+          <details style="margin-top:10px;">
+            <summary style="cursor:pointer;font-weight:500;">Request Avatar Change</summary>
+            <form id="avatar-change-form" style="margin-top:10px;">
+              <input class="input" name="proposed_avatar" placeholder="New avatar URL (https://...)" style="width:100%;">
+              <div class="muted" style="font-size:.8em;margin-top:3px;">Recommended: 512×512 px (min 256×256 px)</div>
+              <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button class="btn primary" type="submit">Submit Change Request</button>
+                <span class="muted" id="avatar-change-status"></span>
+              </div>
+            </form>
+          </details>
+        ` : ""}
       </article>
 
       <article class="tile">
@@ -444,6 +457,11 @@ function render(data, state) {
       <section class="panel" id="bio-changes-panel" style="margin-top:12px;">
         <h2 style="margin-top:0;">Pending Biography Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></h2>
         <div id="bio-changes-list"><div class="muted-block">Loading…</div></div>
+      </section>
+
+      <section class="panel" id="avatar-changes-panel" style="margin-top:12px;">
+        <h2 style="margin-top:0;">Pending Avatar Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></h2>
+        <div id="avatar-changes-list"><div class="muted-block">Loading…</div></div>
       </section>
     ` : ""}
 
@@ -625,6 +643,78 @@ function render(data, state) {
         });
       }).catch(() => {
         if (bioChangesList) bioChangesList.innerHTML = '<div class="muted-block">Could not load bio change requests.</div>';
+      });
+    }
+  }
+
+  // Avatar change request form (own profile only)
+  host.querySelector("#avatar-change-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const proposed_avatar = String(fd.get("proposed_avatar") || "").trim();
+    if (!proposed_avatar) return;
+    const statusEl = host.querySelector("#avatar-change-status");
+    try {
+      await apiSubmitAvatarChange(proposed_avatar);
+      if (statusEl) statusEl.textContent = "Change request submitted — awaiting mod review.";
+      e.currentTarget.reset();
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+    }
+  });
+
+  // Admin/mod avatar change review panel
+  if (manager) {
+    const avatarChangesList = host.querySelector("#avatar-changes-list");
+    if (avatarChangesList) {
+      apiGetAllAvatarChanges("pending").then(({ changes }) => {
+        if (!changes.length) {
+          avatarChangesList.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
+          return;
+        }
+        avatarChangesList.innerHTML = changes.map((c) => `
+          <article class="tile" style="margin-bottom:8px;" data-avatar-change-id="${esc(c.id)}">
+            <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
+            <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
+            <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;font-size:.9em;word-break:break-all;">${esc(c.proposed_avatar)}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn primary" type="button" data-action="approve-avatar-change" data-id="${esc(c.id)}">Approve</button>
+              <button class="btn" type="button" data-action="reject-avatar-change" data-id="${esc(c.id)}">Reject</button>
+            </div>
+          </article>
+        `).join("");
+
+        avatarChangesList.querySelectorAll('[data-action="approve-avatar-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiApproveAvatarChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!avatarChangesList.querySelector("article")) {
+                avatarChangesList.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
+              }
+            } catch (err) {
+              state.message = `Error: ${err.message}`;
+              render(data, state);
+            }
+          });
+        });
+
+        avatarChangesList.querySelectorAll('[data-action="reject-avatar-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiRejectAvatarChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!avatarChangesList.querySelector("article")) {
+                avatarChangesList.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
+              }
+            } catch (err) {
+              state.message = `Error: ${err.message}`;
+              render(data, state);
+            }
+          });
+        });
+      }).catch(() => {
+        if (avatarChangesList) avatarChangesList.innerHTML = '<div class="muted-block">Could not load avatar change requests.</div>';
       });
     }
   }
