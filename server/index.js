@@ -810,6 +810,123 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS pac_status_idx ON pending_avatar_changes (status);
   `);
 
+  // ── Affiliations — proper relational tables ───────────────────────────────
+  // (Supersedes any prior pending_affiliations / approved_affiliations JSONB columns
+  //  — those are kept for schema backward-compat but not used by the new workflow.)
+  await pool.query(`
+    ALTER TABLE characters
+      ADD COLUMN IF NOT EXISTS pending_affiliations  JSONB NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS approved_affiliations JSONB NOT NULL DEFAULT '[]'::jsonb;
+  `);
+
+  // affiliations_catalog: master list of all available affiliations
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS affiliations_catalog (
+      id       TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      name     TEXT NOT NULL,
+      active   BOOLEAN NOT NULL DEFAULT TRUE
+    );
+  `);
+
+  // Seed/upsert the catalog (idempotent)
+  await pool.query(`
+    INSERT INTO affiliations_catalog (id, category, name) VALUES
+      ('trade_unions_unite',       'Trade Unions (Major UK)',        'Unite the Union'),
+      ('trade_unions_unison',      'Trade Unions (Major UK)',        'UNISON'),
+      ('trade_unions_gmb',         'Trade Unions (Major UK)',        'GMB'),
+      ('trade_unions_cwu',         'Trade Unions (Major UK)',        'CWU (Communication Workers Union)'),
+      ('trade_unions_rmt',         'Trade Unions (Major UK)',        'RMT'),
+      ('trade_unions_usdaw',       'Trade Unions (Major UK)',        'USDAW'),
+      ('trade_unions_nasuwt',      'Trade Unions (Major UK)',        'NASUWT'),
+      ('trade_unions_neu',         'Trade Unions (Major UK)',        'NEU (National Education Union)'),
+      ('trade_unions_bma',         'Trade Unions (Major UK)',        'BMA'),
+      ('trade_unions_tssa',        'Trade Unions (Major UK)',        'TSSA'),
+      ('think_tanks_fabian',       'Think Tanks',                   'Fabian Society'),
+      ('think_tanks_iea',          'Think Tanks',                   'Institute of Economic Affairs'),
+      ('think_tanks_policy_exch',  'Think Tanks',                   'Policy Exchange'),
+      ('think_tanks_cps',          'Think Tanks',                   'Centre for Policy Studies'),
+      ('think_tanks_ifg',          'Think Tanks',                   'Institute for Government'),
+      ('think_tanks_demos',        'Think Tanks',                   'Demos'),
+      ('think_tanks_resolution',   'Think Tanks',                   'Resolution Foundation'),
+      ('think_tanks_asi',          'Think Tanks',                   'Adam Smith Institute'),
+      ('think_tanks_chatham',      'Think Tanks',                   'Chatham House'),
+      ('think_tanks_ippr',         'Think Tanks',                   'IPPR'),
+      ('advocacy_greenpeace',      'Advocacy / Campaign Groups',    'Greenpeace UK'),
+      ('advocacy_foe',             'Advocacy / Campaign Groups',    'Friends of the Earth'),
+      ('advocacy_liberty',         'Advocacy / Campaign Groups',    'Liberty'),
+      ('advocacy_amnesty',         'Advocacy / Campaign Groups',    'Amnesty International'),
+      ('advocacy_stonewall',       'Advocacy / Campaign Groups',    'Stonewall'),
+      ('advocacy_countryside',     'Advocacy / Campaign Groups',    'Countryside Alliance'),
+      ('advocacy_taxpayers',       'Advocacy / Campaign Groups',    'TaxPayers'' Alliance'),
+      ('advocacy_openrights',      'Advocacy / Campaign Groups',    'Open Rights Group'),
+      ('advocacy_shelter',         'Advocacy / Campaign Groups',    'Shelter'),
+      ('advocacy_cnd',             'Advocacy / Campaign Groups',    'Campaign for Nuclear Disarmament'),
+      ('business_cbi',             'Business / Industry',           'CBI'),
+      ('business_fsb',             'Business / Industry',           'Federation of Small Businesses'),
+      ('business_iod',             'Business / Industry',           'Institute of Directors'),
+      ('business_bcc',             'Business / Industry',           'British Chambers of Commerce'),
+      ('business_techuk',          'Business / Industry',           'TechUK'),
+      ('business_nfu',             'Business / Industry',           'National Farmers Union'),
+      ('prof_law_society',         'Professional Associations',     'Law Society'),
+      ('prof_bar_council',         'Professional Associations',     'Bar Council'),
+      ('prof_rcn',                 'Professional Associations',     'Royal College of Nursing'),
+      ('prof_cipd',                'Professional Associations',     'Chartered Institute of Personnel & Development'),
+      ('faith_coe_synod',          'Faith / Ethical',               'Church of England Synod Member'),
+      ('faith_catholic_social',    'Faith / Ethical',               'Catholic Social Action Network'),
+      ('faith_mcb',                'Faith / Ethical',               'Muslim Council of Britain'),
+      ('faith_jlc',                'Faith / Ethical',               'Jewish Leadership Council'),
+      ('intl_nato_pa',             'International',                 'NATO Parliamentary Assembly'),
+      ('intl_council_europe',      'International',                 'Council of Europe'),
+      ('intl_cpa',                 'International',                 'Commonwealth Parliamentary Association'),
+      ('intl_wef',                 'International',                 'World Economic Forum'),
+      ('faction_1922',             'Party Factions (Internal Groups)', 'Conservative 1922 Committee'),
+      ('faction_labour_campaign',  'Party Factions (Internal Groups)', 'Labour Campaign Group'),
+      ('faction_labour_first',     'Party Factions (Internal Groups)', 'Labour First'),
+      ('faction_blue_labour',      'Party Factions (Internal Groups)', 'Blue Labour'),
+      ('faction_tory_reform',      'Party Factions (Internal Groups)', 'Tory Reform Group'),
+      ('faction_erg',              'Party Factions (Internal Groups)', 'European Research Group'),
+      ('faction_libdem_fed',       'Party Factions (Internal Groups)', 'Liberal Democrat Federalist Group'),
+      ('pressure_migwatch',        'Pressure Groups',               'Migration Watch UK'),
+      ('pressure_brit_future',     'Pressure Groups',               'British Future'),
+      ('pressure_ifs',             'Pressure Groups',               'Institute of Fiscal Studies'),
+      ('pressure_rbl',             'Pressure Groups',               'Royal British Legion'),
+      ('pressure_ukfinance',       'Pressure Groups',               'UK Finance'),
+      ('soft_rotary',              'Soft Affiliations',             'Rotary Club'),
+      ('soft_local_biz',           'Soft Affiliations',             'Local Business Network'),
+      ('soft_alumni',              'Soft Affiliations',             'University Alumni Association')
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category;
+  `);
+
+  // character_affiliations: per-character affiliation status
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS character_affiliations (
+      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id   UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      affiliation_id TEXT NOT NULL REFERENCES affiliations_catalog(id),
+      status         TEXT NOT NULL
+                     CHECK (status IN ('approved','pending_add','pending_remove','rejected_add','rejected_remove')),
+      requested_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      requested_by   UUID REFERENCES users(id),
+      reviewed_at    TIMESTAMPTZ,
+      reviewed_by    TEXT,
+      review_note    TEXT,
+      UNIQUE (character_id, affiliation_id)
+    );
+    CREATE INDEX IF NOT EXISTS ca_char_idx   ON character_affiliations (character_id);
+    CREATE INDEX IF NOT EXISTS ca_status_idx ON character_affiliations (status);
+  `);
+
+  // Make financial_background_level nullable so unset characters show "Unknown"
+  await pool.query(`
+    ALTER TABLE characters
+      ALTER COLUMN financial_background_level DROP NOT NULL,
+      ALTER COLUMN financial_background_level SET DEFAULT NULL;
+    ALTER TABLE pending_character_applications
+      ALTER COLUMN financial_background_level DROP NOT NULL,
+      ALTER COLUMN financial_background_level SET DEFAULT NULL;
+  `);
+
   // ── Parties ───────────────────────────────────────────────────────────────
   // New installs: create with UUID PK + slug.
   await pool.query(`
@@ -9122,7 +9239,7 @@ app.get("/api/team", teamReadLimit, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 // Public profile — read-only character summary for a user (logged-in required)
 // GET /api/profile?user=<username>
-// Returns safe public fields only: name, party, constituency, avatar, bio.
+// Returns safe public fields only.
 // ═══════════════════════════════════════════════════════════════════════════
 
 const profileReadLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
@@ -9135,11 +9252,18 @@ app.get("/api/profile", profileReadLimit, async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT u.username,
+              c.id          AS char_id,
               c.name        AS char_name,
               c.party,
               c.constituency,
               c.avatar,
-              COALESCE(c.bio, c.personal_background, '') AS bio
+              COALESCE(c.bio, c.personal_background, '') AS bio,
+              c.financial_background_level,
+              c.date_of_birth,
+              c.education,
+              c.career_background,
+              c.family,
+              c.year_first_elected
          FROM users u
          LEFT JOIN characters c ON c.id = u.active_character_id
         WHERE LOWER(u.username) = LOWER($1)
@@ -9149,18 +9273,282 @@ app.get("/api/profile", profileReadLimit, async (req, res) => {
 
     if (!rows.length) return res.status(404).json({ error: "User not found" });
     const r = rows[0];
+
+    // Fetch approved affiliations from relational table
+    let approvedAffiliations = [];
+    if (r.char_id) {
+      const { rows: affRows } = await pool.query(
+        `SELECT ac.id, ac.category, ac.name
+           FROM character_affiliations ca
+           JOIN affiliations_catalog ac ON ac.id = ca.affiliation_id
+          WHERE ca.character_id = $1 AND ca.status = 'approved'
+          ORDER BY ac.category, ac.name`,
+        [r.char_id]
+      );
+      approvedAffiliations = affRows;
+    }
+
     res.json({
-      username:     r.username,
+      username:  r.username,
       character: r.char_name ? {
-        name:         r.char_name,
-        party:        r.party        || "",
-        constituency: r.constituency || "",
-        avatar:       r.avatar       || "",
-        bio:          r.bio          || "",
+        name:                    r.char_name,
+        party:                   r.party                || "",
+        constituency:            r.constituency         || "",
+        avatar:                  r.avatar               || "",
+        bio:                     r.bio                  || "",
+        financial_background_level: r.financial_background_level ?? null,
+        approved_affiliations:   approvedAffiliations,
+        date_of_birth:           r.date_of_birth        || "",
+        education:               r.education            || "",
+        career_background:       r.career_background    || "",
+        family:                  r.family               || "",
+        year_first_elected:      r.year_first_elected   || "",
       } : null,
     });
   } catch (e) {
     console.error("[GET /api/profile]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Affiliations workflow
+// GET  /api/me/character/:id/affiliations           — owner: fetch own affiliations
+// POST /api/me/character/:id/affiliations           — owner: submit tick list (diff)
+// GET  /api/control-panel/affiliations/pending      — staff: list pending requests
+// POST /api/control-panel/affiliations/:rid/decide  — staff: approve or reject
+// ═══════════════════════════════════════════════════════════════════════════
+
+const affiliationsReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const affiliationsWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+// GET /api/me/character/:id/affiliations — owner gets approved + all pending rows
+app.get("/api/me/character/:id/affiliations", affiliationsReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const charId = req.params.id;
+    // Verify ownership
+    const { rows: own } = await pool.query(
+      "SELECT id FROM characters WHERE id = $1 AND user_id = $2",
+      [charId, req.session.userId]
+    );
+    if (!own.length) return res.status(403).json({ error: "Not your character" });
+
+    const { rows } = await pool.query(
+      `SELECT ca.id AS request_id, ca.affiliation_id, ca.status,
+              ca.requested_at, ca.reviewed_at, ca.reviewed_by, ca.review_note,
+              ac.category, ac.name
+         FROM character_affiliations ca
+         JOIN affiliations_catalog ac ON ac.id = ca.affiliation_id
+        WHERE ca.character_id = $1
+        ORDER BY ac.category, ac.name`,
+      [charId]
+    );
+    res.json({ affiliations: rows });
+  } catch (e) {
+    console.error("[GET /api/me/character/:id/affiliations]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/me/character/:id/affiliations — diff-based submission
+// Body: { requestedAffiliationIds: string[] }
+app.post("/api/me/character/:id/affiliations", affiliationsWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const charId = req.params.id;
+    // Verify ownership
+    const { rows: own } = await pool.query(
+      "SELECT id FROM characters WHERE id = $1 AND user_id = $2",
+      [charId, req.session.userId]
+    );
+    if (!own.length) return res.status(403).json({ error: "Not your character" });
+
+    const requested = req.body?.requestedAffiliationIds;
+    if (!Array.isArray(requested)) return res.status(400).json({ error: "requestedAffiliationIds must be an array" });
+
+    // Validate all requested IDs exist in catalog
+    const cleanRequested = [...new Set(requested.map((s) => String(s).trim()).filter(Boolean))];
+    if (cleanRequested.length > 0) {
+      const { rows: valid } = await pool.query(
+        "SELECT id FROM affiliations_catalog WHERE id = ANY($1::text[]) AND active = TRUE",
+        [cleanRequested]
+      );
+      const validIds = new Set(valid.map((r) => r.id));
+      const invalid = cleanRequested.filter((id) => !validIds.has(id));
+      if (invalid.length) return res.status(400).json({ error: `Unknown affiliation IDs: ${invalid.join(", ")}` });
+    }
+
+    // Fetch current rows for this character
+    const { rows: current } = await pool.query(
+      "SELECT affiliation_id, status FROM character_affiliations WHERE character_id = $1",
+      [charId]
+    );
+    const currentMap = new Map(current.map((r) => [r.affiliation_id, r.status]));
+    const requestedSet = new Set(cleanRequested);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      for (const [affId, status] of currentMap) {
+        if (status === "pending_add" && !requestedSet.has(affId)) {
+          // User unchecked something they'd previously requested — cancel the pending add
+          await client.query(
+            "DELETE FROM character_affiliations WHERE character_id = $1 AND affiliation_id = $2",
+            [charId, affId]
+          );
+        } else if (status === "approved" && !requestedSet.has(affId)) {
+          // User unchecked an approved affiliation → create pending_remove
+          await client.query(
+            `UPDATE character_affiliations
+                SET status = 'pending_remove', requested_at = NOW(), requested_by = $3,
+                    reviewed_at = NULL, reviewed_by = NULL, review_note = NULL
+              WHERE character_id = $1 AND affiliation_id = $2`,
+            [charId, affId, req.session.userId]
+          );
+        } else if (status === "pending_remove" && requestedSet.has(affId)) {
+          // User re-checked something pending removal → cancel: revert to approved
+          await client.query(
+            `UPDATE character_affiliations
+                SET status = 'approved', reviewed_at = NULL, reviewed_by = NULL, review_note = NULL
+              WHERE character_id = $1 AND affiliation_id = $2`,
+            [charId, affId]
+          );
+        } else if ((status === "rejected_add" || status === "rejected_remove") && requestedSet.has(affId)) {
+          // Re-request a previously rejected item → new pending_add
+          await client.query(
+            `UPDATE character_affiliations
+                SET status = 'pending_add', requested_at = NOW(), requested_by = $3,
+                    reviewed_at = NULL, reviewed_by = NULL, review_note = NULL
+              WHERE character_id = $1 AND affiliation_id = $2`,
+            [charId, affId, req.session.userId]
+          );
+        }
+      }
+
+      for (const affId of requestedSet) {
+        if (!currentMap.has(affId)) {
+          // Brand new tick → pending_add
+          await client.query(
+            `INSERT INTO character_affiliations (character_id, affiliation_id, status, requested_by)
+             VALUES ($1, $2, 'pending_add', $3)`,
+            [charId, affId, req.session.userId]
+          );
+        }
+      }
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    await writeAuditLog(req.session.userId, "affiliations.submit", "character", charId, null, { requested: cleanRequested.length });
+
+    // Return updated state
+    const { rows: updated } = await pool.query(
+      `SELECT ca.id AS request_id, ca.affiliation_id, ca.status,
+              ca.requested_at, ca.reviewed_at, ca.reviewed_by, ca.review_note,
+              ac.category, ac.name
+         FROM character_affiliations ca
+         JOIN affiliations_catalog ac ON ac.id = ca.affiliation_id
+        WHERE ca.character_id = $1
+        ORDER BY ac.category, ac.name`,
+      [charId]
+    );
+    res.json({ ok: true, affiliations: updated });
+  } catch (e) {
+    console.error("[POST /api/me/character/:id/affiliations]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/control-panel/affiliations/pending — staff: all pending_add/pending_remove rows
+app.get("/api/control-panel/affiliations/pending", affiliationsReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT ca.id AS request_id, ca.character_id, ca.affiliation_id, ca.status,
+              ca.requested_at, ca.review_note,
+              ac.category, ac.name AS affiliation_name,
+              c.name  AS character_name, c.party, c.constituency,
+              u.username
+         FROM character_affiliations ca
+         JOIN affiliations_catalog ac ON ac.id = ca.affiliation_id
+         JOIN characters c ON c.id = ca.character_id
+         LEFT JOIN users u ON u.id = c.user_id
+        WHERE ca.status IN ('pending_add','pending_remove')
+        ORDER BY ca.requested_at`,
+    );
+    res.json({ requests: rows });
+  } catch (e) {
+    console.error("[GET /api/control-panel/affiliations/pending]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/control-panel/affiliations/:rid/decide — staff: approve or reject
+// Body: { decision: "approve"|"reject", note?: string }
+app.post("/api/control-panel/affiliations/:rid/decide", affiliationsWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { rid } = req.params;
+    const decision = String(req.body?.decision || "").trim();
+    const note = String(req.body?.note || "").trim().slice(0, 500);
+    if (decision !== "approve" && decision !== "reject") {
+      return res.status(400).json({ error: "decision must be 'approve' or 'reject'" });
+    }
+
+    const { rows } = await pool.query(
+      "SELECT id, character_id, affiliation_id, status FROM character_affiliations WHERE id = $1",
+      [rid]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Affiliation request not found" });
+    const row = rows[0];
+
+    if (row.status !== "pending_add" && row.status !== "pending_remove") {
+      return res.status(409).json({ error: "Request is not in a pending state" });
+    }
+
+    const reviewer = req.session.userId;
+    const reviewerName = req.session.username || String(reviewer);
+
+    if (decision === "approve") {
+      if (row.status === "pending_add") {
+        await pool.query(
+          `UPDATE character_affiliations
+              SET status = 'approved', reviewed_at = NOW(), reviewed_by = $2, review_note = $3
+            WHERE id = $1`,
+          [rid, reviewerName, note || null]
+        );
+      } else {
+        // pending_remove approved → delete the row entirely
+        await pool.query("DELETE FROM character_affiliations WHERE id = $1", [rid]);
+      }
+    } else {
+      // reject
+      if (row.status === "pending_add") {
+        // Delete the row — allows re-request later
+        await pool.query("DELETE FROM character_affiliations WHERE id = $1", [rid]);
+      } else {
+        // pending_remove rejected → keep the affiliation approved
+        await pool.query(
+          `UPDATE character_affiliations
+              SET status = 'approved', reviewed_at = NOW(), reviewed_by = $2, review_note = $3
+            WHERE id = $1`,
+          [rid, reviewerName, note || null]
+        );
+      }
+    }
+
+    await writeAuditLog(reviewer, `affiliations.${decision}`, "character_affiliation", rid, null,
+      { affiliation_id: row.affiliation_id, character_id: row.character_id, original_status: row.status, note });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/control-panel/affiliations/:rid/decide]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

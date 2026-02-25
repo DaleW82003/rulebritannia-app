@@ -8,6 +8,7 @@ import {
   apiGetCharacterApplications, apiApproveCharacterApplication, apiRejectCharacterApplication,
   apiGetCharacters, apiAdminSetCharacterInactive, apiAdminRepairCharacterOwners,
   apiGetShopPriceIndex, apiApplyShopInflation,
+  apiGetPendingAffiliations, apiDecideAffiliation,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -140,6 +141,11 @@ export async function initControlPanelPage(data) {
     <details class="tile" style="margin-bottom:10px;" open>
       <summary style="cursor:pointer;"><b>Pending Avatar Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></b></summary>
       <div style="margin-top:10px;" id="cp-avatar-changes-list"><div class="muted-block">Loading…</div></div>
+    </details>
+
+    <details class="tile" style="margin-bottom:10px;" open>
+      <summary style="cursor:pointer;"><b>Pending Affiliation Requests <span class="mod-badge">Mod / Admin / Speaker</span></b></summary>
+      <div style="margin-top:10px;" id="cp-affiliations-list"><div class="muted-block">Loading…</div></div>
     </details>
     ` : ""}
 
@@ -413,6 +419,88 @@ export async function initControlPanelPage(data) {
       }).catch(() => {
         if (avatarListEl) avatarListEl.innerHTML = '<div class="muted-block">Could not load avatar change requests.</div>';
       });
+    }
+
+    // ── Affiliations queue ──────────────────────────────────────────────────
+    const affListEl = rolePanels.querySelector("#cp-affiliations-list");
+    if (affListEl) {
+      function renderAffiliationRequests(requests) {
+        if (!requests.length) {
+          affListEl.innerHTML = '<div class="muted-block">No pending affiliation requests.</div>';
+          return;
+        }
+        affListEl.innerHTML = `
+          <table style="width:100%;border-collapse:collapse;font-size:.9em;">
+            <thead>
+              <tr style="border-bottom:2px solid var(--line,#ddd);text-align:left;">
+                <th style="padding:4px 8px;">Character</th>
+                <th style="padding:4px 8px;">Affiliation</th>
+                <th style="padding:4px 8px;">Category</th>
+                <th style="padding:4px 8px;">Action</th>
+                <th style="padding:4px 8px;">Requested</th>
+                <th style="padding:4px 8px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${requests.map((r) => `
+                <tr style="border-bottom:1px solid var(--line,#eee);" data-aff-request-id="${esc(r.request_id)}">
+                  <td style="padding:4px 8px;"><b>${esc(r.character_name || "-")}</b><br><span class="muted" style="font-size:.85em;">${esc(r.party || "")}${r.constituency ? ` · ${esc(r.constituency)}` : ""}</span></td>
+                  <td style="padding:4px 8px;">${esc(r.affiliation_name)}</td>
+                  <td style="padding:4px 8px;" class="muted">${esc(r.category)}</td>
+                  <td style="padding:4px 8px;">
+                    ${r.status === "pending_add"
+                      ? '<span style="color:#1a7a1a;font-weight:600;">+ Add</span>'
+                      : '<span style="color:#c00;font-weight:600;">− Remove</span>'}
+                  </td>
+                  <td style="padding:4px 8px;" class="muted">${esc(r.requested_at ? new Date(r.requested_at).toLocaleString("en-GB") : "-")}</td>
+                  <td style="padding:4px 8px;display:flex;gap:6px;flex-wrap:wrap;">
+                    <button class="btn primary btn-sm" type="button" data-action="cp-approve-aff" data-id="${esc(r.request_id)}">Approve</button>
+                    <button class="btn btn-sm" type="button" data-action="cp-reject-aff" data-id="${esc(r.request_id)}">Reject</button>
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        `;
+
+        affListEl.querySelectorAll('[data-action="cp-approve-aff"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const id = btn.dataset.id;
+            btn.disabled = true;
+            try {
+              await apiDecideAffiliation(id, "approve");
+              btn.closest("tr")?.remove();
+              if (!affListEl.querySelector("tr[data-aff-request-id]")) {
+                affListEl.innerHTML = '<div class="muted-block">No pending affiliation requests.</div>';
+              }
+            } catch (err) {
+              btn.disabled = false;
+              alert(`Error: ${err.message}`);
+            }
+          });
+        });
+
+        affListEl.querySelectorAll('[data-action="cp-reject-aff"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const id = btn.dataset.id;
+            btn.disabled = true;
+            try {
+              await apiDecideAffiliation(id, "reject");
+              btn.closest("tr")?.remove();
+              if (!affListEl.querySelector("tr[data-aff-request-id]")) {
+                affListEl.innerHTML = '<div class="muted-block">No pending affiliation requests.</div>';
+              }
+            } catch (err) {
+              btn.disabled = false;
+              alert(`Error: ${err.message}`);
+            }
+          });
+        });
+      }
+
+      apiGetPendingAffiliations()
+        .then(({ requests }) => renderAffiliationRequests(requests))
+        .catch(() => { affListEl.innerHTML = '<div class="muted-block">Could not load affiliation requests.</div>'; });
     }
   }
 }

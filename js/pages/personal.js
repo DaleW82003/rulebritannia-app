@@ -1,7 +1,94 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
-import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep } from "../api.js";
+import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations } from "../api.js";
+
+// ── Affiliations catalogue ────────────────────────────────────────────────────
+const AFFILIATIONS_CATALOG = [
+  { category: "Trade Unions (Major UK)", items: [
+    { id: "trade_unions_unite",  name: "Unite the Union" },
+    { id: "trade_unions_unison", name: "UNISON" },
+    { id: "trade_unions_gmb",    name: "GMB" },
+    { id: "trade_unions_cwu",    name: "CWU (Communication Workers Union)" },
+    { id: "trade_unions_rmt",    name: "RMT" },
+    { id: "trade_unions_usdaw",  name: "USDAW" },
+    { id: "trade_unions_nasuwt", name: "NASUWT" },
+    { id: "trade_unions_neu",    name: "NEU (National Education Union)" },
+    { id: "trade_unions_bma",    name: "BMA" },
+    { id: "trade_unions_tssa",   name: "TSSA" },
+  ]},
+  { category: "Think Tanks", items: [
+    { id: "think_tanks_fabian",      name: "Fabian Society" },
+    { id: "think_tanks_iea",         name: "Institute of Economic Affairs" },
+    { id: "think_tanks_policy_exch", name: "Policy Exchange" },
+    { id: "think_tanks_cps",         name: "Centre for Policy Studies" },
+    { id: "think_tanks_ifg",         name: "Institute for Government" },
+    { id: "think_tanks_demos",       name: "Demos" },
+    { id: "think_tanks_resolution",  name: "Resolution Foundation" },
+    { id: "think_tanks_asi",         name: "Adam Smith Institute" },
+    { id: "think_tanks_chatham",     name: "Chatham House" },
+    { id: "think_tanks_ippr",        name: "IPPR" },
+  ]},
+  { category: "Advocacy / Campaign Groups", items: [
+    { id: "advocacy_greenpeace",  name: "Greenpeace UK" },
+    { id: "advocacy_foe",         name: "Friends of the Earth" },
+    { id: "advocacy_liberty",     name: "Liberty" },
+    { id: "advocacy_amnesty",     name: "Amnesty International" },
+    { id: "advocacy_stonewall",   name: "Stonewall" },
+    { id: "advocacy_countryside", name: "Countryside Alliance" },
+    { id: "advocacy_taxpayers",   name: "TaxPayers' Alliance" },
+    { id: "advocacy_openrights",  name: "Open Rights Group" },
+    { id: "advocacy_shelter",     name: "Shelter" },
+    { id: "advocacy_cnd",         name: "Campaign for Nuclear Disarmament" },
+  ]},
+  { category: "Business / Industry", items: [
+    { id: "business_cbi",    name: "CBI" },
+    { id: "business_fsb",    name: "Federation of Small Businesses" },
+    { id: "business_iod",    name: "Institute of Directors" },
+    { id: "business_bcc",    name: "British Chambers of Commerce" },
+    { id: "business_techuk", name: "TechUK" },
+    { id: "business_nfu",    name: "National Farmers Union" },
+  ]},
+  { category: "Professional Associations", items: [
+    { id: "prof_law_society", name: "Law Society" },
+    { id: "prof_bar_council", name: "Bar Council" },
+    { id: "prof_rcn",         name: "Royal College of Nursing" },
+    { id: "prof_cipd",        name: "Chartered Institute of Personnel & Development" },
+  ]},
+  { category: "Faith / Ethical", items: [
+    { id: "faith_coe_synod",       name: "Church of England Synod Member" },
+    { id: "faith_catholic_social", name: "Catholic Social Action Network" },
+    { id: "faith_mcb",             name: "Muslim Council of Britain" },
+    { id: "faith_jlc",             name: "Jewish Leadership Council" },
+  ]},
+  { category: "International", items: [
+    { id: "intl_nato_pa",       name: "NATO Parliamentary Assembly" },
+    { id: "intl_council_europe", name: "Council of Europe" },
+    { id: "intl_cpa",           name: "Commonwealth Parliamentary Association" },
+    { id: "intl_wef",           name: "World Economic Forum" },
+  ]},
+  { category: "Party Factions (Internal Groups)", items: [
+    { id: "faction_1922",           name: "Conservative 1922 Committee" },
+    { id: "faction_labour_campaign", name: "Labour Campaign Group" },
+    { id: "faction_labour_first",   name: "Labour First" },
+    { id: "faction_blue_labour",    name: "Blue Labour" },
+    { id: "faction_tory_reform",    name: "Tory Reform Group" },
+    { id: "faction_erg",            name: "European Research Group" },
+    { id: "faction_libdem_fed",     name: "Liberal Democrat Federalist Group" },
+  ]},
+  { category: "Pressure Groups", items: [
+    { id: "pressure_migwatch",   name: "Migration Watch UK" },
+    { id: "pressure_brit_future", name: "British Future" },
+    { id: "pressure_ifs",        name: "Institute of Fiscal Studies" },
+    { id: "pressure_rbl",        name: "Royal British Legion" },
+    { id: "pressure_ukfinance",  name: "UK Finance" },
+  ]},
+  { category: "Soft Affiliations", items: [
+    { id: "soft_rotary",    name: "Rotary Club" },
+    { id: "soft_local_biz", name: "Local Business Network" },
+    { id: "soft_alumni",    name: "University Alumni Association" },
+  ]},
+];
 
 const PROFILE_FIELDS = [
   { key: "dateOfBirth", label: "Date of birth" },
@@ -700,6 +787,10 @@ function normalisePersonal(data) {
       if (dbChar.party)            p.profile.party            = dbChar.party;
       if (dbChar.yearFirstElected) p.profile.yearFirstElected = dbChar.yearFirstElected;
       if (dbChar.avatar)           p.avatar                   = dbChar.avatar;
+      // Sync financial background level from DB character record
+      if (dbChar.financial_background_level != null) {
+        p.financialBackgroundLevel = String(dbChar.financial_background_level);
+      }
     }
   }
 
@@ -820,12 +911,13 @@ function render(data, state) {
 
       <article class="tile">
         <h2 style="margin-top:0;">Financial Background level</h2>
-        <p>${esc(profile.financialBackgroundLevel || "-")}</p>
+        <p>${esc(profile.financialBackgroundLevel || "Unknown")}</p>
       </article>
 
-      <article class="tile">
+      <article class="tile" id="affiliations-tile">
         <h2 style="margin-top:0;">Affiliations</h2>
-        <p style="white-space:pre-wrap;">${esc(profile.affiliations || "-")}</p>
+        <div id="affiliations-display"><div class="muted-block" style="font-size:.9em;">Loading affiliations…</div></div>
+        ${isOwnProfile ? `<button type="button" class="btn" style="margin-top:10px;" id="affiliations-edit-btn">Edit Affiliations</button>` : ""}
       </article>
 
       <article class="tile">
@@ -976,8 +1068,8 @@ function render(data, state) {
             </div>
           </div>
 
-          <label class="label" for="p-aff">Affiliations</label>
-          <textarea id="p-aff" class="input" name="affiliations" rows="3">${esc(profile.affiliations || "")}</textarea>
+          <label class="label" for="p-aff">Affiliations (legacy free-text)</label>
+          <textarea id="p-aff" class="input" name="affiliations" rows="2" style="display:none;">${esc(profile.affiliations || "")}</textarea>
 
           <h3 style="margin:10px 0 6px;">MP Profile Fields</h3>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
@@ -1278,6 +1370,119 @@ function render(data, state) {
         if (avatarChangesList) avatarChangesList.innerHTML = '<div class="muted-block">Could not load avatar change requests.</div>';
       });
     }
+  }
+
+  // ── Affiliations tile: load and render ──────────────────────────────────
+  const affiliationsDisplay = host.querySelector("#affiliations-display");
+  const affiliationsEditBtn = host.querySelector("#affiliations-edit-btn");
+  const currentCharId = data?.currentCharacter?.id;
+
+  function renderAffiliationsDisplay(affiliations) {
+    if (!affiliationsDisplay) return;
+    if (!affiliations || !affiliations.length) {
+      affiliationsDisplay.innerHTML = '<div class="muted-block" style="font-size:.9em;">No affiliations recorded.</div>';
+      return;
+    }
+    const approved = affiliations.filter((a) => a.status === "approved");
+    const pendingAdd = affiliations.filter((a) => a.status === "pending_add");
+    const pendingRemove = affiliations.filter((a) => a.status === "pending_remove");
+    let html = "";
+    if (approved.length) {
+      html += `<div style="margin-bottom:6px;"><b>Approved:</b></div>`;
+      html += `<ul style="margin:0 0 8px;padding-left:18px;">` +
+        approved.map((a) => `<li>${esc(a.name)} <span class="muted" style="font-size:.8em;">(${esc(a.category)})</span></li>`).join("") +
+        `</ul>`;
+    }
+    if (pendingAdd.length) {
+      html += `<div style="margin-bottom:4px;color:#b57a00;"><b>Pending addition (awaiting mod approval):</b></div>`;
+      html += `<ul style="margin:0 0 8px;padding-left:18px;color:#b57a00;">` +
+        pendingAdd.map((a) => `<li>${esc(a.name)}</li>`).join("") +
+        `</ul>`;
+    }
+    if (pendingRemove.length) {
+      html += `<div style="margin-bottom:4px;color:#c00;"><b>Pending removal (awaiting mod approval):</b></div>`;
+      html += `<ul style="margin:0 0 8px;padding-left:18px;color:#c00;">` +
+        pendingRemove.map((a) => `<li>${esc(a.name)}</li>`).join("") +
+        `</ul>`;
+    }
+    if (!html) html = '<div class="muted-block" style="font-size:.9em;">No affiliations recorded.</div>';
+    affiliationsDisplay.innerHTML = html;
+  }
+
+  if (currentCharId) {
+    apiGetCharacterAffiliations(currentCharId)
+      .then(({ affiliations }) => { renderAffiliationsDisplay(affiliations); })
+      .catch(() => {
+        if (affiliationsDisplay) affiliationsDisplay.innerHTML = '<div class="muted-block" style="font-size:.9em;">Could not load affiliations.</div>';
+      });
+  } else if (affiliationsDisplay) {
+    affiliationsDisplay.innerHTML = '<div class="muted-block" style="font-size:.9em;">No active character.</div>';
+  }
+
+  // "Edit Affiliations" modal
+  if (affiliationsEditBtn && isOwnProfile && currentCharId) {
+    affiliationsEditBtn.addEventListener("click", () => {
+      // Build current selection from displayed affiliations (load fresh)
+      apiGetCharacterAffiliations(currentCharId).then(({ affiliations }) => {
+        // IDs that are currently "ticked" = approved + pending_add (pending_remove = still showing, so remain ticked)
+        const tickedIds = new Set(
+          affiliations
+            .filter((a) => a.status === "approved" || a.status === "pending_add")
+            .map((a) => a.affiliation_id)
+        );
+
+        const overlay = document.createElement("div");
+        overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:center;justify-content:center;padding:12px;";
+        overlay.innerHTML = `
+          <div style="background:#fff;border-radius:10px;padding:20px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 4px 32px rgba(0,0,0,.3);">
+            <h2 style="margin:0 0 6px;">Select Affiliations</h2>
+            <p class="muted" style="margin:0 0 14px;font-size:.9em;">Tick to add, untick to remove. Changes need mod approval before they appear publicly.</p>
+            <div id="aff-modal-body">
+              ${AFFILIATIONS_CATALOG.map((cat) => `
+                <div style="margin-bottom:14px;">
+                  <div style="font-weight:700;margin-bottom:6px;border-bottom:1px solid #ddd;padding-bottom:3px;">${esc(cat.category)}</div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px;">
+                    ${cat.items.map((item) => `
+                      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.92em;padding:2px 0;">
+                        <input type="checkbox" name="aff" value="${esc(item.id)}"${tickedIds.has(item.id) ? " checked" : "">
+                        ${esc(item.name)}
+                      </label>
+                    `).join("")}
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
+              <button id="aff-modal-save" class="btn primary" type="button">Save & Submit</button>
+              <button id="aff-modal-cancel" class="btn" type="button">Cancel</button>
+              <span id="aff-modal-status" class="muted" style="font-size:.9em;"></span>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        overlay.querySelector("#aff-modal-cancel").addEventListener("click", () => overlay.remove());
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+        overlay.querySelector("#aff-modal-save").addEventListener("click", async () => {
+          const statusEl = overlay.querySelector("#aff-modal-status");
+          const saveBtn  = overlay.querySelector("#aff-modal-save");
+          const checked = [...overlay.querySelectorAll('input[name="aff"]:checked')].map((el) => el.value);
+          saveBtn.disabled = true;
+          saveBtn.textContent = "Saving…";
+          if (statusEl) statusEl.textContent = "";
+          try {
+            const { affiliations: updated } = await apiSubmitCharacterAffiliations(currentCharId, checked);
+            renderAffiliationsDisplay(updated);
+            overlay.remove();
+          } catch (err) {
+            if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+            saveBtn.disabled = false;
+            saveBtn.textContent = "Save & Submit";
+          }
+        });
+      }).catch(() => { alert("Could not load affiliations. Please try again."); });
+    });
   }
 }
 

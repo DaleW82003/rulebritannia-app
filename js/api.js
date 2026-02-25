@@ -1671,6 +1671,48 @@ export async function apiGetPublicProfile(username) {
   return res.json();
 }
 
+// ── Affiliations workflow ───────────────────────────────────────────────────
+
+export async function apiGetCharacterAffiliations(characterId) {
+  const res = await fetch(`${API_BASE}/api/me/character/${encodeURIComponent(characterId)}/affiliations`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetCharacterAffiliations failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSubmitCharacterAffiliations(characterId, requestedAffiliationIds) {
+  const res = await fetch(`${API_BASE}/api/me/character/${encodeURIComponent(characterId)}/affiliations`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ requestedAffiliationIds }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiSubmitCharacterAffiliations failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiGetPendingAffiliations() {
+  const res = await fetch(`${API_BASE}/api/control-panel/affiliations/pending`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPendingAffiliations failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiDecideAffiliation(requestId, decision, note) {
+  const res = await fetch(`${API_BASE}/api/control-panel/affiliations/${encodeURIComponent(requestId)}/decide`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ decision, note: note || "" }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiDecideAffiliation failed (${res.status})`);
+  }
+  return res.json();
+}
+
 // ── Admin: user management ─────────────────────────────────────────────────
 
 export async function apiAdminGetUsers() {
