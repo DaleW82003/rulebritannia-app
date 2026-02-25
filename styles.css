@@ -132,16 +132,17 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
   display:flex;
   align-items:center;
   gap:14px;
-  padding:10px 0;
+  padding:14px 0;
 }
 .brand{ display:flex; align-items:center; gap:10px; }
 .logo,
 .brand-logo{
-  height:34px;
+  height:48px;
   width:auto;
-  background:#ffffff;
-  padding:6px 10px;
-  border-radius:10px;
+  background:transparent;
+  padding:0;
+  border-radius:0;
+  display:block;
 }
 
 .nav{ display:flex; gap:10px; flex-wrap:wrap; margin-left:auto; align-items:center; }
@@ -168,7 +169,7 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
   cursor:pointer;
   font-weight:700;
 }
-.nav-toggle.active{ background:rgba(255,255,255,.14); }
+.nav-toggle.active{ background:rgba(31,143,74,.90); border-color:rgba(31,143,74,.0); opacity:1; }
 .nav-group.open .dropdown{ display:block; }
 
 .dropdown{
