@@ -1300,6 +1300,26 @@ export async function apiClearConstituencies() {
 
 // ── Elections (DB-backed) ─────────────────────────────────────────────────────
 
+export async function apiGetParliamentStatus() {
+  const res = await fetch(`${API_BASE}/api/parliament/status`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetParliamentStatus failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiUpdateParliamentStatus(payload) {
+  const res = await fetch(`${API_BASE}/api/parliament/status`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new Error(b.error || `apiUpdateParliamentStatus failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function apiGetCanonicalParties() {
   const res = await fetch(`${API_BASE}/api/parties/canonical`, { credentials: "include" });
   return res.json();

@@ -131,6 +131,39 @@
   <section class="panel" id="constituencyEditorPanel" style="display:none; margin-top:14px;">
     <h2>Parliament Control Panel</h2>
 
+    <div id="govStatusPanel">
+      <h3>Government Status</h3>
+      <div class="muted-block" style="margin-bottom:12px;">Set government formation metadata. Does not override seat totals — those are derived from constituencies.</div>
+      <form id="govStatusForm" class="form-grid">
+        <label for="govType">Government Type</label>
+        <select id="govType" required>
+          <option value="Majority">Majority</option>
+          <option value="Minority">Minority</option>
+          <option value="Coalition">Coalition</option>
+          <option value="Confidence and Supply">Confidence and Supply</option>
+        </select>
+
+        <div id="govCoalitionRow" style="display:none; grid-column:1/-1;">
+          <label style="display:block; margin-bottom:6px; font-weight:600;">Coalition Parties <span class="muted">(tick all parties in the coalition)</span></label>
+          <div id="govCoalitionParties" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+        </div>
+
+        <div id="govCSRow" style="display:none; grid-column:1/-1;">
+          <label for="govCSGoverning" style="display:block; margin-bottom:6px; font-weight:600;">Governing Party <span class="muted">(minority government)</span></label>
+          <select id="govCSGoverning" style="margin-bottom:10px; width:100%; max-width:320px;"></select>
+          <label style="display:block; margin-bottom:6px; font-weight:600;">Confidence &amp; Supply Parties <span class="muted">(tick parties providing support)</span></label>
+          <div id="govCSParties" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+        </div>
+
+        <div></div>
+        <div class="tile-bottom" style="padding-top:0; margin-top:0;">
+          <button class="btn primary" type="submit" id="govStatusSubmit">Save Government Status</button>
+        </div>
+      </form>
+      <div id="govStatusMsg" style="margin-top:8px;"></div>
+      <hr>
+    </div>
+
     <h3>Constituency Management</h3>
     <div class="muted-block" style="margin-bottom:12px;">Select a constituency from the list below to edit its party holding, MP, and record the reason for change.</div>
 
@@ -142,6 +175,13 @@
 
       <label for="constParty">Party Holding</label>
       <select id="constParty" required></select>
+
+      <label for="constMpType">MP Type</label>
+      <select id="constMpType">
+        <option value="">Open / Available</option>
+        <option value="npc">NPC</option>
+        <option value="character">Character</option>
+      </select>
 
       <label for="constMpName">MP Name (optional)</label>
       <input id="constMpName" type="text" maxlength="120" placeholder="Leave blank if seat is open">

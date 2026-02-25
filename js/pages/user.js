@@ -7,7 +7,8 @@ import {
   apiApplyCharacter, apiGetMyApplications, apiGetMyCharacters,
   apiGetCharacterApplications, apiApproveCharacterApplication,
   apiRejectCharacterApplication, apiSelectCharacter,
-  apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange
+  apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange,
+  apiGetConstituencies, apiGetCharacters,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -1000,6 +1001,30 @@ export async function initUserPage(data) {
     }
   } catch (e) {
     console.warn("[initUserPage] DB load failed:", e.message);
+  }
+
+  // Load constituencies and active characters from DB so character creation
+  // only shows genuinely available (unoccupied) constituencies.
+  try {
+    const [constResult, charResult] = await Promise.all([
+      apiGetConstituencies().catch(() => ({ constituencies: [] })),
+      apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
+    ]);
+    if (constResult.constituencies?.length) {
+      data.constituencies = constResult.constituencies;
+    }
+    if (charResult.characters?.length) {
+      const existingIds = new Set((data.players || []).map((p) => p.id));
+      const dbPlayers = charResult.characters
+        .filter((c) => c.constituency)
+        .map((c) => ({ id: c.id, name: c.name, party: c.party, constituency: c.constituency }));
+      data.players = [
+        ...(data.players || []),
+        ...dbPlayers.filter((p) => !existingIds.has(p.id)),
+      ];
+    }
+  } catch (e) {
+    console.warn("[initUserPage] Constituency load failed:", e.message);
   }
 
   const dbState = { myCharacters, myApplications, pendingApplications };

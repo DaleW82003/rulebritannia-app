@@ -1073,6 +1073,19 @@ async function ensureSchema() {
     INSERT INTO app_state_elections (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
   `);
 
+  // Parliament status — government formation metadata (hung parliament support)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS parliament_status (
+      id                         TEXT PRIMARY KEY DEFAULT 'main',
+      government_type            TEXT NOT NULL DEFAULT 'Majority'
+                                 CHECK (government_type IN ('Majority','Minority','Coalition','Confidence and Supply')),
+      governing_parties          JSONB NOT NULL DEFAULT '[]'::jsonb,
+      confidence_supply_parties  JSONB NOT NULL DEFAULT '[]'::jsonb,
+      updated_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    INSERT INTO parliament_status (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
+  `);
+
   // Migration: add new columns to elections and election_party_summary.
   await pool.query(`
     ALTER TABLE elections ADD COLUMN IF NOT EXISTS is_current BOOLEAN NOT NULL DEFAULT false;
@@ -7685,6 +7698,63 @@ app.delete("/api/admin/constituencies/clear", constWriteLimit, async (req, res) 
     res.json({ ok: true, deleted: rowCount });
   } catch (e) {
     console.error("[DELETE /api/admin/constituencies/clear]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PARLIAMENT STATUS (DB-backed government formation metadata)
+// GET  /api/parliament/status  — authenticated: read current government metadata
+// PUT  /api/parliament/status  — admin/mod/speaker: update government metadata
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const parlStatusReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
+const parlStatusWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+const VALID_GOV_TYPES = ["Majority", "Minority", "Coalition", "Confidence and Supply"];
+
+app.get("/api/parliament/status", parlStatusReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { rows } = await pool.query("SELECT * FROM parliament_status WHERE id = 'main'");
+    if (!rows.length) return res.json({ governmentType: "Majority", governingParties: [], confidenceSupplyParties: [] });
+    const r = rows[0];
+    res.json({
+      governmentType: r.government_type,
+      governingParties: Array.isArray(r.governing_parties) ? r.governing_parties : [],
+      confidenceSupplyParties: Array.isArray(r.confidence_supply_parties) ? r.confidence_supply_parties : [],
+      updatedAt: r.updated_at,
+    });
+  } catch (e) {
+    console.error("[GET /api/parliament/status]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/parliament/status", parlStatusWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { governmentType, governingParties = [], confidenceSupplyParties = [] } = req.body || {};
+    if (!VALID_GOV_TYPES.includes(governmentType)) {
+      return res.status(400).json({ error: `governmentType must be one of: ${VALID_GOV_TYPES.join(", ")}` });
+    }
+    if (!Array.isArray(governingParties) || !Array.isArray(confidenceSupplyParties)) {
+      return res.status(400).json({ error: "governingParties and confidenceSupplyParties must be arrays" });
+    }
+    await pool.query(
+      `INSERT INTO parliament_status (id, government_type, governing_parties, confidence_supply_parties, updated_at)
+       VALUES ('main', $1, $2::jsonb, $3::jsonb, NOW())
+       ON CONFLICT (id) DO UPDATE
+         SET government_type           = EXCLUDED.government_type,
+             governing_parties         = EXCLUDED.governing_parties,
+             confidence_supply_parties = EXCLUDED.confidence_supply_parties,
+             updated_at                = NOW()`,
+      [governmentType, JSON.stringify(governingParties), JSON.stringify(confidenceSupplyParties)]
+    );
+    await writeAuditLog(req.session.userId, "parliament_status.update", "parliament_status", "main", null, req.body);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[PUT /api/parliament/status]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
