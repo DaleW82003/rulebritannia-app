@@ -2,7 +2,7 @@
 /**
  * scripts/convert-1997-csv.js
  *
- * Converts data/1997_structured.csv into data/constituencies_1997.json
+ * Converts assets/1997_structured.csv into data/constituencies_1997.json
  * which is consumed by the server's POST /api/admin/constituencies/initialize-1997 route.
  *
  * Usage:
@@ -15,7 +15,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT      = resolve(__dirname, "..");
-const CSV_PATH  = resolve(ROOT, "data", "1997_structured.csv");
+const CSV_PATH  = resolve(ROOT, "assets", "1997_structured.csv");
 const OUT_PATH  = resolve(ROOT, "data", "constituencies_1997.json");
 
 // ── Party normalisation rules ─────────────────────────────────────────────────

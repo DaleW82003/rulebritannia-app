@@ -1162,7 +1162,7 @@ async function seedPlayableParties() {
  */
 function parse1997CSV() {
   try {
-    const raw = readFileSync(resolve(__serverDir, "..", "data", "1997_structured.csv"), "utf8");
+    const raw = readFileSync(resolve(__serverDir, "..", "assets", "1997_structured.csv"), "utf8");
     const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
     const parties = {};
     let turnoutTotal = 0;
@@ -1221,20 +1221,49 @@ function parse1997CSV() {
  * Uses assets/1997_structured.csv for accurate vote/seat/turnout data.
  */
 async function seedElection1997() {
-  // Only seed if no general election exists yet.
+  // Check if the 1997 GE record already exists.
   const { rows: existing } = await pool.query(
     `SELECT id FROM elections WHERE type = 'general' AND polling_day = '1997-05-01' LIMIT 1`
   );
+
   if (existing.length > 0) {
-    // Already seeded — ensure it is marked as current and last GE.
+    const elId = existing[0].id;
+    // Ensure it is marked as current and last GE.
     await pool.query(
       `UPDATE elections SET is_current = true WHERE id = $1`,
-      [existing[0].id]
+      [elId]
     );
     await pool.query(
       `UPDATE app_state_elections SET last_general_election_id = $1, updated_at = NOW() WHERE id = 'main'`,
-      [existing[0].id]
+      [elId]
     );
+    // Self-healing: if party summary rows are missing vote data, re-parse CSV and repair.
+    const { rows: sumRows } = await pool.query(
+      `SELECT COUNT(*) AS cnt, SUM(votes) AS total_votes FROM election_party_summary WHERE election_id = $1`,
+      [elId]
+    );
+    const hasMissingVotes = Number(sumRows[0]?.total_votes || 0) === 0;
+    if (hasMissingVotes) {
+      console.log(`[seedElection1997] repairing missing vote/share data for existing 1997 GE (id=${elId})`);
+      const csvData = parse1997CSV();
+      for (const ps of csvData.parties) {
+        await pool.query(
+          `INSERT INTO election_party_summary (election_id, party, seats, votes, vote_share)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (election_id, party) DO UPDATE
+             SET seats = EXCLUDED.seats, votes = EXCLUDED.votes, vote_share = EXCLUDED.vote_share`,
+          [elId, ps.party, ps.seats, ps.votes, ps.voteShare]
+        );
+      }
+      // Also repair turnout on the election row if missing.
+      if (csvData.turnoutTotal || csvData.turnoutPct) {
+        await pool.query(
+          `UPDATE elections SET turnout_total = $1, turnout_pct = $2 WHERE id = $3 AND (turnout_total = 0 OR turnout_total IS NULL)`,
+          [csvData.turnoutTotal, csvData.turnoutPct, elId]
+        );
+      }
+      console.log(`[seedElection1997] repaired 1997 GE vote data: ${csvData.parties.map(p=>`${p.party}:${p.seats}`).join(", ")}`);
+    }
     return;
   }
 
