@@ -445,7 +445,7 @@ function render(data, state) {
       </section>
 
       <section class="panel" id="bio-changes-panel" style="margin-top:12px;">
-        <h2 style="margin-top:0;">Pending Biography Change Requests <span class="mod-badge">Mod / Admin</span></h2>
+        <h2 style="margin-top:0;">Pending Biography Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></h2>
         <div id="bio-changes-list"><div class="muted-block">Loading…</div></div>
       </section>
     ` : ""}
