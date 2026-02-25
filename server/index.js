@@ -3697,6 +3697,12 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
     const newMonth = rows[0].sim_current_month;
     const newYear  = rows[0].sim_current_year;
 
+    // Keep sim_state in sync so both clock representations agree.
+    await pool.query(
+      `UPDATE sim_state SET month = $1, year = $2, last_tick_at = NOW() WHERE id = 'main'`,
+      [newMonth, newYear]
+    );
+
     // Auto-archive content whose autoArchiveAfterSimMonths has elapsed.
     // We compare createdAtSim against the new sim date.
     const ARCHIVABLE_TABLES = [
@@ -3767,6 +3773,11 @@ app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
          real_last_tick    = NOW()
        RETURNING sim_current_month, sim_current_year, real_last_tick, rate`,
       [month, year, rateVal]
+    );
+    // Keep sim_state in sync so both clock representations agree.
+    await pool.query(
+      `UPDATE sim_state SET month = $1, year = $2 WHERE id = 'main'`,
+      [month, year]
     );
     res.json({ ok: true, clock: rows[0] });
   } catch (e) {
@@ -6098,6 +6109,11 @@ app.post("/api/sim/tick", simWriteLimit, async (req, res) => {
       }
       return res.status(404).json({ error: "Sim state not found" });
     }
+    // Keep sim_clock in sync so both clock representations agree.
+    await pool.query(
+      `UPDATE sim_clock SET sim_current_month = $1, sim_current_year = $2, real_last_tick = NOW() WHERE id = 'main'`,
+      [rows[0].month, rows[0].year]
+    );
     await writeAuditLog(req.session.userId, "sim.tick", "sim_state", "main", null, rows[0]);
     res.json({ ok: true, sim: rows[0] });
   } catch (e) {
@@ -6133,6 +6149,17 @@ app.post("/api/sim/set", simWriteLimit, async (req, res) => {
        RETURNING id, year, month, is_paused, last_tick_at`,
       params
     );
+    // Keep sim_clock in sync when year/month change.
+    if (year != null || month != null) {
+      await pool.query(
+        `UPDATE sim_clock SET
+           sim_current_month = $1,
+           sim_current_year  = $2,
+           real_last_tick    = NOW()
+         WHERE id = 'main'`,
+        [rows[0].month, rows[0].year]
+      );
+    }
     await writeAuditLog(req.session.userId, "sim.set", "sim_state", "main", before[0], rows[0]);
     res.json({ ok: true, sim: rows[0] });
   } catch (e) {
@@ -6143,12 +6170,12 @@ app.post("/api/sim/set", simWriteLimit, async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BILLS — add PATCH for stage transitions (triggers Discourse on 2nd Reading)
-// PATCH /api/bills/:id   — admin: update bill fields (stage triggers Discourse)
+// PATCH /api/bills/:id   — admin/mod: update bill fields (stage triggers Discourse)
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.patch("/api/bills/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { rows: before } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
     if (!before.length) return res.status(404).json({ error: "Bill not found" });
 
