@@ -6814,6 +6814,24 @@ app.get("/api/mod/scandal-templates", scandalReadLimit, async (req, res) => {
   }
 });
 
+// ── GET /api/mod/scandals/opted-in-characters ─────────────────────────────
+app.get("/api/mod/scandals/opted-in-characters", scandalReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT c.id, c.name, c.party
+         FROM scandal_opt_in soi
+         JOIN characters c ON c.id = soi.character_id
+        WHERE soi.opted_in = true
+        ORDER BY c.name`
+    );
+    res.json({ characters: rows });
+  } catch (e) {
+    console.error("[GET /api/mod/scandals/opted-in-characters]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ── POST /api/mod/scandal-templates ──────────────────────────────────────
 app.post("/api/mod/scandal-templates", scandalWriteLimit, async (req, res) => {
   try {

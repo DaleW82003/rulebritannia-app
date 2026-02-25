@@ -74,15 +74,6 @@
       "twitterHandle": "dalewestonmp"
     },
     {
-      "name": "John Shade MP",
-      "party": "Labour",
-      "role": "leader-opposition",
-      "shadowOffice": "leader-opposition",
-      "active": true,
-      "absent": true,
-      "delegatedTo": "Harriet Cole MP"
-    },
-    {
       "name": "Harriet Cole MP",
       "party": "Labour",
       "role": "backbencher",
@@ -6813,7 +6804,7 @@
             "text": "I commend the National Health Service Foundation Trusts Act 2000 to the House and urge constructive scrutiny."
           },
           {
-            "speaker": "John Shade MP",
+            "speaker": "Harriet Cole MP",
             "party": "Labour",
             "text": "We will test the government on delivery, safeguards and accountability before final passage."
           }
@@ -6880,7 +6871,7 @@
             "text": "I commend the Rail Safety Reform Act 2000 to the House and urge constructive scrutiny."
           },
           {
-            "speaker": "John Shade MP",
+            "speaker": "Harriet Cole MP",
             "party": "Labour",
             "text": "We will test the government on delivery, safeguards and accountability before final passage."
           }
@@ -6928,7 +6919,7 @@
     {
       "id": "age-consent-2000",
       "title": "Sexual Offences (Age of Consent Equality) Act 2000",
-      "author": "John Shade MP",
+      "author": "Harriet Cole MP",
       "department": "Home Office",
       "billType": "opposition",
       "stage": "First Reading",
@@ -6960,7 +6951,7 @@
             "text": "I commend the Sexual Offences (Age of Consent Equality) Act 2000 to the House and urge constructive scrutiny."
           },
           {
-            "speaker": "John Shade MP",
+            "speaker": "Harriet Cole MP",
             "party": "Labour",
             "text": "We will test the government on delivery, safeguards and accountability before final passage."
           }
@@ -7005,7 +6996,7 @@
             "text": "I commend the Finance Act 2000 to the House and urge constructive scrutiny."
           },
           {
-            "speaker": "John Shade MP",
+            "speaker": "Harriet Cole MP",
             "party": "Labour",
             "text": "We will test the government on delivery, safeguards and accountability before final passage."
           }
@@ -7398,7 +7389,7 @@
       {
         "id": "qt-002",
         "office": "health",
-        "askedBy": "John Shade MP",
+        "askedBy": "Harriet Cole MP",
         "askedRole": "shadow",
         "askedAtSim": "August 1997",
         "text": "What assessment has the Secretary of State made of NHS waiting times over the last quarter, and what action will be taken to improve performance?",
@@ -7409,7 +7400,7 @@
           {
             "id": "qtf-001",
             "text": "Will the Secretary publish trust-level waiting list data monthly?",
-            "askedBy": "John Shade MP",
+            "askedBy": "Harriet Cole MP",
             "askedAtSim": "August 1997",
             "answer": "Yes, trust-level publication will be added to the September NHS bulletin."
           }
@@ -7738,7 +7729,7 @@
         "id": "motion-002",
         "number": 2,
         "title": "School Building Safety Audit Programme",
-        "author": "John Shade MP",
+        "author": "Harriet Cole MP",
         "body": "requires a full national safety audit of school buildings and publication of remediation plans within six months.",
         "status": "open",
         "debateStartSim": "November 2000",
@@ -7756,8 +7747,8 @@
               "weight": 330,
               "at": 1771510000000
             },
-            "John Shade MP": {
-              "actor": "John Shade MP",
+            "Harriet Cole MP": {
+              "actor": "Harriet Cole MP",
               "party": "Labour",
               "choice": "aye",
               "weight": 280,
@@ -7801,7 +7792,7 @@
         "debateUrl": "https://forum.rulebritannia.org/t/edm-1-support-for-community-post-offices",
         "signatures": [
           {
-            "name": "John Shade MP",
+            "name": "Harriet Cole MP",
             "party": "Labour",
             "weight": 280
           }
@@ -9270,8 +9261,8 @@
         "id": 2,
         "type": "conference",
         "party": "Labour",
-        "hostName": "John Shade MP",
-        "hostId": "John Shade MP",
+        "hostName": "Harriet Cole MP",
+        "hostId": "Harriet Cole MP",
         "location": "Liverpool Arena",
         "reason": "",
         "openingSpeech": "Our conference will focus on living standards, schools, and constitutional renewal.",
@@ -9845,11 +9836,6 @@
   "opposition": {
     "activeCharacters": [
       {
-        "name": "John Shade MP",
-        "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=John%20Shade",
-        "active": true
-      },
-      {
         "name": "Amelia Frost MP",
         "avatar": "https://api.dicebear.com/9.x/initials/svg?seed=Amelia%20Frost",
         "active": true
@@ -9918,8 +9904,8 @@
     "offices": [
       {
         "id": "leader-opposition",
-        "holderName": "John Shade MP",
-        "holderAvatar": "https://api.dicebear.com/9.x/initials/svg?seed=John%20Shade"
+        "holderName": "",
+        "holderAvatar": ""
       },
       {
         "id": "shadow-chancellor",
@@ -10307,7 +10293,7 @@
     "headline": {
       "text": "Priorities this week: challenge the Budget assumptions, finalise the NHS waiting-times package, and coordinate a joined-up response line for PMQs.",
       "updatedAt": "18/02/2026, 09:05:00",
-      "updatedBy": "John Shade MP"
+      "updatedBy": "Harriet Cole MP"
     },
     "hqUrl": "https://forum.rulebritannia.org/c/opposition/shadow-cabinet",
     "nextDraftId": 3,
@@ -10386,17 +10372,6 @@
         "active": true
       },
       {
-        "username": "Shade",
-        "roles": [
-          "player"
-        ],
-        "isAdmin": false,
-        "isMod": false,
-        "isSpeaker": false,
-        "activeCharacter": "John Shade MP",
-        "active": true
-      },
-      {
         "username": "SpeakerDesk",
         "roles": [
           "speaker"
@@ -10452,24 +10427,7 @@
         "active": true
       }
     ],
-    "pendingCharacters": [
-      {
-        "name": "Harriet Sloan MP",
-        "party": "Labour",
-        "role": "backbencher",
-        "office": null,
-        "dateOfBirth": "12 March 1978",
-        "education": "Comprehensive school; University of York (History)",
-        "careerBackground": "Former housing charity director",
-        "family": "Single, no children",
-        "constituency": "Leeds Central",
-        "yearFirstElected": "1997",
-        "personalBackground": "Northern city upbringing and long-standing anti-poverty campaigner",
-        "financialBackgroundLevel": 4,
-        "submittedBy": "Shade",
-        "submittedAt": "2026-02-15T13:10:00Z"
-      }
-    ],
+    "pendingCharacters": [],
     "globalControls": {
       "sundayFreeze": false,
       "speakerConfigJson": "{\n  \"tieBreaker\": \"Speaker\",\n  \"autoArchiveDays\": 14,\n  \"divisionWindowMonths\": 1,\n  \"debateWindowMonths\": 2\n}"

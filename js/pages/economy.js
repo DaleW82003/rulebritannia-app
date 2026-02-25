@@ -1,5 +1,7 @@
 import { setHTML, esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import { saveState } from "../core.js";
+import { logAction } from "../audit.js";
 
 function fmtPct(v) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
@@ -103,9 +105,60 @@ export function initEconomyPage(data) {
     });
   });
 
-  const cpLinkWrap = document.getElementById("economyControlPanelLink");
-  if (cpLinkWrap) {
-    const canEdit = canAdminOrMod(data);
-    cpLinkWrap.style.display = canEdit ? "" : "none";
+  // Inline Economy Controls — visible to mod/admin only
+  const canEdit = canAdminOrMod(data);
+  const controlsPanel = document.getElementById("economyControlsPanel");
+  const controlsBody  = document.getElementById("economyControlsBody");
+  if (controlsPanel && controlsBody && canEdit) {
+    controlsPanel.style.display = "";
+
+    function parseRows(text) {
+      return String(text || "").split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+        const idx = l.indexOf("=");
+        return idx < 0 ? [l, "—"] : [l.slice(0, idx).trim(), l.slice(idx + 1).trim()];
+      });
+    }
+
+    const cats = [...(Array.isArray(economy.ukInfoTiles) ? economy.ukInfoTiles : []),
+                  ...(Array.isArray(economy.surveys) ? economy.surveys : [])];
+
+    controlsBody.innerHTML = `
+      <section class="panel" style="margin-bottom:8px;">
+        <h3 style="margin-top:0;">Topline</h3>
+        <form id="econ-ctrl-topline" class="form-grid">
+          <label>Inflation</label><input class="input" name="inflation" value="${esc(String(economy.topline?.inflation ?? ""))}">
+          <label>Unemployment</label><input class="input" name="unemployment" value="${esc(String(economy.topline?.unemployment ?? ""))}">
+          <label>GDP Growth</label><input class="input" name="gdpGrowth" value="${esc(String(economy.topline?.gdpGrowth ?? ""))}">
+        </form>
+      </section>
+      <section class="panel" style="margin-bottom:8px;">
+        ${cats.map((c) => `
+          <article class="tile" style="margin-bottom:10px;">
+            <h3 style="margin-top:0;">${esc(c.title)}</h3>
+            <div class="muted">One line per stat in format <b>Label=Value</b>.</div>
+            <textarea class="input" rows="12" data-econ-cat-id="${esc(c.id)}">${esc((c.rows || []).map((r) => `${r[0]}=${r[1]}`).join("\n"))}</textarea>
+          </article>`).join("")}
+        <button id="econ-ctrl-save" class="btn" type="button">Save Economy Data</button>
+      </section>
+    `;
+
+    controlsBody.querySelector("#econ-ctrl-save")?.addEventListener("click", () => {
+      const e = data.economyPage || {};
+      e.topline = e.topline || {};
+      const fd = new FormData(controlsBody.querySelector("#econ-ctrl-topline"));
+      e.topline.inflation    = Number(fd.get("inflation")    || 0);
+      e.topline.unemployment = Number(fd.get("unemployment") || 0);
+      e.topline.gdpGrowth    = Number(fd.get("gdpGrowth")    || 0);
+
+      const map = new Map(cats.map((c) => [String(c.id), c]));
+      controlsBody.querySelectorAll("textarea[data-econ-cat-id]").forEach((ta) => {
+        const cat = map.get(ta.getAttribute("data-econ-cat-id"));
+        if (cat) cat.rows = parseRows(ta.value);
+      });
+
+      data.economyPage = e;
+      saveState(data);
+      logAction({ action: "economy-saved", target: "economy", details: { topline: e.topline } });
+    });
   }
 }

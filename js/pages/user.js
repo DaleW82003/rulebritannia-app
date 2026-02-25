@@ -1,6 +1,5 @@
 import { saveState } from "../core.js";
 import { runSundayRoll, setAbsenceState } from "../engines/core-engine.js";
-import { updateParliamentState } from "../engines/control-panel-engine.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import {
@@ -538,23 +537,6 @@ function render(data, state) {
       </div>
 
       ${(manager) ? `
-        <details class="tile" style="margin-bottom:10px;">
-          <summary><b>Speaker Controls <span class="speaker-badge">Speaker / Mod / Admin</span></b></summary>
-          <form id="speaker-form" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
-            <label class="label"><input type="checkbox" name="isPaused" ${data.gameState.isPaused ? "checked" : ""} ${!admin ? "disabled" : ""}> Pause game clock (Admin only — unpause on Sunday only)</label>
-            <label class="label"><input type="checkbox" name="sundayFreeze" ${data.userManagement.globalControls.sundayFreeze ? "checked" : ""}> Sunday freeze</label>
-            <input class="input" type="number" min="1" max="12" name="startSimMonth" value="${esc(String(data.gameState.startSimMonth || 1))}" placeholder="Sim month">
-            <input class="input" type="number" name="startSimYear" value="${esc(String(data.gameState.startSimYear || 1997))}" placeholder="Sim year">
-            <input class="input" name="lastGeneralElection" value="${esc(String(data.parliament.lastGeneralElection || ""))}" placeholder="Last general election date">
-            <select class="input" name="governmentSetup">
-              ${["Majority","Minority","Coalition"].map((g) => `<option value="${g}" ${data.parliament.governmentSetup===g?"selected":""}>${g}</option>`).join("")}
-            </select>
-            <textarea class="input" rows="5" name="speakerConfigJson">${esc(data.userManagement.globalControls.speakerConfigJson || "")}</textarea>
-            <button class="btn" type="submit">Save Speaker Controls</button>
-            <button class="btn" type="button" id="force-sunday-roll">Force Sunday Roll</button>
-          </form>
-        </details>
-
         <details class="tile" style="margin-bottom:10px;" open>
           <summary><b>Active Player Roster <span class="mod-badge">Mod / Admin</span></b></summary>
           <div class="muted" style="margin-top:10px;">Control moved here from Government/Opposition pages. Mods can only set characters inactive.</div>
@@ -577,7 +559,12 @@ function render(data, state) {
             <div class="muted">Simulation must be started by an admin on Sunday. The sim clock advances from Monday onward.</div>
             <div class="kv"><span>Simulation status</span><b>${data.gameState.started ? "Running" : "Not started"}</b></div>
             <div class="kv"><span>Clock anchor (real date)</span><b>${esc(String(data.gameState.startRealDate || "Not set"))}</b></div>
-            <button class="btn" type="button" id="start-simulation" ${data.gameState.started || !isSundayToday() ? "disabled" : ""}>Start Simulation (Sunday Only)</button>
+            <label class="label" style="margin:0;"><input type="checkbox" id="pause-clock-check" ${data.gameState.isPaused ? "checked" : ""}> Pause game clock (unpause on Sunday only)</label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn" type="button" id="save-pause-clock">Save Pause Setting</button>
+              <button class="btn" type="button" id="force-sunday-roll">Force Sunday Roll</button>
+              <button class="btn" type="button" id="start-simulation" ${data.gameState.started || !isSundayToday() ? "disabled" : ""}>Start Simulation (Sunday Only)</button>
+            </div>
             ${!data.gameState.started && !isSundayToday() ? `<div class="muted">Start unlocks on Sunday. Next Sunday anchor: <b>${esc(nextSundayIso().slice(0, 10))}</b>.</div>` : ""}
             <form id="monarch-form" style="display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:8px;align-items:end;">
               <div>
@@ -877,33 +864,21 @@ function render(data, state) {
     });
   });
 
-  host.querySelector("#speaker-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    if (!manager) return;
-    const fd = new FormData(e.currentTarget);
-
-    // Pause/unpause: admin-only with Sunday-only unpause
-    const wantPaused = fd.get("isPaused") === "on";
+  host.querySelector("#save-pause-clock")?.addEventListener("click", () => {
+    if (!admin) return;
+    const wantPaused = !!host.querySelector("#pause-clock-check")?.checked;
     const wasPaused = !!data.gameState.isPaused;
 
     if (wantPaused !== wasPaused) {
-      if (!admin) {
-        state.message = "Only an Admin can pause or unpause the simulation.";
-        render(data, state);
-        return;
-      }
       if (wantPaused && !wasPaused) {
-        // Pausing: record the real date so sim time freezes here
         data.gameState.isPaused = true;
         data.gameState.pausedAtRealDate = new Date().toISOString();
       } else if (!wantPaused && wasPaused) {
-        // Unpausing: only allowed on Sunday
         if (!isSundayToday()) {
           state.message = "Cannot unpause: the simulation may only be unpaused on a Sunday.";
           render(data, state);
           return;
         }
-        // Shift startRealDate forward by the pause duration so sim time resumes correctly
         const pausedAt = new Date(data.gameState.pausedAtRealDate || new Date().toISOString());
         const now = new Date();
         const pauseDurationMs = now.getTime() - pausedAt.getTime();
@@ -912,21 +887,10 @@ function render(data, state) {
         data.gameState.isPaused = false;
         data.gameState.pausedAtRealDate = "";
       }
+      saveState(data);
+      state.message = `Game clock ${data.gameState.isPaused ? "paused" : "unpaused"}.`;
+      render(data, state);
     }
-
-    data.userManagement.globalControls.sundayFreeze = fd.get("sundayFreeze") === "on";
-    data.gameState.startSimMonth = Number(fd.get("startSimMonth") || 1);
-    data.gameState.startSimYear = Number(fd.get("startSimYear") || 1997);
-    data.parliament.lastGeneralElection = String(fd.get("lastGeneralElection") || "").trim();
-    data.parliament.governmentSetup = String(fd.get("governmentSetup") || "Majority");
-    updateParliamentState(data, {
-      lastGeneralElection: data.parliament.lastGeneralElection,
-      governmentSetup: data.parliament.governmentSetup
-    });
-    data.userManagement.globalControls.speakerConfigJson = String(fd.get("speakerConfigJson") || "{}");
-    saveState(data);
-    state.message = "Speaker controls updated.";
-    render(data, state);
   });
 
   host.querySelector("#force-sunday-roll")?.addEventListener("click", () => {

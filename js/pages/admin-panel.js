@@ -372,7 +372,7 @@ export async function initAdminPanelPage(data) {
           <button class="btn" type="button" id="audit-clear-filters" style="align-self:flex-end;">Clear</button>
         </form>
 
-        <div id="audit-entries">${entryTiles}</div>
+        <div id="audit-entries" style="max-height:320px;overflow-y:auto;overflow-x:hidden;">${entryTiles}</div>
 
         <div style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px;">
           <span>${esc(String(auditTotal))} total</span>
