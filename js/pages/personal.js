@@ -100,6 +100,19 @@ const PROFILE_FIELDS = [
   { key: "yearFirstElected", label: "Year first elected" }
 ];
 
+const FINANCIAL_BACKGROUND_LABELS = {
+  1:  "1 – Poverty",
+  2:  "2 – Financially Strained",
+  3:  "3 – Lower Working Class",
+  4:  "4 – Skilled Working / Lower Middle",
+  5:  "5 – Solid Middle Class",
+  6:  "6 – Upper Middle Class",
+  7:  "7 – Affluent Professional",
+  8:  "8 – High Net Worth Individual",
+  9:  "9 – Top 5%",
+  10: "10 – Top 1%",
+};
+
 // ── Personal Shop catalogue ───────────────────────────────────────────────────
 // Schema: id, name, category, basePrice1997, baseMonthlyUpkeep1997,
 //         caps, effects[], riskModifier?, flavour
@@ -911,7 +924,7 @@ function render(data, state) {
 
       <article class="tile">
         <h2 style="margin-top:0;">Financial Background level</h2>
-        <p>${esc(profile.financialBackgroundLevel || "Unknown")}</p>
+        <p>${esc(FINANCIAL_BACKGROUND_LABELS[Number(profile.financialBackgroundLevel)] || profile.financialBackgroundLevel || "Unknown")}</p>
       </article>
 
       <article class="tile" id="affiliations-tile">

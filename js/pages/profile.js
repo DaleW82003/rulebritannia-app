@@ -2,14 +2,16 @@ import { esc } from "../ui.js";
 import { apiGetPublicProfile } from "../api.js";
 
 const FINANCIAL_BACKGROUND_LABELS = {
-  1: "1 – Poverty",
-  2: "2 – Financially Strained",
-  3: "3 – Lower Working Class",
-  4: "4 – Skilled Working / Lower Middle",
-  5: "5 – Solid Middle Class",
-  6: "6 – Upper Middle Class",
-  7: "7 – Affluent Professional",
-  8: "8 – High Net Worth Individual",
+  1:  "1 – Poverty",
+  2:  "2 – Financially Strained",
+  3:  "3 – Lower Working Class",
+  4:  "4 – Skilled Working / Lower Middle",
+  5:  "5 – Solid Middle Class",
+  6:  "6 – Upper Middle Class",
+  7:  "7 – Affluent Professional",
+  8:  "8 – High Net Worth Individual",
+  9:  "9 – Top 5%",
+  10: "10 – Top 1%",
 };
 
 export async function initProfilePage() {
