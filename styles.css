@@ -275,14 +275,14 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
 /* Press page — 5-tile navigation row */
 .press-tile-grid{
   display:grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap:12px;
 }
 @media (max-width: 900px){
-  .press-tile-grid{ grid-template-columns: repeat(3, 1fr); }
+  .press-tile-grid{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 600px){
-  .press-tile-grid{ grid-template-columns: repeat(2, 1fr); }
+  .press-tile-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 480px){
   .press-tile-grid{ grid-template-columns: 1fr; }
@@ -561,8 +561,8 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
    ========================= */
 .docket-list{ display:flex; flex-direction:column; gap:10px; }
 .submission-route{ display:block; }
-.submission-route div label { display:flex; gap:8px; align-items:center; cursor:pointer; font-weight:400; color:var(--text); }
-.submission-route div label input[type="radio"] { flex-shrink:0; }
+.submission-route div label { display:block; cursor:pointer; font-weight:400; color:var(--text); }
+.submission-route div label input[type="radio"] { vertical-align:middle; margin-right:4px; }
 .docket-item{
   display:flex;
   justify-content:space-between;
