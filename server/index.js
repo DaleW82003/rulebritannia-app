@@ -3654,7 +3654,7 @@ app.get("/api/audit-log", auditReadLimit, async (req, res) => {
  * BILLS  (orderPaperCommons items)
  * GET    /api/bills          — authenticated: list all bills
  * GET    /api/bills/:id      — authenticated: get one bill
- * POST   /api/bills          — admin/mod: create a bill
+ * POST   /api/bills          — authenticated: create a bill
  * PUT    /api/bills/:id      — admin/mod: update a bill
  * DELETE /api/bills/:id      — admin/mod/speaker: delete a bill
  */
@@ -3687,7 +3687,7 @@ app.get("/api/bills/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/bills", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const bill = req.body;
     if (!bill || typeof bill !== "object" || !bill.id) {
       return res.status(400).json({ error: "Body must be a bill object with an id" });
@@ -3851,7 +3851,7 @@ app.delete("/api/motions/:id", crudWriteLimit, async (req, res) => {
  * STATEMENTS
  * GET    /api/statements          — authenticated: list all statements
  * GET    /api/statements/:id      — authenticated: get one statement
- * POST   /api/statements          — admin: create a statement
+ * POST   /api/statements          — authenticated: create a statement
  * PUT    /api/statements/:id      — admin/mod: update a statement
  * DELETE /api/statements/:id      — admin/mod/speaker: delete a statement
  */
@@ -3883,7 +3883,7 @@ app.get("/api/statements/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/statements", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const stmt = req.body;
     if (!stmt || typeof stmt !== "object" || !stmt.id) {
       return res.status(400).json({ error: "Body must be a statement object with an id" });
@@ -3942,7 +3942,7 @@ app.delete("/api/statements/:id", crudWriteLimit, async (req, res) => {
  * REGULATIONS
  * GET    /api/regulations          — authenticated: list all regulations
  * GET    /api/regulations/:id      — authenticated: get one regulation
- * POST   /api/regulations          — admin: create a regulation
+ * POST   /api/regulations          — authenticated: create a regulation
  * PUT    /api/regulations/:id      — admin: update a regulation
  * DELETE /api/regulations/:id      — admin/mod/speaker: delete a regulation
  */
@@ -3974,7 +3974,7 @@ app.get("/api/regulations/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/regulations", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const reg = req.body;
     if (!reg || typeof reg !== "object" || !reg.id) {
       return res.status(400).json({ error: "Body must be a regulation object with an id" });
@@ -4033,7 +4033,7 @@ app.delete("/api/regulations/:id", crudWriteLimit, async (req, res) => {
  * QUESTION TIME QUESTIONS
  * GET    /api/questiontime-questions          — authenticated: list all questions
  * GET    /api/questiontime-questions/:id      — authenticated: get one question
- * POST   /api/questiontime-questions          — admin: create a question
+ * POST   /api/questiontime-questions          — authenticated: create a question
  * PUT    /api/questiontime-questions/:id      — admin: update a question
  * DELETE /api/questiontime-questions/:id      — admin: delete a question
  */
@@ -4067,7 +4067,7 @@ app.get("/api/questiontime-questions/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/questiontime-questions", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const q = req.body;
     if (!q || typeof q !== "object" || !q.id) {
       return res.status(400).json({ error: "Body must be a question object with an id" });

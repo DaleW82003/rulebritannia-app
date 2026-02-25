@@ -987,6 +987,37 @@ export async function apiFollowupQtQuestion(id, payload) {
   return res.json();
 }
 
+// ── Question Time (legacy CRUD endpoint) ────────────────────────────────────
+
+export async function apiGetQtLegacyQuestions() {
+  const res = await fetch(`${API_BASE}/api/questiontime-questions`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetQtLegacyQuestions failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiCreateQtLegacyQuestion(question) {
+  const res = await fetch(`${API_BASE}/api/questiontime-questions`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(question),
+  });
+  if (!res.ok) throw new Error(`apiCreateQtLegacyQuestion failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiUpdateQtLegacyQuestion(id, question) {
+  const res = await fetch(`${API_BASE}/api/questiontime-questions/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(question),
+  });
+  if (!res.ok) throw new Error(`apiUpdateQtLegacyQuestion failed (${res.status})`);
+  return res.json();
+}
+
 // ── Simulation State ───────────────────────────────────────────────────────
 
 export async function apiGetSim() {

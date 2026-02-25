@@ -5,7 +5,7 @@ import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissi
 import { esc } from "../ui.js";
 import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
-import { apiCreateDebateTopic } from "../api.js";
+import { apiCreateDebateTopic, apiGetBill } from "../api.js";
 import { handleApiError } from "../errors.js";
 
 function $(id) {
@@ -752,9 +752,23 @@ function autoAdvanceStage(bill, data) {
   return changed;
 }
 
-export function initBillPage(data) {
+export async function initBillPage(data) {
   const billId = getBillIdFromUrl();
-  const bill = (data?.orderPaperCommons || []).find((b) => b.id === billId) || (data?.orderPaperCommons || [])[0];
+  let bill = (data?.orderPaperCommons || []).find((b) => b.id === billId) || (billId ? null : (data?.orderPaperCommons || [])[0]);
+
+  // If not found in local state, fall back to DB via API.
+  if (!bill && billId) {
+    try {
+      const result = await apiGetBill(billId);
+      if (result?.bill) {
+        bill = result.bill;
+        data.orderPaperCommons ??= [];
+        data.orderPaperCommons.unshift(bill);
+      }
+    } catch (err) {
+      console.error("[bill] API fallback failed:", err);
+    }
+  }
 
   if (!bill) {
     const title = $("billTitle");

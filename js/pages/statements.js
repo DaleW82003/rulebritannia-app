@@ -4,7 +4,7 @@ import { isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
-import { apiCreateDebateTopic } from "../api.js";
+import { apiCreateDebateTopic, apiCreateStatement } from "../api.js";
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
