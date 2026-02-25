@@ -1,7 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
-import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations } from "../api.js";
+import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiUpdateMyCharacterProfile, apiAddShopPurchase, apiRemoveShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue } from "../api.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
 const AFFILIATIONS_CATALOG = [
@@ -800,10 +800,11 @@ function normalisePersonal(data) {
       if (dbChar.party)            p.profile.party            = dbChar.party;
       if (dbChar.yearFirstElected) p.profile.yearFirstElected = dbChar.yearFirstElected;
       if (dbChar.avatar)           p.avatar                   = dbChar.avatar;
-      // Sync financial background level from DB character record
-      if (dbChar.financial_background_level != null) {
-        p.financialBackgroundLevel = String(dbChar.financial_background_level);
+      // Sync financial background level and twitter handle from DB character record
+      if (dbChar.financialBackgroundLevel != null && dbChar.financialBackgroundLevel !== "") {
+        p.financialBackgroundLevel = String(dbChar.financialBackgroundLevel);
       }
+      if (dbChar.twitterHandle != null) p.twitterHandle = dbChar.twitterHandle;
     }
   }
 

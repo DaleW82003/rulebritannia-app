@@ -1387,6 +1387,22 @@ async function ensureSchema() {
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  // ── Character shop purchases (DB-persisted per character) ─────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS character_shop_purchases (
+      id             UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id   UUID    NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      item_id        TEXT    NOT NULL,
+      item_name      TEXT    NOT NULL,
+      price          NUMERIC NOT NULL DEFAULT 0,
+      monthly_upkeep NUMERIC NOT NULL DEFAULT 0,
+      effects        JSONB   NOT NULL DEFAULT '[]',
+      risk_modifier  JSONB,
+      purchased_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS char_shop_purchases_char_idx ON character_shop_purchases(character_id);
+  `);
 }
 
 // ── 1997 baseline salary scale (idempotent) ────────────────────────────────
@@ -4980,6 +4996,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
         ? pool.query(
             `SELECT c.id, c.name, c.party, c.constituency, c.avatar, c.bio, c.personal_background,
                     c.date_of_birth, c.education, c.career_background, c.family, c.year_first_elected,
+                    c.financial_background_level, c.twitter_handle,
                     c.is_active, c.user_id
                FROM characters c
               WHERE c.user_id = $1 AND c.is_active = TRUE
@@ -5029,18 +5046,20 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     if (charRows[0]) {
       const c = charRows[0];
       currentCharacter = {
-        id:                 c.id,
-        name:               c.name,
-        party:              c.party || "",
-        constituency:       c.constituency || "",
-        avatar:             c.avatar || "",
-        bio:                c.bio || c.personal_background || "",
-        is_active:          c.is_active,
-        dateOfBirth:        c.date_of_birth || "",
-        education:          c.education || "",
-        careerBackground:   c.career_background || "",
-        family:             c.family || "",
-        yearFirstElected:   c.year_first_elected || "",
+        id:                       c.id,
+        name:                     c.name,
+        party:                    c.party || "",
+        constituency:             c.constituency || "",
+        avatar:                   c.avatar || "",
+        bio:                      c.bio || c.personal_background || "",
+        is_active:                c.is_active,
+        dateOfBirth:              c.date_of_birth || "",
+        education:                c.education || "",
+        careerBackground:         c.career_background || "",
+        family:                   c.family || "",
+        yearFirstElected:         c.year_first_elected || "",
+        financialBackgroundLevel: c.financial_background_level != null ? String(c.financial_background_level) : "",
+        twitterHandle:            c.twitter_handle || "",
       };
     }
 
@@ -6442,7 +6461,338 @@ app.post("/api/finance/shop-upkeep", financeWriteLimit, async (req, res) => {
   }
 });
 
-// ── Party structure (chairman-managed) ───────────────────────────────────────
+// ── Player finance + shop purchases (DB-backed) ──────────────────────────────
+// GET  /api/me/finance                           — authenticated: read own character finance
+// PATCH /api/me/character                        — authenticated: update own character profile fields
+// POST  /api/me/character/shop-purchases         — authenticated: record a shop purchase
+// DELETE /api/me/character/shop-purchases/:id    — authenticated: remove a shop purchase
+// POST  /api/me/character/additional-revenue     — admin/mod: add revenue stream
+// DELETE /api/me/character/additional-revenue/:id — admin/mod: remove revenue stream
+// ─────────────────────────────────────────────────────────────────────────────
+
+const meFinanceReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const meFinanceWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
+
+// GET /api/me/finance — authenticated owner: full finance snapshot for active character
+app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    // Resolve active character for the caller
+    const { rows: charRows } = await pool.query(
+      `SELECT c.id
+         FROM characters c
+        WHERE c.user_id = $1 AND c.is_active = TRUE
+        ORDER BY (c.id = (SELECT active_character_id FROM users WHERE id = $1)) DESC,
+                 c.created_at DESC
+        LIMIT 1`,
+      [req.session.userId]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "No active character found" });
+    const charId = charRows[0].id;
+
+    // Finance row (may not exist yet)
+    const { rows: finRows } = await pool.query(
+      `SELECT bank_balance, shop_monthly_upkeep FROM character_finance WHERE character_id = $1`,
+      [charId]
+    );
+    const fin = finRows[0] ?? { bank_balance: 0, shop_monthly_upkeep: 0 };
+
+    // Additional revenue streams
+    const { rows: revRows } = await pool.query(
+      `SELECT id, label, annual_amount FROM character_additional_revenue WHERE character_id = $1 ORDER BY created_at`,
+      [charId]
+    );
+
+    // Shop purchases
+    const { rows: purchaseRows } = await pool.query(
+      `SELECT id, item_id, item_name, price, monthly_upkeep, effects, risk_modifier, purchased_at
+         FROM character_shop_purchases WHERE character_id = $1 ORDER BY purchased_at`,
+      [charId]
+    );
+
+    // Computed annual salary
+    const { rows: simRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const simMonth = simRows[0]?.sim_current_month ?? 8;
+    const simYear  = simRows[0]?.sim_current_year  ?? 1997;
+    const simIndex = simYear * 12 + (simMonth - 1);
+    const { annualSalary } = await resolvedAnnualSalary(charId, simIndex);
+
+    res.json({
+      characterId:      charId,
+      bankBalance:      Number(fin.bank_balance),
+      shopMonthlyUpkeep: Number(fin.shop_monthly_upkeep),
+      annualSalary,
+      additionalRevenue: revRows.map((r) => ({
+        id:           r.id,
+        label:        r.label,
+        annualAmount: Number(r.annual_amount),
+      })),
+      shopPurchases: purchaseRows.map((p) => ({
+        id:            p.id,
+        itemId:        p.item_id,
+        itemName:      p.item_name,
+        price:         Number(p.price),
+        monthlyUpkeep: Number(p.monthly_upkeep),
+        effects:       Array.isArray(p.effects) ? p.effects : [],
+        riskModifier:  p.risk_modifier ?? null,
+        purchasedAt:   p.purchased_at,
+      })),
+    });
+  } catch (e) {
+    console.error("[GET /api/me/finance]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PATCH /api/me/character — player updates own active character profile fields
+app.patch("/api/me/character", meFinanceWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { rows: charRows } = await pool.query(
+      `SELECT c.id FROM characters c
+        WHERE c.user_id = $1 AND c.is_active = TRUE
+        ORDER BY (c.id = (SELECT active_character_id FROM users WHERE id = $1)) DESC,
+                 c.created_at DESC
+        LIMIT 1`,
+      [req.session.userId]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "No active character found" });
+    const charId = charRows[0].id;
+
+    const {
+      education, career_background, family,
+      date_of_birth, financial_background_level, twitter_handle,
+    } = req.body || {};
+
+    // Build dynamic UPDATE — only set fields that were explicitly provided
+    const setClauses = [];
+    const params = [];
+    let i = 1;
+
+    if (education         !== undefined) { setClauses.push(`education = $${i++}`);                  params.push(String(education || "").slice(0, 500)); }
+    if (career_background !== undefined) { setClauses.push(`career_background = $${i++}`);          params.push(String(career_background || "").slice(0, 500)); }
+    if (family            !== undefined) { setClauses.push(`family = $${i++}`);                     params.push(String(family || "").slice(0, 500)); }
+    if (date_of_birth     !== undefined) { setClauses.push(`date_of_birth = $${i++}`);              params.push(String(date_of_birth || "").slice(0, 50) || null); }
+    if (twitter_handle    !== undefined) { setClauses.push(`twitter_handle = $${i++}`);             params.push(String(twitter_handle || "").trim().replace(/^@+/, "").slice(0, 100)); }
+    if (financial_background_level !== undefined) {
+      const lvl = parseInt(financial_background_level, 10);
+      setClauses.push(`financial_background_level = $${i++}`);
+      params.push(Number.isFinite(lvl) && lvl >= 1 && lvl <= 5 ? lvl : null);
+    }
+
+    if (!setClauses.length) return res.status(400).json({ error: "No valid fields provided" });
+
+    params.push(charId);
+    const { rows } = await pool.query(
+      `UPDATE characters SET ${setClauses.join(", ")} WHERE id = $${i} RETURNING id`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ error: "Character not found" });
+
+    await writeAuditLog(req.session.userId, "character.profile.update", "character", charId, null, req.body);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[PATCH /api/me/character]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/me/character/shop-purchases — record a shop purchase, deduct from bank
+app.post("/api/me/character/shop-purchases", meFinanceWriteLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { rows: charRows } = await client.query(
+      `SELECT c.id FROM characters c
+        WHERE c.user_id = $1 AND c.is_active = TRUE
+        ORDER BY (c.id = (SELECT active_character_id FROM users WHERE id = $1)) DESC,
+                 c.created_at DESC
+        LIMIT 1`,
+      [req.session.userId]
+    );
+    if (!charRows.length) { client.release(); return res.status(404).json({ error: "No active character found" }); }
+    const charId = charRows[0].id;
+
+    const { item_id, item_name, price, monthly_upkeep, effects = [], risk_modifier = null } = req.body || {};
+    if (!item_id || !item_name) { client.release(); return res.status(400).json({ error: "item_id and item_name are required" }); }
+
+    const itemPrice  = Math.max(0, Number(price  || 0));
+    const itemUpkeep = Math.max(0, Number(monthly_upkeep || 0));
+
+    await client.query("BEGIN");
+
+    // Ensure finance row exists
+    await client.query(
+      `INSERT INTO character_finance (character_id, bank_balance) VALUES ($1, 0) ON CONFLICT (character_id) DO NOTHING`,
+      [charId]
+    );
+
+    // Check balance and deduct atomically
+    const { rows: finRows } = await client.query(
+      `SELECT bank_balance FROM character_finance WHERE character_id = $1 FOR UPDATE`,
+      [charId]
+    );
+    if (!finRows.length || Number(finRows[0].bank_balance) < itemPrice) {
+      await client.query("ROLLBACK");
+      client.release();
+      return res.status(402).json({ error: "Insufficient funds" });
+    }
+
+    await client.query(
+      `UPDATE character_finance SET bank_balance = bank_balance - $1, updated_at = NOW() WHERE character_id = $2`,
+      [itemPrice, charId]
+    );
+
+    // Insert purchase record
+    const { rows: purchaseRows } = await client.query(
+      `INSERT INTO character_shop_purchases (character_id, item_id, item_name, price, monthly_upkeep, effects, risk_modifier)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb)
+       RETURNING id, item_id, item_name, price, monthly_upkeep, effects, risk_modifier, purchased_at`,
+      [charId, String(item_id), String(item_name), itemPrice, itemUpkeep, JSON.stringify(effects), risk_modifier ? JSON.stringify(risk_modifier) : null]
+    );
+
+    // Recalculate and persist total monthly upkeep
+    const { rows: upkeepRows } = await client.query(
+      `SELECT COALESCE(SUM(monthly_upkeep), 0) AS total FROM character_shop_purchases WHERE character_id = $1`,
+      [charId]
+    );
+    await client.query(
+      `UPDATE character_finance SET shop_monthly_upkeep = $1, updated_at = NOW() WHERE character_id = $2`,
+      [Number(upkeepRows[0].total), charId]
+    );
+
+    await client.query("COMMIT");
+
+    const p = purchaseRows[0];
+    res.status(201).json({
+      ok: true,
+      purchase: {
+        id:            p.id,
+        itemId:        p.item_id,
+        itemName:      p.item_name,
+        price:         Number(p.price),
+        monthlyUpkeep: Number(p.monthly_upkeep),
+        effects:       Array.isArray(p.effects) ? p.effects : [],
+        riskModifier:  p.risk_modifier ?? null,
+        purchasedAt:   p.purchased_at,
+      },
+      newBankBalance: Number(finRows[0].bank_balance) - itemPrice,
+    });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /api/me/character/shop-purchases]", e);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/me/character/shop-purchases/:id — remove a shop purchase (admin/mod or character owner)
+app.delete("/api/me/character/shop-purchases/:id", meFinanceWriteLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { rows: charRows } = await client.query(
+      `SELECT c.id FROM characters c
+        WHERE c.user_id = $1 AND c.is_active = TRUE
+        ORDER BY (c.id = (SELECT active_character_id FROM users WHERE id = $1)) DESC,
+                 c.created_at DESC
+        LIMIT 1`,
+      [req.session.userId]
+    );
+    if (!charRows.length) { client.release(); return res.status(404).json({ error: "No active character found" }); }
+    const charId = charRows[0].id;
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+
+    // Verify the purchase belongs to the caller's character (or caller is admin/mod)
+    const { rows: pRows } = await client.query(
+      `SELECT character_id FROM character_shop_purchases WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!pRows.length) { client.release(); return res.status(404).json({ error: "Purchase not found" }); }
+    if (!isAdminOrMod && pRows[0].character_id !== charId) {
+      client.release();
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const targetCharId = pRows[0].character_id;
+
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM character_shop_purchases WHERE id = $1`, [req.params.id]);
+
+    // Recalculate total monthly upkeep
+    const { rows: upkeepRows } = await client.query(
+      `SELECT COALESCE(SUM(monthly_upkeep), 0) AS total FROM character_shop_purchases WHERE character_id = $1`,
+      [targetCharId]
+    );
+    await client.query(
+      `UPDATE character_finance SET shop_monthly_upkeep = $1, updated_at = NOW() WHERE character_id = $2`,
+      [Number(upkeepRows[0].total), targetCharId]
+    );
+    await client.query("COMMIT");
+
+    res.json({ ok: true });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[DELETE /api/me/character/shop-purchases/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/me/character/additional-revenue — admin/mod: add revenue stream to active character
+app.post("/api/me/character/additional-revenue", meFinanceWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+
+    const { character_id, label, annual_amount } = req.body || {};
+    const targetCharId = character_id || req.session.characterId;
+    if (!targetCharId) return res.status(400).json({ error: "character_id required" });
+
+    const amount = Number(annual_amount || 0);
+    if (!label || typeof label !== "string" || !label.trim()) {
+      return res.status(400).json({ error: "label is required" });
+    }
+
+    const { rows: charCheck } = await pool.query("SELECT id FROM characters WHERE id = $1", [targetCharId]);
+    if (!charCheck.length) return res.status(404).json({ error: "Character not found" });
+
+    const { rows } = await pool.query(
+      `INSERT INTO character_additional_revenue (character_id, label, annual_amount) VALUES ($1, $2, $3) RETURNING *`,
+      [targetCharId, label.trim().slice(0, 200), amount]
+    );
+    res.status(201).json({ ok: true, revenue: { id: rows[0].id, label: rows[0].label, annualAmount: Number(rows[0].annual_amount) } });
+  } catch (e) {
+    console.error("[POST /api/me/character/additional-revenue]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// DELETE /api/me/character/additional-revenue/:id — admin/mod: remove a revenue stream
+app.delete("/api/me/character/additional-revenue/:id", meFinanceWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+
+    const { rows } = await pool.query(
+      `DELETE FROM character_additional_revenue WHERE id = $1 RETURNING id`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Revenue stream not found" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[DELETE /api/me/character/additional-revenue/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 // GET  /api/parties/:partyId/structure  — authenticated: read party structure
 // POST /api/parties/:partyId/structure  — chairman/leader/admin/mod: update
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -1960,3 +1960,69 @@ export async function apiUpdateFundraisingItem(id, item) {
   if (!res.ok) throw new Error(`apiUpdateFundraisingItem failed (${res.status})`);
   return res.json();
 }
+
+// ── Player finance (DB-backed) ───────────────────────────────────────────────
+
+export async function apiGetMyFinance() {
+  const res = await fetch(`${API_BASE}/api/me/finance`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyFinance failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiUpdateMyCharacterProfile(fields) {
+  const res = await fetch(`${API_BASE}/api/me/character`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(fields),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdateMyCharacterProfile failed (${res.status})`);
+  return body;
+}
+
+export async function apiAddShopPurchase(purchase) {
+  const res = await fetch(`${API_BASE}/api/me/character/shop-purchases`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(purchase),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAddShopPurchase failed (${res.status})`);
+  return body;
+}
+
+export async function apiRemoveShopPurchase(id) {
+  const res = await fetch(`${API_BASE}/api/me/character/shop-purchases/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRemoveShopPurchase failed (${res.status})`);
+  return body;
+}
+
+export async function apiAddAdditionalRevenue(characterId, label, annualAmount) {
+  const res = await fetch(`${API_BASE}/api/me/character/additional-revenue`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id: characterId, label, annual_amount: annualAmount }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAddAdditionalRevenue failed (${res.status})`);
+  return body;
+}
+
+export async function apiRemoveAdditionalRevenue(id) {
+  const res = await fetch(`${API_BASE}/api/me/character/additional-revenue/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRemoveAdditionalRevenue failed (${res.status})`);
+  return body;
+}
