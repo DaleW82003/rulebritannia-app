@@ -3,6 +3,7 @@ import { esc } from "../ui.js";
 import { nowMs, saveState } from "../core.js";
 import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
+import { apiGetBills } from "../api.js";
 
 // js/pages/dashboard.js
 // Dashboard (Your Office) — Chunk 1 implementation
@@ -384,7 +385,23 @@ function renderOrderPaper(data) {
   `;
 }
 
-export function initDashboardPage(data) {
+export async function initDashboardPage(data) {
+  // Hydrate order paper from DB so bills submitted by any player are always visible.
+  try {
+    const result = await apiGetBills();
+    if (result?.bills?.length) {
+      data.orderPaperCommons ??= [];
+      const existingIds = new Set(data.orderPaperCommons.map((b) => String(b.id)));
+      for (const bill of result.bills) {
+        if (!existingIds.has(String(bill.id))) {
+          data.orderPaperCommons.push(bill);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[dashboard] Failed to load bills from DB:", err);
+  }
+
   const sections = [
     { id: "whats-going-on", fn: renderWhatsGoingOn, label: "What's Going On" },
     { id: "live-docket",    fn: renderLiveDocket,   label: "Live Docket" },
