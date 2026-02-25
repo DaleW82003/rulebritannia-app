@@ -175,7 +175,7 @@ export const PERMISSION_MAP = Object.freeze({
   // ── Admin-only ─────────────────────────────────────────────────────────
   "admin_panel":            ["admin"],
   "admin_maintenance":      ["admin"],
-  "control_panel":          ["admin"],
+  "control_panel":          ["admin", "mod", "speaker"],
   "manage_snapshots":       ["admin"],
   "manage_config":          ["admin"],
   "manage_roles":           ["admin"],

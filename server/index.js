@@ -2548,8 +2548,9 @@ app.post("/api/state", async (req, res) => {
     if (!req.session?.userId) {
       return res.status(401).json({ error: "Not logged in" });
     }
-    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
-      return res.status(403).json({ error: "Forbidden: admin role required" });
+    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    if (!roles.includes("admin") && !roles.includes("mod") && !roles.includes("speaker")) {
+      return res.status(403).json({ error: "Forbidden: admin, mod, or speaker role required" });
     }
 
     const data = req.body?.data;
@@ -3188,9 +3189,9 @@ app.get("/api/audit-log", auditReadLimit, async (req, res) => {
  * BILLS  (orderPaperCommons items)
  * GET    /api/bills          — authenticated: list all bills
  * GET    /api/bills/:id      — authenticated: get one bill
- * POST   /api/bills          — admin: create a bill
- * PUT    /api/bills/:id      — admin: update a bill
- * DELETE /api/bills/:id      — admin: delete a bill
+ * POST   /api/bills          — admin/mod: create a bill
+ * PUT    /api/bills/:id      — admin/mod: update a bill
+ * DELETE /api/bills/:id      — admin/mod/speaker: delete a bill
  */
 
 const crudReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
@@ -3221,7 +3222,7 @@ app.get("/api/bills/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/bills", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const bill = req.body;
     if (!bill || typeof bill !== "object" || !bill.id) {
       return res.status(400).json({ error: "Body must be a bill object with an id" });
@@ -3247,7 +3248,7 @@ app.post("/api/bills", crudWriteLimit, async (req, res) => {
 
 app.put("/api/bills/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const bill = req.body;
     if (!bill || typeof bill !== "object") {
       return res.status(400).json({ error: "Body must be a bill object" });
@@ -3266,7 +3267,7 @@ app.put("/api/bills/:id", crudWriteLimit, async (req, res) => {
 
 app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminModOrSpeaker(req, res)) return;
     const { rowCount } = await pool.query("DELETE FROM bills WHERE id = $1", [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: "Bill not found" });
     res.json({ ok: true });
@@ -3280,9 +3281,9 @@ app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
  * MOTIONS
  * GET    /api/motions          — authenticated: list all motions (optional ?type=house|edm)
  * GET    /api/motions/:id      — authenticated: get one motion
- * POST   /api/motions          — admin: create a motion
- * PUT    /api/motions/:id      — admin: update a motion
- * DELETE /api/motions/:id      — admin: delete a motion
+ * POST   /api/motions          — admin/mod: create a motion
+ * PUT    /api/motions/:id      — admin/mod: update a motion
+ * DELETE /api/motions/:id      — admin/mod/speaker: delete a motion
  */
 app.get("/api/motions", crudReadLimit, async (req, res) => {
   try {
@@ -3320,7 +3321,7 @@ app.get("/api/motions/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/motions", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { motion_type = "house", ...motion } = req.body || {};
     if (!motion.id) {
       return res.status(400).json({ error: "Body must be a motion object with an id" });
@@ -3349,7 +3350,7 @@ app.post("/api/motions", crudWriteLimit, async (req, res) => {
 
 app.put("/api/motions/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { motion_type, ...motion } = req.body || {};
     const typeClause = (motion_type === "house" || motion_type === "edm") ? ", motion_type = $3" : "";
     const params = [
@@ -3371,7 +3372,7 @@ app.put("/api/motions/:id", crudWriteLimit, async (req, res) => {
 
 app.delete("/api/motions/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminModOrSpeaker(req, res)) return;
     const { rowCount } = await pool.query("DELETE FROM motions WHERE id = $1", [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: "Motion not found" });
     res.json({ ok: true });
@@ -3386,8 +3387,8 @@ app.delete("/api/motions/:id", crudWriteLimit, async (req, res) => {
  * GET    /api/statements          — authenticated: list all statements
  * GET    /api/statements/:id      — authenticated: get one statement
  * POST   /api/statements          — admin: create a statement
- * PUT    /api/statements/:id      — admin: update a statement
- * DELETE /api/statements/:id      — admin: delete a statement
+ * PUT    /api/statements/:id      — admin/mod: update a statement
+ * DELETE /api/statements/:id      — admin/mod/speaker: delete a statement
  */
 app.get("/api/statements", crudReadLimit, async (req, res) => {
   try {
@@ -3417,7 +3418,7 @@ app.get("/api/statements/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/statements", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const stmt = req.body;
     if (!stmt || typeof stmt !== "object" || !stmt.id) {
       return res.status(400).json({ error: "Body must be a statement object with an id" });
@@ -3443,7 +3444,7 @@ app.post("/api/statements", crudWriteLimit, async (req, res) => {
 
 app.put("/api/statements/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const stmt = req.body;
     if (!stmt || typeof stmt !== "object") {
       return res.status(400).json({ error: "Body must be a statement object" });
@@ -3462,7 +3463,7 @@ app.put("/api/statements/:id", crudWriteLimit, async (req, res) => {
 
 app.delete("/api/statements/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminModOrSpeaker(req, res)) return;
     const { rowCount } = await pool.query("DELETE FROM statements WHERE id = $1", [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: "Statement not found" });
     res.json({ ok: true });
@@ -3478,7 +3479,7 @@ app.delete("/api/statements/:id", crudWriteLimit, async (req, res) => {
  * GET    /api/regulations/:id      — authenticated: get one regulation
  * POST   /api/regulations          — admin: create a regulation
  * PUT    /api/regulations/:id      — admin: update a regulation
- * DELETE /api/regulations/:id      — admin: delete a regulation
+ * DELETE /api/regulations/:id      — admin/mod/speaker: delete a regulation
  */
 app.get("/api/regulations", crudReadLimit, async (req, res) => {
   try {
@@ -3508,7 +3509,7 @@ app.get("/api/regulations/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/regulations", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const reg = req.body;
     if (!reg || typeof reg !== "object" || !reg.id) {
       return res.status(400).json({ error: "Body must be a regulation object with an id" });
@@ -3534,7 +3535,7 @@ app.post("/api/regulations", crudWriteLimit, async (req, res) => {
 
 app.put("/api/regulations/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const reg = req.body;
     if (!reg || typeof reg !== "object") {
       return res.status(400).json({ error: "Body must be a regulation object" });
@@ -3553,7 +3554,7 @@ app.put("/api/regulations/:id", crudWriteLimit, async (req, res) => {
 
 app.delete("/api/regulations/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminModOrSpeaker(req, res)) return;
     const { rowCount } = await pool.query("DELETE FROM regulations WHERE id = $1", [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: "Regulation not found" });
     res.json({ ok: true });
@@ -3601,7 +3602,7 @@ app.get("/api/questiontime-questions/:id", crudReadLimit, async (req, res) => {
 
 app.post("/api/questiontime-questions", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const q = req.body;
     if (!q || typeof q !== "object" || !q.id) {
       return res.status(400).json({ error: "Body must be a question object with an id" });
@@ -3627,7 +3628,7 @@ app.post("/api/questiontime-questions", crudWriteLimit, async (req, res) => {
 
 app.put("/api/questiontime-questions/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const q = req.body;
     if (!q || typeof q !== "object") {
       return res.status(400).json({ error: "Body must be a question object" });
@@ -3646,7 +3647,7 @@ app.put("/api/questiontime-questions/:id", crudWriteLimit, async (req, res) => {
 
 app.delete("/api/questiontime-questions/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { rowCount } = await pool.query("DELETE FROM questiontime_questions WHERE id = $1", [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: "Question not found" });
     res.json({ ok: true });
@@ -3695,6 +3696,12 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
     );
     const newMonth = rows[0].sim_current_month;
     const newYear  = rows[0].sim_current_year;
+
+    // Keep sim_state in sync so both clock representations agree.
+    await pool.query(
+      `UPDATE sim_state SET month = $1, year = $2, last_tick_at = NOW() WHERE id = 'main'`,
+      [newMonth, newYear]
+    );
 
     // Auto-archive content whose autoArchiveAfterSimMonths has elapsed.
     // We compare createdAtSim against the new sim date.
@@ -3767,6 +3774,11 @@ app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
        RETURNING sim_current_month, sim_current_year, real_last_tick, rate`,
       [month, year, rateVal]
     );
+    // Keep sim_state in sync so both clock representations agree.
+    await pool.query(
+      `UPDATE sim_state SET month = $1, year = $2 WHERE id = 'main'`,
+      [month, year]
+    );
     res.json({ ok: true, clock: rows[0] });
   } catch (e) {
     console.error(e);
@@ -3778,9 +3790,9 @@ app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
  * PRESS ITEMS
  * GET    /api/press              — public: list press items (optional ?type=release|conference)
  * GET    /api/press/:id          — public: get one press item
- * POST   /api/press              — admin: create a press item
- * PUT    /api/press/:id          — admin: update a press item
- * DELETE /api/press/:id          — admin: delete a press item
+ * POST   /api/press              — admin/mod: create a press item
+ * PUT    /api/press/:id          — admin/mod: update a press item
+ * DELETE /api/press/:id          — admin/mod: delete a press item
  */
 const pressReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
 const pressWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
@@ -3816,7 +3828,7 @@ app.get("/api/press/:id", pressReadLimit, async (req, res) => {
 
 app.post("/api/press", pressWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { press_type = "release", ...item } = req.body || {};
     if (!item.id) {
       return res.status(400).json({ error: "Body must have an id field" });
@@ -3846,7 +3858,7 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
 
 app.put("/api/press/:id", pressWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { press_type, ...item } = req.body || {};
     const { rows: before } = await pool.query("SELECT data FROM press_items WHERE id = $1", [req.params.id]);
     if (!before.length) return res.status(404).json({ error: "Press item not found" });
@@ -3869,7 +3881,7 @@ app.put("/api/press/:id", pressWriteLimit, async (req, res) => {
 
 app.delete("/api/press/:id", pressWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { rowCount } = await pool.query("DELETE FROM press_items WHERE id = $1", [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: "Press item not found" });
     await writeAuditLog(req.session.userId, "press.delete", "press_items", req.params.id, null, null);
@@ -3919,7 +3931,7 @@ app.get("/api/polling/:id", pollReadLimit, async (req, res) => {
 
 app.post("/api/polling", pollWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const entry = req.body;
     if (!entry || typeof entry !== "object" || !entry.id) {
       return res.status(400).json({ error: "Body must be a polling entry with an id" });
@@ -3945,7 +3957,7 @@ app.post("/api/polling", pollWriteLimit, async (req, res) => {
 
 app.put("/api/polling/:id", pollWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const entry = req.body;
     if (!entry || typeof entry !== "object") {
       return res.status(400).json({ error: "Body must be a polling entry object" });
@@ -3966,7 +3978,7 @@ app.put("/api/polling/:id", pollWriteLimit, async (req, res) => {
 
 app.delete("/api/polling/:id", pollWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { rowCount } = await pool.query("DELETE FROM polling_entries WHERE id = $1", [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: "Polling entry not found" });
     res.json({ ok: true });
@@ -6097,6 +6109,11 @@ app.post("/api/sim/tick", simWriteLimit, async (req, res) => {
       }
       return res.status(404).json({ error: "Sim state not found" });
     }
+    // Keep sim_clock in sync so both clock representations agree.
+    await pool.query(
+      `UPDATE sim_clock SET sim_current_month = $1, sim_current_year = $2, real_last_tick = NOW() WHERE id = 'main'`,
+      [rows[0].month, rows[0].year]
+    );
     await writeAuditLog(req.session.userId, "sim.tick", "sim_state", "main", null, rows[0]);
     res.json({ ok: true, sim: rows[0] });
   } catch (e) {
@@ -6132,6 +6149,17 @@ app.post("/api/sim/set", simWriteLimit, async (req, res) => {
        RETURNING id, year, month, is_paused, last_tick_at`,
       params
     );
+    // Keep sim_clock in sync when year/month change.
+    if (year != null || month != null) {
+      await pool.query(
+        `UPDATE sim_clock SET
+           sim_current_month = $1,
+           sim_current_year  = $2,
+           real_last_tick    = NOW()
+         WHERE id = 'main'`,
+        [rows[0].month, rows[0].year]
+      );
+    }
     await writeAuditLog(req.session.userId, "sim.set", "sim_state", "main", before[0], rows[0]);
     res.json({ ok: true, sim: rows[0] });
   } catch (e) {
@@ -6142,12 +6170,12 @@ app.post("/api/sim/set", simWriteLimit, async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BILLS — add PATCH for stage transitions (triggers Discourse on 2nd Reading)
-// PATCH /api/bills/:id   — admin: update bill fields (stage triggers Discourse)
+// PATCH /api/bills/:id   — admin/mod: update bill fields (stage triggers Discourse)
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.patch("/api/bills/:id", crudWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { rows: before } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
     if (!before.length) return res.status(404).json({ error: "Bill not found" });
 
@@ -6356,6 +6384,17 @@ async function handleSeedDemo(req, res) {
         sim_current_year  = 1997,
         rate              = 1,
         real_last_tick    = NOW()
+    `);
+
+    // ── Reset sim_state (authoritative pause/tick state) to August 1997 ───
+    await pool.query(`
+      INSERT INTO sim_state (id, year, month, is_paused)
+      VALUES ('main', 1997, 8, true)
+      ON CONFLICT (id) DO UPDATE SET
+        year         = 1997,
+        month        = 8,
+        is_paused    = true,
+        last_tick_at = NULL
     `);
 
     // ── Clear existing content ─────────────────────────────────────────────
