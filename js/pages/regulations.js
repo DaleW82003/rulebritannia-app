@@ -4,7 +4,7 @@ import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
-import { apiCreateDebateTopic } from "../api.js";
+import { apiCreateDebateTopic, apiCreateRegulation, apiGetRegulations } from "../api.js";
 import { handleApiError } from "../errors.js";
 
 const MONTHS = [
@@ -58,11 +58,24 @@ function nextYearNumber(data, year) {
   return items.filter((i) => Number(i.simYear) === Number(year)).length + 1;
 }
 
-export function initRegulationsPage(data) {
+export async function initRegulationsPage(data) {
   const root = document.getElementById("regulations-root");
   if (!root) return;
 
   ensureRegulations(data);
+
+  try {
+    const r = await apiGetRegulations();
+    if (r?.regulations?.length) {
+      const seen = new Set(data.regulations.items.map((x) => String(x.id)));
+      for (const item of r.regulations) {
+        if (!seen.has(String(item.id))) data.regulations.items.push(item);
+      }
+    }
+  } catch (err) {
+    console.error("[regulations] DB load failed:", err);
+  }
+
   const char = getCharacter(data);
   const simCurrent = simNow(data);
 
@@ -149,7 +162,7 @@ export function initRegulationsPage(data) {
     </section>
   `;
 
-  root.querySelector("#reg-submit-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#reg-submit-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!canSubmit) return;
 
@@ -182,6 +195,17 @@ export function initRegulationsPage(data) {
       debateClosesAtSimObj: { month: debateEnd.month, year: debateEnd.year },
       status: "open"
     };
+
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreateRegulation(regulation);
+    } catch (err) {
+      console.error(err);
+      handleApiError(err, "Regulation");
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
 
     data.regulations.items.push(regulation);
     data.regulations.nextId += 1;

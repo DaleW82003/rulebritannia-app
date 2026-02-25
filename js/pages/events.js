@@ -3,6 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
+import { apiCreateEvent, apiGetEvents } from "../api.js";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -136,11 +137,11 @@ function render(data, state) {
             <div>${statusChip(item.status)}</div>
           </div>
           <div class="tile-bottom">
-            <button class="btn" type="button" data-action="toggle-open" data-id="${esc(String(item.id))}">${state.openId === item.id ? "Close" : "Open"}</button>
+            <button class="btn" type="button" data-action="toggle-open" data-id="${esc(String(item.id))}">${String(state.openId) === String(item.id) ? "Close" : "Open"}</button>
             ${mod && item.status === "pending" ? `<button class="btn" type="button" data-action="approve" data-id="${esc(String(item.id))}">Approve</button><button class="btn danger" type="button" data-action="cancel" data-id="${esc(String(item.id))}">Refuse</button>` : ""}
             ${mod && item.status === "approved" ? `<button class="btn" type="button" data-action="close" data-id="${esc(String(item.id))}">Close Now</button>` : ""}
           </div>
-          ${state.openId === item.id ? `
+          ${String(state.openId) === String(item.id) ? `
             <div style="margin-top:10px;">
               <div><b>Type:</b> ${esc(eventTypeLabel(item.type))}</div>
               <div><b>Location:</b> ${esc(item.location)}</div>
@@ -182,7 +183,7 @@ function render(data, state) {
     render(data, state);
   });
 
-  root.querySelector("#events-host-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#events-host-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!hasActiveChar) return;
     const fd = new FormData(e.currentTarget);
@@ -196,7 +197,7 @@ function render(data, state) {
     if (!location || !speech || (type === "event" && !reason)) return;
 
     const item = {
-      id: data.events.nextId++,
+      id: `event-${Date.now()}`,
       type,
       party: char?.party || "Independent",
       hostName: char?.name || "Character",
@@ -213,6 +214,16 @@ function render(data, state) {
       closesAtSimIndex: null
     };
 
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreateEvent(item);
+    } catch (err) {
+      console.error(err);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+
     data.events.items.push(item);
     state.showForm = false;
     saveState(data);
@@ -222,7 +233,7 @@ function render(data, state) {
 
   root.querySelectorAll("[data-action='toggle-open']").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = Number(btn.getAttribute("data-id") || 0);
+      const id = String(btn.getAttribute("data-id") || "");
       state.openId = state.openId === id ? null : id;
       render(data, state);
     });
@@ -231,8 +242,8 @@ function render(data, state) {
   root.querySelectorAll("[data-action='approve']").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (!mod) return;
-      const id = Number(btn.getAttribute("data-id") || 0);
-      const item = data.events.items.find((x) => x.id === id);
+      const id = String(btn.getAttribute("data-id") || "");
+      const item = data.events.items.find((x) => String(x.id) === id);
       if (!item) return;
       item.status = "approved";
       item.approvedAt = new Date().toLocaleString("en-GB");
@@ -245,8 +256,8 @@ function render(data, state) {
   root.querySelectorAll("[data-action='cancel']").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (!mod) return;
-      const id = Number(btn.getAttribute("data-id") || 0);
-      const item = data.events.items.find((x) => x.id === id);
+      const id = String(btn.getAttribute("data-id") || "");
+      const item = data.events.items.find((x) => String(x.id) === id);
       if (!item) return;
       item.status = "cancelled";
       saveState(data);
@@ -257,8 +268,8 @@ function render(data, state) {
   root.querySelectorAll("[data-action='close']").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (!mod) return;
-      const id = Number(btn.getAttribute("data-id") || 0);
-      const item = data.events.items.find((x) => x.id === id);
+      const id = String(btn.getAttribute("data-id") || "");
+      const item = data.events.items.find((x) => String(x.id) === id);
       if (!item) return;
       item.status = "closed";
       saveState(data);
@@ -269,8 +280,8 @@ function render(data, state) {
   root.querySelectorAll("form[data-action='add-speech']").forEach((form) => {
     form.addEventListener("submit", (e) => {
       e.preventDefault();
-      const id = Number(form.getAttribute("data-id") || 0);
-      const item = data.events.items.find((x) => x.id === id);
+      const id = String(form.getAttribute("data-id") || "");
+      const item = data.events.items.find((x) => String(x.id) === id);
       if (!item || !canAddSpeech(char, item, data)) return;
       const fd = new FormData(form);
       const speech = String(fd.get("speech") || "").trim();
@@ -283,7 +294,18 @@ function render(data, state) {
   });
 }
 
-export function initEventsPage(data) {
+export async function initEventsPage(data) {
   ensureEvents(data);
+  try {
+    const r = await apiGetEvents();
+    if (r?.events?.length) {
+      const seen = new Set(data.events.items.map((x) => String(x.id)));
+      for (const item of r.events) {
+        if (!seen.has(String(item.id))) data.events.items.push(item);
+      }
+    }
+  } catch (err) {
+    console.error("[events] DB load failed:", err);
+  }
   render(data, { showForm: false, formType: "event", openId: null });
 }

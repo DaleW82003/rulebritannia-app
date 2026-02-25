@@ -1824,3 +1824,97 @@ export async function apiAdminUprateScale(name, effectiveFromSimIndex, pctUplift
   }
   return res.json();
 }
+
+// ── Red Lion ─────────────────────────────────────────────────────────────────
+export async function apiGetRedLionPosts() {
+  const res = await fetch(`${API_BASE}/api/redlion`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetRedLionPosts failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreateRedLionPost(post) {
+  const res = await fetch(`${API_BASE}/api/redlion`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(post),
+  });
+  if (!res.ok) throw new Error(`apiCreateRedLionPost failed (${res.status})`);
+  return res.json();
+}
+export async function apiDeleteRedLionPost(id) {
+  const res = await fetch(`${API_BASE}/api/redlion/${encodeURIComponent(id)}`, {
+    method: "DELETE", credentials: "include", headers: csrfHeaders(),
+  });
+  if (!res.ok) throw new Error(`apiDeleteRedLionPost failed (${res.status})`);
+  return res.json();
+}
+
+// ── Events ───────────────────────────────────────────────────────────────────
+export async function apiGetEvents() {
+  const res = await fetch(`${API_BASE}/api/events`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetEvents failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreateEvent(event) {
+  const res = await fetch(`${API_BASE}/api/events`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(event),
+  });
+  if (!res.ok) throw new Error(`apiCreateEvent failed (${res.status})`);
+  return res.json();
+}
+export async function apiUpdateEvent(id, event) {
+  const res = await fetch(`${API_BASE}/api/events/${encodeURIComponent(id)}`, {
+    method: "PUT", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(event),
+  });
+  if (!res.ok) throw new Error(`apiUpdateEvent failed (${res.status})`);
+  return res.json();
+}
+
+// ── Online posts ─────────────────────────────────────────────────────────────
+export async function apiGetOnlinePosts(type) {
+  const url = type ? `${API_BASE}/api/online?type=${encodeURIComponent(type)}` : `${API_BASE}/api/online`;
+  const res = await fetch(url, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetOnlinePosts failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreateOnlinePost(postType, post) {
+  const res = await fetch(`${API_BASE}/api/online`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ post_type: postType, ...post }),
+  });
+  if (!res.ok) throw new Error(`apiCreateOnlinePost failed (${res.status})`);
+  return res.json();
+}
+
+// ── Fundraising ───────────────────────────────────────────────────────────────
+export async function apiGetFundraisingItems() {
+  const res = await fetch(`${API_BASE}/api/fundraising`, { credentials: "include" });
+  if (res.status === 401 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`apiGetFundraisingItems failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreateFundraisingItem(item) {
+  const res = await fetch(`${API_BASE}/api/fundraising`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(item),
+  });
+  if (!res.ok) throw new Error(`apiCreateFundraisingItem failed (${res.status})`);
+  return res.json();
+}
+export async function apiUpdateFundraisingItem(id, item) {
+  const res = await fetch(`${API_BASE}/api/fundraising/${encodeURIComponent(id)}`, {
+    method: "PUT", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(item),
+  });
+  if (!res.ok) throw new Error(`apiUpdateFundraisingItem failed (${res.status})`);
+  return res.json();
+}

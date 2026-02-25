@@ -1,6 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker } from "../permissions.js";
+import { apiCreateRedLionPost, apiGetRedLionPosts } from "../api.js";
 
 function getCharacter(data) {
   return data?.currentCharacter || data?.currentPlayer || {};
@@ -99,7 +100,7 @@ function render(data) {
     </section>
   `;
 
-  root.querySelector("#redlion-post-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#redlion-post-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const body = String(fd.get("body") || "").trim();
@@ -118,6 +119,16 @@ function render(data) {
       createdAt: new Date().toLocaleString("en-GB")
     };
 
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreateRedLionPost(post);
+    } catch (err) {
+      console.error(err);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+
     data.redLion.posts.push(post);
     data.redLion.nextId += 1;
     saveState(data);
@@ -135,7 +146,18 @@ function render(data) {
   });
 }
 
-export function initRedLionPage(data) {
+export async function initRedLionPage(data) {
   ensureRedLion(data);
+  try {
+    const r = await apiGetRedLionPosts();
+    if (r?.posts?.length) {
+      const seen = new Set(data.redLion.posts.map((x) => String(x.id)));
+      for (const post of r.posts) {
+        if (!seen.has(String(post.id))) data.redLion.posts.push(post);
+      }
+    }
+  } catch (err) {
+    console.error("[redlion] DB load failed:", err);
+  }
   render(data);
 }

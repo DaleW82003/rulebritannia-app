@@ -3,18 +3,36 @@ import { esc } from "../ui.js";
 import { isSpeaker } from "../permissions.js";
 import { ensureRegulations } from "./regulations.js";
 import { formatSimMonthYear, isDeadlinePassed, countdownToSimMonth } from "../clock.js";
+import { apiGetRegulation } from "../api.js";
 
 function getId() {
   return new URL(window.location.href).searchParams.get("id");
 }
 
-export function initRegulationPage(data) {
+export async function initRegulationPage(data) {
   const root = document.getElementById("regulation-root");
   if (!root) return;
 
   ensureRegulations(data);
   const id = getId();
-  const item = data.regulations.items.find((r) => r.id === id) || data.regulations.items[0] || null;
+  let item = data.regulations.items.find((r) => r.id === id) || null;
+
+  if (!item && id) {
+    try {
+      const r = await apiGetRegulation(id);
+      if (r?.regulation) {
+        item = r.regulation;
+        data.regulations.items.push(item);
+      }
+    } catch (err) {
+      console.error("[regulation] DB fallback failed:", err);
+    }
+  }
+
+  if (!item) {
+    item = data.regulations.items[0] || null;
+  }
+
   const speaker = isSpeaker(data);
 
   // Auto-close if debate deadline passed

@@ -4,7 +4,7 @@ import { isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
-import { apiCreateDebateTopic, apiCreateStatement } from "../api.js";
+import { apiCreateDebateTopic, apiCreateStatement, apiGetStatements } from "../api.js";
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
@@ -133,7 +133,7 @@ function render(data) {
     })}
   `;
 
-  root.querySelector("#statement-submit-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#statement-submit-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
@@ -156,6 +156,18 @@ function render(data) {
       closesAtSimObj: { month: close.month, year: close.year },
       debate: { topicId: null, topicUrl: null, opensAtSim: null, closesAtSim: null }
     };
+
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreateStatement(statement);
+    } catch (err) {
+      console.error(err);
+      handleApiError(err, "Statement");
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
+
     data.statements.items.push(statement);
     data.statements.nextNumber = number + 1;
 
@@ -201,7 +213,18 @@ function render(data) {
   });
 }
 
-export function initStatementsPage(data) {
+export async function initStatementsPage(data) {
   ensureStatements(data);
+  try {
+    const r = await apiGetStatements();
+    if (r?.statements?.length) {
+      const seen = new Set(data.statements.items.map((x) => String(x.id)));
+      for (const item of r.statements) {
+        if (!seen.has(String(item.id))) data.statements.items.push(item);
+      }
+    }
+  } catch (err) {
+    console.error("[statements] DB load failed:", err);
+  }
   render(data);
 }
