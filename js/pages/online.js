@@ -66,6 +66,7 @@ function render(data, state) {
 
   const mod = canModerate(data);
   const char = getCharacter(data);
+  const hasActiveChar = mod || Boolean(char?.name);
   const limit = twitterLimit(data);
 
   const webPosts = data.online.webPosts.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
@@ -103,7 +104,9 @@ function render(data, state) {
     ${state.view === "webPost" && platformEnabled(data, "webPost") ? `
       <section class="panel" style="margin-bottom:12px;">
         <h2 style="margin-top:0;">Post to the World Wide Web</h2>
-        <form id="online-web-form">
+        ${!hasActiveChar
+          ? `<div class="muted-block">You must have an active character to post online. <a href="user.html">Create or activate a character</a> first.</div>`
+          : `<form id="online-web-form">
           <label class="label" for="www-title">Title</label>
           <input id="www-title" name="title" class="input" required>
 
@@ -116,7 +119,7 @@ function render(data, state) {
           <label class="label" for="www-body">Post</label>
           <textarea id="www-body" name="body" class="input" rows="7" required></textarea>
           <button class="btn" type="submit">Publish</button>
-        </form>
+        </form>`}
       </section>
     ` : ""}
 
@@ -138,7 +141,9 @@ function render(data, state) {
     ${state.view === "facebook" && platformEnabled(data, "facebook") ? `
       <section class="panel" style="margin-bottom:12px;">
         <h2 style="margin-top:0;">Facebook</h2>
-        <form id="online-facebook-form" style="margin-bottom:10px;">
+        ${!hasActiveChar
+          ? `<div class="muted-block">You must have an active character to post on Facebook. <a href="user.html">Create or activate a character</a> first.</div>`
+          : `<form id="online-facebook-form" style="margin-bottom:10px;">
           <label class="label" for="fb-name">Display Name</label>
           <input id="fb-name" name="displayName" class="input" value="${esc(char?.name || "Character")}" ${mod ? "" : "readonly"}>
           <label class="label" for="fb-avatar">Avatar URL (optional)</label>
@@ -146,7 +151,7 @@ function render(data, state) {
           <label class="label" for="fb-body">Post</label>
           <textarea id="fb-body" name="body" class="input" rows="4" required></textarea>
           <button class="btn" type="submit">Post to Facebook</button>
-        </form>
+        </form>`}
 
         ${fbPosts.length ? fbPosts.map((p) => `
           <article class="tile" style="margin-bottom:8px;display:flex;gap:10px;">
@@ -164,7 +169,9 @@ function render(data, state) {
     ${state.view === "twitter" && platformEnabled(data, "twitter") ? `
       <section class="panel" style="margin-bottom:12px;">
         <h2 style="margin-top:0;">Twitter</h2>
-        <form id="online-twitter-form" style="margin-bottom:10px;">
+        ${!hasActiveChar
+          ? `<div class="muted-block">You must have an active character to post on Twitter. <a href="user.html">Create or activate a character</a> first.</div>`
+          : `<form id="online-twitter-form" style="margin-bottom:10px;">
           <label class="label" for="tw-handle">Handle</label>
           <select id="tw-handle" name="handle" class="input">
             <option value="${esc(preferredTwitterHandle(char))}">${esc(preferredTwitterHandle(char))}</option>
@@ -175,7 +182,7 @@ function render(data, state) {
           <label class="label" for="tw-body">Tweet (${limit} chars)</label>
           <textarea id="tw-body" name="body" class="input" rows="3" maxlength="${limit}" required></textarea>
           <button class="btn" type="submit">Tweet</button>
-        </form>
+        </form>`}
 
         ${twPosts.length ? twPosts.map((p) => `
           <article class="tile" style="margin-bottom:8px;">

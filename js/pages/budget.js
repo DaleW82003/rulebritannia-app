@@ -31,21 +31,10 @@ function ensureBudget(data) {
     charityReliefExpenditure: 0.41,
     otherExpensesExpenditure: -0.66
   };
-
-  if (!data.budget.lastYear) {
-    data.budget.lastYear = {
-      label: "August 1996",
-      revenues: {
-        "Income Tax": 102.65, "Corporate Tax": 34.74, "Value Added Tax": 92.17, "National Insurance": 66.62, "Fuel Duty": 23.28, "Stamp Duty": 9.96, "Business Rate Appropriations": 14.14
-      },
-      expenditures: {
-        "Health": 40.96, "Social Security": 59.42, "Education": 88.10, "Home Office": 34.94, "Ministry of Defense": 34.11, "Transport": 18.69, "Local Government": 61.21, "Environment": 6.54, "Energy": 5.58, "Culture": 0.06, "Housing": -2.45, "Business": -5.50, "Scottish Office": 21.14, "Welsh Office": 7.10, "Northern Ireland Office": 3.58
-      },
-      capital: { "Capital Expenditure": 35.21 },
-      gdp: 1930.0
-    };
-  }
-  data.budget.currentYear ??= structuredClone(data.budget.lastYear);
+  // lastYear and currentYear start as null (blank) until mods/admins seed them.
+  // Do NOT set hardcoded defaults here — the archive is blank until seeded.
+  data.budget.lastYear ??= null;
+  data.budget.currentYear ??= null;
 }
 
 function calculateTotals(budget, adminControls) {
@@ -139,6 +128,8 @@ function render(data, state) {
   const drafter = canDraftBudget(data);
   const ly = data.budget.lastYear;
   const ty = data.budget.currentYear;
+  // Fallback empty structures for the draft form so inputs don't throw on null ty.
+  const tyDraft = ty || { revenues: {}, expenditures: {}, capital: {}, gdp: 1930.0 };
 
   root.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Budget</div></div>
@@ -146,7 +137,7 @@ function render(data, state) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Current Budget (view only)</h2>
       <button class="btn" type="button" data-action="open-current">${state.openCurrent ? "Close" : "Open"}</button>
-      ${state.openCurrent ? renderBudgetTable(ly, ty, data.budget.adminControls) : ""}
+      ${state.openCurrent ? (ly && ty ? renderBudgetTable(ly, ty, data.budget.adminControls) : '<div class="muted-block" style="margin-top:8px;">No budget data available yet. Mods/Admins must seed the Last Year budget first.</div>') : ""}
     </section>
 
     ${drafter ? `
@@ -157,15 +148,15 @@ function render(data, state) {
           <form id="budget-draft-form" style="margin-top:8px;">
             <div class="tile" style="margin-bottom:8px;">
               <h4 style="margin-top:0;">TY Budgetary Details — Revenues</h4>
-              ${REVENUE_LINES.map((k) => `<label class="label">${esc(k)}<input class="input" type="number" step="0.01" name="rev:${esc(k)}" value="${esc(String(Number(ty.revenues[k] || 0)))}"></label>`).join("")}
+              ${REVENUE_LINES.map((k) => `<label class="label">${esc(k)}<input class="input" type="number" step="0.01" name="rev:${esc(k)}" value="${esc(String(Number(tyDraft.revenues[k] || 0)))}"></label>`).join("")}
             </div>
             <div class="tile" style="margin-bottom:8px;">
               <h4 style="margin-top:0;">TY Budgetary Details — Expenditure</h4>
-              ${EXPENDITURE_LINES.map((k) => `<label class="label">${esc(k)}<input class="input" type="number" step="0.01" name="exp:${esc(k)}" value="${esc(String(Number(ty.expenditures[k] || 0)))}"></label>`).join("")}
+              ${EXPENDITURE_LINES.map((k) => `<label class="label">${esc(k)}<input class="input" type="number" step="0.01" name="exp:${esc(k)}" value="${esc(String(Number(tyDraft.expenditures[k] || 0)))}"></label>`).join("")}
             </div>
             <div class="tile" style="margin-bottom:8px;">
               <h4 style="margin-top:0;">TY Capital</h4>
-              ${CAPITAL_LINES.map((k) => `<label class="label">${esc(k)}<input class="input" type="number" step="0.01" name="cap:${esc(k)}" value="${esc(String(Number(ty.capital[k] || 0)))}"></label>`).join("")}
+              ${CAPITAL_LINES.map((k) => `<label class="label">${esc(k)}<input class="input" type="number" step="0.01" name="cap:${esc(k)}" value="${esc(String(Number(tyDraft.capital[k] || 0)))}"></label>`).join("")}
             </div>
             <button class="btn" type="submit">Submit New Budget</button>
           </form>
@@ -205,8 +196,8 @@ function render(data, state) {
 
     <section class="panel">
       <h2 style="margin-top:0;">Budget Archive</h2>
-      <div><b>Current Year's Budget:</b> ${ty.label ? esc(ty.label) : `<span class="muted" style="font-style:italic;">Not yet submitted — Chancellor submits each year.</span>`}</div>
-      <div><b>Last Year's Budget:</b> ${ly.label ? esc(ly.label) : `<span class="muted" style="font-style:italic;">Not yet set — Mods/Admins set this at the start of the simulation.</span>`}</div>
+      <div><b>Current Year's Budget:</b> ${ty?.label ? esc(ty.label) : `<span class="muted" style="font-style:italic;">Not yet submitted — Chancellor submits each year.</span>`}</div>
+      <div><b>Last Year's Budget:</b> ${ly?.label ? esc(ly.label) : `<span class="muted" style="font-style:italic;">Not yet set — Mods/Admins set this at the start of the simulation.</span>`}</div>
       ${data.budget.archive.length ? `<div style="margin-top:8px;"><b>Previous Budgets:</b></div>${data.budget.archive.slice().reverse().map((b) => `<div class="muted">${esc(b.label || "Budget")} • approved ${esc(b.approvedAt || "")}</div>`).join("")}` : `<div class="muted" style="margin-top:8px;">No previously approved budgets on record yet.</div>`}
     </section>
   `;
@@ -218,7 +209,8 @@ function render(data, state) {
     e.preventDefault();
     if (!drafter) return;
     const fd = new FormData(e.currentTarget);
-    const draft = structuredClone(data.budget.currentYear);
+    const base = data.budget.currentYear || { revenues: {}, expenditures: {}, capital: {}, gdp: 1930.0 };
+    const draft = structuredClone(base);
     draft.revenues = { ...draft.revenues };
     draft.expenditures = { ...draft.expenditures };
     draft.capital = { ...draft.capital };
@@ -245,8 +237,8 @@ function render(data, state) {
     const approved = data.budget.pending.budget;
     approved.label = `Approved ${new Date().toLocaleDateString("en-GB")}`;
     approved.approvedAt = new Date().toLocaleString("en-GB");
-    data.budget.archive.push(structuredClone(data.budget.lastYear));
-    data.budget.lastYear = structuredClone(data.budget.currentYear);
+    if (data.budget.lastYear) data.budget.archive.push(structuredClone(data.budget.lastYear));
+    data.budget.lastYear = data.budget.currentYear ? structuredClone(data.budget.currentYear) : null;
     data.budget.currentYear = approved;
     data.budget.pending = null;
     saveState(data);

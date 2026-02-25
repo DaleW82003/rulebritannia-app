@@ -43,6 +43,7 @@ function render(data) {
   ensureRedLion(data);
   const char = getCharacter(data);
   const allowBarkeep = canPostBarkeep(data);
+  const hasActiveChar = allowBarkeep || Boolean(char?.name);
   const posts = data.redLion.posts;
 
   root.innerHTML = `
@@ -58,7 +59,9 @@ function render(data) {
 
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Post in the Bar</h2>
-      <form id="redlion-post-form">
+      ${!hasActiveChar
+        ? `<div class="muted-block">You must have an active character to post in the Red Lion. <a href="user.html">Create or activate a character</a> first.</div>`
+        : `<form id="redlion-post-form">
         <label class="label" for="redlion-body">What are you saying?</label>
         <textarea id="redlion-body" name="body" class="input" rows="4" required placeholder="Speak as your character..."></textarea>
 
@@ -73,7 +76,7 @@ function render(data) {
         </div>
 
         <button type="submit" class="btn">Submit</button>
-      </form>
+      </form>`}
     </section>
 
     <section class="tile">

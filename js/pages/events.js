@@ -60,6 +60,7 @@ function render(data, state) {
   ensureEvents(data);
   const char = getCharacter(data);
   const mod = canModerate(data);
+  const hasActiveChar = mod || Boolean(char?.name);
   const canHostConference = isPartyLeader(char);
   const nowIdx = simIndex(data);
 
@@ -80,12 +81,12 @@ function render(data, state) {
           <article class="tile">
             <h2 class="tile-title">Party Conference</h2>
             <p>Only Party Leaders can host conferences (location + opening remarks). Conferences run for 2 months after approval, and all members of that party can post a "Speech at Conference" while open.</p>
-            ${canHostConference ? `<button class="btn" data-action="show-form" data-type="conference" type="button">Host</button>` : `<div class="muted">Only Party Leaders can host conferences.</div>`}
+            ${!hasActiveChar ? `<div class="muted">You must have an active character to host events. <a href="user.html">Create or activate a character</a> first.</div>` : canHostConference ? `<button class="btn" data-action="show-form" data-type="conference" type="button">Host</button>` : `<div class="muted">Only Party Leaders can host conferences.</div>`}
           </article>
           <article class="tile">
             <h2 class="tile-title">Party Event</h2>
             <p>Any character may host a party event with location, purpose and speech. Requires moderator approval.</p>
-            <button class="btn" data-action="show-form" data-type="event" type="button">Host</button>
+            ${!hasActiveChar ? `<div class="muted">You must have an active character to host events. <a href="user.html">Create or activate a character</a> first.</div>` : `<button class="btn" data-action="show-form" data-type="event" type="button">Host</button>`}
           </article>
         </div>
       `
@@ -183,6 +184,7 @@ function render(data, state) {
 
   root.querySelector("#events-host-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
+    if (!hasActiveChar) return;
     const fd = new FormData(e.currentTarget);
     const type = state.formType || "event";
     if (type === "conference" && !canHostConference) return;

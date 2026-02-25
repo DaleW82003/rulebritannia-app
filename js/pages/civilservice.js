@@ -322,7 +322,7 @@ function render(data, state) {
 
     ${(!mod && !govMember) ? `
       <section class="panel">
-        <div class="muted-block">You hold no departmental office. Speak to your Party Leader if you want to join the Government.</div>
+        <div class="muted-block">You hold no departmental office. Speak to your Party Leader if you want to join the Frontbench, but remember, you might not be in Government ... yet.</div>
       </section>
     ` : accessDenied ? `
       <section class="panel">

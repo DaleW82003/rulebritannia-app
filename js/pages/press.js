@@ -187,6 +187,7 @@ function render(data, state) {
   const marker = canMark(data);
   const asker = canAsk(data);
   const privileged = canAdminModOrSpeaker(data);
+  const hasActiveChar = privileged || Boolean(char?.name);
   const sundayWindow = isSunday();
   const weekday = getWeekdayName();
 
@@ -204,7 +205,7 @@ function render(data, state) {
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
-      <div class="wgo-grid">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
         <article class="wgo-tile card-flex">
           <div class="wgo-title">Press Releases &amp; Statements</div>
           <div class="tile-bottom"><button class="btn" data-action="switch" data-view="releases" type="button">Open</button></div>
@@ -237,14 +238,16 @@ function render(data, state) {
   if (state.view === "releases") {
     section.innerHTML = `
       <h2 style="margin-top:0;">Press Releases & Statements</h2>
-      <form id="release-form" class="tile" style="margin-bottom:10px;">
+      ${!hasActiveChar
+        ? `<div class="muted-block">You must have an active character to submit press releases. <a href="user.html">Create or activate a character</a> first.</div>`
+        : `<form id="release-form" class="tile" style="margin-bottom:10px;">
         <p class="muted"><b>Template note:</b> once submitted, this release is public and cannot be edited by users.</p>
         <label class="label" for="release-subject">Subject line</label>
         <input id="release-subject" name="subject" class="input" required>
         <label class="label" for="release-body">Release text</label>
         <textarea id="release-body" name="body" class="input" rows="6" required></textarea>
         <button class="btn" type="submit">Submit Release</button>
-      </form>
+      </form>`}
 
       ${releases.length ? releases.map((r) => `
         <article class="tile" style="margin-bottom:10px;">
@@ -274,14 +277,16 @@ function render(data, state) {
     const papers = (data.papers?.papers || []).map((p) => p.name).filter(Boolean);
     section.innerHTML = `
       <h2 style="margin-top:0;">Press Conferences</h2>
-      <form id="conference-form" class="tile" style="margin-bottom:10px;">
+      ${!hasActiveChar
+        ? `<div class="muted-block">You must have an active character to host press conferences. <a href="user.html">Create or activate a character</a> first.</div>`
+        : `<form id="conference-form" class="tile" style="margin-bottom:10px;">
         <p class="muted"><b>Template note:</b> once submitted, this conference opening is public and cannot be edited by users.</p>
         <label class="label" for="conference-subject">Subject line</label>
         <input id="conference-subject" name="subject" class="input" required>
         <label class="label" for="conference-body">Opening statement</label>
         <textarea id="conference-body" name="body" class="input" rows="6" required></textarea>
         <button class="btn" type="submit">Host Conference</button>
-      </form>
+      </form>`}
 
       ${conferences.length ? conferences.map((c) => `
         <article class="tile" style="margin-bottom:10px;">
@@ -332,12 +337,14 @@ function render(data, state) {
   if (state.view === "comments") {
     section.innerHTML = `
       <h2 style="margin-top:0;">Comments to the Press</h2>
-      <form id="comment-form" class="tile" style="margin-bottom:10px;">
+      ${!hasActiveChar
+        ? `<div class="muted-block">You must have an active character to post press comments. <a href="user.html">Create or activate a character</a> first.</div>`
+        : `<form id="comment-form" class="tile" style="margin-bottom:10px;">
         <label class="label" for="press-comment-body">Comment</label>
         <textarea id="press-comment-body" name="body" class="input" rows="3" required placeholder="Your passing comment to the press..."></textarea>
         <p class="muted">Avatar is pulled from your character profile.</p>
         <button class="btn" type="submit">Post Comment</button>
-      </form>
+      </form>`}
 
       ${comments.length ? comments.map((c) => `
         <article class="tile" style="margin-bottom:10px;display:flex;gap:10px;align-items:flex-start;">
@@ -357,7 +364,9 @@ function render(data, state) {
   if (state.view === "speeches") {
     section.innerHTML = `
       <h2 style="margin-top:0;">Speeches</h2>
-      <form id="speech-form" class="tile" style="margin-bottom:10px;">
+      ${!hasActiveChar
+        ? `<div class="muted-block">You must have an active character to submit speeches. <a href="user.html">Create or activate a character</a> first.</div>`
+        : `<form id="speech-form" class="tile" style="margin-bottom:10px;">
         <p class="muted"><b>Template note:</b> once submitted, this speech is public and cannot be edited by users.</p>
         <label class="label" for="speech-title">Title</label>
         <input id="speech-title" name="title" class="input" required>
@@ -370,7 +379,7 @@ function render(data, state) {
         <label class="label" for="speech-picture">Picture URL (optional)</label>
         <input id="speech-picture" name="picture" class="input" type="text" placeholder="https://...">
         <button class="btn" type="submit">Submit Speech</button>
-      </form>
+      </form>`}
 
       ${speeches.length ? speeches.map((s) => `
         <article class="tile" style="margin-bottom:10px;">
