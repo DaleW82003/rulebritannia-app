@@ -1,7 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
-import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiUpdateMyCharacterProfile, apiAddShopPurchase, apiRemoveShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue } from "../api.js";
+import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiSubmitProfileChange, apiGetMyProfileChanges, apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile } from "../api.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
 const AFFILIATIONS_CATALOG = [
@@ -761,14 +761,20 @@ function normalisePersonal(data) {
     profile.shopPurchases = Array.isArray(profile.shopPurchases) ? profile.shopPurchases : [];
 
     for (const rev of profile.additionalRevenue) {
-      rev.id = Number(rev.id || 0);
-      rev.source = String(rev.source || "").trim();
-      rev.annualRevenue = Number(rev.annualRevenue || 0);
+      // Accept both DB schema (label/annualAmount) and legacy state schema (source/annualRevenue)
+      // rev.id is a UUID string from DB or a numeric from legacy state; keep as-is (don't coerce to 0)
+      rev.id = rev.id ?? null;
+      rev.source = String(rev.source || rev.label || "").trim();
+      rev.label  = rev.source;
+      rev.annualRevenue = Number(rev.annualRevenue || rev.annualAmount || 0);
+      rev.annualAmount  = rev.annualRevenue;
     }
 
     for (const p of profile.shopPurchases) {
       p.itemId = String(p.itemId || "");
-      p.name = String(p.name || "");
+      // DB returns itemName; legacy state uses name
+      p.name = String(p.name || p.itemName || "");
+      p.itemName = p.name;
       p.price = Number(p.price || 0);
       p.monthlyUpkeep = Number(p.monthlyUpkeep || 0);
       p.purchasedAt = String(p.purchasedAt || "");
@@ -892,6 +898,44 @@ function render(data, state) {
         <div class="muted" style="line-height:1.7;">
           ${PROFILE_FIELDS.map((f) => `<div><b>${esc(f.label)}:</b> ${esc(profile.profile[f.key] || "-")}</div>`).join("")}
         </div>
+        ${isOwnProfile ? `
+          <details style="margin-top:10px;" id="profile-edit-details">
+            <summary style="cursor:pointer;font-weight:500;">Edit Profile Fields</summary>
+            <p class="muted" style="font-size:.85em;margin:6px 0 10px;">Changes are sent for mod/admin review before they appear publicly.</p>
+            <form id="profile-change-form" style="margin-top:8px;">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:10px;">
+                <div>
+                  <label class="label" for="pc-dob">Date of Birth</label>
+                  <input id="pc-dob" class="input" name="date_of_birth" value="${esc(profile.profile.dateOfBirth || "")}" placeholder="e.g. 14 March 1960">
+                </div>
+                <div>
+                  <label class="label" for="pc-edu">Education</label>
+                  <input id="pc-edu" class="input" name="education" value="${esc(profile.profile.education || "")}" maxlength="500">
+                </div>
+                <div>
+                  <label class="label" for="pc-career">Career Background</label>
+                  <input id="pc-career" class="input" name="career_background" value="${esc(profile.profile.careerBackground || "")}" maxlength="500">
+                </div>
+                <div>
+                  <label class="label" for="pc-family">Family</label>
+                  <input id="pc-family" class="input" name="family" value="${esc(profile.profile.family || "")}" maxlength="500">
+                </div>
+                <div>
+                  <label class="label" for="pc-twitter">Twitter Handle</label>
+                  <input id="pc-twitter" class="input" name="twitter_handle" value="${esc(profile.twitterHandle || "")}" placeholder="without @" maxlength="100">
+                </div>
+                <div>
+                  <label class="label" for="pc-finbg">Financial Background Level (1–10)</label>
+                  <input id="pc-finbg" class="input" type="number" min="1" max="10" name="financial_background_level" value="${esc(profile.financialBackgroundLevel || "")}">
+                </div>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button class="btn primary" type="submit">Submit Change Request</button>
+                <span class="muted" id="profile-change-status" style="font-size:.9em;">${esc(state.profileChangeMessage || "")}</span>
+              </div>
+            </form>
+          </details>
+        ` : ""}
       </article>
 
       <article class="tile" style="grid-column:1/-1;">
@@ -951,10 +995,10 @@ function render(data, state) {
       ${profile.additionalRevenue.length ? profile.additionalRevenue.map((rev) => `
         <article class="tile" style="margin-bottom:8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
           <div>
-            <b>${esc(rev.source)}</b>
-            <div class="muted">Annual Revenue: ${money(rev.annualRevenue)}</div>
+            <b>${esc(rev.source || rev.label)}</b>
+            <div class="muted">Annual Revenue: ${money(rev.annualRevenue || rev.annualAmount)}</div>
           </div>
-          ${manager ? `<button type="button" class="btn" data-action="remove-revenue" data-id="${rev.id}">Remove</button>` : ""}
+          ${manager ? `<button type="button" class="btn" data-action="remove-revenue" data-id="${esc(String(rev.id))}">Remove</button>` : ""}
         </article>
       `).join("") : '<div class="muted-block">No additional revenue streams recorded.</div>'}
     </section>
@@ -1053,7 +1097,7 @@ function render(data, state) {
                 ${(p.riskModifier?.scandalExposure || p.scrutinyRisk) ? `⚠️ +${p.riskModifier?.scandalExposure || p.scrutinyRisk} scandal risk` : ""}
               </div>
             </div>
-            ${manager ? `<button type="button" class="btn" data-action="remove-purchase" data-idx="${idx}">Remove</button>` : ""}
+            ${manager ? `<button type="button" class="btn" data-action="remove-purchase" data-id="${esc(String(p.id || idx))}">Remove</button>` : ""}
           </article>
         `).join("")}
       ` : '<div class="muted-block">No items purchased.</div>'}
@@ -1061,7 +1105,7 @@ function render(data, state) {
 
     ${manager ? `
       <section class="panel" style="margin-top:12px;">
-        <h2 style="margin-top:0;">Personal Finance Control Panel</h2>
+        <h2 style="margin-top:0;">Personal Finance Control Panel <span class="mod-badge">Mod / Admin / Speaker</span></h2>
         <form id="personal-control-form">
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
             <div>
@@ -1069,7 +1113,7 @@ function render(data, state) {
               <input id="p-avatar" class="input" name="avatar" value="${esc(profile.avatar || "")}">
             </div>
             <div>
-              <label class="label" for="p-salary">Annual Salary (£)</label>
+              <label class="label" for="p-salary">Annual Salary Override (£)</label>
               <input id="p-salary" class="input" type="number" name="salaryAnnual" value="${esc(String(profile.salaryAnnual || 0))}">
             </div>
             <div>
@@ -1077,8 +1121,8 @@ function render(data, state) {
               <input id="p-balance" class="input" type="number" name="bankBalance" value="${esc(String(profile.bankBalance || 0))}">
             </div>
             <div>
-              <label class="label" for="p-finbg">Financial Background Level</label>
-              <input id="p-finbg" class="input" name="financialBackgroundLevel" value="${esc(profile.financialBackgroundLevel || "")}">
+              <label class="label" for="p-finbg">Financial Background Level (1–10)</label>
+              <input id="p-finbg" class="input" type="number" min="1" max="10" name="financialBackgroundLevel" value="${esc(profile.financialBackgroundLevel || "")}">
             </div>
           </div>
 
@@ -1095,7 +1139,10 @@ function render(data, state) {
             `).join("")}
           </div>
 
-          <button class="btn" type="submit">Save Personal Profile</button>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+            <button class="btn primary" type="submit">Save to DB</button>
+            <span id="control-form-status" class="muted" style="font-size:.9em;"></span>
+          </div>
         </form>
 
         <hr style="margin:12px 0;border:none;border-top:1px solid #ddd;">
@@ -1113,7 +1160,13 @@ function render(data, state) {
             </div>
             <button class="btn" type="submit">Add Revenue</button>
           </div>
+          <span id="add-revenue-status" class="muted" style="font-size:.9em;"></span>
         </form>
+      </section>
+
+      <section class="panel" id="profile-changes-panel" style="margin-top:12px;">
+        <h2 style="margin-top:0;">Pending Profile Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></h2>
+        <div id="profile-changes-list"><div class="muted-block">Loading…</div></div>
       </section>
 
       <section class="panel" id="bio-changes-panel" style="margin-top:12px;">
@@ -1136,9 +1189,9 @@ function render(data, state) {
     render(data, state);
   });
 
-  // Shop: buy item
+  // Shop: buy item — DB-backed (deducts balance atomically, inserts purchase record)
   host.querySelectorAll('[data-action="buy-item"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!canShop) return;
       const itemId = String(btn.dataset.itemId || "");
       const item = SHOP_ITEMS.find((i) => i.id === itemId);
@@ -1146,100 +1199,174 @@ function render(data, state) {
       const pi = state.priceIndex || 1;
       const price = currentPrice(item, pi);
       const upkeep = currentUpkeep(item, pi);
-      // Check cap
+      // Client-side cap check
       const ownedCount = profile.shopPurchases.filter((p) => p.itemId === item.id).length;
       if (item.caps?.maxOwned != null && ownedCount >= item.caps.maxOwned) return;
       if (profile.bankBalance < price) return;
-      profile.bankBalance -= price;
-      profile.shopPurchases.push({
-        itemId: item.id,
-        name: item.name,
-        price,
-        monthlyUpkeep: upkeep,
-        effects: item.effects ? [...item.effects] : [],
-        riskModifier: item.riskModifier || null,
-        // Legacy compat fields
-        modifiers: { pressImpactPct: 0, pollingBoostPct: 0 },
-        scrutinyRisk: item.riskModifier?.scandalExposure || 0,
-        purchasedAt: nowStamp()
-      });
-      profile.modifiers = computeModifiers(profile);
-      syncModifiers(data, activeName);
-      profile.updatedAt = nowStamp();
-      saveState(data);
-      // Update server-side upkeep total for clock tick deductions
-      const totalUpkeep = computeMonthlyUpkeep(profile);
-      apiUpdateCharacterShopUpkeep(totalUpkeep).catch(() => {});
-      state.message = `Purchased "${item.name}" for ${money(price)}.${upkeep > 0 ? ` Upkeep: ${money(upkeep)}/month.` : ""}`;
+      btn.disabled = true;
+      try {
+        const result = await apiAddShopPurchase({
+          item_id: item.id, item_name: item.name, price, monthly_upkeep: upkeep,
+          effects: item.effects ? [...item.effects] : [], risk_modifier: item.riskModifier || null,
+        });
+        // Reload finance from DB to get authoritative state
+        const fin = await apiGetMyFinance();
+        syncFinanceIntoProfile(profile, fin, data, activeName);
+        state.message = `Purchased "${item.name}" for ${money(price)}.${upkeep > 0 ? ` Upkeep: ${money(upkeep)}/month.` : ""}`;
+      } catch (err) {
+        state.message = `Purchase failed: ${err.message}`;
+      }
       render(data, state);
     });
   });
 
-  // Manager: remove purchase
+  // Remove purchase — DB-backed (admin/mod only)
   host.querySelectorAll('[data-action="remove-purchase"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!manager) return;
-      const idx = Number(btn.dataset.idx || 0);
-      if (idx < 0 || idx >= profile.shopPurchases.length) return;
-      profile.shopPurchases.splice(idx, 1);
-      profile.modifiers = computeModifiers(profile);
-      syncModifiers(data, activeName);
-      profile.updatedAt = nowStamp();
-      saveState(data);
-      // Sync upkeep total with server
-      apiUpdateCharacterShopUpkeep(computeMonthlyUpkeep(profile)).catch(() => {});
-      state.message = `Purchase removed.`;
+      const purchaseId = String(btn.dataset.id || "");
+      if (!purchaseId) return;
+      btn.disabled = true;
+      try {
+        await apiRemoveShopPurchase(purchaseId);
+        const fin = await apiGetMyFinance();
+        syncFinanceIntoProfile(profile, fin, data, activeName);
+        state.message = "Purchase removed.";
+      } catch (err) {
+        state.message = `Remove failed: ${err.message}`;
+      }
       render(data, state);
     });
   });
 
-  host.querySelector("#personal-control-form")?.addEventListener("submit", (e) => {
+  // Admin control form — persist directly to DB
+  host.querySelector("#personal-control-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!manager) return;
+    const statusEl = host.querySelector("#control-form-status");
+    const btn = e.currentTarget.querySelector('[type="submit"]');
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.textContent = "Saving…";
     const fd = new FormData(e.currentTarget);
-    profile.avatar = String(fd.get("avatar") || "").trim();
-    profile.salaryAnnual = Number(fd.get("salaryAnnual") || 0);
-    profile.bankBalance = Number(fd.get("bankBalance") || 0);
-    profile.financialBackgroundLevel = String(fd.get("financialBackgroundLevel") || "").trim();
-    profile.affiliations = String(fd.get("affiliations") || "").trim();
 
-    for (const f of PROFILE_FIELDS) {
-      profile.profile[f.key] = String(fd.get(`profile:${f.key}`) || "").trim();
+    // Build profile-field update for DB — always include fields that are present in the form
+    const profileUpdate = {};
+    // Profile text fields: include whenever the form element exists (always, since it's in the manager panel)
+    profileUpdate.education         = String(fd.get("profile:education")         ?? "");
+    profileUpdate.career_background = String(fd.get("profile:careerBackground")  ?? "");
+    profileUpdate.family            = String(fd.get("profile:family")             ?? "");
+    profileUpdate.date_of_birth     = String(fd.get("profile:dateOfBirth")        ?? "");
+    profileUpdate.avatar            = String(fd.get("avatar")                     ?? "").trim();
+    // financial_background_level: include as number or null (empty string → null = "clear")
+    const finBgRaw = fd.get("financialBackgroundLevel");
+    profileUpdate.financial_background_level = finBgRaw !== null && finBgRaw !== "" ? finBgRaw : null;
+    profileUpdate.bank_balance  = Number(fd.get("bankBalance")  ?? 0);
+    profileUpdate.salary_annual = Number(fd.get("salaryAnnual") ?? 0) || null;
+
+    const charId = data?.currentCharacter?.id;
+    try {
+      if (charId) await apiAdminUpdateCharacterProfile(charId, profileUpdate);
+      // Reload finance from DB
+      const fin = await apiGetMyFinance();
+      syncFinanceIntoProfile(profile, fin, data, activeName);
+      // Update local profile display fields too
+      profile.avatar = String(fd.get("avatar") || "").trim();
+      for (const f of PROFILE_FIELDS) {
+        const v = String(fd.get(`profile:${f.key}`) || "").trim();
+        if (v) profile.profile[f.key] = v;
+      }
+      profile.affiliations = String(fd.get("affiliations") || "").trim();
+      profile.updatedAt = nowStamp();
+      saveState(data);
+      if (statusEl) statusEl.textContent = "Saved to DB.";
+      state.message = `Saved personal profile for ${profile.name}.`;
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+      state.message = `Save failed: ${err.message}`;
+    } finally {
+      if (btn) btn.disabled = false;
     }
-
-    profile.updatedAt = nowStamp();
-    saveState(data);
-    state.message = `Saved personal profile for ${profile.name}.`;
     render(data, state);
   });
 
-  host.querySelector("#personal-add-revenue-form")?.addEventListener("submit", (e) => {
+  // Admin: add additional revenue — DB-backed
+  host.querySelector("#personal-add-revenue-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!manager) return;
+    const statusEl = host.querySelector("#add-revenue-status");
     const fd = new FormData(e.currentTarget);
     const source = String(fd.get("source") || "").trim();
     const annualRevenue = Number(fd.get("annualRevenue") || 0);
     if (!source) return;
-    profile.additionalRevenue.push({ id: Number(profile.nextRevenueId || 1), source, annualRevenue });
-    profile.nextRevenueId = Number(profile.nextRevenueId || 1) + 1;
-    profile.updatedAt = nowStamp();
-    saveState(data);
-    state.message = `Added revenue source for ${profile.name}.`;
+    const charId = data?.currentCharacter?.id;
+    try {
+      await apiAddAdditionalRevenue(charId, source, annualRevenue);
+      const fin = await apiGetMyFinance();
+      syncFinanceIntoProfile(profile, fin, data, activeName);
+      e.currentTarget.reset();
+      if (statusEl) statusEl.textContent = "";
+      state.message = `Added revenue source for ${profile.name}.`;
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+    }
     render(data, state);
   });
 
+  // Admin: remove additional revenue — DB-backed
   host.querySelectorAll('[data-action="remove-revenue"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!manager) return;
-      const id = Number(btn.dataset.id || 0);
-      const idx = profile.additionalRevenue.findIndex((r) => r.id === id);
-      if (idx === -1) return;
-      profile.additionalRevenue.splice(idx, 1);
-      profile.updatedAt = nowStamp();
-      saveState(data);
-      state.message = `Removed additional revenue source.`;
+      const id = String(btn.dataset.id || "");
+      if (!id) return;
+      btn.disabled = true;
+      try {
+        await apiRemoveAdditionalRevenue(id);
+        const fin = await apiGetMyFinance();
+        syncFinanceIntoProfile(profile, fin, data, activeName);
+        state.message = "Removed additional revenue source.";
+      } catch (err) {
+        state.message = `Remove failed: ${err.message}`;
+      }
       render(data, state);
     });
+  });
+
+  // Player: submit profile field change request for approval
+  host.querySelector("#profile-change-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const statusEl = host.querySelector("#profile-change-status");
+    const btn = e.currentTarget.querySelector('[type="submit"]');
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.textContent = "Submitting…";
+    const fd = new FormData(e.currentTarget);
+    const fields = {};
+    const dob     = String(fd.get("date_of_birth")         || "").trim();
+    const edu     = String(fd.get("education")             || "").trim();
+    const career  = String(fd.get("career_background")     || "").trim();
+    const family  = String(fd.get("family")                || "").trim();
+    const twitter = String(fd.get("twitter_handle")        || "").trim();
+    const finBg   = String(fd.get("financial_background_level") || "").trim();
+    if (dob)    fields.date_of_birth         = dob;
+    if (edu)    fields.education             = edu;
+    if (career) fields.career_background     = career;
+    if (family) fields.family               = family;
+    if (twitter) fields.twitter_handle      = twitter;
+    if (finBg)  fields.financial_background_level = finBg;
+    if (!Object.keys(fields).length) {
+      if (statusEl) statusEl.textContent = "No fields entered.";
+      if (btn) btn.disabled = false;
+      return;
+    }
+    try {
+      await apiSubmitProfileChange(fields);
+      if (statusEl) statusEl.textContent = "Change request submitted — awaiting mod review.";
+      state.profileChangeMessage = "Change request submitted — awaiting mod review.";
+      e.currentTarget.reset();
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   });
 
   // Bio change request form (own profile only)
@@ -1257,6 +1384,72 @@ function render(data, state) {
       if (statusEl) statusEl.textContent = `Error: ${err.message}`;
     }
   });
+
+  // Admin/mod profile change review panel
+  if (manager) {
+    const profileChangesList = host.querySelector("#profile-changes-list");
+    if (profileChangesList) {
+      apiGetAllProfileChanges("pending").then(({ changes }) => {
+        if (!changes.length) {
+          profileChangesList.innerHTML = '<div class="muted-block">No pending profile change requests.</div>';
+          return;
+        }
+        profileChangesList.innerHTML = changes.map((c) => {
+          const fields = [
+            c.proposed_education         != null ? `<div><b>Education:</b> ${esc(c.proposed_education)}</div>` : "",
+            c.proposed_career_background != null ? `<div><b>Career:</b> ${esc(c.proposed_career_background)}</div>` : "",
+            c.proposed_family            != null ? `<div><b>Family:</b> ${esc(c.proposed_family)}</div>` : "",
+            c.proposed_date_of_birth     != null ? `<div><b>Date of birth:</b> ${esc(c.proposed_date_of_birth)}</div>` : "",
+            c.proposed_financial_bg_level!= null ? `<div><b>Financial background level:</b> ${esc(String(c.proposed_financial_bg_level))}</div>` : "",
+            c.proposed_twitter_handle    != null ? `<div><b>Twitter handle:</b> @${esc(c.proposed_twitter_handle)}</div>` : "",
+          ].filter(Boolean).join("");
+          return `
+            <article class="tile" style="margin-bottom:8px;" data-profile-change-id="${esc(c.id)}">
+              <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
+              <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
+              <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;font-size:.9em;line-height:1.6;">${fields}</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn primary" type="button" data-action="approve-profile-change" data-id="${esc(c.id)}">Approve</button>
+                <button class="btn" type="button" data-action="reject-profile-change" data-id="${esc(c.id)}">Reject</button>
+              </div>
+            </article>
+          `;
+        }).join("");
+
+        profileChangesList.querySelectorAll('[data-action="approve-profile-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiApproveProfileChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!profileChangesList.querySelector("article")) {
+                profileChangesList.innerHTML = '<div class="muted-block">No pending profile change requests.</div>';
+              }
+            } catch (err) {
+              state.message = `Error: ${err.message}`;
+              render(data, state);
+            }
+          });
+        });
+
+        profileChangesList.querySelectorAll('[data-action="reject-profile-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiRejectProfileChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!profileChangesList.querySelector("article")) {
+                profileChangesList.innerHTML = '<div class="muted-block">No pending profile change requests.</div>';
+              }
+            } catch (err) {
+              state.message = `Error: ${err.message}`;
+              render(data, state);
+            }
+          });
+        });
+      }).catch(() => {
+        if (profileChangesList) profileChangesList.innerHTML = '<div class="muted-block">Could not load profile change requests.</div>';
+      });
+    }
+  }
 
   // Admin/mod bio change review panel
   if (manager) {
@@ -1458,7 +1651,7 @@ function render(data, state) {
                   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px;">
                     ${cat.items.map((item) => `
                       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.92em;padding:2px 0;">
-                        <input type="checkbox" name="aff" value="${esc(item.id)}"${tickedIds.has(item.id) ? " checked" : "">
+                        <input type="checkbox" name="aff" value="${esc(item.id)}"${tickedIds.has(item.id) ? " checked" : ""}>
                         ${esc(item.name)}
                       </label>
                     `).join("")}
@@ -1500,10 +1693,63 @@ function render(data, state) {
   }
 }
 
+/**
+ * Sync a finance snapshot (from apiGetMyFinance) into the in-memory profile object
+ * so the render shows authoritative DB values.
+ */
+function syncFinanceIntoProfile(profile, fin, data, profileName) {
+  if (!profile || !fin) return;
+  profile.bankBalance   = Number(fin.bankBalance   ?? profile.bankBalance);
+  profile.salaryAnnual  = Number(fin.annualSalary  ?? profile.salaryAnnual);
+
+  // Replace shop purchases from DB (normalise field names)
+  if (Array.isArray(fin.shopPurchases)) {
+    profile.shopPurchases = fin.shopPurchases.map((p) => ({
+      id:            p.id,
+      itemId:        p.itemId,
+      name:          p.itemName || p.itemId,
+      itemName:      p.itemName || p.itemId,
+      price:         Number(p.price),
+      monthlyUpkeep: Number(p.monthlyUpkeep),
+      effects:       Array.isArray(p.effects) ? p.effects : [],
+      riskModifier:  p.riskModifier ?? null,
+      modifiers:     { pressImpactPct: 0, pollingBoostPct: 0 },
+      scrutinyRisk:  p.riskModifier?.scandalExposure || 0,
+      purchasedAt:   p.purchasedAt ? new Date(p.purchasedAt).toLocaleString("en-GB", { hour12: false }) : "",
+    }));
+    profile.modifiers = computeModifiers(profile);
+    syncModifiers(data, profileName);
+  }
+
+  // Replace additional revenue from DB (normalise field names)
+  if (Array.isArray(fin.additionalRevenue)) {
+    profile.additionalRevenue = fin.additionalRevenue.map((r) => ({
+      id:            r.id,
+      source:        r.label,
+      label:         r.label,
+      annualRevenue: Number(r.annualAmount),
+      annualAmount:  Number(r.annualAmount),
+    }));
+  }
+}
+
 export async function initPersonalPage(data) {
   normalisePersonal(data);
   saveState(data);
-  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0 };
+  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "" };
+
+  // Load finance + shop purchases from DB (authoritative source of truth).
+  // Run in parallel with initial render so the page appears immediately,
+  // then refreshes once DB data arrives.
+  apiGetMyFinance().then((fin) => {
+    const name = getCharacterName(data);
+    const profile = name ? data.personal?.profiles?.[name] : null;
+    if (profile) {
+      syncFinanceIntoProfile(profile, fin, data, name);
+      render(data, state);
+    }
+  }).catch(() => {}); // fail silently — client state is used as fallback
+
   // Load current shop price index from server (non-blocking; falls back to 1.0)
   apiGetShopPriceIndex().then(({ priceIndex }) => {
     if (Number.isFinite(priceIndex) && priceIndex > 0) {
@@ -1511,5 +1757,6 @@ export async function initPersonalPage(data) {
       render(data, state);
     }
   }).catch(() => {});
+
   render(data, state);
 }

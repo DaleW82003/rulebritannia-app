@@ -1798,6 +1798,18 @@ export async function apiAdminSetSalaryOverride(characterId, override) {
   return res.json();
 }
 
+export async function apiAdminUpdateCharacterProfile(characterId, fields) {
+  const res = await fetch(`${API_BASE}/api/admin/characters/${encodeURIComponent(characterId)}/profile`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(fields),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAdminUpdateCharacterProfile failed (${res.status})`);
+  return body;
+}
+
 export async function apiAdminSetPositions(characterId, positions) {
   const res = await fetch(`${API_BASE}/api/admin/finance/set-positions`, {
     method: "POST",
@@ -1969,15 +1981,54 @@ export async function apiGetMyFinance() {
   return res.json();
 }
 
-export async function apiUpdateMyCharacterProfile(fields) {
-  const res = await fetch(`${API_BASE}/api/me/character`, {
-    method: "PATCH",
+// ── Profile change requests (player-submitted, mod/admin/speaker approval) ──
+
+export async function apiSubmitProfileChange(fields) {
+  const res = await fetch(`${API_BASE}/api/characters/profile-change`, {
+    method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify(fields),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `apiUpdateMyCharacterProfile failed (${res.status})`);
+  if (!res.ok) throw new Error(body.error || `apiSubmitProfileChange failed (${res.status})`);
+  return body;
+}
+
+export async function apiGetMyProfileChanges() {
+  const res = await fetch(`${API_BASE}/api/characters/profile-changes/mine`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyProfileChanges failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetAllProfileChanges(status) {
+  const url = status
+    ? `${API_BASE}/api/admin/profile-changes?status=${encodeURIComponent(status)}`
+    : `${API_BASE}/api/admin/profile-changes`;
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetAllProfileChanges failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiApproveProfileChange(id) {
+  const res = await fetch(`${API_BASE}/api/admin/profile-changes/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiApproveProfileChange failed (${res.status})`);
+  return body;
+}
+
+export async function apiRejectProfileChange(id) {
+  const res = await fetch(`${API_BASE}/api/admin/profile-changes/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRejectProfileChange failed (${res.status})`);
   return body;
 }
 

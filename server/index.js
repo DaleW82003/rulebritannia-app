@@ -1403,6 +1403,27 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS char_shop_purchases_char_idx ON character_shop_purchases(character_id);
   `);
+
+  // ── Pending profile field changes (player-submitted, mod/admin approval) ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pending_profile_changes (
+      id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id                UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      user_id                     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      proposed_education          TEXT,
+      proposed_career_background  TEXT,
+      proposed_family             TEXT,
+      proposed_date_of_birth      TEXT,
+      proposed_financial_bg_level INTEGER,
+      proposed_twitter_handle     TEXT,
+      status                      TEXT NOT NULL DEFAULT 'pending',
+      reviewed_by                 UUID REFERENCES users(id),
+      reviewed_at                 TIMESTAMPTZ,
+      submitted_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS pending_profile_changes_char_idx   ON pending_profile_changes(character_id);
+    CREATE INDEX IF NOT EXISTS pending_profile_changes_status_idx ON pending_profile_changes(status);
+  `);
 }
 
 // ── 1997 baseline salary scale (idempotent) ────────────────────────────────
@@ -5369,6 +5390,75 @@ app.patch("/api/characters/:id", charWriteLimit, async (req, res) => {
   }
 });
 
+// POST /api/admin/characters/:id/profile — admin/mod/speaker: directly update profile fields (no approval queue)
+app.post("/api/admin/characters/:id/profile", charWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+
+    const { rows: before } = await pool.query(
+      `SELECT c.id, c.education, c.career_background, c.family, c.date_of_birth,
+              c.financial_background_level, c.twitter_handle, c.avatar,
+              cf.bank_balance, cf.annual_salary_override
+         FROM characters c
+         LEFT JOIN character_finance cf ON cf.character_id = c.id
+        WHERE c.id = $1`,
+      [req.params.id]
+    );
+    if (!before.length) return res.status(404).json({ error: "Character not found" });
+
+    const {
+      education, career_background, family, date_of_birth,
+      financial_background_level, twitter_handle, avatar,
+      bank_balance, salary_annual,
+    } = req.body || {};
+
+    const setClauses = [];
+    const params = [];
+    let i = 1;
+    if (education         !== undefined) { setClauses.push(`education = $${i++}`);                  params.push(String(education || "").slice(0, 500)); }
+    if (career_background !== undefined) { setClauses.push(`career_background = $${i++}`);          params.push(String(career_background || "").slice(0, 500)); }
+    if (family            !== undefined) { setClauses.push(`family = $${i++}`);                     params.push(String(family || "").slice(0, 500)); }
+    if (date_of_birth     !== undefined) { setClauses.push(`date_of_birth = $${i++}`);              params.push(String(date_of_birth || "").slice(0, 50) || null); }
+    if (twitter_handle    !== undefined) { setClauses.push(`twitter_handle = $${i++}`);             params.push(String(twitter_handle || "").trim().replace(/^@+/, "").slice(0, 100)); }
+    if (avatar            !== undefined) { setClauses.push(`avatar = $${i++}`);                     params.push(String(avatar || "").slice(0, 500)); }
+    if (financial_background_level !== undefined) {
+      const lvl = parseInt(financial_background_level, 10);
+      setClauses.push(`financial_background_level = $${i++}`);
+      params.push(Number.isFinite(lvl) && lvl >= 1 && lvl <= 10 ? lvl : null);
+    }
+
+    if (setClauses.length) {
+      params.push(req.params.id);
+      await pool.query(`UPDATE characters SET ${setClauses.join(", ")} WHERE id = $${i}`, params);
+    }
+
+    // Update finance fields if provided
+    if (bank_balance !== undefined || salary_annual !== undefined) {
+      // Ensure finance row exists first
+      await pool.query(
+        `INSERT INTO character_finance (character_id, bank_balance) VALUES ($1, 0) ON CONFLICT (character_id) DO NOTHING`,
+        [req.params.id]
+      );
+      const finClauses = [];
+      const finParams = [];
+      let j = 1;
+      if (bank_balance  !== undefined) { finClauses.push(`bank_balance = $${j++}`);             finParams.push(parseFloat(bank_balance) ?? 0); }
+      if (salary_annual !== undefined) { finClauses.push(`annual_salary_override = $${j++}`);   finParams.push(salary_annual !== "" ? parseFloat(salary_annual) : null); }
+      finParams.push(req.params.id);
+      await pool.query(
+        `UPDATE character_finance SET ${finClauses.join(", ")}, updated_at = NOW() WHERE character_id = $${j}`,
+        finParams
+      );
+    }
+
+    await writeAuditLog(req.session.userId, "admin.character.profile.update", "character", req.params.id, before[0], req.body);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/admin/characters/:id/profile]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // CHARACTER APPLICATIONS (DB-backed creation flow)
 // GET  /api/characters/mine                      — authenticated: list caller's characters
@@ -6462,12 +6552,16 @@ app.post("/api/finance/shop-upkeep", financeWriteLimit, async (req, res) => {
 });
 
 // ── Player finance + shop purchases (DB-backed) ──────────────────────────────
-// GET  /api/me/finance                           — authenticated: read own character finance
-// PATCH /api/me/character                        — authenticated: update own character profile fields
-// POST  /api/me/character/shop-purchases         — authenticated: record a shop purchase
-// DELETE /api/me/character/shop-purchases/:id    — authenticated: remove a shop purchase
-// POST  /api/me/character/additional-revenue     — admin/mod: add revenue stream
-// DELETE /api/me/character/additional-revenue/:id — admin/mod: remove revenue stream
+// GET  /api/me/finance                              — authenticated: read own character finance
+// POST /api/characters/profile-change               — authenticated: submit profile fields for approval
+// GET  /api/characters/profile-changes/mine         — authenticated: list own pending profile change requests
+// GET  /api/admin/profile-changes                   — admin/mod/speaker: list all pending
+// POST /api/admin/profile-changes/:id/approve       — admin/mod/speaker: approve + apply
+// POST /api/admin/profile-changes/:id/reject        — admin/mod/speaker: reject
+// POST /api/me/character/shop-purchases             — authenticated: record a shop purchase
+// DELETE /api/me/character/shop-purchases/:id       — authenticated (owner) or admin/mod: remove
+// POST  /api/me/character/additional-revenue        — admin/mod: add revenue stream
+// DELETE /api/me/character/additional-revenue/:id   — admin/mod: remove revenue stream
 // ─────────────────────────────────────────────────────────────────────────────
 
 const meFinanceReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
@@ -6547,8 +6641,11 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
   }
 });
 
-// PATCH /api/me/character — player updates own active character profile fields
-app.patch("/api/me/character", meFinanceWriteLimit, async (req, res) => {
+// POST /api/characters/profile-change — player submits profile field changes for mod approval
+const profileChangeReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const profileChangeWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/characters/profile-change", profileChangeWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
@@ -6568,35 +6665,154 @@ app.patch("/api/me/character", meFinanceWriteLimit, async (req, res) => {
       date_of_birth, financial_background_level, twitter_handle,
     } = req.body || {};
 
-    // Build dynamic UPDATE — only set fields that were explicitly provided
+    // At least one field must be provided
+    const hasField = [education, career_background, family, date_of_birth, financial_background_level, twitter_handle]
+      .some((v) => v !== undefined && v !== null && v !== "");
+    if (!hasField) return res.status(400).json({ error: "At least one profile field must be provided" });
+
+    // Only one pending profile-change per character at a time
+    const { rows: existing } = await pool.query(
+      "SELECT id FROM pending_profile_changes WHERE character_id = $1 AND status = 'pending' LIMIT 1",
+      [charId]
+    );
+    if (existing.length) {
+      return res.status(409).json({ error: "You already have a pending profile change request." });
+    }
+
+    const lvl = financial_background_level !== undefined
+      ? (() => { const n = parseInt(financial_background_level, 10); return Number.isFinite(n) && n >= 1 && n <= 10 ? n : null; })()
+      : undefined;
+
+    const { rows } = await pool.query(
+      `INSERT INTO pending_profile_changes
+         (character_id, user_id,
+          proposed_education, proposed_career_background, proposed_family,
+          proposed_date_of_birth, proposed_financial_bg_level, proposed_twitter_handle)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING *`,
+      [
+        charId, req.session.userId,
+        education          !== undefined ? String(education          || "").slice(0, 500) : null,
+        career_background  !== undefined ? String(career_background  || "").slice(0, 500) : null,
+        family             !== undefined ? String(family             || "").slice(0, 500) : null,
+        date_of_birth      !== undefined ? String(date_of_birth      || "").slice(0,  50) || null : null,
+        lvl !== undefined ? lvl : null,
+        twitter_handle     !== undefined ? String(twitter_handle || "").trim().replace(/^@+/, "").slice(0, 100) : null,
+      ]
+    );
+    await writeAuditLog(req.session.userId, "profile_change.submit", "pending_profile_changes", rows[0].id, null, rows[0]);
+    res.status(201).json({ ok: true, change: rows[0] });
+  } catch (e) {
+    console.error("[POST /api/characters/profile-change]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/characters/profile-changes/mine — player: list own pending profile change requests
+app.get("/api/characters/profile-changes/mine", profileChangeReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows: charRows } = await pool.query(
+      "SELECT id FROM characters WHERE user_id = $1 AND is_active = TRUE LIMIT 1",
+      [req.session.userId]
+    );
+    if (!charRows.length) return res.json({ changes: [] });
+    const { rows } = await pool.query(
+      "SELECT * FROM pending_profile_changes WHERE character_id = $1 ORDER BY submitted_at DESC",
+      [charRows[0].id]
+    );
+    res.json({ changes: rows });
+  } catch (e) {
+    console.error("[GET /api/characters/profile-changes/mine]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/admin/profile-changes — admin/mod/speaker: list profile change requests
+app.get("/api/admin/profile-changes", profileChangeReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { status } = req.query;
+    let q = `SELECT pc.*, c.name AS character_name, u.username AS submitter_username
+             FROM pending_profile_changes pc
+             JOIN characters c ON c.id = pc.character_id
+             JOIN users u ON u.id = pc.user_id`;
+    const params = [];
+    if (status) { q += " WHERE pc.status = $1"; params.push(status); }
+    q += " ORDER BY pc.submitted_at DESC";
+    const { rows } = await pool.query(q, params);
+    res.json({ changes: rows });
+  } catch (e) {
+    console.error("[GET /api/admin/profile-changes]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/profile-changes/:id/approve — approve and apply profile fields to characters table
+app.post("/api/admin/profile-changes/:id/approve", profileChangeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { rows: changeRows } = await pool.query(
+      "SELECT * FROM pending_profile_changes WHERE id = $1",
+      [req.params.id]
+    );
+    if (!changeRows.length) return res.status(404).json({ error: "Profile change request not found" });
+    const change = changeRows[0];
+    if (change.status !== "pending") {
+      return res.status(409).json({ error: `Profile change request is already ${change.status}` });
+    }
+
+    // Build dynamic UPDATE — only apply non-null proposed fields
     const setClauses = [];
     const params = [];
     let i = 1;
+    if (change.proposed_education         !== null) { setClauses.push(`education = $${i++}`);                  params.push(change.proposed_education); }
+    if (change.proposed_career_background !== null) { setClauses.push(`career_background = $${i++}`);          params.push(change.proposed_career_background); }
+    if (change.proposed_family            !== null) { setClauses.push(`family = $${i++}`);                     params.push(change.proposed_family); }
+    if (change.proposed_date_of_birth     !== null) { setClauses.push(`date_of_birth = $${i++}`);              params.push(change.proposed_date_of_birth); }
+    if (change.proposed_financial_bg_level!== null) { setClauses.push(`financial_background_level = $${i++}`); params.push(change.proposed_financial_bg_level); }
+    if (change.proposed_twitter_handle    !== null) { setClauses.push(`twitter_handle = $${i++}`);             params.push(change.proposed_twitter_handle); }
 
-    if (education         !== undefined) { setClauses.push(`education = $${i++}`);                  params.push(String(education || "").slice(0, 500)); }
-    if (career_background !== undefined) { setClauses.push(`career_background = $${i++}`);          params.push(String(career_background || "").slice(0, 500)); }
-    if (family            !== undefined) { setClauses.push(`family = $${i++}`);                     params.push(String(family || "").slice(0, 500)); }
-    if (date_of_birth     !== undefined) { setClauses.push(`date_of_birth = $${i++}`);              params.push(String(date_of_birth || "").slice(0, 50) || null); }
-    if (twitter_handle    !== undefined) { setClauses.push(`twitter_handle = $${i++}`);             params.push(String(twitter_handle || "").trim().replace(/^@+/, "").slice(0, 100)); }
-    if (financial_background_level !== undefined) {
-      const lvl = parseInt(financial_background_level, 10);
-      setClauses.push(`financial_background_level = $${i++}`);
-      params.push(Number.isFinite(lvl) && lvl >= 1 && lvl <= 5 ? lvl : null);
+    if (setClauses.length) {
+      params.push(change.character_id);
+      await pool.query(`UPDATE characters SET ${setClauses.join(", ")} WHERE id = $${i}`, params);
     }
 
-    if (!setClauses.length) return res.status(400).json({ error: "No valid fields provided" });
-
-    params.push(charId);
-    const { rows } = await pool.query(
-      `UPDATE characters SET ${setClauses.join(", ")} WHERE id = $${i} RETURNING id`,
-      params
+    await pool.query(
+      "UPDATE pending_profile_changes SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+      [req.session.userId, req.params.id]
     );
-    if (!rows.length) return res.status(404).json({ error: "Character not found" });
-
-    await writeAuditLog(req.session.userId, "character.profile.update", "character", charId, null, req.body);
+    await writeAuditLog(req.session.userId, "profile_change.approve", "pending_profile_changes", req.params.id,
+      change, { ...change, status: "approved" });
     res.json({ ok: true });
   } catch (e) {
-    console.error("[PATCH /api/me/character]", e);
+    console.error("[POST /api/admin/profile-changes/:id/approve]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/profile-changes/:id/reject — reject a profile change request
+app.post("/api/admin/profile-changes/:id/reject", profileChangeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { rows: changeRows } = await pool.query(
+      "SELECT * FROM pending_profile_changes WHERE id = $1",
+      [req.params.id]
+    );
+    if (!changeRows.length) return res.status(404).json({ error: "Profile change request not found" });
+    const change = changeRows[0];
+    if (change.status !== "pending") {
+      return res.status(409).json({ error: `Profile change request is already ${change.status}` });
+    }
+    await pool.query(
+      "UPDATE pending_profile_changes SET status='rejected', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+      [req.session.userId, req.params.id]
+    );
+    await writeAuditLog(req.session.userId, "profile_change.reject", "pending_profile_changes", req.params.id,
+      change, { ...change, status: "rejected" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/admin/profile-changes/:id/reject]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
