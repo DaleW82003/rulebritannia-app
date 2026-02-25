@@ -56,6 +56,7 @@ export function initMotionsPage(data) {
   const simCurrentObj = simDateToObj(getSimDate(data.gameState));
   const canPostAsNpc = isAdmin(data) || isMod(data);
   const canDelete = canAdminModOrSpeaker(data);
+  const hasActiveChar = canPostAsNpc || Boolean(char?.name);
   const partyOptions = (Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [])
     .map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
 
@@ -89,7 +90,9 @@ export function initMotionsPage(data) {
 
     ${tileSection({
       title: "Submit Motion / EDM",
-      body: `
+      body: !hasActiveChar
+        ? `<div class="muted-block">You must have an active character to submit motions or EDMs. <a href="user.html">Create or activate a character</a> first.</div>`
+        : `
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
           <form id="house-motion-form" class="tile">
             <h3 class="tile-title">Raise House Motion</h3>
@@ -115,6 +118,7 @@ export function initMotionsPage(data) {
 
           <form id="edm-form" class="tile">
             <h3 class="tile-title">Raise Early Day Motion</h3>
+            <p class="muted" style="font-size:0.9em;margin-top:0;">EDMs may not be submitted by Government members.</p>
             <div class="form-row">
               <label for="edm-title">Title</label>
               <input id="edm-title" name="title" required>
@@ -184,6 +188,7 @@ export function initMotionsPage(data) {
 
   root.querySelector("#house-motion-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
+    if (!hasActiveChar) return;
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
     const body = String(fd.get("body") || "").trim();
@@ -231,6 +236,12 @@ export function initMotionsPage(data) {
 
   root.querySelector("#edm-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
+    if (!hasActiveChar) return;
+    // Government members cannot submit EDMs
+    if (!canPostAsNpc && isGovernmentMember(data)) {
+      alert("Government members may not submit Early Day Motions.");
+      return;
+    }
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
     const body = String(fd.get("body") || "").trim();

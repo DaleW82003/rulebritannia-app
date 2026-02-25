@@ -187,8 +187,8 @@ function controlPanelBadgesHTML(admin, data) {
   return "";
 }
 
-function currentAccount(data) {
-  const u = String(data?.currentUser?.username || "").trim();
+function currentAccount(data, usernameOverride) {
+  const u = String(usernameOverride || data?.currentUser?.username || "").trim();
   return (data.userManagement?.accounts || []).find((a) => a.username === u);
 }
 
@@ -289,7 +289,13 @@ function render(data, state) {
   const char = getChar(data);
   const manager = canManage(data);
   const admin = canAdmin(data);
-  const account = currentAccount(data) || {
+
+  // When ?account= param is set (e.g. from A Team page) and the viewer is admin/mod,
+  // show that user's account data in the Account Data section.
+  const viewingUsername = state.viewingUsername || "";
+  const selfUsername = String(data?.currentUser?.username || "").trim();
+  const isViewingOther = viewingUsername && viewingUsername !== selfUsername;
+  const account = currentAccount(data, isViewingOther ? viewingUsername : "") || {
     username: data?.currentUser?.username || "Unknown",
     isAdmin: false,
     isMod: false,
@@ -315,15 +321,22 @@ function render(data, state) {
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">User</div></div>
 
+    ${isViewingOther ? `<section class="panel" style="margin-bottom:12px;background:rgba(11,45,107,.06);border:1px solid var(--line);">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span>👁️ <b>Viewing account:</b> ${esc(account.username)}</span>
+        <a class="btn" href="user.html">Back to your page</a>
+      </div>
+    </section>` : ""}
+
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Account Data</h2>
       <div class="tile">
         <div class="kv"><span>Username</span><b>${esc(account.username)}</b></div>
         <div class="kv"><span>Role Set</span><b>${esc(roleChips(account))}</b></div>
         <div class="kv"><span>Active Character</span><b>${esc(account.activeCharacter || "None")}</b></div>
-        <div class="kv"><span>Active Party</span><b>${esc(char?.party || "-")}</b></div>
+        <div class="kv"><span>Active Party</span><b>${esc(isViewingOther ? (account.activeCharacter ? "-" : "-") : (char?.party || "-"))}</b></div>
         <div class="kv"><span>Status</span><b>${account.active ? "Active" : "Inactive"}</b></div>
-        ${activeRoleBadgeHTML(data) ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">${activeRoleBadgeHTML(data)}</div>` : ""}
+        ${!isViewingOther && activeRoleBadgeHTML(data) ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">${activeRoleBadgeHTML(data)}</div>` : ""}
       </div>
     </section>
 
@@ -397,7 +410,7 @@ function render(data, state) {
                 ${HOME_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
               </select>
               <input class="input" name="home_region" placeholder="Region / location (optional)">
-              <label class="label" style="display:flex;gap:6px;align-items:center;margin:0;">
+              <label class="label" style="display:flex;gap:6px;align-items:center;margin:0;padding:10px 12px;border:1px solid var(--line,#cdd9f2);border-radius:14px;background:#fff;font-weight:400;color:var(--text);">
                 <input type="checkbox" name="home_mortgaged"> <span>Mortgaged</span>
               </label>
               <input class="input" name="home_notes" placeholder="Notes (optional)">
@@ -856,6 +869,16 @@ export async function initUserPage(data) {
   normaliseUserData(data);
   saveState(data);
 
+  // Read ?account= URL param — used when navigating from A Team "view user" links.
+  let viewingUsername = "";
+  try {
+    const urlParam = new URL(window.location.href).searchParams.get("account") || "";
+    const selfUsername = String(data?.currentUser?.username || "").trim();
+    if (urlParam && urlParam !== selfUsername && canAdminOrMod(data)) {
+      viewingUsername = urlParam;
+    }
+  } catch { /* non-browser or URL parse error — ignore */ }
+
   // Load DB-backed character and application data
   let myCharacters = [];
   let myApplications = [];
@@ -875,5 +898,5 @@ export async function initUserPage(data) {
   }
 
   const dbState = { myCharacters, myApplications, pendingApplications };
-  render(data, { message: "", dbState });
+  render(data, { message: "", dbState, viewingUsername });
 }

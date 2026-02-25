@@ -332,7 +332,7 @@ function renderModOpenScandals(modData, state) {
 
 // ── Scandal section renderer (uses API data) ──────────────────────────────────
 
-function renderScandalSection(scandalData, modData, templates, mod, state) {
+function renderScandalSection(scandalData, modData, templates, mod, hasActiveChar, state) {
   const sd = scandalData || { opted_in: false, situations: [], scandals: [], player_choices: [] };
 
   // Enrich scandal rows with template stages for choice rendering
@@ -348,13 +348,15 @@ function renderScandalSection(scandalData, modData, templates, mod, state) {
     <section class="panel" style="margin-bottom:12px;" id="scandal-optin-section">
       <h2 style="margin-top:0;">Local Scandal Opt-In</h2>
       <p class="muted">Opt in to allow moderators to trigger local constituency scandals for your character. Scandals progress through stages and affect your reputation and optics.</p>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      ${!hasActiveChar
+        ? `<div class="muted-block">You must have an active character to manage local scandal opt-in. <a href="user.html">Create or activate a character</a> first.</div>`
+        : `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <label class="label" style="margin:0;" for="cw-scandal-optin">
           <input id="cw-scandal-optin" type="checkbox" ${sd.opted_in ? "checked" : ""}> Opted in to local scandals
         </label>
         <button type="button" class="btn" id="cw-save-optin">Save Preference</button>
         ${state.optinSaved === true ? `<span class="muted" style="color:green;">Saved ✓</span>` : state.optinSaved === false ? `<span class="muted" style="color:var(--danger);">Failed to save</span>` : ""}
-      </div>
+      </div>`}
     </section>
 
     ${sd.situations.length ? `
@@ -414,6 +416,7 @@ function render(data, state = {}) {
   const char = getCharacter(data);
   const simIndex = getSimIndex(data);
   const mod = canModerate(data);
+  const hasActiveChar = mod || Boolean(char?.name);
 
   const lastSaved = Number(plan.lastSavedSimIndex);
   const locked = Number.isFinite(lastSaved) && (simIndex - lastSaved) < LOCK_MONTHS;
@@ -452,7 +455,7 @@ function render(data, state = {}) {
     </section>
 
     <div id="scandal-section-root">
-      ${renderScandalSection(_scandalData, _modScandalData, _templates, mod, state)}
+      ${renderScandalSection(_scandalData, _modScandalData, _templates, mod, hasActiveChar, state)}
     </div>
 
     ${mod ? `
@@ -663,9 +666,11 @@ function render(data, state = {}) {
 // Partial re-render: refresh only the scandal section without re-rendering the whole page
 function renderScandalRoot(data, state) {
   const mod = canModerate(data);
+  const char = getCharacter(data);
+  const hasActiveChar = mod || Boolean(char?.name);
   const root = document.getElementById("scandal-section-root");
   if (!root) return render(data, state); // fall back to full render
-  root.innerHTML = renderScandalSection(_scandalData, _modScandalData, _templates, mod, state);
+  root.innerHTML = renderScandalSection(_scandalData, _modScandalData, _templates, mod, hasActiveChar, state);
   // Re-attach event listeners for scandal section
   attachScandalListeners(data, state, mod);
 }

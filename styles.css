@@ -232,14 +232,11 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
    ========================= */
 .wgo-grid{
   display:grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap:14px;
   width:100%;
 }
-@media (max-width: 1100px){
-  .wgo-grid{ grid-template-columns: repeat(3, minmax(0,1fr)); }
-}
-@media (max-width: 700px){
+@media (max-width: 900px){
   .wgo-grid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 @media (max-width: 480px){
@@ -533,8 +530,8 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
    ========================= */
 .docket-list{ display:flex; flex-direction:column; gap:10px; }
 .submission-route{ display:block; }
-.submission-route div label { display:flex; gap:8px; align-items:flex-start; cursor:pointer; }
-.submission-route div label input[type="radio"] { flex-shrink:0; margin-top:3px; }
+.submission-route div label { display:flex; gap:8px; align-items:center; cursor:pointer; font-weight:400; color:var(--text); }
+.submission-route div label input[type="radio"] { flex-shrink:0; }
 .docket-item{
   display:flex;
   justify-content:space-between;

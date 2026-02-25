@@ -122,6 +122,7 @@ function render(data, state) {
 
   const char = getCharacter(data);
   const mod = canModerate(data);
+  const hasActiveChar = mod || Boolean(char?.name);
   const list = data.fundraising.items.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
 
   root.innerHTML = `
@@ -131,7 +132,9 @@ function render(data, state) {
       body: `<p>Players and parties can host fundraisers. Submissions require moderator approval. Costs are deducted from income. Guest speakers and special venue requests require moderator judgement.</p>`
     })}
 
-    ${tileSection({
+    ${!hasActiveChar ? tileSection({
+      body: `<div class="muted-block">You must have an active character to host fundraisers. <a href="user.html">Create or activate a character</a> first.</div>`
+    }) : tileSection({
       body: `
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
           ${FUNDRAISERS.map((f) => `
@@ -239,6 +242,7 @@ function render(data, state) {
 
   root.querySelectorAll("[data-action='host']").forEach((btn) => {
     btn.addEventListener("click", () => {
+      if (!hasActiveChar) return;
       state.showForm = true;
       state.formType = btn.getAttribute("data-type") || FUNDRAISERS[0].key;
       render(data, state);
