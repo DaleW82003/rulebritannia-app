@@ -123,7 +123,7 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
    ========================= */
 .topbar{
   position:sticky; top:0; z-index:50;
-  background:linear-gradient(180deg, var(--navy), var(--navy2));
+  background:#0b2d6b;
   border-bottom:1px solid rgba(255,255,255,.12);
 }
 .topbar-inner{
@@ -132,12 +132,12 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
   display:flex;
   align-items:center;
   gap:14px;
-  padding:14px 0;
+  padding:2px 0;
 }
 .brand{ display:flex; align-items:center; gap:10px; }
 .logo,
 .brand-logo{
-  height:56px;
+  height:80px;
   width:auto;
   background:transparent;
   padding:0;
