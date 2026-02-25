@@ -6,7 +6,6 @@ import {
   apiApplyCharacter, apiGetMyApplications, apiGetMyCharacters,
   apiGetCharacterApplications, apiApproveCharacterApplication,
   apiRejectCharacterApplication, apiSelectCharacter,
-  apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange,
   apiGetConstituencies, apiGetCharacters,
 } from "../api.js";
 
@@ -464,10 +463,6 @@ function render(data, state) {
         `).join("")}
       ` : ""}
 
-      ${manager ? `
-        <h3 style="margin:10px 0 6px;">Pending Biography Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></h3>
-        <div id="user-bio-changes-list"><div class="muted-block">Loading…</div></div>
-      ` : ""}
     </section>
 
     ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
@@ -662,62 +657,6 @@ function render(data, state) {
       render(data, state);
     });
   });
-
-  // Load and wire the bio change requests panel (admin/mod/speaker)
-  if (manager) {
-    const bioListEl = host.querySelector("#user-bio-changes-list");
-    if (bioListEl) {
-      apiGetAllBioChanges("pending").then(({ changes }) => {
-        if (!changes.length) {
-          bioListEl.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
-          return;
-        }
-        bioListEl.innerHTML = changes.map((c) => `
-          <article class="tile" style="margin-bottom:8px;" data-bio-change-id="${esc(c.id)}">
-            <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
-            <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
-            <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;white-space:pre-wrap;font-size:.9em;">${esc(c.proposed_bio)}</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn primary" type="button" data-action="approve-bio-change" data-id="${esc(c.id)}">Approve</button>
-              <button class="btn" type="button" data-action="reject-bio-change" data-id="${esc(c.id)}">Reject</button>
-            </div>
-          </article>
-        `).join("");
-
-        bioListEl.querySelectorAll('[data-action="approve-bio-change"]').forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            try {
-              await apiApproveBioChange(btn.dataset.id);
-              btn.closest("article")?.remove();
-              if (!bioListEl.querySelector("article")) {
-                bioListEl.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
-              }
-            } catch (err) {
-              state.message = `Error: ${err.message}`;
-              render(data, state);
-            }
-          });
-        });
-
-        bioListEl.querySelectorAll('[data-action="reject-bio-change"]').forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            try {
-              await apiRejectBioChange(btn.dataset.id);
-              btn.closest("article")?.remove();
-              if (!bioListEl.querySelector("article")) {
-                bioListEl.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
-              }
-            } catch (err) {
-              state.message = `Error: ${err.message}`;
-              render(data, state);
-            }
-          });
-        });
-      }).catch(() => {
-        if (bioListEl) bioListEl.innerHTML = '<div class="muted-block">Could not load biography change requests.</div>';
-      });
-    }
-  }
 
   host.querySelectorAll('[data-action="reactivate-character"]').forEach((btn) => {
     btn.addEventListener("click", async () => {

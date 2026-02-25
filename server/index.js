@@ -7811,6 +7811,16 @@ app.put("/api/constituencies/:id", constWriteLimit, async (req, res) => {
       );
     }
 
+    // If party changed and mp_type is character, also update the character's party in DB.
+    const resolvedMpType = mpType !== undefined ? mpType : b.mp_type;
+    const constName = name ?? b.name;
+    if (partyChanged && resolvedMpType === "character") {
+      await pool.query(
+        `UPDATE characters SET party = $1 WHERE LOWER(constituency) = LOWER($2) AND is_active = TRUE`,
+        [party, constName]
+      );
+    }
+
     res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
   } catch (e) {
     console.error("[PUT /api/constituencies/:id]", e);

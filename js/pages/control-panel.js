@@ -2,6 +2,10 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { logAction } from "../audit.js";
+import {
+  apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange,
+  apiGetCharacterApplications, apiApproveCharacterApplication, apiRejectCharacterApplication,
+} from "../api.js";
 
 const CONTROL_LINKS = [
   { title: "Newsroom (BBC News)", href: "news.html", roles: ["mod", "admin"] },
@@ -70,6 +74,15 @@ export async function initControlPanelPage(data) {
 
   if (!rolePanels) return;
 
+  // Load pending character applications for manager review
+  let pendingApplications = [];
+  if (manager) {
+    try {
+      const result = await apiGetCharacterApplications("pending").catch(() => ({ applications: [] }));
+      pendingApplications = result.applications;
+    } catch { /* ignore */ }
+  }
+
   rolePanels.innerHTML = `
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Control Panels ${controlPanelBadgesHTML(admin, data)}</h2>
@@ -89,6 +102,31 @@ export async function initControlPanelPage(data) {
     </section>
 
     <p class="muted">Economy data can be edited on the <a href="economy.html">Economy page</a> (admin/mod only).</p>
+
+    ${manager ? `
+    <details class="tile" style="margin-bottom:10px;" open>
+      <summary style="cursor:pointer;"><b>Pending Character Approvals <span class="mod-badge">Mod / Admin / Speaker</span></b></summary>
+      <div style="margin-top:10px;" id="cp-pending-characters">
+        ${pendingApplications.length ? pendingApplications.map((p) => `
+          <article class="tile" style="margin-bottom:8px;">
+            <b>${esc(p.name)}</b> (${esc(p.party)}) · Financial level ${esc(String(p.financial_background_level || "-"))}
+            <div class="muted">Submitted by ${esc(p.applicant_username || "User")} at ${esc(p.submitted_at ? new Date(p.submitted_at).toLocaleString("en-GB") : "")}</div>
+            <div class="muted">Constituency: ${esc(p.constituency || "-")}</div>
+            <div class="muted">Bio: ${esc((p.bio || p.personal_background || "-").slice(0, 200))}${(p.bio || p.personal_background || "").length > 200 ? "…" : ""}</div>
+            <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn" type="button" data-action="cp-approve-character" data-id="${esc(p.id)}">Approve + Activate</button>
+              <button class="btn" type="button" data-action="cp-reject-character" data-id="${esc(p.id)}">Reject</button>
+            </div>
+          </article>
+        `).join("") : `<div class="muted-block">No pending character applications.</div>`}
+      </div>
+    </details>
+
+    <details class="tile" style="margin-bottom:10px;" open>
+      <summary style="cursor:pointer;"><b>Pending Biography Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></b></summary>
+      <div style="margin-top:10px;" id="cp-bio-changes-list"><div class="muted-block">Loading…</div></div>
+    </details>
+    ` : ""}
 
     ${canEdit ? `
     <details class="tile" style="margin-bottom:10px;" open>
@@ -122,4 +160,95 @@ export async function initControlPanelPage(data) {
       }
     });
   });
+
+  // Pending character approval handlers
+  rolePanels.querySelectorAll('[data-action="cp-approve-character"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!manager) return;
+      const id = String(btn.dataset.id || "").trim();
+      if (!id) return;
+      try {
+        await apiApproveCharacterApplication(id);
+        btn.closest("article")?.remove();
+        const list = rolePanels.querySelector("#cp-pending-characters");
+        if (list && !list.querySelector("article")) {
+          list.innerHTML = '<div class="muted-block">No pending character applications.</div>';
+        }
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    });
+  });
+
+  rolePanels.querySelectorAll('[data-action="cp-reject-character"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!manager) return;
+      const id = String(btn.dataset.id || "").trim();
+      if (!id) return;
+      try {
+        await apiRejectCharacterApplication(id);
+        btn.closest("article")?.remove();
+        const list = rolePanels.querySelector("#cp-pending-characters");
+        if (list && !list.querySelector("article")) {
+          list.innerHTML = '<div class="muted-block">No pending character applications.</div>';
+        }
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    });
+  });
+
+  // Load bio change requests async
+  if (manager) {
+    const bioListEl = rolePanels.querySelector("#cp-bio-changes-list");
+    if (bioListEl) {
+      apiGetAllBioChanges("pending").then(({ changes }) => {
+        if (!changes.length) {
+          bioListEl.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
+          return;
+        }
+        bioListEl.innerHTML = changes.map((c) => `
+          <article class="tile" style="margin-bottom:8px;" data-bio-change-id="${esc(c.id)}">
+            <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
+            <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
+            <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;white-space:pre-wrap;font-size:.9em;">${esc(c.proposed_bio)}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn primary" type="button" data-action="cp-approve-bio-change" data-id="${esc(c.id)}">Approve</button>
+              <button class="btn" type="button" data-action="cp-reject-bio-change" data-id="${esc(c.id)}">Reject</button>
+            </div>
+          </article>
+        `).join("");
+
+        bioListEl.querySelectorAll('[data-action="cp-approve-bio-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiApproveBioChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!bioListEl.querySelector("article")) {
+                bioListEl.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
+              }
+            } catch (err) {
+              alert(`Error: ${err.message}`);
+            }
+          });
+        });
+
+        bioListEl.querySelectorAll('[data-action="cp-reject-bio-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiRejectBioChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!bioListEl.querySelector("article")) {
+                bioListEl.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
+              }
+            } catch (err) {
+              alert(`Error: ${err.message}`);
+            }
+          });
+        });
+      }).catch(() => {
+        if (bioListEl) bioListEl.innerHTML = '<div class="muted-block">Could not load biography change requests.</div>';
+      });
+    }
+  }
 }
