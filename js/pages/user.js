@@ -6,7 +6,8 @@ import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "
 import {
   apiApplyCharacter, apiGetMyApplications, apiGetMyCharacters,
   apiGetCharacterApplications, apiApproveCharacterApplication,
-  apiRejectCharacterApplication, apiSelectCharacter
+  apiRejectCharacterApplication, apiSelectCharacter,
+  apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -359,7 +360,7 @@ function render(data, state) {
         <div><b>${esc(char?.name || "No character selected")}</b></div>
         <div class="muted">DOB: ${esc(char?.dateOfBirth || char?.date_of_birth || "-")} · Education: ${esc(char?.education || "-")} · Career: ${esc(char?.careerBackground || char?.career_background || "-")}</div>
         <div class="muted">Family: ${esc(char?.family || "-")} · Constituency: ${esc(char?.constituency || "-")} · Party: ${esc(char?.party || "-")} · Twitter: ${esc(char?.twitterHandle || char?.twitter_handle || "-")}</div>
-        <div class="muted">First elected: ${esc(String(char?.yearFirstElected || char?.year_first_elected || "-"))} · Personal background: ${esc(char?.personalBackground || char?.personal_background || "-")} · Financial level: ${esc(String(char?.financialBackgroundLevel || char?.financial_background_level || "-"))}</div>
+        <div class="muted">First elected: ${esc(String(char?.yearFirstElected || char?.year_first_elected || "-"))} · Bio: ${esc((char?.bio || char?.personal_background || "-").slice(0, 100))}${(char?.bio || char?.personal_background || "").length > 100 ? "…" : ""} · Financial level: ${esc(String(char?.financialBackgroundLevel || char?.financial_background_level || "-"))}</div>
         <div class="muted">Absence: ${char?.absent ? "Absent" : "Active"}${char?.absent ? ` · Delegated to ${esc(char?.delegatedTo || "None")}` : ""}</div>
       </div>
 
@@ -386,8 +387,31 @@ function render(data, state) {
             <option value="Masters Degree">Masters Degree</option>
             <option value="Doctorate">Doctorate</option>
           </select>
-          <input class="input" name="career_background" placeholder="Career background" required>
-          <input class="input" name="family" placeholder="Family" required>
+          <select class="input" name="career_background" required>
+            <option value="">Pre-MP Career</option>
+            <option value="Manual / Skilled Trade">Manual / Skilled Trade</option>
+            <option value="Public Sector Professional">Public Sector Professional</option>
+            <option value="Legal Profession">Legal Profession</option>
+            <option value="Finance / Banking / Corporate">Finance / Banking / Corporate</option>
+            <option value="Business Owner / Entrepreneur">Business Owner / Entrepreneur</option>
+            <option value="Political Staffer / Researcher">Political Staffer / Researcher</option>
+            <option value="Trade Union / Activist">Trade Union / Activist</option>
+            <option value="Media / Journalism / Communications">Media / Journalism / Communications</option>
+            <option value="Academia / Education Leadership">Academia / Education Leadership</option>
+            <option value="Military / Police / Security">Military / Police / Security</option>
+          </select>
+          <select class="input" name="family" required>
+            <option value="">Family Status</option>
+            <option value="Single">Single</option>
+            <option value="Married, No Children">Married, No Children</option>
+            <option value="Married with Children">Married with Children</option>
+            <option value="Civil Partnership">Civil Partnership</option>
+            <option value="Divorced">Divorced</option>
+            <option value="Divorced with Children">Divorced with Children</option>
+            <option value="Widowed">Widowed</option>
+            <option value="Long-Term Partner with Children">Long-Term Partner with Children</option>
+            <option value="Long-Term Partner, No Children">Long-Term Partner, No Children</option>
+          </select>
           <select class="input" name="party" id="char-party-select" required>
             <option value="">Select party</option>
             <option value="Conservative">Conservative</option>
@@ -400,7 +424,7 @@ function render(data, state) {
           <input class="input" name="avatar" placeholder="Avatar URL (optional)">
           <input class="input" name="twitter_handle" placeholder="Twitter handle (without @, optional)">
           <input class="input" name="year_first_elected" placeholder="Year first elected" required>
-          <input class="input" name="personal_background" placeholder="Personal background" required>
+          <textarea class="input" name="bio" placeholder="Biography (max 2000 characters)" maxlength="2000" required style="grid-column:1/-1;resize:vertical;min-height:80px;"></textarea>
           <select class="input" name="financial_background_level" required>
             <option value="">Financial background</option>
             <option value="1">1 – Poverty</option>
@@ -477,12 +501,18 @@ function render(data, state) {
             <b>${esc(p.name)}</b> (${esc(p.party)}) · Financial level ${esc(String(p.financial_background_level || "-"))}
             <div class="muted">Submitted by ${esc(p.applicant_username || "User")} at ${esc(p.submitted_at ? new Date(p.submitted_at).toLocaleString("en-GB") : "")}</div>
             <div class="muted">Constituency: ${esc(p.constituency || "-")}</div>
+            <div class="muted">Bio: ${esc((p.bio || p.personal_background || "-").slice(0, 200))}${(p.bio || p.personal_background || "").length > 200 ? "…" : ""}</div>
             <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn" type="button" data-action="approve-character" data-id="${esc(p.id)}">Approve + Activate</button>
               <button class="btn" type="button" data-action="reject-character" data-id="${esc(p.id)}">Reject</button>
             </div>
           </article>
         `).join("")}
+      ` : ""}
+
+      ${manager ? `
+        <h3 style="margin:10px 0 6px;">Pending Biography Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></h3>
+        <div id="user-bio-changes-list"><div class="muted-block">Loading…</div></div>
       ` : ""}
     </section>
 
@@ -660,7 +690,7 @@ function render(data, state) {
       career_background: String(fd.get("career_background") || "").trim(),
       family: String(fd.get("family") || "").trim(),
       year_first_elected: String(fd.get("year_first_elected") || "").trim(),
-      personal_background: String(fd.get("personal_background") || "").trim(),
+      bio: String(fd.get("bio") || "").trim().slice(0, 2000),
       financial_background_level: Number(fd.get("financial_background_level") || 1),
       avatar: String(fd.get("avatar") || "").trim(),
       twitter_handle: String(fd.get("twitter_handle") || "").trim(),
@@ -767,6 +797,62 @@ function render(data, state) {
       render(data, state);
     });
   });
+
+  // Load and wire the bio change requests panel (admin/mod/speaker)
+  if (manager) {
+    const bioListEl = host.querySelector("#user-bio-changes-list");
+    if (bioListEl) {
+      apiGetAllBioChanges("pending").then(({ changes }) => {
+        if (!changes.length) {
+          bioListEl.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
+          return;
+        }
+        bioListEl.innerHTML = changes.map((c) => `
+          <article class="tile" style="margin-bottom:8px;" data-bio-change-id="${esc(c.id)}">
+            <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
+            <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
+            <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;white-space:pre-wrap;font-size:.9em;">${esc(c.proposed_bio)}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn primary" type="button" data-action="approve-bio-change" data-id="${esc(c.id)}">Approve</button>
+              <button class="btn" type="button" data-action="reject-bio-change" data-id="${esc(c.id)}">Reject</button>
+            </div>
+          </article>
+        `).join("");
+
+        bioListEl.querySelectorAll('[data-action="approve-bio-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiApproveBioChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!bioListEl.querySelector("article")) {
+                bioListEl.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
+              }
+            } catch (err) {
+              state.message = `Error: ${err.message}`;
+              render(data, state);
+            }
+          });
+        });
+
+        bioListEl.querySelectorAll('[data-action="reject-bio-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiRejectBioChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!bioListEl.querySelector("article")) {
+                bioListEl.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
+              }
+            } catch (err) {
+              state.message = `Error: ${err.message}`;
+              render(data, state);
+            }
+          });
+        });
+      }).catch(() => {
+        if (bioListEl) bioListEl.innerHTML = '<div class="muted-block">Could not load biography change requests.</div>';
+      });
+    }
+  }
 
   host.querySelectorAll('[data-action="reactivate-character"]').forEach((btn) => {
     btn.addEventListener("click", async () => {

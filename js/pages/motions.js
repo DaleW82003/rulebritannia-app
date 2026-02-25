@@ -8,6 +8,7 @@ import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          countdownToSimMonth } from "../clock.js";
 import { apiCreateDebateTopic } from "../api.js";
 import { handleApiError } from "../errors.js";
+import { npcPartyOptions } from "../parties.js";
 
 const GOVERNMENT_OFFICES = new Set([
   "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade", "defence", "welfare", "education", "env-agri", "health", "eti", "culture", "home-nations"
@@ -57,8 +58,7 @@ export function initMotionsPage(data) {
   const canPostAsNpc = isAdmin(data) || isMod(data);
   const canDelete = canAdminModOrSpeaker(data);
   const hasActiveChar = canPostAsNpc || Boolean(char?.name);
-  const partyOptions = (Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [])
-    .map((p) => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
+  const partyOptions = npcPartyOptions();
 
   // Auto-archive expired house motions and EDMs
   for (const m of data.motions.house) {

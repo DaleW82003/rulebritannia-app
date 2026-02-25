@@ -1,6 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
+import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange } from "../api.js";
 
 const PROFILE_FIELDS = [
   { key: "dateOfBirth", label: "Date of birth" },
@@ -118,7 +119,7 @@ function nowStamp() {
 }
 
 function canManage(data) {
-  return canAdminOrMod(data);
+  return canAdminModOrSpeaker(data);
 }
 
 function getCharacterName(data) {
@@ -198,6 +199,15 @@ function normalisePersonal(data) {
     profile.modifiers = computeModifiers(profile);
   }
 
+  // Sync bio from DB character record if available.
+  const dbChar = data?.currentCharacter;
+  if (dbChar && dbChar.name === name) {
+    const p = data.personal.profiles[name];
+    if (p && (dbChar.bio != null || dbChar.personal_background != null)) {
+      p.bio = String(dbChar.bio ?? dbChar.personal_background ?? p.bio ?? "");
+    }
+  }
+
   // Keep effects.modifiers in sync.
   data.effects ??= {};
   data.effects.modifiers ??= {};
@@ -269,6 +279,23 @@ function render(data, state) {
         <div class="muted" style="line-height:1.7;">
           ${PROFILE_FIELDS.map((f) => `<div><b>${esc(f.label)}:</b> ${esc(profile.profile[f.key] || "-")}</div>`).join("")}
         </div>
+      </article>
+
+      <article class="tile" style="grid-column:1/-1;">
+        <h2 style="margin-top:0;">Biography</h2>
+        <p style="white-space:pre-wrap;margin:0 0 10px;">${esc(profile.bio || profile.profile?.personalBackground || "-")}</p>
+        ${isOwnProfile ? `
+          <details style="margin-top:6px;">
+            <summary style="cursor:pointer;font-weight:500;">Request Biography Change</summary>
+            <form id="bio-change-form" style="margin-top:10px;">
+              <textarea class="input" name="proposed_bio" rows="6" maxlength="2000" placeholder="Enter your new biography (max 2000 characters)..." style="width:100%;resize:vertical;"></textarea>
+              <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button class="btn primary" type="submit">Submit Change Request</button>
+                <span class="muted" id="bio-change-status">${esc(state.bioChangeMessage || "")}</span>
+              </div>
+            </form>
+          </details>
+        ` : ""}
       </article>
 
       <article class="tile">
@@ -416,6 +443,11 @@ function render(data, state) {
           </div>
         </form>
       </section>
+
+      <section class="panel" id="bio-changes-panel" style="margin-top:12px;">
+        <h2 style="margin-top:0;">Pending Biography Change Requests <span class="mod-badge">Mod / Admin</span></h2>
+        <div id="bio-changes-list"><div class="muted-block">Loading…</div></div>
+      </section>
     ` : ""}
 
     ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
@@ -527,6 +559,78 @@ function render(data, state) {
       render(data, state);
     });
   });
+
+  // Bio change request form (own profile only)
+  host.querySelector("#bio-change-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const proposed_bio = String(fd.get("proposed_bio") || "").trim().slice(0, 2000);
+    if (!proposed_bio) return;
+    const statusEl = host.querySelector("#bio-change-status");
+    try {
+      await apiSubmitBioChange(proposed_bio);
+      if (statusEl) statusEl.textContent = "Change request submitted — awaiting mod review.";
+      e.currentTarget.reset();
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+    }
+  });
+
+  // Admin/mod bio change review panel
+  if (manager) {
+    const bioChangesList = host.querySelector("#bio-changes-list");
+    if (bioChangesList) {
+      apiGetAllBioChanges("pending").then(({ changes }) => {
+        if (!changes.length) {
+          bioChangesList.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
+          return;
+        }
+        bioChangesList.innerHTML = changes.map((c) => `
+          <article class="tile" style="margin-bottom:8px;" data-bio-change-id="${esc(c.id)}">
+            <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
+            <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
+            <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;white-space:pre-wrap;font-size:.9em;">${esc(c.proposed_bio)}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn primary" type="button" data-action="approve-bio-change" data-id="${esc(c.id)}">Approve</button>
+              <button class="btn" type="button" data-action="reject-bio-change" data-id="${esc(c.id)}">Reject</button>
+            </div>
+          </article>
+        `).join("");
+
+        bioChangesList.querySelectorAll('[data-action="approve-bio-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiApproveBioChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!bioChangesList.querySelector("article")) {
+                bioChangesList.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
+              }
+            } catch (err) {
+              state.message = `Error: ${err.message}`;
+              render(data, state);
+            }
+          });
+        });
+
+        bioChangesList.querySelectorAll('[data-action="reject-bio-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiRejectBioChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!bioChangesList.querySelector("article")) {
+                bioChangesList.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
+              }
+            } catch (err) {
+              state.message = `Error: ${err.message}`;
+              render(data, state);
+            }
+          });
+        });
+      }).catch(() => {
+        if (bioChangesList) bioChangesList.innerHTML = '<div class="muted-block">Could not load bio change requests.</div>';
+      });
+    }
+  }
 }
 
 export function initPersonalPage(data) {
