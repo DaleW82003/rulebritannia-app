@@ -1424,6 +1424,25 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS pending_profile_changes_char_idx   ON pending_profile_changes(character_id);
     CREATE INDEX IF NOT EXISTS pending_profile_changes_status_idx ON pending_profile_changes(status);
   `);
+
+  // ── Party shop purchases (DB-persisted per party) ─────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS party_shop_purchases (
+      id             UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      party_slug     TEXT    NOT NULL,
+      item_id        TEXT    NOT NULL,
+      item_name      TEXT    NOT NULL,
+      price          NUMERIC NOT NULL DEFAULT 0,
+      monthly_upkeep NUMERIC NOT NULL DEFAULT 0,
+      effects        JSONB   NOT NULL DEFAULT '[]',
+      risk_modifier  JSONB,
+      purchased_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS party_shop_purchases_slug_idx ON party_shop_purchases(party_slug);
+  `);
+
+  // ── Party drafts column (party bill drafts, admin/chairman only) ──────────
+  await pool.query(`ALTER TABLE parties ADD COLUMN IF NOT EXISTS drafts JSONB NOT NULL DEFAULT '[]'::jsonb`);
 }
 
 // ── 1997 baseline salary scale (idempotent) ────────────────────────────────
@@ -1609,17 +1628,24 @@ async function runShopUpkeep(/* month, year — reserved for future audit */ ) {
        WHERE shop_monthly_upkeep > 0
     `);
 
-    // Party: deduct structure monthly overhead from each party treasury
+    // Party: deduct structure monthly overhead + party shop purchase upkeep from each party treasury
     const { rows: parties } = await pool.query(
-      `SELECT id, slug, treasury, party_structure FROM parties
-        WHERE (party_structure->>'monthlyOverhead')::numeric > 0`
+      `SELECT p.id, p.slug, p.treasury, p.party_structure,
+              COALESCE(SUM(ps.monthly_upkeep), 0) AS shop_upkeep
+         FROM parties p
+         LEFT JOIN party_shop_purchases ps ON ps.party_slug = p.slug
+        WHERE (p.party_structure->>'monthlyOverhead')::numeric > 0
+           OR EXISTS (SELECT 1 FROM party_shop_purchases WHERE party_slug = p.slug AND monthly_upkeep > 0)
+        GROUP BY p.id, p.slug, p.treasury, p.party_structure`
     );
     for (const party of parties) {
       try {
-        const overhead  = Number(party.party_structure?.monthlyOverhead || 0);
-        if (overhead <= 0) continue;
+        const overhead    = Number(party.party_structure?.monthlyOverhead || 0);
+        const shopUpkeep  = Number(party.shop_upkeep || 0);
+        const totalDeduct = overhead + shopUpkeep;
+        if (totalDeduct <= 0) continue;
         const oldCash   = Number(party.treasury?.cash || 0);
-        const newCash   = oldCash - overhead;
+        const newCash   = oldCash - totalDeduct;
         const overspend = newCash < 0;
         await pool.query(
           `UPDATE parties
@@ -6286,24 +6312,46 @@ app.get("/api/parties/:partyId", partyReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
-    const { rows } = await pool.query(
-      `SELECT p.*,
-              lc.id   AS leader_id,      lc.name AS leader_name,      lc.avatar AS leader_avatar,
-              cc.id   AS chairman_id,    cc.name AS chairman_name,    cc.avatar AS chairman_avatar,
-              wc.id   AS whip_id,        wc.name AS whip_name,        wc.avatar AS whip_avatar,
-              cw.id   AS chief_whip_id,  cw.name AS chief_whip_name,  cw.avatar AS chief_whip_avatar,
-              dw.id   AS deputy_whip_id, dw.name AS deputy_whip_name, dw.avatar AS deputy_whip_avatar
-         FROM parties p
-         LEFT JOIN characters lc ON lc.id = p.leader_character_id
-         LEFT JOIN characters cc ON cc.id = p.chairman_character_id
-         LEFT JOIN characters wc ON wc.id = p.whip_character_id
-         LEFT JOIN characters cw ON cw.id = p.chief_whip_character_id
-         LEFT JOIN characters dw ON dw.id = p.deputy_whip_character_id
-        WHERE p.slug = $1`,
-      [req.params.partyId]
-    );
-    if (!rows.length) return res.status(404).json({ error: "Party not found" });
-    res.json({ party: rows[0] });
+    const [partyResult, shopResult] = await Promise.all([
+      pool.query(
+        `SELECT p.*,
+                lc.id   AS leader_id,      lc.name AS leader_name,      lc.avatar AS leader_avatar,
+                cc.id   AS chairman_id,    cc.name AS chairman_name,    cc.avatar AS chairman_avatar,
+                wc.id   AS whip_id,        wc.name AS whip_name,        wc.avatar AS whip_avatar,
+                cw.id   AS chief_whip_id,  cw.name AS chief_whip_name,  cw.avatar AS chief_whip_avatar,
+                dw.id   AS deputy_whip_id, dw.name AS deputy_whip_name, dw.avatar AS deputy_whip_avatar
+           FROM parties p
+           LEFT JOIN characters lc ON lc.id = p.leader_character_id
+           LEFT JOIN characters cc ON cc.id = p.chairman_character_id
+           LEFT JOIN characters wc ON wc.id = p.whip_character_id
+           LEFT JOIN characters cw ON cw.id = p.chief_whip_character_id
+           LEFT JOIN characters dw ON dw.id = p.deputy_whip_character_id
+          WHERE p.slug = $1`,
+        [req.params.partyId]
+      ),
+      pool.query(
+        `SELECT id, item_id, item_name, price, monthly_upkeep, effects, risk_modifier, purchased_at
+           FROM party_shop_purchases WHERE party_slug = $1 ORDER BY purchased_at`,
+        [req.params.partyId]
+      ),
+    ]);
+
+    if (!partyResult.rows.length) return res.status(404).json({ error: "Party not found" });
+    const party = partyResult.rows[0];
+    party.partyShopPurchases = shopResult.rows.map((p) => ({
+      id:            p.id,
+      itemId:        p.item_id,
+      itemName:      p.item_name,
+      name:          p.item_name,
+      price:         Number(p.price),
+      monthlyUpkeep: Number(p.monthly_upkeep),
+      effects:       Array.isArray(p.effects) ? p.effects : [],
+      riskModifier:  p.risk_modifier ?? null,
+      purchasedAt:   p.purchased_at,
+    }));
+    // Include drafts array from DB column
+    party.drafts = Array.isArray(party.drafts) ? party.drafts : [];
+    res.json({ party });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7101,6 +7149,244 @@ app.post("/api/parties/:partyId/structure", partyWriteLimit, async (req, res) =>
     res.status(500).json({ error: "Server error" });
   }
 });
+
+// ── Party treasury / info ─────────────────────────────────────────────────────
+// POST /api/parties/:partyId/treasury — admin/mod or party chairman/leader
+// Body: { cash?, debt?, members?, hqUrl? }
+app.post("/api/parties/:partyId/treasury", partyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+
+    if (!isAdminOrMod) {
+      if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
+      const { rows: pr } = await pool.query(
+        "SELECT leader_character_id, chairman_character_id FROM parties WHERE slug = $1",
+        [req.params.partyId]
+      );
+      if (!pr.length) return res.status(404).json({ error: "Party not found" });
+      const isLeader   = String(pr[0].leader_character_id)   === String(req.session.characterId);
+      const isChairman = String(pr[0].chairman_character_id) === String(req.session.characterId);
+      if (!isLeader && !isChairman) {
+        return res.status(403).json({ error: "Only the party chairman, leader, or admin/mod can update the party treasury" });
+      }
+    }
+
+    const { cash, debt, members, hqUrl } = req.body || {};
+
+    // Build treasury patch object and optional hq_url update
+    const treasuryValues = {};
+    if (cash    !== undefined) treasuryValues.cash    = parseFloat(cash)    ?? 0;
+    if (debt    !== undefined) treasuryValues.debt    = parseFloat(debt)    ?? 0;
+    if (members !== undefined) treasuryValues.members = parseFloat(members) ?? 0;
+
+    if (!Object.keys(treasuryValues).length && hqUrl === undefined) {
+      return res.status(400).json({ error: "No fields provided" });
+    }
+
+    const finalParams = [];
+    let idx = 1;
+    let setStr;
+
+    if (Object.keys(treasuryValues).length && hqUrl !== undefined) {
+      setStr = `treasury = COALESCE(treasury,'{}') || $${idx++}::jsonb, hq_url = $${idx++}, updated_at = NOW()`;
+      finalParams.push(JSON.stringify(treasuryValues), String(hqUrl || "").trim() || null);
+    } else if (Object.keys(treasuryValues).length) {
+      setStr = `treasury = COALESCE(treasury,'{}') || $${idx++}::jsonb, updated_at = NOW()`;
+      finalParams.push(JSON.stringify(treasuryValues));
+    } else {
+      setStr = `hq_url = $${idx++}, updated_at = NOW()`;
+      finalParams.push(String(hqUrl || "").trim() || null);
+    }
+    finalParams.push(req.params.partyId);
+
+    const { rows } = await pool.query(
+      `UPDATE parties SET ${setStr} WHERE slug = $${idx} RETURNING slug, treasury, hq_url`,
+      finalParams
+    );
+    if (!rows.length) return res.status(404).json({ error: "Party not found" });
+
+    await writeAuditLog(req.session.userId, "party.treasury.update", "party", req.params.partyId, null, req.body);
+    res.json({ ok: true, treasury: rows[0].treasury, hqUrl: rows[0].hq_url });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/treasury]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Party shop purchases ──────────────────────────────────────────────────────
+const partyShopLimit = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+// GET /api/parties/:partyId/shop-purchases
+app.get("/api/parties/:partyId/shop-purchases", partyReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT id, item_id, item_name, price, monthly_upkeep, effects, risk_modifier, purchased_at
+         FROM party_shop_purchases WHERE party_slug = $1 ORDER BY purchased_at`,
+      [req.params.partyId]
+    );
+    res.json({
+      purchases: rows.map((p) => ({
+        id:            p.id,
+        itemId:        p.item_id,
+        itemName:      p.item_name,
+        name:          p.item_name,
+        price:         Number(p.price),
+        monthlyUpkeep: Number(p.monthly_upkeep),
+        effects:       Array.isArray(p.effects) ? p.effects : [],
+        riskModifier:  p.risk_modifier ?? null,
+        purchasedAt:   p.purchased_at,
+      })),
+    });
+  } catch (e) {
+    console.error("[GET /api/parties/:partyId/shop-purchases]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/parties/:partyId/shop-purchases — buy a party shop item (atomic: deduct treasury)
+app.post("/api/parties/:partyId/shop-purchases", partyShopLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAuth(req, res)) { client.release(); return; }
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      if (!req.session.characterId) { client.release(); return res.status(403).json({ error: "No active character selected" }); }
+      const { rows: pr } = await client.query(
+        "SELECT leader_character_id, chairman_character_id FROM parties WHERE slug = $1",
+        [req.params.partyId]
+      );
+      if (!pr.length) { client.release(); return res.status(404).json({ error: "Party not found" }); }
+      const isLeader   = String(pr[0].leader_character_id)   === String(req.session.characterId);
+      const isChairman = String(pr[0].chairman_character_id) === String(req.session.characterId);
+      if (!isLeader && !isChairman) { client.release(); return res.status(403).json({ error: "Forbidden" }); }
+    }
+
+    const { item_id, item_name, price, monthly_upkeep, effects, risk_modifier } = req.body || {};
+    if (!item_id || !item_name) { client.release(); return res.status(400).json({ error: "item_id and item_name required" }); }
+    const priceParsed  = Math.max(0, parseFloat(price)          || 0);
+    const upkeepParsed = Math.max(0, parseFloat(monthly_upkeep) || 0);
+
+    await client.query("BEGIN");
+
+    // Check party treasury has sufficient funds
+    const { rows: partyRows } = await client.query(
+      "SELECT id, treasury FROM parties WHERE slug = $1 FOR UPDATE",
+      [req.params.partyId]
+    );
+    if (!partyRows.length) { await client.query("ROLLBACK"); client.release(); return res.status(404).json({ error: "Party not found" }); }
+    const currentCash = Number(partyRows[0].treasury?.cash ?? 0);
+    if (currentCash < priceParsed) { await client.query("ROLLBACK"); client.release(); return res.status(409).json({ error: "Insufficient party funds" }); }
+
+    // Deduct from treasury
+    const newCash = currentCash - priceParsed;
+    await client.query(
+      `UPDATE parties SET treasury = COALESCE(treasury,'{}') || $1::jsonb, updated_at = NOW() WHERE slug = $2`,
+      [JSON.stringify({ cash: newCash }), req.params.partyId]
+    );
+
+    // Insert purchase record
+    const { rows: inserted } = await client.query(
+      `INSERT INTO party_shop_purchases (party_slug, item_id, item_name, price, monthly_upkeep, effects, risk_modifier)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [req.params.partyId, String(item_id).slice(0,100), String(item_name).slice(0,200),
+       priceParsed, upkeepParsed,
+       JSON.stringify(Array.isArray(effects) ? effects : []),
+       risk_modifier ? JSON.stringify(risk_modifier) : null]
+    );
+
+    await client.query("COMMIT");
+    await writeAuditLog(req.session.userId, "party.shop.purchase", "party_shop_purchases", inserted[0].id, null, inserted[0]);
+    res.status(201).json({
+      ok: true,
+      purchase: {
+        id:            inserted[0].id,
+        itemId:        inserted[0].item_id,
+        itemName:      inserted[0].item_name,
+        name:          inserted[0].item_name,
+        price:         Number(inserted[0].price),
+        monthlyUpkeep: Number(inserted[0].monthly_upkeep),
+        effects:       inserted[0].effects,
+        riskModifier:  inserted[0].risk_modifier,
+        purchasedAt:   inserted[0].purchased_at,
+      },
+      newTreasuryCash: newCash,
+    });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /api/parties/:partyId/shop-purchases]", e);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/parties/:partyId/shop-purchases/:id — remove a party shop purchase
+app.delete("/api/parties/:partyId/shop-purchases/:id", partyShopLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) return res.status(403).json({ error: "Admin or mod required" });
+
+    const { rows } = await pool.query(
+      "DELETE FROM party_shop_purchases WHERE id = $1 AND party_slug = $2 RETURNING id",
+      [req.params.id, req.params.partyId]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Purchase not found" });
+
+    await writeAuditLog(req.session.userId, "party.shop.remove", "party_shop_purchases", req.params.id, null, null);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[DELETE /api/parties/:partyId/shop-purchases/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Party drafts ──────────────────────────────────────────────────────────────
+// POST /api/parties/:partyId/drafts — persist party draft documents
+// Body: { drafts: [...] }
+app.post("/api/parties/:partyId/drafts", partyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+
+    if (!isAdminOrMod) {
+      if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
+      const { rows: pr } = await pool.query(
+        "SELECT leader_character_id, chairman_character_id FROM parties WHERE slug = $1",
+        [req.params.partyId]
+      );
+      if (!pr.length) return res.status(404).json({ error: "Party not found" });
+      const isLeader   = String(pr[0].leader_character_id)   === String(req.session.characterId);
+      const isChairman = String(pr[0].chairman_character_id) === String(req.session.characterId);
+      if (!isLeader && !isChairman) return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const drafts = req.body?.drafts;
+    if (!Array.isArray(drafts)) return res.status(400).json({ error: "Body must be { drafts: [] }" });
+
+    const { rows } = await pool.query(
+      "UPDATE parties SET drafts = $1::jsonb, updated_at = NOW() WHERE slug = $2 RETURNING slug",
+      [JSON.stringify(drafts), req.params.partyId]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Party not found" });
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/drafts]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // POST   /api/offices              — admin: create office
 // POST   /api/offices/:id/assign   — admin: assign character to office
 // DELETE /api/offices/:id/assign/:characterId — admin: remove assignment

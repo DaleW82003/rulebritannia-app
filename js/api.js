@@ -830,6 +830,59 @@ export async function apiSavePartyStructure(partyId, structure) {
   return body;
 }
 
+export async function apiSetPartyTreasury(partyId, fields) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/treasury`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(fields),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSetPartyTreasury failed (${res.status})`);
+  return body;
+}
+
+export async function apiGetPartyShopPurchases(partyId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/shop-purchases`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPartyShopPurchases failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAddPartyShopPurchase(partyId, purchase) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/shop-purchases`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(purchase),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAddPartyShopPurchase failed (${res.status})`);
+  return body;
+}
+
+export async function apiRemovePartyShopPurchase(partyId, id) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/shop-purchases/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRemovePartyShopPurchase failed (${res.status})`);
+  return body;
+}
+
+export async function apiSavePartyDrafts(partyId, drafts) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/drafts`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ drafts }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSavePartyDrafts failed (${res.status})`);
+  return body;
+}
+
 // ── Offices ────────────────────────────────────────────────────────────────
 
 export async function apiGetOffices() {
