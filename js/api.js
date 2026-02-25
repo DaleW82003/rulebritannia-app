@@ -1241,3 +1241,59 @@ export async function apiDecideRebelRequest(divisionId, requestId, decision) {
   }
   return res.json();
 }
+
+
+// ── Constituencies ──────────────────────────────────────────────────────────
+
+export async function apiGetConstituencies() {
+  const res = await fetch(`${API_BASE}/api/constituencies`, { credentials: "include" });
+  return res.json();
+}
+
+export async function apiSaveConstituency(c) {
+  const res = await fetch(`${API_BASE}/api/constituencies`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(c),
+  });
+  return res.json();
+}
+
+export async function apiUpdateConstituency(id, updates) {
+  const res = await fetch(`${API_BASE}/api/constituencies/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(updates),
+  });
+  return res.json();
+}
+
+export async function apiDeleteConstituency(id) {
+  const res = await fetch(`${API_BASE}/api/constituencies/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  return res.json();
+}
+
+export async function apiInitialize1997Constituencies(confirmOverwrite) {
+  const res = await fetch(`${API_BASE}/api/admin/constituencies/initialize-1997`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ confirm: confirmOverwrite }),
+  });
+  return res.json();
+}
+
+export async function apiClearConstituencies() {
+  const res = await fetch(`${API_BASE}/api/admin/constituencies/clear`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  return res.json();
+}

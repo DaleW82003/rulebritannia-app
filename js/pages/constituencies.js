@@ -1,7 +1,15 @@
 import { setHTML, esc } from "../ui.js";
 import { saveState } from "../core.js";
 import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
-import { apiGetCharacters } from "../api.js";
+import {
+  apiGetCharacters,
+  apiGetConstituencies,
+  apiSaveConstituency,
+  apiUpdateConstituency,
+  apiDeleteConstituency,
+  apiInitialize1997Constituencies,
+  apiClearConstituencies,
+} from "../api.js";
 
 // Canonical fixed party list — never pulled from demo.json or runtime state.
 // 3 playable parties + 12 NPC parties = 15 total (5 columns × 3 rows).
@@ -21,21 +29,6 @@ const CONSTITUENCY_PARTIES = [
   { name: "UUP",              playable: false },
   { name: "Independents",     playable: false },
   { name: "Speaker",          playable: false },
-];
-
-const REGION_TEMPLATE = [
-  ["England", "North East", 25],
-  ["England", "North West", 70],
-  ["England", "Yorkshire and The Humber", 50],
-  ["England", "East Midlands", 40],
-  ["England", "West Midlands", 55],
-  ["England", "East of England", 52],
-  ["England", "London", 70],
-  ["England", "South East", 85],
-  ["England", "South West", 73],
-  ["Scotland", "Scotland", 72],
-  ["Wales", "Wales", 40],
-  ["Northern Ireland", "Northern Ireland", 18]
 ];
 
 function slugify(value) {
@@ -58,51 +51,6 @@ function seatLabel(c, data) {
   if (c.mpType === "npc" && c.mpName) return `${c.mpName} (NPC)`;
   if (c.mpType === "character" && c.mpName) return `${c.mpName} (Character)`;
   return "Available";
-}
-
-function ensureConstituencyAssignments(data) {
-  data.constituencies ??= [];
-  data.players ??= [];
-  data.constituencies.forEach((c) => {
-    const charName = activeMpNameForConstituency(data, c.name);
-    if (charName) {
-      c.mpType = "character";
-      c.mpName = charName;
-    } else {
-      c.mpType = c.mpType || "";
-      c.mpName = c.mpName || "";
-    }
-  });
-}
-
-function buildSynthetic650(data) {
-  const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
-  const bySeats = parties.slice().sort((a, b) => Number(b.seats || 0) - Number(a.seats || 0));
-  const bag = [];
-  bySeats.forEach((p) => {
-    const seats = Math.max(0, Number(p.seats || 0));
-    for (let i = 0; i < seats; i += 1) bag.push(p.name);
-  });
-  while (bag.length < 650) bag.push("Others");
-
-  let idx = 0;
-  const output = [];
-  REGION_TEMPLATE.forEach(([nation, region, count]) => {
-    for (let i = 1; i <= count; i += 1) {
-      const name = `${region} Constituency ${String(i).padStart(2, "0")}`;
-      output.push({
-        id: slugify(`${nation}-${region}-${i}`),
-        name,
-        nation,
-        region,
-        party: bag[idx] || "Others",
-        mpType: "",
-        mpName: ""
-      });
-      idx += 1;
-    }
-  });
-  return output;
 }
 
 function getLargestParty(data) {
@@ -146,7 +94,7 @@ function renderStateOfParliament(data) {
   `;
 }
 
-function renderPartyTiles(data) {
+function renderPartyTiles(constituencies, data) {
   // Seat counts come from live parliament data; fall back to 0 if not set.
   const liveParties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
   const seatsMap = new Map(liveParties.map((p) => [p.name, Number(p.seats || 0)]));
@@ -155,7 +103,7 @@ function renderPartyTiles(data) {
     <div class="wgo-grid party-tiles-grid">
       ${CONSTITUENCY_PARTIES.map((p) => {
         const seats = seatsMap.get(p.name) || 0;
-        const constCount = (data.constituencies || []).filter((c) => c.party === p.name).length;
+        const constCount = constituencies.filter((c) => c.party === p.name).length;
         const npcTag = !p.playable ? `<span class="muted" style="font-size:11px;margin-left:4px;">(NPC)</span>` : "";
         return `
           <div class="wgo-tile card-flex">
@@ -172,8 +120,8 @@ function renderPartyTiles(data) {
   `;
 }
 
-function renderConstituencyListForParty(data, partyName) {
-  const list = (data.constituencies || []).filter((c) => c.party === partyName).sort((a, b) => a.name.localeCompare(b.name));
+function renderConstituencyListForParty(constituencies, partyName, data) {
+  const list = constituencies.filter((c) => c.party === partyName).sort((a, b) => a.name.localeCompare(b.name));
   if (!list.length) return `<div class="muted-block">No constituencies assigned to ${esc(partyName)}.</div>`;
   return `
     <div class="docket-list">
@@ -189,7 +137,7 @@ function renderConstituencyListForParty(data, partyName) {
   `;
 }
 
-function bindPartyListButtons(data) {
+function bindPartyListButtons(constituencies, data) {
   const panel = document.getElementById("partyConstituencyPanel");
   const title = document.getElementById("partyConstituencyTitle");
   const list = document.getElementById("partyConstituencyList");
@@ -199,18 +147,22 @@ function bindPartyListButtons(data) {
     btn.addEventListener("click", () => {
       const partyName = btn.getAttribute("data-party-list");
       title.textContent = `${partyName} — Constituencies`;
-      list.innerHTML = renderConstituencyListForParty(data, partyName);
+      list.innerHTML = renderConstituencyListForParty(constituencies, partyName, data);
       panel.style.display = "";
     });
   });
 }
 
-function refreshAll(data) {
-  ensureConstituencyAssignments(data);
+function refreshAll(constituencies, data) {
+  // Show / hide empty-state callout
+  const emptyCallout = document.getElementById("constEmptyCallout");
+  if (emptyCallout) {
+    emptyCallout.style.display = constituencies.length === 0 && canManage(data) ? "" : "none";
+  }
 
   setHTML("parliament-summary", renderStateOfParliament(data));
-  setHTML("party-seats", renderPartyTiles(data));
-  bindPartyListButtons(data);
+  setHTML("party-seats", renderPartyTiles(constituencies, data));
+  bindPartyListButtons(constituencies, data);
 
   const partySelect = document.getElementById("constParty");
   if (partySelect) {
@@ -222,7 +174,7 @@ function refreshAll(data) {
 
   const listRoot = document.getElementById("constEditorList");
   if (listRoot) {
-    listRoot.innerHTML = (data.constituencies || []).slice().sort((a, b) => a.name.localeCompare(b.name)).map((c) => `
+    listRoot.innerHTML = constituencies.slice().sort((a, b) => a.name.localeCompare(b.name)).map((c) => `
       <div class="docket-item">
         <div class="docket-left"><div><div class="docket-title">${esc(c.name)}</div><div class="docket-detail">${esc(c.party)} • ${esc(c.region)} • ${esc(c.nation)} • MP: ${esc(seatLabel(c, data))}</div></div></div>
         <div class="tile-bottom" style="padding-top:0; margin-top:0;"><button class="btn" type="button" data-edit-id="${esc(c.id)}">Edit</button><button class="btn danger" type="button" data-delete-id="${esc(c.id)}">Remove</button></div>
@@ -230,7 +182,7 @@ function refreshAll(data) {
     `).join("");
   }
 
-  bindEditorRowActions(data);
+  bindEditorRowActions(constituencies, data);
   renderParliamentSetupForm(data);
 }
 
@@ -359,7 +311,6 @@ function renderParliamentSetupForm(data) {
 
     saveState(data);
     if (msgEl) msgEl.textContent = "Saved.";
-    refreshAll(data);
   });
 
   formRoot.querySelector("#clearParliamentBtn")?.addEventListener("click", () => {
@@ -370,23 +321,27 @@ function renderParliamentSetupForm(data) {
     data.parliament.extraParties = [];
     saveState(data);
     renderParliamentSetupForm(data);
-    refreshAll(data);
   });
 }
 
-function bindEditorRowActions(data) {
+function bindEditorRowActions(constituencies, data) {
   const form = document.getElementById("constEditorForm");
   if (!form) return;
 
-  document.querySelectorAll("[data-delete-id]").forEach((btn) => btn.addEventListener("click", () => {
+  document.querySelectorAll("[data-delete-id]").forEach((btn) => btn.addEventListener("click", async () => {
     const id = btn.getAttribute("data-delete-id");
-    data.constituencies = (data.constituencies || []).filter((c) => c.id !== id);
-    saveState(data);
-    refreshAll(data);
+    if (!confirm("Remove this constituency?")) return;
+    try {
+      await apiDeleteConstituency(id);
+      const fresh = await apiGetConstituencies();
+      refreshAll(fresh.constituencies || [], data);
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
   }));
 
   document.querySelectorAll("[data-edit-id]").forEach((btn) => btn.addEventListener("click", () => {
-    const c = (data.constituencies || []).find((x) => x.id === btn.getAttribute("data-edit-id"));
+    const c = constituencies.find((x) => x.id === btn.getAttribute("data-edit-id"));
     if (!c) return;
     form.querySelector("#constId").value = c.id;
     form.querySelector("#constName").value = c.name;
@@ -398,12 +353,12 @@ function bindEditorRowActions(data) {
   }));
 }
 
-function bindEditor(data) {
+function bindEditor(constituencies, data) {
   const panel = document.getElementById("constituencyEditorPanel");
   const openBtn = document.getElementById("constituencyEditorBtn");
   const form = document.getElementById("constEditorForm");
   const resetBtn = document.getElementById("constEditorReset");
-  const seedBtn = document.getElementById("constituencySeed650");
+  const init1997Btn = document.getElementById("constituencyInit1997");
   const clearAllBtn = document.getElementById("clearAllConstituencies");
   const closeListBtn = document.getElementById("partyConstituencyClose");
   if (!panel || !openBtn || !form || !resetBtn) return;
@@ -413,18 +368,37 @@ function bindEditor(data) {
   if (!allowed) return;
 
   openBtn.addEventListener("click", () => { panel.style.display = panel.style.display === "none" ? "" : "none"; });
-  seedBtn?.addEventListener("click", () => {
-    data.constituencies = buildSynthetic650(data);
-    saveState(data);
-    refreshAll(data);
+
+  // Load May 1997 constituencies
+  init1997Btn?.addEventListener("click", async () => {
+    const msgEl = document.getElementById("init1997Msg");
+    const existing = constituencies.length;
+    const confirmMsg = existing > 0
+      ? `This will overwrite all ${existing} existing constituencies with the real May 1997 data (650 seats). Continue?`
+      : "Load real May 1997 constituencies (650 seats)?";
+    if (!confirm(confirmMsg)) return;
+    if (msgEl) msgEl.textContent = "Loading…";
+    try {
+      const result = await apiInitialize1997Constituencies(true);
+      if (msgEl) msgEl.textContent = `✓ ${result.count} constituencies loaded from May 1997 data.`;
+      const fresh = await apiGetConstituencies();
+      refreshAll(fresh.constituencies || [], data);
+    } catch (err) {
+      if (msgEl) msgEl.textContent = `Error: ${err.message}`;
+      alert(`Failed to initialize 1997 constituencies: ${err.message}`);
+    }
   });
 
-  clearAllBtn?.addEventListener("click", () => {
+  clearAllBtn?.addEventListener("click", async () => {
     if (!isAdmin(data)) return;
     if (!confirm("Clear all constituencies? This cannot be undone.")) return;
-    data.constituencies = [];
-    saveState(data);
-    refreshAll(data);
+    try {
+      await apiClearConstituencies();
+      const fresh = await apiGetConstituencies();
+      refreshAll(fresh.constituencies || [], data);
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
   });
 
   closeListBtn?.addEventListener("click", () => {
@@ -437,7 +411,7 @@ function bindEditor(data) {
     form.querySelector("#constId").value = "";
   });
 
-  form.addEventListener("submit", (ev) => {
+  form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const id = form.querySelector("#constId").value.trim();
     const name = form.querySelector("#constName").value.trim();
@@ -448,37 +422,44 @@ function bindEditor(data) {
     const mpName = form.querySelector("#constMpName").value.trim();
     if (!name || !nation || !region || !party) return;
 
-    data.constituencies ??= [];
     const payload = { name, nation, region, party, mpType, mpName };
-
-    if (id) {
-      const existing = data.constituencies.find((c) => c.id === id);
-      if (existing) Object.assign(existing, payload);
-    } else {
-      data.constituencies.push({ id: slugify(`${name}-${Math.random().toString(36).slice(2, 6)}`), ...payload });
+    try {
+      if (id) {
+        await apiUpdateConstituency(id, payload);
+      } else {
+        const newId = slugify(`${name}-${Math.random().toString(36).slice(2, 6)}`);
+        await apiSaveConstituency({ id: newId, ...payload });
+      }
+      form.reset();
+      form.querySelector("#constId").value = "";
+      const fresh = await apiGetConstituencies();
+      refreshAll(fresh.constituencies || [], data);
+    } catch (err) {
+      alert(`Error saving constituency: ${err.message}`);
     }
-
-    saveState(data);
-    form.reset();
-    form.querySelector("#constId").value = "";
-    refreshAll(data);
   });
 }
 
 /**
  * Initialise the Constituencies page.
- * Fetches active characters from /api/characters and merges them into the
- * players list for constituency assignment display (non-fatal fallback if unavailable).
+ * Fetches constituencies from the DB API, merges active characters for display.
  */
 export async function initConstituenciesPage(data) {
   data.parliament ??= {};
-  data.constituencies ??= [];
+
+  // Fetch constituencies from DB
+  let constituencies = [];
+  try {
+    const result = await apiGetConstituencies();
+    constituencies = result.constituencies || [];
+  } catch {
+    // Non-critical: may not be logged in or server unavailable
+  }
 
   // Fetch DB characters and merge into players list for constituency assignment
   try {
     const { characters } = await apiGetCharacters({ active: "true" });
     if (characters && characters.length) {
-      // Map DB characters onto data.players so existing constituency assignment logic works
       const existingIds = new Set((data.players || []).map((p) => p.id));
       const dbPlayers = characters
         .filter((c) => c.constituency)
@@ -498,7 +479,6 @@ export async function initConstituenciesPage(data) {
     // Non-critical: fall back to state-based players list
   }
 
-  ensureConstituencyAssignments(data);
-  refreshAll(data);
-  bindEditor(data);
+  refreshAll(constituencies, data);
+  bindEditor(constituencies, data);
 }

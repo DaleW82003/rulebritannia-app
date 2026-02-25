@@ -5,6 +5,9 @@ import pgSession from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "crypto";
+import { readFileSync } from "fs";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 import sgMail from "@sendgrid/mail";
 import { pool } from "./db.js";
 import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload } from "./discourse.js";
@@ -14,6 +17,8 @@ import {
   withRetry as dcWithRetry,
 } from "./discourseClient.js";
 import { ALL_VALID_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP } from "./roles.js";
+
+const __serverDir = dirname(fileURLToPath(import.meta.url));
 
 // ── Turnstile config ──────────────────────────────────────────────────────────
 const TURNSTILE_ENABLED    = process.env.TURNSTILE_ENABLED === "true";
@@ -986,6 +991,23 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS drr_division_idx ON division_rebel_requests (division_id);
     CREATE INDEX IF NOT EXISTS drr_char_idx     ON division_rebel_requests (character_id);
+  `);
+
+  // ── Constituencies ────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS constituencies (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      nation     TEXT NOT NULL,
+      region     TEXT NOT NULL,
+      party      TEXT NOT NULL,
+      mp_type    TEXT NOT NULL DEFAULT '',
+      mp_name    TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS constituencies_party_idx  ON constituencies (party);
+    CREATE INDEX IF NOT EXISTS constituencies_nation_idx ON constituencies (nation);
   `);
 
   await seedPlayableParties();
@@ -6709,6 +6731,181 @@ app.post("/api/mod/scandals/:id/close", scandalWriteLimit, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/mod/scandals/:id/close]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONSTITUENCIES (DB-backed)
+// GET    /api/constituencies                        — authenticated: list all
+// POST   /api/constituencies                        — admin/mod/speaker: upsert one
+// PUT    /api/constituencies/:id                    — admin/mod/speaker: update one
+// DELETE /api/constituencies/:id                    — admin/mod/speaker: delete one
+// POST   /api/admin/constituencies/initialize-1997  — bulk-seed from JSON; requires confirm=true
+// DELETE /api/admin/constituencies/clear            — admin only: wipe all
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const constReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
+const constWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
+
+// Helper: load the committed 1997 JSON (lazy, cached after first load)
+let _constituencies1997 = null;
+function load1997Json() {
+  if (!_constituencies1997) {
+    const p = resolve(__serverDir, "..", "data", "constituencies_1997.json");
+    _constituencies1997 = JSON.parse(readFileSync(p, "utf8"));
+  }
+  return _constituencies1997;
+}
+
+app.get("/api/constituencies", constReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { rows } = await pool.query(
+      `SELECT id, name, nation, region, party, mp_type, mp_name, updated_at
+         FROM constituencies ORDER BY nation, region, name`
+    );
+    res.json({
+      constituencies: rows.map(r => ({
+        id: r.id, name: r.name, nation: r.nation, region: r.region,
+        party: r.party, mpType: r.mp_type, mpName: r.mp_name,
+        updatedAt: r.updated_at,
+      })),
+    });
+  } catch (e) {
+    console.error("[GET /api/constituencies]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/constituencies", constWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { id, name, nation, region, party, mpType = "", mpName = "" } = req.body || {};
+    if (!id || !name || !nation || !region || !party) {
+      return res.status(400).json({ error: "id, name, nation, region, party are required" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO constituencies (id, name, nation, region, party, mp_type, mp_name)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (id) DO UPDATE
+         SET name = EXCLUDED.name, nation = EXCLUDED.nation, region = EXCLUDED.region,
+             party = EXCLUDED.party, mp_type = EXCLUDED.mp_type, mp_name = EXCLUDED.mp_name,
+             updated_at = NOW()
+       RETURNING id, updated_at`,
+      [id, name, nation, region, party, mpType, mpName]
+    );
+    await writeAuditLog(req.session.userId, "constituency.upsert", "constituencies", id, null, req.body);
+    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error("[POST /api/constituencies]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/constituencies/:id", constWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { name, nation, region, party, mpType, mpName } = req.body || {};
+    const { rows: before } = await pool.query(
+      "SELECT * FROM constituencies WHERE id = $1", [req.params.id]
+    );
+    if (!before.length) return res.status(404).json({ error: "Constituency not found" });
+    const b = before[0];
+    const { rows } = await pool.query(
+      `UPDATE constituencies
+         SET name = $2, nation = $3, region = $4, party = $5,
+             mp_type = $6, mp_name = $7, updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, updated_at`,
+      [
+        req.params.id,
+        name    ?? b.name,
+        nation  ?? b.nation,
+        region  ?? b.region,
+        party   ?? b.party,
+        mpType  !== undefined ? mpType  : b.mp_type,
+        mpName  !== undefined ? mpName  : b.mp_name,
+      ]
+    );
+    await writeAuditLog(req.session.userId, "constituency.update", "constituencies", req.params.id, b, req.body);
+    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error("[PUT /api/constituencies/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/constituencies/:id", constWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { rowCount } = await pool.query(
+      "DELETE FROM constituencies WHERE id = $1", [req.params.id]
+    );
+    if (!rowCount) return res.status(404).json({ error: "Constituency not found" });
+    await writeAuditLog(req.session.userId, "constituency.delete", "constituencies", req.params.id, null, null);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[DELETE /api/constituencies/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/admin/constituencies/initialize-1997", constWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { confirm } = req.body || {};
+    if (!confirm) {
+      return res.status(400).json({ error: "Send confirm: true to confirm overwriting all constituencies" });
+    }
+
+    const json = load1997Json();
+    const incoming = json.constituencies;
+    if (!Array.isArray(incoming) || incoming.length !== 650) {
+      return res.status(500).json({
+        error: `constituencies_1997.json must contain exactly 650 entries (found ${incoming?.length ?? 0}). ` +
+               "Re-run scripts/convert-1997-csv.js to regenerate."
+      });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM constituencies");
+      for (const c of incoming) {
+        await client.query(
+          `INSERT INTO constituencies (id, name, nation, region, party, mp_type, mp_name)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [c.id, c.name, c.nation, c.region, c.party, c.mpType || "", c.mpName || ""]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    await writeAuditLog(
+      req.session.userId, "constituencies.initialize_1997", "constituencies",
+      "bulk", null, { count: incoming.length }
+    );
+    res.json({ ok: true, count: incoming.length });
+  } catch (e) {
+    console.error("[POST /api/admin/constituencies/initialize-1997]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/admin/constituencies/clear", constWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM constituencies");
+    await writeAuditLog(req.session.userId, "constituencies.clear", "constituencies", "all", null, { deleted: rowCount });
+    res.json({ ok: true, deleted: rowCount });
+  } catch (e) {
+    console.error("[DELETE /api/admin/constituencies/clear]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

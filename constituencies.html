@@ -99,6 +99,13 @@
     <div class="bbc-title">Constituencies</div>
   </div>
 
+  <!-- Empty-state callout (shown to admin/mod/speaker when no constituencies exist) -->
+  <div id="constEmptyCallout" class="panel" style="display:none; margin-bottom:14px; border-left:4px solid var(--accent, #c00); padding:14px 18px;">
+    <strong>No constituencies initialised.</strong>
+    To get started, open the <em>Parliament Control Panel</em> and click
+    <em>Load May 1997 constituencies</em>.
+  </div>
+
   <section class="panel">
     <div class="spaced">
       <h2 style="margin:0;">State of Parliament</h2>
@@ -130,6 +137,12 @@
 
     <h3>Constituency Management</h3>
     <div class="muted-block" style="margin-bottom:12px;">Add/edit/remove constituencies and assign MPs (Character/NPC). Constituencies with any MP are unavailable for character creation.</div>
+
+    <div class="tile-bottom" style="padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--line);">
+      <button class="btn primary" type="button" id="constituencyInit1997">Load May 1997 constituencies</button>
+      <span id="init1997Msg" class="muted" style="margin-left:8px;"></span>
+    </div>
+
     <form id="constEditorForm" class="form-grid">
       <input id="constId" type="hidden">
 
