@@ -1,0 +1,5914 @@
+{
+  "generatedAt": "2026-02-25T07:23:51.895Z",
+  "constituencies": [
+    {
+      "id": "barking",
+      "name": "Barking",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "battersea",
+      "name": "Battersea",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "beckenham",
+      "name": "Beckenham",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bexleyheath-and-crayford",
+      "name": "Bexleyheath and Crayford",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "brent-east",
+      "name": "Brent East",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "brent-north",
+      "name": "Brent North",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "brent-south",
+      "name": "Brent South",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bromley-and-chislehurst",
+      "name": "Bromley and Chislehurst",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "camberwell-and-peckham",
+      "name": "Camberwell and Peckham",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "carshalton-and-wallington",
+      "name": "Carshalton and Wallington",
+      "nation": "England",
+      "region": "London",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "chelsea-and-fulham",
+      "name": "Chelsea and Fulham",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "chingford-and-wood-green",
+      "name": "Chingford and Wood Green",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "chipping-barnet",
+      "name": "Chipping Barnet",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cities-of-london-and-westminster",
+      "name": "Cities of London and Westminster",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "croydon-central",
+      "name": "Croydon Central",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "croydon-north",
+      "name": "Croydon North",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "croydon-south",
+      "name": "Croydon South",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dagenham",
+      "name": "Dagenham",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dulwich-and-west-norwood",
+      "name": "Dulwich and West Norwood",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ealing-acton-and-shepherds-bush",
+      "name": "Ealing Acton and Shepherd's Bush",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ealing-north",
+      "name": "Ealing North",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ealing-southall",
+      "name": "Ealing Southall",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "east-ham",
+      "name": "East Ham",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "edmonton",
+      "name": "Edmonton",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "eltham",
+      "name": "Eltham",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "enfield-north",
+      "name": "Enfield North",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "enfield-southgate",
+      "name": "Enfield Southgate",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "erith-and-thamesmead",
+      "name": "Erith and Thamesmead",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "feltham-and-heston",
+      "name": "Feltham and Heston",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "finchley-and-golders-green",
+      "name": "Finchley and Golders Green",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "greenwich-and-woolwich",
+      "name": "Greenwich and Woolwich",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hackney-north-and-stoke-newington",
+      "name": "Hackney North and Stoke Newington",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hackney-south-and-shoreditch",
+      "name": "Hackney South and Shoreditch",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hammersmith-and-fulham",
+      "name": "Hammersmith and Fulham",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hampstead-and-highgate",
+      "name": "Hampstead and Highgate",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "harrow-east",
+      "name": "Harrow East",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "harrow-west",
+      "name": "Harrow West",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hayes-and-harlington",
+      "name": "Hayes and Harlington",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hendon",
+      "name": "Hendon",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "holborn-and-st-pancras",
+      "name": "Holborn and St Pancras",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hornchurch",
+      "name": "Hornchurch",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hornsey-and-wood-green",
+      "name": "Hornsey and Wood Green",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ilford-north",
+      "name": "Ilford North",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ilford-south",
+      "name": "Ilford South",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "islington-north",
+      "name": "Islington North",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "islington-south-and-finsbury",
+      "name": "Islington South and Finsbury",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "kensington-and-chelsea",
+      "name": "Kensington and Chelsea",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "kingston-and-surbiton",
+      "name": "Kingston and Surbiton",
+      "nation": "England",
+      "region": "London",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "lewisham-deptford",
+      "name": "Lewisham Deptford",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "lewisham-east",
+      "name": "Lewisham East",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "lewisham-west",
+      "name": "Lewisham West",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leyton-and-wanstead",
+      "name": "Leyton and Wanstead",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "mitcham-and-morden",
+      "name": "Mitcham and Morden",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "old-bexley-and-sidcup",
+      "name": "Old Bexley and Sidcup",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "orpington",
+      "name": "Orpington",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "poplar-and-canning-town",
+      "name": "Poplar and Canning Town",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "putney",
+      "name": "Putney",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "richmond-park",
+      "name": "Richmond Park",
+      "nation": "England",
+      "region": "London",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "romford",
+      "name": "Romford",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ruislip-northwood",
+      "name": "Ruislip-Northwood",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "southwark-north-and-bermondsey",
+      "name": "Southwark North and Bermondsey",
+      "nation": "England",
+      "region": "London",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "streatham",
+      "name": "Streatham",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sutton-and-cheam",
+      "name": "Sutton and Cheam",
+      "nation": "England",
+      "region": "London",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tooting",
+      "name": "Tooting",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tottenham",
+      "name": "Tottenham",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "twickenham",
+      "name": "Twickenham",
+      "nation": "England",
+      "region": "London",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "upminster",
+      "name": "Upminster",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "uxbridge",
+      "name": "Uxbridge",
+      "nation": "England",
+      "region": "London",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "vauxhall",
+      "name": "Vauxhall",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "walthamstow",
+      "name": "Walthamstow",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "west-ham",
+      "name": "West Ham",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wimbledon",
+      "name": "Wimbledon",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "battersea-north",
+      "name": "Battersea North",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bow-and-poplar",
+      "name": "Bow and Poplar",
+      "nation": "England",
+      "region": "London",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "aldershot",
+      "name": "Aldershot",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "arundel-and-south-downs",
+      "name": "Arundel and South Downs",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "aylesbury",
+      "name": "Aylesbury",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "banbury",
+      "name": "Banbury",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "basingstoke",
+      "name": "Basingstoke",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "beaconsfield",
+      "name": "Beaconsfield",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bognor-regis-and-littlehampton",
+      "name": "Bognor Regis and Littlehampton",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bracknell",
+      "name": "Bracknell",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "brighton-kemptown",
+      "name": "Brighton Kemptown",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "brighton-pavilion",
+      "name": "Brighton Pavilion",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "canterbury",
+      "name": "Canterbury",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "chatham-and-aylesford",
+      "name": "Chatham and Aylesford",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "chesham-and-amersham",
+      "name": "Chesham and Amersham",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "chichester",
+      "name": "Chichester",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "crawley",
+      "name": "Crawley",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dartford",
+      "name": "Dartford",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dover",
+      "name": "Dover",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "east-hampshire",
+      "name": "East Hampshire",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "east-surrey",
+      "name": "East Surrey",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "eastbourne",
+      "name": "Eastbourne",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "eastleigh",
+      "name": "Eastleigh",
+      "nation": "England",
+      "region": "South East",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "epsom-and-ewell",
+      "name": "Epsom and Ewell",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "esher-and-walton",
+      "name": "Esher and Walton",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "faversham-and-mid-kent",
+      "name": "Faversham and Mid Kent",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "fareham",
+      "name": "Fareham",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "folkestone-and-hythe",
+      "name": "Folkestone and Hythe",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "gosport",
+      "name": "Gosport",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "guildford",
+      "name": "Guildford",
+      "nation": "England",
+      "region": "South East",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hastings-and-rye",
+      "name": "Hastings and Rye",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "havant",
+      "name": "Havant",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "horsham",
+      "name": "Horsham",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hove",
+      "name": "Hove",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "isle-of-wight",
+      "name": "Isle of Wight",
+      "nation": "England",
+      "region": "South East",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "lewes",
+      "name": "Lewes",
+      "nation": "England",
+      "region": "South East",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "maidstone-and-the-weald",
+      "name": "Maidstone and The Weald",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "medway",
+      "name": "Medway",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "mid-sussex",
+      "name": "Mid Sussex",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "mole-valley",
+      "name": "Mole Valley",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "new-forest-east",
+      "name": "New Forest East",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "new-forest-west",
+      "name": "New Forest West",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "north-thanet",
+      "name": "North Thanet",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "oxford-east",
+      "name": "Oxford East",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "oxford-west-and-abingdon",
+      "name": "Oxford West and Abingdon",
+      "nation": "England",
+      "region": "South East",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "portsmouth-north",
+      "name": "Portsmouth North",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "portsmouth-south",
+      "name": "Portsmouth South",
+      "nation": "England",
+      "region": "South East",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "reading-east",
+      "name": "Reading East",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "reading-west",
+      "name": "Reading West",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "reigate",
+      "name": "Reigate",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "rochester-and-strood",
+      "name": "Rochester and Strood",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "romsey",
+      "name": "Romsey",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "runnymede-and-weybridge",
+      "name": "Runnymede and Weybridge",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "saffron-walden",
+      "name": "Saffron Walden",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sevenoaks",
+      "name": "Sevenoaks",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "shepway",
+      "name": "Shepway",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sittingbourne-and-sheppey",
+      "name": "Sittingbourne and Sheppey",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "slough",
+      "name": "Slough",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-east-cambridgeshire",
+      "name": "South East Cambridgeshire",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-thanet",
+      "name": "South Thanet",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "southampton-itchen",
+      "name": "Southampton Itchen",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "southampton-test",
+      "name": "Southampton Test",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "spelthorne",
+      "name": "Spelthorne",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "surrey-heath",
+      "name": "Surrey Heath",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "swindon-north",
+      "name": "Swindon North",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "swindon-south",
+      "name": "Swindon South",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "test-valley",
+      "name": "Test Valley",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tonbridge-and-malling",
+      "name": "Tonbridge and Malling",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tunbridge-wells",
+      "name": "Tunbridge Wells",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wantage",
+      "name": "Wantage",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "waverley",
+      "name": "Waverley",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wealden",
+      "name": "Wealden",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "winchester",
+      "name": "Winchester",
+      "nation": "England",
+      "region": "South East",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "windsor",
+      "name": "Windsor",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "woking",
+      "name": "Woking",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wokingham",
+      "name": "Wokingham",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "worthing-east-and-shoreham",
+      "name": "Worthing East and Shoreham",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "worthing-west",
+      "name": "Worthing West",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "witney",
+      "name": "Witney",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wycombe",
+      "name": "Wycombe",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tonbridge",
+      "name": "Tonbridge",
+      "nation": "England",
+      "region": "South East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "thanet-south",
+      "name": "Thanet South",
+      "nation": "England",
+      "region": "South East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bath",
+      "name": "Bath",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bournemouth-east",
+      "name": "Bournemouth East",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bournemouth-west",
+      "name": "Bournemouth West",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bridgwater",
+      "name": "Bridgwater",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bristol-east",
+      "name": "Bristol East",
+      "nation": "England",
+      "region": "South West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bristol-north-west",
+      "name": "Bristol North West",
+      "nation": "England",
+      "region": "South West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bristol-south",
+      "name": "Bristol South",
+      "nation": "England",
+      "region": "South West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bristol-west",
+      "name": "Bristol West",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cheltenham",
+      "name": "Cheltenham",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "chippenham",
+      "name": "Chippenham",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "christchurch",
+      "name": "Christchurch",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cornwall-north",
+      "name": "Cornwall North",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cornwall-south-east",
+      "name": "Cornwall South East",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "devon-north",
+      "name": "Devon North",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "devon-west-and-torridge",
+      "name": "Devon West and Torridge",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dorset-mid-and-poole-north",
+      "name": "Dorset Mid and Poole North",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dorset-north",
+      "name": "Dorset North",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dorset-south",
+      "name": "Dorset South",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dorset-west",
+      "name": "Dorset West",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "east-devon",
+      "name": "East Devon",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "exeter",
+      "name": "Exeter",
+      "nation": "England",
+      "region": "South West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "falmouth-and-camborne",
+      "name": "Falmouth and Camborne",
+      "nation": "England",
+      "region": "South West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "forest-of-dean",
+      "name": "Forest of Dean",
+      "nation": "England",
+      "region": "South West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "gloucester",
+      "name": "Gloucester",
+      "nation": "England",
+      "region": "South West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hereford",
+      "name": "Hereford",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leominster",
+      "name": "Leominster",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ludlow",
+      "name": "Ludlow",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "mid-dorset",
+      "name": "Mid Dorset",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "newbury",
+      "name": "Newbury",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "north-devon",
+      "name": "North Devon",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "north-wiltshire",
+      "name": "North Wiltshire",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "plymouth-devonport",
+      "name": "Plymouth Devonport",
+      "nation": "England",
+      "region": "South West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "plymouth-sutton",
+      "name": "Plymouth Sutton",
+      "nation": "England",
+      "region": "South West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "poole",
+      "name": "Poole",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "salisbury",
+      "name": "Salisbury",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "somerton-and-frome",
+      "name": "Somerton and Frome",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-gloucestershire",
+      "name": "South Gloucestershire",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-hams",
+      "name": "South Hams",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-west-devon",
+      "name": "South West Devon",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "st-austell-and-newquay",
+      "name": "St Austell and Newquay",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "st-ives",
+      "name": "St Ives",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stroud",
+      "name": "Stroud",
+      "nation": "England",
+      "region": "South West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "taunton",
+      "name": "Taunton",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tewkesbury",
+      "name": "Tewkesbury",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "thornbury-and-yate",
+      "name": "Thornbury and Yate",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tiverton-and-honiton",
+      "name": "Tiverton and Honiton",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "torbay",
+      "name": "Torbay",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "torridge-and-west-devon",
+      "name": "Torridge and West Devon",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "truro-and-st-austell",
+      "name": "Truro and St Austell",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wells",
+      "name": "Wells",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "weston-super-mare",
+      "name": "Weston-super-Mare",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wiltshire-north",
+      "name": "Wiltshire North",
+      "nation": "England",
+      "region": "South West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "yeovil",
+      "name": "Yeovil",
+      "nation": "England",
+      "region": "South West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bedfordshire-mid",
+      "name": "Bedfordshire Mid",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bedfordshire-north-east",
+      "name": "Bedfordshire North East",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bedfordshire-south-west",
+      "name": "Bedfordshire South West",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "braintree",
+      "name": "Braintree",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "brentwood-and-ongar",
+      "name": "Brentwood and Ongar",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cambridge",
+      "name": "Cambridge",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cambridgeshire-north-east",
+      "name": "Cambridgeshire North East",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cambridgeshire-north-west",
+      "name": "Cambridgeshire North West",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cambridgeshire-south",
+      "name": "Cambridgeshire South",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "castle-point",
+      "name": "Castle Point",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "chelmsford-west",
+      "name": "Chelmsford West",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "colchester",
+      "name": "Colchester",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "east-hertfordshire",
+      "name": "East Hertfordshire",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "epping-forest",
+      "name": "Epping Forest",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "essex-north",
+      "name": "Essex North",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "great-yarmouth",
+      "name": "Great Yarmouth",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "harlow",
+      "name": "Harlow",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "harwich",
+      "name": "Harwich",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hemel-hempstead",
+      "name": "Hemel Hempstead",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hertford-and-stortford",
+      "name": "Hertford and Stortford",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hertfordshire-north-east",
+      "name": "Hertfordshire North East",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hertfordshire-south-west",
+      "name": "Hertfordshire South West",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hertsmere",
+      "name": "Hertsmere",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hitchin-and-harpenden",
+      "name": "Hitchin and Harpenden",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "huntingdon",
+      "name": "Huntingdon",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ipswich",
+      "name": "Ipswich",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "luton-north",
+      "name": "Luton North",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "luton-south",
+      "name": "Luton South",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "mid-bedfordshire",
+      "name": "Mid Bedfordshire",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "norfolk-mid",
+      "name": "Norfolk Mid",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "norfolk-north",
+      "name": "Norfolk North",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "norfolk-north-west",
+      "name": "Norfolk North West",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "norfolk-south",
+      "name": "Norfolk South",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "norfolk-south-west",
+      "name": "Norfolk South West",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "norwich-north",
+      "name": "Norwich North",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "norwich-south",
+      "name": "Norwich South",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "peterborough",
+      "name": "Peterborough",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "rayleigh",
+      "name": "Rayleigh",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "rochford-and-southend-east",
+      "name": "Rochford and Southend East",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "saffron-walden-east",
+      "name": "Saffron Walden East",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-bedfordshire",
+      "name": "South Bedfordshire",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-cambridgeshire",
+      "name": "South Cambridgeshire",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-norfolk",
+      "name": "South Norfolk",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-suffolk",
+      "name": "South Suffolk",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "southend-west",
+      "name": "Southend West",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "st-albans",
+      "name": "St Albans",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stevenage",
+      "name": "Stevenage",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "suffolk-coastal",
+      "name": "Suffolk Coastal",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "suffolk-mid",
+      "name": "Suffolk Mid",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "suffolk-south",
+      "name": "Suffolk South",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "suffolk-west",
+      "name": "Suffolk West",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "thurrock",
+      "name": "Thurrock",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "watford",
+      "name": "Watford",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "waveney",
+      "name": "Waveney",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "welwyn-hatfield",
+      "name": "Welwyn Hatfield",
+      "nation": "England",
+      "region": "East of England",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "amber-valley",
+      "name": "Amber Valley",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ashfield",
+      "name": "Ashfield",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bassetlaw",
+      "name": "Bassetlaw",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "blaby",
+      "name": "Blaby",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bolsover",
+      "name": "Bolsover",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "boston-and-skegness",
+      "name": "Boston and Skegness",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "broxtowe",
+      "name": "Broxtowe",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "charnwood",
+      "name": "Charnwood",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "chesterfield",
+      "name": "Chesterfield",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "corby",
+      "name": "Corby",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "daventry",
+      "name": "Daventry",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "derby-north",
+      "name": "Derby North",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "derby-south",
+      "name": "Derby South",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "derbyshire-north-east",
+      "name": "Derbyshire North East",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "derbyshire-south",
+      "name": "Derbyshire South",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "derbyshire-west",
+      "name": "Derbyshire West",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "erewash",
+      "name": "Erewash",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "gainsborough",
+      "name": "Gainsborough",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "gedling",
+      "name": "Gedling",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "grantham-and-stamford",
+      "name": "Grantham and Stamford",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "high-peak",
+      "name": "High Peak",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "kettering",
+      "name": "Kettering",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leicester-east",
+      "name": "Leicester East",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leicester-south",
+      "name": "Leicester South",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leicester-west",
+      "name": "Leicester West",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leicestershire-north-west",
+      "name": "Leicestershire North West",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "lincoln",
+      "name": "Lincoln",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "loughborough",
+      "name": "Loughborough",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "louth-and-horncastle",
+      "name": "Louth and Horncastle",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "mansfield",
+      "name": "Mansfield",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "newark",
+      "name": "Newark",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "northampton-north",
+      "name": "Northampton North",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "northampton-south",
+      "name": "Northampton South",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "nottingham-east",
+      "name": "Nottingham East",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "nottingham-north",
+      "name": "Nottingham North",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "nottingham-south",
+      "name": "Nottingham South",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "rushcliffe",
+      "name": "Rushcliffe",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "rutland-and-melton",
+      "name": "Rutland and Melton",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sherwood",
+      "name": "Sherwood",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sleaford-and-north-hykeham",
+      "name": "Sleaford and North Hykeham",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-holland-and-the-deepings",
+      "name": "South Holland and The Deepings",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wellingborough",
+      "name": "Wellingborough",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "worksop",
+      "name": "Worksop",
+      "nation": "England",
+      "region": "East Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "aldridge-brownhills",
+      "name": "Aldridge-Brownhills",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "birmingham-edgbaston",
+      "name": "Birmingham Edgbaston",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "birmingham-erdington",
+      "name": "Birmingham Erdington",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "birmingham-hall-green",
+      "name": "Birmingham Hall Green",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "birmingham-hodge-hill",
+      "name": "Birmingham Hodge Hill",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "birmingham-ladywood",
+      "name": "Birmingham Ladywood",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "birmingham-northfield",
+      "name": "Birmingham Northfield",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "birmingham-perry-barr",
+      "name": "Birmingham Perry Barr",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "birmingham-selly-oak",
+      "name": "Birmingham Selly Oak",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "birmingham-sparkbrook-and-small-heath",
+      "name": "Birmingham Sparkbrook and Small Heath",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "birmingham-yardley",
+      "name": "Birmingham Yardley",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bromsgrove",
+      "name": "Bromsgrove",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "burton",
+      "name": "Burton",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cannock-chase",
+      "name": "Cannock Chase",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "coventry-north-east",
+      "name": "Coventry North East",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "coventry-north-west",
+      "name": "Coventry North West",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "coventry-south",
+      "name": "Coventry South",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dudley-north",
+      "name": "Dudley North",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dudley-south",
+      "name": "Dudley South",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "halesowen-and-rowley-regis",
+      "name": "Halesowen and Rowley Regis",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hereford",
+      "name": "Hereford",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "kenilworth",
+      "name": "Kenilworth",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "lichfield",
+      "name": "Lichfield",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "meriden",
+      "name": "Meriden",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "mid-worcestershire",
+      "name": "Mid Worcestershire",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "north-herefordshire",
+      "name": "North Herefordshire",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "nuneaton",
+      "name": "Nuneaton",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "redditch",
+      "name": "Redditch",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "rugby-and-kenilworth",
+      "name": "Rugby and Kenilworth",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "shrewsbury-and-atcham",
+      "name": "Shrewsbury and Atcham",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "shropshire-north",
+      "name": "Shropshire North",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "solihull",
+      "name": "Solihull",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-staffordshire",
+      "name": "South Staffordshire",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stafford",
+      "name": "Stafford",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "staffordshire-moorlands",
+      "name": "Staffordshire Moorlands",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "staffordshire-south",
+      "name": "Staffordshire South",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stoke-on-trent-central",
+      "name": "Stoke-on-Trent Central",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stoke-on-trent-north",
+      "name": "Stoke-on-Trent North",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stoke-on-trent-south",
+      "name": "Stoke-on-Trent South",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stone",
+      "name": "Stone",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stratford-on-avon",
+      "name": "Stratford-on-Avon",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sutton-coldfield",
+      "name": "Sutton Coldfield",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tamworth",
+      "name": "Tamworth",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "telford",
+      "name": "Telford",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "the-wrekin",
+      "name": "The Wrekin",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "walsall-north",
+      "name": "Walsall North",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "walsall-south",
+      "name": "Walsall South",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "warley",
+      "name": "Warley",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "warwick-and-leamington",
+      "name": "Warwick and Leamington",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "west-bromwich-east",
+      "name": "West Bromwich East",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "west-bromwich-west",
+      "name": "West Bromwich West",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Speaker",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wolverhampton-north-east",
+      "name": "Wolverhampton North East",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wolverhampton-south-east",
+      "name": "Wolverhampton South East",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wolverhampton-south-west",
+      "name": "Wolverhampton South West",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "worcester",
+      "name": "Worcester",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "worcestershire-west",
+      "name": "Worcestershire West",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wychavon",
+      "name": "Wychavon",
+      "nation": "England",
+      "region": "West Midlands",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "barnsley-central",
+      "name": "Barnsley Central",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "barnsley-east-and-mexborough",
+      "name": "Barnsley East and Mexborough",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "barnsley-west-and-penistone",
+      "name": "Barnsley West and Penistone",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "batley-and-spen",
+      "name": "Batley and Spen",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "beverley-and-holderness",
+      "name": "Beverley and Holderness",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "boothferry",
+      "name": "Boothferry",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bradford-north",
+      "name": "Bradford North",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bradford-south",
+      "name": "Bradford South",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bradford-west",
+      "name": "Bradford West",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "brigg-and-goole",
+      "name": "Brigg and Goole",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "calder-valley",
+      "name": "Calder Valley",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cleethorpes",
+      "name": "Cleethorpes",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "colne-valley",
+      "name": "Colne Valley",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dewsbury",
+      "name": "Dewsbury",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "doncaster-central",
+      "name": "Doncaster Central",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "doncaster-north",
+      "name": "Doncaster North",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "don-valley",
+      "name": "Don Valley",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "east-yorkshire",
+      "name": "East Yorkshire",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "elmet",
+      "name": "Elmet",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "glanford-and-scunthorpe",
+      "name": "Glanford and Scunthorpe",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "great-grimsby",
+      "name": "Great Grimsby",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "halifax",
+      "name": "Halifax",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "haltemprice-and-howden",
+      "name": "Haltemprice and Howden",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "harrogate-and-knaresborough",
+      "name": "Harrogate and Knaresborough",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hemsworth",
+      "name": "Hemsworth",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "huddersfield",
+      "name": "Huddersfield",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hull-east",
+      "name": "Hull East",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hull-north",
+      "name": "Hull North",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hull-west-and-hessle",
+      "name": "Hull West and Hessle",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "keighley",
+      "name": "Keighley",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leeds-central",
+      "name": "Leeds Central",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leeds-east",
+      "name": "Leeds East",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leeds-north-east",
+      "name": "Leeds North East",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leeds-north-west",
+      "name": "Leeds North West",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leeds-west",
+      "name": "Leeds West",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "morley-and-rothwell",
+      "name": "Morley and Rothwell",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "normanton",
+      "name": "Normanton",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "penistone-and-stocksbridge",
+      "name": "Penistone and Stocksbridge",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "pontefract-and-castleford",
+      "name": "Pontefract and Castleford",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "richmond-yorks",
+      "name": "Richmond (Yorks)",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "rotherham",
+      "name": "Rotherham",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ryedale",
+      "name": "Ryedale",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "scarborough-and-whitby",
+      "name": "Scarborough and Whitby",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "selby",
+      "name": "Selby",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sheffield-attercliffe",
+      "name": "Sheffield Attercliffe",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sheffield-brightside-and-hillsborough",
+      "name": "Sheffield Brightside and Hillsborough",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sheffield-central",
+      "name": "Sheffield Central",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sheffield-hallam",
+      "name": "Sheffield Hallam",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sheffield-heeley",
+      "name": "Sheffield Heeley",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "shipley",
+      "name": "Shipley",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "skipton-and-ripon",
+      "name": "Skipton and Ripon",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "spen-valley",
+      "name": "Spen Valley",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wakefield",
+      "name": "Wakefield",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wentworth",
+      "name": "Wentworth",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wetherby",
+      "name": "Wetherby",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "york",
+      "name": "York",
+      "nation": "England",
+      "region": "Yorkshire and the Humber",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "berwick-upon-tweed",
+      "name": "Berwick-upon-Tweed",
+      "nation": "England",
+      "region": "North East",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bishop-auckland",
+      "name": "Bishop Auckland",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "blaydon",
+      "name": "Blaydon",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "blyth-valley",
+      "name": "Blyth Valley",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "darlington",
+      "name": "Darlington",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "durham-city-of",
+      "name": "Durham City of",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "durham-north",
+      "name": "Durham North",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "durham-north-west",
+      "name": "Durham North West",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "easington",
+      "name": "Easington",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "gateshead-east-and-washington-west",
+      "name": "Gateshead East and Washington West",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hartlepool",
+      "name": "Hartlepool",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hexham",
+      "name": "Hexham",
+      "nation": "England",
+      "region": "North East",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "houghton-and-washington-east",
+      "name": "Houghton and Washington East",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "jarrow",
+      "name": "Jarrow",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "middlesbrough",
+      "name": "Middlesbrough",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "middlesbrough-south-and-east-cleveland",
+      "name": "Middlesbrough South and East Cleveland",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "newcastle-upon-tyne-central",
+      "name": "Newcastle upon Tyne Central",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "newcastle-upon-tyne-east-and-wallsend",
+      "name": "Newcastle upon Tyne East and Wallsend",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "newcastle-upon-tyne-north",
+      "name": "Newcastle upon Tyne North",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "redcar",
+      "name": "Redcar",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sedgefield",
+      "name": "Sedgefield",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-shields",
+      "name": "South Shields",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stockton-north",
+      "name": "Stockton North",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stockton-south",
+      "name": "Stockton South",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sunderland-north",
+      "name": "Sunderland North",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "sunderland-south",
+      "name": "Sunderland South",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tyne-bridge",
+      "name": "Tyne Bridge",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tynemouth",
+      "name": "Tynemouth",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wansbeck",
+      "name": "Wansbeck",
+      "nation": "England",
+      "region": "North East",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "altrincham-and-sale-west",
+      "name": "Altrincham and Sale West",
+      "nation": "England",
+      "region": "North West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ashton-under-lyne",
+      "name": "Ashton under Lyne",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "barrow-and-furness",
+      "name": "Barrow and Furness",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "birkenhead",
+      "name": "Birkenhead",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "blackburn",
+      "name": "Blackburn",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "blackpool-north-and-fleetwood",
+      "name": "Blackpool North and Fleetwood",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "blackpool-south",
+      "name": "Blackpool South",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bolton-north-east",
+      "name": "Bolton North East",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bolton-south-east",
+      "name": "Bolton South East",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bolton-west",
+      "name": "Bolton West",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bootle",
+      "name": "Bootle",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "burnley",
+      "name": "Burnley",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bury-north",
+      "name": "Bury North",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bury-south",
+      "name": "Bury South",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "chester-city-of",
+      "name": "Chester City of",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cheadle",
+      "name": "Cheadle",
+      "nation": "England",
+      "region": "North West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "chorley",
+      "name": "Chorley",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "congleton",
+      "name": "Congleton",
+      "nation": "England",
+      "region": "North West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "copeland",
+      "name": "Copeland",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "crewe-and-nantwich",
+      "name": "Crewe and Nantwich",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "crosby",
+      "name": "Crosby",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "denton-and-reddish",
+      "name": "Denton and Reddish",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "eddisbury",
+      "name": "Eddisbury",
+      "nation": "England",
+      "region": "North West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ellesmere-port-and-neston",
+      "name": "Ellesmere Port and Neston",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "fylde",
+      "name": "Fylde",
+      "nation": "England",
+      "region": "North West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "halton",
+      "name": "Halton",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hazel-grove",
+      "name": "Hazel Grove",
+      "nation": "England",
+      "region": "North West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "heywood-and-middleton",
+      "name": "Heywood and Middleton",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hyndburn",
+      "name": "Hyndburn",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "knowsley-north-and-sefton-east",
+      "name": "Knowsley North and Sefton East",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "knowsley-south",
+      "name": "Knowsley South",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "lancaster-and-wyre",
+      "name": "Lancaster and Wyre",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "leigh",
+      "name": "Leigh",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "liverpool-broadgreen",
+      "name": "Liverpool Broadgreen",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "liverpool-edge-hill",
+      "name": "Liverpool Edge Hill",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "liverpool-garston",
+      "name": "Liverpool Garston",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "liverpool-riverside",
+      "name": "Liverpool Riverside",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "liverpool-walton",
+      "name": "Liverpool Walton",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "liverpool-wavertree",
+      "name": "Liverpool Wavertree",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "liverpool-west-derby",
+      "name": "Liverpool West Derby",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "macclesfield",
+      "name": "Macclesfield",
+      "nation": "England",
+      "region": "North West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "makerfield",
+      "name": "Makerfield",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "manchester-blackley",
+      "name": "Manchester Blackley",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "manchester-central",
+      "name": "Manchester Central",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "manchester-gorton",
+      "name": "Manchester Gorton",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "manchester-withington",
+      "name": "Manchester Withington",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "morecambe-and-lunesdale",
+      "name": "Morecambe and Lunesdale",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "oldham-east-and-saddleworth",
+      "name": "Oldham East and Saddleworth",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "oldham-west-and-royton",
+      "name": "Oldham West and Royton",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "pendle",
+      "name": "Pendle",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "preston",
+      "name": "Preston",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ribble-south",
+      "name": "Ribble South",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ribble-valley",
+      "name": "Ribble Valley",
+      "nation": "England",
+      "region": "North West",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "rochdale",
+      "name": "Rochdale",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "rossendale-and-darwen",
+      "name": "Rossendale and Darwen",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "runcorn-and-helsby",
+      "name": "Runcorn and Helsby",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "salford",
+      "name": "Salford",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "southport",
+      "name": "Southport",
+      "nation": "England",
+      "region": "North West",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "st-helens-north",
+      "name": "St Helens North",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "st-helens-south",
+      "name": "St Helens South",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stalybridge-and-hyde",
+      "name": "Stalybridge and Hyde",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stockport",
+      "name": "Stockport",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stretford-and-urmston",
+      "name": "Stretford and Urmston",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tatton",
+      "name": "Tatton",
+      "nation": "England",
+      "region": "North West",
+      "party": "Independents",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wallasey",
+      "name": "Wallasey",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "warrington-north",
+      "name": "Warrington North",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "warrington-south",
+      "name": "Warrington South",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "weaver-vale",
+      "name": "Weaver Vale",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wigan",
+      "name": "Wigan",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wirral-south",
+      "name": "Wirral South",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wirral-west",
+      "name": "Wirral West",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "worsley",
+      "name": "Worsley",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wythenshawe-and-sale-east",
+      "name": "Wythenshawe and Sale East",
+      "nation": "England",
+      "region": "North West",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "aberdeen-north",
+      "name": "Aberdeen North",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "aberdeen-south",
+      "name": "Aberdeen South",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "aberdeenshire-west-and-kincardine",
+      "name": "Aberdeenshire West and Kincardine",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "airdrie-and-shotts",
+      "name": "Airdrie and Shotts",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "angus",
+      "name": "Angus",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "SNP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "argyll-and-bute",
+      "name": "Argyll and Bute",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ayr",
+      "name": "Ayr",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "banff-and-buchan",
+      "name": "Banff and Buchan",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "SNP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "caithness-sutherland-and-easter-ross",
+      "name": "Caithness Sutherland and Easter Ross",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "carrick-cumnock-and-doon-valley",
+      "name": "Carrick Cumnock and Doon Valley",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "central-ayrshire",
+      "name": "Central Ayrshire",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "coatbridge-and-chryston",
+      "name": "Coatbridge and Chryston",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cumbernauld-and-kilsyth",
+      "name": "Cumbernauld and Kilsyth",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cunninghame-north",
+      "name": "Cunninghame North",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cunninghame-south",
+      "name": "Cunninghame South",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dumbarton",
+      "name": "Dumbarton",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dumfries",
+      "name": "Dumfries",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dundee-east",
+      "name": "Dundee East",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dundee-west",
+      "name": "Dundee West",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dunfermline-east",
+      "name": "Dunfermline East",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "dunfermline-west",
+      "name": "Dunfermline West",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "east-kilbride",
+      "name": "East Kilbride",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "east-lothian",
+      "name": "East Lothian",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "eastwood",
+      "name": "Eastwood",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "edinburgh-central",
+      "name": "Edinburgh Central",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "edinburgh-east-and-musselburgh",
+      "name": "Edinburgh East and Musselburgh",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "edinburgh-north-and-leith",
+      "name": "Edinburgh North and Leith",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "edinburgh-pentlands",
+      "name": "Edinburgh Pentlands",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "edinburgh-south",
+      "name": "Edinburgh South",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "edinburgh-west",
+      "name": "Edinburgh West",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "falkirk-east",
+      "name": "Falkirk East",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "falkirk-west",
+      "name": "Falkirk West",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "fife-central",
+      "name": "Fife Central",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "fife-north-east",
+      "name": "Fife North East",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "galloway-and-upper-nithsdale",
+      "name": "Galloway and Upper Nithsdale",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "SNP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "glasgow-anniesland",
+      "name": "Glasgow Anniesland",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "glasgow-baillieston",
+      "name": "Glasgow Baillieston",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "glasgow-cathcart",
+      "name": "Glasgow Cathcart",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "glasgow-govan",
+      "name": "Glasgow Govan",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "glasgow-kelvin",
+      "name": "Glasgow Kelvin",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "glasgow-maryhill",
+      "name": "Glasgow Maryhill",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "glasgow-pollok",
+      "name": "Glasgow Pollok",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "glasgow-rutherglen",
+      "name": "Glasgow Rutherglen",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "glasgow-shettleston",
+      "name": "Glasgow Shettleston",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "glasgow-springburn",
+      "name": "Glasgow Springburn",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "gordon",
+      "name": "Gordon",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "greenock-and-inverclyde",
+      "name": "Greenock and Inverclyde",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hamilton-north-and-bellshill",
+      "name": "Hamilton North and Bellshill",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "hamilton-south",
+      "name": "Hamilton South",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "inverness-east-nairn-and-lochaber",
+      "name": "Inverness East Nairn and Lochaber",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "kilmarnock-and-loudoun",
+      "name": "Kilmarnock and Loudoun",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "kirkcaldy",
+      "name": "Kirkcaldy",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "linlithgow",
+      "name": "Linlithgow",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "livingston",
+      "name": "Livingston",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "midlothian",
+      "name": "Midlothian",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "moray",
+      "name": "Moray",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "SNP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "motherwell-and-wishaw",
+      "name": "Motherwell and Wishaw",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "na-h-eileanan-an-iar",
+      "name": "Na h-Eileanan an Iar",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "north-tayside",
+      "name": "North Tayside",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "SNP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ochil",
+      "name": "Ochil",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "orkney-and-shetland",
+      "name": "Orkney and Shetland",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "paisley-north",
+      "name": "Paisley North",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "paisley-south",
+      "name": "Paisley South",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "perth",
+      "name": "Perth",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "SNP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "renfrew-west",
+      "name": "Renfrew West",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ross-skye-and-inverness-west",
+      "name": "Ross Skye and Inverness West",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "roxburgh-and-berwickshire",
+      "name": "Roxburgh and Berwickshire",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "stirling",
+      "name": "Stirling",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "strathkelvin-and-bearsden",
+      "name": "Strathkelvin and Bearsden",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tayside-north",
+      "name": "Tayside North",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "SNP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "tweeddale-ettrick-and-lauderdale",
+      "name": "Tweeddale Ettrick and Lauderdale",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "west-renfrewshire",
+      "name": "West Renfrewshire",
+      "nation": "Scotland",
+      "region": "Scotland",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "aberavon",
+      "name": "Aberavon",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "alyn-and-deeside",
+      "name": "Alyn and Deeside",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "blaenau-gwent",
+      "name": "Blaenau Gwent",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "brecon-and-radnorshire",
+      "name": "Brecon and Radnorshire",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "bridgend",
+      "name": "Bridgend",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "caernarfon",
+      "name": "Caernarfon",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Plaid Cymru",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "caerphilly",
+      "name": "Caerphilly",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cardiff-central",
+      "name": "Cardiff Central",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cardiff-north",
+      "name": "Cardiff North",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cardiff-south-and-penarth",
+      "name": "Cardiff South and Penarth",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cardiff-west",
+      "name": "Cardiff West",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "carmarthen-east-and-dinefwr",
+      "name": "Carmarthen East and Dinefwr",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Plaid Cymru",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "carmarthen-west-and-south-pembrokeshire",
+      "name": "Carmarthen West and South Pembrokeshire",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ceredigion",
+      "name": "Ceredigion",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Plaid Cymru",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "clwyd-south",
+      "name": "Clwyd South",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "clwyd-west",
+      "name": "Clwyd West",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "conwy",
+      "name": "Conwy",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "cynon-valley",
+      "name": "Cynon Valley",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "delyn",
+      "name": "Delyn",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "gower",
+      "name": "Gower",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "islwyn",
+      "name": "Islwyn",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "llanelli",
+      "name": "Llanelli",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "merionethshire-and-nant-conwy",
+      "name": "Merionethshire and Nant Conwy",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Plaid Cymru",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "merthyr-tydfil-and-rhymney",
+      "name": "Merthyr Tydfil and Rhymney",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "monmouth",
+      "name": "Monmouth",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "montgomeryshire",
+      "name": "Montgomeryshire",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Liberal Democrat",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "neath",
+      "name": "Neath",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "newport-east",
+      "name": "Newport East",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "newport-west",
+      "name": "Newport West",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ogmore",
+      "name": "Ogmore",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "pontypridd",
+      "name": "Pontypridd",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "preseli-pembrokeshire",
+      "name": "Preseli Pembrokeshire",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Conservative",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "rhondda",
+      "name": "Rhondda",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "swansea-east",
+      "name": "Swansea East",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "swansea-west",
+      "name": "Swansea West",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "torfaen",
+      "name": "Torfaen",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "vale-of-clwyd",
+      "name": "Vale of Clwyd",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "vale-of-glamorgan",
+      "name": "Vale of Glamorgan",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "wrexham",
+      "name": "Wrexham",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "ynys-mon",
+      "name": "Ynys Mon",
+      "nation": "Wales",
+      "region": "Wales",
+      "party": "Labour",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "belfast-east",
+      "name": "Belfast East",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "DUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "belfast-north",
+      "name": "Belfast North",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "UUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "belfast-south",
+      "name": "Belfast South",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "UUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "belfast-west",
+      "name": "Belfast West",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "Sinn Féin",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "east-antrim",
+      "name": "East Antrim",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "UUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "east-londonderry",
+      "name": "East Londonderry",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "UUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "fermanagh-and-south-tyrone",
+      "name": "Fermanagh and South Tyrone",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "UUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "foyle",
+      "name": "Foyle",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "SDLP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "lagan-valley",
+      "name": "Lagan Valley",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "UUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "mid-ulster",
+      "name": "Mid Ulster",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "Sinn Féin",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "newry-and-armagh",
+      "name": "Newry and Armagh",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "SDLP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "north-antrim",
+      "name": "North Antrim",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "DUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "north-down",
+      "name": "North Down",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "UUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-antrim",
+      "name": "South Antrim",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "UUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "south-down",
+      "name": "South Down",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "SDLP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "strangford",
+      "name": "Strangford",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "UUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "upper-bann",
+      "name": "Upper Bann",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "UUP",
+      "mpType": "",
+      "mpName": ""
+    },
+    {
+      "id": "west-tyrone",
+      "name": "West Tyrone",
+      "nation": "Northern Ireland",
+      "region": "Northern Ireland",
+      "party": "UUP",
+      "mpType": "",
+      "mpName": ""
+    }
+  ],
+  "voteSummary": {
+    "Labour": {
+      "seats": 396,
+      "votes": 13518167,
+      "vote_pct": 43.2
+    },
+    "Conservative": {
+      "seats": 170,
+      "votes": 9600943,
+      "vote_pct": 30.7
+    },
+    "Liberal Democrat": {
+      "seats": 53,
+      "votes": 5242947,
+      "vote_pct": 16.8
+    },
+    "UUP": {
+      "seats": 11,
+      "votes": 258349,
+      "vote_pct": 0.8
+    },
+    "SNP": {
+      "seats": 7,
+      "votes": 621550,
+      "vote_pct": 2
+    },
+    "Plaid Cymru": {
+      "seats": 4,
+      "votes": 161030,
+      "vote_pct": 0.5
+    },
+    "SDLP": {
+      "seats": 3,
+      "votes": 190814,
+      "vote_pct": 0.6
+    },
+    "DUP": {
+      "seats": 2,
+      "votes": 107348,
+      "vote_pct": 0.3
+    },
+    "Sinn Féin": {
+      "seats": 2,
+      "votes": 126921,
+      "vote_pct": 0.4
+    },
+    "Speaker": {
+      "seats": 1,
+      "votes": 23969,
+      "vote_pct": 0.1
+    },
+    "Independents": {
+      "seats": 1,
+      "votes": 55938,
+      "vote_pct": 0.2
+    }
+  },
+  "electorate": 43846154,
+  "turnoutTotal": 31287902
+}
