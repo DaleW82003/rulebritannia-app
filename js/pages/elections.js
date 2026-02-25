@@ -1,16 +1,26 @@
 import { esc } from "../ui.js";
-import { canAdminOrMod, isAdmin } from "../permissions.js";
+import { canAdminOrMod } from "../permissions.js";
 import {
-  apiGetCurrentElection,
-  apiGetElections,
-  apiGetElectionSeatTotals,
-  apiGetElectionChanges,
-  apiCreateElection,
-  apiSaveElectionChanges,
-  apiFinalizeElection,
-  apiSeedElection1997,
-  apiGetConstituencies,
+  apiGetElectionBodiesCurrent,
+  apiGetElectionBodiesArchive,
+  apiSubmitElectionBodyResult,
 } from "../api.js";
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const ELECTION_BODIES = [
+  { type: "general",                  label: "General Election" },
+  { type: "european_parliament",      label: "European Parliament" },
+  { type: "scottish_parliament",      label: "Scottish Parliament" },
+  { type: "welsh_assembly",           label: "Welsh Assembly (Senedd)" },
+  { type: "northern_irish_assembly",  label: "Northern Irish Assembly" },
+  { type: "english_locals",           label: "English Locals" },
+  { type: "scottish_locals",          label: "Scottish Locals" },
+  { type: "welsh_locals",             label: "Welsh Locals" },
+  { type: "northern_irish_locals",    label: "Northern Irish Locals" },
+];
+
+const BODY_LABEL = Object.fromEntries(ELECTION_BODIES.map(b => [b.type, b.label]));
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -22,156 +32,236 @@ function fmtDate(d) {
   return `${Number(dy)} ${months[Number(m) - 1] || ""} ${y}`;
 }
 
-function statusBadge(status) {
-  const colors = { pending: "#8a6d3b", finalized: "#0a7f2e" };
-  const color = colors[status] || "#444";
-  return `<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:${color};color:#fff;font-size:11px;">${esc(status)}</span>`;
+function fmtNum(n) {
+  if (!n) return "—";
+  return Number(n).toLocaleString("en-GB");
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
 const state = {
-  currentElection: null,
-  partySummary: [],
-  seatTotals: [],
-  elections: [],
-  editElectionId: null,        // pending election being edited
-  editChanges: [],             // [{constituency_id, party_from, party_to, notes}]
-  constituencies: [],          // full list for autocomplete / lookup
+  current: [],      // [{type, label, polling_day, party_summary, turnout_total, turnout_pct, ...}]
+  archive: [],      // non-current finalized results
   showArchive: false,
-  showAdminPanel: false,
-  createFormVisible: false,
+  showSubmitForm: false,
+  submitPartyRows: [{ party: "", seats: "", votes: "", vote_share: "" }],
   error: null,
 };
 
-// ── Render ────────────────────────────────────────────────────────────────────
+// ── Render helpers ────────────────────────────────────────────────────────────
 
-function renderCurrentGe(data) {
-  const el = state.currentElection;
-  if (!el) return `<div class="muted">No General Election recorded yet.</div>`;
-  const summary = state.partySummary.slice().sort((a, b) => b.seats - a.seats);
+function renderPartySummaryTable(partySummary, compact) {
+  const rows = (partySummary || []).slice().sort((a, b) => b.seats - a.seats);
+  if (!rows.length) return `<div class="muted" style="font-size:13px;">No party data.</div>`;
+  if (compact) {
+    return `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px;margin-top:8px;">
+        ${rows.map(ps => `
+          <div style="background:#f4f7fb;border-radius:8px;padding:6px 10px;">
+            <div style="font-weight:700;font-size:13px;">${esc(ps.party)}</div>
+            <div style="font-size:12px;color:#555;">
+              ${ps.seats ? `${esc(String(ps.seats))} seats` : ""}
+              ${ps.vote_share ? ` &nbsp;·&nbsp; ${Number(ps.vote_share).toFixed(1)}%` : ""}
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+  const hasVotes = rows.some(r => r.votes);
   return `
-    <div><b>${esc(el.label || fmtDate(el.polling_day))}</b> &nbsp; ${statusBadge(el.status)}</div>
-    <div class="muted" style="margin-bottom:8px;">Polling day: ${fmtDate(el.polling_day)}</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;margin-top:8px;">
-      ${summary.map(ps => `
-        <div class="tile" style="padding:8px 12px;">
-          <div style="font-weight:600;">${esc(ps.party)}</div>
-          <div style="font-size:13px;">${esc(String(ps.seats))} seats${ps.voteShare ? ` — ${Number(ps.voteShare).toFixed(1)}%` : ""}</div>
-        </div>
-      `).join("")}
-    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;">
+      <thead>
+        <tr style="border-bottom:1px solid #dde3ee;">
+          <th style="text-align:left;padding:4px 8px;">Party</th>
+          <th style="text-align:right;padding:4px 8px;">Seats</th>
+          ${hasVotes ? `<th style="text-align:right;padding:4px 8px;">Votes</th>` : ""}
+          <th style="text-align:right;padding:4px 8px;">Vote share</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(ps => `
+          <tr style="border-bottom:1px solid #f0f2f6;">
+            <td style="padding:4px 8px;font-weight:600;">${esc(ps.party)}</td>
+            <td style="padding:4px 8px;text-align:right;">${esc(String(ps.seats || 0))}</td>
+            ${hasVotes ? `<td style="padding:4px 8px;text-align:right;">${ps.votes ? fmtNum(ps.votes) : "—"}</td>` : ""}
+            <td style="padding:4px 8px;text-align:right;">${ps.vote_share ? `${Number(ps.vote_share).toFixed(1)}%` : "—"}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
   `;
 }
 
-function renderSeatTotals() {
-  const totals = state.seatTotals.slice().sort((a, b) => b.seats - a.seats);
-  if (!totals.length) return `<div class="muted">No constituency data yet.</div>`;
+function renderTurnout(el) {
+  if (!el.turnout_total && !el.turnout_pct) return "";
+  const parts = [];
+  if (el.turnout_total) parts.push(`${fmtNum(el.turnout_total)} votes cast`);
+  if (el.turnout_pct)   parts.push(`Turnout: ${Number(el.turnout_pct).toFixed(2)}%`);
+  return `<div style="font-size:13px;color:#555;margin-top:6px;">${parts.join(" &nbsp;·&nbsp; ")}</div>`;
+}
+
+function renderLastGE() {
+  const ge = state.current.find(r => r.type === "general");
+  if (!ge) return `<div class="muted">No General Election result recorded yet.</div>`;
   return `
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;">
-      ${totals.map(t => `
-        <div class="tile" style="padding:8px 12px;">
-          <div style="font-weight:600;">${esc(t.party)}</div>
-          <div style="font-size:13px;">${esc(String(t.seats))} constituencies</div>
-        </div>
-      `).join("")}
+    <div style="margin-bottom:6px;">
+      <span style="font-weight:700;font-size:16px;">${esc(ge.label || fmtDate(ge.polling_day))}</span>
+      <span style="margin-left:8px;font-size:13px;color:#666;">Polling day: ${fmtDate(ge.polling_day)}</span>
     </div>
+    ${renderTurnout(ge)}
+    ${renderPartySummaryTable(ge.party_summary, false)}
   `;
 }
 
-function renderElectionsList(canManage) {
-  if (!state.elections.length) return `<div class="muted">No elections recorded.</div>`;
+function renderHistoricGE() {
+  const historicGEs = state.archive.filter(r => r.type === "general")
+    .slice().sort((a, b) => new Date(b.polling_day) - new Date(a.polling_day));
+  if (!historicGEs.length) return `<div class="muted">No historic General Elections recorded.</div>`;
   return `
     <div class="docket-list">
-      ${state.elections.map(e => `
-        <div class="docket-item">
-          <div class="docket-left"><div>
-            <div class="docket-title">${esc(e.label || fmtDate(e.polling_day))}</div>
-            <div class="docket-detail">${fmtDate(e.polling_day)} &nbsp; ${statusBadge(e.status)}</div>
-          </div></div>
-          ${canManage && e.status !== "finalized" ? `
-            <div class="tile-bottom" style="padding-top:0;margin-top:0;">
-              <button class="btn" type="button" data-edit-election="${esc(e.id)}">Edit / Add Flips</button>
-            </div>
-          ` : ""}
-        </div>
+      ${historicGEs.map(ge => `
+        <details style="border:1px solid #dde3ee;border-radius:8px;padding:0;margin-bottom:6px;overflow:hidden;">
+          <summary style="padding:10px 14px;cursor:pointer;font-weight:700;list-style:none;display:flex;align-items:center;gap:10px;">
+            <span style="flex:1;">${esc(ge.label || fmtDate(ge.polling_day))}</span>
+            <span style="font-size:12px;color:#888;font-weight:400;">${fmtDate(ge.polling_day)}</span>
+          </summary>
+          <div style="padding:10px 14px;border-top:1px solid #eef0f5;">
+            ${renderTurnout(ge)}
+            ${renderPartySummaryTable(ge.party_summary, false)}
+          </div>
+        </details>
       `).join("")}
     </div>
   `;
 }
 
-function renderFlipEditor() {
-  const election = state.elections.find(e => e.id === state.editElectionId);
-  if (!election) return "";
-  const changes = state.editChanges;
+function renderBodyGrid() {
+  const bodyTypes = ELECTION_BODIES.filter(b => b.type !== "general");
   return `
-    <section class="panel" style="margin-bottom:12px;border-left:4px solid #0052a3;">
-      <h3 style="margin-top:0;">Editing: ${esc(election.label || fmtDate(election.polling_day))}</h3>
-      <p class="muted">Add seat changes (flips) for this election. Only changed constituencies need to be entered.</p>
+    <div class="wgo-grid" style="gap:12px;">
+      ${bodyTypes.map(b => {
+        const result = state.current.find(r => r.type === b.type);
+        return `
+          <div class="wgo-tile">
+            <div class="wgo-kicker">${esc(b.label)}</div>
+            ${result ? `
+              <div class="wgo-title" style="font-size:14px;">${esc(result.label || fmtDate(result.polling_day))}</div>
+              <div class="wgo-strap">${fmtDate(result.polling_day)}</div>
+              ${renderTurnout(result)}
+              ${renderPartySummaryTable(result.party_summary, true)}
+            ` : `<div class="wgo-strap muted" style="margin-top:8px;">No result recorded yet.</div>`}
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
 
-      <div id="flip-list" style="margin-bottom:10px;">
-        ${changes.length ? `
-          <table style="width:100%;border-collapse:collapse;font-size:13px;">
-            <thead><tr>
-              <th style="text-align:left;padding:4px 8px;">Constituency</th>
-              <th style="text-align:left;padding:4px 8px;">From</th>
-              <th style="text-align:left;padding:4px 8px;">To</th>
-              <th style="text-align:left;padding:4px 8px;">Notes</th>
-              <th></th>
-            </tr></thead>
-            <tbody>
-              ${changes.map((ch, i) => `
-                <tr>
-                  <td style="padding:3px 8px;">${esc(resolveConstituencyName(ch.constituency_id))}</td>
-                  <td style="padding:3px 8px;">${esc(ch.party_from || "—")}</td>
-                  <td style="padding:3px 8px;">${esc(ch.party_to)}</td>
-                  <td style="padding:3px 8px;">${esc(ch.notes || "")}</td>
-                  <td style="padding:3px 4px;"><button class="btn danger" type="button" data-remove-flip="${i}" style="padding:2px 6px;font-size:11px;">✕</button></td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        ` : `<div class="muted">No flips added yet.</div>`}
-      </div>
-
-      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;align-items:end;">
-        <div>
-          <label class="label" for="flip-constituency">Constituency</label>
-          <input id="flip-constituency" class="input" list="flip-const-list" placeholder="Type constituency name…">
-          <datalist id="flip-const-list">
-            ${state.constituencies.map(c => `<option value="${esc(c.id)}" label="${esc(c.name)}">${esc(c.name)}</option>`).join("")}
-          </datalist>
+function renderArchiveSection() {
+  const archived = state.archive.slice().sort((a, b) => new Date(b.polling_day) - new Date(a.polling_day));
+  return `
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;display:flex;align-items:center;gap:10px;">
+        Archive
+        <button class="btn" type="button" id="toggle-archive" style="font-size:12px;padding:4px 10px;">
+          ${state.showArchive ? "Hide" : "Show all"}
+        </button>
+      </h2>
+      ${state.showArchive ? (archived.length ? `
+        <div class="docket-list">
+          ${archived.map(el => `
+            <details style="border:1px solid #dde3ee;border-radius:8px;padding:0;margin-bottom:6px;overflow:hidden;">
+              <summary style="padding:10px 14px;cursor:pointer;font-weight:600;list-style:none;display:flex;align-items:center;gap:10px;">
+                <span style="flex:1;">${esc(el.label || fmtDate(el.polling_day))}</span>
+                <span style="font-size:12px;color:#888;font-weight:400;">${esc(BODY_LABEL[el.type] || el.type)} &nbsp;·&nbsp; ${fmtDate(el.polling_day)}</span>
+              </summary>
+              <div style="padding:10px 14px;border-top:1px solid #eef0f5;">
+                ${renderTurnout(el)}
+                ${renderPartySummaryTable(el.party_summary, false)}
+              </div>
+            </details>
+          `).join("")}
         </div>
-        <div>
-          <label class="label" for="flip-party-from">From party</label>
-          <input id="flip-party-from" class="input" placeholder="(auto-filled)">
-        </div>
-        <div>
-          <label class="label" for="flip-party-to">To party</label>
-          <input id="flip-party-to" class="input" placeholder="Labour, Conservative…">
-        </div>
-        <div>
-          <label class="label" for="flip-notes">Notes (optional)</label>
-          <input id="flip-notes" class="input" placeholder="">
-        </div>
-      </div>
-      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn" type="button" id="flip-add-btn">Add Flip</button>
-        <button class="btn primary" type="button" id="flip-save-btn">Save All Flips</button>
-        <button class="btn danger" type="button" id="flip-finalize-btn">Finalize Election (apply flips)</button>
-        <button class="btn" type="button" id="flip-cancel-btn">Cancel</button>
-      </div>
-      <div id="flip-msg" class="muted" style="margin-top:6px;"></div>
+      ` : `<div class="muted">No archived results yet.</div>`) : ""}
     </section>
   `;
 }
 
-function resolveConstituencyName(id) {
-  return state.constituencies.find(c => c.id === id)?.name || id;
+function renderSubmitForm() {
+  return `
+    <div id="submit-election-form" style="margin-top:10px;">
+      <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end;margin-bottom:8px;">
+        <div>
+          <label class="label" for="eb-type">Election Body</label>
+          <select id="eb-type" class="input">
+            ${ELECTION_BODIES.map(b => `<option value="${esc(b.type)}">${esc(b.label)}</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <label class="label" for="eb-polling-day">Polling Day</label>
+          <input id="eb-polling-day" class="input" type="date" required>
+        </div>
+        <div>
+          <label class="label" for="eb-label">Label</label>
+          <input id="eb-label" class="input" placeholder="e.g. June 2001 General Election">
+        </div>
+      </div>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <div>
+          <label class="label" for="eb-turnout-total">Turnout Total (optional)</label>
+          <input id="eb-turnout-total" class="input" type="number" min="0" placeholder="e.g. 31286284">
+        </div>
+        <div>
+          <label class="label" for="eb-turnout-pct">Turnout % (optional)</label>
+          <input id="eb-turnout-pct" class="input" type="number" min="0" max="100" step="0.01" placeholder="e.g. 71.46">
+        </div>
+      </div>
+
+      <h4 style="margin:10px 0 6px;">Party Results</h4>
+      <p class="muted" style="font-size:12px;margin:0 0 8px;">Add one row per party. Seats, votes, and vote share are all optional where not applicable.</p>
+      <div id="party-rows-container">
+        ${renderPartyRows()}
+      </div>
+      <button class="btn" type="button" id="add-party-row-btn" style="margin-top:6px;">+ Add Party</button>
+
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn primary" type="button" id="submit-election-btn">Submit Result</button>
+        <button class="btn" type="button" id="cancel-submit-btn">Cancel</button>
+      </div>
+      <div id="submit-election-msg" class="muted" style="margin-top:6px;"></div>
+    </div>
+  `;
 }
 
-function resolveConstituencyParty(id) {
-  return state.constituencies.find(c => c.id === id)?.party || "";
+function renderPartyRows() {
+  return state.submitPartyRows.map((row, i) => `
+    <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr auto;gap:6px;align-items:end;margin-bottom:4px;" data-row="${i}">
+      <input class="input party-row-party" type="text" placeholder="Party name" value="${esc(row.party)}" data-i="${i}">
+      <input class="input party-row-seats" type="number" min="0" placeholder="Seats" value="${esc(row.seats)}" data-i="${i}">
+      <input class="input party-row-votes" type="number" min="0" placeholder="Votes" value="${esc(row.votes)}" data-i="${i}">
+      <input class="input party-row-share" type="number" min="0" max="100" step="0.01" placeholder="Vote %" value="${esc(row.vote_share)}" data-i="${i}">
+      <button class="btn danger" type="button" data-remove-row="${i}" style="padding:6px 8px;font-size:12px;" ${state.submitPartyRows.length <= 1 ? "disabled" : ""}>✕</button>
+    </div>
+  `).join("");
+}
+
+function renderAdminPanel(canManage) {
+  if (!canManage) return "";
+  return `
+    <section class="panel" style="margin-bottom:12px;border-left:4px solid #0052a3;">
+      <h2 style="margin-top:0;">Elections Control Panel</h2>
+      <p class="muted" style="font-size:13px;margin-top:0;">
+        Election Development is not part of current Phase 1; election creation remains mod-controlled via UK Elect.
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <button class="btn" type="button" id="toggle-submit-form">
+          ${state.showSubmitForm ? "Cancel" : "Submit New Election Result"}
+        </button>
+      </div>
+      ${state.showSubmitForm ? renderSubmitForm() : ""}
+    </section>
+  `;
 }
 
 function render(data) {
@@ -185,218 +275,125 @@ function render(data) {
 
     ${state.error ? `<div class="panel" style="border-left:4px solid #9d1d1d;margin-bottom:12px;color:#9d1d1d;">${esc(state.error)}</div>` : ""}
 
+    ${renderAdminPanel(canManage)}
+
     <section class="panel" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Last General Election</h2>
-      ${renderCurrentGe(data)}
+      <h2 style="margin-top:0;">Last General Election Result</h2>
+      ${renderLastGE()}
     </section>
 
     <section class="panel" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Current Seat Totals (from Constituencies)</h2>
-      ${renderSeatTotals()}
+      <h2 style="margin-top:0;">Historic General Elections</h2>
+      ${renderHistoricGE()}
     </section>
 
-    ${state.editElectionId ? renderFlipEditor() : ""}
-
-    <section class="panel" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">All Elections</h2>
-      <button class="btn" type="button" id="toggle-archive">${state.showArchive ? "Hide" : "Show"} Archive</button>
-      ${state.showArchive ? renderElectionsList(canManage) : ""}
+    <section style="margin-bottom:12px;">
+      <h2 style="margin-top:0;margin-bottom:12px;">Devolved &amp; Local Elections</h2>
+      ${renderBodyGrid()}
     </section>
 
-    ${canManage ? `
-      <section class="panel" style="margin-bottom:12px;">
-        <h2 style="margin-top:0;">Admin / Mod Controls</h2>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-          <button class="btn" type="button" id="toggle-create-form">${state.createFormVisible ? "Cancel" : "Create New Election"}</button>
-          <button class="btn" type="button" id="seed-1997-btn">Re-seed 1997 GE Baseline</button>
-        </div>
-        ${state.createFormVisible ? `
-          <form id="create-election-form" style="margin-top:8px;">
-            <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end;">
-              <div>
-                <label class="label" for="ce-type">Type</label>
-                <select id="ce-type" class="input">
-                  <option value="general">General Election</option>
-                  <option value="by-election">By-Election</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div>
-                <label class="label" for="ce-polling-day">Polling Day</label>
-                <input id="ce-polling-day" class="input" type="date" required>
-              </div>
-              <div>
-                <label class="label" for="ce-label">Label</label>
-                <input id="ce-label" class="input" placeholder="e.g. May 1997 General Election">
-              </div>
-            </div>
-            <div style="margin-top:8px;">
-              <button class="btn primary" type="submit">Create Election</button>
-            </div>
-            <div id="create-election-msg" class="muted" style="margin-top:6px;"></div>
-          </form>
-        ` : ""}
-        <div id="admin-msg" class="muted" style="margin-top:6px;"></div>
-      </section>
-    ` : ""}
+    ${renderArchiveSection()}
   `;
 
-  // Event bindings
+  // ── Event bindings ────────────────────────────────────────────────────────
+
   root.querySelector("#toggle-archive")?.addEventListener("click", () => {
     state.showArchive = !state.showArchive;
     render(data);
   });
 
-  root.querySelector("#toggle-create-form")?.addEventListener("click", () => {
-    state.createFormVisible = !state.createFormVisible;
+  root.querySelector("#toggle-submit-form")?.addEventListener("click", () => {
+    state.showSubmitForm = !state.showSubmitForm;
+    state.submitPartyRows = [{ party: "", seats: "", votes: "", vote_share: "" }];
     render(data);
   });
 
-  root.querySelector("#seed-1997-btn")?.addEventListener("click", async () => {
-    const msgEl = root.querySelector("#admin-msg");
-    if (msgEl) msgEl.textContent = "Seeding…";
-    try {
-      const r = await apiSeedElection1997();
-      if (r.error) throw new Error(r.error);
-      if (msgEl) msgEl.textContent = "✓ 1997 GE baseline seeded / updated.";
-      await reload(data);
-    } catch (err) {
-      if (msgEl) msgEl.textContent = `Error: ${err.message}`;
-    }
+  root.querySelector("#cancel-submit-btn")?.addEventListener("click", () => {
+    state.showSubmitForm = false;
+    render(data);
   });
 
-  root.querySelector("#create-election-form")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const msgEl = root.querySelector("#create-election-msg");
-    const type = root.querySelector("#ce-type")?.value || "general";
-    const polling_day = root.querySelector("#ce-polling-day")?.value || "";
-    const label = root.querySelector("#ce-label")?.value?.trim() || "";
+  root.querySelector("#add-party-row-btn")?.addEventListener("click", () => {
+    state.submitPartyRows.push({ party: "", seats: "", votes: "", vote_share: "" });
+    // Re-render only the party rows container for efficiency.
+    const container = root.querySelector("#party-rows-container");
+    if (container) container.innerHTML = renderPartyRows();
+    bindPartyRowEvents(root, data);
+  });
+
+  bindPartyRowEvents(root, data);
+
+  root.querySelector("#submit-election-btn")?.addEventListener("click", async () => {
+    const msgEl = root.querySelector("#submit-election-msg");
+    const body_type     = root.querySelector("#eb-type")?.value || "";
+    const polling_day   = root.querySelector("#eb-polling-day")?.value || "";
+    const label         = root.querySelector("#eb-label")?.value?.trim() || "";
+    const turnout_total = Number(root.querySelector("#eb-turnout-total")?.value || 0);
+    const turnout_pct   = Number(root.querySelector("#eb-turnout-pct")?.value   || 0);
+
     if (!polling_day) { if (msgEl) msgEl.textContent = "Polling day is required."; return; }
+
+    // Collect party rows from DOM (live state).
+    const partyRows = [];
+    root.querySelectorAll("[data-row]").forEach(rowEl => {
+      const party      = rowEl.querySelector(".party-row-party")?.value?.trim() || "";
+      const seats      = Number(rowEl.querySelector(".party-row-seats")?.value || 0);
+      const votes      = Number(rowEl.querySelector(".party-row-votes")?.value || 0);
+      const vote_share = Number(rowEl.querySelector(".party-row-share")?.value || 0);
+      if (party) partyRows.push({ party, seats, votes, vote_share });
+    });
+
     try {
-      const r = await apiCreateElection({ type, polling_day, label });
+      if (msgEl) msgEl.textContent = "Submitting…";
+      const r = await apiSubmitElectionBodyResult({
+        body_type, polling_day, label, turnout_total, turnout_pct, party_summary: partyRows,
+      });
       if (r.error) throw new Error(r.error);
-      if (msgEl) msgEl.textContent = "✓ Election created.";
-      state.createFormVisible = false;
+      state.showSubmitForm = false;
+      state.submitPartyRows = [{ party: "", seats: "", votes: "", vote_share: "" }];
       await reload(data);
     } catch (err) {
       if (msgEl) msgEl.textContent = `Error: ${err.message}`;
     }
   });
+}
 
-  // Edit election buttons
-  root.querySelectorAll("[data-edit-election]").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      state.editElectionId = btn.getAttribute("data-edit-election");
-      try {
-        const r = await apiGetElectionChanges(state.editElectionId);
-        state.editChanges = (r.changes || []).map(ch => ({
-          constituency_id: ch.constituency_id,
-          party_from: ch.party_from || "",
-          party_to: ch.party_to,
-          notes: ch.notes || "",
-        }));
-      } catch { state.editChanges = []; }
-      render(data);
+function bindPartyRowEvents(root, data) {
+  root.querySelectorAll("[data-remove-row]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.getAttribute("data-remove-row"));
+      // Read current DOM state before removing.
+      syncPartyRowsFromDOM(root);
+      if (state.submitPartyRows.length > 1) {
+        state.submitPartyRows.splice(idx, 1);
+        const container = root.querySelector("#party-rows-container");
+        if (container) container.innerHTML = renderPartyRows();
+        bindPartyRowEvents(root, data);
+      }
     });
   });
+}
 
-  // Flip editor actions
-  if (state.editElectionId) {
-    const constInput = root.querySelector("#flip-constituency");
-    // Auto-fill party_from when constituency changes.
-    constInput?.addEventListener("change", () => {
-      const val = constInput.value.trim();
-      // Try exact id match first, then name match.
-      const c = state.constituencies.find(x => x.id === val)
-             || state.constituencies.find(x => x.name.toLowerCase() === val.toLowerCase());
-      if (c) {
-        constInput.value = c.id;
-        const fromInput = root.querySelector("#flip-party-from");
-        if (fromInput) fromInput.value = c.party;
-      }
-    });
-
-    root.querySelector("#flip-add-btn")?.addEventListener("click", () => {
-      const constId = root.querySelector("#flip-constituency")?.value?.trim() || "";
-      const partyFrom = root.querySelector("#flip-party-from")?.value?.trim() || "";
-      const partyTo = root.querySelector("#flip-party-to")?.value?.trim() || "";
-      const notes = root.querySelector("#flip-notes")?.value?.trim() || "";
-      if (!constId || !partyTo) {
-        root.querySelector("#flip-msg").textContent = "Constituency and To Party are required.";
-        return;
-      }
-      // Resolve by name if needed.
-      const resolved = state.constituencies.find(x => x.id === constId)
-                    || state.constituencies.find(x => x.name.toLowerCase() === constId.toLowerCase());
-      const finalId = resolved ? resolved.id : constId;
-      const finalFrom = partyFrom || resolveConstituencyParty(finalId);
-
-      // Replace if same constituency already in list.
-      const existingIdx = state.editChanges.findIndex(ch => ch.constituency_id === finalId);
-      const entry = { constituency_id: finalId, party_from: finalFrom, party_to: partyTo, notes };
-      if (existingIdx >= 0) state.editChanges[existingIdx] = entry;
-      else state.editChanges.push(entry);
-
-      root.querySelector("#flip-msg").textContent = "";
-      render(data);
-    });
-
-    root.querySelectorAll("[data-remove-flip]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const idx = Number(btn.getAttribute("data-remove-flip"));
-        state.editChanges.splice(idx, 1);
-        render(data);
-      });
-    });
-
-    root.querySelector("#flip-save-btn")?.addEventListener("click", async () => {
-      const msgEl = root.querySelector("#flip-msg");
-      try {
-        const r = await apiSaveElectionChanges(state.editElectionId, { changes: state.editChanges });
-        if (r.error) throw new Error(r.error);
-        if (msgEl) msgEl.textContent = `✓ ${state.editChanges.length} flip(s) saved.`;
-      } catch (err) {
-        if (msgEl) msgEl.textContent = `Error: ${err.message}`;
-      }
-    });
-
-    root.querySelector("#flip-finalize-btn")?.addEventListener("click", async () => {
-      const msgEl = root.querySelector("#flip-msg");
-      if (!confirm(`Finalize this election? This will apply ${state.editChanges.length} constituency flip(s) and cannot be undone.`)) return;
-      try {
-        // Save changes first.
-        await apiSaveElectionChanges(state.editElectionId, { changes: state.editChanges });
-        const r = await apiFinalizeElection(state.editElectionId);
-        if (r.error) throw new Error(r.error);
-        state.editElectionId = null;
-        state.editChanges = [];
-        await reload(data);
-      } catch (err) {
-        if (msgEl) msgEl.textContent = `Error: ${err.message}`;
-      }
-    });
-
-    root.querySelector("#flip-cancel-btn")?.addEventListener("click", () => {
-      state.editElectionId = null;
-      state.editChanges = [];
-      render(data);
-    });
-  }
+function syncPartyRowsFromDOM(root) {
+  root.querySelectorAll("[data-row]").forEach(rowEl => {
+    const i = Number(rowEl.getAttribute("data-row"));
+    if (state.submitPartyRows[i]) {
+      state.submitPartyRows[i].party      = rowEl.querySelector(".party-row-party")?.value?.trim() || "";
+      state.submitPartyRows[i].seats      = rowEl.querySelector(".party-row-seats")?.value || "";
+      state.submitPartyRows[i].votes      = rowEl.querySelector(".party-row-votes")?.value || "";
+      state.submitPartyRows[i].vote_share = rowEl.querySelector(".party-row-share")?.value || "";
+    }
+  });
 }
 
 async function reload(data) {
   try {
-    const [cur, totals, elections, consts] = await Promise.all([
-      apiGetCurrentElection().catch(() => ({ election: null, partySummary: [] })),
-      apiGetElectionSeatTotals().catch(() => ({ totals: [] })),
-      apiGetElections().catch(() => ({ elections: [] })),
-      apiGetConstituencies().catch(() => ({ constituencies: [] })),
+    const [curr, arch] = await Promise.all([
+      apiGetElectionBodiesCurrent().catch(() => ({ results: [] })),
+      apiGetElectionBodiesArchive().catch(() =>  ({ results: [] })),
     ]);
-    state.currentElection = cur.election || null;
-    state.partySummary = cur.partySummary || [];
-    state.seatTotals = totals.totals || [];
-    state.elections = elections.elections || [];
-    state.constituencies = consts.constituencies || [];
+    state.current = curr.results || [];
+    state.archive = arch.results || [];
     state.error = null;
   } catch (e) {
     state.error = e.message;

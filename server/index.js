@@ -1073,6 +1073,16 @@ async function ensureSchema() {
     INSERT INTO app_state_elections (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
   `);
 
+  // Migration: add new columns to elections and election_party_summary.
+  await pool.query(`
+    ALTER TABLE elections ADD COLUMN IF NOT EXISTS is_current BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE elections ADD COLUMN IF NOT EXISTS turnout_total BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE elections ADD COLUMN IF NOT EXISTS turnout_pct NUMERIC(5,2) NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    ALTER TABLE election_party_summary ADD COLUMN IF NOT EXISTS votes BIGINT NOT NULL DEFAULT 0;
+  `);
+
   await seedPlayableParties();
   await seedScandalTemplates();
   await seedElection1997();
@@ -1134,9 +1144,68 @@ async function seedPlayableParties() {
 }
 
 /**
+ * Parse the 1997 structured CSV to extract party vote/seat data and turnout.
+ * Falls back to counting from constituencies_1997.json if the CSV is unavailable.
+ */
+function parse1997CSV() {
+  try {
+    const raw = readFileSync(resolve(__serverDir, "..", "data", "1997_structured.csv"), "utf8");
+    const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+    const parties = {};
+    let turnoutTotal = 0;
+    let turnoutPct = 0;
+
+    for (const line of lines.slice(1)) { // skip header
+      const cols = line.split(",");
+      const [recordType, party] = cols;
+      if (recordType === "vote_summary" && party) {
+        const p = normaliseParty(party);
+        const seats     = parseInt(cols[4], 10)  || 0;
+        const votes     = parseInt(cols[5], 10)  || 0;
+        const voteShare = parseFloat((cols[6] || "").replace("%", "")) || 0;
+        if (!parties[p]) parties[p] = { seats: 0, votes: 0, voteShare: 0 };
+        parties[p].seats     = seats;
+        parties[p].votes     = votes;
+        parties[p].voteShare = voteShare;
+      } else if (recordType === "seat_breakdown" && party) {
+        const p = normaliseParty(party);
+        const seats = parseInt(cols[4], 10) || 0;
+        if (!parties[p]) parties[p] = { seats: 0, votes: 0, voteShare: 0 };
+        if (seats) parties[p].seats = seats;
+      } else if (recordType === "overall_total") {
+        const tp = parseFloat((cols[8] || "").replace("%", "")) || 0;
+        const tt = parseInt(cols[9], 10) || 0;
+        if (tp && !turnoutPct)    turnoutPct    = tp;
+        if (tt && !turnoutTotal)  turnoutTotal  = tt;
+      }
+    }
+    return {
+      parties: Object.entries(parties).map(([party, d]) => ({ party, ...d })),
+      turnoutTotal,
+      turnoutPct,
+    };
+  } catch (e) {
+    console.warn("[parse1997CSV] failed, falling back to constituencies JSON:", e.message);
+    // Fallback: count seats from constituencies_1997.json (no vote data).
+    try {
+      const json = JSON.parse(readFileSync(resolve(__serverDir, "..", "data", "constituencies_1997.json"), "utf8"));
+      const counts = {};
+      for (const c of (json.constituencies || [])) {
+        const p = normaliseParty(c.party);
+        counts[p] = (counts[p] || 0) + 1;
+      }
+      return {
+        parties: Object.entries(counts).map(([party, seats]) => ({ party, seats, votes: 0, voteShare: 0 })),
+        turnoutTotal: 0,
+        turnoutPct: 0,
+      };
+    } catch { return { parties: [], turnoutTotal: 0, turnoutPct: 0 }; }
+  }
+}
+
+/**
  * Idempotent seed of the 1997 General Election baseline.
- * Creates the election record, derives party summary from constituencies_1997.json,
- * and sets it as the last_general_election_id in app_state_elections.
+ * Uses assets/1997_structured.csv for accurate vote/seat/turnout data.
  */
 async function seedElection1997() {
   // Only seed if no general election exists yet.
@@ -1144,7 +1213,11 @@ async function seedElection1997() {
     `SELECT id FROM elections WHERE type = 'general' AND polling_day = '1997-05-01' LIMIT 1`
   );
   if (existing.length > 0) {
-    // Already seeded — ensure it is marked as last GE.
+    // Already seeded — ensure it is marked as current and last GE.
+    await pool.query(
+      `UPDATE elections SET is_current = true WHERE id = $1`,
+      [existing[0].id]
+    );
     await pool.query(
       `UPDATE app_state_elections SET last_general_election_id = $1, updated_at = NOW() WHERE id = 'main'`,
       [existing[0].id]
@@ -1152,40 +1225,35 @@ async function seedElection1997() {
     return;
   }
 
+  // Parse the 1997 structured CSV.
+  const csvData = parse1997CSV();
+
   // Create the election record.
   const { rows: elRows } = await pool.query(
-    `INSERT INTO elections (type, polling_day, label, status, finalized_at)
-     VALUES ('general', '1997-05-01', 'May 1997 General Election', 'finalized', '1997-05-01T00:00:00Z')
-     RETURNING id`
+    `INSERT INTO elections (type, polling_day, label, status, finalized_at, turnout_total, turnout_pct, is_current)
+     VALUES ('general', '1997-05-01', 'May 1997 General Election', 'finalized', '1997-05-01T00:00:00Z', $1, $2, true)
+     RETURNING id`,
+    [csvData.turnoutTotal, csvData.turnoutPct]
   );
   const elId = elRows[0].id;
 
-  // Derive party summary from constituencies_1997.json, applying normalisation.
-  try {
-    const json = JSON.parse(readFileSync(resolve(__serverDir, "..", "data", "constituencies_1997.json"), "utf8"));
-    const counts = {};
-    for (const c of (json.constituencies || [])) {
-      const party = normaliseParty(c.party);
-      counts[party] = (counts[party] || 0) + 1;
-    }
-    for (const [party, seats] of Object.entries(counts)) {
-      await pool.query(
-        `INSERT INTO election_party_summary (election_id, party, seats) VALUES ($1, $2, $3)
-         ON CONFLICT (election_id, party) DO NOTHING`,
-        [elId, party, seats]
-      );
-    }
-    console.log(`[seedElection1997] party summary: ${Object.entries(counts).map(([p,s])=>`${p}:${s}`).join(", ")}`);
-  } catch (e) {
-    console.warn("[seedElection1997] could not load constituencies_1997.json for party summary:", e.message);
+  // Insert party summary from CSV data.
+  for (const ps of csvData.parties) {
+    await pool.query(
+      `INSERT INTO election_party_summary (election_id, party, seats, votes, vote_share)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (election_id, party) DO UPDATE
+         SET seats = EXCLUDED.seats, votes = EXCLUDED.votes, vote_share = EXCLUDED.vote_share`,
+      [elId, ps.party, ps.seats, ps.votes, ps.voteShare]
+    );
   }
+  console.log(`[seedElection1997] seeded 1997 GE (id=${elId}) from CSV: ${csvData.parties.map(p=>`${p.party}:${p.seats}`).join(", ")}`);
 
   // Mark as last general election.
   await pool.query(
     `UPDATE app_state_elections SET last_general_election_id = $1, updated_at = NOW() WHERE id = 'main'`,
     [elId]
   );
-  console.log(`[seedElection1997] seeded 1997 GE with id=${elId}`);
 }
 
 /**
@@ -6958,6 +7026,9 @@ app.post("/api/mod/scandals/:id/close", scandalWriteLimit, async (req, res) => {
 // POST /api/elections/:id/finalize             — admin/mod: apply flips + write events, set last GE
 // GET  /api/elections/:id/changes              — authenticated: list constituency changes for election
 // POST /api/admin/elections/seed-1997          — admin/mod: idempotent seed of 1997 GE
+// GET  /api/elections/bodies/current           — authenticated: current result per body
+// GET  /api/elections/bodies/archive           — authenticated: archived (replaced) results
+// POST /api/elections/bodies                   — admin/mod: submit new result for a body
 // GET  /api/parties/canonical                  — authenticated: list all canonical parties
 // GET  /api/constituencies/:id/events          — authenticated: event log for a constituency
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -7240,7 +7311,165 @@ app.post("/api/admin/elections/seed-1997", electionWriteLimit, async (req, res) 
   }
 });
 
-// GET /api/constituencies/:id/events
+// ── Election Bodies (results dashboard) ──────────────────────────────────────
+// GET  /api/elections/bodies/current   — current result per body (public: read)
+// GET  /api/elections/bodies/archive   — all replaced results (public: read)
+// POST /api/elections/bodies           — admin/mod: submit new result for a body
+
+const ELECTION_BODY_TYPES = [
+  "general",
+  "european_parliament",
+  "scottish_parliament",
+  "welsh_assembly",
+  "northern_irish_assembly",
+  "english_locals",
+  "scottish_locals",
+  "welsh_locals",
+  "northern_irish_locals",
+];
+
+// GET /api/elections/bodies/current
+app.get("/api/elections/bodies/current", electionReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { rows: elRows } = await pool.query(
+      `SELECT id, type, polling_day, label, status, turnout_total, turnout_pct, finalized_at
+         FROM elections
+        WHERE is_current = true
+        ORDER BY polling_day DESC`
+    );
+    const results = [];
+    for (const el of elRows) {
+      const { rows: ps } = await pool.query(
+        `SELECT party, seats, votes, vote_share
+           FROM election_party_summary
+          WHERE election_id = $1
+          ORDER BY seats DESC`,
+        [el.id]
+      );
+      results.push({
+        ...el,
+        turnout_total: Number(el.turnout_total),
+        turnout_pct: Number(el.turnout_pct),
+        party_summary: ps.map(r => ({
+          party: r.party,
+          seats: Number(r.seats),
+          votes: Number(r.votes),
+          vote_share: Number(r.vote_share),
+        })),
+      });
+    }
+    res.json({ results });
+  } catch (e) {
+    console.error("[GET /api/elections/bodies/current]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/elections/bodies/archive
+app.get("/api/elections/bodies/archive", electionReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { rows: elRows } = await pool.query(
+      `SELECT id, type, polling_day, label, status, turnout_total, turnout_pct, finalized_at
+         FROM elections
+        WHERE is_current = false AND status = 'finalized'
+        ORDER BY polling_day DESC`
+    );
+    const results = [];
+    for (const el of elRows) {
+      const { rows: ps } = await pool.query(
+        `SELECT party, seats, votes, vote_share
+           FROM election_party_summary
+          WHERE election_id = $1
+          ORDER BY seats DESC`,
+        [el.id]
+      );
+      results.push({
+        ...el,
+        turnout_total: Number(el.turnout_total),
+        turnout_pct: Number(el.turnout_pct),
+        party_summary: ps.map(r => ({
+          party: r.party,
+          seats: Number(r.seats),
+          votes: Number(r.votes),
+          vote_share: Number(r.vote_share),
+        })),
+      });
+    }
+    res.json({ results });
+  } catch (e) {
+    console.error("[GET /api/elections/bodies/archive]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/elections/bodies  — submit new result for a body (replaces current, archives previous)
+app.post("/api/elections/bodies", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { body_type, polling_day, label = "", turnout_total = 0, turnout_pct = 0, party_summary = [] } = req.body || {};
+    if (!body_type || !ELECTION_BODY_TYPES.includes(body_type)) {
+      return res.status(400).json({ error: `body_type must be one of: ${ELECTION_BODY_TYPES.join(", ")}` });
+    }
+    if (!polling_day) return res.status(400).json({ error: "polling_day is required" });
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Archive previous current result for this body type.
+      await client.query(
+        `UPDATE elections SET is_current = false, updated_at = NOW()
+          WHERE type = $1 AND is_current = true`,
+        [body_type]
+      );
+
+      // Create the new election record as current.
+      const { rows: elRows } = await client.query(
+        `INSERT INTO elections (type, polling_day, label, status, finalized_at, turnout_total, turnout_pct, is_current, created_by)
+         VALUES ($1, $2, $3, 'finalized', $2, $4, $5, true, $6)
+         RETURNING id`,
+        [body_type, polling_day, label, Number(turnout_total), Number(turnout_pct), req.session.userId]
+      );
+      const elId = elRows[0].id;
+
+      // Insert party summary.
+      for (const ps of party_summary) {
+        if (!ps.party) continue;
+        await client.query(
+          `INSERT INTO election_party_summary (election_id, party, seats, votes, vote_share)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (election_id, party) DO UPDATE
+             SET seats = EXCLUDED.seats, votes = EXCLUDED.votes, vote_share = EXCLUDED.vote_share`,
+          [elId, ps.party, Number(ps.seats) || 0, Number(ps.votes) || 0, Number(ps.vote_share) || 0]
+        );
+      }
+
+      // For general elections, update the last_general_election_id.
+      if (body_type === "general") {
+        await client.query(
+          `UPDATE app_state_elections SET last_general_election_id = $1, updated_at = NOW() WHERE id = 'main'`,
+          [elId]
+        );
+      }
+
+      await client.query("COMMIT");
+      await writeAuditLog(req.session.userId, "election.body.submit", "elections", elId, null, { body_type, polling_day, label });
+      res.status(201).json({ ok: true, id: elId });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error("[POST /api/elections/bodies]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+
 app.get("/api/constituencies/:id/events", electionReadLimit, async (req, res) => {
   try {
     if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
