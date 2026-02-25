@@ -1375,6 +1375,26 @@ export async function apiSeedElection1997() {
   return res.json();
 }
 
+export async function apiGetElectionBodiesCurrent() {
+  const res = await fetch(`${API_BASE}/api/elections/bodies/current`, { credentials: "include" });
+  return res.json();
+}
+
+export async function apiGetElectionBodiesArchive() {
+  const res = await fetch(`${API_BASE}/api/elections/bodies/archive`, { credentials: "include" });
+  return res.json();
+}
+
+export async function apiSubmitElectionBodyResult(payload) {
+  const res = await fetch(`${API_BASE}/api/elections/bodies`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
 export async function apiResetBaseline() {
   const res = await fetch(`${API_BASE}/api/admin/reset-baseline`, {
     method: "POST",
