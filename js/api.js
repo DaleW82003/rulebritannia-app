@@ -780,6 +780,56 @@ export async function apiSetPartyLeadership(partyId, role, character_id) {
   return res.json();
 }
 
+// ── Shop price index ────────────────────────────────────────────────────────
+
+export async function apiGetShopPriceIndex() {
+  const res = await fetch(`${API_BASE}/api/shop/price-index`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetShopPriceIndex failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiApplyShopInflation() {
+  const res = await fetch(`${API_BASE}/api/shop/apply-inflation`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiApplyShopInflation failed (${res.status})`);
+  return body;
+}
+
+export async function apiUpdateCharacterShopUpkeep(upkeep) {
+  const res = await fetch(`${API_BASE}/api/finance/shop-upkeep`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ upkeep }),
+  });
+  if (!res.ok) throw new Error(`apiUpdateCharacterShopUpkeep failed (${res.status})`);
+  return res.json();
+}
+
+// ── Party structure ─────────────────────────────────────────────────────────
+
+export async function apiGetPartyStructure(partyId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/structure`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPartyStructure failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSavePartyStructure(partyId, structure) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/structure`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ structure }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSavePartyStructure failed (${res.status})`);
+  return body;
+}
+
 // ── Offices ────────────────────────────────────────────────────────────────
 
 export async function apiGetOffices() {

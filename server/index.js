@@ -1218,6 +1218,31 @@ async function ensureSchema() {
   await seedElection1997();
   await seedConstituencies1997();
   await seedSalaryScale1997();
+
+  // ── Shop price index ───────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shop_price_index (
+      id                     TEXT PRIMARY KEY DEFAULT 'main',
+      price_index            NUMERIC NOT NULL DEFAULT 1.0,
+      last_applied_sim_month INT,
+      last_applied_sim_year  INT,
+      updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    INSERT INTO shop_price_index (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
+  `);
+
+  // ── Party structure + treasury overspend ──────────────────────────────────
+  await pool.query(`
+    ALTER TABLE parties
+      ADD COLUMN IF NOT EXISTS party_structure    JSONB   NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS treasury_overspend BOOLEAN NOT NULL DEFAULT false;
+  `);
+
+  // ── Character finance: monthly shop upkeep ────────────────────────────────
+  await pool.query(`
+    ALTER TABLE character_finance
+      ADD COLUMN IF NOT EXISTS shop_monthly_upkeep NUMERIC NOT NULL DEFAULT 0;
+  `);
 }
 
 // ── 1997 baseline salary scale (idempotent) ────────────────────────────────
@@ -1387,6 +1412,48 @@ async function runSalaryCrediting(month, year) {
     }
   } catch (e) {
     console.error("[salary] runSalaryCrediting error:", e.message);
+  }
+}
+
+// ── Monthly shop upkeep deduction ─────────────────────────────────────────────
+// Runs on every clock tick. Deducts personal item upkeep from character bank
+// balances and party structure overhead from party treasuries.
+async function runShopUpkeep(/* month, year — reserved for future audit */ ) {
+  try {
+    // Personal: deduct accumulated monthly upkeep for all characters
+    await pool.query(`
+      UPDATE character_finance
+         SET bank_balance      = bank_balance - shop_monthly_upkeep,
+             updated_at        = NOW()
+       WHERE shop_monthly_upkeep > 0
+    `);
+
+    // Party: deduct structure monthly overhead from each party treasury
+    const { rows: parties } = await pool.query(
+      `SELECT id, slug, treasury, party_structure FROM parties
+        WHERE (party_structure->>'monthlyOverhead')::numeric > 0`
+    );
+    for (const party of parties) {
+      try {
+        const overhead  = Number(party.party_structure?.monthlyOverhead || 0);
+        if (overhead <= 0) continue;
+        const oldCash   = Number(party.treasury?.cash || 0);
+        const newCash   = oldCash - overhead;
+        const overspend = newCash < 0;
+        await pool.query(
+          `UPDATE parties
+              SET treasury            = jsonb_set(COALESCE(treasury,'{}'), '{cash}', to_jsonb($1::numeric)),
+                  treasury_overspend  = $2,
+                  updated_at          = NOW()
+            WHERE id = $3`,
+          [newCash, overspend, party.id]
+        );
+      } catch (partyErr) {
+        console.error(`[shopUpkeep] party ${party.slug}:`, partyErr.message);
+      }
+    }
+  } catch (e) {
+    console.error("[runShopUpkeep] error:", e.message);
   }
 }
 
@@ -4135,8 +4202,7 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
 
     // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
     runSalaryCrediting(newMonth, newYear).catch((e) => console.error("[clock/tick] salary crediting failed:", e.message));
-
-    res.json({ ok: true, clock: rows[0], archivedItems: archived });
+    runShopUpkeep().catch((e) => console.error("[clock/tick] shop upkeep failed:", e.message));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6108,7 +6174,222 @@ app.post("/api/parties/:partyId/chief-whip", partyWriteLimit, async (req, res) =
     res.status(500).json({ error: "Server error" });
   }
 });
-// GET    /api/offices              — authenticated: list offices
+
+// ── Shop price index ─────────────────────────────────────────────────────────
+// GET  /api/shop/price-index          — authenticated: read current price index
+// POST /api/shop/apply-inflation      — admin/mod: apply economy inflation (12-sim-month cooldown)
+// POST /api/finance/shop-upkeep       — authenticated: update caller's monthly shop upkeep total
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const shopIndexLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/shop/price-index", shopIndexLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT price_index, last_applied_sim_month, last_applied_sim_year, updated_at
+         FROM shop_price_index WHERE id = 'main'`
+    );
+    if (!rows.length) return res.json({ priceIndex: 1.0, lastAppliedSimMonth: null, lastAppliedSimYear: null });
+    const row = rows[0];
+    res.json({
+      priceIndex:           Number(row.price_index),
+      lastAppliedSimMonth:  row.last_applied_sim_month,
+      lastAppliedSimYear:   row.last_applied_sim_year,
+      updatedAt:            row.updated_at,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/shop/apply-inflation", shopIndexLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    // Read current sim date
+    const { rows: clockRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const currentMonth = clockRows[0]?.sim_current_month ?? 8;
+    const currentYear  = clockRows[0]?.sim_current_year  ?? 1997;
+
+    // Read current price index record
+    const { rows: piRows } = await pool.query(
+      "SELECT price_index, last_applied_sim_month, last_applied_sim_year FROM shop_price_index WHERE id = 'main'"
+    );
+    const piRow        = piRows[0] || {};
+    const currentIndex = Number(piRow.price_index || 1.0);
+    const lastMonth    = piRow.last_applied_sim_month;
+    const lastYear     = piRow.last_applied_sim_year;
+
+    // Enforce 12 sim-month cooldown
+    if (lastMonth != null && lastYear != null) {
+      const monthsSinceLast = (currentYear - lastYear) * 12 + (currentMonth - lastMonth);
+      if (monthsSinceLast < 12) {
+        return res.status(429).json({
+          error: `Inflation can only be applied once every 12 sim months. ${12 - monthsSinceLast} sim month(s) remaining.`,
+          monthsRemaining: 12 - monthsSinceLast,
+        });
+      }
+    }
+
+    // Read inflation rate from the app state blob (economyPage.topline.inflation)
+    const { rows: stateRows } = await pool.query(
+      `SELECT s.data FROM app_state_current c
+         JOIN state_snapshots s ON s.id = c.snapshot_id
+        WHERE c.id = 'main'`
+    );
+    const stateData    = stateRows[0]?.data || {};
+    const inflationPct = Number(stateData?.economyPage?.topline?.inflation ?? 0);
+
+    if (!Number.isFinite(inflationPct) || inflationPct === 0) {
+      return res.status(400).json({
+        error: "No inflation rate configured. Please set an inflation value on the Economy page first.",
+      });
+    }
+
+    const newIndex = Math.round(currentIndex * (1 + inflationPct / 100) * 10000) / 10000;
+
+    await pool.query(
+      `UPDATE shop_price_index
+          SET price_index            = $1,
+              last_applied_sim_month = $2,
+              last_applied_sim_year  = $3,
+              updated_at             = NOW()
+        WHERE id = 'main'`,
+      [newIndex, currentMonth, currentYear]
+    );
+
+    await writeAuditLog(
+      req.session.userId, "shop.apply_inflation", "shop_price_index", "main",
+      { price_index: currentIndex },
+      { price_index: newIndex, inflation_pct: inflationPct }
+    );
+
+    res.json({ ok: true, oldIndex: currentIndex, newIndex, inflationPct, appliedSimMonth: currentMonth, appliedSimYear: currentYear });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/finance/shop-upkeep — update calling character's monthly shop upkeep total
+const financeWriteLimit = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/finance/shop-upkeep", financeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const charId = req.session.characterId;
+    if (!charId) return res.status(400).json({ error: "No active character selected" });
+    const upkeep = Math.max(0, Number(req.body?.upkeep ?? 0));
+    await pool.query(
+      `INSERT INTO character_finance (character_id, shop_monthly_upkeep)
+            VALUES ($1, $2)
+       ON CONFLICT (character_id) DO UPDATE SET shop_monthly_upkeep = $2, updated_at = NOW()`,
+      [charId, upkeep]
+    );
+    res.json({ ok: true, shopMonthlyUpkeep: upkeep });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Party structure (chairman-managed) ───────────────────────────────────────
+// GET  /api/parties/:partyId/structure  — authenticated: read party structure
+// POST /api/parties/:partyId/structure  — chairman/leader/admin/mod: update
+// ═══════════════════════════════════════════════════════════════════════════════
+
+app.get("/api/parties/:partyId/structure", partyReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT party_structure, treasury_overspend FROM parties WHERE slug = $1",
+      [req.params.partyId]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Party not found" });
+    res.json({ structure: rows[0].party_structure || {}, treasuryOverspend: rows[0].treasury_overspend });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/parties/:partyId/structure", partyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+
+    if (!isAdminOrMod) {
+      if (!req.session.characterId) {
+        return res.status(403).json({ error: "No active character selected" });
+      }
+      const { rows: pr } = await pool.query(
+        "SELECT leader_character_id, chairman_character_id FROM parties WHERE slug = $1",
+        [req.params.partyId]
+      );
+      if (!pr.length) return res.status(404).json({ error: "Party not found" });
+      const isLeader  = String(pr[0].leader_character_id)  === String(req.session.characterId);
+      const isChairman= String(pr[0].chairman_character_id) === String(req.session.characterId);
+      if (!isLeader && !isChairman) {
+        return res.status(403).json({ error: "Only the party chairman, leader, or admin/mod can update party structure" });
+      }
+    }
+
+    const structure = req.body?.structure;
+    if (!structure || typeof structure !== "object") {
+      return res.status(400).json({ error: "Body must be { structure: <object> }" });
+    }
+
+    const safe = {
+      nationalOffices: Array.isArray(structure.nationalOffices)
+        ? structure.nationalOffices.slice(0, 20).map((o) => ({
+            region:     String(o.region || "").trim().slice(0, 100),
+            size:       String(o.size   || "Regional").trim().slice(0, 50),
+            staffCount: Math.max(0, Math.min(500, Number(o.staffCount || 0))),
+          }))
+        : [],
+      departments: {
+        communications: Math.max(0, Math.min(200, Number(structure.departments?.communications || 0))),
+        policy:         Math.max(0, Math.min(200, Number(structure.departments?.policy         || 0))),
+        campaign:       Math.max(0, Math.min(200, Number(structure.departments?.campaign       || 0))),
+        compliance:     Math.max(0, Math.min(200, Number(structure.departments?.compliance     || 0))),
+        admin:          Math.max(0, Math.min(200, Number(structure.departments?.admin          || 0))),
+        fundraising:    Math.max(0, Math.min(200, Number(structure.departments?.fundraising    || 0))),
+        membership:     Math.max(0, Math.min(200, Number(structure.departments?.membership     || 0))),
+        research:       Math.max(0, Math.min(200, Number(structure.departments?.research       || 0))),
+      },
+      monthlyOverhead: Math.max(0, Number(structure.monthlyOverhead || 0)),
+      unlocks: (typeof structure.unlocks === "object" && structure.unlocks !== null) ? structure.unlocks : {},
+    };
+    safe.totalStaff =
+      safe.nationalOffices.reduce((s, o) => s + o.staffCount, 0) +
+      Object.values(safe.departments).reduce((s, v) => s + v, 0);
+
+    const { rows: updated } = await pool.query(
+      `UPDATE parties
+          SET party_structure = $1::jsonb,
+              updated_at      = NOW()
+        WHERE slug = $2
+       RETURNING party_structure, treasury_overspend`,
+      [JSON.stringify(safe), req.params.partyId]
+    );
+    if (!updated.length) return res.status(404).json({ error: "Party not found" });
+
+    await writeAuditLog(
+      req.session.userId, "party.structure.update", "party", req.params.partyId,
+      null, { structure: safe }
+    );
+    res.json({ ok: true, structure: updated[0].party_structure });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 // POST   /api/offices              — admin: create office
 // POST   /api/offices/:id/assign   — admin: assign character to office
 // DELETE /api/offices/:id/assign/:characterId — admin: remove assignment
@@ -6920,8 +7201,7 @@ app.post("/api/sim/tick", simWriteLimit, async (req, res) => {
 
     // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
     runSalaryCrediting(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] salary crediting failed:", e.message));
-
-    res.json({ ok: true, sim: rows[0] });
+    runShopUpkeep().catch((e) => console.error("[sim/tick] shop upkeep failed:", e.message));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

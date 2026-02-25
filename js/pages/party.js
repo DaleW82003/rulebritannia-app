@@ -2,7 +2,7 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters } from "../api.js";
+import { apiGetParty, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure } from "../api.js";
 
 const DEFAULT_PARTIES = {
   Conservative: {
@@ -30,6 +30,294 @@ const DEFAULT_PARTIES = {
     drafts: []
   }
 };
+
+// ── Party Shop catalogue ──────────────────────────────────────────────────────
+// Schema matches personal shop: id, name, category, basePrice1997,
+// baseMonthlyUpkeep1997, caps, effects[], riskModifier?, flavour
+
+const PARTY_SHOP_ITEMS = [
+  // ── A) National Operations ────────────────────────────────────────────────
+  {
+    id: "party-hq-upgrade",
+    name: "Party HQ Upgrade",
+    category: "National Operations",
+    basePrice1997: 45000, baseMonthlyUpkeep1997: 4500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "orgCapacity", value: 3 }],
+    riskModifier: null,
+    flavour: "Expand and modernise central HQ. More meeting rooms, better infrastructure, professional staffing."
+  },
+  {
+    id: "whips-office-expansion",
+    name: "Whips Office Expansion",
+    category: "National Operations",
+    basePrice1997: 18000, baseMonthlyUpkeep1997: 2000,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "disciplineCapacity", value: 2 }],
+    riskModifier: null,
+    flavour: "More whips, more phone lines, more leverage. Essential for managing a large parliamentary group."
+  },
+  {
+    id: "national-policy-unit",
+    name: "National Policy Unit",
+    category: "National Operations",
+    basePrice1997: 28000, baseMonthlyUpkeep1997: 3500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "policyResearch", value: 3 }],
+    riskModifier: null,
+    flavour: "A dedicated policy development unit staffed by researchers and former civil servants."
+  },
+  {
+    id: "media-monitoring-centre",
+    name: "Media Monitoring Centre",
+    category: "National Operations",
+    basePrice1997: 22000, baseMonthlyUpkeep1997: 2500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "rapidRebuttal", value: 2 }],
+    riskModifier: null,
+    flavour: "Real-time monitoring of press and broadcast coverage. Know what they're saying before you're asked."
+  },
+  {
+    id: "rapid-rebuttal-team",
+    name: "Rapid Rebuttal Team",
+    category: "National Operations",
+    basePrice1997: 12000, baseMonthlyUpkeep1997: 4000,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "rapidRebuttal", value: 3 }, { type: "scandalDefence", value: 2 }],
+    riskModifier: null,
+    flavour: "A dedicated team to counter opposition attacks. Fax machines, phones, and very fast typists."
+  },
+  {
+    id: "campaign-war-room",
+    name: "Campaign War Room",
+    category: "National Operations",
+    basePrice1997: 32000, baseMonthlyUpkeep1997: 4800,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "campaignCapacity", value: 4 }],
+    riskModifier: null,
+    flavour: "A centralised campaign operations centre. Targeting, messaging, battleground strategy."
+  },
+  {
+    id: "data-analytics-platform",
+    name: "Data Analytics Platform",
+    category: "National Operations",
+    basePrice1997: 38000, baseMonthlyUpkeep1997: 1800,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "campaignCapacity", value: 2 }, { type: "policyResearch", value: 1 }],
+    riskModifier: null,
+    flavour: "Canvassing databases, voter modelling, demographic analysis. Advanced for 1997."
+  },
+  {
+    id: "regional-organiser-network",
+    name: "Regional Organiser Network",
+    category: "National Operations",
+    basePrice1997: 18000, baseMonthlyUpkeep1997: 3000,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "orgCapacity", value: 2 }, { type: "campaignCapacity", value: 2 }],
+    riskModifier: null,
+    flavour: "Paid regional party organisers across the country. The backbone of ground-level politics."
+  },
+  {
+    id: "legal-defence-fund",
+    name: "Legal Defence Fund",
+    category: "National Operations",
+    basePrice1997: 28000, baseMonthlyUpkeep1997: 0,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "scandalDefence", value: 3 }],
+    riskModifier: null,
+    flavour: "A ring-fenced fund for party-level legal matters. Libel, regulatory challenges, election disputes."
+  },
+  {
+    id: "compliance-department",
+    name: "Compliance Department",
+    category: "National Operations",
+    basePrice1997: 14000, baseMonthlyUpkeep1997: 2500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "scandalDefence", value: 2 }],
+    riskModifier: null,
+    flavour: "Internal compliance and ethics team. Monitors donation law, register of interests, conduct codes."
+  },
+
+  // ── B) Campaign & Influence ───────────────────────────────────────────────
+  {
+    id: "national-advertising-campaign",
+    name: "National Advertising Campaign",
+    category: "Campaign & Influence",
+    basePrice1997: 75000, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "partyPolling", value: 3 }],
+    riskModifier: null,
+    flavour: "Billboard, press and broadcast campaign across target marginals. Big spend, potentially big return."
+  },
+  {
+    id: "party-conference-upgrade",
+    name: "Party Conference Upgrade",
+    category: "Campaign & Influence",
+    basePrice1997: 35000, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "partyPolling", value: 1 }, { type: "orgCapacity", value: 1 }],
+    riskModifier: null,
+    flavour: "Upgrade your annual conference: better venue, keynote production, fringe events, press operations."
+  },
+  {
+    id: "digital-fundraising-platform",
+    name: "Digital Fundraising Platform",
+    category: "Campaign & Influence",
+    basePrice1997: 18000, baseMonthlyUpkeep1997: 1000,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "fundraisingCapacity", value: 2 }],
+    riskModifier: null,
+    flavour: "Online donation infrastructure. Website, secure payment, donor database. Forward-thinking."
+  },
+  {
+    id: "national-campaign-bus",
+    name: "National Campaign Bus",
+    category: "Campaign & Influence",
+    basePrice1997: 22000, baseMonthlyUpkeep1997: 2000,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "campaignCapacity", value: 2 }],
+    riskModifier: null,
+    flavour: "A branded campaign bus for national touring events. Very visible. Hope the slogan is good."
+  },
+  {
+    id: "social-media-war-chest",
+    name: "Social Media War Chest",
+    category: "Campaign & Influence",
+    basePrice1997: 28000, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "partyPolling", value: 2 }, { type: "rapidRebuttal", value: 1 }],
+    riskModifier: null,
+    flavour: "Funded digital presence and targeted content. Reach voters the billboards can't."
+  },
+  {
+    id: "grassroots-volunteer-hub",
+    name: "Grassroots Volunteer Hub",
+    category: "Campaign & Influence",
+    basePrice1997: 14000, baseMonthlyUpkeep1997: 1500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "orgCapacity", value: 2 }, { type: "campaignCapacity", value: 1 }],
+    riskModifier: null,
+    flavour: "Volunteer coordination infrastructure. Training, briefing packs, canvass management."
+  },
+  {
+    id: "regional-policy-forums",
+    name: "Regional Policy Forums",
+    category: "Campaign & Influence",
+    basePrice1997: 9000, baseMonthlyUpkeep1997: 1000,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "policyResearch", value: 1 }, { type: "orgCapacity", value: 1 }],
+    riskModifier: null,
+    flavour: "Consultation events with stakeholders, members, and candidates across the UK regions."
+  },
+  {
+    id: "polling-contract",
+    name: "Polling Contract",
+    category: "Campaign & Influence",
+    basePrice1997: 18000, baseMonthlyUpkeep1997: 2000,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "policyResearch", value: 2 }],
+    riskModifier: null,
+    flavour: "A contract with a polling firm for regular internal tracking data. Know the numbers before anyone else."
+  },
+
+  // ── C) Infrastructure & Assets ────────────────────────────────────────────
+  {
+    id: "northern-regional-office",
+    name: "Northern Regional Office",
+    category: "Infrastructure & Assets",
+    basePrice1997: 55000, baseMonthlyUpkeep1997: 3000,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "orgCapacity", value: 2 }, { type: "campaignCapacity", value: 1 }],
+    riskModifier: null,
+    flavour: "A fully staffed regional office covering the North of England. Essential for any serious northern strategy."
+  },
+  {
+    id: "scottish-hq",
+    name: "Scottish HQ",
+    category: "Infrastructure & Assets",
+    basePrice1997: 72000, baseMonthlyUpkeep1997: 3800,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "orgCapacity", value: 3 }],
+    riskModifier: null,
+    flavour: "A dedicated Scottish party headquarters for devolved politics. Vital post-referendum."
+  },
+  {
+    id: "youth-wing-expansion",
+    name: "Youth Wing Expansion",
+    category: "Infrastructure & Assets",
+    basePrice1997: 9000, baseMonthlyUpkeep1997: 1500,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "orgCapacity", value: 1 }, { type: "fundraisingCapacity", value: 1 }],
+    riskModifier: null,
+    flavour: "Fund and expand the party's youth wing. Future candidates, future donors, future voters."
+  },
+  {
+    id: "party-think-tank",
+    name: "Party Think Tank",
+    category: "Infrastructure & Assets",
+    basePrice1997: 22000, baseMonthlyUpkeep1997: 2000,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "policyResearch", value: 3 }],
+    riskModifier: null,
+    flavour: "An independent but aligned policy institute producing research, papers, and ideological firepower."
+  },
+  {
+    id: "merchandise-warehouse",
+    name: "Merchandise Warehouse",
+    category: "Infrastructure & Assets",
+    basePrice1997: 14000, baseMonthlyUpkeep1997: 1000,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "fundraisingCapacity", value: 1 }],
+    riskModifier: null,
+    flavour: "Rosettes, mugs, T-shirts, and ballot boxes. The unglamorous logistics of mass-membership politics."
+  },
+
+  // ── D) Frivolous / Optics / Risky ─────────────────────────────────────────
+  {
+    id: "chairman-rv",
+    name: "Chairman's RV (Tour Bus)",
+    category: "Frivolous",
+    basePrice1997: 42000, baseMonthlyUpkeep1997: 2800,
+    caps: { maxOwned: 1 },
+    effects: [{ type: "unlock", value: "partyTour" }],
+    riskModifier: { partyScandalExposure: 4 },
+    flavour: "A luxury motorhome for the Chairman's national tour. Very conspicuous. Very American. Very 1996."
+  },
+  {
+    id: "luxury-conference-venue",
+    name: "Luxury Party Conference Venue Upgrade",
+    category: "Frivolous",
+    basePrice1997: 55000, baseMonthlyUpkeep1997: 0,
+    caps: {},
+    effects: [{ type: "unlock", value: "nationalBroadcastEvent" }, { type: "partyPolling", value: 1 }],
+    riskModifier: { partyScandalExposure: 3 },
+    flavour: "Move conference to a premier venue with full broadcast facilities. Big optics — big bill."
+  },
+];
+
+function partyCurrentPrice(item, priceIndex) {
+  return Math.round(item.basePrice1997 * priceIndex);
+}
+function partyCurrentUpkeep(item, priceIndex) {
+  return Math.round(item.baseMonthlyUpkeep1997 * priceIndex);
+}
+
+const OFFICE_SIZES = ["Satellite Office", "Regional Office", "HQ", "Campaign War Room"];
+const DEPARTMENTS = ["communications", "policy", "campaign", "compliance", "admin", "fundraising", "membership", "research"];
+
+const DEPARTMENT_EFFECTS = {
+  communications: "Faster scandal response options",
+  policy:         "Reduced bill drafting cooldown",
+  campaign:       "Unlocks multi-seat campaigning events",
+  compliance:     "Reduces party scandal severity",
+  admin:          "General organisational efficiency",
+  fundraising:    "Enhanced fundraising capacity",
+  membership:     "Improved member recruitment",
+  research:       "Enhanced policy research output",
+};
+
+// Monthly overhead per staff member (1997 baseline)
+const STAFF_COST_1997 = 1500;
 
 function canManage(data) {
   return canAdminOrMod(data);
@@ -92,6 +380,7 @@ function ensurePartyData(data) {
     p.treasury ??= structuredClone(value.treasury);
     p.hqUrl ??= value.hqUrl;
     p.drafts ??= [];
+    p.partyShopPurchases ??= [];
   });
 }
 
@@ -153,10 +442,13 @@ function render(data, state) {
   const dbChiefWhipAvatar= dbParty?.chief_whip_avatar || "";
 
   // Determine if caller is party leader (for leadership assignment)
-  const dbLeaderId = dbParty?.leader_character_id;
+  const dbLeaderId   = dbParty?.leader_character_id;
+  const dbChairmanId = dbParty?.chairman_character_id;
   const sessionCharId = state.dbState?.sessionCharId || "";
-  const isPartyLeader = dbLeaderId && sessionCharId && String(dbLeaderId) === String(sessionCharId);
+  const isPartyLeader  = dbLeaderId   && sessionCharId && String(dbLeaderId)   === String(sessionCharId);
+  const isChairman     = dbChairmanId && sessionCharId && String(dbChairmanId) === String(sessionCharId);
   const canAssignLeadership = manager || isPartyLeader;
+  const canManageStructure  = manager || isPartyLeader || isChairman;
 
   // Characters for party (for leadership dropdowns)
   const partyCharacters = (state.dbState?.partyCharacters || []);
@@ -315,6 +607,183 @@ function render(data, state) {
         </form>
       </section>
     ` : ""}
+
+    ${canManageStructure ? `
+    <section class="panel" style="margin-top:12px;">
+      <h2 style="margin-top:0;">Party Shop <span class="muted" style="font-size:.8em;">(Chairman · Leader · Admin/Mod)</span></h2>
+      <p class="muted">
+        Prices × price index <b>${esc(String(state.priceIndex?.toFixed(4) ?? "1.0000"))}</b>.
+        Monthly upkeep is deducted from party treasury each sim month.
+        ${state.dbState?.partyStructure?.unlocks?.partyTour ? `<span style="color:#1a6a1a;">✅ Party Tour active</span>` : ""}
+      </p>
+      ${state.partyShopMessage ? `<p class="muted" id="party-shop-msg">${esc(state.partyShopMessage)}</p>` : ""}
+      ${Object.entries(
+        PARTY_SHOP_ITEMS.reduce((groups, item) => {
+          (groups[item.category] = groups[item.category] || []).push(item);
+          return groups;
+        }, {})
+      ).map(([cat, items]) => {
+        const pi = state.priceIndex || 1;
+        return `
+          <details open style="margin-bottom:8px;">
+            <summary style="cursor:pointer;font-weight:600;font-size:1em;margin-bottom:4px;">${esc(cat)}</summary>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px;margin-top:6px;">
+              ${items.map((item) => {
+                const price = partyCurrentPrice(item, pi);
+                const upkeep = partyCurrentUpkeep(item, pi);
+                const purchases = party.partyShopPurchases || [];
+                const ownedCount = purchases.filter((p) => p.itemId === item.id).length;
+                const maxOwned = item.caps?.maxOwned;
+                const atCap = maxOwned != null && ownedCount >= maxOwned;
+                const treasury = Number(party.treasury?.cash || 0);
+                const canAfford = treasury >= price;
+                const effectTags = item.effects.map((e) => {
+                  if (e.type === "orgCapacity")        return `🏛️ org capacity +${e.value}`;
+                  if (e.type === "disciplineCapacity") return `🔒 discipline +${e.value}`;
+                  if (e.type === "campaignCapacity")   return `📣 campaign +${e.value}`;
+                  if (e.type === "policyResearch")     return `📄 research +${e.value}`;
+                  if (e.type === "rapidRebuttal")      return `⚡ rebuttal +${e.value}`;
+                  if (e.type === "scandalDefence")     return `🛡️ scandal defence +${e.value}`;
+                  if (e.type === "fundraisingCapacity") return `💰 fundraising +${e.value}`;
+                  if (e.type === "partyPolling")       return `📊 polling +${e.value}`;
+                  if (e.type === "unlock")             return `🔓 unlock: ${e.value}`;
+                  return e.type;
+                }).join(" · ");
+                const riskTag = item.riskModifier?.partyScandalExposure
+                  ? `⚠️ +${item.riskModifier.partyScandalExposure} party scandal risk`
+                  : "";
+                const capNote = maxOwned != null ? `${ownedCount}/${maxOwned}` : (ownedCount > 0 ? `×${ownedCount}` : "");
+                return `
+                  <article class="tile card-flex">
+                    <div>
+                      <div style="display:flex;justify-content:space-between;gap:4px;flex-wrap:wrap;align-items:baseline;">
+                        <b>${esc(item.name)}</b>
+                        ${capNote ? `<span class="muted" style="font-size:.8em;">${esc(capNote)}</span>` : ""}
+                      </div>
+                      <div class="muted" style="margin-top:3px;font-size:.88em;line-height:1.4;">${esc(item.flavour)}</div>
+                      <div style="margin-top:4px;font-size:.82em;display:flex;gap:6px;flex-wrap:wrap;">
+                        ${effectTags ? `<span style="color:#1a6a1a;">${esc(effectTags)}</span>` : ""}
+                        ${riskTag ? `<span style="color:#b00;">${esc(riskTag)}</span>` : ""}
+                      </div>
+                    </div>
+                    <div class="tile-bottom" style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;">
+                      <div>
+                        <b>${formatMoney(price)}</b>
+                        ${upkeep > 0 ? `<div class="muted" style="font-size:.82em;">+ ${formatMoney(upkeep)}/month</div>` : ""}
+                      </div>
+                      <button type="button" class="btn" data-action="party-buy-item" data-item-id="${esc(item.id)}"
+                        ${!canAfford ? `disabled title="Insufficient funds"` : ""}
+                        ${atCap ? `disabled title="Maximum owned"` : ""}
+                      >Buy</button>
+                    </div>
+                  </article>
+                `;
+              }).join("")}
+            </div>
+          </details>
+        `;
+      }).join("")}
+
+      ${(party.partyShopPurchases || []).length ? `
+        <h3 style="margin:8px 0 4px;">Party Purchases</h3>
+        <div class="muted" style="margin-bottom:6px;">
+          Total monthly upkeep: <b>${formatMoney((party.partyShopPurchases || []).reduce((s, p) => s + Number(p.monthlyUpkeep || 0), 0))}</b>
+        </div>
+        ${(party.partyShopPurchases || []).map((p, idx) => `
+          <article class="tile" style="margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
+            <div>
+              <b>${esc(p.name)}</b>
+              <div class="muted" style="font-size:.85em;">Purchased ${esc(p.purchasedAt)} — ${formatMoney(p.price)}${p.monthlyUpkeep > 0 ? ` · ${formatMoney(p.monthlyUpkeep)}/month` : ""}</div>
+            </div>
+            ${manager ? `<button type="button" class="btn" data-action="party-remove-purchase" data-idx="${idx}">Remove</button>` : ""}
+          </article>
+        `).join("")}
+      ` : ""}
+    </section>
+
+    <section class="panel" style="margin-top:12px;" id="national-org-panel">
+      <h2 style="margin-top:0;">National Organisation <span class="muted" style="font-size:.8em;">(Chairman · Leader · Admin/Mod)</span></h2>
+      ${state.dbState?.partyStructure ? (() => {
+        const s = state.dbState.partyStructure;
+        const depts = s.departments || {};
+        const offices = s.nationalOffices || [];
+        const totalDeptStaff = Object.values(depts).reduce((sum, v) => sum + v, 0);
+        const totalOfficeStaff = offices.reduce((sum, o) => sum + (o.staffCount || 0), 0);
+        const totalStaff = totalDeptStaff + totalOfficeStaff;
+        const overhead = totalStaff * STAFF_COST_1997 * (state.priceIndex || 1);
+        const unlocks = s.unlocks || {};
+        return `
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:12px;">
+            <article class="tile">
+              <h3 style="margin-top:0;">Overview</h3>
+              <div class="muted" style="line-height:1.8;">
+                <div><b>Total Staff:</b> ${totalStaff}</div>
+                <div><b>Monthly Overhead:</b> ${formatMoney(Math.round(overhead))}</div>
+                <div><b>Party Treasury:</b> ${formatMoney(Number(party.treasury?.cash || 0))}</div>
+                ${state.dbState?.treasuryOverspend ? `<div style="color:#c00;">⚠️ Treasury in deficit — risk of emergency fundraising scandal</div>` : ""}
+              </div>
+            </article>
+            <article class="tile">
+              <h3 style="margin-top:0;">Active Unlocks</h3>
+              <div class="muted" style="font-size:.9em;line-height:1.8;">
+                ${unlocks.partyTour ? "<div>✅ Party Tour</div>" : ""}
+                ${unlocks.nationalBroadcastEvent ? "<div>✅ National Broadcast Event</div>" : ""}
+                ${!unlocks.partyTour && !unlocks.nationalBroadcastEvent ? "<div>No special unlocks active.</div>" : ""}
+              </div>
+            </article>
+          </div>
+
+          <h3>Department Staff</h3>
+          <form id="party-structure-form">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:12px;">
+              ${DEPARTMENTS.map((dept) => `
+                <div>
+                  <label class="label" for="dept-${esc(dept)}" title="${esc(DEPARTMENT_EFFECTS[dept] || "")}">
+                    ${esc(dept.charAt(0).toUpperCase() + dept.slice(1))}
+                    <span class="muted" style="font-size:.8em;display:block;">${esc(DEPARTMENT_EFFECTS[dept] || "")}</span>
+                  </label>
+                  <input id="dept-${esc(dept)}" class="input" type="number" min="0" max="200" name="dept_${esc(dept)}" value="${esc(String(depts[dept] || 0))}">
+                </div>
+              `).join("")}
+            </div>
+
+            <h3>Regional Offices</h3>
+            <div id="offices-list" style="margin-bottom:10px;">
+              ${offices.map((o, i) => `
+                <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:8px;align-items:end;margin-bottom:6px;">
+                  <div>
+                    <label class="label">Region</label>
+                    <input class="input" name="office_region_${i}" value="${esc(o.region || "")}" placeholder="e.g. North West">
+                  </div>
+                  <div>
+                    <label class="label">Type</label>
+                    <select class="input" name="office_size_${i}">
+                      ${OFFICE_SIZES.map((sz) => `<option value="${esc(sz)}" ${sz === o.size ? "selected" : ""}>${esc(sz)}</option>`).join("")}
+                    </select>
+                  </div>
+                  <div>
+                    <label class="label">Staff</label>
+                    <input class="input" type="number" min="0" max="500" name="office_staff_${i}" value="${esc(String(o.staffCount || 0))}">
+                  </div>
+                  <button type="button" class="btn" data-action="remove-office" data-idx="${i}" style="margin-top:22px;">Remove</button>
+                </div>
+              `).join("")}
+            </div>
+            <input type="hidden" name="office_count" value="${offices.length}">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+              <button type="button" class="btn" id="add-office-btn">+ Add Regional Office</button>
+            </div>
+            <p class="muted" style="font-size:.85em;">
+              Staff cost: ~${formatMoney(STAFF_COST_1997)}/staff/month (1997 baseline × price index).
+              Total estimated overhead: <b>${formatMoney(Math.round(overhead))}</b>/month.
+            </p>
+            <button type="submit" class="btn primary">Save Organisation Structure</button>
+          </form>
+          ${state.structureMessage ? `<p class="muted" style="margin-top:8px;">${esc(state.structureMessage)}</p>` : ""}
+        `;
+      })() : `<div class="muted-block">Loading organisation data…</div>`}
+    </section>
+    ` : ""}
   `;
 
   root.querySelector("#party-switch")?.addEventListener("change", async (e) => {
@@ -324,15 +793,18 @@ function render(data, state) {
     state.openDraftId = null;
     // Reload DB party data for the newly selected party
     try {
-      const [partyResult, charsResult] = await Promise.all([
+      const [partyResult, charsResult, structureResult] = await Promise.all([
         apiGetParty(next).catch(() => null),
-        apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] }))
+        apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
+        apiGetPartyStructure(next).catch(() => ({ structure: {}, treasuryOverspend: false })),
       ]);
       if (partyResult?.party) state.dbState = { ...state.dbState, party: partyResult.party };
       const partyNameLower = next.toLowerCase();
       state.dbState.partyCharacters = (charsResult.characters || []).filter(
         (c) => (c.party || "").toLowerCase() === partyNameLower
       );
+      state.dbState.partyStructure = structureResult.structure || {};
+      state.dbState.treasuryOverspend = !!structureResult.treasuryOverspend;
     } catch (e) {
       console.warn("[party-switch] DB reload failed:", e.message);
     }
@@ -460,6 +932,118 @@ function render(data, state) {
     }
     render(data, state);
   });
+
+  // Party shop: buy item
+  root.querySelectorAll('[data-action="party-buy-item"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!canManageStructure) return;
+      const itemId = String(btn.dataset.itemId || "");
+      const item = PARTY_SHOP_ITEMS.find((i) => i.id === itemId);
+      if (!item) return;
+      const pi = state.priceIndex || 1;
+      const price  = partyCurrentPrice(item, pi);
+      const upkeep = partyCurrentUpkeep(item, pi);
+      const purchases = party.partyShopPurchases || [];
+      const ownedCount = purchases.filter((p) => p.itemId === item.id).length;
+      if (item.caps?.maxOwned != null && ownedCount >= item.caps.maxOwned) return;
+      const cash = Number(party.treasury?.cash || 0);
+      if (cash < price) return;
+      party.treasury.cash = cash - price;
+      party.partyShopPurchases = [...purchases, {
+        itemId: item.id,
+        name: item.name,
+        price,
+        monthlyUpkeep: upkeep,
+        effects: item.effects ? [...item.effects] : [],
+        riskModifier: item.riskModifier || null,
+        purchasedAt: new Date().toLocaleString("en-GB"),
+      }];
+      // Apply unlock effects immediately
+      const structure = state.dbState?.partyStructure || {};
+      structure.unlocks = structure.unlocks || {};
+      for (const e of (item.effects || [])) {
+        if (e.type === "unlock") structure.unlocks[e.value] = true;
+      }
+      if (state.dbState) state.dbState.partyStructure = structure;
+      saveState(data);
+      state.partyShopMessage = `Purchased "${item.name}" for ${formatMoney(price)}.${upkeep > 0 ? ` Upkeep: ${formatMoney(upkeep)}/month.` : ""}`;
+      render(data, state);
+    });
+  });
+
+  // Party shop: manager remove purchase
+  root.querySelectorAll('[data-action="party-remove-purchase"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!manager) return;
+      const idx = Number(btn.dataset.idx || 0);
+      const purchases = party.partyShopPurchases || [];
+      if (idx < 0 || idx >= purchases.length) return;
+      party.partyShopPurchases = purchases.filter((_, i) => i !== idx);
+      saveState(data);
+      state.partyShopMessage = "Purchase removed.";
+      render(data, state);
+    });
+  });
+
+  // National Organisation: add office button
+  root.querySelector("#add-office-btn")?.addEventListener("click", () => {
+    if (!canManageStructure) return;
+    const s = state.dbState?.partyStructure || {};
+    s.nationalOffices = [...(s.nationalOffices || []), { region: "", size: "Regional Office", staffCount: 0 }];
+    if (state.dbState) state.dbState.partyStructure = s;
+    render(data, state);
+  });
+
+  // National Organisation: remove office button
+  root.querySelectorAll('[data-action="remove-office"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!canManageStructure) return;
+      const idx = Number(btn.dataset.idx || 0);
+      const s = state.dbState?.partyStructure || {};
+      s.nationalOffices = (s.nationalOffices || []).filter((_, i) => i !== idx);
+      if (state.dbState) state.dbState.partyStructure = s;
+      render(data, state);
+    });
+  });
+
+  // National Organisation: save structure form
+  root.querySelector("#party-structure-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!canManageStructure) return;
+    const fd = new FormData(e.currentTarget);
+    const officeCount = Number(fd.get("office_count") || 0);
+    const offices = [];
+    for (let i = 0; i < officeCount; i++) {
+      offices.push({
+        region:     String(fd.get(`office_region_${i}`) || "").trim(),
+        size:       String(fd.get(`office_size_${i}`)   || "Regional Office"),
+        staffCount: Math.max(0, Number(fd.get(`office_staff_${i}`) || 0)),
+      });
+    }
+    const departments = {};
+    for (const dept of DEPARTMENTS) {
+      departments[dept] = Math.max(0, Number(fd.get(`dept_${dept}`) || 0));
+    }
+    const totalStaff = offices.reduce((s, o) => s + o.staffCount, 0)
+      + Object.values(departments).reduce((s, v) => s + v, 0);
+    const monthlyOverhead = Math.round(totalStaff * STAFF_COST_1997 * (state.priceIndex || 1));
+    const existing = state.dbState?.partyStructure || {};
+    const structure = {
+      nationalOffices: offices,
+      departments,
+      totalStaff,
+      monthlyOverhead,
+      unlocks: existing.unlocks || {},
+    };
+    try {
+      const result = await apiSavePartyStructure(state.activeParty, structure);
+      state.dbState = { ...state.dbState, partyStructure: result.structure };
+      state.structureMessage = `Organisation saved. Monthly overhead: ${formatMoney(monthlyOverhead)}.`;
+    } catch (err) {
+      state.structureMessage = `Error: ${err.message}`;
+    }
+    render(data, state);
+  });
 }
 
 export async function initPartyPage(data) {
@@ -470,27 +1054,35 @@ export async function initPartyPage(data) {
     openDraftId: null,
     editingDraftId: null,
     leadershipMessage: "",
-    dbState: { party: null, partyCharacters: [], sessionCharId: "" }
+    partyShopMessage: "",
+    structureMessage: "",
+    priceIndex: 1.0,
+    dbState: { party: null, partyCharacters: [], sessionCharId: "", partyStructure: null, treasuryOverspend: false }
   };
 
   // Load DB-backed party data
   const partyId = state.activeParty || Object.keys(data.party?.parties || {})[0] || "";
   if (partyId) {
     try {
-      const [partyResult, charsResult, myCharsResult] = await Promise.all([
+      const [partyResult, charsResult, myCharsResult, priceResult, structureResult] = await Promise.all([
         apiGetParty(partyId).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
-        apiGetMyCharacters().catch(() => ({ characters: [] }))
+        apiGetMyCharacters().catch(() => ({ characters: [] })),
+        apiGetShopPriceIndex().catch(() => ({ priceIndex: 1.0 })),
+        apiGetPartyStructure(partyId).catch(() => ({ structure: {}, treasuryOverspend: false })),
       ]);
       if (partyResult?.party) state.dbState.party = partyResult.party;
-      // Filter characters for this party
       const partyNameLower = partyId.toLowerCase();
       state.dbState.partyCharacters = (charsResult.characters || []).filter(
         (c) => (c.party || "").toLowerCase() === partyNameLower
       );
-      // Determine session character ID: use the caller's active character in this party
       const myActive = (myCharsResult.characters || []).find((c) => c.is_active);
       state.dbState.sessionCharId = myActive?.id || "";
+      if (Number.isFinite(priceResult.priceIndex) && priceResult.priceIndex > 0) {
+        state.priceIndex = priceResult.priceIndex;
+      }
+      state.dbState.partyStructure = structureResult.structure || {};
+      state.dbState.treasuryOverspend = !!structureResult.treasuryOverspend;
     } catch (e) {
       console.warn("[initPartyPage] DB load failed:", e.message);
     }

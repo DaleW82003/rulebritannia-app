@@ -7,6 +7,7 @@ import {
   apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange,
   apiGetCharacterApplications, apiApproveCharacterApplication, apiRejectCharacterApplication,
   apiGetCharacters, apiAdminSetCharacterInactive, apiAdminRepairCharacterOwners,
+  apiGetShopPriceIndex, apiApplyShopInflation,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -79,12 +80,16 @@ export async function initControlPanelPage(data) {
   // Load pending character applications and active characters from DB
   let pendingApplications = [];
   let activeDbChars = [];
+  let shopPriceData = { priceIndex: 1.0, lastAppliedSimMonth: null, lastAppliedSimYear: null };
   await Promise.all([
     manager
       ? apiGetCharacterApplications("pending").catch(() => ({ applications: [] })).then((r) => { pendingApplications = r.applications; })
       : Promise.resolve(),
     canEdit
       ? apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })).then((r) => { activeDbChars = r.characters; })
+      : Promise.resolve(),
+    canEdit
+      ? apiGetShopPriceIndex().catch(() => ({})).then((r) => { shopPriceData = { ...shopPriceData, ...r }; })
       : Promise.resolve(),
   ]);
 
@@ -164,6 +169,27 @@ export async function initControlPanelPage(data) {
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <button class="btn" type="button" id="cp-btn-repair-char-owners">Run Repair</button>
           <span id="cp-repair-char-owners-status" style="font-size:13px;"></span>
+        </div>
+      </div>
+    </details>
+
+    <details class="tile" style="margin-bottom:10px;">
+      <summary style="cursor:pointer;"><b>Shop Price Inflation <span class="mod-badge">Mod / Admin</span></b></summary>
+      <div style="margin-top:10px;">
+        <p class="muted" style="margin:0 0 8px;">
+          Adjusts the shop price index by the economy inflation rate.
+          Can only be applied <b>once every 12 sim months</b>.
+          Inflation rate is read from the Economy page.
+        </p>
+        <div class="muted" style="margin-bottom:10px;line-height:1.8;">
+          <div><b>Current Price Index:</b> ${esc(String(Number(shopPriceData.priceIndex || 1).toFixed(4)))}</div>
+          <div><b>Last Applied:</b> ${shopPriceData.lastAppliedSimMonth != null
+            ? `Sim month ${esc(String(shopPriceData.lastAppliedSimMonth))}/${esc(String(shopPriceData.lastAppliedSimYear))}`
+            : "Never"}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button class="btn" type="button" id="cp-btn-apply-inflation">Apply Inflation to Shop Prices</button>
+          <span id="cp-inflation-status" style="font-size:13px;"></span>
         </div>
       </div>
     </details>
@@ -311,6 +337,34 @@ export async function initControlPanelPage(data) {
 
     // Load avatar change requests async
     const avatarListEl = rolePanels.querySelector("#cp-avatar-changes-list");
+  // Apply inflation button
+  const inflationBtn    = rolePanels.querySelector("#cp-btn-apply-inflation");
+  const inflationStatus = rolePanels.querySelector("#cp-inflation-status");
+  if (inflationBtn) {
+    inflationBtn.addEventListener("click", async () => {
+      if (!canEdit) return;
+      inflationBtn.disabled = true;
+      inflationBtn.textContent = "Applying…";
+      if (inflationStatus) inflationStatus.textContent = "";
+      try {
+        const result = await apiApplyShopInflation();
+        logAction({ action: "shop.apply_inflation", details: result });
+        if (inflationStatus) {
+          inflationStatus.style.color = "#1a7a1a";
+          inflationStatus.textContent = `Done. Index: ${Number(result.oldIndex).toFixed(4)} → ${Number(result.newIndex).toFixed(4)} (+${Number(result.inflationPct).toFixed(2)}%)`;
+        }
+      } catch (err) {
+        if (inflationStatus) {
+          inflationStatus.style.color = "var(--danger,#c00)";
+          inflationStatus.textContent = `Error: ${err.message}`;
+        }
+      } finally {
+        inflationBtn.disabled = false;
+        inflationBtn.textContent = "Apply Inflation to Shop Prices";
+      }
+    });
+  }
+
     if (avatarListEl) {
       apiGetAllAvatarChanges("pending").then(({ changes }) => {
         if (!changes.length) {
