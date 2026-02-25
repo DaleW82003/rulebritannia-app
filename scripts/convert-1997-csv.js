@@ -19,10 +19,14 @@ const CSV_PATH  = resolve(ROOT, "data", "1997_structured.csv");
 const OUT_PATH  = resolve(ROOT, "data", "constituencies_1997.json");
 
 // ── Party normalisation rules ─────────────────────────────────────────────────
+// Canonical name for the party with the accented é.  Any ASCII/mojibake variant
+// found in older CSVs or copy-paste from Windows-1252 is mapped here.
 const PARTY_MAP = {
-  "Sinn Fein":   "Sinn Féin",
-  "UK Unionist": "Independents",
-  "Independent": "Independents",
+  "Sinn Fein":    "Sinn Féin",   // ASCII variant (no accent)
+  "Sinn F\xe9in": "Sinn Féin",   // Latin-1 byte still present after bad decode
+  "Sinn F?in":    "Sinn Féin",   // mojibake / question-mark replacement
+  "UK Unionist":  "Independents", // Robert McCartney (North Down) treated as independent
+  "Independent":  "Independents",
 };
 
 function normaliseParty(raw) {
@@ -73,6 +77,7 @@ const rows   = parseCsv(raw);
 
 const constituencies = [];
 const voteSummary    = {};
+const seatBreakdown  = {};   // from seat_breakdown rows — used for validation
 let   electorate     = 0;
 let   turnoutTotal   = 0;
 
@@ -102,6 +107,11 @@ for (const row of rows) {
       };
       break;
     }
+    case "seat_breakdown": {
+      const party = normaliseParty(row.party);
+      seatBreakdown[party] = (seatBreakdown[party] || 0) + (parseInt(row.seats, 10) || 0);
+      break;
+    }
     case "overall_total": {
       electorate   = parseInt(row.electorate,    10) || 0;
       turnoutTotal = parseInt(row.turnout_total, 10) || 0;
@@ -112,12 +122,36 @@ for (const row of rows) {
   }
 }
 
-if (constituencies.length !== 650) {
+// The 1997 UK general election used 659 constituencies.
+const EXPECTED_SEATS = 659;
+
+if (constituencies.length !== EXPECTED_SEATS) {
   console.error(
-    `ERROR: Expected exactly 650 constituency_result rows, got ${constituencies.length}.` +
+    `ERROR: Expected exactly ${EXPECTED_SEATS} constituency_result rows, got ${constituencies.length}.` +
     " Fix data/1997_structured.csv and re-run this script."
   );
   process.exit(1);
+}
+
+// Cross-check: constituency_result counts must match seat_breakdown where provided.
+if (Object.keys(seatBreakdown).length > 0) {
+  const derived = {};
+  for (const c of constituencies) {
+    derived[c.party] = (derived[c.party] || 0) + 1;
+  }
+  let mismatch = false;
+  for (const [party, expected] of Object.entries(seatBreakdown)) {
+    if (expected > 0 && derived[party] !== expected) {
+      console.error(
+        `ERROR: seat_breakdown mismatch for "${party}": CSV says ${expected}, derived ${derived[party] ?? 0}.`
+      );
+      mismatch = true;
+    }
+  }
+  if (mismatch) {
+    console.error("Fix data/1997_structured.csv and re-run this script.");
+    process.exit(1);
+  }
 }
 
 const output = {

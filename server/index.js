@@ -1076,10 +1076,25 @@ async function ensureSchema() {
   await seedPlayableParties();
   await seedScandalTemplates();
   await seedElection1997();
+  await seedConstituencies1997();
 }
 
 // The three playable parties for Rule Britannia.
 const PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
+
+// Server-side party name normaliser — mirrors scripts/convert-1997-csv.js.
+// Handles ASCII variants, Latin-1 mojibake and legacy CSV typos.
+const SERVER_PARTY_MAP = {
+  "Sinn Fein":    "Sinn Féin",
+  "Sinn F\xe9in": "Sinn Féin",   // Latin-1 byte
+  "Sinn F?in":    "Sinn Féin",   // question-mark mojibake
+  "UK Unionist":  "Independents",
+  "Independent":  "Independents",
+};
+function normaliseParty(raw) {
+  const trimmed = (raw || "").trim();
+  return SERVER_PARTY_MAP[trimmed] ?? trimmed;
+}
 
 // All 15 canonical parties (3 playable + 12 NPC).
 const ALL_CANONICAL_PARTIES = [
@@ -1145,12 +1160,13 @@ async function seedElection1997() {
   );
   const elId = elRows[0].id;
 
-  // Derive party summary from constituencies_1997.json.
+  // Derive party summary from constituencies_1997.json, applying normalisation.
   try {
     const json = JSON.parse(readFileSync(resolve(__serverDir, "..", "data", "constituencies_1997.json"), "utf8"));
     const counts = {};
     for (const c of (json.constituencies || [])) {
-      counts[c.party] = (counts[c.party] || 0) + 1;
+      const party = normaliseParty(c.party);
+      counts[party] = (counts[party] || 0) + 1;
     }
     for (const [party, seats] of Object.entries(counts)) {
       await pool.query(
@@ -1159,6 +1175,7 @@ async function seedElection1997() {
         [elId, party, seats]
       );
     }
+    console.log(`[seedElection1997] party summary: ${Object.entries(counts).map(([p,s])=>`${p}:${s}`).join(", ")}`);
   } catch (e) {
     console.warn("[seedElection1997] could not load constituencies_1997.json for party summary:", e.message);
   }
@@ -1169,6 +1186,50 @@ async function seedElection1997() {
     [elId]
   );
   console.log(`[seedElection1997] seeded 1997 GE with id=${elId}`);
+}
+
+/**
+ * Idempotent seed of 1997 constituencies from constituencies_1997.json.
+ * Skips if constituencies table is already populated.
+ */
+async function seedConstituencies1997() {
+  const { rows: existing } = await pool.query(`SELECT 1 FROM constituencies LIMIT 1`);
+  if (existing.length > 0) return; // already populated
+
+  let json;
+  try {
+    json = JSON.parse(readFileSync(resolve(__serverDir, "..", "data", "constituencies_1997.json"), "utf8"));
+  } catch (e) {
+    console.warn("[seedConstituencies1997] could not load constituencies_1997.json:", e.message);
+    return;
+  }
+
+  const incoming = json.constituencies || [];
+  if (incoming.length === 0) {
+    console.warn("[seedConstituencies1997] constituencies_1997.json has no entries — skipping.");
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const c of incoming) {
+      const party = normaliseParty(c.party);
+      await client.query(
+        `INSERT INTO constituencies (id, name, nation, region, party, mp_type, mp_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (id) DO NOTHING`,
+        [c.id, c.name, c.nation, c.region, party, c.mpType || "", c.mpName || ""]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+  console.log(`[seedConstituencies1997] seeded ${incoming.length} constituencies.`);
 }
 
 /**
@@ -7346,9 +7407,10 @@ app.post("/api/admin/constituencies/initialize-1997", constWriteLimit, async (re
 
     const json = load1997Json();
     const incoming = json.constituencies;
-    if (!Array.isArray(incoming) || incoming.length !== 650) {
+    // The 1997 UK general election used 659 constituencies.
+    if (!Array.isArray(incoming) || incoming.length !== 659) {
       return res.status(500).json({
-        error: `constituencies_1997.json must contain exactly 650 entries (found ${incoming?.length ?? 0}). ` +
+        error: `constituencies_1997.json must contain exactly 659 entries (found ${incoming?.length ?? 0}). ` +
                "Re-run scripts/convert-1997-csv.js to regenerate."
       });
     }
@@ -7395,7 +7457,79 @@ app.delete("/api/admin/constituencies/clear", constWriteLimit, async (req, res) 
   }
 });
 
-const PORT = process.env.PORT || 3000;
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMIN: reset-baseline — full wipe of election/constituency data and re-seed
+// POST /api/admin/reset-baseline
+//
+// Admin-only.  Clears: constituency_events, constituencies,
+// election_constituency_changes, election_party_summary, elections, and
+// resets app_state_elections pointers.  Then re-seeds canonical parties,
+// the May 1997 baseline election, and all 659 baseline constituencies so
+// the app returns to a consistent "new world" state.
+//
+// Requires body: { confirm: "RESET BASELINE" }
+// ═══════════════════════════════════════════════════════════════════════════
+
+const resetBaselineLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/admin/reset-baseline", resetBaselineLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { confirm: confirmText } = req.body || {};
+    if (confirmText !== "RESET BASELINE") {
+      return res.status(400).json({
+        ok: false,
+        error: "Confirmation text mismatch. Send { confirm: \"RESET BASELINE\" } to proceed.",
+      });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Clear all election-related and constituency data in dependency order.
+      await client.query("DELETE FROM constituency_events");
+      await client.query("DELETE FROM constituencies");
+      await client.query("DELETE FROM election_constituency_changes");
+      await client.query("DELETE FROM election_party_summary");
+      await client.query("DELETE FROM elections");
+      await client.query(
+        `UPDATE app_state_elections
+            SET last_general_election_id = NULL, updated_at = NOW()
+          WHERE id = 'main'`
+      );
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Re-seed canonical parties, 1997 election baseline, and 1997 constituencies.
+    await seedPlayableParties();
+    await seedElection1997();
+    await seedConstituencies1997();
+
+    await writeAuditLog(req.session.userId, "admin.reset-baseline", "all", "*", null, {
+      cleared: ["constituency_events", "constituencies", "election_constituency_changes",
+                "election_party_summary", "elections", "app_state_elections.pointers"],
+      reseeded: ["parties", "elections (1997)", "constituencies (1997)"],
+    });
+
+    res.json({
+      ok: true,
+      message: "Baseline reset complete. May 1997 election and 659 constituencies re-seeded.",
+    });
+  } catch (e) {
+    console.error("[POST /api/admin/reset-baseline]", e);
+    res.status(500).json({ ok: false, error: "Server error during baseline reset" });
+  }
+});
+
+
 
 // Refuse to start in production with the default insecure secret.
 if (process.env.NODE_ENV === "production") {
