@@ -1,6 +1,7 @@
 // js/ui.js
 import { qsa } from "./core.js";
 import { apiLogout } from "./api.js";
+import { formatSimMonthYear } from "./clock.js";
 
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
@@ -176,7 +177,7 @@ export function skeletonHTML(lines = 3, layout = "tile") {
   return `<div role="status" aria-label="Loading…">${inner}</div>`;
 }
 
-export function initNavUI(user, clock) {
+export function initNavUI(user, clock, gameState) {
   // Inject skip-to-content link for keyboard / screen-reader users
   if (!document.getElementById("rb-skip-link")) {
     const mainEl = document.querySelector("main");
@@ -252,14 +253,19 @@ export function initNavUI(user, clock) {
   // Active nav highlighting
   setActiveNav();
 
-  // Topbar clock display — inserted into topbar-inner after the brand
+  // Topbar clock display — inserted into topbar-inner after the brand.
+  // Derive the displayed month/year from gameState (single source of truth) so
+  // that changes to sim_start_date are reflected immediately. Fall back to the
+  // legacy clock object if gameState is not yet available.
   const topbarInner = document.querySelector(".topbar-inner");
-  if (topbarInner && clock) {
-    const monthName = MONTH_NAMES[clock.sim_current_month - 1];
+  if (topbarInner && (gameState || clock)) {
+    const clockText = gameState
+      ? formatSimMonthYear(gameState)
+      : `${MONTH_NAMES[(clock.sim_current_month - 1)]} ${clock.sim_current_year}`;
     const clockEl = document.createElement("span");
     clockEl.id = "topbar-clock";
     clockEl.className = "topbar-clock";
-    clockEl.textContent = `${monthName} ${clock.sim_current_year}`;
+    clockEl.textContent = clockText;
     const brand = topbarInner.querySelector(".brand");
     if (brand && brand.nextSibling) {
       topbarInner.insertBefore(clockEl, brand.nextSibling);

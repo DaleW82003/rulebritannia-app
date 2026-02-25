@@ -115,7 +115,7 @@ function renderDataSourcePanel(sources) {
   document.body.dataset.bootState = "booting";
   try {
     const { data, user, clock, sources } = await bootData();
-    initNavUI(user, clock);
+    initNavUI(user, clock, data.gameState);
     renderDataSourcePanel(sources);
 
     const page = document.body?.dataset?.page || "";

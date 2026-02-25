@@ -5285,11 +5285,14 @@ app.post("/api/admin/repair/character-owner-pointers", charAppWriteLimit, async 
 
     // Step 2: Repair users.active_character_id where it is NULL but deterministically resolvable.
     // If a user owns exactly one active character, set the pointer.
+    // Use ARRAY_AGG(id)[1] instead of MIN(id) because id is a UUID type and
+    // Postgres does not support MIN(uuid); when HAVING COUNT(*) = 1 the array
+    // has exactly one element so [1] is the safe portable pick.
     const { rows: activePointerFixed } = await pool.query(`
       UPDATE users u
          SET active_character_id = c.id
         FROM (
-          SELECT user_id, MIN(id) AS char_id
+          SELECT user_id, (ARRAY_AGG(id))[1] AS char_id
             FROM characters
            WHERE is_active = TRUE AND user_id IS NOT NULL
            GROUP BY user_id
