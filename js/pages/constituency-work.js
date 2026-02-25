@@ -11,6 +11,7 @@ import {
   apiModScandalDecision,
   apiModScandalClose,
   apiModScandalTemplates,
+  apiModScandalOptedInCharacters,
 } from "../api.js";
 
 const TASKS = [
@@ -197,9 +198,13 @@ function renderScandalCard(scandal, playerChoices, state) {
 
 // ── Mod scandal panels ────────────────────────────────────────────────────────
 
-function renderModScandalCreate(templates) {
+function renderModScandalCreate(templates, optedInCharacters) {
   const tplOptions = (templates || []).map((t) =>
     `<option value="${esc(t.id)}">${esc(t.title)} (${esc(t.category)})</option>`
+  ).join("");
+  const chars = optedInCharacters || [];
+  const charOptions = chars.map((c) =>
+    `<option value="${esc(c.id)}">${esc(c.name)} (${esc(c.party)})</option>`
   ).join("");
   return `
     <section class="panel" style="margin-bottom:12px;">
@@ -208,8 +213,14 @@ function renderModScandalCreate(templates) {
       <form id="cw-mod-situation-form">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:8px;">
           <div>
-            <label class="label" for="sc-char-id">Character UUID</label>
-            <input id="sc-char-id" class="input" name="character_id" required placeholder="UUID of character">
+            <label class="label" for="sc-char-id">Character</label>
+            ${chars.length
+              ? `<select id="sc-char-id" class="input" name="character_id" required>
+                  <option value="">— select character —</option>
+                  ${charOptions}
+                </select>`
+              : `<p class="muted" style="font-size:.9em;margin:4px 0 6px;">No characters have opted in to scandals yet.</p>
+                 <input id="sc-char-id" class="input" name="character_id" required placeholder="UUID of character">`}
           </div>
           <div>
             <label class="label" for="sc-template">Template</label>
@@ -387,6 +398,7 @@ function renderScandalSection(scandalData, modData, templates, mod, hasActiveCha
 let _scandalData = null;
 let _modScandalData = null;
 let _templates = null;
+let _optedInCharacters = null;
 
 async function loadScandalData(mod) {
   try {
@@ -397,7 +409,12 @@ async function loadScandalData(mod) {
     _scandalData = mine;
     _templates = tpls.templates || [];
     if (mod) {
-      _modScandalData = await apiModScandalsOpen();
+      const [modOpen, optedIn] = await Promise.all([
+        apiModScandalsOpen(),
+        apiModScandalOptedInCharacters(),
+      ]);
+      _modScandalData = modOpen;
+      _optedInCharacters = optedIn.characters || [];
     }
   } catch (e) {
     console.error("[scandal] loadScandalData failed:", e);
@@ -459,7 +476,7 @@ function render(data, state = {}) {
     </div>
 
     ${mod ? `
-      ${renderModScandalCreate(_templates)}
+      ${renderModScandalCreate(_templates, _optedInCharacters)}
       ${renderModOpenScandals(_modScandalData, state)}
 
       <section class="panel">

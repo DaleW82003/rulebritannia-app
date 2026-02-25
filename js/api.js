@@ -1123,6 +1123,12 @@ export async function apiModScandalTemplates() {
   return res.json();
 }
 
+export async function apiModScandalOptedInCharacters() {
+  const res = await fetch(`${API_BASE}/api/mod/scandals/opted-in-characters`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiModScandalOptedInCharacters failed (${res.status})`);
+  return res.json();
+}
+
 export async function apiModScandalTemplateUpsert(payload) {
   const res = await fetch(`${API_BASE}/api/mod/scandal-templates`, {
     method: "POST",
