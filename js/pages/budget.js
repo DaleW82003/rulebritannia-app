@@ -21,6 +21,40 @@ function money(n) { return `£${Number(n || 0).toFixed(2)}`; }
 
 function sum(obj, keys) { return keys.reduce((a, k) => a + Number(obj?.[k] || 0), 0); }
 
+const SEED_LAST_YEAR_BASELINE = {
+  label: "1996–97 Baseline (seeded)",
+  gdp: 1930,
+  revenues: {
+    "Income Tax": 75.6,
+    "Corporate Tax": 30.3,
+    "Value Added Tax": 48.2,
+    "National Insurance": 47.2,
+    "Fuel Duty": 18.7,
+    "Stamp Duty": 4.2,
+    "Business Rate Appropriations": 13.8
+  },
+  expenditures: {
+    "Health": 42.3,
+    "Social Security": 92.8,
+    "Education": 36.5,
+    "Home Office": 7.5,
+    "Ministry of Defense": 21.3,
+    "Transport": 5.4,
+    "Local Government": 26.8,
+    "Environment": 4.1,
+    "Energy": 0.8,
+    "Culture": 1.2,
+    "Housing": 3.4,
+    "Business": 2.6,
+    "Scottish Office": 14.1,
+    "Welsh Office": 7.4,
+    "Northern Ireland Office": 7.1
+  },
+  capital: {
+    "Capital Expenditure": 10.2
+  }
+};
+
 function ensureBudget(data) {
   data.budget ??= {};
   data.budget.archive ??= [];
@@ -191,6 +225,14 @@ function render(data, state) {
             <button class="btn" type="button" data-action="reject-budget">Reject</button>
           </div>
         ` : `<div class="muted">No pending budget submission.</div>`}
+
+        <div class="tile" style="margin-top:10px;">
+          <h4 style="margin-top:0;">Seed Last Year's Budget</h4>
+          <p class="muted" style="margin:0 0 8px;">Populate the Last Year column with the 1996–97 baseline figures so the Budget table can be displayed. Only needed once at simulation start.</p>
+          ${ly
+            ? `<button class="btn" type="button" disabled title="Last Year's budget is already set">Last Year Already Seeded ✓</button>`
+            : `<button class="btn" type="button" data-action="seed-last-year">Seed Last Year's Budget (1996–97 Baseline)</button>`}
+        </div>
       </section>
     ` : ""}
 
@@ -248,6 +290,13 @@ function render(data, state) {
   root.querySelector("[data-action='reject-budget']")?.addEventListener("click", () => {
     if (!admin) return;
     data.budget.pending = null;
+    saveState(data);
+    render(data, state);
+  });
+
+  root.querySelector("[data-action='seed-last-year']")?.addEventListener("click", () => {
+    if (!admin || data.budget.lastYear) return;
+    data.budget.lastYear = structuredClone(SEED_LAST_YEAR_BASELINE);
     saveState(data);
     render(data, state);
   });

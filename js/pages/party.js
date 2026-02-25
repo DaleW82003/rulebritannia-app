@@ -149,8 +149,6 @@ function render(data, state) {
   const dbLeaderAvatar  = dbParty?.leader_avatar    || party.leader?.avatar  || "";
   const dbChairmanName  = dbParty?.chairman_name    || "";
   const dbChairmanAvatar= dbParty?.chairman_avatar  || "";
-  const dbWhipName      = dbParty?.whip_name        || "";
-  const dbWhipAvatar    = dbParty?.whip_avatar      || "";
   const dbChiefWhipName  = dbParty?.chief_whip_name  || "";
   const dbChiefWhipAvatar= dbParty?.chief_whip_avatar || "";
 
@@ -180,13 +178,20 @@ function render(data, state) {
     ` : ""}
 
     <section class="panel" style="margin-bottom:12px;">
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <article class="tile">
           <h2 style="margin-top:0;">Party Leader</h2>
           <div style="display:flex;gap:10px;align-items:center;">
             <img src="${esc(avatarFor(dbLeaderName, dbLeaderAvatar))}" alt="Party leader avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
             <div><b>${esc(dbLeaderName || "Vacant")}</b></div>
           </div>
+        </article>
+
+        <article class="tile">
+          <h2 style="margin-top:0;">Party Treasury</h2>
+          <div><b>Cash on hand:</b> ${esc(formatMoney(party.treasury?.cash))}</div>
+          <div><b>Debt:</b> ${esc(formatMoney(party.treasury?.debt))}</div>
+          <div><b>Members:</b> ${esc(Number(party.treasury?.members || 0).toLocaleString("en-GB"))}</div>
         </article>
 
         <article class="tile">
@@ -198,26 +203,11 @@ function render(data, state) {
         </article>
 
         <article class="tile">
-          <h2 style="margin-top:0;">Party Whip</h2>
-          <div style="display:flex;gap:10px;align-items:center;">
-            <img src="${esc(avatarFor(dbWhipName, dbWhipAvatar))}" alt="Whip avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
-            <div><b>${esc(dbWhipName || "Vacant")}</b></div>
-          </div>
-        </article>
-
-        <article class="tile">
           <h2 style="margin-top:0;">Chief Whip</h2>
           <div style="display:flex;gap:10px;align-items:center;">
             <img src="${esc(avatarFor(dbChiefWhipName, dbChiefWhipAvatar))}" alt="Chief Whip avatar" width="56" height="56" style="border-radius:999px;object-fit:cover;">
             <div><b>${esc(dbChiefWhipName || "Vacant")}</b></div>
           </div>
-        </article>
-
-        <article class="tile">
-          <h2 style="margin-top:0;">Party Treasury</h2>
-          <div><b>Cash on hand:</b> ${esc(formatMoney(party.treasury?.cash))}</div>
-          <div><b>Debt:</b> ${esc(formatMoney(party.treasury?.debt))}</div>
-          <div><b>Members:</b> ${esc(Number(party.treasury?.members || 0).toLocaleString("en-GB"))}</div>
         </article>
       </div>
     </section>
@@ -231,13 +221,6 @@ function render(data, state) {
             <select id="chairman-select" name="chairman_character_id" class="input">
               <option value="">— Vacant —</option>
               ${partyCharacters.map((c) => `<option value="${esc(c.id)}" ${String(c.id) === String(dbParty?.chairman_character_id || "") ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
-            </select>
-          </div>
-          <div>
-            <label class="label" for="whip-select">Whip</label>
-            <select id="whip-select" name="whip_character_id" class="input">
-              <option value="">— Vacant —</option>
-              ${partyCharacters.map((c) => `<option value="${esc(c.id)}" ${String(c.id) === String(dbParty?.whip_character_id || "") ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
             </select>
           </div>
           <div>
@@ -454,13 +437,11 @@ function render(data, state) {
     if (!canAssignLeadership) return;
     const fd = new FormData(e.currentTarget);
     const chairmanId = String(fd.get("chairman_character_id") || "").trim();
-    const whipId = String(fd.get("whip_character_id") || "").trim();
     const chiefWhipId = String(fd.get("chief_whip_character_id") || "").trim();
     const partyId = state.activeParty;
     try {
       await Promise.all([
         apiSetPartyLeadership(partyId, "chairman", chairmanId || null),
-        apiSetPartyLeadership(partyId, "whip", whipId || null),
         apiSetChiefWhip(partyId, chiefWhipId || null),
       ]);
       const { party: updated } = await apiGetParty(partyId);
