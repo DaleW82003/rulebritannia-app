@@ -49,7 +49,9 @@ function seatLabel(c, data) {
 function getLargestParty(data) {
   const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
   if (!parties.length) return "—";
-  const sorted = parties.slice().sort((a, b) => Number(b.seats || 0) - Number(a.seats || 0));
+  // Speaker is a presiding office, not a party — exclude from "largest party" determination
+  const eligible = parties.filter((p) => p.name !== "Speaker");
+  const sorted = eligible.slice().sort((a, b) => Number(b.seats || 0) - Number(a.seats || 0));
   return sorted[0]?.name || "—";
 }
 
@@ -79,11 +81,17 @@ function renderStateOfParliament(data, parlStatus) {
 
   // Use DB parliament status if available, fall back to state
   const govType = (parlStatus?.governmentType) || parl.governmentType || parl.governmentSetup || "—";
-  const governingParties = Array.isArray(parlStatus?.governingParties) && parlStatus.governingParties.length
-    ? parlStatus.governingParties.join(", ")
-    : (Array.isArray(parl.governingParties) && parl.governingParties.length
-      ? parl.governingParties.join(", ")
-      : (parl.governmentParty || "—"));
+  // For Majority/Minority, governing party is always the largest party (auto-derived)
+  let governingParties;
+  if (govType === "Majority" || govType === "Minority") {
+    governingParties = largestParty;
+  } else {
+    governingParties = Array.isArray(parlStatus?.governingParties) && parlStatus.governingParties.length
+      ? parlStatus.governingParties.join(", ")
+      : (Array.isArray(parl.governingParties) && parl.governingParties.length
+        ? parl.governingParties.join(", ")
+        : (parl.governmentParty || "—"));
+  }
   const csParties = Array.isArray(parlStatus?.confidenceSupplyParties) && parlStatus.confidenceSupplyParties.length
     ? `<div class="kv"><span>C&amp;S Support</span><b>${esc(parlStatus.confidenceSupplyParties.join(", "))}</b></div>`
     : "";
@@ -242,6 +250,17 @@ function bindEditor(constituencies, data) {
     if (submitBtn) submitBtn.disabled = true;
   });
 
+  // Task C: auto-select Allocate NPC reason when MP Type is set to NPC
+  const mpTypeEl = form.querySelector("#constMpType");
+  const changeTypeEl = form.querySelector("#constChangeType");
+  if (mpTypeEl && changeTypeEl) {
+    mpTypeEl.addEventListener("change", () => {
+      if (mpTypeEl.value === "npc" && !changeTypeEl.value) {
+        changeTypeEl.value = "allocate-npc";
+      }
+    });
+  }
+
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const id = form.querySelector("#constId").value.trim();
@@ -251,8 +270,17 @@ function bindEditor(constituencies, data) {
     const mpName = form.querySelector("#constMpName").value.trim();
     const changeType = form.querySelector("#constChangeType")?.value || "";
     const effectiveDate = form.querySelector("#constEffectiveDate")?.value || "";
-    if (!party || !changeType || !effectiveDate) {
-      alert("Please select a party, reason for change, and effective date.");
+
+    if (!party || !changeType) {
+      alert("Please select a party and reason for change.");
+      return;
+    }
+
+    if (changeType === "allocate-npc") {
+      if (mpType !== "npc") { alert("Allocate NPC requires MP Type to be set to NPC."); return; }
+      if (!mpName) { alert("Allocate NPC requires an MP Name."); return; }
+    } else if (!effectiveDate) {
+      alert("Please provide an effective date.");
       return;
     }
 
@@ -338,9 +366,31 @@ function bindGovStatusPanel(data, parlStatus) {
       governingParties = [gov];
       confidenceSupplyParties = Array.from(form.querySelectorAll("#govCSParties input[name=govPartyCheck]:checked")).map((cb) => cb.value);
       if (!confidenceSupplyParties.length) { alert("Please tick at least one confidence-and-supply party."); return; }
+    } else if (govType === "Majority" || govType === "Minority") {
+      // Derive largest party and validate seat count against majority threshold
+      const liveParties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
+      const seatsMap = new Map(liveParties.map((p) => [p.name, Number(p.seats || 0)]));
+      const totalSeats = data?.parliament?.totalSeats || 650;
+      const MAJORITY_EXCLUDES = ["Speaker", "Sinn Féin"];
+      const excludedSeats = MAJORITY_EXCLUDES.reduce((sum, name) => sum + (seatsMap.get(name) || 0), 0);
+      const votingSeats = totalSeats - excludedSeats;
+      const majorityThreshold = Math.floor(votingSeats / 2) + 1;
+
+      const eligibleForLargest = liveParties.filter((p) => p.name !== "Speaker");
+      const sortedEligible = eligibleForLargest.slice().sort((a, b) => Number(b.seats || 0) - Number(a.seats || 0));
+      const largestPartyName = sortedEligible[0]?.name || "";
+      const largestPartySeats = Number(sortedEligible[0]?.seats || 0);
+
+      if (govType === "Majority" && largestPartySeats < majorityThreshold) {
+        msgEl.innerHTML = `<span style="color:var(--danger,red);">Cannot save as Majority: ${esc(largestPartyName)} holds ${largestPartySeats} seats, but majority threshold is ${majorityThreshold}.</span>`;
+        return;
+      }
+      if (govType === "Minority" && largestPartySeats >= majorityThreshold) {
+        msgEl.innerHTML = `<span style="color:var(--danger,red);">Cannot save as Minority: ${esc(largestPartyName)} holds ${largestPartySeats} seats, which meets or exceeds majority threshold of ${majorityThreshold}.</span>`;
+        return;
+      }
+      governingParties = largestPartyName ? [largestPartyName] : [];
     }
-    // For Majority / Minority, governing parties are not explicitly set here
-    // (they are derived from the largest party / PM page)
 
     try {
       await apiUpdateParliamentStatus({ governmentType: govType, governingParties, confidenceSupplyParties });
