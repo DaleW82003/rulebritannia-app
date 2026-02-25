@@ -51,6 +51,7 @@ import { initGuidesPage } from "./pages/guides.js";
 import { initBillPage } from "./pages/bill.js";
 import { initControlPanelPage } from "./pages/control-panel.js";
 import { initAdminPanelPage } from "./pages/admin-panel.js";
+import { initPlayerbasePage } from "./pages/playerbase.js";
 import { initLoginPage } from "./pages/login.js";
 import { initLandingPage } from "./pages/landing.js";
 import { initRegisterPage } from "./pages/register.js";
@@ -169,6 +170,7 @@ function renderDataSourcePanel(sources) {
       bill: initBillPage,
       "control-panel": initControlPanelPage,
       "admin-panel": initAdminPanelPage,
+      playerbase: initPlayerbasePage,
       login: initLoginPage,
       landing: initLandingPage,
       register: initRegisterPage,

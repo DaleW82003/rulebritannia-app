@@ -333,6 +333,11 @@ export function initNavUI(user, clock, gameState) {
 
     if (personalDrop) {
       if (isAdmin || isMod || isSpeaker) {
+        const pbLink = document.createElement("a");
+        pbLink.href = "playerbase.html";
+        pbLink.textContent = "Playerbase";
+        personalDrop.appendChild(pbLink);
+
         const cpLink = document.createElement("a");
         cpLink.href = "control-panel.html";
         cpLink.textContent = "Control Panel";
