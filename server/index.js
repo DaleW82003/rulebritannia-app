@@ -1010,30 +1010,165 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS constituencies_nation_idx ON constituencies (nation);
   `);
 
+  // ── Elections system ─────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS elections (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      type         TEXT NOT NULL DEFAULT 'general',
+      polling_day  DATE NOT NULL,
+      label        TEXT NOT NULL DEFAULT '',
+      status       TEXT NOT NULL DEFAULT 'pending',
+      created_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+      finalized_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      finalized_at TIMESTAMPTZ,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS elections_type_idx   ON elections (type);
+    CREATE INDEX IF NOT EXISTS elections_status_idx ON elections (status);
+
+    CREATE TABLE IF NOT EXISTS election_party_summary (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      election_id  UUID NOT NULL REFERENCES elections(id) ON DELETE CASCADE,
+      party        TEXT NOT NULL,
+      seats        INT  NOT NULL DEFAULT 0,
+      vote_share   NUMERIC(5,2) NOT NULL DEFAULT 0,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (election_id, party)
+    );
+    CREATE INDEX IF NOT EXISTS eps_election_idx ON election_party_summary (election_id);
+
+    CREATE TABLE IF NOT EXISTS election_constituency_changes (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      election_id     UUID NOT NULL REFERENCES elections(id) ON DELETE CASCADE,
+      constituency_id TEXT NOT NULL,
+      party_from      TEXT NOT NULL DEFAULT '',
+      party_to        TEXT NOT NULL,
+      notes           TEXT NOT NULL DEFAULT '',
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (election_id, constituency_id)
+    );
+    CREATE INDEX IF NOT EXISTS ecc_election_idx ON election_constituency_changes (election_id);
+
+    CREATE TABLE IF NOT EXISTS constituency_events (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      constituency_id TEXT NOT NULL,
+      change_type     TEXT NOT NULL,
+      party_from      TEXT NOT NULL DEFAULT '',
+      party_to        TEXT NOT NULL DEFAULT '',
+      effective_date  DATE,
+      notes           TEXT NOT NULL DEFAULT '',
+      election_id     UUID REFERENCES elections(id) ON DELETE SET NULL,
+      actor_id        UUID REFERENCES users(id) ON DELETE SET NULL,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS ce_constituency_idx ON constituency_events (constituency_id);
+    CREATE INDEX IF NOT EXISTS ce_election_idx     ON constituency_events (election_id);
+
+    CREATE TABLE IF NOT EXISTS app_state_elections (
+      id                      TEXT PRIMARY KEY DEFAULT 'main',
+      last_general_election_id UUID REFERENCES elections(id) ON DELETE SET NULL,
+      updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    INSERT INTO app_state_elections (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
+  `);
+
   await seedPlayableParties();
   await seedScandalTemplates();
+  await seedElection1997();
 }
 
 // The three playable parties for Rule Britannia.
 const PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
 
+// All 15 canonical parties (3 playable + 12 NPC).
+const ALL_CANONICAL_PARTIES = [
+  { slug: "Conservative",     name: "Conservative",     short_name: "CON", playable: true  },
+  { slug: "Labour",           name: "Labour",           short_name: "LAB", playable: true  },
+  { slug: "Liberal Democrat", name: "Liberal Democrat", short_name: "LDM", playable: true  },
+  { slug: "SNP",              name: "SNP",              short_name: "SNP", playable: false },
+  { slug: "Plaid Cymru",      name: "Plaid Cymru",      short_name: "PC",  playable: false },
+  { slug: "Green",            name: "Green",            short_name: "GRN", playable: false },
+  { slug: "UKIP",             name: "UKIP",             short_name: "UKP", playable: false },
+  { slug: "DUP",              name: "DUP",              short_name: "DUP", playable: false },
+  { slug: "Sinn Féin",        name: "Sinn Féin",        short_name: "SF",  playable: false },
+  { slug: "SDLP",             name: "SDLP",             short_name: "SDL", playable: false },
+  { slug: "Alliance",         name: "Alliance",         short_name: "ALL", playable: false },
+  { slug: "TUP",              name: "TUP",              short_name: "TUP", playable: false },
+  { slug: "UUP",              name: "UUP",              short_name: "UUP", playable: false },
+  { slug: "Independents",     name: "Independents",     short_name: "IND", playable: false },
+  { slug: "Speaker",          name: "Speaker",          short_name: "SPK", playable: false },
+];
+
 /**
- * Idempotent upsert of the three canonical parties.
+ * Idempotent upsert of all canonical parties.
  */
 async function seedPlayableParties() {
-  const parties = [
-    { slug: "Conservative",     name: "Conservative",     short_name: "CON" },
-    { slug: "Labour",           name: "Labour",           short_name: "LAB" },
-    { slug: "Liberal Democrat", name: "Liberal Democrat", short_name: "LDM" },
-  ];
-  for (const p of parties) {
+  // Add playable column if not present (migration safety).
+  await pool.query(`
+    ALTER TABLE parties ADD COLUMN IF NOT EXISTS playable BOOLEAN NOT NULL DEFAULT false;
+  `);
+  for (const p of ALL_CANONICAL_PARTIES) {
     await pool.query(
-      `INSERT INTO parties (slug, name, short_name)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (slug) DO NOTHING`,
-      [p.slug, p.name, p.short_name]
+      `INSERT INTO parties (slug, name, short_name, playable)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (slug) DO UPDATE SET short_name = EXCLUDED.short_name, playable = EXCLUDED.playable`,
+      [p.slug, p.name, p.short_name, p.playable]
     );
   }
+}
+
+/**
+ * Idempotent seed of the 1997 General Election baseline.
+ * Creates the election record, derives party summary from constituencies_1997.json,
+ * and sets it as the last_general_election_id in app_state_elections.
+ */
+async function seedElection1997() {
+  // Only seed if no general election exists yet.
+  const { rows: existing } = await pool.query(
+    `SELECT id FROM elections WHERE type = 'general' AND polling_day = '1997-05-01' LIMIT 1`
+  );
+  if (existing.length > 0) {
+    // Already seeded — ensure it is marked as last GE.
+    await pool.query(
+      `UPDATE app_state_elections SET last_general_election_id = $1, updated_at = NOW() WHERE id = 'main'`,
+      [existing[0].id]
+    );
+    return;
+  }
+
+  // Create the election record.
+  const { rows: elRows } = await pool.query(
+    `INSERT INTO elections (type, polling_day, label, status, finalized_at)
+     VALUES ('general', '1997-05-01', 'May 1997 General Election', 'finalized', '1997-05-01T00:00:00Z')
+     RETURNING id`
+  );
+  const elId = elRows[0].id;
+
+  // Derive party summary from constituencies_1997.json.
+  try {
+    const json = JSON.parse(readFileSync(resolve(__serverDir, "..", "data", "constituencies_1997.json"), "utf8"));
+    const counts = {};
+    for (const c of (json.constituencies || [])) {
+      counts[c.party] = (counts[c.party] || 0) + 1;
+    }
+    for (const [party, seats] of Object.entries(counts)) {
+      await pool.query(
+        `INSERT INTO election_party_summary (election_id, party, seats) VALUES ($1, $2, $3)
+         ON CONFLICT (election_id, party) DO NOTHING`,
+        [elId, party, seats]
+      );
+    }
+  } catch (e) {
+    console.warn("[seedElection1997] could not load constituencies_1997.json for party summary:", e.message);
+  }
+
+  // Mark as last general election.
+  await pool.query(
+    `UPDATE app_state_elections SET last_general_election_id = $1, updated_at = NOW() WHERE id = 'main'`,
+    [elId]
+  );
+  console.log(`[seedElection1997] seeded 1997 GE with id=${elId}`);
 }
 
 /**
@@ -4828,6 +4963,20 @@ app.post("/api/mod/property/set", propertyWriteLimit, async (req, res) => {
 const partyReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
 const partyWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
 
+// GET /api/parties/canonical — must be before /:partyId to avoid being caught by the param route
+app.get("/api/parties/canonical", partyReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { rows } = await pool.query(
+      `SELECT slug, name, short_name, playable FROM parties ORDER BY playable DESC, name`
+    );
+    res.json({ parties: rows });
+  } catch (e) {
+    console.error("[GET /api/parties/canonical]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.get("/api/parties/:partyId", partyReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
@@ -6736,6 +6885,321 @@ app.post("/api/mod/scandals/:id/close", scandalWriteLimit, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ELECTIONS (DB-backed)
+// GET  /api/elections                          — authenticated: list elections
+// GET  /api/elections/current                  — authenticated: last GE + party summary
+// GET  /api/elections/seat-totals              — authenticated: current seat totals from constituencies
+// POST /api/elections                          — admin/mod: create election
+// PUT  /api/elections/:id                      — admin/mod: update election metadata/changes
+// POST /api/elections/:id/finalize             — admin/mod: apply flips + write events, set last GE
+// GET  /api/elections/:id/changes              — authenticated: list constituency changes for election
+// POST /api/admin/elections/seed-1997          — admin/mod: idempotent seed of 1997 GE
+// GET  /api/parties/canonical                  — authenticated: list all canonical parties
+// GET  /api/constituencies/:id/events          — authenticated: event log for a constituency
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const electionReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
+const electionWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
+
+// GET /api/elections/seat-totals
+app.get("/api/elections/seat-totals", electionReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { rows } = await pool.query(
+      `SELECT party, COUNT(*) AS seats FROM constituencies GROUP BY party ORDER BY seats DESC`
+    );
+    res.json({ totals: rows.map(r => ({ party: r.party, seats: Number(r.seats) })) });
+  } catch (e) {
+    console.error("[GET /api/elections/seat-totals]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/elections/current
+app.get("/api/elections/current", electionReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { rows: stateRows } = await pool.query(
+      `SELECT last_general_election_id FROM app_state_elections WHERE id = 'main'`
+    );
+    const lastGeId = stateRows[0]?.last_general_election_id || null;
+    if (!lastGeId) return res.json({ election: null, partySummary: [] });
+
+    const { rows: elRows } = await pool.query(
+      `SELECT id, type, polling_day, label, status, finalized_at FROM elections WHERE id = $1`,
+      [lastGeId]
+    );
+    if (!elRows.length) return res.json({ election: null, partySummary: [] });
+
+    const { rows: summaryRows } = await pool.query(
+      `SELECT party, seats, vote_share FROM election_party_summary WHERE election_id = $1 ORDER BY seats DESC`,
+      [lastGeId]
+    );
+    res.json({
+      election: elRows[0],
+      partySummary: summaryRows.map(r => ({ party: r.party, seats: Number(r.seats), voteShare: Number(r.vote_share) })),
+    });
+  } catch (e) {
+    console.error("[GET /api/elections/current]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/elections
+app.get("/api/elections", electionReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { rows } = await pool.query(
+      `SELECT e.id, e.type, e.polling_day, e.label, e.status, e.finalized_at,
+              u.username AS finalized_by_username
+         FROM elections e
+         LEFT JOIN users u ON u.id = e.finalized_by
+        ORDER BY e.polling_day DESC`
+    );
+    res.json({ elections: rows });
+  } catch (e) {
+    console.error("[GET /api/elections]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/elections
+app.post("/api/elections", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { type = "general", polling_day, label = "" } = req.body || {};
+    if (!polling_day) return res.status(400).json({ error: "polling_day is required" });
+    const { rows } = await pool.query(
+      `INSERT INTO elections (type, polling_day, label, status, created_by)
+       VALUES ($1, $2, $3, 'pending', $4) RETURNING *`,
+      [type, polling_day, label, req.session.userId]
+    );
+    await writeAuditLog(req.session.userId, "election.create", "elections", rows[0].id, null, req.body);
+    res.status(201).json({ ok: true, election: rows[0] });
+  } catch (e) {
+    console.error("[POST /api/elections]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PUT /api/elections/:id  — update label / polling_day
+app.put("/api/elections/:id", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { label, polling_day } = req.body || {};
+    const { rows: before } = await pool.query("SELECT * FROM elections WHERE id = $1", [req.params.id]);
+    if (!before.length) return res.status(404).json({ error: "Election not found" });
+    if (before[0].status === "finalized") return res.status(400).json({ error: "Cannot edit a finalized election" });
+    const { rows } = await pool.query(
+      `UPDATE elections SET label = COALESCE($2, label), polling_day = COALESCE($3, polling_day), updated_at = NOW()
+        WHERE id = $1 RETURNING *`,
+      [req.params.id, label ?? null, polling_day ?? null]
+    );
+    await writeAuditLog(req.session.userId, "election.update", "elections", req.params.id, before[0], req.body);
+    res.json({ ok: true, election: rows[0] });
+  } catch (e) {
+    console.error("[PUT /api/elections/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/elections/:id/changes
+app.get("/api/elections/:id/changes", electionReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { rows } = await pool.query(
+      `SELECT ecc.id, ecc.constituency_id, c.name AS constituency_name,
+              ecc.party_from, ecc.party_to, ecc.notes
+         FROM election_constituency_changes ecc
+         LEFT JOIN constituencies c ON c.id = ecc.constituency_id
+        WHERE ecc.election_id = $1
+        ORDER BY c.name`,
+      [req.params.id]
+    );
+    res.json({ changes: rows });
+  } catch (e) {
+    console.error("[GET /api/elections/:id/changes]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PUT /api/elections/:id/changes  — replace all flip entries for a pending election
+app.put("/api/elections/:id/changes", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { changes = [], partySummary = [] } = req.body || {};
+    const { rows: before } = await pool.query("SELECT * FROM elections WHERE id = $1", [req.params.id]);
+    if (!before.length) return res.status(404).json({ error: "Election not found" });
+    if (before[0].status === "finalized") return res.status(400).json({ error: "Cannot edit a finalized election" });
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM election_constituency_changes WHERE election_id = $1", [req.params.id]);
+      for (const ch of changes) {
+        if (!ch.constituency_id || !ch.party_to) continue;
+        await client.query(
+          `INSERT INTO election_constituency_changes (election_id, constituency_id, party_from, party_to, notes)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (election_id, constituency_id) DO UPDATE
+             SET party_from = EXCLUDED.party_from, party_to = EXCLUDED.party_to, notes = EXCLUDED.notes`,
+          [req.params.id, ch.constituency_id, ch.party_from || "", ch.party_to, ch.notes || ""]
+        );
+      }
+
+      // Upsert party summary if provided.
+      if (partySummary.length) {
+        await client.query("DELETE FROM election_party_summary WHERE election_id = $1", [req.params.id]);
+        for (const ps of partySummary) {
+          if (!ps.party) continue;
+          await client.query(
+            `INSERT INTO election_party_summary (election_id, party, seats, vote_share)
+             VALUES ($1, $2, $3, $4) ON CONFLICT (election_id, party) DO UPDATE
+               SET seats = EXCLUDED.seats, vote_share = EXCLUDED.vote_share`,
+            [req.params.id, ps.party, ps.seats || 0, ps.vote_share || 0]
+          );
+        }
+      }
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[PUT /api/elections/:id/changes]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/elections/:id/finalize
+// Applies constituency flips, writes constituency_events, updates last_general_election_id.
+app.post("/api/elections/:id/finalize", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows: elRows } = await pool.query("SELECT * FROM elections WHERE id = $1", [req.params.id]);
+    if (!elRows.length) return res.status(404).json({ error: "Election not found" });
+    const election = elRows[0];
+    if (election.status === "finalized") return res.status(400).json({ error: "Already finalized" });
+
+    const { rows: changes } = await pool.query(
+      `SELECT * FROM election_constituency_changes WHERE election_id = $1`,
+      [req.params.id]
+    );
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Apply each flip to constituencies and write constituency_events.
+      let appliedCount = 0;
+      for (const ch of changes) {
+        // Resolve party_from if not stored.
+        let partyFrom = ch.party_from || "";
+        if (!partyFrom) {
+          const { rows: cRows } = await client.query("SELECT party FROM constituencies WHERE id = $1", [ch.constituency_id]);
+          partyFrom = cRows[0]?.party || "";
+        }
+
+        await client.query(
+          `UPDATE constituencies SET party = $2, updated_at = NOW() WHERE id = $1`,
+          [ch.constituency_id, ch.party_to]
+        );
+
+        await client.query(
+          `INSERT INTO constituency_events
+             (constituency_id, change_type, party_from, party_to, effective_date, notes, election_id, actor_id)
+           VALUES ($1, 'general_election', $2, $3, $4, $5, $6, $7)`,
+          [
+            ch.constituency_id,
+            partyFrom,
+            ch.party_to,
+            election.polling_day,
+            ch.notes || "",
+            req.params.id,
+            req.session.userId,
+          ]
+        );
+        appliedCount += 1;
+      }
+
+      // Mark election as finalized.
+      await client.query(
+        `UPDATE elections SET status = 'finalized', finalized_by = $2, finalized_at = NOW(), updated_at = NOW()
+          WHERE id = $1`,
+        [req.params.id, req.session.userId]
+      );
+
+      // Update last_general_election_id if this is a general election.
+      if (election.type === "general") {
+        await client.query(
+          `UPDATE app_state_elections SET last_general_election_id = $1, updated_at = NOW() WHERE id = 'main'`,
+          [req.params.id]
+        );
+      }
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    await writeAuditLog(req.session.userId, "election.finalize", "elections", req.params.id, election, { appliedCount: changes.length });
+    res.json({ ok: true, appliedCount: changes.length });
+  } catch (e) {
+    console.error("[POST /api/elections/:id/finalize]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/elections/seed-1997  — idempotent re-seed of 1997 baseline
+app.post("/api/admin/elections/seed-1997", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    await seedElection1997();
+    const { rows } = await pool.query(
+      `SELECT e.id, e.type, e.polling_day, e.label, e.status
+         FROM elections e
+         JOIN app_state_elections s ON s.last_general_election_id = e.id
+        WHERE s.id = 'main' LIMIT 1`
+    );
+    res.json({ ok: true, election: rows[0] || null });
+  } catch (e) {
+    console.error("[POST /api/admin/elections/seed-1997]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/constituencies/:id/events
+app.get("/api/constituencies/:id/events", electionReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { rows } = await pool.query(
+      `SELECT ce.id, ce.change_type, ce.party_from, ce.party_to,
+              ce.effective_date, ce.notes, ce.created_at,
+              e.label AS election_label, e.polling_day,
+              u.username AS actor_username
+         FROM constituency_events ce
+         LEFT JOIN elections e ON e.id = ce.election_id
+         LEFT JOIN users u ON u.id = ce.actor_id
+        WHERE ce.constituency_id = $1
+        ORDER BY ce.created_at DESC`,
+      [req.params.id]
+    );
+    res.json({ events: rows });
+  } catch (e) {
+    console.error("[GET /api/constituencies/:id/events]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // CONSTITUENCIES (DB-backed)
 // GET    /api/constituencies                        — authenticated: list all
 // POST   /api/constituencies                        — admin/mod/speaker: upsert one
@@ -6829,6 +7293,27 @@ app.put("/api/constituencies/:id", constWriteLimit, async (req, res) => {
       ]
     );
     await writeAuditLog(req.session.userId, "constituency.update", "constituencies", req.params.id, b, req.body);
+
+    // Write constituency_events entry if the party changed or change_type provided.
+    const { changeType, effectiveDate, notes: evNotes } = req.body || {};
+    const partyChanged = party && party !== b.party;
+    if (partyChanged || changeType) {
+      await pool.query(
+        `INSERT INTO constituency_events
+           (constituency_id, change_type, party_from, party_to, effective_date, notes, actor_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          req.params.id,
+          changeType || (partyChanged ? "correction" : "admin_override"),
+          b.party,
+          party ?? b.party,
+          effectiveDate || null,
+          evNotes || "",
+          req.session.userId,
+        ]
+      );
+    }
+
     res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
   } catch (e) {
     console.error("[PUT /api/constituencies/:id]", e);

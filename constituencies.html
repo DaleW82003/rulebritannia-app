@@ -173,6 +173,21 @@
       <label for="constMpName">MP Name (character or NPC)</label>
       <input id="constMpName" type="text" maxlength="120" placeholder="Leave blank if seat is open">
 
+      <label for="constChangeType">Change Type (for event log)</label>
+      <select id="constChangeType">
+        <option value="">— no event log —</option>
+        <option value="by-election">By-Election</option>
+        <option value="defection">Defection</option>
+        <option value="correction">Correction</option>
+        <option value="admin_override">Admin Override</option>
+      </select>
+
+      <label for="constEffectiveDate">Effective Date (optional)</label>
+      <input id="constEffectiveDate" type="date">
+
+      <label for="constNotes">Notes (optional)</label>
+      <input id="constNotes" type="text" maxlength="300" placeholder="Reason for change">
+
       <div></div>
       <div class="tile-bottom" style="padding-top:0; margin-top:0;">
         <button class="btn primary" type="submit">Add Constituency</button>
