@@ -2,6 +2,7 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { logAction } from "../audit.js";
+import { apiGetOffices, apiGetCharacters } from "../api.js";
 
 const OFFICE_SPECS = [
   { id: "prime-minister", title: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service", short: "Prime Minister" },
@@ -232,8 +233,39 @@ function render(data, state) {
 
 }
 
-export function initGovernmentPage(data) {
+export async function initGovernmentPage(data) {
   normaliseGovernment(data);
+
+  // Merge live office assignments from the DB (single source of truth).
+  // Character names are resolved via the active characters list.
+  try {
+    const [{ offices: dbOffices }, { characters: dbChars }] = await Promise.all([
+      apiGetOffices(),
+      apiGetCharacters({ active: "true" }),
+    ]);
+    const charById = Object.fromEntries((dbChars || []).map((c) => [c.id, c]));
+    const officeMap = getOfficeMap(data);
+    for (const dbOffice of (dbOffices || [])) {
+      const stateOffice = officeMap.get(dbOffice.name?.toLowerCase?.() ?? "")
+        ?? [...officeMap.values()].find((o) => o.id === dbOffice.name?.toLowerCase?.().replace(/\s+/g, "-"));
+      if (!stateOffice) continue;
+      const firstAssignment = (dbOffice.assignments || [])[0];
+      if (firstAssignment) {
+        const char = charById[firstAssignment.character_id];
+        if (char) {
+          stateOffice.holderName = char.name;
+          stateOffice.holderAvatar = avatarFromCharacterProfile(data, char.name);
+        }
+      } else {
+        stateOffice.holderName = "";
+        stateOffice.holderAvatar = "";
+      }
+    }
+    data._dbCharacters = dbChars || [];
+  } catch {
+    // Non-critical: fall back to state-based government data
+  }
+
   applyAssignmentEffects(data);
   saveState(data);
   render(data, { message: "" });

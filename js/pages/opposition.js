@@ -1,6 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import { apiGetOffices, apiGetCharacters } from "../api.js";
 
 const SHADOW_OFFICE_SPECS = [
   { id: "leader-opposition", title: "Leader of the Opposition (who appoints all others)", short: "Leader of the Opposition" },
@@ -209,8 +210,39 @@ function render(data, state) {
 
 }
 
-export function initOppositionPage(data) {
+export async function initOppositionPage(data) {
   normaliseOpposition(data);
+
+  // Merge live office assignments from the DB (single source of truth).
+  // Character names are resolved via the active characters list.
+  try {
+    const [{ offices: dbOffices }, { characters: dbChars }] = await Promise.all([
+      apiGetOffices(),
+      apiGetCharacters({ active: "true" }),
+    ]);
+    const charById = Object.fromEntries((dbChars || []).map((c) => [c.id, c]));
+    const officeMap = getOfficeMap(data);
+    for (const dbOffice of (dbOffices || [])) {
+      const stateOffice = officeMap.get(dbOffice.name?.toLowerCase?.() ?? "")
+        ?? [...officeMap.values()].find((o) => o.id === dbOffice.name?.toLowerCase?.().replace(/\s+/g, "-"));
+      if (!stateOffice) continue;
+      const firstAssignment = (dbOffice.assignments || [])[0];
+      if (firstAssignment) {
+        const char = charById[firstAssignment.character_id];
+        if (char) {
+          stateOffice.holderName = char.name;
+          stateOffice.holderAvatar = avatarFromCharacterProfile(data, char.name);
+        }
+      } else {
+        stateOffice.holderName = "";
+        stateOffice.holderAvatar = "";
+      }
+    }
+    data._dbCharacters = dbChars || [];
+  } catch {
+    // Non-critical: fall back to state-based opposition data
+  }
+
   applyAssignmentEffects(data);
   saveState(data);
   render(data, { message: "" });
