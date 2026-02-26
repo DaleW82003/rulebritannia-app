@@ -6,7 +6,7 @@ import { toastSuccess } from "../components/toast.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
-import { apiCreateDebateTopic, apiCreateMotion, apiGetMotions, apiUpdateMotion } from "../api.js";
+import { apiCreateDebateTopic, apiCreateMotion, apiGetMotions, apiUpdateMotion, apiDeleteMotion } from "../api.js";
 import { handleApiError } from "../errors.js";
 import { npcPartyOptions } from "../parties.js";
 
@@ -334,10 +334,16 @@ export async function initMotionsPage(data) {
   });
 
   root.querySelectorAll("[data-action='delete-motion']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!canDelete) return;
       const id = btn.getAttribute("data-id");
       const kind = btn.getAttribute("data-kind");
+      try {
+        await apiDeleteMotion(id);
+      } catch (err) {
+        handleApiError(err, "Delete motion");
+        return;
+      }
       if (kind === "house") {
         data.motions.house = data.motions.house.filter((m) => m.id !== id);
       } else {

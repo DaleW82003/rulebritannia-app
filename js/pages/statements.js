@@ -4,7 +4,7 @@ import { isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
-import { apiCreateDebateTopic, apiCreateStatement, apiGetStatements } from "../api.js";
+import { apiCreateDebateTopic, apiCreateStatement, apiGetStatements, apiDeleteStatement } from "../api.js";
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
@@ -200,9 +200,15 @@ function render(data) {
   });
 
   root.querySelectorAll("[data-action='delete-statement']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!canDelete) return;
       const id = btn.getAttribute("data-id");
+      try {
+        await apiDeleteStatement(id);
+      } catch (err) {
+        handleApiError(err, "Delete statement");
+        return;
+      }
       data.statements.items = data.statements.items.filter((s) => s.id !== id);
       saveState(data);
       toastSuccess("Statement deleted.");

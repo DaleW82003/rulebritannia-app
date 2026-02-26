@@ -204,6 +204,7 @@ function renderBriefingCard(data, b, state) {
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${mod && b.status === "open" ? `<button type="button" class="btn" data-action="close-briefing" data-id="${b.id}">Close Briefing</button>` : ""}
+          ${mod ? `<button type="button" class="btn danger" data-action="delete-briefing" data-id="${b.id}">Delete</button>` : ""}
           <button type="button" class="btn" data-action="toggle-briefing" data-id="${b.id}">${open ? "Collapse" : "View"}</button>
         </div>
       </div>
@@ -409,6 +410,7 @@ function render(data, state) {
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                   ${mod && c.status === "open" ? `<button type="button" class="btn" data-action="close-case" data-id="${c.id}">Close Case</button>` : ""}
+                  ${mod ? `<button type="button" class="btn danger" data-action="delete-case" data-id="${c.id}">Delete</button>` : ""}
                   <button type="button" class="btn" data-action="toggle-case" data-id="${c.id}">${open ? "Close" : "Open"}</button>
                 </div>
               </div>
@@ -535,6 +537,19 @@ function render(data, state) {
     });
   });
 
+  // Mod: delete briefing
+  host.querySelectorAll('[data-action="delete-briefing"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!mod) return;
+      const id = Number(btn.dataset.id || 0);
+      data.civilService.briefings = data.civilService.briefings.filter((b) => b.id !== id);
+      if (state.openBriefingId === id) state.openBriefingId = null;
+      saveState(data);
+      state.message = `Briefing #${id} deleted.`;
+      render(data, state);
+    });
+  });
+
   host.querySelectorAll('[data-action="open-dept"]').forEach((btn) => {
     btn.addEventListener("click", () => {
       state.selectedDeptId = String(btn.dataset.id || "");
@@ -606,6 +621,18 @@ function render(data, state) {
       item.closedBy = String(char?.name || data?.currentUser?.username || "Civil Service Moderator");
       saveState(data);
       state.message = `Case #${id} closed.`;
+      render(data, state);
+    });
+  });
+
+  host.querySelectorAll('[data-action="delete-case"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!mod) return;
+      const id = Number(btn.dataset.id || 0);
+      data.civilService.cases = data.civilService.cases.filter((c) => c.id !== id);
+      if (state.openCaseId === id) state.openCaseId = null;
+      saveState(data);
+      state.message = `Case #${id} deleted.`;
       render(data, state);
     });
   });

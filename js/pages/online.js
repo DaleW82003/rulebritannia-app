@@ -2,7 +2,7 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
-import { apiCreateOnlinePost, apiGetOnlinePosts } from "../api.js";
+import { apiCreateOnlinePost, apiGetOnlinePosts, apiDeleteOnlinePost } from "../api.js";
 import { formatSimMonthYear } from "../clock.js";
 
 const CHANNELS = {
@@ -322,6 +322,7 @@ function render(data, state) {
       data.online.webPosts = data.online.webPosts.filter((p) => String(p.id) !== id);
       saveState(data);
       render(data, state);
+      apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-web failed:", err));
     });
   });
 
@@ -332,6 +333,7 @@ function render(data, state) {
       data.online.facebookPosts = data.online.facebookPosts.filter((p) => String(p.id) !== id);
       saveState(data);
       render(data, state);
+      apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-fb failed:", err));
     });
   });
 
@@ -342,6 +344,7 @@ function render(data, state) {
       data.online.twitterPosts = data.online.twitterPosts.filter((p) => String(p.id) !== id);
       saveState(data);
       render(data, state);
+      apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-tw failed:", err));
     });
   });
 }

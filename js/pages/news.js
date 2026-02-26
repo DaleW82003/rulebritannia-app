@@ -48,7 +48,10 @@ function renderStoryCard(story, small = false, canDelete = false) {
       <div class="news-headline">${esc(story.headline || "Untitled")}</div>
       ${story.imageUrl ? `<div class="news-imagewrap"><img src="${esc(story.imageUrl)}" alt=""></div>` : ""}
       <div class="news-text">${esc(story.text || "")}</div>
-      ${canDelete ? `<div class="tile-bottom" style="margin-top:8px;"><button class="btn danger" data-action="delete-story" data-id="${esc(story.id)}" type="button">Delete</button></div>` : ""}
+      ${canDelete ? `<div class="tile-bottom" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn" data-action="edit-story" data-id="${esc(story.id)}" type="button">Edit</button>
+        <button class="btn danger" data-action="delete-story" data-id="${esc(story.id)}" type="button">Delete</button>
+      </div>` : ""}
     </article>
   `;
 }
@@ -162,12 +165,80 @@ export function initNewsPage(data) {
 
   if (canDelete) {
     document.addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-action='delete-story']");
-      if (!btn) return;
-      const id = btn.getAttribute("data-id");
-      data.news.stories = (data.news.stories || []).filter((s) => s.id !== id);
-      saveState(data);
-      renderAll();
+      const deleteBtn = e.target.closest("[data-action='delete-story']");
+      if (deleteBtn) {
+        const id = deleteBtn.getAttribute("data-id");
+        data.news.stories = (data.news.stories || []).filter((s) => s.id !== id);
+        saveState(data);
+        renderAll();
+        return;
+      }
+
+      const editBtn = e.target.closest("[data-action='edit-story']");
+      if (editBtn) {
+        const id = editBtn.getAttribute("data-id");
+        const story = (data.news?.stories || []).find((s) => s.id === id);
+        if (!story) return;
+
+        const panel = document.getElementById("bbcEditStoryPanel");
+        if (panel) {
+          panel.querySelector("#editNewsHeadline").value = story.headline || "";
+          panel.querySelector("#editNewsText").value = story.text || "";
+          panel.querySelector("#editNewsImage").value = story.imageUrl || "";
+          panel.querySelector("#editNewsBreaking").checked = !!story.isBreaking;
+          panel.dataset.editId = id;
+          panel.style.display = "";
+        }
+      }
     });
+
+    // Inject edit panel if not already present
+    if (!document.getElementById("bbcEditStoryPanel")) {
+      const editPanel = document.createElement("section");
+      editPanel.id = "bbcEditStoryPanel";
+      editPanel.className = "panel";
+      editPanel.style.display = "none";
+      editPanel.style.marginBottom = "12px";
+      editPanel.innerHTML = `
+        <h2 style="margin-top:0;">Edit Story (Staff)</h2>
+        <form id="bbcEditStoryForm" class="form-grid">
+          <label class="label" for="editNewsHeadline">Headline</label>
+          <input id="editNewsHeadline" class="input" type="text" required maxlength="200">
+          <label class="label" for="editNewsText">Text</label>
+          <textarea id="editNewsText" class="input" rows="5" required></textarea>
+          <label class="label" for="editNewsImage">Image URL (optional)</label>
+          <input id="editNewsImage" class="input" type="url">
+          <label style="display:flex;gap:6px;align-items:center;"><input id="editNewsBreaking" type="checkbox"> Breaking News</label>
+          <div style="display:flex;gap:8px;margin-top:6px;">
+            <button class="btn primary" type="submit">Save Changes</button>
+            <button class="btn" type="button" id="bbcEditStoryCancel">Cancel</button>
+          </div>
+        </form>
+      `;
+      const newsDeskPanel = document.getElementById("bbcNewsDeskPanel");
+      if (newsDeskPanel?.parentNode) {
+        newsDeskPanel.parentNode.insertBefore(editPanel, newsDeskPanel);
+      } else {
+        document.querySelector("main")?.prepend(editPanel);
+      }
+
+      document.getElementById("bbcEditStoryCancel")?.addEventListener("click", () => {
+        editPanel.style.display = "none";
+      });
+
+      document.getElementById("bbcEditStoryForm")?.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        const id = editPanel.dataset.editId;
+        const story = (data.news?.stories || []).find((s) => s.id === id);
+        if (!story) return;
+        story.headline = document.getElementById("editNewsHeadline")?.value?.trim() || story.headline;
+        story.text = document.getElementById("editNewsText")?.value?.trim() || story.text;
+        story.imageUrl = document.getElementById("editNewsImage")?.value?.trim() || "";
+        story.isBreaking = document.getElementById("editNewsBreaking")?.checked || false;
+        saveState(data);
+        editPanel.style.display = "none";
+        renderAll();
+      });
+    }
   }
 }

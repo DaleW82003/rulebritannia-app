@@ -93,7 +93,10 @@ function render(data) {
                 <div class="muted">${esc(p.createdAt || "")}</div>
               </div>
               <p style="margin:8px 0;white-space:pre-wrap;">${esc(p.body)}</p>
-              ${(allowBarkeep || isSpeaker(data)) ? `<button class="btn" type="button" data-action="delete" data-id="${esc(p.id)}">Delete</button>` : ""}
+              ${(allowBarkeep || isSpeaker(data)) ? `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button class="btn" type="button" data-action="edit-post" data-id="${esc(p.id)}">Edit</button>
+                <button class="btn danger" type="button" data-action="delete" data-id="${esc(p.id)}">Delete</button>
+              </div>` : ""}
             </div>
           </div>
         </article>
@@ -143,6 +146,22 @@ function render(data) {
       saveState(data);
       render(data);
       apiDeleteRedLionPost(id).catch((err) => console.error("[redlion] delete failed:", err));
+    });
+  });
+
+  root.querySelectorAll("[data-action='edit-post']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!(allowBarkeep || isSpeaker(data))) return;
+      const id = btn.getAttribute("data-id");
+      const post = data.redLion.posts.find((p) => p.id === id);
+      if (!post) return;
+      const newBody = prompt("Edit post:", post.body);
+      if (newBody === null) return;
+      const trimmed = newBody.trim();
+      if (!trimmed) return;
+      post.body = trimmed;
+      saveState(data);
+      render(data);
     });
   });
 }

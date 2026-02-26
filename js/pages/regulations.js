@@ -4,7 +4,7 @@ import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
-import { apiCreateDebateTopic, apiCreateRegulation, apiGetRegulations } from "../api.js";
+import { apiCreateDebateTopic, apiCreateRegulation, apiGetRegulations, apiDeleteRegulation } from "../api.js";
 import { handleApiError } from "../errors.js";
 
 const MONTHS = [
@@ -222,9 +222,15 @@ export async function initRegulationsPage(data) {
   });
 
   root.querySelectorAll("[data-action='delete-regulation']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!canDelete) return;
       const id = btn.getAttribute("data-id");
+      try {
+        await apiDeleteRegulation(id);
+      } catch (err) {
+        handleApiError(err, "Delete regulation");
+        return;
+      }
       data.regulations.items = data.regulations.items.filter((r) => r.id !== id);
       saveState(data);
       initRegulationsPage(data);

@@ -11572,6 +11572,19 @@ app.post("/api/elections/bodies", electionWriteLimit, async (req, res) => {
   }
 });
 
+app.delete("/api/elections/bodies/:id", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM elections WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Election result not found" });
+    await writeAuditLog(req.session.userId, "election.body.delete", "elections", req.params.id, null, null);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[DELETE /api/elections/bodies/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 
 app.get("/api/constituencies/:id/events", electionReadLimit, async (req, res) => {
   try {
@@ -12992,6 +13005,16 @@ app.put("/api/events/:id", crudWriteLimit, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
 });
 
+app.delete("/api/events/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM game_events WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Event not found" });
+    await writeAuditLog(req.session.userId, "event.delete", "game_events", req.params.id, null, null);
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
 // ── ONLINE POSTS ──────────────────────────────────────────────────────────────
 app.get("/api/online", crudReadLimit, async (req, res) => {
   try {
@@ -13014,6 +13037,16 @@ app.post("/api/online", crudWriteLimit, async (req, res) => {
       [post.id, post_type, JSON.stringify(post)]
     );
     res.status(201).json({ ok: true, id: post.id });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/online/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM online_posts WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Online post not found" });
+    await writeAuditLog(req.session.userId, "online.delete", "online_posts", req.params.id, null, null);
+    res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -13047,6 +13080,16 @@ app.put("/api/fundraising/:id", crudWriteLimit, async (req, res) => {
       `UPDATE fundraising_items SET data = $1::jsonb, updated_at = NOW() WHERE id = $2`,
       [JSON.stringify(item), req.params.id]
     );
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/fundraising/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM fundraising_items WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Fundraising item not found" });
+    await writeAuditLog(req.session.userId, "fundraising.delete", "fundraising_items", req.params.id, null, null);
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
 });

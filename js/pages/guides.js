@@ -1,6 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin } from "../permissions.js";
+import { canAdminOrMod } from "../permissions.js";
 
 function normaliseGuides(data) {
   data.guides ??= { items: [], nextId: 1 };
@@ -46,7 +46,7 @@ function renderGuideRows(data, adminMode) {
 }
 
 function renderEditor(data, state) {
-  const adminMode = isAdmin(data);
+  const adminMode = canAdminOrMod(data);
   if (!adminMode) return "";
 
   const editing = data.guides.items.find((guide) => guide.id === state.editingId);
@@ -78,7 +78,7 @@ function render(data, state) {
   const host = document.getElementById("guides-root") || document.querySelector("main.wrap");
   if (!host) return;
 
-  const adminMode = isAdmin(data);
+  const adminMode = canAdminOrMod(data);
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Guides</div></div>

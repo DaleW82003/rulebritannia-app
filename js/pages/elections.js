@@ -4,6 +4,7 @@ import {
   apiGetElectionBodiesCurrent,
   apiGetElectionBodiesArchive,
   apiSubmitElectionBodyResult,
+  apiDeleteElectionBodyResult,
 } from "../api.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -136,7 +137,7 @@ function renderHistoricGE() {
   `;
 }
 
-function renderBodyGrid() {
+function renderBodyGrid(canManage = false) {
   const bodyTypes = ELECTION_BODIES.filter(b => b.type !== "general");
   return `
     <div class="wgo-grid" style="gap:12px;">
@@ -150,6 +151,7 @@ function renderBodyGrid() {
               <div class="wgo-strap">${fmtDate(result.polling_day)}</div>
               ${renderTurnout(result)}
               ${renderPartySummaryTable(result.party_summary, true)}
+              ${canManage ? `<button class="btn danger" type="button" data-action="delete-election-result" data-id="${esc(String(result.id))}" style="margin-top:6px;font-size:12px;">Delete</button>` : ""}
             ` : `<div class="wgo-strap muted" style="margin-top:8px;">No result recorded yet.</div>`}
           </div>
         `;
@@ -158,7 +160,7 @@ function renderBodyGrid() {
   `;
 }
 
-function renderArchiveSection() {
+function renderArchiveSection(canManage = false) {
   const archived = state.archive.slice().sort((a, b) => new Date(b.polling_day) - new Date(a.polling_day));
   return `
     <section class="panel" style="margin-bottom:12px;">
@@ -175,6 +177,7 @@ function renderArchiveSection() {
               <summary style="padding:10px 14px;cursor:pointer;font-weight:600;list-style:none;display:flex;align-items:center;gap:10px;">
                 <span style="flex:1;">${esc(el.label || fmtDate(el.polling_day))}</span>
                 <span style="font-size:12px;color:#888;font-weight:400;">${esc(BODY_LABEL[el.type] || el.type)} &nbsp;·&nbsp; ${fmtDate(el.polling_day)}</span>
+                ${canManage ? `<button class="btn danger" type="button" data-action="delete-election-result" data-id="${esc(String(el.id))}" style="font-size:11px;padding:2px 8px;" onclick="event.preventDefault()">Delete</button>` : ""}
               </summary>
               <div style="padding:10px 14px;border-top:1px solid #eef0f5;">
                 ${renderTurnout(el)}
@@ -289,10 +292,10 @@ function render(data) {
 
     <section style="margin-bottom:12px;">
       <h2 style="margin-top:0;margin-bottom:12px;">Devolved &amp; Local Elections</h2>
-      ${renderBodyGrid()}
+      ${renderBodyGrid(canManage)}
     </section>
 
-    ${renderArchiveSection()}
+    ${renderArchiveSection(canManage)}
   `;
 
   // ── Event bindings ────────────────────────────────────────────────────────
@@ -355,6 +358,23 @@ function render(data) {
     } catch (err) {
       if (msgEl) msgEl.textContent = `Error: ${err.message}`;
     }
+  });
+
+  root.querySelectorAll("[data-action='delete-election-result']").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!canManage) return;
+      const id = String(btn.getAttribute("data-id") || "");
+      if (!id) return;
+      btn.disabled = true;
+      try {
+        await apiDeleteElectionBodyResult(id);
+        await reload(data);
+      } catch (err) {
+        btn.disabled = false;
+        alert(`Delete failed: ${err.message}`);
+      }
+    });
   });
 }
 

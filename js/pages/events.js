@@ -4,7 +4,7 @@ import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
-import { apiCreateEvent, apiGetEvents, apiUpdateEvent } from "../api.js";
+import { apiCreateEvent, apiGetEvents, apiUpdateEvent, apiDeleteEvent } from "../api.js";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -141,6 +141,7 @@ function render(data, state) {
             <button class="btn" type="button" data-action="toggle-open" data-id="${esc(String(item.id))}">${String(state.openId) === String(item.id) ? "Close" : "Open"}</button>
             ${mod && item.status === "pending" ? `<button class="btn" type="button" data-action="approve" data-id="${esc(String(item.id))}">Approve</button><button class="btn danger" type="button" data-action="cancel" data-id="${esc(String(item.id))}">Refuse</button>` : ""}
             ${mod && item.status === "approved" ? `<button class="btn" type="button" data-action="close" data-id="${esc(String(item.id))}">Close Now</button>` : ""}
+            ${mod ? `<button class="btn danger" type="button" data-action="delete-event" data-id="${esc(String(item.id))}">Delete</button>` : ""}
           </div>
           ${String(state.openId) === String(item.id) ? `
             <div style="margin-top:10px;">
@@ -274,6 +275,17 @@ function render(data, state) {
       item.status = "closed";
       saveState(data);
       render(data, state);
+    });
+  });
+
+  root.querySelectorAll("[data-action='delete-event']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!mod) return;
+      const id = String(btn.getAttribute("data-id") || "");
+      data.events.items = data.events.items.filter((x) => String(x.id) !== id);
+      saveState(data);
+      render(data, state);
+      apiDeleteEvent(id).catch((err) => console.error("[events] delete failed:", err));
     });
   });
 

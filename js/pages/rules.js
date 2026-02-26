@@ -1,6 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin } from "../permissions.js";
+import { canAdminOrMod } from "../permissions.js";
 
 function normaliseRules(data) {
   data.rules ??= { items: [], nextId: 1 };
@@ -46,7 +46,7 @@ function renderRuleRows(data, adminMode) {
 }
 
 function renderEditor(data, state) {
-  const adminMode = isAdmin(data);
+  const adminMode = canAdminOrMod(data);
   if (!adminMode) return "";
 
   const editing = data.rules.items.find((rule) => rule.id === state.editingId);
@@ -78,7 +78,7 @@ function render(data, state) {
   const host = document.getElementById("rules-root") || document.querySelector("main.wrap");
   if (!host) return;
 
-  const adminMode = isAdmin(data);
+  const adminMode = canAdminOrMod(data);
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Rules</div></div>
