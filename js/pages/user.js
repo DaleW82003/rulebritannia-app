@@ -317,10 +317,17 @@ function render(data, state) {
       <h2 style="margin-top:0;">Character Data / Create Character</h2>
       <div class="tile" style="margin-bottom:10px;">
         <div><b>${esc(char?.name || "No character selected")}</b></div>
-        <div class="muted">DOB: ${esc(char?.dateOfBirth || char?.date_of_birth || "-")} · Education: ${esc(char?.education || "-")} · Career: ${esc(char?.careerBackground || char?.career_background || "-")}</div>
-        <div class="muted">Family: ${esc(char?.family || "-")} · Constituency: ${esc(char?.constituency || "-")} · Party: ${esc(char?.party || "-")} · Twitter: ${esc(char?.twitterHandle || char?.twitter_handle || "-")}</div>
-        <div class="muted">First elected: ${esc(String(char?.yearFirstElected || char?.year_first_elected || "-"))} · Bio: ${esc((char?.bio || char?.personal_background || "-").slice(0, 100))}${(char?.bio || char?.personal_background || "").length > 100 ? "…" : ""} · Financial level: ${esc(String(char?.financialBackgroundLevel || char?.financial_background_level || "-"))}</div>
-        <div class="muted">Absence: ${char?.absent ? "Absent" : "Active"}${char?.absent ? ` · Delegated to ${esc(char?.delegatedTo || "None")}` : ""}</div>
+        <div class="muted"><b>DOB:</b> ${esc(char?.dateOfBirth || char?.date_of_birth || "-")}</div>
+        <div class="muted"><b>Education:</b> ${esc(char?.education || "-")}</div>
+        <div class="muted"><b>Career:</b> ${esc(char?.careerBackground || char?.career_background || "-")}</div>
+        <div class="muted"><b>Family:</b> ${esc(char?.family || "-")}</div>
+        <div class="muted"><b>Constituency:</b> ${esc(char?.constituency || "-")}</div>
+        <div class="muted"><b>Party:</b> ${esc(char?.party || "-")}</div>
+        <div class="muted"><b>Twitter:</b> ${esc(char?.twitterHandle || char?.twitter_handle || "-")}</div>
+        <div class="muted"><b>First elected:</b> ${esc(String(char?.yearFirstElected || char?.year_first_elected || "-"))}</div>
+        <div class="muted"><b>Bio:</b> ${esc((char?.bio || char?.personal_background || "-").slice(0, 100))}${(char?.bio || char?.personal_background || "").length > 100 ? "…" : ""}</div>
+        <div class="muted"><b>Financial level:</b> ${esc(String(char?.financialBackgroundLevel || char?.financial_background_level || "-"))}</div>
+        <div class="muted"><b>Absence:</b> ${char?.absent ? "Absent" : "Active"}${char?.absent ? ` · Delegated to ${esc(char?.delegatedTo || "None")}` : ""}</div>
       </div>
 
       <div class="tile" style="margin-bottom:10px;">

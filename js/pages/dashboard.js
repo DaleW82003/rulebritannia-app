@@ -338,7 +338,15 @@ function renderLiveDocket(data) {
       }
       if (item.seenActivityKey) {
         data.liveDocket.seenActivityTs ??= {};
-        data.liveDocket.seenActivityTs[item.seenActivityKey] = Date.now();
+        const ts = Date.now();
+        data.liveDocket.seenActivityTs[item.seenActivityKey] = ts;
+        // Persist to localStorage synchronously (works for all users, avoids navigation race)
+        try {
+          const lsKey = `rb_docket_seenTs_${data.currentUser?.username || ""}`;
+          const stored = JSON.parse(localStorage.getItem(lsKey) || "{}");
+          stored[item.seenActivityKey] = ts;
+          localStorage.setItem(lsKey, JSON.stringify(stored));
+        } catch { /* ignore */ }
         saveState(data);
       }
       if (item.generated !== true) {
@@ -395,6 +403,17 @@ export async function initDashboardPage(data) {
       if (!seen.has(String(item.id))) arr.push(item);
     }
   }
+
+  // Merge localStorage-persisted dismissed docket timestamps so non-staff dismissals survive refresh
+  data.liveDocket ??= { asOf: "Today", items: [] };
+  data.liveDocket.seenActivityTs ??= {};
+  try {
+    const lsKey = `rb_docket_seenTs_${data.currentUser?.username || ""}`;
+    const stored = JSON.parse(localStorage.getItem(lsKey) || "{}");
+    for (const [k, v] of Object.entries(stored)) {
+      data.liveDocket.seenActivityTs[k] = Math.max(Number(data.liveDocket.seenActivityTs[k] || 0), Number(v || 0));
+    }
+  } catch { /* ignore localStorage errors */ }
 
   await Promise.allSettled([
     // Bills → order paper + live docket

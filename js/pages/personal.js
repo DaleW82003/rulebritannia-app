@@ -983,6 +983,22 @@ function render(data, state) {
           <div><b>Press Impact:</b> +${mods.pressImpactPct}%</div>
           <div><b>Polling Boost:</b> +${mods.pollingBoostPct}%</div>
           <div><b>Scrutiny Score:</b> ${mods.scrutinyScore} ${mods.scrutinyScore >= 10 ? "⚠️ High" : mods.scrutinyScore >= 5 ? "⚡ Medium" : "✅ Low"}</div>
+          ${(() => {
+            const extraEffects = profile.shopPurchases.flatMap((p) =>
+              (p.effects || []).filter((e) => !["pressImpact","pollingBoost"].includes(e.type)).map((e) => {
+                if (e.type === "constituencyPresence") return `<div>📍 Constituency Presence +${e.value}</div>`;
+                if (e.type === "constituencyCapacity") return `<div>👥 Casework Capacity +${e.value}</div>`;
+                if (e.type === "policyResearch")       return `<div>📄 Policy Research +${e.value}</div>`;
+                if (e.type === "efficiencyBoost")      return `<div>⚡ Efficiency +${e.value}</div>`;
+                if (e.type === "scandalDefence")       return `<div>🛡️ Scandal Defence +${e.value}</div>`;
+                if (e.type === "additionalRevenue")    return `<div>💰 Additional Revenue +${e.value}</div>`;
+                return `<div>${esc(e.type)} +${e.value}</div>`;
+              })
+            );
+            return extraEffects.length
+              ? `<div style="margin-top:4px;border-top:1px solid #eee;padding-top:4px;">${extraEffects.join("")}</div>`
+              : "";
+          })()}
         </div>
         <p class="muted" style="margin-bottom:0;font-size:.85em;">Modifiers from shop purchases are applied to press releases and polling entries.</p>
       </article>
@@ -1004,11 +1020,32 @@ function render(data, state) {
 
     <section class="panel" style="margin-top:12px;">
       <h2 style="margin-top:0;">MP Shop</h2>
-      <p class="muted">
-        All prices are 1997 base prices × current price index
-        (<b>${esc(state.priceIndex?.toFixed(4) ?? "1.0000")}</b>).
-        Monthly upkeep is deducted automatically each sim month.
-      </p>
+      <p class="muted">Monthly upkeep is deducted automatically each month.</p>
+
+      <h3 style="margin:0 0 6px;">Purchased Items</h3>
+      ${profile.shopPurchases.length ? `
+        <div class="muted" style="margin-bottom:8px;">
+          Total monthly upkeep: <b>${money(computeMonthlyUpkeep(profile))}</b>
+        </div>
+        ${profile.shopPurchases.map((p, idx) => `
+          <article class="tile" style="margin-bottom:8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
+            <div>
+              <b>${esc(p.name)}</b>
+              <div class="muted">Purchased ${esc(p.purchasedAt)} — ${money(p.price)}</div>
+              ${p.monthlyUpkeep > 0 ? `<div class="muted" style="font-size:.85em;">Upkeep: ${money(p.monthlyUpkeep)}/month</div>` : ""}
+              <div class="muted" style="font-size:.9em;">
+                ${Array.isArray(p.effects) && p.effects.length ? p.effects.map((e) => {
+                  if (e.type === "pressImpact")  return `+${e.value}% press`;
+                  if (e.type === "pollingBoost") return `+${e.value}% polling`;
+                  return e.type;
+                }).join(" · ") : ""}
+                ${(p.riskModifier?.scandalExposure || p.scrutinyRisk) ? `⚠️ +${p.riskModifier?.scandalExposure || p.scrutinyRisk} scandal risk` : ""}
+              </div>
+            </div>
+            ${manager ? `<button type="button" class="btn" data-action="remove-purchase" data-id="${esc(String(p.id || idx))}">Remove</button>` : ""}
+          </article>
+        `).join("")}
+      ` : '<div class="muted-block">No items purchased.</div>'}
 
       ${Object.entries(
         SHOP_ITEMS.reduce((groups, item) => {
@@ -1075,31 +1112,6 @@ function render(data, state) {
           </details>
         `;
       }).join("")}
-
-      <h3 style="margin:0 0 6px;">Purchased Items</h3>
-      ${profile.shopPurchases.length ? `
-        <div class="muted" style="margin-bottom:8px;">
-          Total monthly upkeep: <b>${money(computeMonthlyUpkeep(profile))}</b>
-        </div>
-        ${profile.shopPurchases.map((p, idx) => `
-          <article class="tile" style="margin-bottom:8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
-            <div>
-              <b>${esc(p.name)}</b>
-              <div class="muted">Purchased ${esc(p.purchasedAt)} — ${money(p.price)}</div>
-              ${p.monthlyUpkeep > 0 ? `<div class="muted" style="font-size:.85em;">Upkeep: ${money(p.monthlyUpkeep)}/month</div>` : ""}
-              <div class="muted" style="font-size:.9em;">
-                ${Array.isArray(p.effects) && p.effects.length ? p.effects.map((e) => {
-                  if (e.type === "pressImpact")  return `+${e.value}% press`;
-                  if (e.type === "pollingBoost") return `+${e.value}% polling`;
-                  return e.type;
-                }).join(" · ") : ""}
-                ${(p.riskModifier?.scandalExposure || p.scrutinyRisk) ? `⚠️ +${p.riskModifier?.scandalExposure || p.scrutinyRisk} scandal risk` : ""}
-              </div>
-            </div>
-            ${manager ? `<button type="button" class="btn" data-action="remove-purchase" data-id="${esc(String(p.id || idx))}">Remove</button>` : ""}
-          </article>
-        `).join("")}
-      ` : '<div class="muted-block">No items purchased.</div>'}
     </section>
 
     ${manager ? `
@@ -1332,11 +1344,12 @@ function render(data, state) {
   // Player: submit profile field change request for approval
   host.querySelector("#profile-change-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const form = e.currentTarget;
     const statusEl = host.querySelector("#profile-change-status");
-    const btn = e.currentTarget.querySelector('[type="submit"]');
+    const btn = form.querySelector('[type="submit"]');
     if (btn) btn.disabled = true;
     if (statusEl) statusEl.textContent = "Submitting…";
-    const fd = new FormData(e.currentTarget);
+    const fd = new FormData(form);
     const fields = {};
     const dob     = String(fd.get("date_of_birth")         || "").trim();
     const edu     = String(fd.get("education")             || "").trim();
@@ -1359,7 +1372,7 @@ function render(data, state) {
       await apiSubmitProfileChange(fields);
       if (statusEl) statusEl.textContent = "Change request submitted — awaiting mod review.";
       state.profileChangeMessage = "Change request submitted — awaiting mod review.";
-      e.currentTarget.reset();
+      if (form) form.reset();
     } catch (err) {
       if (statusEl) statusEl.textContent = `Error: ${err.message}`;
     } finally {

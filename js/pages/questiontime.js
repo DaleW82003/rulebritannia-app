@@ -324,7 +324,7 @@ function render(data, state) {
   `;
 
   const submitForm = root.querySelector("#qt-submit-question-form");
-  submitForm?.addEventListener("submit", (e) => {
+  submitForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(submitForm);
     const text = String(fd.get("text") || "").trim();
@@ -333,7 +333,11 @@ function render(data, state) {
     const npcName = canPostAsNpc ? String(fd.get("npcName") || "").trim() : "";
     const npcParty = canPostAsNpc ? String(fd.get("npcParty") || "").trim() : "";
 
-    if (!npcName && !askGate.ok) return;
+    if (!npcName && !askGate.ok) {
+      // Gate is closed — re-render so the reason is clearly visible
+      render(data, state);
+      return;
+    }
 
     const char = getCurrentCharacter(data);
     const askedBy = npcName || char?.name || "Backbench MP";
@@ -359,7 +363,11 @@ function render(data, state) {
     };
 
     data.questionTime.questions.unshift(question);
-    apiCreateQtLegacyQuestion(question).catch(console.error);
+    try {
+      await apiCreateQtLegacyQuestion(question);
+    } catch (err) {
+      console.error("[questiontime] question save failed:", err);
+    }
 
     render(data, state);
   });
