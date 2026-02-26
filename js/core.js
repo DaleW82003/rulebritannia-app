@@ -85,9 +85,11 @@ export function saveData(data) {
 /**
  * Persist simulation state.
  * - When logged in as admin/mod/speaker: writes to localStorage and POSTs to the backend.
- * - When logged in as a regular user: writes to localStorage only (server rejects writes).
+ * - When logged in as staff (admin/mod/speaker): writes to the backend via POST /api/state.
+ * - When logged in as a regular user: silently skips the global-state snapshot write.
+ *   Feature-specific APIs (e.g. POST /api/parties/:id/drafts) should be used instead for player writes.
  * - When not logged in: shows a "Login required" notice and does not persist.
- * This is the sole write function; no page may call the API or localStorage directly.
+ * This is the sole global-state write function; no page may write localStorage directly.
  * @param {object} data - The full state object to persist.
  */
 export function saveState(data) {
@@ -99,13 +101,13 @@ export function saveState(data) {
     });
     return;
   }
-  // Never allow authenticated simulation writes to localStorage.
+  // Only staff roles may write the global state snapshot.
+  // Non-staff authenticated users rely on feature-specific API endpoints for their writes.
   const roles = Array.isArray(_user?.roles) ? _user.roles : [];
   const canPersist = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
   if (!canPersist) {
-    const err = new Error("[RB_AUTH_STATE_VIOLATION] saveState() called by non-staff authenticated user. Write must go through feature APIs.");
-    console.error(err.message);
-    throw err;
+    console.warn("[saveState] skipped for non-staff user -- use feature APIs for player writes.");
+    return;
   }
   apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
 }

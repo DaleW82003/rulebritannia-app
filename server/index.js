@@ -3967,6 +3967,206 @@ app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
 });
 
 /**
+ * Compute the effective vote weight for a character in a bill division.
+ * Mirrors the client-side buildDivisionWeights + getCurrentVoteWeight logic so the
+ * server is the sole authority on vote weights (B3 requirement).
+ *
+ * Algorithm:
+ *  1. Collect all active players from game state.
+ *  2. For each party, distribute party seats evenly among members.
+ *  3. New backbenchers (<2 weeks) each receive 1; remaining seats split among others.
+ *  4. Absent members' weights are delegated to their party leader.
+ *  5. Return the effective weight for the given character name.
+ */
+function computeBillDivisionWeight(stateData, charName, charParty) {
+  const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+  const seatsByParty = Object.fromEntries(
+    (Array.isArray(stateData?.parliament?.parties) ? stateData.parliament.parties : [])
+      .map((p) => [String(p.name || ""), Math.max(0, Math.floor(Number(p.seats || 0)))])
+  );
+
+  const allPlayers = (Array.isArray(stateData?.players) ? stateData.players : [])
+    .filter((p) => p != null && p.active !== false);
+
+  // Group by party
+  const byParty = new Map();
+  allPlayers.forEach((p) => {
+    const party = String(p.party || "Independent");
+    if (!byParty.has(party)) byParty.set(party, []);
+    byParty.get(party).push(p);
+  });
+
+  function isSettledBackbencher(p) {
+    if (!p || p.role !== "backbencher") return true;
+    const joined = Date.parse(p.joinedAt || "");
+    if (!Number.isFinite(joined)) return true;
+    return (Date.now() - joined) >= TWO_WEEKS_MS;
+  }
+
+  function findPartyLeader(members) {
+    return (
+      members.find((m) => m.partyLeader) ||
+      members.find((m) => m.role === "prime-minister") ||
+      members.find((m) => m.role === "leader-opposition") ||
+      members.find((m) => m.role === "party-leader-3rd-4th") ||
+      members[0] ||
+      null
+    );
+  }
+
+  const baseWeights = {};
+  const leaderByParty = {};
+
+  byParty.forEach((members, party) => {
+    members.forEach((m) => { baseWeights[String(m.name || "")] = 0; });
+
+    const seats = seatsByParty[party] ?? 0;
+    const leader = findPartyLeader(members);
+    if (leader) leaderByParty[party] = String(leader.name || "");
+
+    const newBackbenchers = members.filter((m) => !isSettledBackbencher(m));
+    newBackbenchers.forEach((m) => { baseWeights[String(m.name || "")] += 1; });
+
+    const remaining = Math.max(0, seats - newBackbenchers.length);
+    const splitMembers = members.filter((m) => isSettledBackbencher(m));
+
+    if (!splitMembers.length) {
+      if (leader) baseWeights[String(leader.name || "")] = (baseWeights[String(leader.name || "")] || 0) + remaining;
+      return;
+    }
+
+    const each = Math.floor(remaining / splitMembers.length);
+    const odd  = remaining - (each * splitMembers.length);
+    splitMembers.forEach((m) => { baseWeights[String(m.name || "")] = (baseWeights[String(m.name || "")] || 0) + each; });
+
+    if (odd > 0) {
+      const leaderName = leader ? String(leader.name || "") : null;
+      const oddTarget = leaderName && splitMembers.some((m) => m.name === leader.name)
+        ? leaderName
+        : String(splitMembers[0].name || "");
+      baseWeights[oddTarget] = (baseWeights[oddTarget] || 0) + odd;
+    }
+  });
+
+  // Delegation: absent players' weights route to their party leader
+  const effectiveWeights = { ...baseWeights };
+  const playersByName = Object.fromEntries(allPlayers.map((p) => [String(p.name || ""), p]));
+
+  allPlayers.forEach((p) => {
+    if (!p?.absent) return;
+    const from = String(p.name || "");
+    const amount = Number(effectiveWeights[from] || 0);
+    if (amount <= 0) return;
+
+    const party = String(p.party || "Independent");
+    const leaderName = leaderByParty[party] || null;
+    const isLeader = leaderName && from === leaderName;
+
+    let target = null;
+    if (isLeader) {
+      const candidate = String(p.delegatedTo || "").trim();
+      if (candidate && playersByName[candidate] && !playersByName[candidate].absent) {
+        target = candidate;
+      } else {
+        target = allPlayers.find((q) => String(q.party || "Independent") === party && q.name !== from && !q.absent)?.name || null;
+      }
+    } else if (leaderName && playersByName[leaderName] && !playersByName[leaderName].absent) {
+      target = leaderName;
+    }
+
+    effectiveWeights[from] = 0;
+    if (target && target !== from) {
+      effectiveWeights[target] = (Number(effectiveWeights[target] || 0)) + amount;
+    }
+  });
+
+  return Number(effectiveWeights[charName] || 0);
+}
+
+// PATCH /api/bills/:id/vote — authenticated: cast a server-authoritative vote on a bill division
+app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const billId = req.params.id;
+    const voteChoice = String(req.body?.vote || "").toLowerCase();
+    if (!["aye", "no", "abstain"].includes(voteChoice)) {
+      return res.status(400).json({ error: "vote must be aye, no, or abstain" });
+    }
+
+    // Get bill from DB
+    const { rows: billRows } = await pool.query(
+      "SELECT data FROM bills WHERE id = $1", [billId]
+    );
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = { ...billRows[0].data };
+
+    // Division must be open
+    if (bill.division?.status && bill.division.status !== "open") {
+      return res.status(409).json({ error: "Division is not open" });
+    }
+
+    // Get current active character from DB
+    const { rows: charRows } = await pool.query(
+      "SELECT name, party FROM characters WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at DESC LIMIT 1",
+      [req.session.userId]
+    );
+    if (!charRows.length) return res.status(400).json({ error: "No active character found" });
+    const { name: charName, party: charParty } = charRows[0];
+
+    // Load current game state for server-side weight computation
+    const { rows: stateRows } = await pool.query(
+      `SELECT ss.data
+         FROM state_snapshots ss
+         JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+        WHERE asc2.id = 'main'`
+    );
+    const stateData = stateRows[0]?.data ?? {};
+
+    // Compute effective weight server-side (B3: client weight is ignored)
+    const effectiveWeight = computeBillDivisionWeight(stateData, charName, charParty);
+
+    // Initialise division if this is the first vote
+    bill.division ??= { status: "open", votes: {}, openedAt: Date.now(), rebelsByParty: {}, npcVotes: {} };
+    bill.division.votes ??= {};
+
+    // Store vote
+    bill.division.votes[charName] = {
+      actor: charName,
+      party: charParty,
+      choice: voteChoice,
+      weight: effectiveWeight,
+      effective_weight: effectiveWeight,
+      at: Date.now(),
+    };
+
+    // Upsert bill to DB
+    const { rowCount } = await pool.query(
+      "UPDATE bills SET data = $1::jsonb, updated_at = NOW() WHERE id = $2",
+      [JSON.stringify(bill), billId]
+    );
+    if (!rowCount) return res.status(404).json({ error: "Bill not found" });
+
+    // Compute server-side tally from stored votes
+    const tally = { aye: 0, no: 0, abstain: 0 };
+    Object.values(bill.division.votes).forEach((v) => {
+      const c = String(v.choice || "abstain").toLowerCase();
+      if (c in tally) tally[c] += Number(v.effective_weight ?? v.weight ?? 0);
+    });
+
+    res.json({
+      ok: true,
+      bill,
+      vote: { actor: charName, choice: voteChoice, effective_weight: effectiveWeight },
+      tally,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
  * MOTIONS
  * GET    /api/motions          — authenticated: list all motions (optional ?type=house|edm)
  * GET    /api/motions/:id      — authenticated: get one motion

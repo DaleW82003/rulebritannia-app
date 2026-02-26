@@ -197,6 +197,25 @@ export async function apiUpdateBill(id, bill) {
   return res.json();
 }
 
+/**
+ * Cast a division vote on a bill (server-authoritative weight computation).
+ * @param {string} billId - The bill ID
+ * @param {"aye"|"no"|"abstain"} vote - The vote choice
+ */
+export async function apiBillVote(billId, vote) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(billId)}/vote`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ vote }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `apiBillVote failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function apiDeleteBill(id) {
   const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}`, {
     method: "DELETE",

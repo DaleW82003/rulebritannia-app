@@ -155,6 +155,10 @@ const PLAYER_ALLOWED = new Set([
   "POST /api/regulations", "POST /api/press",
   // Author-only server-side enforced append:
   "PATCH /api/press/:id/transcript",
+  // B3: server-authoritative bill division vote — player-accessible but weight is computed server-side
+  "PATCH /api/bills/:id/vote",
+  // Player EDM signing — append-only, enforced server-side
+  "POST /api/motions/:id/sign",
 ]);
 
 const immutabilityViolations = serverEndpoints.filter((ep) => {

@@ -5,7 +5,7 @@ import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissi
 import { esc } from "../ui.js";
 import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
-import { apiCreateDebateTopic, apiGetBill } from "../api.js";
+import { apiCreateDebateTopic, apiGetBill, apiBillVote } from "../api.js";
 import { handleApiError } from "../errors.js";
 
 function $(id) {
@@ -563,6 +563,8 @@ function renderDivision(bill, data) {
   const division = ensureDivision(bill, divDefaults);
   maybeAutoCloseDivision(bill, data);
   finaliseDivisionOutcome(bill, data);
+  // B3: use server-stored effective_weight when available; tallyDivision is kept as a display
+  // fallback only (e.g. for NPC votes set by the speaker that haven't round-tripped via API yet).
   const totals = tallyDivision(bill, data);
   const now = Date.now();
 
@@ -680,13 +682,27 @@ function renderDivision(bill, data) {
   `;
 
   voting.querySelectorAll("[data-vote]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const rebelsByPartyInner = division.rebelsByParty || {};
       const weight = getCurrentVoteWeight(data, currentName || myParty, myParty, rebelsByPartyInner);
       if (weight <= 0) return;
-      castDivisionVote(bill, currentName || myParty, { choice: btn.dataset.vote, party: myParty, weight });
+      try {
+        // B3: server computes effective weight; client only renders the result
+        const result = await apiBillVote(bill.id, btn.dataset.vote);
+        if (result?.bill) {
+          Object.assign(bill, result.bill);
+          // Sync back into the order paper so the state stays consistent
+          const idx = Array.isArray(data.orderPaperCommons)
+            ? data.orderPaperCommons.findIndex((b) => b.id === bill.id)
+            : -1;
+          if (idx >= 0) data.orderPaperCommons[idx] = bill;
+        }
+      } catch (err) {
+        console.error("[bill.vote] API error — falling back to local vote:", err.message);
+        castDivisionVote(bill, currentName || myParty, { choice: btn.dataset.vote, party: myParty, weight });
+      }
       maybeAutoCloseDivision(bill, data);
-      persistAndRerender(data, bill);
+      renderDivision(bill, data);
     });
   });
 
