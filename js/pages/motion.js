@@ -1,6 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isSpeaker, canAdminOrMod, canVoteDivision } from "../permissions.js";
+import { isSpeaker, canAdminOrMod, canAdminModOrSpeaker, canVoteDivision } from "../permissions.js";
 import { getPartySeatMap } from "../engines/core-engine.js";
 import { ensureMotions, isGovernmentMember } from "./motions.js";
 import { getSimDate, simDateToObj, formatSimMonthYear, isDeadlinePassed, compareSimDates, countdownToSimMonth } from "../clock.js";
@@ -132,6 +132,7 @@ async function renderHouseDb(root, data, motion) {
   const char = getCharacter(data);
   const speaker = isSpeaker(data);
   const isStaff = canAdminOrMod(data) || speaker;
+  const canStaff = canAdminModOrSpeaker(data);
   const charParty = char?.party || "";
   const debateCountdown = motion.debateEndSimObj
     ? countdownToSimMonth(motion.debateEndSimObj.month, motion.debateEndSimObj.year, data.gameState)
@@ -264,6 +265,22 @@ async function renderHouseDb(root, data, motion) {
       </div>
     </section>
     `}
+
+    ${canStaff ? `
+    <section class="tile tile-form" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Edit Motion (Staff)</h3>
+      <form id="motion-edit-form">
+        <label class="label" for="motion-edit-title">Title</label>
+        <input id="motion-edit-title" class="input" name="title" value="${esc(motion.title || "")}">
+        <label class="label" for="motion-edit-body">Body (after "That this House …")</label>
+        <textarea id="motion-edit-body" class="input" name="body" rows="5">${esc(motion.body || "")}</textarea>
+        <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" type="submit">Save Edits</button>
+        </div>
+      </form>
+      <p id="motion-edit-msg" class="muted" style="margin-top:4px;"></p>
+    </section>
+    ` : ""}
   `;
 
   // Vote buttons
@@ -371,11 +388,32 @@ async function renderHouseDb(root, data, motion) {
       if (msgEl) msgEl.textContent = `Error: ${err.message}`;
     }
   });
+
+  // Edit form (staff only)
+  root.querySelector("#motion-edit-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!canStaff) return;
+    const fd = new FormData(e.currentTarget);
+    const editMsg = root.querySelector("#motion-edit-msg");
+    if (editMsg) editMsg.textContent = "Saving…";
+    const title = String(fd.get("title") || "").trim();
+    const body = String(fd.get("body") || "").trim();
+    if (title) motion.title = title;
+    if (body) motion.body = body;
+    try {
+      await apiUpdateMotion(motion.id, motion);
+      if (editMsg) editMsg.textContent = "Saved.";
+      await renderHouseDb(root, data, motion);
+    } catch (err) {
+      if (editMsg) editMsg.textContent = `Error: ${err.message}`;
+    }
+  });
 }
 
 function renderEdm(root, data, edm) {
   const char = getCharacter(data);
   const speaker = isSpeaker(data);
+  const canStaff = canAdminModOrSpeaker(data);
   const disallowed = isGovernmentMember(data);
   const w = currentWeight(data);
   edm.signatures ??= [];
@@ -423,6 +461,22 @@ function renderEdm(root, data, edm) {
         </div>
       ` : ""}
     </section>
+
+    ${canStaff ? `
+    <section class="tile tile-form" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Edit EDM (Staff)</h3>
+      <form id="edm-edit-form">
+        <label class="label" for="edm-edit-title">Title</label>
+        <input id="edm-edit-title" class="input" name="title" value="${esc(edm.title || "")}">
+        <label class="label" for="edm-edit-body">Body (after "That this House …")</label>
+        <textarea id="edm-edit-body" class="input" name="body" rows="5">${esc(edm.body || "")}</textarea>
+        <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" type="submit">Save Edits</button>
+        </div>
+      </form>
+      <p id="edm-edit-msg" class="muted" style="margin-top:4px;"></p>
+    </section>
+    ` : ""}
   `;
 
   root.querySelector("[data-action='sign-edm']")?.addEventListener("click", async () => {
@@ -446,6 +500,25 @@ function renderEdm(root, data, edm) {
     });
     saveState(data);
     renderEdm(root, data, edm);
+  });
+
+  root.querySelector("#edm-edit-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!canStaff) return;
+    const fd = new FormData(e.currentTarget);
+    const editMsg = root.querySelector("#edm-edit-msg");
+    if (editMsg) editMsg.textContent = "Saving…";
+    const title = String(fd.get("title") || "").trim();
+    const body = String(fd.get("body") || "").trim();
+    if (title) edm.title = title;
+    if (body) edm.body = body;
+    try {
+      await apiUpdateMotion(edm.id, edm);
+      if (editMsg) editMsg.textContent = "Saved.";
+      renderEdm(root, data, edm);
+    } catch (err) {
+      if (editMsg) editMsg.textContent = `Error: ${err.message}`;
+    }
   });
 }
 

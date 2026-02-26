@@ -1,6 +1,7 @@
 import { esc } from "../ui.js";
 import { countdownToSimMonth, formatSimMonthYear } from "../clock.js";
-import { apiGetStatement } from "../api.js";
+import { canAdminModOrSpeaker } from "../permissions.js";
+import { apiGetStatement, apiUpdateStatement } from "../api.js";
 
 function ensureStatements(data) {
   data.statements ??= {};
@@ -44,6 +45,7 @@ export async function initStatementPage(data) {
     return;
   }
 
+  const canStaff = canAdminModOrSpeaker(data);
   const debateUrl = getDebateUrl(statement);
 
   root.innerHTML = `
@@ -65,5 +67,40 @@ export async function initStatementPage(data) {
         <a class="btn" href="statements.html">Back to Statements</a>
       </div>
     </section>
+
+    ${canStaff ? `
+    <section class="tile tile-form" style="margin-top:12px;">
+      <h3 style="margin-top:0;">Edit Statement (Staff)</h3>
+      <form id="statement-edit-form">
+        <label class="label" for="stmt-edit-title">Title</label>
+        <input id="stmt-edit-title" class="input" name="title" value="${esc(statement.title || "")}">
+        <label class="label" for="stmt-edit-body">Statement text</label>
+        <textarea id="stmt-edit-body" class="input" name="body" rows="8">${esc(statement.body || "")}</textarea>
+        <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" type="submit">Save Edits</button>
+        </div>
+      </form>
+      <p id="stmt-edit-msg" class="muted" style="margin-top:4px;"></p>
+    </section>
+    ` : ""}
   `;
+
+  root.querySelector("#statement-edit-form")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!canStaff) return;
+    const fd = new FormData(ev.currentTarget);
+    const editMsg = root.querySelector("#stmt-edit-msg");
+    if (editMsg) editMsg.textContent = "Saving…";
+    const title = String(fd.get("title") || "").trim();
+    const body = String(fd.get("body") || "").trim();
+    if (title) statement.title = title;
+    if (body) statement.body = body;
+    try {
+      await apiUpdateStatement(statement.id, statement);
+      if (editMsg) editMsg.textContent = "Saved.";
+      initStatementPage(data);
+    } catch (err) {
+      if (editMsg) editMsg.textContent = `Error: ${err.message}`;
+    }
+  });
 }

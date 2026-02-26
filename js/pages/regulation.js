@@ -1,6 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isSpeaker } from "../permissions.js";
+import { canAdminModOrSpeaker } from "../permissions.js";
 import { ensureRegulations } from "./regulations.js";
 import { formatSimMonthYear, isDeadlinePassed, countdownToSimMonth } from "../clock.js";
 import { apiGetRegulation, apiUpdateRegulation } from "../api.js";
@@ -33,7 +33,7 @@ export async function initRegulationPage(data) {
     item = data.regulations.items[0] || null;
   }
 
-  const speaker = isSpeaker(data);
+  const canStaff = canAdminModOrSpeaker(data);
 
   // Auto-close if debate deadline passed
   if (item && item.status !== "closed" && item.debateClosesAtSimObj && isDeadlinePassed(item.debateClosesAtSimObj, data.gameState)) {
@@ -65,9 +65,9 @@ export async function initRegulationPage(data) {
       <div class="muted-block" style="white-space:pre-wrap;">${esc(item.body || "")}</div>
     </section>
 
-    ${speaker ? `
+    ${canStaff ? `
       <section class="tile tile-form">
-        <h3 style="margin-top:0;">Speaker Controls</h3>
+        <h3 style="margin-top:0;">Staff Controls</h3>
         <form id="speaker-edit-form">
           <label class="label" for="reg-edit-title">Edit short title</label>
           <input id="reg-edit-title" class="input" name="title" value="${esc(item.shortTitle || "")}">
@@ -84,7 +84,7 @@ export async function initRegulationPage(data) {
 
   root.querySelector("#speaker-edit-form")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!speaker) return;
+    if (!canStaff) return;
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
     const body = String(fd.get("body") || "").trim();
@@ -96,7 +96,7 @@ export async function initRegulationPage(data) {
   });
 
   root.querySelector("[data-action='close-early']")?.addEventListener("click", () => {
-    if (!speaker || item.status === "closed") return;
+    if (!canStaff || item.status === "closed") return;
     item.status = "closed";
     item.closedAtSim = formatSimMonthYear(data.gameState);
     apiUpdateRegulation(item.id, item).catch((err) => console.error("[regulation] Failed to close regulation:", err));

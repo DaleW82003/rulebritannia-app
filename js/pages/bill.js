@@ -11,6 +11,7 @@ import {
   apiBillOpenFinalDivision, apiGetBillAmendments, apiSubmitBillAmendment,
   apiBillAmendmentDecide, apiBillAmendmentSupport,
   apiGetDivisionForEntity, apiCastVote, apiCloseDivision, apiSetNpcVotes,
+  apiUpdateBill, apiDeleteBill,
 } from "../api.js";
 import { handleApiError } from "../errors.js";
 
@@ -252,6 +253,24 @@ function renderBillMeta(bill, data) {
         <button type="button" class="btn danger" data-agenda="delete-bill">Delete Bill</button>
       </div>
     ` : ""}
+
+    ${canStaff ? `
+      <hr>
+      <h3 style="margin:0 0 8px;">Edit Bill (Staff)</h3>
+      <form id="bill-edit-form" class="form-grid">
+        <label for="bill-edit-title">Title</label>
+        <input id="bill-edit-title" name="title" value="${esc(bill.title || "")}">
+        <label for="bill-edit-author">Author</label>
+        <input id="bill-edit-author" name="author" value="${esc(bill.author || "")}">
+        <label for="bill-edit-dept">Department</label>
+        <input id="bill-edit-dept" name="department" value="${esc(bill.department || "")}">
+        <label for="bill-edit-text">Bill text</label>
+        <textarea id="bill-edit-text" rows="10" name="billText">${esc(bill.billText || "")}</textarea>
+        <div></div>
+        <button class="btn" type="submit">Save Edits</button>
+      </form>
+      <p id="bill-edit-msg" class="muted" style="margin:4px 0;"></p>
+    ` : ""}
   `;
 
   const msgEl = () => meta.querySelector("#meta-msg");
@@ -324,11 +343,42 @@ function renderBillMeta(bill, data) {
     } catch (err) { showMsg(`Error: ${err.message}`); }
   });
 
-  meta.querySelector('[data-agenda="delete-bill"]')?.addEventListener("click", () => {
+  meta.querySelector('[data-agenda="delete-bill"]')?.addEventListener("click", async () => {
     if (!canDeleteBill) return;
+    showMsg("Deleting…");
+    try {
+      await apiDeleteBill(bill.id);
+    } catch (err) {
+      showMsg(`Error: ${err.message}`);
+      return;
+    }
     data.orderPaperCommons = (data.orderPaperCommons || []).filter((b) => b.id !== bill.id);
     saveState(data);
     window.location.href = "dashboard.html";
+  });
+
+  meta.querySelector("#bill-edit-form")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!canStaff) return;
+    const editMsg = meta.querySelector("#bill-edit-msg");
+    if (editMsg) editMsg.textContent = "Saving…";
+    const fd = new FormData(ev.currentTarget);
+    const title = String(fd.get("title") || "").trim();
+    const author = String(fd.get("author") || "").trim();
+    const department = String(fd.get("department") || "").trim();
+    const billText = String(fd.get("billText") || "").trim();
+    if (title) bill.title = title;
+    if (author) bill.author = author;
+    if (department) bill.department = department;
+    if (billText) bill.billText = billText;
+    try {
+      await apiUpdateBill(bill.id, bill);
+    } catch (err) {
+      if (editMsg) editMsg.textContent = `Error: ${err.message}`;
+      return;
+    }
+    persistAndRerender(data, bill);
+    if (editMsg) editMsg.textContent = "Saved.";
   });
 }
 
