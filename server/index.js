@@ -4848,6 +4848,120 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
 });
 
 /**
+ * GET /api/debates/payload/:entityType/:entityId
+ *
+ * Stub: returns a structured "debate payload" for the given entity without
+ * making any external Discourse API calls.  Use this to inspect the data
+ * contract before wiring up live auto-thread creation.
+ *
+ * entityType: bill | motion | statement | regulation | question
+ *
+ * Response: {
+ *   ok: true,
+ *   payload: {
+ *     title, body, category, tags, visibilityGroups,
+ *     canonicalUrl,
+ *     discourse: { category, groupVisibility },
+ *     debate: { provider, status, topicId, topicUrl }
+ *   }
+ * }
+ */
+app.get("/api/debates/payload/:entityType/:entityId", discourseReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { entityType, entityId } = req.params;
+    if (!DEBATE_ENTITY_TABLES[entityType]) {
+      return res.status(400).json({
+        error: `entityType must be one of: ${Object.keys(DEBATE_ENTITY_TABLES).join(", ")}`,
+      });
+    }
+
+    const table = DEBATE_ENTITY_TABLES[entityType];
+    // `table` is derived from DEBATE_ENTITY_TABLES — a static compile-time whitelist of
+    // known-safe table names validated above.  Interpolating it here is not a SQL-injection risk.
+    const { rows } = await pool.query(
+      `SELECT id, data, created_at FROM ${table} WHERE id = $1`,
+      [String(entityId)]
+    );
+    if (!rows.length) return res.status(404).json({ error: `${entityType} not found` });
+
+    const entity = rows[0];
+    const d = entity.data || {};
+
+    // Resolve the canonical UI base URL from config (never hardcoded).
+    const { rows: cfgRows } = await pool.query(
+      "SELECT key, value FROM app_config WHERE key = 'ui_base_url'"
+    );
+    const uiBase = (cfgRows[0]?.value || "").trim().replace(/\/$/, "");
+
+    // Build entity-specific fields for the payload.
+    const entityPageMap = {
+      bill:       "bill.html",
+      motion:     "motion.html",
+      statement:  "statement.html",
+      regulation: "regulation.html",
+      question:   "questiontime.html",
+    };
+    const canonicalUrl = uiBase
+      ? `${uiBase}/${entityPageMap[entityType]}?id=${encodeURIComponent(entityId)}`
+      : null;
+
+    const title = d.title || d.name || `${entityType} ${entityId}`;
+    const author = d.author || d.tabled_by || "";
+    const status = d.status || d.stage || "draft";
+
+    // Build the body text for the Discourse topic.
+    const body = [
+      `**${title}**`,
+      author ? `Introduced by: ${author}` : null,
+      d.department ? `Department: ${d.department}` : null,
+      `Status: ${status}`,
+      canonicalUrl ? `\n[View on Rule Britannia](${canonicalUrl})` : null,
+      d.text || d.body || d.content ? `\n---\n${String(d.text || d.body || d.content || "").slice(0, 500)}` : null,
+    ].filter(Boolean).join("\n");
+
+    // Category and visibility groups per entity type.
+    const categoryMap = {
+      bill:       "Bills",
+      motion:     "Motions",
+      statement:  "Statements",
+      regulation: "Regulations",
+      question:   "Question_Time",
+    };
+    const visibilityGroups = ["Backbenchers", "Cabinet", "Shadow_Cabinet"];
+
+    const existingTopicId  = d.discourseTopicId  ?? d.discourse_topic_id  ?? d.debate?.topicId  ?? null;
+    const existingTopicUrl = d.discourseTopicUrl ?? d.discourse_topic_url ?? d.debate?.topicUrl ?? null;
+
+    res.json({
+      ok: true,
+      payload: {
+        title,
+        body,
+        category: categoryMap[entityType],
+        tags:     [entityType, status].filter(Boolean),
+        visibilityGroups,
+        canonicalUrl,
+        discourse: {
+          category:        categoryMap[entityType],
+          groupVisibility: visibilityGroups,
+        },
+        debate: {
+          provider:  "discourse",
+          status:    existingTopicId ? "created" : "pending",
+          topicId:   existingTopicId,
+          topicUrl:  existingTopicUrl,
+        },
+      },
+    });
+  } catch (e) {
+    console.error("[debates/payload]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
  * ROLES SERVICE
  *
  * GET  /api/me/roles             — authenticated: return current user's canonical roles
@@ -5437,6 +5551,9 @@ app.post("/api/characters", charWriteLimit, async (req, res) => {
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "name is required" });
     }
+    if (party && !ALL_CANONICAL_PARTIES.some((p) => p.name === party)) {
+      return res.status(400).json({ error: `party must be one of: ${ALL_CANONICAL_PARTIES.map((p) => p.name).join(", ")}` });
+    }
     const { rows } = await pool.query(
       `INSERT INTO characters (user_id, name, party, constituency, roles, offices, is_active)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
@@ -5464,6 +5581,10 @@ app.patch("/api/characters/:id", charWriteLimit, async (req, res) => {
     const { user_id = old.user_id, name = old.name, party = old.party,
             constituency = old.constituency, roles = old.roles,
             offices = old.offices, is_active = old.is_active } = req.body || {};
+
+    if (party && !ALL_CANONICAL_PARTIES.some((p) => p.name === party)) {
+      return res.status(400).json({ error: `party must be one of: ${ALL_CANONICAL_PARTIES.map((p) => p.name).join(", ")}` });
+    }
 
     const { rows } = await pool.query(
       `UPDATE characters

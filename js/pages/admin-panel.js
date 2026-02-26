@@ -17,6 +17,7 @@ import {
   apiAdminRepairCharacterOwners,
   apiAdminGetUsers, apiAdminGetCharacters,
   apiAdminAssignCharacterOwner, apiAdminSetUserActiveCharacter,
+  apiGetHealth,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
@@ -553,6 +554,18 @@ export async function initAdminPanelPage(data) {
       </section>`;
   }
 
+  function renderSystemHealthSection() {
+    return `
+      <section class="panel" style="max-width:700px;margin-top:12px;" id="system-health-section">
+        <h2 style="margin-top:0;">System Sanity Check</h2>
+        <p style="font-size:13px;color:#555;margin-top:0;">
+          Verify the server liveness probe and the shared game-state record are accessible.
+        </p>
+        <button class="btn" id="btn-system-health-check" type="button">Run Check</button>
+        <div id="system-health-results" style="margin-top:12px;font-size:13px;"></div>
+      </section>`;
+  }
+
   function renderMaintenanceSection() {
     return `
       <section class="panel" style="max-width:700px;margin-top:12px;">
@@ -921,6 +934,8 @@ export async function initAdminPanelPage(data) {
       ${renderDiscourseSyncPreview()}
 
       ${renderSsoReadinessSection()}
+
+      ${renderSystemHealthSection()}
 
       ${renderMaintenanceSection()}
 
@@ -1305,6 +1320,38 @@ export async function initAdminPanelPage(data) {
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = "Run Repair"; }
       }
+    });
+
+    // ── System Health Check handler ──────────────────────────────────────────
+    host.querySelector("#btn-system-health-check")?.addEventListener("click", async () => {
+      const btn = host.querySelector("#btn-system-health-check");
+      const resultsEl = host.querySelector("#system-health-results");
+      if (btn) { btn.disabled = true; btn.textContent = "Checking…"; }
+      if (resultsEl) resultsEl.innerHTML = "";
+      const checks = [];
+      try {
+        const health = await apiGetHealth();
+        checks.push({ label: "GET /health (liveness)", ok: Boolean(health?.ok), detail: health?.ok ? "Server is alive" : "Unexpected response" });
+      } catch (err) {
+        checks.push({ label: "GET /health (liveness)", ok: false, detail: err.message });
+      }
+      try {
+        const state = await apiGetState();
+        checks.push({ label: "GET /api/state (game state)", ok: state !== null, detail: state !== null ? "State readable" : "No state record found" });
+      } catch (err) {
+        checks.push({ label: "GET /api/state (game state)", ok: false, detail: err.message });
+      }
+      if (resultsEl) {
+        const rows = checks.map((c) =>
+          `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;">
+            <span style="font-size:16px;">${c.ok ? "✅" : "❌"}</span>
+            <span><b>${esc(c.label)}</b> — ${esc(c.detail)}</span>
+          </div>`
+        ).join("");
+        const allOk = checks.every((c) => c.ok);
+        resultsEl.innerHTML = rows + `<div style="margin-top:8px;font-weight:600;color:${allOk ? "#1a7a1a" : "#c00"};">${allOk ? "All checks passed." : "One or more checks failed."}</div>`;
+      }
+      if (btn) { btn.disabled = false; btn.textContent = "Run Check"; }
     });
 
     // ── User–Character Management handlers ──────────────────────────────────────

@@ -175,12 +175,24 @@ function renderDataSourcePanel(sources) {
       landing: initLandingPage,
       register: initRegisterPage,
       "verify-email": initVerifyEmailPage,
+
+      // Static content pages — no JS initialiser needed; boot nav + mark ready.
+      "community-rules": null,
+      "privacy":         null,
+      "terms":           null,
+      "report":          null,
     };
 
     const init = routes[page];
 
     if (typeof init === "function") {
       await init(data, user);
+      document.body.dataset.bootState = "ready";
+      return;
+    }
+
+    // Known static content pages (null route) — boot completes without a JS init.
+    if (page in routes && init === null) {
       document.body.dataset.bootState = "ready";
       return;
     }

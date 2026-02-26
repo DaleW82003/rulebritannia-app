@@ -2163,3 +2163,30 @@ export async function apiRemoveAdditionalRevenue(id) {
   if (!res.ok) throw new Error(body.error || `apiRemoveAdditionalRevenue failed (${res.status})`);
   return body;
 }
+
+/**
+ * GET /health — liveness probe (no auth required).
+ * @returns {Promise<{ ok: boolean }>}
+ */
+export async function apiGetHealth() {
+  const res = await fetch(`${API_BASE}/health`);
+  if (!res.ok) throw new Error(`Health check failed (${res.status})`);
+  return res.json();
+}
+
+/**
+ * GET /api/debates/payload/:entityType/:entityId — retrieve the structured debate
+ * payload for a given entity without making any external Discourse calls.
+ * @param {string} entityType - one of: bill, motion, statement, regulation, question
+ * @param {string} entityId
+ * @returns {Promise<object>}
+ */
+export async function apiGetDebatePayload(entityType, entityId) {
+  const res = await fetch(
+    `${API_BASE}/api/debates/payload/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`,
+    { credentials: "include" }
+  );
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiGetDebatePayload failed (${res.status})`);
+  return body;
+}

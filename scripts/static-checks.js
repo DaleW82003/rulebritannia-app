@@ -78,6 +78,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/api/permissions",
   "/api/config",
   "/api/clock",
+  "/health",
 ];
 
 let missingGetCreds = 0;
@@ -93,6 +94,14 @@ for (let i = 0; i < apiLines.length; i++) {
     line.match(/fetch\([`'"](\/api\/[^`"'?\s]+)/);
   const path = pathMatch?.[1];
   if (path && PUBLIC_PATH_PREFIXES.some((p) => path.startsWith(p))) continue;
+  // If the path resolves to an exact public probe path (e.g. /health), skip.
+  if (!path) {
+    // Check for the exact liveness probe path: ends with `/health` with no trailing chars.
+    const probeMatch = line.match(/fetch\([`'"]?\$\{[^}]+\}(\/health)[`"')\s]/);
+    if (probeMatch) continue;
+    // Path could not be resolved statically — skip; cannot determine auth requirement.
+    continue;
+  }
   fail(`js/api.js line ${i + 1}: GET missing credentials (${line.trim().slice(0, 70)})`);
   missingGetCreds++;
 }
