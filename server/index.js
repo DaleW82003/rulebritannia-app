@@ -709,6 +709,10 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS press_items_type_idx   ON press_items (press_type);
     CREATE INDEX IF NOT EXISTS press_items_status_idx ON press_items ((data->>'status'));
   `);
+  await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
+  await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
+  // ↑ Migration guards: press_items was created in an earlier schema version without these columns;
+  //   ALTER TABLE ensures existing databases receive the new columns idempotently.
 
   // ── Polling entries ───────────────────────────────────────────────────────
   await pool.query(`
@@ -3086,6 +3090,15 @@ function requireAdminModOrSpeaker(req, res) {
     return false;
   }
   return true;
+}
+
+/**
+ * Returns true if destructive seed/wipe/initialize endpoints are allowed.
+ * These are only permitted outside production, or when ENABLE_DEV_SEED=true
+ * is explicitly set (e.g. for staging environments that need seeding).
+ */
+function isDevSeedAllowed() {
+  return process.env.NODE_ENV !== "production" || process.env.ENABLE_DEV_SEED === "true";
 }
 
 /**
@@ -5887,7 +5900,7 @@ app.get("/api/questiontime-questions", crudReadLimit, async (req, res) => {
     const { rows } = await pool.query(
       "SELECT id, data, updated_at FROM questiontime_questions ORDER BY updated_at DESC"
     );
-    res.json({ questions: rows.map((r) => normaliseDiscourseFields({ ...r.data, _updatedAt: r.updated_at })) });
+    res.json({ questions: rows.map((r) => ({ ...r.data, _updatedAt: r.updated_at })) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -5902,7 +5915,7 @@ app.get("/api/questiontime-questions/:id", crudReadLimit, async (req, res) => {
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Question not found" });
-    res.json({ question: normaliseDiscourseFields({ ...rows[0].data, _updatedAt: rows[0].updated_at }) });
+    res.json({ question: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6421,7 +6434,6 @@ const DEBATE_ENTITY_TABLES = {
   motion:     "motions",
   statement:  "statements",
   regulation: "regulations",
-  question:   "questiontime_questions",
 };
 
 app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
@@ -6449,9 +6461,10 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
     const table = DEBATE_ENTITY_TABLES[entityType];
 
     // Idempotency: return existing topic if one was already created for this entity.
+    // Check both the dedicated columns (canonical) and the JSONB data (legacy).
     const { rows: existing } = await pool.query(
-      `SELECT data->>'discourseTopicId'  AS topic_id,
-              data->>'discourseTopicUrl' AS topic_url
+      `SELECT COALESCE(discourse_topic_id, data->>'discourseTopicId')  AS topic_id,
+              COALESCE(discourse_topic_url, data->>'discourseTopicUrl') AS topic_url
          FROM ${table} WHERE id = $1`,
       [String(entityId)]
     );
@@ -6496,13 +6509,15 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
       ? `${baseUrl}/t/${topicSlug}/${topicId}`
       : `${baseUrl}/t/${topicId}`;
 
-    // Patch the entity row: merge discourseTopicId and discourseTopicUrl into JSONB data.
+    // Patch the entity row: update both dedicated columns and JSONB data for full compatibility.
     await pool.query(
       `UPDATE ${table}
-          SET data       = data || $1::jsonb,
-              updated_at = NOW()
+          SET data                = data || $1::jsonb,
+              discourse_topic_id  = $3,
+              discourse_topic_url = $4,
+              updated_at          = NOW()
         WHERE id = $2`,
-      [JSON.stringify({ discourseTopicId: topicId, discourseTopicUrl: topicUrl }), String(entityId)]
+      [JSON.stringify({ discourseTopicId: topicId, discourseTopicUrl: topicUrl }), String(entityId), String(topicId), topicUrl]
     );
 
     res.json({ ok: true, topicId, topicUrl });
@@ -6571,7 +6586,6 @@ app.get("/api/debates/payload/:entityType/:entityId", discourseReadLimit, async 
       motion:     "motion.html",
       statement:  "statement.html",
       regulation: "regulation.html",
-      question:   "questiontime.html",
     };
     const canonicalUrl = uiBase
       ? `${uiBase}/${entityPageMap[entityType]}?id=${encodeURIComponent(entityId)}`
@@ -10255,7 +10269,7 @@ app.patch("/api/divisions/:id/npc-votes", divWriteLimit, async (req, res) => {
 // ── Division party instruction endpoints ────────────────────────────────────
 // POST /api/divisions/:divisionId/party-instruction
 // Body: { partySlug, position, whipLevel, note? }
-// Requires: chief whip of that party, party leader, or admin/mod
+// Requires: admin/mod, OR the party's Chief Whip (Party Leader as fallback if no whip assigned)
 app.post("/api/divisions/:divisionId/party-instruction", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
@@ -10269,7 +10283,7 @@ app.post("/api/divisions/:divisionId/party-instruction", divWriteLimit, async (r
     const { rows: divRows } = await pool.query("SELECT id FROM divisions WHERE id = $1", [req.params.divisionId]);
     if (!divRows.length) return res.status(404).json({ error: "Division not found" });
 
-    // Permission: admin/mod OR chief whip/leader of the party
+    // Permission: admin/mod OR chief whip (party leader is fallback if no chief whip assigned)
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
     const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
     if (!isAdminOrMod) {
@@ -10279,9 +10293,14 @@ app.post("/api/divisions/:divisionId/party-instruction", divWriteLimit, async (r
         "SELECT leader_character_id, chief_whip_character_id FROM parties WHERE slug = $1", [partySlug]
       );
       if (!ptyRows.length) return res.status(404).json({ error: "Party not found" });
-      const allowed = [String(ptyRows[0].leader_character_id), String(ptyRows[0].chief_whip_character_id)];
+      // Chief Whip takes precedence; Party Leader is the fallback only when no Chief Whip is assigned.
+      const chiefWhipId = ptyRows[0].chief_whip_character_id;
+      const leaderId    = ptyRows[0].leader_character_id;
+      let allowed = [];
+      if (chiefWhipId) allowed = [String(chiefWhipId)];
+      else if (leaderId) allowed = [String(leaderId)];
       if (!allowed.includes(String(charId))) {
-        return res.status(403).json({ error: "Only the party leader or chief whip can set party instructions" });
+        return res.status(403).json({ error: "Only the party chief whip (or party leader if no whip is assigned) can set party instructions" });
       }
     }
 
@@ -10857,6 +10876,7 @@ const wipeContentLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: 
 
 app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
   try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
 
     const { confirm: confirmText } = req.body || {};
@@ -10939,6 +10959,7 @@ const seedDemoLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: tru
 
 async function handleSeedDemo(req, res) {
   try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
 
     // ── Reset clock to August 1997 ─────────────────────────────────────────
@@ -12319,6 +12340,7 @@ app.delete("/api/constituencies/:id", constWriteLimit, async (req, res) => {
 
 app.post("/api/admin/constituencies/initialize-1997", constWriteLimit, async (req, res) => {
   try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdminModOrSpeaker(req, res)) return;
     const { confirm } = req.body || {};
     if (!confirm) {
@@ -12367,6 +12389,7 @@ app.post("/api/admin/constituencies/initialize-1997", constWriteLimit, async (re
 
 app.delete("/api/admin/constituencies/clear", constWriteLimit, async (req, res) => {
   try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
     const { rowCount } = await pool.query("DELETE FROM constituencies");
     await writeAuditLog(req.session.userId, "constituencies.clear", "constituencies", "all", null, { deleted: rowCount });
