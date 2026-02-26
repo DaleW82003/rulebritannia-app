@@ -694,7 +694,7 @@ async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS press_items (
       id                  TEXT PRIMARY KEY,
       press_type          TEXT NOT NULL DEFAULT 'release'
-                          CHECK (press_type IN ('release','conference')),
+                          CHECK (press_type IN ('release','conference','comment','speech','letter')),
       data                JSONB NOT NULL,
       discourse_topic_id  TEXT,
       discourse_topic_url TEXT,
@@ -1507,6 +1507,18 @@ async function ensureSchema() {
 
   // ── Party drafts column (party bill drafts, admin/chairman only) ──────────
   await pool.query(`ALTER TABLE parties ADD COLUMN IF NOT EXISTS drafts JSONB NOT NULL DEFAULT '[]'::jsonb`);
+
+  // ── Expand press_items type constraint to include comment / speech / letter ─
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'press_items') THEN
+        ALTER TABLE press_items DROP CONSTRAINT IF EXISTS press_items_press_type_check;
+        ALTER TABLE press_items ADD CONSTRAINT press_items_press_type_check
+          CHECK (press_type IN ('release','conference','comment','speech','letter'));
+      END IF;
+    END $$;
+  `);
 
   // ── Character work plans (constituency work allocation per character) ──────
   await pool.query(`
@@ -4995,9 +5007,7 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
     const already = edm.signatures.some((sig) => String(sig.name || "") === String(char.name || ""));
     if (already) return res.status(409).json({ error: "Already signed" });
 
-    const partyRes = await pool.query("SELECT data FROM parties WHERE slug = $1", [String(char.party || "").toLowerCase().replace(/\s+/g, "_")]);
-    const seats = Number(partyRes.rows[0]?.data?.seats || 1);
-    const weight = Math.max(1, seats > 0 ? 1 : 1);
+    const weight = 1;
 
     edm.signatures.push({ name: char.name, party: char.party || "Independent", weight });
 

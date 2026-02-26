@@ -909,23 +909,68 @@ function render(data, state) {
                 </div>
                 <div>
                   <label class="label" for="pc-edu">Education</label>
-                  <input id="pc-edu" class="input" name="education" value="${esc(profile.profile.education || "")}" maxlength="500">
+                  <select id="pc-edu" class="input" name="education">
+                    <option value="">— select —</option>
+                    <option value="No Qualifications" ${profile.profile.education === "No Qualifications" ? "selected" : ""}>No Qualifications</option>
+                    <option value="GCSEs" ${profile.profile.education === "GCSEs" ? "selected" : ""}>GCSEs</option>
+                    <option value="A Levels" ${profile.profile.education === "A Levels" ? "selected" : ""}>A Levels</option>
+                    <option value="Certificate of HE" ${profile.profile.education === "Certificate of HE" ? "selected" : ""}>Certificate of HE</option>
+                    <option value="Diploma" ${profile.profile.education === "Diploma" ? "selected" : ""}>Diploma</option>
+                    <option value="Bachelors Degree" ${profile.profile.education === "Bachelors Degree" ? "selected" : ""}>Bachelors Degree</option>
+                    <option value="Masters Degree" ${profile.profile.education === "Masters Degree" ? "selected" : ""}>Masters Degree</option>
+                    <option value="Doctorate" ${profile.profile.education === "Doctorate" ? "selected" : ""}>Doctorate</option>
+                  </select>
                 </div>
                 <div>
                   <label class="label" for="pc-career">Career Background</label>
-                  <input id="pc-career" class="input" name="career_background" value="${esc(profile.profile.careerBackground || "")}" maxlength="500">
+                  <select id="pc-career" class="input" name="career_background">
+                    <option value="">— select —</option>
+                    <option value="Manual / Skilled Trade" ${profile.profile.careerBackground === "Manual / Skilled Trade" ? "selected" : ""}>Manual / Skilled Trade</option>
+                    <option value="Public Sector Professional" ${profile.profile.careerBackground === "Public Sector Professional" ? "selected" : ""}>Public Sector Professional</option>
+                    <option value="Legal Profession" ${profile.profile.careerBackground === "Legal Profession" ? "selected" : ""}>Legal Profession</option>
+                    <option value="Finance / Banking / Corporate" ${profile.profile.careerBackground === "Finance / Banking / Corporate" ? "selected" : ""}>Finance / Banking / Corporate</option>
+                    <option value="Business Owner / Entrepreneur" ${profile.profile.careerBackground === "Business Owner / Entrepreneur" ? "selected" : ""}>Business Owner / Entrepreneur</option>
+                    <option value="Political Staffer / Researcher" ${profile.profile.careerBackground === "Political Staffer / Researcher" ? "selected" : ""}>Political Staffer / Researcher</option>
+                    <option value="Trade Union / Activist" ${profile.profile.careerBackground === "Trade Union / Activist" ? "selected" : ""}>Trade Union / Activist</option>
+                    <option value="Media / Journalism / Communications" ${profile.profile.careerBackground === "Media / Journalism / Communications" ? "selected" : ""}>Media / Journalism / Communications</option>
+                    <option value="Academia / Education Leadership" ${profile.profile.careerBackground === "Academia / Education Leadership" ? "selected" : ""}>Academia / Education Leadership</option>
+                    <option value="Military / Police / Security" ${profile.profile.careerBackground === "Military / Police / Security" ? "selected" : ""}>Military / Police / Security</option>
+                  </select>
                 </div>
                 <div>
                   <label class="label" for="pc-family">Family</label>
-                  <input id="pc-family" class="input" name="family" value="${esc(profile.profile.family || "")}" maxlength="500">
+                  <select id="pc-family" class="input" name="family">
+                    <option value="">— select —</option>
+                    <option value="Single" ${profile.profile.family === "Single" ? "selected" : ""}>Single</option>
+                    <option value="Married, No Children" ${profile.profile.family === "Married, No Children" ? "selected" : ""}>Married, No Children</option>
+                    <option value="Married with Children" ${profile.profile.family === "Married with Children" ? "selected" : ""}>Married with Children</option>
+                    <option value="Civil Partnership" ${profile.profile.family === "Civil Partnership" ? "selected" : ""}>Civil Partnership</option>
+                    <option value="Divorced" ${profile.profile.family === "Divorced" ? "selected" : ""}>Divorced</option>
+                    <option value="Divorced with Children" ${profile.profile.family === "Divorced with Children" ? "selected" : ""}>Divorced with Children</option>
+                    <option value="Widowed" ${profile.profile.family === "Widowed" ? "selected" : ""}>Widowed</option>
+                    <option value="Long-Term Partner with Children" ${profile.profile.family === "Long-Term Partner with Children" ? "selected" : ""}>Long-Term Partner with Children</option>
+                    <option value="Long-Term Partner, No Children" ${profile.profile.family === "Long-Term Partner, No Children" ? "selected" : ""}>Long-Term Partner, No Children</option>
+                  </select>
                 </div>
                 <div>
                   <label class="label" for="pc-twitter">Twitter Handle</label>
                   <input id="pc-twitter" class="input" name="twitter_handle" value="${esc(profile.twitterHandle || "")}" placeholder="without @" maxlength="100">
                 </div>
                 <div>
-                  <label class="label" for="pc-finbg">Financial Background Level (1–10)</label>
-                  <input id="pc-finbg" class="input" type="number" min="1" max="10" name="financial_background_level" value="${esc(profile.financialBackgroundLevel || "")}">
+                  <label class="label" for="pc-finbg">Financial Background Level</label>
+                  <select id="pc-finbg" class="input" name="financial_background_level">
+                    <option value="">— select —</option>
+                    <option value="1" ${String(profile.financialBackgroundLevel) === "1" ? "selected" : ""}>1 – Poverty</option>
+                    <option value="2" ${String(profile.financialBackgroundLevel) === "2" ? "selected" : ""}>2 – Financially Strained</option>
+                    <option value="3" ${String(profile.financialBackgroundLevel) === "3" ? "selected" : ""}>3 – Lower Working Class</option>
+                    <option value="4" ${String(profile.financialBackgroundLevel) === "4" ? "selected" : ""}>4 – Skilled Working / Lower Middle</option>
+                    <option value="5" ${String(profile.financialBackgroundLevel) === "5" ? "selected" : ""}>5 – Solid Middle Class</option>
+                    <option value="6" ${String(profile.financialBackgroundLevel) === "6" ? "selected" : ""}>6 – Upper Middle Class</option>
+                    <option value="7" ${String(profile.financialBackgroundLevel) === "7" ? "selected" : ""}>7 – Affluent Professional</option>
+                    <option value="8" ${String(profile.financialBackgroundLevel) === "8" ? "selected" : ""}>8 – High Net Worth Individual</option>
+                    <option value="9" ${String(profile.financialBackgroundLevel) === "9" ? "selected" : ""}>9 – Top 5%</option>
+                    <option value="10" ${String(profile.financialBackgroundLevel) === "10" ? "selected" : ""}>10 – Top 1%</option>
+                  </select>
                 </div>
               </div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">

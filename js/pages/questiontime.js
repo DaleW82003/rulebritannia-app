@@ -326,6 +326,7 @@ function render(data, state) {
   const submitForm = root.querySelector("#qt-submit-question-form");
   submitForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const submitBtn = submitForm.querySelector("[type='submit']");
     const fd = new FormData(submitForm);
     const text = String(fd.get("text") || "").trim();
     if (!text) return;
@@ -338,6 +339,8 @@ function render(data, state) {
       render(data, state);
       return;
     }
+
+    if (submitBtn) submitBtn.disabled = true;
 
     const char = getCurrentCharacter(data);
     const askedBy = npcName || char?.name || "Backbench MP";
@@ -367,6 +370,10 @@ function render(data, state) {
       await apiCreateQtLegacyQuestion(question);
     } catch (err) {
       console.error("[questiontime] question save failed:", err);
+      const idx = data.questionTime.questions.findIndex((q) => q.id === question.id);
+      if (idx !== -1) data.questionTime.questions.splice(idx, 1);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
     }
 
     render(data, state);

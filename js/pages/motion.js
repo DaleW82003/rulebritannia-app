@@ -409,7 +409,7 @@ function renderEdm(root, data, edm) {
     <section class="tile">
       <h3 style="margin-top:0;">Signatories</h3>
       <p><b>Signatories:</b> ${Math.round(edmWeightedSignatures(edm, data))}</p>
-      <p><b>Signed by:</b> ${edm.signatures.length ? edm.signatures.map((s) => esc(s.name)).join(", ") : "No player signatories yet."}</p>
+      <p><b>Signed by:</b> ${edm.signatures.length ? edm.signatures.map((s) => esc(s.name)).join(", ") : "No signatories yet."}</p>
       ${Object.entries(edm.npcSignatures).filter(([,v])=>v).length ? `<p><b>NPC signatures:</b> ${Object.entries(edm.npcSignatures).filter(([,v])=>v).map(([p]) => esc(p)).join(", ")}</p>` : ""}
       ${expired ? `<p class="muted"><b>Signature period has closed.</b></p>` : disallowed ? `<p class="muted"><b>Government members cannot sign EDMs.</b></p>` : signed ? `<p class="muted"><b>You have already signed.</b></p>` : `<button class="btn" data-action="sign-edm" ${w > 0 ? "" : "disabled"}>Sign EDM</button>`}
 

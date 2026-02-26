@@ -185,13 +185,19 @@ export function realDateOfSimMonth(targetMonth, targetYear, gameState) {
 
 /**
  * Human-readable countdown to a sim month deadline.
- * Returns strings like "2d 14h 30m", "Expired", "Paused", "---".
+ * Returns strings like "2d 14h 30m", "Expired", "Paused", or "N month(s)" as a fallback.
  */
 export function countdownToSimMonth(targetMonth, targetYear, gameState) {
   if (gameState.isPaused) return "Paused";
 
   const target = realDateOfSimMonth(targetMonth, targetYear, gameState);
-  if (!target) return "---";
+  if (!target) {
+    // Fall back to sim-month distance when real-world date cannot be computed
+    const now = simDateToObj(getSimDate(gameState));
+    const remaining = Math.max(0, (targetYear * 12 + (targetMonth - 1)) - (now.year * 12 + (now.month - 1)));
+    if (remaining <= 0) return "Expired";
+    return remaining === 1 ? "1 month" : `${remaining} months`;
+  }
 
   const now = new Date();
   const diffMs = target.getTime() - now.getTime();
