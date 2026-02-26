@@ -426,6 +426,64 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
 
+  // Bill amendments — server-authoritative tracking of amendments per bill
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bill_amendments (
+      id                  TEXT NOT NULL,
+      bill_id             TEXT NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+      article_number      INT,
+      amendment_type      TEXT NOT NULL DEFAULT 'replace'
+                          CHECK (amendment_type IN ('replace','insert','delete')),
+      title               TEXT NOT NULL,
+      text                TEXT NOT NULL DEFAULT '',
+      proposed_by_id      UUID REFERENCES characters(id) ON DELETE SET NULL,
+      proposed_by_name    TEXT,
+      proposed_by_party   TEXT,
+      status              TEXT NOT NULL DEFAULT 'proposed'
+                          CHECK (status IN ('proposed','accepted','refused','in-division','withdrawn')),
+      division_id         TEXT REFERENCES divisions(id) ON DELETE SET NULL,
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (bill_id, id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bill_amendment_supporters (
+      bill_id       TEXT NOT NULL,
+      amendment_id  TEXT NOT NULL,
+      character_id  UUID REFERENCES characters(id) ON DELETE CASCADE,
+      party         TEXT NOT NULL,
+      added_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (bill_id, amendment_id, party),
+      FOREIGN KEY (bill_id, amendment_id) REFERENCES bill_amendments(bill_id, id) ON DELETE CASCADE
+    )
+  `);
+
+  // Bill stage reports — report submissions for the Report Stage
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bill_stage_reports (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      bill_id         TEXT NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+      submitted_by_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      submitted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      content         TEXT,
+      attachment_url  TEXT,
+      sim_month       INT,
+      sim_year        INT
+    )
+  `);
+
+  // Bill opposition quota — tracks how many opposition bills submitted per character per sim year
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bill_opposition_quota (
+      character_id  UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      sim_year      INT NOT NULL,
+      bill_type     TEXT NOT NULL CHECK (bill_type IN ('opposition','pmb_leader_3rd')),
+      count         INT NOT NULL DEFAULT 0,
+      PRIMARY KEY (character_id, sim_year, bill_type)
+    )
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS motions (
       id                  TEXT PRIMARY KEY,
@@ -3966,7 +4024,645 @@ app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
   }
 });
 
-// ── Division weight-computation helpers ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// BILL STAGE & PROCESS ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Bill stage constants. These mirror the client-side stage labels for consistency.
+ * All stage transitions are now server-enforced.
+ */
+const BILL_STAGE_FIRST_READING   = "First Reading";
+const BILL_STAGE_SECOND_READING  = "Second Reading";
+const BILL_STAGE_REPORT_STAGE    = "Report Stage";
+const BILL_STAGE_REPORT_DEBATE   = "Report Debate";
+const BILL_STAGE_FINAL_DIVISION  = "Final Division";
+const BILL_STAGE_PASSED_ASSENT   = "Passed - Awaiting Assent";
+const BILL_STAGE_ROYAL_ASSENT    = "Act (Royal Assent Granted)";
+const BILL_STAGE_REFUSED         = "First Reading Refused";
+const BILL_STAGE_DEFEATED        = "Defeated in Division";
+const BILL_STAGE_WITHDRAWN       = "Withdrawn";
+
+/** Duration in simulation months for timed stages. */
+const BILL_STAGE_MONTHS = {
+  [BILL_STAGE_SECOND_READING]: 2,
+  [BILL_STAGE_REPORT_DEBATE]:  2,
+  [BILL_STAGE_FINAL_DIVISION]: 1,
+};
+
+/** How long a resolved bill stays on the order paper before archiving (sim months). */
+const BILL_ORDER_PAPER_MONTHS = 4;
+
+/**
+ * Compute a { month, year } sim deadline by adding `months` to the current sim time.
+ */
+function simDeadline(simMonth, simYear, months) {
+  const total = simMonth + months - 1; // 0-indexed offset
+  return {
+    month: ((total % 12) || 12),
+    year:  simYear + Math.floor(total / 12),
+  };
+}
+
+/**
+ * Check whether a sim deadline { month, year } has passed given the current sim time.
+ */
+function simDeadlinePassed(deadline, simMonth, simYear) {
+  if (!deadline) return false;
+  if (simYear > deadline.year) return true;
+  if (simYear === deadline.year && simMonth > deadline.month) return true;
+  return false;
+}
+
+/** Remaining whole sim months until a deadline (0 if past). */
+function simMonthsLeft(deadline, simMonth, simYear) {
+  if (!deadline) return 0;
+  const remaining = (deadline.year - simYear) * 12 + (deadline.month - simMonth);
+  return Math.max(0, remaining);
+}
+
+// ── Helper: advance bill stage in DB and return the updated bill data ────────
+async function advanceBillStage(billId, nextStage, simMonth, simYear, extraPatch = {}) {
+  const stagePatch = {
+    stage: nextStage,
+    stageStartedAt: new Date().toISOString(),
+    stageDeadlineSim: BILL_STAGE_MONTHS[nextStage]
+      ? simDeadline(simMonth, simYear, BILL_STAGE_MONTHS[nextStage])
+      : null,
+    ...extraPatch,
+  };
+  const { rows } = await pool.query(
+    `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2
+     RETURNING id, data`,
+    [JSON.stringify(stagePatch), billId]
+  );
+  return rows[0]?.data || null;
+}
+
+// POST /api/bills/:id/first-reading — PM or Leader of House grants or refuses second reading
+// Body: { action: "grant" | "refuse" }
+app.post("/api/bills/:id/first-reading", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { action } = req.body || {};
+    if (!["grant", "refuse"].includes(action)) {
+      return res.status(400).json({ error: "action must be 'grant' or 'refuse'" });
+    }
+
+    // Permission: PM, Leader of the House, admin, or mod
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    let canAct = isStaff;
+    if (!canAct) {
+      const charId = await getActiveCharacterId(req);
+      if (charId) {
+        const { rows: cRows } = await pool.query(
+          "SELECT office, role FROM characters WHERE id = $1", [charId]
+        );
+        const char = cRows[0] || {};
+        canAct = ["prime-minister", "leader-commons"].includes(String(char.office || "")) ||
+                 String(char.role || "") === "prime-minister";
+      }
+    }
+    if (!canAct) return res.status(403).json({ error: "PM, Leader of the House, admin or mod required" });
+
+    // Validate current stage
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+    if (bill.stage !== BILL_STAGE_FIRST_READING) {
+      return res.status(409).json({ error: `Bill is not at First Reading (current: ${bill.stage})` });
+    }
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+
+    let updatedBill;
+    if (action === "grant") {
+      updatedBill = await advanceBillStage(req.params.id, BILL_STAGE_SECOND_READING, sm, sy);
+    } else {
+      updatedBill = await advanceBillStage(req.params.id, BILL_STAGE_REFUSED, sm, sy, { status: "failed" });
+    }
+
+    await writeAuditLog(req.session.userId, `bill.first-reading.${action}`, "bill", req.params.id, bill, updatedBill);
+    res.json({ ok: true, bill: updatedBill });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/report — admin/mod/speaker submits report for Report Stage → Report Debate
+// Body: { content?, attachmentUrl? }
+app.post("/api/bills/:id/report", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+    if (bill.stage !== BILL_STAGE_REPORT_STAGE) {
+      return res.status(409).json({ error: `Bill is not at Report Stage (current: ${bill.stage})` });
+    }
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+
+    const charId = await getActiveCharacterId(req);
+    const { content = null, attachmentUrl = null } = req.body || {};
+
+    // Save report record
+    await pool.query(
+      `INSERT INTO bill_stage_reports (bill_id, submitted_by_id, content, attachment_url, sim_month, sim_year)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [req.params.id, charId || null, content || null, attachmentUrl || null, sm, sy]
+    );
+
+    // Advance stage
+    const updatedBill = await advanceBillStage(req.params.id, BILL_STAGE_REPORT_DEBATE, sm, sy, {
+      reportSubmittedAt: new Date().toISOString(),
+      reportContent: content || null,
+      reportAttachmentUrl: attachmentUrl || null,
+    });
+
+    await writeAuditLog(req.session.userId, "bill.report.submitted", "bill", req.params.id, bill, updatedBill);
+    res.json({ ok: true, bill: updatedBill });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/withdraw — author, PM, or admin/mod withdraws a bill
+app.post("/api/bills/:id/withdraw", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+
+    if (["passed", "failed", "withdrawn"].includes(String(bill.status || ""))) {
+      return res.status(409).json({ error: "Bill is already concluded and cannot be withdrawn" });
+    }
+
+    // Permission: bill author (by character name), PM, admin, or mod
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    let canWithdraw = isStaff;
+    if (!canWithdraw) {
+      const charId = await getActiveCharacterId(req);
+      if (charId) {
+        const { rows: cRows } = await pool.query(
+          "SELECT name, office, role FROM characters WHERE id = $1", [charId]
+        );
+        const char = cRows[0] || {};
+        // Author match or PM
+        canWithdraw = String(char.name || "") === String(bill.author || "") ||
+                      ["prime-minister", "leader-commons"].includes(String(char.office || "")) ||
+                      String(char.role || "") === "prime-minister";
+      }
+    }
+    if (!canWithdraw) return res.status(403).json({ error: "Bill author, PM, admin or mod required" });
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+
+    const updatedBill = await advanceBillStage(req.params.id, BILL_STAGE_WITHDRAWN, sm, sy, {
+      status: "withdrawn",
+      withdrawnAt: new Date().toISOString(),
+    });
+
+    await writeAuditLog(req.session.userId, "bill.withdraw", "bill", req.params.id, bill, updatedBill);
+    res.json({ ok: true, bill: updatedBill });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/assent — admin/mod grants Royal Assent
+app.post("/api/bills/:id/assent", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+
+    if (bill.status !== "awaiting-assent") {
+      return res.status(409).json({ error: `Bill is not awaiting assent (status: ${bill.status})` });
+    }
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+
+    const updatedBill = await advanceBillStage(req.params.id, BILL_STAGE_ROYAL_ASSENT, sm, sy, {
+      status: "passed",
+      royalAssentGrantedAt: new Date().toISOString(),
+      legislationKind: "Act of Parliament",
+      // rename "Bill" to "Act" in title
+      title: String(bill.title || "").replace(/\bbill\b/ig, "Act"),
+    });
+
+    await writeAuditLog(req.session.userId, "bill.assent", "bill", req.params.id, bill, updatedBill);
+    res.json({ ok: true, bill: updatedBill });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Amendment endpoints ───────────────────────────────────────────────────────
+
+// Stages during which amendments may be submitted (first 1.5 sim months only)
+const AMENDMENT_ALLOWED_STAGES = new Set([BILL_STAGE_SECOND_READING, BILL_STAGE_REPORT_DEBATE]);
+
+/** Returns true if the amendment window is open (first 1.5 months of a 2-month stage). */
+function amendmentWindowOpen(bill, simMonth, simYear) {
+  if (!AMENDMENT_ALLOWED_STAGES.has(bill.stage)) return false;
+  const deadline = bill.stageDeadlineSim;
+  if (!deadline) return true; // no deadline set yet → still open
+  // The stage lasts 2 months. The window closes after 1.5 months (0.5 months before deadline).
+  // i.e. window closes when <= 0 months remaining (we use strict < 1 sim month left).
+  const remaining = simMonthsLeft(deadline, simMonth, simYear);
+  return remaining >= 1; // at least 1 full sim month left → window still open
+}
+
+// POST /api/bills/:id/amendments — any MP submits an amendment
+// Body: { articleNumber, type: replace|insert|delete, title, text }
+app.post("/api/bills/:id/amendments", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(403).json({ error: "No active character" });
+
+    const { rows: cRows } = await pool.query(
+      "SELECT name, party, role, office FROM characters WHERE id = $1", [charId]
+    );
+    if (!cRows.length) return res.status(403).json({ error: "Character not found" });
+    const char = cRows[0];
+
+    // Any MP role may submit amendments
+    const mpRoles = ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th", "prime-minister"];
+    if (!mpRoles.includes(String(char.role || ""))) {
+      return res.status(403).json({ error: "Only MPs may submit amendments" });
+    }
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+
+    if (!amendmentWindowOpen(bill, sm, sy)) {
+      return res.status(409).json({ error: "Amendment window is closed at this stage" });
+    }
+
+    const { articleNumber, type, title, text } = req.body || {};
+    if (!title) return res.status(400).json({ error: "title is required" });
+    if (!["replace", "insert", "delete"].includes(type)) {
+      return res.status(400).json({ error: "type must be replace, insert, or delete" });
+    }
+
+    // Generate amendment ID
+    const { rows: countRows } = await pool.query(
+      "SELECT COUNT(*) AS cnt FROM bill_amendments WHERE bill_id = $1", [req.params.id]
+    );
+    const amendId = `A${Number(countRows[0]?.cnt || 0) + 1}`;
+
+    const isAuthor = String(char.name || "") === String(bill.author || "");
+    const initialStatus = isAuthor ? "accepted" : "proposed";
+
+    await pool.query(
+      `INSERT INTO bill_amendments
+         (id, bill_id, article_number, amendment_type, title, text,
+          proposed_by_id, proposed_by_name, proposed_by_party, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [amendId, req.params.id, articleNumber || null, type, title, text || "",
+       charId, char.name, char.party || "Independent", initialStatus]
+    );
+
+    // If auto-accepted (author submitted), apply the amendment to bill text immediately
+    if (isAuthor) {
+      const updatedText = applyAmendmentToBillText(bill.billText || "", articleNumber, type, text || "");
+      await pool.query(
+        `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+        [JSON.stringify({ billText: updatedText }), req.params.id]
+      );
+    }
+
+    const { rows: amRows } = await pool.query(
+      "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, amendId]
+    );
+    res.status(201).json({ ok: true, amendment: amRows[0], autoAccepted: isAuthor });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/amendments/:aid/decide — bill author accepts or refuses an amendment
+// Body: { decision: "accept" | "refuse" }
+app.post("/api/bills/:id/amendments/:aid/decide", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(403).json({ error: "No active character" });
+
+    const { decision } = req.body || {};
+    if (!["accept", "refuse"].includes(decision)) {
+      return res.status(400).json({ error: "decision must be 'accept' or 'refuse'" });
+    }
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+
+    const { rows: amRows } = await pool.query(
+      "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, req.params.aid]
+    );
+    if (!amRows.length) return res.status(404).json({ error: "Amendment not found" });
+    const am = amRows[0];
+    if (am.status !== "proposed") return res.status(409).json({ error: `Amendment is already ${am.status}` });
+
+    // Only the bill author may decide
+    const { rows: cRows } = await pool.query("SELECT name FROM characters WHERE id = $1", [charId]);
+    if (!cRows.length || String(cRows[0].name) !== String(bill.author || "")) {
+      // Check if author, admin or mod
+      const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+      const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+      if (!isStaff) return res.status(403).json({ error: "Only the bill author, admin or mod may decide on amendments" });
+    }
+
+    if (decision === "accept") {
+      // Apply amendment to bill text
+      const updatedText = applyAmendmentToBillText(bill.billText || "", am.article_number, am.amendment_type, am.text || "");
+      await pool.query(`UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+        [JSON.stringify({ billText: updatedText }), req.params.id]);
+      await pool.query(
+        `UPDATE bill_amendments SET status = 'accepted', updated_at = NOW() WHERE bill_id = $1 AND id = $2`,
+        [req.params.id, req.params.aid]
+      );
+    } else {
+      // Refuse: check if 2+ party leaders already support — if so, trigger division instead
+      const { rows: suppRows } = await pool.query(
+        "SELECT COUNT(*) AS cnt FROM bill_amendment_supporters WHERE bill_id = $1 AND amendment_id = $2",
+        [req.params.id, req.params.aid]
+      );
+      const supportCount = Number(suppRows[0]?.cnt || 0);
+      if (supportCount >= 2) {
+        // Trigger a 1-month amendment division via formal divisions table
+        const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+        const sm = clk[0]?.sim_current_month ?? 8;
+        const sy = clk[0]?.sim_current_year  ?? 1997;
+        const closesAtSim = `${sy + Math.floor((sm) / 12)}-${String(((sm % 12) + 1)).padStart(2, "0")}`;
+        const { rows: divRows } = await pool.query(
+          `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
+           VALUES ('bill-amendment', $1, $2, $3)
+           RETURNING id`,
+          [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim]
+        );
+        await pool.query(
+          `UPDATE bill_amendments SET status = 'in-division', division_id = $3, updated_at = NOW()
+           WHERE bill_id = $1 AND id = $2`,
+          [req.params.id, req.params.aid, divRows[0].id]
+        );
+      } else {
+        await pool.query(
+          `UPDATE bill_amendments SET status = 'refused', updated_at = NOW() WHERE bill_id = $1 AND id = $2`,
+          [req.params.id, req.params.aid]
+        );
+      }
+    }
+
+    const { rows: updated } = await pool.query(
+      "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, req.params.aid]
+    );
+    res.json({ ok: true, amendment: updated[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/amendments/:aid/support — party leader declares support for an amendment
+// If 2+ leaders support → triggers a 1-month division on the amendment
+app.post("/api/bills/:id/amendments/:aid/support", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(403).json({ error: "No active character" });
+
+    const { rows: cRows } = await pool.query("SELECT name, party, role FROM characters WHERE id = $1", [charId]);
+    if (!cRows.length) return res.status(403).json({ error: "Character not found" });
+    const char = cRows[0];
+
+    const leaderRoles = ["prime-minister", "leader-opposition", "party-leader-3rd-4th"];
+    if (!leaderRoles.includes(String(char.role || ""))) {
+      return res.status(403).json({ error: "Only party leaders may declare formal support for amendments" });
+    }
+
+    const { rows: amRows } = await pool.query(
+      "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, req.params.aid]
+    );
+    if (!amRows.length) return res.status(404).json({ error: "Amendment not found" });
+    const am = amRows[0];
+    if (am.status !== "proposed") return res.status(409).json({ error: `Amendment is already ${am.status}` });
+
+    // Upsert support (party-based, one per party)
+    await pool.query(
+      `INSERT INTO bill_amendment_supporters (bill_id, amendment_id, character_id, party)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (bill_id, amendment_id, party) DO UPDATE SET character_id = EXCLUDED.character_id, added_at = NOW()`,
+      [req.params.id, req.params.aid, charId, char.party || "Independent"]
+    );
+
+    const { rows: suppRows } = await pool.query(
+      "SELECT COUNT(*) AS cnt FROM bill_amendment_supporters WHERE bill_id = $1 AND amendment_id = $2",
+      [req.params.id, req.params.aid]
+    );
+    const supportCount = Number(suppRows[0]?.cnt || 0);
+    let divisionTriggered = false;
+
+    // 2+ leaders AND bill author has not yet accepted → auto-trigger amendment division
+    if (supportCount >= 2 && am.status === "proposed") {
+      const { rows: billRows } = await pool.query("SELECT data FROM bills WHERE id = $1", [req.params.id]);
+      const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+      const sm = clk[0]?.sim_current_month ?? 8;
+      const sy = clk[0]?.sim_current_year  ?? 1997;
+      const bill = billRows[0]?.data || {};
+      const closesAtSim = `${sy + Math.floor((sm) / 12)}-${String(((sm % 12) + 1)).padStart(2, "0")}`;
+      const { rows: divRows } = await pool.query(
+        `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
+         VALUES ('bill-amendment', $1, $2, $3)
+         RETURNING id`,
+        [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim]
+      );
+      await pool.query(
+        `UPDATE bill_amendments SET status = 'in-division', division_id = $3, updated_at = NOW()
+         WHERE bill_id = $1 AND id = $2`,
+        [req.params.id, req.params.aid, divRows[0].id]
+      );
+      divisionTriggered = true;
+    }
+
+    const { rows: updated } = await pool.query(
+      "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, req.params.aid]
+    );
+    res.json({ ok: true, amendment: updated[0], supportCount, divisionTriggered });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/bills/:id/amendments — list all amendments for a bill
+app.get("/api/bills/:id/amendments", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT ba.*, 
+              COALESCE(json_agg(bas.party ORDER BY bas.added_at) FILTER (WHERE bas.party IS NOT NULL), '[]') AS supporter_parties
+         FROM bill_amendments ba
+         LEFT JOIN bill_amendment_supporters bas ON bas.bill_id = ba.bill_id AND bas.amendment_id = ba.id
+        WHERE ba.bill_id = $1
+        GROUP BY ba.bill_id, ba.id
+        ORDER BY ba.created_at ASC`,
+      [req.params.id]
+    );
+    res.json({ amendments: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/final-division — admin/mod/speaker opens the Final Division
+// (creates a formal division in the divisions table for the bill)
+app.post("/api/bills/:id/final-division", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+
+    // Must be at Final Division stage
+    if (bill.stage !== BILL_STAGE_FINAL_DIVISION) {
+      return res.status(409).json({ error: `Bill must be at Final Division stage (current: ${bill.stage})` });
+    }
+
+    // Check no open amendment divisions still pending
+    const { rows: pendingAmends } = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM bill_amendments ba
+         JOIN divisions d ON d.id = ba.division_id
+        WHERE ba.bill_id = $1 AND ba.status = 'in-division' AND d.status = 'open'`,
+      [req.params.id]
+    );
+    if (Number(pendingAmends[0]?.cnt || 0) > 0) {
+      return res.status(409).json({ error: "All amendment divisions must be resolved before opening the final division" });
+    }
+
+    // Check no proposed amendments still pending author decision
+    const { rows: pendingProposed } = await pool.query(
+      "SELECT COUNT(*) AS cnt FROM bill_amendments WHERE bill_id = $1 AND status = 'proposed'",
+      [req.params.id]
+    );
+    if (Number(pendingProposed[0]?.cnt || 0) > 0) {
+      return res.status(409).json({ error: "All amendments must be accepted or refused before opening the final division" });
+    }
+
+    // Check if a formal division already exists
+    const { rows: existDiv } = await pool.query(
+      "SELECT id FROM divisions WHERE entity_type = 'bill' AND entity_id = $1 ORDER BY created_at DESC LIMIT 1",
+      [req.params.id]
+    );
+    if (existDiv.length) {
+      return res.status(409).json({ error: "Final division already exists", divisionId: existDiv[0].id });
+    }
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+    const closesAtSim = `${sy}-${String(sm + 1 <= 12 ? sm + 1 : 1).padStart(2, "0")}`;
+
+    const { rows: divRows } = await pool.query(
+      `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
+       VALUES ('bill', $1, $2, $3)
+       RETURNING id, entity_type, entity_id, title, status, closes_at_sim, created_at`,
+      [req.params.id, `Final Division: ${bill.title || req.params.id}`, closesAtSim]
+    );
+
+    // Record division id in bill data
+    await pool.query(
+      `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify({ formalDivisionId: divRows[0].id }), req.params.id]
+    );
+
+    await writeAuditLog(req.session.userId, "bill.final-division.opened", "bill", req.params.id, bill, divRows[0]);
+    res.status(201).json({ ok: true, division: divRows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * Apply an amendment to bill text (article-based format).
+ * This mirrors the client-side logic but runs on the server for DB-authoritative updates.
+ */
+function applyAmendmentToBillText(billText, articleNumber, type, amendText) {
+  if (!billText || !articleNumber) return billText;
+  const lines = String(billText).split("\n");
+  const articles = [];
+  let current = null;
+  lines.forEach((line) => {
+    const m = line.match(/^ARTICLE\s+(\d+)\s+—\s+(.+)$/i);
+    if (m) {
+      if (current) articles.push(current);
+      current = { number: Number(m[1]), heading: m[2], bodyLines: [] };
+    } else if (current) {
+      current.bodyLines.push(line);
+    }
+  });
+  if (current) articles.push(current);
+
+  const target = articles.find((a) => Number(a.number) === Number(articleNumber));
+  if (!target) return billText;
+
+  const oldText = target.bodyLines.join("\n").trim();
+  if (type === "replace") target.bodyLines = [amendText];
+  else if (type === "insert") target.bodyLines = [oldText, amendText].filter(Boolean);
+  else if (type === "delete") target.bodyLines = [];
+
+  // Reconstruct bill text
+  const headerLines = [];
+  let pastFirstArticle = false;
+  for (const line of lines) {
+    if (/^ARTICLE\s+\d+\s+—\s+.+$/i.test(line)) { pastFirstArticle = true; break; }
+    headerLines.push(line);
+  }
+  const finalIdx = lines.findIndex((l) => /^FINAL ARTICLE\s+—/i.test(l));
+  const finalPart = finalIdx >= 0 ? "\n" + lines.slice(finalIdx).join("\n") : "";
+
+  const body = articles.map((a) => [
+    `ARTICLE ${a.number} — ${a.heading}`,
+    a.bodyLines.join("\n"),
+  ].join("\n")).join("\n\n");
+
+  return [headerLines.join("\n"), body, finalPart].join("\n").trim();
+}
 /** Party name regexes for parties with special voting rules. */
 const SPEAKER_PARTY_RE  = /^speaker$/i;
 const SINN_FEIN_PARTY_RE = /sinn\s*f[ée]in/i;

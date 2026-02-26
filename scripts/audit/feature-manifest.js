@@ -159,6 +159,11 @@ const PLAYER_ALLOWED = new Set([
   "PATCH /api/bills/:id/vote",
   // Player EDM signing — append-only, enforced server-side
   "POST /api/motions/:id/sign",
+  // Bill process actions — player-accessible with server-enforced role checks
+  "POST /api/bills/:id/withdraw",           // author/PM/admin can withdraw
+  "POST /api/bills/:id/amendments",         // any MP can submit amendments
+  "POST /api/bills/:id/amendments/:id/decide", // bill author accepts/refuses
+  "POST /api/bills/:id/amendments/:id/support", // party leader declares support
 ]);
 
 const immutabilityViolations = serverEndpoints.filter((ep) => {
