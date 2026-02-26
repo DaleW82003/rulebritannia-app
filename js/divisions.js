@@ -50,6 +50,9 @@ export function buildDivisionWeights(data) {
       partyByName[m.name] = party;
     });
 
+    // Speaker does not vote (tie-break only); Sinn Féin do not take their seats.
+    if (/^speaker$/i.test(party) || /sinn\s*f[ée]in/i.test(party)) return;
+
     const seats = Math.max(0, Math.floor(Number(seatsByParty[party] || 0)));
     const leader = findPartyLeader(members);
     if (leader) leaderByParty[party] = leader.name;

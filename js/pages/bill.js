@@ -5,7 +5,13 @@ import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissi
 import { esc } from "../ui.js";
 import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
-import { apiCreateDebateTopic, apiGetBill } from "../api.js";
+import {
+  apiCreateDebateTopic, apiGetBill, apiBillVote,
+  apiBillFirstReading, apiBillSubmitReport, apiBillWithdraw, apiBillGrantAssent,
+  apiBillOpenFinalDivision, apiGetBillAmendments, apiSubmitBillAmendment,
+  apiBillAmendmentDecide, apiBillAmendmentSupport,
+  apiGetDivisionForEntity, apiCastVote, apiCloseDivision, apiSetNpcVotes,
+} from "../api.js";
 import { handleApiError } from "../errors.js";
 
 function $(id) {
@@ -158,10 +164,14 @@ function renderBillMeta(bill, data) {
 
   const canManage = canManageLegislativeAgenda(data);
   const canDeleteBill = canAdminModOrSpeaker(data);
+  const canStaff = canAdminModOrSpeaker(data);
+  const isStage = (s) => bill.stage === s;
+  const concluded = ["failed", "passed", "withdrawn"].includes(String(bill.status || ""));
+
   const typeOptions = [
     ["government", "Government Bill"],
     ["opposition", "Opposition Bill"],
-    ["pmb", "Private Member’s Bill"]
+    ["pmb", "Private Member's Bill"]
   ];
 
   meta.innerHTML = `
@@ -172,19 +182,21 @@ function renderBillMeta(bill, data) {
       </div>
       <div class="badges">
         <span class="bill-badge">${esc(billTypeLabel(bill.billType))}</span>
-        <span class="bill-badge">${esc(bill.stage || "—")}</span>
-        <span class="bill-badge">Stage ends: ${esc(stageCountdown(bill, data.gameState))}</span>
+        <span class="bill-badge ${bill.stage === "Withdrawn" ? "badge-withdrawn" : ""}">${esc(bill.stage || "—")}</span>
+        ${bill.stageDeadlineSim ? `<span class="bill-badge">Stage ends: ${esc(stageCountdown(bill, data.gameState))}</span>` : ""}
+        ${bill.reportContent ? `<details class="bill-report-detail"><summary>📋 Report submitted</summary><p>${esc(bill.reportContent)}</p>${bill.reportAttachmentUrl ? `<a href="${esc(bill.reportAttachmentUrl)}" target="_blank" rel="noopener">View attachment</a>` : ""}</details>` : ""}
       </div>
     </div>
-    ${canManage ? `
+    <p id="meta-msg" class="muted" style="margin:4px 0;"></p>
+
+    ${canManage && isStage("First Reading") ? `
       <hr>
       <div class="form-grid" id="agenda-controls">
-        <label>Second Reading Gate</label>
+        <label>First Reading Decision</label>
         <div class="tile-bottom" style="padding-top:0; margin-top:0;">
           <button type="button" class="btn" data-agenda="grant-second-reading">Grant Second Reading</button>
           <button type="button" class="btn danger" data-agenda="refuse-second-reading">Refuse Second Reading</button>
         </div>
-
         <label>Bill Type</label>
         <div>
           <select id="billTypeSelect">
@@ -192,7 +204,31 @@ function renderBillMeta(bill, data) {
           </select>
         </div>
       </div>
-      <p class="small">Leader of the House / Prime Minister controls are active for this account.</p>
+      <p class="small">Leader of the House / Prime Minister controls for this account.</p>
+    ` : ""}
+
+    ${canStaff && isStage("Report Stage") ? `
+      <hr>
+      <div id="report-form-wrap">
+        <h3 style="margin:0 0 8px;">Submit Report for Report Stage</h3>
+        <p class="muted small">Submitting this report will advance the bill to Report Debate (2 sim months).</p>
+        <form id="report-form" class="form-grid">
+          <label for="reportContent">Report content</label>
+          <textarea id="reportContent" rows="5" placeholder="Paste or write the committee report here..."></textarea>
+          <label for="reportAttachment">Attachment URL (optional)</label>
+          <input id="reportAttachment" type="url" placeholder="https://...">
+          <div></div>
+          <div><button class="btn primary" type="submit">Submit Report &amp; Advance to Report Debate</button></div>
+        </form>
+      </div>
+    ` : ""}
+
+    ${canStaff && isStage("Final Division") && !bill.formalDivisionId ? `
+      <hr>
+      <div class="tile-bottom" style="padding-top:0;margin-top:0;">
+        <button type="button" class="btn primary" data-agenda="open-final-division">Open Final Division</button>
+      </div>
+      <p class="small">Admin / Mod / Speaker: opens the weighted division for this bill.</p>
     ` : ""}
 
     ${canGrantAssent(data) && bill.status === "awaiting-assent" ? `
@@ -203,33 +239,42 @@ function renderBillMeta(bill, data) {
       <p class="small">Moderator / admin action required to convert this bill into an Act.</p>
     ` : ""}
 
-    ${canDeleteBill ? `
+    ${!concluded ? `
+      <hr>
+      <div class="tile-bottom" style="padding-top:0;margin-top:0;">
+        <button type="button" class="btn danger" data-agenda="withdraw-bill">Withdraw Bill</button>
+        ${canDeleteBill ? '<button type="button" class="btn danger" data-agenda="delete-bill">Delete Bill</button>' : ""}
+      </div>
+      <p class="small">Author / PM can withdraw. Admin / Mod / Speaker can delete permanently.</p>
+    ` : canDeleteBill ? `
       <hr>
       <div class="tile-bottom" style="padding-top:0;margin-top:0;">
         <button type="button" class="btn danger" data-agenda="delete-bill">Delete Bill</button>
       </div>
-      <p class="small">Admin / Mod / Speaker: permanently removes this bill.</p>
     ` : ""}
   `;
 
+  const msgEl = () => meta.querySelector("#meta-msg");
+  const showMsg = (m) => { const el = msgEl(); if (el) el.textContent = m; };
+
   if (canManage) {
-    meta.querySelector('[data-agenda="grant-second-reading"]')?.addEventListener("click", () => {
-      if (bill.stage !== "First Reading") return;
-      bill.stage = "Second Reading";
-      bill.stageStartedAt = Date.now();
-      bill.stageDeadlineSim = createDeadline(data.gameState, 2);
-      logAction({ action: "bill-stage-changed", target: bill.title, details: { billId: bill.id, stage: bill.stage } });
-      persistAndRerender(data, bill);
-      ensureBillDebateTopic(bill, data);
+    meta.querySelector('[data-agenda="grant-second-reading"]')?.addEventListener("click", async () => {
+      showMsg("Processing…");
+      try {
+        const result = await apiBillFirstReading(bill.id, "grant");
+        Object.assign(bill, result.bill);
+        persistAndRerender(data, bill);
+        ensureBillDebateTopic(bill, data);
+      } catch (err) { showMsg(`Error: ${err.message}`); }
     });
 
-    meta.querySelector('[data-agenda="refuse-second-reading"]')?.addEventListener("click", () => {
-      if (bill.stage !== "First Reading") return;
-      bill.stage = "First Reading Refused";
-      bill.status = "failed";
-      bill.stageStartedAt = Date.now();
-      logAction({ action: "bill-stage-changed", target: bill.title, details: { billId: bill.id, stage: bill.stage } });
-      persistAndRerender(data, bill);
+    meta.querySelector('[data-agenda="refuse-second-reading"]')?.addEventListener("click", async () => {
+      showMsg("Processing…");
+      try {
+        const result = await apiBillFirstReading(bill.id, "refuse");
+        Object.assign(bill, result.bill);
+        persistAndRerender(data, bill);
+      } catch (err) { showMsg(`Error: ${err.message}`); }
     });
 
     meta.querySelector("#billTypeSelect")?.addEventListener("change", (ev) => {
@@ -238,12 +283,45 @@ function renderBillMeta(bill, data) {
     });
   }
 
+  meta.querySelector("#report-form")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    showMsg("Submitting report…");
+    const content = meta.querySelector("#reportContent")?.value?.trim() || null;
+    const attachmentUrl = meta.querySelector("#reportAttachment")?.value?.trim() || null;
+    try {
+      const result = await apiBillSubmitReport(bill.id, { content, attachmentUrl });
+      Object.assign(bill, result.bill);
+      persistAndRerender(data, bill);
+    } catch (err) { showMsg(`Error: ${err.message}`); }
+  });
 
-  meta.querySelector('[data-agenda="grant-assent"]')?.addEventListener("click", () => {
+  meta.querySelector('[data-agenda="open-final-division"]')?.addEventListener("click", async () => {
+    showMsg("Opening final division…");
+    try {
+      const result = await apiBillOpenFinalDivision(bill.id);
+      bill.formalDivisionId = result.division.id;
+      persistAndRerender(data, bill);
+    } catch (err) { showMsg(`Error: ${err.message}`); }
+  });
+
+  meta.querySelector('[data-agenda="grant-assent"]')?.addEventListener("click", async () => {
     if (!canGrantAssent(data) || bill.status !== "awaiting-assent") return;
-    grantRoyalAssent(bill);
-    logAction({ action: "bill-stage-changed", target: bill.title, details: { billId: bill.id, stage: bill.stage } });
-    persistAndRerender(data, bill);
+    showMsg("Granting Royal Assent…");
+    try {
+      const result = await apiBillGrantAssent(bill.id);
+      Object.assign(bill, result.bill);
+      persistAndRerender(data, bill);
+    } catch (err) { showMsg(`Error: ${err.message}`); }
+  });
+
+  meta.querySelector('[data-agenda="withdraw-bill"]')?.addEventListener("click", async () => {
+    if (!confirm("Are you sure you want to withdraw this bill?")) return;
+    showMsg("Withdrawing…");
+    try {
+      const result = await apiBillWithdraw(bill.id);
+      Object.assign(bill, result.bill);
+      persistAndRerender(data, bill);
+    } catch (err) { showMsg(`Error: ${err.message}`); }
   });
 
   meta.querySelector('[data-agenda="delete-bill"]')?.addEventListener("click", () => {
@@ -355,199 +433,170 @@ function maybeAutoCloseDivision(bill, data) {
   return false;
 }
 
-function amendmentRow(a) {
+function amendmentRow(a, supporters = []) {
+  const statusLabels = {
+    "proposed": "Proposed",
+    "accepted": "✅ Accepted",
+    "refused": "❌ Refused",
+    "in-division": "🗳️ In Division",
+    "withdrawn": "Withdrawn",
+  };
   return `
-    <div class="docket-item">
+    <div class="docket-item" data-am-id="${esc(a.id || a.amendment_id || "")}">
       <div class="docket-left">
         <div class="docket-icon">✍️</div>
         <div>
-          <div class="docket-title">${esc(a.id)} · Clause ${esc(a.articleNumber ?? "—")}: ${esc(a.title || "Untitled amendment")}</div>
-          <div class="docket-detail">${esc(a.type || "change")} • Proposed by ${esc(a.proposedBy || "Unknown")} • ${esc(a.status || "proposed")}</div>
+          <div class="docket-title">${esc(a.id || a.amendment_id || "")} · Article ${esc(String(a.articleNumber ?? a.article_number ?? "—"))}: ${esc(a.title || "Untitled amendment")}</div>
+          <div class="docket-detail">${esc(a.amendment_type || a.type || "change")} • By ${esc(a.proposedByName || a.proposed_by_name || "Unknown")} (${esc(a.proposedBy || a.proposed_by_party || "—")}) • ${esc(statusLabels[a.status] || a.status || "proposed")}</div>
           <div class="small" style="margin-top:6px;">${esc(a.text || "")}</div>
+          ${supporters.length ? `<div class="small muted">Leader support: ${supporters.map((s) => esc(s)).join(", ")}</div>` : ""}
         </div>
       </div>
     </div>
   `;
 }
 
-function renderAmendments(bill, data) {
+async function renderAmendments(bill, data) {
   const root = $("amendmentsList");
   if (!root) return;
 
-  bill.amendments ??= [];
-  ensureBillStageTimers(bill, data.gameState);
-  const inLastMonth = !DIVISION_STAGES.has(bill.stage) && bill.stageDeadlineSim && simMonthsRemaining(bill.stageDeadlineSim, data.gameState) <= 0;
-  const amendLocked = AMENDMENT_LOCK_STAGES.has(bill.stage) || inLastMonth;
-  const canSubmit = canProposeAmendment(data) && !amendLocked;
-  const canAuthorAct = canAuthorManageAmendments(bill, data);
   const char = getCurrentCharacter(data);
+  const canStaff = canAdminModOrSpeaker(data);
+  const canAuthorAct = String(char?.name || "") && String(char?.name || "") === String(bill.author || "");
+  const isLeader = isPartyLeader(char || {});
+
+  // Load amendments from DB (authoritative source)
+  let amendments = [];
+  try {
+    const res = await apiGetBillAmendments(bill.id);
+    amendments = res?.amendments || [];
+  } catch (_) {
+    // Fallback to inline amendments if DB fails
+    amendments = (bill.amendments || []).map((a) => ({ ...a, amendment_type: a.type, article_number: a.articleNumber, proposed_by_name: a.proposedByName, proposed_by_party: a.proposedBy, supporter_parties: a.supporters || [] }));
+  }
+
+  // Amendment window: only open in first 1.5 sim months of Second Reading / Report Debate
+  const AMEND_STAGES = new Set(["Second Reading", "Report Debate"]);
+  const inAmendStage = AMEND_STAGES.has(bill.stage);
+  // Window closes when < 1 sim month remains (see server AMENDMENT_ALLOWED_STAGES logic)
+  const remaining = bill.stageDeadlineSim ? simMonthsRemaining(bill.stageDeadlineSim, data.gameState) : 99;
+  const amendWindowOpen = inAmendStage && remaining >= 1;
+  const canSubmit = canProposeAmendment(data) && amendWindowOpen;
 
   const articles = parseArticlesFromBillText(bill.billText || "");
 
+  const pendingProposed = amendments.filter((a) => a.status === "proposed");
+  const pendingDivisions = amendments.filter((a) => a.status === "in-division");
+
   root.innerHTML = `
-    <div class="docket-list">${bill.amendments.length ? bill.amendments.map(amendmentRow).join("") : '<div class="muted-block">No amendments submitted yet.</div>'}</div>
+    <div class="docket-list">
+      ${amendments.length ? amendments.map((a) => amendmentRow(a, a.supporter_parties || [])).join("") : '<div class="muted-block">No amendments submitted yet.</div>'}
+    </div>
+    <p id="amend-msg" class="muted" style="margin:4px 0;"></p>
     <hr>
     <h3 style="margin:0 0 8px;">Submit amendment</h3>
-    ${inLastMonth ? '<div class="muted-block">Amendments are locked — debate deadline has passed.</div>' : ""}
-    ${amendLocked && !inLastMonth ? '<div class="muted-block">Amendments are closed at this stage.</div>' : ""}
-    ${!canSubmit && !amendLocked ? '<div class="muted-block">Your role cannot submit amendments at this time.</div>' : ""}
+    ${!inAmendStage ? '<div class="muted-block">Amendments may only be submitted during Second Reading and Report Debate.</div>' : ""}
+    ${inAmendStage && !amendWindowOpen ? '<div class="muted-block">Amendment window closed — less than 1 sim month remains in this stage.</div>' : ""}
+    ${!canSubmit && amendWindowOpen ? '<div class="muted-block">Your role cannot submit amendments at this time.</div>' : ""}
     ${canSubmit ? `
       <form id="amendmentForm" class="form-grid">
         <label for="amClause">Article</label>
         <select id="amClause" required>${articles.map((a) => `<option value="${a.number}">Article ${a.number} — ${esc(a.heading)}</option>`).join("")}</select>
-
         <label for="amType">Type</label>
         <select id="amType" required>
           <option value="replace">Replace article text</option>
           <option value="insert">Insert text into article</option>
           <option value="delete">Delete article text</option>
         </select>
-
         <label for="amTitle">Title</label>
         <input id="amTitle" type="text" maxlength="140" required>
-
         <label for="amText">Revised article text</label>
         <textarea id="amText" rows="6" required></textarea>
-
         <div></div>
         <div><button class="btn primary" type="submit">Submit Amendment</button></div>
       </form>
     ` : ""}
   `;
 
+  const msgEl = () => root.querySelector("#amend-msg");
+  const showAmMsg = (m) => { const el = msgEl(); if (el) el.textContent = m; };
+
   root.querySelector("#amClause")?.addEventListener("change", (ev) => {
     const selected = articles.find((a) => Number(a.number) === Number(ev.target.value));
     const area = root.querySelector("#amText");
     if (selected && area) area.value = selected.text || "";
   });
-
   if (root.querySelector("#amClause") && root.querySelector("#amText") && articles[0]) {
     root.querySelector("#amClause").dispatchEvent(new Event("change"));
   }
 
-  root.querySelector("#amendmentForm")?.addEventListener("submit", (ev) => {
+  root.querySelector("#amendmentForm")?.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const clause = Number(root.querySelector("#amClause")?.value || 0);
     const type = root.querySelector("#amType")?.value;
     const title = root.querySelector("#amTitle")?.value?.trim();
     const text = root.querySelector("#amText")?.value?.trim();
     if (!clause || !title) return;
-
-    const nextId = `A${bill.amendments.length + 1}`;
-    const am = {
-      id: nextId,
-      articleNumber: clause,
-      type,
-      title,
-      text,
-      proposedBy: partyOfCurrent(data),
-      proposedByName: char?.name || "MP",
-      status: "proposed",
-      supporters: [partyOfCurrent(data)],
-      submittedAt: new Date().toISOString()
-    };
-
-    if (canAuthorAct) {
-      am.status = "accepted";
-      const target = articles.find((a) => Number(a.number) === clause);
-      if (target) {
-        if (type === "replace") target.text = text || target.text;
-        if (type === "insert") target.text = `${target.text}
-${text || ""}`.trim();
-        if (type === "delete") target.text = "";
-        bill.billText = serializeBillTextWithArticles(bill.billText || "", articles);
-      }
-    }
-
-    bill.amendments.push(am);
-    persistAndRerender(data, bill);
+    showAmMsg("Submitting…");
+    try {
+      await apiSubmitBillAmendment(bill.id, { articleNumber: clause, type, title, text });
+      // Refresh bill from server to pick up any auto-applied text changes
+      const updated = await apiGetBill(bill.id);
+      if (updated?.bill) Object.assign(bill, updated.bill);
+      persistAndRerender(data, bill);
+    } catch (err) { showAmMsg(`Error: ${err.message}`); }
   });
 
-  root.querySelectorAll(".docket-item").forEach((node, idx) => {
-    const am = bill.amendments[idx];
-    if (!am) return;
-    if (am.status === "in-division" && am.division?.status === "open" && (am.division.closesAtSim ? isDeadlinePassed(am.division.closesAtSim, data.gameState) : Number(am.division.closesAt || 0) <= Date.now())) {
-      am.status = "refused";
-      am.division.status = "closed";
-    }
-    const supports = Array.isArray(am.supporters) ? am.supporters : [];
-    const supportCount = supports.length;
-    const canSupport = isPartyLeader(char) && !supports.includes(partyOfCurrent(data));
+  // Per-amendment action buttons
+  amendments.forEach((am) => {
+    const amendId = am.id || am.amendment_id || "";
+    const node = root.querySelector(`[data-am-id="${CSS.escape(amendId)}"]`);
+    if (!node) return;
+
+    const supporters = am.supporter_parties || [];
+    const alreadySupported = supporters.includes(char?.party || "");
+    const canSupport = isLeader && !alreadySupported && am.status === "proposed";
+    const canDecide = (canAuthorAct || canStaff) && am.status === "proposed";
+
     if (am.status === "proposed") {
       node.insertAdjacentHTML("beforeend", `
-        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-          ${canAuthorAct ? '<button class="btn" data-am-action="accept" data-am-id="'+esc(am.id)+'" type="button">Accept & Apply</button><button class="btn danger" data-am-action="refuse" data-am-id="'+esc(am.id)+'" type="button">Refuse</button>' : ''}
-          ${canSupport ? '<button class="btn" data-am-action="support" data-am-id="'+esc(am.id)+'" type="button">Leader Support</button>' : ''}
-          <span class="muted">Leader supports: ${supportCount}</span>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;" class="am-actions">
+          ${canDecide ? `<button class="btn" data-am-action="accept" type="button">Accept &amp; Apply</button><button class="btn danger" data-am-action="refuse" type="button">Refuse</button>` : ""}
+          ${canSupport ? `<button class="btn" data-am-action="support" type="button">Declare Leader Support</button>` : ""}
+          <span class="muted" style="align-self:center;">Leader support: ${supporters.length}</span>
         </div>
       `);
     }
+
     if (am.status === "in-division") {
       node.insertAdjacentHTML("beforeend", `
-        <div class="muted" style="margin-top:8px;">Amendment division closes in ${esc(am.division?.closesAtSim ? countdownToSimMonth(am.division.closesAtSim.month, am.division.closesAtSim.year, data.gameState) : msToHuman(Number(am.division?.closesAt || 0) - Date.now()))}.</div>
-        ${isSpeaker(data) ? '<div style="margin-top:6px;display:flex;gap:8px;"><button class="btn" data-am-action="pass-division" data-am-id="'+esc(am.id)+'" type="button">Speaker: Pass Amendment</button><button class="btn danger" data-am-action="fail-division" data-am-id="'+esc(am.id)+'" type="button">Speaker: Fail Amendment</button></div>' : ''}
+        <div class="muted" style="margin-top:8px;">Amendment division in progress — vote via the Divisions page (ID: ${esc(String(am.division_id || ""))})</div>
       `);
     }
+
+    node.querySelectorAll("[data-am-action]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const action = btn.getAttribute("data-am-action");
+        showAmMsg("Processing…");
+        try {
+          if (action === "accept") {
+            await apiBillAmendmentDecide(bill.id, amendId, "accept");
+          } else if (action === "refuse") {
+            await apiBillAmendmentDecide(bill.id, amendId, "refuse");
+          } else if (action === "support") {
+            await apiBillAmendmentSupport(bill.id, amendId);
+          }
+          // Refresh bill from server (bill text may have changed)
+          const updated = await apiGetBill(bill.id);
+          if (updated?.bill) Object.assign(bill, updated.bill);
+          persistAndRerender(data, bill);
+        } catch (err) { showAmMsg(`Error: ${err.message}`); }
+      });
+    });
   });
-
-  root.querySelectorAll("[data-am-action]").forEach((btn) => btn.addEventListener("click", () => {
-    const id = btn.getAttribute("data-am-id");
-    const action = btn.getAttribute("data-am-action");
-    const am = bill.amendments.find((x) => x.id === id);
-    if (!am || am.status !== "proposed") return;
-    const articlesNow = parseArticlesFromBillText(bill.billText || "");
-
-    if (action === "support" && isPartyLeader(char)) {
-      am.supporters = Array.isArray(am.supporters) ? am.supporters : [];
-      const party = partyOfCurrent(data);
-      if (!am.supporters.includes(party)) am.supporters.push(party);
-    }
-
-    if (action === "accept" && canAuthorAct) {
-      am.status = "accepted";
-      const target = articlesNow.find((a) => Number(a.number) === Number(am.articleNumber));
-      if (target) {
-        if (am.type === "replace") target.text = am.text || target.text;
-        if (am.type === "insert") target.text = `${target.text}
-${am.text || ""}`.trim();
-        if (am.type === "delete") target.text = "";
-        bill.billText = serializeBillTextWithArticles(bill.billText || "", articlesNow);
-      }
-    }
-
-    if (action === "refuse" && canAuthorAct) {
-      const leaders = new Set(Array.isArray(am.supporters) ? am.supporters : []);
-      if (leaders.size >= 2) {
-        am.status = "in-division";
-        am.division = ensureDivision(am, { status: "open", openedAt: Date.now(), closesAtSim: createDeadline(data.gameState, 1) });
-      } else {
-        am.status = "refused";
-      }
-    }
-
-    if (action === "pass-division" && isSpeaker(data) && am.status === "in-division") {
-      am.status = "accepted";
-      const target = articlesNow.find((a) => Number(a.number) === Number(am.articleNumber));
-      if (target) {
-        if (am.type === "replace") target.text = am.text || target.text;
-        if (am.type === "insert") target.text = `${target.text}
-${am.text || ""}`.trim();
-        if (am.type === "delete") target.text = "";
-        bill.billText = serializeBillTextWithArticles(bill.billText || "", articlesNow);
-      }
-      if (am.division) am.division.status = "closed";
-    }
-
-    if (action === "fail-division" && isSpeaker(data) && am.status === "in-division") {
-      am.status = "refused";
-      if (am.division) am.division.status = "closed";
-    }
-
-    persistAndRerender(data, bill);
-  }));
 }
 
-function renderDivision(bill, data) {
+async function renderDivision(bill, data) {
   const voting = $("division-voting");
   const progress = $("division-progress");
   if (!voting || !progress) return;
@@ -558,6 +607,152 @@ function renderDivision(bill, data) {
     return;
   }
 
+  const isSpeakerUser = isSpeaker(data);
+  const isStaff = canAdminModOrSpeaker(data);
+  const myParty = partyOfCurrent(data);
+  const currentName = String(getCurrentCharacter(data)?.name || "");
+  const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
+  const autoAbstainNpc = new Set(getAutoAbstainNpcParties(parties).map((p) => p.name));
+  const partyMeta = parties.find((p) => p.name === myParty) || {};
+
+  // If a formal DB division exists, use it (authoritative weighted votes)
+  if (bill.formalDivisionId) {
+    let dbDiv = null, tally = { aye: 0, no: 0, abstain: 0 }, myVote = null, myWeight = 0;
+    try {
+      const result = await apiGetDivisionForEntity("bill", bill.id);
+      if (result) {
+        dbDiv = result.division;
+        tally = result.tally;
+        myVote = result.myVote;
+        myWeight = Number(result.myWeight || 0);
+      }
+    } catch (_) {}
+
+    voting.style.display = "block";
+    progress.style.display = "block";
+
+    const divStatus = dbDiv?.status || "open";
+    const countdown = dbDiv?.closes_at_sim || "—";
+    const myVoteLabel = myVote
+      ? `Your vote: <b>${esc(myVote.vote.charAt(0).toUpperCase() + myVote.vote.slice(1))}</b>`
+      : "Not yet voted";
+    const myVoteClass = myVote ? `voted-${myVote.vote}` : "";
+    const canVote = divStatus === "open" && !!partyMeta.playable && myWeight > 0;
+
+    voting.innerHTML = `
+      <div class="division-panel">
+        <div class="division-header">
+          <div class="division-title">🗳️ Final Division (DB-backed)</div>
+          <span class="division-countdown">${divStatus === "open" ? `Closes ${esc(countdown)}` : `Closed${dbDiv?.outcome ? ` · ${dbDiv.outcome}` : ""}`}</span>
+        </div>
+        <div class="division-totals">
+          <div class="division-total-cell aye"><div class="dc-num">${tally.aye}</div><div class="dc-lbl">Aye</div></div>
+          <div class="division-total-cell no"><div class="dc-num">${tally.no}</div><div class="dc-lbl">No</div></div>
+          <div class="division-total-cell"><div class="dc-num">${tally.abstain}</div><div class="dc-lbl">Abstain</div></div>
+        </div>
+        <div class="division-my-vote ${esc(myVoteClass)}">${myVoteLabel} · Weight: <b>${myWeight}</b></div>
+        ${divStatus === "open" ? `
+          <div class="tile-bottom" style="padding-top:10px;">
+            <button class="btn ${myVote?.vote === "aye" ? "primary" : ""}" data-vote="aye" ${canVote ? "" : "disabled"}>Aye</button>
+            <button class="btn ${myVote?.vote === "no" ? "primary" : ""}" data-vote="no" ${canVote ? "" : "disabled"}>No</button>
+            <button class="btn ${myVote?.vote === "abstain" ? "primary" : ""}" data-vote="abstain" ${canVote ? "" : "disabled"}>Abstain</button>
+          </div>
+        ` : `<p class="muted">Division closed. Outcome: <b>${esc(dbDiv?.outcome || "—")}</b></p>`}
+        ${isStaff && divStatus === "open" ? `
+          <div style="margin-top:12px;">
+            <h4 style="margin:0 0 6px;">NPC Party Votes &amp; Rebels</h4>
+            <p class="muted small">Seat totals from constituencies page. Sinn Féin/Speaker excluded.</p>
+            <form id="npc-vote-form">
+              ${(() => {
+                const npcParties = parties.filter((p) => !p.playable && Number(p.seats || 0) > 0 && !autoAbstainNpc.has(p.name) && !/^speaker$/i.test(p.name));
+                const npcVotes = dbDiv?.npc_votes || {};
+                const rebels = dbDiv?.rebels_by_party || {};
+                if (!npcParties.length) return `<p class="muted">No NPC parties with seats.</p>`;
+                return npcParties.map((p) => `
+                  <div class="kv" style="margin-bottom:4px;">
+                    <span><b>${esc(p.name)}</b> (${Number(p.seats || 0)} seats)</span>
+                    <select name="npc-${esc(p.name)}" class="input" style="width:110px;">
+                      <option value="">Unallocated</option>
+                      <option value="aye" ${npcVotes[p.name] === "aye" ? "selected" : ""}>Aye</option>
+                      <option value="no" ${npcVotes[p.name] === "no" ? "selected" : ""}>No</option>
+                      <option value="abstain" ${npcVotes[p.name] === "abstain" ? "selected" : ""}>Abstain</option>
+                    </select>
+                    <input type="number" name="rebels-${esc(p.name)}" min="0" max="${Number(p.seats || 0)}" value="${Number((rebels[p.name] || 0))}" class="input" style="width:70px;" placeholder="Rebels">
+                  </div>`).join("");
+              })()}
+              <div class="tile-bottom" style="padding-top:6px;">
+                <button class="btn" type="submit">Save NPC Votes</button>
+              </div>
+              <p id="npc-msg" class="muted" style="margin-top:4px;"></p>
+            </form>
+          </div>
+        ` : ""}
+        ${isSpeakerUser && divStatus === "open" ? `<div class="tile-bottom" style="display:flex;gap:8px;padding-top:10px;"><button class="btn danger" data-action="close-division">Close Division</button></div>` : ""}
+        <p id="div-msg" class="muted" style="margin-top:6px;"></p>
+      </div>
+    `;
+
+    voting.querySelectorAll("[data-vote]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!canVote || divStatus !== "open") return;
+        const msg = voting.querySelector("#div-msg");
+        if (msg) msg.textContent = "Voting…";
+        try {
+          await apiCastVote(bill.formalDivisionId, btn.dataset.vote);
+          await renderDivision(bill, data);
+        } catch (err) { if (msg) msg.textContent = `Error: ${err.message}`; }
+      });
+    });
+
+    voting.querySelector("[data-action='close-division']")?.addEventListener("click", async () => {
+      const msg = voting.querySelector("#div-msg");
+      if (msg) msg.textContent = "Closing…";
+      try {
+        const closeResult = await apiCloseDivision(bill.formalDivisionId);
+        // Update bill status based on division outcome
+        const outcome = closeResult?.tally?.aye > closeResult?.tally?.no ? "passed" : "failed";
+        if (outcome === "passed") {
+          bill.status = "awaiting-assent";
+          bill.stage = "Passed - Awaiting Assent";
+        } else {
+          bill.status = "failed";
+          bill.stage = "Defeated in Division";
+        }
+        bill.divisionOutcome = outcome;
+        persistAndRerender(data, bill);
+      } catch (err) { if (msg) msg.textContent = `Error: ${err.message}`; }
+    });
+
+    voting.querySelector("#npc-vote-form")?.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const fd = new FormData(ev.currentTarget);
+      const msgEl = voting.querySelector("#npc-msg");
+      if (msgEl) msgEl.textContent = "Saving…";
+      const npcParties = parties.filter((p) => !p.playable && Number(p.seats || 0) > 0 && !autoAbstainNpc.has(p.name) && !/^speaker$/i.test(p.name));
+      const npcVotes = {};
+      const rebelsByParty = {};
+      npcParties.forEach((p) => {
+        const v = String(fd.get(`npc-${p.name}`) || "").toLowerCase();
+        if (["aye", "no", "abstain"].includes(v)) npcVotes[p.name] = v;
+        const rebels = Number(fd.get(`rebels-${p.name}`) || 0);
+        if (rebels > 0) rebelsByParty[p.name] = rebels;
+      });
+      try {
+        await apiSetNpcVotes(bill.formalDivisionId, npcVotes, rebelsByParty);
+        if (msgEl) msgEl.textContent = "NPC votes saved.";
+        await renderDivision(bill, data);
+      } catch (err) { if (msgEl) msgEl.textContent = `Error: ${err.message}`; }
+    });
+
+    progress.innerHTML = `
+      <h2>Division Progress</h2>
+      <div class="kv"><span>Status</span><b>${esc(divStatus)}</b></div>
+      <p class="muted small">Vote totals use server-computed seat-proportional weights from constituencies.</p>
+    `;
+    return;
+  }
+
+  // Legacy inline division (for bills that haven't been migrated to formal divisions)
   const divDefaults = { status: "open", openedAt: Number(bill.stageStartedAt || Date.now()) };
   if (bill.stageDeadlineSim) divDefaults.closesAtSim = bill.stageDeadlineSim;
   const division = ensureDivision(bill, divDefaults);
@@ -566,12 +761,7 @@ function renderDivision(bill, data) {
   const totals = tallyDivision(bill, data);
   const now = Date.now();
 
-  const myParty = partyOfCurrent(data);
-  const currentName = String(getCurrentCharacter(data)?.name || "");
   const current = division.votes[currentName]?.choice || "";
-  const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
-  const autoAbstainNpc = new Set(getAutoAbstainNpcParties(parties).map((p) => p.name));
-  const partyMeta = parties.find((p) => p.name === myParty) || {};
   const rebelsByParty = division.rebelsByParty || {};
   const myWeight = getCurrentVoteWeight(data, currentName, myParty, rebelsByParty);
   const canVote = division.status === "open" && !!partyMeta.playable && myWeight > 0;
@@ -593,34 +783,21 @@ function renderDivision(bill, data) {
         <div class="division-title">🗳️ Division</div>
         ${division.status === "open" ? `<span class="division-countdown">Closes in ${esc(countdown)}</span>` : `<span class="division-countdown">Closed</span>`}
       </div>
-
       <div class="division-totals">
-        <div class="division-total-cell aye">
-          <div class="dc-num">${totals.aye}</div>
-          <div class="dc-lbl">Aye</div>
-        </div>
-        <div class="division-total-cell no">
-          <div class="dc-num">${totals.no}</div>
-          <div class="dc-lbl">No</div>
-        </div>
-        <div class="division-total-cell">
-          <div class="dc-num">${totals.abstain}</div>
-          <div class="dc-lbl">Abstain</div>
-        </div>
+        <div class="division-total-cell aye"><div class="dc-num">${totals.aye}</div><div class="dc-lbl">Aye</div></div>
+        <div class="division-total-cell no"><div class="dc-num">${totals.no}</div><div class="dc-lbl">No</div></div>
+        <div class="division-total-cell"><div class="dc-num">${totals.abstain}</div><div class="dc-lbl">Abstain</div></div>
       </div>
-
       <div class="division-my-vote ${esc(myVoteClass)}">${myVoteLabel} · Weight: <b>${esc(myWeight.toFixed(2))}</b></div>
-
       ${pendingAmendmentDivisions ? `<p class="muted">Main bill division paused until amendment divisions are finished.</p>` : ""}
       ${!partyMeta.playable ? `<p class="muted">Your party is NPC in this cycle; only Speaker allocation applies.</p>` : ""}
       ${partyMeta.playable && !canVote ? `<p class="muted">You currently have no vote weight (likely absent without delegated weight).</p>` : ""}
-
       <div class="tile-bottom" style="padding-top:10px;">
         <button class="btn ${current === "aye" ? "primary" : ""}" data-vote="aye" ${canVote && !pendingAmendmentDivisions ? "" : "disabled"}>Aye</button>
         <button class="btn ${current === "no" ? "primary" : ""}" data-vote="no" ${canVote && !pendingAmendmentDivisions ? "" : "disabled"}>No</button>
         <button class="btn ${current === "abstain" ? "primary" : ""}" data-vote="abstain" ${canVote && !pendingAmendmentDivisions ? "" : "disabled"}>Abstain</button>
       </div>
-      ${isSpeaker(data) && division.status === "closed" && totals.aye === totals.no ? `
+      ${isSpeakerUser && division.status === "closed" && totals.aye === totals.no ? `
         <div style="margin-top:12px;" class="tile-bottom">
           <button class="btn" data-speaker="move-on">Speaker: Move On (status quo)</button>
           <button class="btn danger" data-speaker="tie-break">Speaker: Cast Tie-break Vote</button>
@@ -630,7 +807,7 @@ function renderDivision(bill, data) {
   `;
 
   const npcParties = parties.filter((p) => !p.playable && Number(p.seats || 0) > 0 && !autoAbstainNpc.has(p.name));
-  if (isSpeaker(data)) {
+  if (isSpeakerUser) {
     voting.insertAdjacentHTML("beforeend", `
       <div class="tile" style="margin-top:10px;">
         <h3 style="margin-top:0;">Speaker NPC / Rebels Control</h3>
@@ -651,14 +828,14 @@ function renderDivision(bill, data) {
         const v = String(fd.get(`npc-${p.name}`) || "").toLowerCase();
         if (["aye", "no", "abstain"].includes(v)) npcVotes[p.name] = v;
       });
-      const rebelsByParty = {};
+      const rebelsByPartyLocal = {};
       parties.filter((p) => p.playable).forEach((p) => {
         const seats = Number(p.seats || 0);
         const raw = Number(fd.get(`rebels-${p.name}`) || 0);
-        rebelsByParty[p.name] = Math.max(0, Math.min(seats, raw));
+        rebelsByPartyLocal[p.name] = Math.max(0, Math.min(seats, raw));
       });
       setNpcVotes(bill, npcVotes);
-      setRebellions(bill, rebelsByParty);
+      setRebellions(bill, rebelsByPartyLocal);
       maybeAutoCloseDivision(bill, data);
       persistAndRerender(data, bill);
     });
@@ -680,13 +857,25 @@ function renderDivision(bill, data) {
   `;
 
   voting.querySelectorAll("[data-vote]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const rebelsByPartyInner = division.rebelsByParty || {};
       const weight = getCurrentVoteWeight(data, currentName || myParty, myParty, rebelsByPartyInner);
       if (weight <= 0) return;
-      castDivisionVote(bill, currentName || myParty, { choice: btn.dataset.vote, party: myParty, weight });
+      try {
+        const result = await apiBillVote(bill.id, btn.dataset.vote);
+        if (result?.bill) {
+          Object.assign(bill, result.bill);
+          const idx = Array.isArray(data.orderPaperCommons)
+            ? data.orderPaperCommons.findIndex((b) => b.id === bill.id)
+            : -1;
+          if (idx >= 0) data.orderPaperCommons[idx] = bill;
+        }
+      } catch (err) {
+        console.error("[bill.vote] API error — falling back to local vote:", err.message);
+        castDivisionVote(bill, currentName || myParty, { choice: btn.dataset.vote, party: myParty, weight });
+      }
       maybeAutoCloseDivision(bill, data);
-      persistAndRerender(data, bill);
+      renderDivision(bill, data);
     });
   });
 
@@ -724,7 +913,7 @@ function persistAndRerender(data, bill, rerenderAll = true) {
 }
 
 function autoAdvanceStage(bill, data) {
-  if (bill.status === "failed" || bill.status === "passed" || bill.status === "awaiting-assent") return false;
+  if (bill.status === "failed" || bill.status === "passed" || bill.status === "awaiting-assent" || bill.status === "withdrawn") return false;
   const deadline = bill.stageDeadlineSim;
   if (!deadline) return false;
   const expired = isDeadlinePassed(deadline, data.gameState);
@@ -732,21 +921,20 @@ function autoAdvanceStage(bill, data) {
 
   let changed = false;
   if (bill.stage === "Second Reading") {
+    // After 2 months → moves to Report Stage (awaits staff report submission — no auto-advance)
     bill.stage = "Report Stage";
     bill.stageStartedAt = Date.now();
-    bill.stageDeadlineSim = createDeadline(data.gameState, 1);
-    changed = true;
-  } else if (bill.stage === "Report Stage") {
-    bill.stage = "Report Debate";
-    bill.stageStartedAt = Date.now();
-    bill.stageDeadlineSim = createDeadline(data.gameState, 2);
+    bill.stageDeadlineSim = null; // Report Stage has no timer: advances when staff submits report
     changed = true;
   } else if (bill.stage === "Report Debate") {
+    // After 2 months → Final Division stage (staff opens formal division)
     bill.stage = "Final Division";
     bill.stageStartedAt = Date.now();
     bill.stageDeadlineSim = createDeadline(data.gameState, 1);
     changed = true;
   }
+  // Note: Report Stage → Report Debate is triggered by staff submitting a report (server endpoint)
+  // Note: Final Division stage uses formal DB division (no auto-advance here)
 
   if (changed) saveState(data);
   return changed;
@@ -754,20 +942,27 @@ function autoAdvanceStage(bill, data) {
 
 export async function initBillPage(data) {
   const billId = getBillIdFromUrl();
-  let bill = (data?.orderPaperCommons || []).find((b) => b.id === billId) || (billId ? null : (data?.orderPaperCommons || [])[0]);
-
-  // If not found in local state, fall back to DB via API.
-  if (!bill && billId) {
+  // Always fetch from DB first (authoritative source)
+  let bill = null;
+  if (billId) {
     try {
       const result = await apiGetBill(billId);
       if (result?.bill) {
         bill = result.bill;
+        // Sync into local state
         data.orderPaperCommons ??= [];
-        data.orderPaperCommons.unshift(bill);
+        const idx = data.orderPaperCommons.findIndex((b) => b.id === billId);
+        if (idx >= 0) data.orderPaperCommons[idx] = bill;
+        else data.orderPaperCommons.unshift(bill);
       }
     } catch (err) {
-      console.error("[bill] API fallback failed:", err);
+      console.error("[bill] DB fetch failed, falling back to local state:", err);
     }
+  }
+
+  // Fallback to local state
+  if (!bill) {
+    bill = (data?.orderPaperCommons || []).find((b) => b.id === billId) || (billId ? null : (data?.orderPaperCommons || [])[0]);
   }
 
   if (!bill) {
@@ -778,12 +973,12 @@ export async function initBillPage(data) {
     return;
   }
 
-  // Auto-advance expired stages
+  // Auto-advance expired stages (client-side display aid; server is authoritative)
   while (autoAdvanceStage(bill, data)) { /* advance until current stage is not expired */ }
 
   renderBillMeta(bill, data);
   renderBillText(bill);
-  renderAmendments(bill, data);
-  renderDivision(bill, data);
+  await renderAmendments(bill, data);
+  await renderDivision(bill, data);
   setDebateLink(bill);
 }

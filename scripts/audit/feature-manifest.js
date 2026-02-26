@@ -155,6 +155,15 @@ const PLAYER_ALLOWED = new Set([
   "POST /api/regulations", "POST /api/press",
   // Author-only server-side enforced append:
   "PATCH /api/press/:id/transcript",
+  // B3: server-authoritative bill division vote — player-accessible but weight is computed server-side
+  "PATCH /api/bills/:id/vote",
+  // Player EDM signing — append-only, enforced server-side
+  "POST /api/motions/:id/sign",
+  // Bill process actions — player-accessible with server-enforced role checks
+  "POST /api/bills/:id/withdraw",           // author/PM/admin can withdraw
+  "POST /api/bills/:id/amendments",         // any MP can submit amendments
+  "POST /api/bills/:id/amendments/:id/decide", // bill author accepts/refuses
+  "POST /api/bills/:id/amendments/:id/support", // party leader declares support
 ]);
 
 const immutabilityViolations = serverEndpoints.filter((ep) => {

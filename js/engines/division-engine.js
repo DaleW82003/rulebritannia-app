@@ -51,6 +51,7 @@ export function tallyDivision(container, data) {
   const division = ensureDivision(container);
   const totals = { aye: 0, no: 0, abstain: 0 };
   const seats = getPartySeatMap(data);
+  // Sinn Féin: do not take seats — auto-abstain. Speaker: tie-break only, not in tallied vote.
   const autoAbstainParties = Object.keys(seats).filter((party) => /sinn\s*f[ée]in/i.test(String(party || "")) && Number(seats[party] || 0) > 0);
 
   Object.values(division.votes).forEach((v) => {
@@ -59,6 +60,8 @@ export function tallyDivision(container, data) {
 
   for (const [party, vote] of Object.entries(division.npcVotes || {})) {
     if (autoAbstainParties.includes(party)) continue;
+    // Speaker does not vote in divisions (tie-break only)
+    if (/^speaker$/i.test(String(party || ""))) continue;
     const partySeats = Number(seats[party] || 0);
     const rebels = Number((division.rebelsByParty || {})[party] || 0);
     const weight = Math.max(0, partySeats - rebels);

@@ -426,6 +426,64 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
 
+  // Bill amendments — server-authoritative tracking of amendments per bill
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bill_amendments (
+      id                  TEXT NOT NULL,
+      bill_id             TEXT NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+      article_number      INT,
+      amendment_type      TEXT NOT NULL DEFAULT 'replace'
+                          CHECK (amendment_type IN ('replace','insert','delete')),
+      title               TEXT NOT NULL,
+      text                TEXT NOT NULL DEFAULT '',
+      proposed_by_id      UUID REFERENCES characters(id) ON DELETE SET NULL,
+      proposed_by_name    TEXT,
+      proposed_by_party   TEXT,
+      status              TEXT NOT NULL DEFAULT 'proposed'
+                          CHECK (status IN ('proposed','accepted','refused','in-division','withdrawn')),
+      division_id         TEXT REFERENCES divisions(id) ON DELETE SET NULL,
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (bill_id, id)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bill_amendment_supporters (
+      bill_id       TEXT NOT NULL,
+      amendment_id  TEXT NOT NULL,
+      character_id  UUID REFERENCES characters(id) ON DELETE CASCADE,
+      party         TEXT NOT NULL,
+      added_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (bill_id, amendment_id, party),
+      FOREIGN KEY (bill_id, amendment_id) REFERENCES bill_amendments(bill_id, id) ON DELETE CASCADE
+    )
+  `);
+
+  // Bill stage reports — report submissions for the Report Stage
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bill_stage_reports (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      bill_id         TEXT NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+      submitted_by_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      submitted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      content         TEXT,
+      attachment_url  TEXT,
+      sim_month       INT,
+      sim_year        INT
+    )
+  `);
+
+  // Bill opposition quota — tracks how many opposition bills submitted per character per sim year
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bill_opposition_quota (
+      character_id  UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      sim_year      INT NOT NULL,
+      bill_type     TEXT NOT NULL CHECK (bill_type IN ('opposition','pmb_leader_3rd')),
+      count         INT NOT NULL DEFAULT 0,
+      PRIMARY KEY (character_id, sim_year, bill_type)
+    )
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS motions (
       id                  TEXT PRIMARY KEY,
@@ -3960,6 +4018,886 @@ app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
     const { rowCount } = await pool.query("DELETE FROM bills WHERE id = $1", [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: "Bill not found" });
     res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BILL STAGE & PROCESS ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Bill stage constants. These mirror the client-side stage labels for consistency.
+ * All stage transitions are now server-enforced.
+ */
+const BILL_STAGE_FIRST_READING   = "First Reading";
+const BILL_STAGE_SECOND_READING  = "Second Reading";
+const BILL_STAGE_REPORT_STAGE    = "Report Stage";
+const BILL_STAGE_REPORT_DEBATE   = "Report Debate";
+const BILL_STAGE_FINAL_DIVISION  = "Final Division";
+const BILL_STAGE_PASSED_ASSENT   = "Passed - Awaiting Assent";
+const BILL_STAGE_ROYAL_ASSENT    = "Act (Royal Assent Granted)";
+const BILL_STAGE_REFUSED         = "First Reading Refused";
+const BILL_STAGE_DEFEATED        = "Defeated in Division";
+const BILL_STAGE_WITHDRAWN       = "Withdrawn";
+
+/** Duration in simulation months for timed stages. */
+const BILL_STAGE_MONTHS = {
+  [BILL_STAGE_SECOND_READING]: 2,
+  [BILL_STAGE_REPORT_DEBATE]:  2,
+  [BILL_STAGE_FINAL_DIVISION]: 1,
+};
+
+/** How long a resolved bill stays on the order paper before archiving (sim months). */
+const BILL_ORDER_PAPER_MONTHS = 4;
+
+/**
+ * Compute a { month, year } sim deadline by adding `months` to the current sim time.
+ */
+function simDeadline(simMonth, simYear, months) {
+  const total = simMonth + months - 1; // 0-indexed offset
+  return {
+    month: ((total % 12) || 12),
+    year:  simYear + Math.floor(total / 12),
+  };
+}
+
+/**
+ * Check whether a sim deadline { month, year } has passed given the current sim time.
+ */
+function simDeadlinePassed(deadline, simMonth, simYear) {
+  if (!deadline) return false;
+  if (simYear > deadline.year) return true;
+  if (simYear === deadline.year && simMonth > deadline.month) return true;
+  return false;
+}
+
+/** Remaining whole sim months until a deadline (0 if past). */
+function simMonthsLeft(deadline, simMonth, simYear) {
+  if (!deadline) return 0;
+  const remaining = (deadline.year - simYear) * 12 + (deadline.month - simMonth);
+  return Math.max(0, remaining);
+}
+
+// ── Helper: advance bill stage in DB and return the updated bill data ────────
+async function advanceBillStage(billId, nextStage, simMonth, simYear, extraPatch = {}) {
+  const stagePatch = {
+    stage: nextStage,
+    stageStartedAt: new Date().toISOString(),
+    stageDeadlineSim: BILL_STAGE_MONTHS[nextStage]
+      ? simDeadline(simMonth, simYear, BILL_STAGE_MONTHS[nextStage])
+      : null,
+    ...extraPatch,
+  };
+  const { rows } = await pool.query(
+    `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2
+     RETURNING id, data`,
+    [JSON.stringify(stagePatch), billId]
+  );
+  return rows[0]?.data || null;
+}
+
+/**
+ * Format a sim deadline as a TEXT value for the divisions.closes_at_sim column.
+ * e.g. { month: 1, year: 1998 } → "1998-01"
+ */
+function simDeadlineToText(month, year) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+/** Returns a closes_at_sim TEXT value 1 sim month from now. */
+function nextSimMonth(simMonth, simYear) {
+  const d = simDeadline(simMonth, simYear, 1);
+  return simDeadlineToText(d.month, d.year);
+}
+
+// POST /api/bills/:id/first-reading — PM or Leader of House grants or refuses second reading
+// Body: { action: "grant" | "refuse" }
+app.post("/api/bills/:id/first-reading", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { action } = req.body || {};
+    if (!["grant", "refuse"].includes(action)) {
+      return res.status(400).json({ error: "action must be 'grant' or 'refuse'" });
+    }
+
+    // Permission: PM, Leader of the House, admin, or mod
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    let canAct = isStaff;
+    if (!canAct) {
+      const charId = await getActiveCharacterId(req);
+      if (charId) {
+        const { rows: cRows } = await pool.query(
+          "SELECT office, role FROM characters WHERE id = $1", [charId]
+        );
+        const char = cRows[0] || {};
+        canAct = ["prime-minister", "leader-commons"].includes(String(char.office || "")) ||
+                 String(char.role || "") === "prime-minister";
+      }
+    }
+    if (!canAct) return res.status(403).json({ error: "PM, Leader of the House, admin or mod required" });
+
+    // Validate current stage
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+    if (bill.stage !== BILL_STAGE_FIRST_READING) {
+      return res.status(409).json({ error: `Bill is not at First Reading (current: ${bill.stage})` });
+    }
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+
+    let updatedBill;
+    if (action === "grant") {
+      updatedBill = await advanceBillStage(req.params.id, BILL_STAGE_SECOND_READING, sm, sy);
+    } else {
+      updatedBill = await advanceBillStage(req.params.id, BILL_STAGE_REFUSED, sm, sy, { status: "failed" });
+    }
+
+    await writeAuditLog(req.session.userId, `bill.first-reading.${action}`, "bill", req.params.id, bill, updatedBill);
+    res.json({ ok: true, bill: updatedBill });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/report — admin/mod/speaker submits report for Report Stage → Report Debate
+// Body: { content?, attachmentUrl? }
+app.post("/api/bills/:id/report", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+    if (bill.stage !== BILL_STAGE_REPORT_STAGE) {
+      return res.status(409).json({ error: `Bill is not at Report Stage (current: ${bill.stage})` });
+    }
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+
+    const charId = await getActiveCharacterId(req);
+    const { content = null, attachmentUrl = null } = req.body || {};
+
+    // Save report record
+    await pool.query(
+      `INSERT INTO bill_stage_reports (bill_id, submitted_by_id, content, attachment_url, sim_month, sim_year)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [req.params.id, charId || null, content || null, attachmentUrl || null, sm, sy]
+    );
+
+    // Advance stage
+    const updatedBill = await advanceBillStage(req.params.id, BILL_STAGE_REPORT_DEBATE, sm, sy, {
+      reportSubmittedAt: new Date().toISOString(),
+      reportContent: content || null,
+      reportAttachmentUrl: attachmentUrl || null,
+    });
+
+    await writeAuditLog(req.session.userId, "bill.report.submitted", "bill", req.params.id, bill, updatedBill);
+    res.json({ ok: true, bill: updatedBill });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/withdraw — author, PM, or admin/mod withdraws a bill
+app.post("/api/bills/:id/withdraw", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+
+    if (["passed", "failed", "withdrawn"].includes(String(bill.status || ""))) {
+      return res.status(409).json({ error: "Bill is already concluded and cannot be withdrawn" });
+    }
+
+    // Permission: bill author (by character name), PM, admin, or mod
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    let canWithdraw = isStaff;
+    if (!canWithdraw) {
+      const charId = await getActiveCharacterId(req);
+      if (charId) {
+        const { rows: cRows } = await pool.query(
+          "SELECT name, office, role FROM characters WHERE id = $1", [charId]
+        );
+        const char = cRows[0] || {};
+        // Author match or PM
+        canWithdraw = String(char.name || "") === String(bill.author || "") ||
+                      ["prime-minister", "leader-commons"].includes(String(char.office || "")) ||
+                      String(char.role || "") === "prime-minister";
+      }
+    }
+    if (!canWithdraw) return res.status(403).json({ error: "Bill author, PM, admin or mod required" });
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+
+    const updatedBill = await advanceBillStage(req.params.id, BILL_STAGE_WITHDRAWN, sm, sy, {
+      status: "withdrawn",
+      withdrawnAt: new Date().toISOString(),
+    });
+
+    await writeAuditLog(req.session.userId, "bill.withdraw", "bill", req.params.id, bill, updatedBill);
+    res.json({ ok: true, bill: updatedBill });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/assent — admin/mod grants Royal Assent
+app.post("/api/bills/:id/assent", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+
+    if (bill.status !== "awaiting-assent") {
+      return res.status(409).json({ error: `Bill is not awaiting assent (status: ${bill.status})` });
+    }
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+
+    const updatedBill = await advanceBillStage(req.params.id, BILL_STAGE_ROYAL_ASSENT, sm, sy, {
+      status: "passed",
+      royalAssentGrantedAt: new Date().toISOString(),
+      legislationKind: "Act of Parliament",
+      // rename "Bill" to "Act" in title
+      title: String(bill.title || "").replace(/\bbill\b/ig, "Act"),
+    });
+
+    await writeAuditLog(req.session.userId, "bill.assent", "bill", req.params.id, bill, updatedBill);
+    res.json({ ok: true, bill: updatedBill });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Amendment endpoints ───────────────────────────────────────────────────────
+
+// Stages during which amendments may be submitted (first 1.5 sim months only)
+const AMENDMENT_ALLOWED_STAGES = new Set([BILL_STAGE_SECOND_READING, BILL_STAGE_REPORT_DEBATE]);
+
+/** Returns true if the amendment window is open (first 1.5 months of a 2-month stage). */
+function amendmentWindowOpen(bill, simMonth, simYear) {
+  if (!AMENDMENT_ALLOWED_STAGES.has(bill.stage)) return false;
+  const deadline = bill.stageDeadlineSim;
+  if (!deadline) return true; // no deadline set yet → still open
+  // The stage lasts 2 months. The window closes after the first 1.5 months.
+  // We model this as: the window is open while at least 1 full sim month remains before the deadline.
+  // (i.e. the window closes when < 1 month remains — 0.5 months left = window closed).
+  const remaining = simMonthsLeft(deadline, simMonth, simYear);
+  return remaining >= 1; // "at least 1 full sim month remaining" → window open
+}
+
+// POST /api/bills/:id/amendments — any MP submits an amendment
+// Body: { articleNumber, type: replace|insert|delete, title, text }
+app.post("/api/bills/:id/amendments", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(403).json({ error: "No active character" });
+
+    const { rows: cRows } = await pool.query(
+      "SELECT name, party, role, office FROM characters WHERE id = $1", [charId]
+    );
+    if (!cRows.length) return res.status(403).json({ error: "Character not found" });
+    const char = cRows[0];
+
+    // Any MP role may submit amendments
+    const mpRoles = ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th", "prime-minister"];
+    if (!mpRoles.includes(String(char.role || ""))) {
+      return res.status(403).json({ error: "Only MPs may submit amendments" });
+    }
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+
+    if (!amendmentWindowOpen(bill, sm, sy)) {
+      return res.status(409).json({ error: "Amendment window is closed at this stage" });
+    }
+
+    const { articleNumber, type, title, text } = req.body || {};
+    if (!title) return res.status(400).json({ error: "title is required" });
+    if (!["replace", "insert", "delete"].includes(type)) {
+      return res.status(400).json({ error: "type must be replace, insert, or delete" });
+    }
+
+    // Generate amendment ID
+    const { rows: countRows } = await pool.query(
+      "SELECT COUNT(*) AS cnt FROM bill_amendments WHERE bill_id = $1", [req.params.id]
+    );
+    const amendId = `A${Number(countRows[0]?.cnt || 0) + 1}`;
+
+    const isAuthor = String(char.name || "") === String(bill.author || "");
+    const initialStatus = isAuthor ? "accepted" : "proposed";
+
+    await pool.query(
+      `INSERT INTO bill_amendments
+         (id, bill_id, article_number, amendment_type, title, text,
+          proposed_by_id, proposed_by_name, proposed_by_party, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [amendId, req.params.id, articleNumber || null, type, title, text || "",
+       charId, char.name, char.party || "Independent", initialStatus]
+    );
+
+    // If auto-accepted (author submitted), apply the amendment to bill text immediately
+    if (isAuthor) {
+      const updatedText = applyAmendmentToBillText(bill.billText || "", articleNumber, type, text || "");
+      await pool.query(
+        `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+        [JSON.stringify({ billText: updatedText }), req.params.id]
+      );
+    }
+
+    const { rows: amRows } = await pool.query(
+      "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, amendId]
+    );
+    res.status(201).json({ ok: true, amendment: amRows[0], autoAccepted: isAuthor });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/amendments/:aid/decide — bill author accepts or refuses an amendment
+// Body: { decision: "accept" | "refuse" }
+app.post("/api/bills/:id/amendments/:aid/decide", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(403).json({ error: "No active character" });
+
+    const { decision } = req.body || {};
+    if (!["accept", "refuse"].includes(decision)) {
+      return res.status(400).json({ error: "decision must be 'accept' or 'refuse'" });
+    }
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+
+    const { rows: amRows } = await pool.query(
+      "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, req.params.aid]
+    );
+    if (!amRows.length) return res.status(404).json({ error: "Amendment not found" });
+    const am = amRows[0];
+    if (am.status !== "proposed") return res.status(409).json({ error: `Amendment is already ${am.status}` });
+
+    // Only the bill author may decide
+    const { rows: cRows } = await pool.query("SELECT name FROM characters WHERE id = $1", [charId]);
+    if (!cRows.length || String(cRows[0].name) !== String(bill.author || "")) {
+      // Check if author, admin or mod
+      const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+      const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+      if (!isStaff) return res.status(403).json({ error: "Only the bill author, admin or mod may decide on amendments" });
+    }
+
+    if (decision === "accept") {
+      // Apply amendment to bill text
+      const updatedText = applyAmendmentToBillText(bill.billText || "", am.article_number, am.amendment_type, am.text || "");
+      await pool.query(`UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+        [JSON.stringify({ billText: updatedText }), req.params.id]);
+      await pool.query(
+        `UPDATE bill_amendments SET status = 'accepted', updated_at = NOW() WHERE bill_id = $1 AND id = $2`,
+        [req.params.id, req.params.aid]
+      );
+    } else {
+      // Refuse: check if 2+ party leaders already support — if so, trigger division instead
+      const { rows: suppRows } = await pool.query(
+        "SELECT COUNT(*) AS cnt FROM bill_amendment_supporters WHERE bill_id = $1 AND amendment_id = $2",
+        [req.params.id, req.params.aid]
+      );
+      const supportCount = Number(suppRows[0]?.cnt || 0);
+      if (supportCount >= 2) {
+        // Trigger a 1-month amendment division via formal divisions table
+        const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+        const sm = clk[0]?.sim_current_month ?? 8;
+        const sy = clk[0]?.sim_current_year  ?? 1997;
+        const closesAtSim = nextSimMonth(sm, sy);
+        const { rows: divRows } = await pool.query(
+          `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
+           VALUES ('bill-amendment', $1, $2, $3)
+           RETURNING id`,
+          [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim]
+        );
+        await pool.query(
+          `UPDATE bill_amendments SET status = 'in-division', division_id = $3, updated_at = NOW()
+           WHERE bill_id = $1 AND id = $2`,
+          [req.params.id, req.params.aid, divRows[0].id]
+        );
+      } else {
+        await pool.query(
+          `UPDATE bill_amendments SET status = 'refused', updated_at = NOW() WHERE bill_id = $1 AND id = $2`,
+          [req.params.id, req.params.aid]
+        );
+      }
+    }
+
+    const { rows: updated } = await pool.query(
+      "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, req.params.aid]
+    );
+    res.json({ ok: true, amendment: updated[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/amendments/:aid/support — party leader declares support for an amendment
+// If 2+ leaders support → triggers a 1-month division on the amendment
+app.post("/api/bills/:id/amendments/:aid/support", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(403).json({ error: "No active character" });
+
+    const { rows: cRows } = await pool.query("SELECT name, party, role FROM characters WHERE id = $1", [charId]);
+    if (!cRows.length) return res.status(403).json({ error: "Character not found" });
+    const char = cRows[0];
+
+    const leaderRoles = ["prime-minister", "leader-opposition", "party-leader-3rd-4th"];
+    if (!leaderRoles.includes(String(char.role || ""))) {
+      return res.status(403).json({ error: "Only party leaders may declare formal support for amendments" });
+    }
+
+    const { rows: amRows } = await pool.query(
+      "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, req.params.aid]
+    );
+    if (!amRows.length) return res.status(404).json({ error: "Amendment not found" });
+    const am = amRows[0];
+    if (am.status !== "proposed") return res.status(409).json({ error: `Amendment is already ${am.status}` });
+
+    // Upsert support (party-based, one per party)
+    await pool.query(
+      `INSERT INTO bill_amendment_supporters (bill_id, amendment_id, character_id, party)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (bill_id, amendment_id, party) DO UPDATE SET character_id = EXCLUDED.character_id, added_at = NOW()`,
+      [req.params.id, req.params.aid, charId, char.party || "Independent"]
+    );
+
+    const { rows: suppRows } = await pool.query(
+      "SELECT COUNT(*) AS cnt FROM bill_amendment_supporters WHERE bill_id = $1 AND amendment_id = $2",
+      [req.params.id, req.params.aid]
+    );
+    const supportCount = Number(suppRows[0]?.cnt || 0);
+    let divisionTriggered = false;
+
+    // 2+ leaders AND bill author has not yet accepted → auto-trigger amendment division
+    if (supportCount >= 2 && am.status === "proposed") {
+      const { rows: billRows } = await pool.query("SELECT data FROM bills WHERE id = $1", [req.params.id]);
+      const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+      const sm = clk[0]?.sim_current_month ?? 8;
+      const sy = clk[0]?.sim_current_year  ?? 1997;
+      const bill = billRows[0]?.data || {};
+      const closesAtSim = nextSimMonth(sm, sy);
+      const { rows: divRows } = await pool.query(
+        `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
+         VALUES ('bill-amendment', $1, $2, $3)
+         RETURNING id`,
+        [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim]
+      );
+      await pool.query(
+        `UPDATE bill_amendments SET status = 'in-division', division_id = $3, updated_at = NOW()
+         WHERE bill_id = $1 AND id = $2`,
+        [req.params.id, req.params.aid, divRows[0].id]
+      );
+      divisionTriggered = true;
+    }
+
+    const { rows: updated } = await pool.query(
+      "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, req.params.aid]
+    );
+    res.json({ ok: true, amendment: updated[0], supportCount, divisionTriggered });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/bills/:id/amendments — list all amendments for a bill
+app.get("/api/bills/:id/amendments", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT ba.*, 
+              COALESCE(json_agg(bas.party ORDER BY bas.added_at) FILTER (WHERE bas.party IS NOT NULL), '[]') AS supporter_parties
+         FROM bill_amendments ba
+         LEFT JOIN bill_amendment_supporters bas ON bas.bill_id = ba.bill_id AND bas.amendment_id = ba.id
+        WHERE ba.bill_id = $1
+        GROUP BY ba.bill_id, ba.id
+        ORDER BY ba.created_at ASC`,
+      [req.params.id]
+    );
+    res.json({ amendments: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/bills/:id/final-division — admin/mod/speaker opens the Final Division
+// (creates a formal division in the divisions table for the bill)
+app.post("/api/bills/:id/final-division", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+
+    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = billRows[0].data;
+
+    // Must be at Final Division stage
+    if (bill.stage !== BILL_STAGE_FINAL_DIVISION) {
+      return res.status(409).json({ error: `Bill must be at Final Division stage (current: ${bill.stage})` });
+    }
+
+    // Check no open amendment divisions still pending
+    const { rows: pendingAmends } = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM bill_amendments ba
+         JOIN divisions d ON d.id = ba.division_id
+        WHERE ba.bill_id = $1 AND ba.status = 'in-division' AND d.status = 'open'`,
+      [req.params.id]
+    );
+    if (Number(pendingAmends[0]?.cnt || 0) > 0) {
+      return res.status(409).json({ error: "All amendment divisions must be resolved before opening the final division" });
+    }
+
+    // Check no proposed amendments still pending author decision
+    const { rows: pendingProposed } = await pool.query(
+      "SELECT COUNT(*) AS cnt FROM bill_amendments WHERE bill_id = $1 AND status = 'proposed'",
+      [req.params.id]
+    );
+    if (Number(pendingProposed[0]?.cnt || 0) > 0) {
+      return res.status(409).json({ error: "All amendments must be accepted or refused before opening the final division" });
+    }
+
+    // Check if a formal division already exists
+    const { rows: existDiv } = await pool.query(
+      "SELECT id FROM divisions WHERE entity_type = 'bill' AND entity_id = $1 ORDER BY created_at DESC LIMIT 1",
+      [req.params.id]
+    );
+    if (existDiv.length) {
+      return res.status(409).json({ error: "Final division already exists", divisionId: existDiv[0].id });
+    }
+
+    const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const sm = clk[0]?.sim_current_month ?? 8;
+    const sy = clk[0]?.sim_current_year  ?? 1997;
+    const closesAtSim = nextSimMonth(sm, sy);
+
+    const { rows: divRows } = await pool.query(
+      `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
+       VALUES ('bill', $1, $2, $3)
+       RETURNING id, entity_type, entity_id, title, status, closes_at_sim, created_at`,
+      [req.params.id, `Final Division: ${bill.title || req.params.id}`, closesAtSim]
+    );
+
+    // Record division id in bill data
+    await pool.query(
+      `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify({ formalDivisionId: divRows[0].id }), req.params.id]
+    );
+
+    await writeAuditLog(req.session.userId, "bill.final-division.opened", "bill", req.params.id, bill, divRows[0]);
+    res.status(201).json({ ok: true, division: divRows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * Apply an amendment to bill text (article-based format).
+ * This mirrors the client-side logic but runs on the server for DB-authoritative updates.
+ */
+function applyAmendmentToBillText(billText, articleNumber, type, amendText) {
+  if (!billText || articleNumber == null) return billText;
+  const lines = String(billText).split("\n");
+  const articles = [];
+  let current = null;
+  lines.forEach((line) => {
+    const m = line.match(/^ARTICLE\s+(\d+)\s+—\s+(.+)$/i);
+    if (m) {
+      if (current) articles.push(current);
+      current = { number: Number(m[1]), heading: m[2], bodyLines: [] };
+    } else if (current) {
+      current.bodyLines.push(line);
+    }
+  });
+  if (current) articles.push(current);
+
+  const target = articles.find((a) => Number(a.number) === Number(articleNumber));
+  if (!target) return billText;
+
+  const oldText = target.bodyLines.join("\n").trim();
+  if (type === "replace") target.bodyLines = [amendText];
+  else if (type === "insert") target.bodyLines = [oldText, amendText].filter(Boolean);
+  else if (type === "delete") target.bodyLines = [];
+
+  // Reconstruct bill text
+  const headerLines = [];
+  let pastFirstArticle = false;
+  for (const line of lines) {
+    if (/^ARTICLE\s+\d+\s+—\s+.+$/i.test(line)) { pastFirstArticle = true; break; }
+    headerLines.push(line);
+  }
+  const finalIdx = lines.findIndex((l) => /^FINAL ARTICLE\s+—/i.test(l));
+  const finalPart = finalIdx >= 0 ? "\n" + lines.slice(finalIdx).join("\n") : "";
+
+  const body = articles.map((a) => [
+    `ARTICLE ${a.number} — ${a.heading}`,
+    a.bodyLines.join("\n"),
+  ].join("\n")).join("\n\n");
+
+  return [headerLines.join("\n"), body, finalPart].join("\n").trim();
+}
+/** Party name regexes for parties with special voting rules. */
+const SPEAKER_PARTY_RE  = /^speaker$/i;
+const SINN_FEIN_PARTY_RE = /sinn\s*f[ée]in/i;
+
+/**
+ * Get party seat totals from the constituencies table.
+ * This is the canonical, DB-authoritative source for weighted voting calculations,
+ * matching what is displayed on the constituencies page.
+ *
+ * @param {Pool} pool - pg Pool
+ * @returns {Promise<Object>} { partyName: seatCount }
+ */
+async function getPartySeatsFromConstituencies(pool) {
+  const { rows } = await pool.query(
+    "SELECT party, COUNT(*) AS seats FROM constituencies WHERE party IS NOT NULL AND party <> '' GROUP BY party"
+  );
+  return Object.fromEntries(rows.map((r) => [String(r.party), Number(r.seats)]));
+}
+
+/**
+ * Compute weighted vote weights for all active players.
+ *
+ * Formula: each party's constituency seat total is distributed evenly among its
+ * active, settled players. New backbenchers (<2 weeks) receive 1 until settled.
+ * Absent players' weights delegate to their party leader (or a nominated deputy).
+ *
+ * Special rules:
+ * - Speaker party members receive 0 weight (Speaker does not vote; tie-break only).
+ * - Sinn Féin members receive 0 weight (do not take their seats).
+ *
+ * @param {Object} seatsByParty - { partyName: seatCount } from constituencies DB
+ * @param {Array}  players      - active players from game state (with absent/delegatedTo/joinedAt/role)
+ * @returns {{ effectiveWeights: Object, baseWeights: Object, leaderByParty: Object }}
+ */
+function computeAllPlayerWeights(seatsByParty, players) {
+  const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+  const allPlayers = (players || []).filter((p) => p != null && p.active !== false);
+
+  function isSettledBackbencher(p) {
+    if (!p || p.role !== "backbencher") return true;
+    const joined = Date.parse(p.joinedAt || "");
+    if (!Number.isFinite(joined)) return true;
+    return (Date.now() - joined) >= TWO_WEEKS_MS;
+  }
+
+  function findPartyLeader(members) {
+    return (
+      members.find((m) => m.partyLeader) ||
+      members.find((m) => m.role === "prime-minister") ||
+      members.find((m) => m.role === "leader-opposition") ||
+      members.find((m) => m.role === "party-leader-3rd-4th") ||
+      members[0] ||
+      null
+    );
+  }
+
+  // Group by party
+  const byParty = new Map();
+  allPlayers.forEach((p) => {
+    const party = String(p.party || "Independent");
+    if (!byParty.has(party)) byParty.set(party, []);
+    byParty.get(party).push(p);
+  });
+
+  const baseWeights = {};
+  const leaderByParty = {};
+
+  byParty.forEach((members, party) => {
+    members.forEach((m) => { baseWeights[String(m.name || "")] = 0; });
+
+    // Speaker does not vote (tie-break only); Sinn Féin do not take their seats.
+    if (SPEAKER_PARTY_RE.test(party) || SINN_FEIN_PARTY_RE.test(party)) return;
+
+    const seats = Math.max(0, Math.floor(Number(seatsByParty[party] || 0)));
+    const leader = findPartyLeader(members);
+    if (leader) leaderByParty[party] = String(leader.name || "");
+
+    const newBackbenchers = members.filter((m) => !isSettledBackbencher(m));
+    newBackbenchers.forEach((m) => { baseWeights[String(m.name || "")] += 1; });
+
+    const remaining = Math.max(0, seats - newBackbenchers.length);
+    const splitMembers = members.filter((m) => isSettledBackbencher(m));
+
+    if (!splitMembers.length) {
+      if (leader) baseWeights[String(leader.name || "")] = (baseWeights[String(leader.name || "")] || 0) + remaining;
+      return;
+    }
+
+    const each = Math.floor(remaining / splitMembers.length);
+    const odd  = remaining - (each * splitMembers.length);
+    splitMembers.forEach((m) => { baseWeights[String(m.name || "")] = (baseWeights[String(m.name || "")] || 0) + each; });
+
+    if (odd > 0) {
+      const leaderName = leader ? String(leader.name || "") : null;
+      const oddTarget = leaderName && splitMembers.some((m) => m.name === leader.name)
+        ? leaderName
+        : String(splitMembers[0].name || "");
+      baseWeights[oddTarget] = (baseWeights[oddTarget] || 0) + odd;
+    }
+  });
+
+  // Delegation: absent players' weights route to their party leader (or deputy)
+  const effectiveWeights = { ...baseWeights };
+  const playersByName = Object.fromEntries(allPlayers.map((p) => [String(p.name || ""), p]));
+
+  allPlayers.forEach((p) => {
+    if (!p?.absent) return;
+    const from = String(p.name || "");
+    const amount = Number(effectiveWeights[from] || 0);
+    if (amount <= 0) return;
+
+    const party = String(p.party || "Independent");
+    const leaderName = leaderByParty[party] || null;
+    const isLeader = leaderName && from === leaderName;
+
+    let target = null;
+    if (isLeader) {
+      const candidate = String(p.delegatedTo || "").trim();
+      if (candidate && playersByName[candidate] && !playersByName[candidate].absent) {
+        target = candidate;
+      } else {
+        target = allPlayers.find(
+          (q) => String(q.party || "Independent") === party && q.name !== from && !q.absent
+        )?.name || null;
+      }
+    } else if (leaderName && playersByName[leaderName] && !playersByName[leaderName].absent) {
+      target = leaderName;
+    }
+
+    effectiveWeights[from] = 0;
+    if (target && target !== from) {
+      effectiveWeights[target] = (Number(effectiveWeights[target] || 0)) + amount;
+    }
+  });
+
+  return { effectiveWeights, baseWeights, leaderByParty };
+}
+
+// PATCH /api/bills/:id/vote — authenticated: cast a server-authoritative vote on a bill division
+app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const billId = req.params.id;
+    const voteChoice = String(req.body?.vote || "").toLowerCase();
+    if (!["aye", "no", "abstain"].includes(voteChoice)) {
+      return res.status(400).json({ error: "vote must be aye, no, or abstain" });
+    }
+
+    // Get bill from DB
+    const { rows: billRows } = await pool.query(
+      "SELECT data FROM bills WHERE id = $1", [billId]
+    );
+    if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
+    const bill = { ...billRows[0].data };
+
+    // Division must be open
+    if (bill.division?.status && bill.division.status !== "open") {
+      return res.status(409).json({ error: "Division is not open" });
+    }
+
+    // Get current active character from DB
+    const { rows: charRows } = await pool.query(
+      "SELECT name, party FROM characters WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at DESC LIMIT 1",
+      [req.session.userId]
+    );
+    if (!charRows.length) return res.status(400).json({ error: "No active character found" });
+    const { name: charName, party: charParty } = charRows[0];
+
+    // Seat totals from constituencies DB (authoritative source — constituencies page)
+    const seatsByParty = await getPartySeatsFromConstituencies(pool);
+
+    // Load current game state for player list (absence/delegation info)
+    const { rows: stateRows } = await pool.query(
+      `SELECT ss.data
+         FROM state_snapshots ss
+         JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+        WHERE asc2.id = 'main'`
+    );
+    const stateData = stateRows[0]?.data ?? {};
+    const players = Array.isArray(stateData?.players) ? stateData.players : [];
+
+    // Compute effective weight server-side (seats from constituencies DB, players from state)
+    const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, players);
+    const effectiveWeight = Number(effectiveWeights[charName] || 0);
+
+    // Initialise division if this is the first vote
+    bill.division ??= { status: "open", votes: {}, openedAt: Date.now(), rebelsByParty: {}, npcVotes: {} };
+    bill.division.votes ??= {};
+
+    // Store vote
+    bill.division.votes[charName] = {
+      actor: charName,
+      party: charParty,
+      choice: voteChoice,
+      weight: effectiveWeight,
+      effective_weight: effectiveWeight,
+      at: Date.now(),
+    };
+
+    // Upsert bill to DB
+    const { rowCount } = await pool.query(
+      "UPDATE bills SET data = $1::jsonb, updated_at = NOW() WHERE id = $2",
+      [JSON.stringify(bill), billId]
+    );
+    if (!rowCount) return res.status(404).json({ error: "Bill not found" });
+
+    // Compute server-side tally from stored votes
+    const tally = { aye: 0, no: 0, abstain: 0 };
+    Object.values(bill.division.votes).forEach((v) => {
+      const c = String(v.choice || "abstain").toLowerCase();
+      if (c in tally) tally[c] += Number(v.effective_weight ?? v.weight ?? 0);
+    });
+
+    res.json({
+      ok: true,
+      bill,
+      vote: { actor: charName, choice: voteChoice, effective_weight: effectiveWeight },
+      tally,
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7906,9 +8844,9 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
 
     const division = rows[0];
 
-    // Tally
+    // Tally using effective_weight (server-computed seat-proportional values)
     const { rows: votes } = await pool.query(
-      `SELECT vote, SUM(weight) AS total_weight, COUNT(*) AS count
+      `SELECT vote, SUM(effective_weight) AS total_weight, COUNT(*) AS count
          FROM division_votes WHERE division_id = $1
         GROUP BY vote`,
       [division.id]
@@ -7916,18 +8854,36 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const tally = { aye: 0, no: 0, abstain: 0 };
     votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
 
-    // Caller's own vote
+    // Caller's own vote and effective weight
     const charId = await getActiveCharacterId(req);
     let myVote = null;
+    let myWeight = 0;
     if (charId) {
       const { rows: mv } = await pool.query(
-        "SELECT vote, weight FROM division_votes WHERE division_id = $1 AND character_id = $2",
+        "SELECT vote, effective_weight AS weight FROM division_votes WHERE division_id = $1 AND character_id = $2",
         [division.id, charId]
       );
       myVote = mv[0] || null;
+
+      // Compute the caller's current effective weight from constituencies DB
+      try {
+        const { rows: charRows } = await pool.query(
+          "SELECT name FROM characters WHERE id = $1", [charId]
+        );
+        const charName = charRows[0]?.name || "";
+        const seatsByParty = await getPartySeatsFromConstituencies(pool);
+        const { rows: stateRows } = await pool.query(
+          `SELECT ss.data FROM state_snapshots ss
+             JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+            WHERE asc2.id = 'main'`
+        );
+        const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
+        const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
+        myWeight = Number(effectiveWeights[charName] || 0);
+      } catch (wErr) { console.error("[division.for-entity myWeight]", wErr.message); /* weight display is best-effort */ }
     }
 
-    res.json({ division, tally, myVote });
+    res.json({ division, tally, myVote, myWeight });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7935,7 +8891,8 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
 });
 
 // POST /api/divisions/:id/vote — cast or update the caller's vote
-// Body: { vote: 'aye'|'no'|'abstain', weight?: number }
+// Body: { vote: 'aye'|'no'|'abstain' }
+// Weight is ALWAYS computed server-side from constituencies DB + player state (client-supplied weight is ignored).
 app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
@@ -7958,20 +8915,41 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
     if (!divRows.length) return res.status(404).json({ error: "Division not found" });
     if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
 
-    // Get character party for rebellion check
+    // Get character name and party for weight computation and rebellion check
     const { rows: charRows } = await pool.query(
-      "SELECT party FROM characters WHERE id = $1", [charId]
+      "SELECT name, party FROM characters WHERE id = $1", [charId]
     );
     const charParty = charRows[0]?.party || null;
+    const charName  = charRows[0]?.name  || null;
 
-    // Save vote (upsert)
+    // Compute effective weight server-side:
+    //   seats from constituencies DB (authoritative source)
+    //   player list from game state (for absence/delegation)
+    let effectiveWeight = 1;
+    try {
+      const seatsByParty = await getPartySeatsFromConstituencies(pool);
+      const { rows: stateRows } = await pool.query(
+        `SELECT ss.data FROM state_snapshots ss
+           JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+          WHERE asc2.id = 'main'`
+      );
+      const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
+      const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
+      effectiveWeight = Number(effectiveWeights[charName] || 0);
+    } catch (wErr) {
+      console.error("[division.vote weight-calc]", wErr.message);
+      // Fall back to weight=1 so the vote is still recorded
+    }
+
+    // Save vote (upsert) — client-supplied weight is always ignored
     const { rows: voteRows } = await pool.query(
       `INSERT INTO division_votes (division_id, character_id, vote, weight, effective_weight, delegation_source_character_id)
-       VALUES ($1, $2, $3, 1, 1, NULL)
+       VALUES ($1, $2, $3, $4, $4, NULL)
        ON CONFLICT (division_id, character_id)
-       DO UPDATE SET vote = EXCLUDED.vote, weight = 1, effective_weight = 1, delegation_source_character_id = NULL, voted_at = NOW()
+       DO UPDATE SET vote = EXCLUDED.vote, weight = EXCLUDED.weight, effective_weight = EXCLUDED.effective_weight,
+                     delegation_source_character_id = NULL, voted_at = NOW()
        RETURNING id, division_id, character_id, vote, weight, effective_weight, delegation_source_character_id, voted_at`,
-      [req.params.id, charId, vote]
+      [req.params.id, charId, vote, effectiveWeight]
     );
 
     // Rebellion logging: check if party instruction exists and vote differs
@@ -8028,6 +9006,9 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
     const canClose = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
     if (!canClose) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
+    // Fetch constituency seat totals (authoritative source) outside the transaction
+    const seatsByParty = await getPartySeatsFromConstituencies(pool);
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -8038,7 +9019,7 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
       if (!divRows.length) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Division not found" }); }
       if (divRows[0].status === "closed") { await client.query("ROLLBACK"); return res.status(409).json({ error: "Already closed" }); }
 
-      // Compute player tally
+      // Compute player tally (uses server-computed effective_weight per vote)
       const { rows: votes } = await client.query(
         `SELECT vote, SUM(effective_weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
         [req.params.id]
@@ -8046,15 +9027,24 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
       const tally = { aye: 0, no: 0, abstain: 0 };
       votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
 
-      // Add NPC votes — npc_votes: { "Labour": "aye" }, rebels_by_party: { "Labour_seats": 400, "Labour": 5 }
-      // Seat counts are stored under the `${party}_seats` key in rebels_by_party by the caller (admin/speaker).
+      // Add NPC votes — npc_votes: { "SNP": "aye" }, rebels_by_party: { "SNP": 5 }
+      // Seat counts come from the constituencies DB (not from rebels_by_party keys).
+      // Sinn Féin and Speaker are excluded automatically (0 seats taken / no vote).
       const npcVotes    = divRows[0].npc_votes    || {};
       const rebelsByPty = divRows[0].rebels_by_party || {};
       for (const [party, npcVote] of Object.entries(npcVotes)) {
         if (tally[npcVote] === undefined) continue;
-        const seats  = Number(rebelsByPty[`${party}_seats`] || 0);
+        if (SINN_FEIN_PARTY_RE.test(party) || SPEAKER_PARTY_RE.test(party)) continue;
+        const seats  = Number(seatsByParty[party] || 0);
         const rebels = Number(rebelsByPty[party] || 0);
         if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
+      }
+
+      // Sinn Féin seats auto-abstain (do not take seats — excluded from aye/no counts)
+      for (const [party, seats] of Object.entries(seatsByParty)) {
+        if (SINN_FEIN_PARTY_RE.test(party) && seats > 0) {
+          tally.abstain += seats;
+        }
       }
 
       const outcome = tally.aye > tally.no ? "passed" : tally.no > tally.aye ? "failed" : "tied";

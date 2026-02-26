@@ -161,6 +161,16 @@ section("4. Motion/EDM/bill mutating endpoints are staff-only");
 
 const STAFF_CHECKS = ["requireAdminOrMod", "requireAdminModOrSpeaker", "requireAdmin"];
 const PLAYER_IMMUTABLE_PATHS = [/\/api\/motions\//, /\/api\/bills\//];
+// Paths that are intentionally player-accessible despite matching the above patterns.
+// These are narrow, validated action endpoints — not free-form edit/delete endpoints.
+const PLAYER_IMMUTABLE_ALLOWLIST = [
+  /\/api\/motions\/[^/]+\/sign/,    // POST /api/motions/:id/sign — player EDM signing
+  /\/api\/bills\/[^/]+\/vote/,      // PATCH /api/bills/:id/vote — player bill division vote (B3: server-authoritative weight)
+  /\/api\/bills\/[^/]+\/withdraw/,  // POST /api/bills/:id/withdraw — bill author withdrawal
+  /\/api\/bills\/[^/]+\/amendments$/, // POST /api/bills/:id/amendments — MP amendment submission
+  /\/api\/bills\/[^/]+\/amendments\/[^/]+\/decide/, // POST /api/bills/:id/amendments/:id/decide — author decides
+  /\/api\/bills\/[^/]+\/amendments\/[^/]+\/support/, // POST /api/bills/:id/amendments/:id/support — leader support
+];
 
 let playerCanMutate = 0;
 for (let i = 0; i < serverLines.length; i++) {
@@ -171,6 +181,7 @@ for (let i = 0; i < serverLines.length; i++) {
   const path   = m[2];
 
   if (!PLAYER_IMMUTABLE_PATHS.some((re) => re.test(path))) continue;
+  if (PLAYER_IMMUTABLE_ALLOWLIST.some((re) => re.test(path))) continue;
 
   const ctx = serverLines.slice(i, Math.min(serverLines.length, i + 12)).join("\n");
   const isStaff = STAFF_CHECKS.some((s) => ctx.includes(s));

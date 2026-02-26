@@ -197,6 +197,25 @@ export async function apiUpdateBill(id, bill) {
   return res.json();
 }
 
+/**
+ * Cast a division vote on a bill (server-authoritative weight computation).
+ * @param {string} billId - The bill ID
+ * @param {"aye"|"no"|"abstain"} vote - The vote choice
+ */
+export async function apiBillVote(billId, vote) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(billId)}/vote`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ vote }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `apiBillVote failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function apiDeleteBill(id) {
   const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}`, {
     method: "DELETE",
@@ -204,6 +223,109 @@ export async function apiDeleteBill(id) {
     headers: { ...csrfHeaders() },
   });
   if (!res.ok) throw new Error(`apiDeleteBill failed (${res.status})`);
+  return res.json();
+}
+
+/** Grant or refuse Second Reading for a bill (PM / Leader of House / admin / mod). */
+export async function apiBillFirstReading(id, action) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}/first-reading`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ action }),
+  });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `apiBillFirstReading failed (${res.status})`); }
+  return res.json();
+}
+
+/** Submit the mod/admin/speaker report for the Report Stage (advances to Report Debate). */
+export async function apiBillSubmitReport(id, { content, attachmentUrl } = {}) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}/report`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ content, attachmentUrl }),
+  });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `apiBillSubmitReport failed (${res.status})`); }
+  return res.json();
+}
+
+/** Withdraw a bill (author / PM / admin / mod). */
+export async function apiBillWithdraw(id) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}/withdraw`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `apiBillWithdraw failed (${res.status})`); }
+  return res.json();
+}
+
+/** Grant Royal Assent (admin / mod). */
+export async function apiBillGrantAssent(id) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}/assent`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `apiBillGrantAssent failed (${res.status})`); }
+  return res.json();
+}
+
+/** Open the Final Division for a bill (admin / mod / speaker). */
+export async function apiBillOpenFinalDivision(id) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}/final-division`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `apiBillOpenFinalDivision failed (${res.status})`); }
+  return res.json();
+}
+
+/** Fetch all amendments for a bill. */
+export async function apiGetBillAmendments(id) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}/amendments`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetBillAmendments failed (${res.status})`);
+  return res.json();
+}
+
+/** Submit a new amendment to a bill. */
+export async function apiSubmitBillAmendment(id, { articleNumber, type, title, text }) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(id)}/amendments`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ articleNumber, type, title, text }),
+  });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `apiSubmitBillAmendment failed (${res.status})`); }
+  return res.json();
+}
+
+/** Author accepts or refuses an amendment. */
+export async function apiBillAmendmentDecide(billId, amendmentId, decision) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(billId)}/amendments/${encodeURIComponent(amendmentId)}/decide`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ decision }),
+  });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `apiBillAmendmentDecide failed (${res.status})`); }
+  return res.json();
+}
+
+/** Party leader declares support for an amendment. */
+export async function apiBillAmendmentSupport(billId, amendmentId) {
+  const res = await fetch(`${API_BASE}/api/bills/${encodeURIComponent(billId)}/amendments/${encodeURIComponent(amendmentId)}/support`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `apiBillAmendmentSupport failed (${res.status})`); }
   return res.json();
 }
 
