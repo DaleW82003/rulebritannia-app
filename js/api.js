@@ -256,6 +256,20 @@ export async function apiDeleteMotion(id) {
   return res.json();
 }
 
+
+export async function apiSignEdm(id) {
+  const res = await fetch(`${API_BASE}/api/motions/${encodeURIComponent(id)}/sign`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiSignEdm failed (${res.status})`);
+  }
+  return res.json();
+}
+
 // ── STATEMENTS ────────────────────────────────────────────────────────────────
 
 export async function apiGetStatements() {
@@ -947,7 +961,7 @@ export async function apiVoteDivision(id, character_id, vote, weight) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ character_id, vote, weight }),
+    body: JSON.stringify({ character_id, vote }),
   });
   if (!res.ok) throw new Error(`apiVoteDivision failed (${res.status})`);
   return res.json();
@@ -972,7 +986,7 @@ export async function apiCastVote(divisionId, vote, weight = 1) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ vote, weight }),
+    body: JSON.stringify({ vote }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

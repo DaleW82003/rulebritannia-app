@@ -7,7 +7,7 @@ import { handleApiError } from "../errors.js";
 import {
   apiGetQtQuestions, apiSubmitQtQuestion, apiAnswerQtQuestion,
   apiFollowupQtQuestion, apiPatchQtQuestion,
-  apiGetQtLegacyQuestions, apiCreateQtLegacyQuestion,
+  apiGetQtLegacyQuestions, apiCreateQtLegacyQuestion, apiUpdateQtLegacyQuestion,
 } from "../api.js";
 import { npcPartyOptions } from "../parties.js";
 
@@ -366,7 +366,7 @@ function render(data, state) {
   });
 
   const answerForm = root.querySelector("#qt-answer-form");
-  answerForm?.addEventListener("submit", (e) => {
+  answerForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!canAnswer) return;
 
@@ -377,6 +377,27 @@ function render(data, state) {
 
     const target = data.questionTime.questions.find((q) => q.id === questionId && q.office === selectedOffice.id);
     if (!target || target.archived) return;
+
+    try {
+      await apiAnswerQtQuestion(questionId, {
+        answered_by_character_id: getCurrentCharacter(data)?.id || null,
+        answer_text: answer,
+      });
+    } catch (err) {
+      // Legacy QT records may not exist in structured /api/qt/questions table yet.
+      try {
+        await apiUpdateQtLegacyQuestion(questionId, {
+          ...target,
+          answer,
+          answeredAtSim: simLabel,
+          status: "answered",
+          answerSeenByAsker: false,
+        });
+      } catch (legacyErr) {
+        handleApiError(legacyErr, "Answer question");
+        return;
+      }
+    }
 
     if (!target.answer) {
       target.answer = answer;

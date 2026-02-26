@@ -336,3 +336,26 @@ See **[docs/trial-runbook.md](docs/trial-runbook.md)** for the 3-user live trial
 - How to approve users and assign roles
 - How to reset the sim between rounds using the Admin Panel **Danger Zone** tools
 - Discourse integration notes (SSO enabled; group syncing off-by-default)
+
+## Staging Audit Run
+
+Run the pre-Discourse staging verification (persistence, RBAC, immutability, division authority):
+
+```bash
+BASE_URL="https://rulebritannia-app-backend.onrender.com" \
+TEST_EMAIL="admin@example.com" \
+TEST_PASSWORD="..." \
+TEST_LOW_EMAIL="backbencher@example.com" \
+TEST_LOW_PASSWORD="..." \
+node scripts/test-staging.mjs
+```
+
+Then run API test suites (these now hard-fail if required env vars are missing):
+
+```bash
+BASE_URL="https://rulebritannia-app-backend.onrender.com" \
+COOKIE_PLAYER="rb.sid=..." \
+COOKIE_MOD="rb.sid=..." \
+COOKIE_ADMIN="rb.sid=..." \
+node --test tests/api/*.spec.js
+```

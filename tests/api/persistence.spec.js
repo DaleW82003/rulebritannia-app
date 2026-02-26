@@ -27,8 +27,7 @@ import { fileURLToPath } from "url";
 
 const BASE_URL = process.env.BASE_URL;
 if (!BASE_URL) {
-  console.warn("⚠️  BASE_URL not set — skipping persistence tests");
-  process.exit(0);
+  throw new Error("BASE_URL is required for persistence tests");
 }
 
 const COOKIES = {
@@ -39,7 +38,6 @@ const COOKIES = {
 
 if (!COOKIES.player) {
   console.warn("⚠️  COOKIE_PLAYER not set — skipping persistence tests");
-  process.exit(0);
 }
 
 let csrfToken = "";

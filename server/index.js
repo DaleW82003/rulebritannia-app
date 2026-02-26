@@ -563,11 +563,17 @@ async function ensureSchema() {
       character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
       vote         TEXT NOT NULL CHECK (vote IN ('aye','no','abstain')),
       weight       INTEGER NOT NULL DEFAULT 1,
+      effective_weight INTEGER NOT NULL DEFAULT 1,
+      delegation_source_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
       voted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (division_id, character_id)
     );
     CREATE INDEX IF NOT EXISTS division_votes_div_idx ON division_votes (division_id);
   `);
+
+  await pool.query(`ALTER TABLE division_votes ADD COLUMN IF NOT EXISTS effective_weight INTEGER NOT NULL DEFAULT 1;`);
+  await pool.query(`ALTER TABLE division_votes ADD COLUMN IF NOT EXISTS delegation_source_character_id UUID REFERENCES characters(id) ON DELETE SET NULL;`);
+  await pool.query(`ALTER TABLE divisions ADD COLUMN IF NOT EXISTS immutable_result JSONB;`);
 
   // ── Question Time (structured tables) ────────────────────────────────────
   await pool.query(`
@@ -4025,6 +4031,41 @@ app.post("/api/motions", crudWriteLimit, async (req, res) => {
       [enriched.id, motion_type, JSON.stringify(enriched)]
     );
     res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+
+app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(403).json({ error: "No active character. Select a character first." });
+
+    const { rows: motionRows } = await pool.query("SELECT motion_type, data FROM motions WHERE id = $1", [req.params.id]);
+    if (!motionRows.length) return res.status(404).json({ error: "Motion not found" });
+    if (motionRows[0].motion_type !== "edm") return res.status(400).json({ error: "Only EDMs can be signed" });
+
+    const { rows: charRows } = await pool.query("SELECT id, name, party FROM characters WHERE id = $1", [charId]);
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+    const char = charRows[0];
+
+    const edm = motionRows[0].data || {};
+    edm.signatures = Array.isArray(edm.signatures) ? edm.signatures : [];
+    const already = edm.signatures.some((sig) => String(sig.name || "") === String(char.name || ""));
+    if (already) return res.status(409).json({ error: "Already signed" });
+
+    const partyRes = await pool.query("SELECT data FROM parties WHERE slug = $1", [String(char.party || "").toLowerCase().replace(/\s+/g, "_")]);
+    const seats = Number(partyRes.rows[0]?.data?.seats || 1);
+    const weight = Math.max(1, seats > 0 ? 1 : 1);
+
+    edm.signatures.push({ name: char.name, party: char.party || "Independent", weight });
+
+    await pool.query("UPDATE motions SET data = $1::jsonb, updated_at = NOW() WHERE id = $2", [JSON.stringify(edm), req.params.id]);
+    await writeAuditLog(req.session.userId, "motion.edm.sign", "motion", req.params.id, null, { signer: char.name, party: char.party || "Independent" });
+    res.status(201).json({ ok: true, motion: normaliseDiscourseFields(edm) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7788,15 +7829,35 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
 
     // Aggregate weighted tally
     const { rows: votes } = await pool.query(
-      `SELECT vote, SUM(weight) AS total_weight, COUNT(*) AS count
-         FROM division_votes WHERE division_id = $1
-        GROUP BY vote`,
+      `SELECT dv.vote,
+              SUM(dv.effective_weight) AS total_weight,
+              COUNT(*) AS count,
+              COALESCE(c.party, 'Independent') AS party
+         FROM division_votes dv
+         LEFT JOIN characters c ON c.id = dv.character_id
+        WHERE dv.division_id = $1
+        GROUP BY dv.vote, COALESCE(c.party, 'Independent')`,
       [req.params.id]
     );
     const tally = { aye: 0, no: 0, abstain: 0 };
-    votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
+    const byParty = {};
+    votes.forEach((v) => {
+      tally[v.vote] = Number(tally[v.vote] || 0) + Number(v.total_weight || 0);
+      byParty[v.party] ??= { aye: 0, no: 0, abstain: 0 };
+      byParty[v.party][v.vote] = Number(byParty[v.party][v.vote] || 0) + Number(v.total_weight || 0);
+    });
 
-    res.json({ division: rows[0], tally });
+    const { rows: delegations } = await pool.query(
+      `SELECT character_id, delegation_source_character_id
+         FROM division_votes
+        WHERE division_id = $1
+          AND delegation_source_character_id IS NOT NULL`,
+      [req.params.id]
+    );
+
+    const immutableResult = rows[0].immutable_result || null;
+
+    res.json({ division: rows[0], tally, byParty, delegationMap: delegations, immutableResult });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7878,7 +7939,7 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
 app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { vote, weight = 1 } = req.body || {};
+    const { vote } = req.body || {};
     if (!vote) return res.status(400).json({ error: "vote is required" });
     const validVotes = ["aye", "no", "abstain"];
     if (!validVotes.includes(vote)) {
@@ -7905,12 +7966,12 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 
     // Save vote (upsert)
     const { rows: voteRows } = await pool.query(
-      `INSERT INTO division_votes (division_id, character_id, vote, weight)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO division_votes (division_id, character_id, vote, weight, effective_weight, delegation_source_character_id)
+       VALUES ($1, $2, $3, 1, 1, NULL)
        ON CONFLICT (division_id, character_id)
-       DO UPDATE SET vote = EXCLUDED.vote, weight = EXCLUDED.weight, voted_at = NOW()
-       RETURNING id, division_id, character_id, vote, weight, voted_at`,
-      [req.params.id, charId, vote, Math.max(1, parseInt(weight, 10) || 1)]
+       DO UPDATE SET vote = EXCLUDED.vote, weight = 1, effective_weight = 1, delegation_source_character_id = NULL, voted_at = NOW()
+       RETURNING id, division_id, character_id, vote, weight, effective_weight, delegation_source_character_id, voted_at`,
+      [req.params.id, charId, vote]
     );
 
     // Rebellion logging: check if party instruction exists and vote differs
@@ -7946,7 +8007,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 
     // Return updated tally
     const { rows: tallyRows } = await pool.query(
-      `SELECT vote, SUM(weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
+      `SELECT vote, SUM(effective_weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
       [req.params.id]
     );
     const tally = { aye: 0, no: 0, abstain: 0 };
@@ -7979,7 +8040,7 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
 
       // Compute player tally
       const { rows: votes } = await client.query(
-        `SELECT vote, SUM(weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
+        `SELECT vote, SUM(effective_weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
         [req.params.id]
       );
       const tally = { aye: 0, no: 0, abstain: 0 };
@@ -7997,14 +8058,15 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
       }
 
       const outcome = tally.aye > tally.no ? "passed" : tally.no > tally.aye ? "failed" : "tied";
+      const immutableResult = { tally, outcome, closedAt: new Date().toISOString() };
       await client.query(
-        "UPDATE divisions SET status = 'closed', outcome = $2 WHERE id = $1",
-        [req.params.id, outcome]
+        "UPDATE divisions SET status = 'closed', outcome = $2, immutable_result = $3::jsonb WHERE id = $1",
+        [req.params.id, outcome, JSON.stringify(immutableResult)]
       );
 
       await client.query("COMMIT");
       await writeAuditLog(req.session.userId, "division.close", "division", req.params.id, divRows[0], { ...divRows[0], status: "closed", tally, outcome });
-      res.json({ ok: true, division: { ...divRows[0], status: "closed", outcome }, tally });
+      res.json({ ok: true, division: { ...divRows[0], status: "closed", outcome, immutable_result: immutableResult }, tally, immutableResult });
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
@@ -8344,12 +8406,7 @@ app.patch("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
 
 app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
   try {
-    if (!requireAuth(req, res)) return;
-    // Only admin, mod, and speaker may post answers on behalf of an office.
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    if (!sessionRoles.includes("admin") && !sessionRoles.includes("mod") && !sessionRoles.includes("speaker")) {
-      return res.status(403).json({ error: "Forbidden: admin, mod, or speaker role required to post answers" });
-    }
+    if (!requireAdminModOrSpeaker(req, res)) return;
     const { answered_by_character_id, answer_text } = req.body || {};
     if (!answer_text || !answer_text.trim()) {
       return res.status(400).json({ error: "answer_text is required" });

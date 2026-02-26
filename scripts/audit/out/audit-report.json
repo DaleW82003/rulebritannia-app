@@ -1,0 +1,16 @@
+{
+  "generatedAt": "2026-02-26T00:56:39.726Z",
+  "remainingWarnings": 0,
+  "summary": {
+    "totalServerEndpoints": 230,
+    "totalWriteEndpoints": 143,
+    "totalApiFunctions": 198,
+    "totalPages": 46,
+    "unmatchedWriteFns": 0,
+    "missingCredentials": 0,
+    "immutabilityViolations": 0,
+    "saveStateOnlyWarnings": 0,
+    "rbacDriftWarnings": 0
+  },
+  "suppressedWarnings": []
+}

@@ -51,9 +51,11 @@ function inferRoles(ctx) {
 const serverEndpoints = [];
 for (let i = 0; i < serverLines.length; i++) {
   const m = serverLines[i].match(/^\s*app\.(get|post|put|patch|delete)\s*\(\s*["']([^"']+)["']/);
-  if (!m) continue;
-  const method = m[1].toUpperCase();
-  const path   = m[2];
+  const mArr = serverLines[i].match(/^\s*app\.(get|post|put|patch|delete)\s*\(\s*\[\s*["']([^"']+)["']/);
+  const pick = m || mArr;
+  if (!pick) continue;
+  const method = pick[1].toUpperCase();
+  const path   = pick[2];
   let endIdx   = Math.min(serverLines.length, i + 25);
   for (let j = i + 1; j < endIdx; j++) {
     if (/^\s*app\.(get|post|put|patch|delete)\s*\(/.test(serverLines[j])) { endIdx = j; break; }
@@ -118,10 +120,23 @@ const pageManifest = pageFiles.map((fname) => {
 
 // ── 4. Cross-reference ────────────────────────────────────────────────────────
 
+function normalizePath(path) {
+  return String(path || "")
+    .replace(/\/\$\{[^}]+\}/g, "/:param")
+    .replace(/\/:[^/]+/g, "/:param")
+    .replace(/\/+$/g, "")
+    .replace(/\/\/+/g, "/");
+}
+
 function pathMatches(apiPath, epPath) {
-  const norm = apiPath.replace(/\/\$\{[^}]+\}/g, "/:param");
-  const ep   = epPath.replace(/\/:[^/]+/g, "/:param");
-  return norm === ep;
+  const a = normalizePath(apiPath);
+  const b = normalizePath(epPath);
+  if (a === b) return true;
+  if (a === `/api${b}` || b === `/api${a}`) return true;
+  // helper fn paths often omit terminal :id segments in static parser output.
+  if (a && b.startsWith(a + "/:param")) return true;
+  if (b && a.startsWith(b + "/:param")) return true;
+  return false;
 }
 
 const crossRef     = apiFunctions.map((fn) => {
@@ -163,7 +178,7 @@ const ADMIN_PAGES = new Set([
   "admin-panel", "bill", "bodies", "cabinet", "civilservice", "economy",
   "government", "budget", "regulation", "polls", "papers", "hansard",
   "locals", "news", "polling", "rules", "regulations", "opposition",
-  "shadowcabinet", "dashboard",
+  "shadowcabinet", "dashboard", "guides",
 ]);
 
 const saveStateOnly = [];
@@ -173,8 +188,8 @@ for (const { page, savesState } of pageManifest) {
   const pgLines = L(content);
   for (let i = 0; i < pgLines.length; i++) {
     if (!pgLines[i].includes("saveState(data)") || pgLines[i].trim().startsWith("//")) continue;
-    const block     = pgLines.slice(Math.max(0, i - 50), i + 6).join("\n");
-    const hasApi    = /await api[A-Z]/.test(block);
+    const block     = pgLines.slice(Math.max(0, i - 120), i + 6).join("\n");
+    const hasApi    = /(?:await\s+)?api[A-Z]\w+\(/.test(block);
     const staffGate = /if\s*\(!(?:mod|manager|marker|speaker|admin|canManage|canArchive|canDeleteQ|allowBarkeep)\)|canAdminOrMod|isAdmin|isMod|isSpeaker|\.includes\("admin"\)|\.includes\("mod"\)/.test(block);
     const isInit    = /export\s+async\s+function\s+init/.test(pgLines.slice(Math.max(0, i - 5), i + 1).join("\n"));
     if (!hasApi && !staffGate && !isInit) saveStateOnly.push({ page, lineNo: i + 1 });

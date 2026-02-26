@@ -1,7 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker, canAdminOrMod, canVoteDivision } from "../permissions.js";
-import { buildDivisionWeights } from "../divisions.js";
 import { getPartySeatMap } from "../engines/core-engine.js";
 import { ensureMotions, isGovernmentMember } from "./motions.js";
 import { getSimDate, simDateToObj, formatSimMonthYear, isDeadlinePassed, compareSimDates, countdownToSimMonth } from "../clock.js";
@@ -9,7 +8,7 @@ import {
   apiGetDivisionForEntity, apiCreateDivision, apiCastVote, apiCloseDivision,
   apiGetPartyInstruction, apiSetPartyInstruction,
   apiGetRebelRequest, apiSubmitRebelRequest,
-  apiGetMotion,
+  apiGetMotion, apiSignEdm,
 } from "../api.js";
 
 const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line whip"];
@@ -23,11 +22,7 @@ function getParams() {
   return { kind: u.searchParams.get("kind") || "house", id: u.searchParams.get("id") || "" };
 }
 
-function currentWeight(data) {
-  const c = getCharacter(data);
-  const { effectiveWeights } = buildDivisionWeights(data);
-  return Number(effectiveWeights[String(c?.name || "")] || 0);
-}
+function currentWeight() { return 1; }
 
 function getMotion(data, kind, id) {
   const list = kind === "edm" ? data.motions.edm : data.motions.house;
@@ -239,7 +234,7 @@ async function renderHouseDb(root, data, motion) {
       const msg = root.querySelector("#div-msg");
       if (msg) msg.textContent = "Voting…";
       try {
-        const result = await apiCastVote(dbDiv.id, choice, Math.round(voteWeight));
+        const result = await apiCastVote(dbDiv.id, choice);
         if (msg) msg.textContent = "Vote recorded.";
         // Re-render with updated data
         await renderHouseDb(root, data, motion);
@@ -362,10 +357,15 @@ function renderEdm(root, data, edm) {
     </section>
   `;
 
-  root.querySelector("[data-action='sign-edm']")?.addEventListener("click", () => {
+  root.querySelector("[data-action='sign-edm']")?.addEventListener("click", async () => {
     if (expired || disallowed || signed || w <= 0) return;
-    edm.signatures.push({ name: char?.name || "MP", party: char?.party || "Independent", weight: w });
-    saveState(data);
+    try {
+      const resp = await apiSignEdm(edm.id);
+      if (resp?.motion) Object.assign(edm, resp.motion);
+    } catch (err) {
+      console.error("[edm.sign]", err?.message || err);
+      return;
+    }
     renderEdm(root, data, edm);
   });
 
