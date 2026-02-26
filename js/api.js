@@ -2277,6 +2277,28 @@ export async function apiRemoveShopPurchase(id) {
   return body;
 }
 
+export async function apiSellShopPurchase(id) {
+  const res = await fetch(`${API_BASE}/api/me/character/shop-purchases/${encodeURIComponent(id)}/sell`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSellShopPurchase failed (${res.status})`);
+  return body;
+}
+
+export async function apiDismissShopPurchase(id) {
+  const res = await fetch(`${API_BASE}/api/me/character/shop-purchases/${encodeURIComponent(id)}/dismiss`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiDismissShopPurchase failed (${res.status})`);
+  return body;
+}
+
 export async function apiAddAdditionalRevenue(characterId, label, annualAmount) {
   const res = await fetch(`${API_BASE}/api/me/character/additional-revenue`, {
     method: "POST",

@@ -317,7 +317,13 @@ function render(data, state) {
         <button class="btn" type="submit">Host Conference</button>
       </form>`}
 
-      ${conferences.length ? conferences.map((c) => `
+      ${conferences.length ? conferences.map((c) => {
+        const transcript = Array.isArray(c.transcript) ? c.transcript : [];
+        const questionCount = transcript.filter((t) => t.isQuestion === true).length;
+        const answerCount   = transcript.filter((t) => !t.isQuestion && !t.walkOff).length;
+        const hasUnanswered = questionCount > 0 && answerCount < questionCount;
+        const isAuthor = char?.name === c.author;
+        return `
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div><b>${esc(c.reference)}</b> — ${esc(c.subject)}</div>
@@ -329,9 +335,17 @@ function render(data, state) {
             <div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(c.body)}</div>
             <div class="tile" style="margin-top:8px;">
               <h4 style="margin-top:0;">Transcript</h4>
-              ${(c.transcript || []).length ? c.transcript.map((t) => `<p><b>${esc(t.from)}:</b> ${esc(t.text)}</p>`).join("") : `<p class="muted">No questions yet.</p>`}
+              ${transcript.length ? transcript.map((t) => {
+                if (t.isQuestion) {
+                  return `<p style="margin:6px 0;padding:6px 10px;background:#f0f4ff;border-left:3px solid #4466bb;"><b>Q — ${esc(t.from)}:</b> ${esc(t.text)}</p>`;
+                }
+                if (t.walkOff) {
+                  return `<p style="margin:6px 0;" class="muted"><em>${esc(t.text)}</em></p>`;
+                }
+                return `<p style="margin:6px 0;padding:6px 10px;background:#f6fff6;border-left:3px solid #4a904a;"><b>A — ${esc(t.from)}:</b> ${esc(t.text)}</p>`;
+              }).join("") : `<p class="muted">No questions yet.</p>`}
               ${asker && c.status !== "closed" ? `
-                <form data-action="ask" data-id="${esc(c.id)}">
+                <form data-action="ask" data-id="${esc(c.id)}" style="margin-top:8px;">
                   <label class="label">Ask as Political Correspondent</label>
                   <select class="input" name="paper">${papers.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("")}</select>
                   <input class="input" name="corrName" type="text" maxlength="80" required placeholder="Correspondent name (e.g. Jane Smith)">
@@ -339,13 +353,16 @@ function render(data, state) {
                   <button class="btn" type="submit">Submit Question</button>
                 </form>
               ` : ""}
-              ${(char?.name === c.author && c.status !== "closed") ? `
+              ${isAuthor && c.status !== "closed" ? `
                 <form data-action="answer" data-id="${esc(c.id)}" style="margin-top:8px;">
                   <label class="label">Response</label>
-                  <textarea class="input" name="text" rows="2" required placeholder="Your answer"></textarea>
-                  <button class="btn" type="submit">Reply</button>
+                  <textarea class="input" name="text" rows="2" required placeholder="Your answer"
+                    ${!hasUnanswered ? 'disabled title="No unanswered questions to reply to"' : ""}></textarea>
+                  <button class="btn" type="submit"${!hasUnanswered ? ' disabled title="No unanswered questions"' : ""}>Reply</button>
                   <button class="btn" type="button" data-action="walk-off" data-id="${esc(c.id)}">Walk Off</button>
                 </form>
+                ${!hasUnanswered && questionCount === 0 ? `<p class="muted" style="font-size:.88em;">Waiting for questions from the press.</p>` : ""}
+                ${!hasUnanswered && questionCount > 0 ? `<p class="muted" style="font-size:.88em;">All questions answered.</p>` : ""}
               ` : ""}
               ${marker && sundayWindow && c.score === null ? `
                 <form data-action="mark-conference" data-id="${esc(c.id)}" style="margin-top:8px;">
@@ -359,7 +376,8 @@ function render(data, state) {
             </div>
           ` : ""}
         </article>
-      `).join("") : `<p class="muted">No conferences yet.</p>`}
+      `;
+      }).join("") : `<p class="muted">No conferences yet.</p>`}
     `;
   }
 
@@ -626,7 +644,7 @@ function render(data, state) {
     const text = String(fd.get("text") || "").trim();
     if (!text || !corrName) return;
     const from = `${corrName}, Political Correspondent for ${paper}`;
-    const entry = { from, text };
+    const entry = { from, text, isQuestion: true, paper, corrName };
     conf.transcript.push(entry);
 
     data.liveDocket ??= { items: [] };
@@ -655,6 +673,11 @@ function render(data, state) {
     const id = e.currentTarget.getAttribute("data-id");
     const conf = data.press.conferences.find((c) => c.id === id);
     if (!conf || conf.status === "closed" || conf.author !== char?.name) return;
+    // Anti-spam: only answer if there are unanswered questions
+    const transcript = Array.isArray(conf.transcript) ? conf.transcript : [];
+    const questionCount = transcript.filter((t) => t.isQuestion === true).length;
+    const answerCount   = transcript.filter((t) => !t.isQuestion && !t.walkOff).length;
+    if (questionCount === 0 || answerCount >= questionCount) return;
     const text = String(new FormData(e.currentTarget).get("text") || "").trim();
     if (!text) return;
     const submitBtn = e.currentTarget.querySelector("button[type='submit']");
