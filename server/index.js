@@ -528,17 +528,11 @@ async function ensureSchema() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS questiontime_questions (
-      id                  TEXT PRIMARY KEY,
-      data                JSONB NOT NULL,
-      discourse_topic_id  TEXT,
-      discourse_topic_url TEXT,
-      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id         TEXT PRIMARY KEY,
+      data       JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await pool.query(`ALTER TABLE questiontime_questions ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
-  await pool.query(`ALTER TABLE questiontime_questions ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
-  // ↑ Migration guards: CREATE TABLE above only runs on fresh DBs; ALTER TABLE ensures existing
-  //   databases (created before these columns were added) receive the new columns idempotently.
   await pool.query(`CREATE INDEX IF NOT EXISTS qt_questions_updated_idx ON questiontime_questions (updated_at DESC)`);
 
   await pool.query(`
@@ -5904,9 +5898,9 @@ app.get("/api/questiontime-questions", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query(
-      "SELECT id, data, discourse_topic_id, discourse_topic_url, updated_at FROM questiontime_questions ORDER BY updated_at DESC"
+      "SELECT id, data, updated_at FROM questiontime_questions ORDER BY updated_at DESC"
     );
-    res.json({ questions: rows.map((r) => normaliseDiscourseFields({ ...r.data, discourse_topic_id: r.discourse_topic_id, discourse_topic_url: r.discourse_topic_url, _updatedAt: r.updated_at })) });
+    res.json({ questions: rows.map((r) => ({ ...r.data, _updatedAt: r.updated_at })) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -5917,11 +5911,11 @@ app.get("/api/questiontime-questions/:id", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query(
-      "SELECT id, data, discourse_topic_id, discourse_topic_url, updated_at FROM questiontime_questions WHERE id = $1",
+      "SELECT id, data, updated_at FROM questiontime_questions WHERE id = $1",
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Question not found" });
-    res.json({ question: normaliseDiscourseFields({ ...rows[0].data, discourse_topic_id: rows[0].discourse_topic_id, discourse_topic_url: rows[0].discourse_topic_url, _updatedAt: rows[0].updated_at }) });
+    res.json({ question: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6440,7 +6434,6 @@ const DEBATE_ENTITY_TABLES = {
   motion:     "motions",
   statement:  "statements",
   regulation: "regulations",
-  question:   "questiontime_questions",
 };
 
 app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
@@ -6593,7 +6586,6 @@ app.get("/api/debates/payload/:entityType/:entityId", discourseReadLimit, async 
       motion:     "motion.html",
       statement:  "statement.html",
       regulation: "regulation.html",
-      question:   "questiontime.html",
     };
     const canonicalUrl = uiBase
       ? `${uiBase}/${entityPageMap[entityType]}?id=${encodeURIComponent(entityId)}`
