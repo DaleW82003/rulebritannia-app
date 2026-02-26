@@ -205,6 +205,22 @@ export async function bootData() {
   _bootstrapConfig = bootstrap?.config ?? {};
 
   if (!user) {
+    // If bootstrap failed (network/server error) and the local cache indicates a prior
+    // authenticated session, refuse to silently fall back to demo data.  Show a clear
+    // error so the user knows the server is unavailable rather than seeing stale demo state.
+    const bootstrapFailed = sources.some((s) => s.label === "/api/bootstrap" && !s.ok);
+    if (bootstrapFailed) {
+      const cachedData = getData();
+      const cachedUser = cachedData?.currentUser;
+      if (cachedUser?.id || cachedUser?.username) {
+        const err = new Error(
+          "Cannot reach the server. Your session may still be active — please refresh or try again shortly."
+        );
+        err.code = "BOOTSTRAP_FAILED_AUTHENTICATED";
+        throw err;
+      }
+    }
+
     // Not logged in — load demo baseline from demo.json (read-only; no localStorage writes).
     let demoData = {};
     try {

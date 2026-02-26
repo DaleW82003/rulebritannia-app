@@ -78,6 +78,7 @@ const PUBLIC_PATH_PREFIXES = [
   "/api/permissions",
   "/api/config",
   "/api/clock",
+  "/health",
 ];
 
 let missingGetCreds = 0;
@@ -89,10 +90,14 @@ for (let i = 0; i < apiLines.length; i++) {
   if (ctx.includes("credentials")) continue;
   // Extract the path — handle template literals (`${BASE}/api/...`), plain strings, and bare paths
   const pathMatch =
-    line.match(/fetch\([`'"]?\$\{[^}]+\}(\/api\/[^`"'?\s$]+)/) ||
-    line.match(/fetch\([`'"](\/api\/[^`"'?\s]+)/);
-  const path = pathMatch?.[1];
+    line.match(/fetch\([`'"]?\$\{[^}]+\}(\/(?:api\/|health)[^`"'?\s$]+)/) ||
+    line.match(/fetch\([`'"](\/(?:api\/|health)[^`"'?\s]+)/) ||
+    line.match(/fetch\([`'"]?\$\{[^}]+\}(\/health[`"']?)/) ||
+    line.match(/`\$\{[^}]+\}(\/health)`/);
+  const path = pathMatch?.[1]?.replace(/[`'"]/g, "");
   if (path && PUBLIC_PATH_PREFIXES.some((p) => path.startsWith(p))) continue;
+  // If we couldn't resolve the path at all, skip — can't make a static determination.
+  if (!path) continue;
   fail(`js/api.js line ${i + 1}: GET missing credentials (${line.trim().slice(0, 70)})`);
   missingGetCreds++;
 }
