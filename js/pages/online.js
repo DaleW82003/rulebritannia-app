@@ -1,6 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import { handleApiError } from "../errors.js";
 import { apiCreateOnlinePost, apiGetOnlinePosts } from "../api.js";
 
 const CHANNELS = {
@@ -239,7 +240,7 @@ function render(data, state) {
     try {
       await apiCreateOnlinePost("web", post);
     } catch (err) {
-      console.error(err);
+      handleApiError(err, "Post to web");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
@@ -269,7 +270,7 @@ function render(data, state) {
     try {
       await apiCreateOnlinePost("facebook", post);
     } catch (err) {
-      console.error(err);
+      handleApiError(err, "Post to Facebook");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
@@ -307,7 +308,7 @@ function render(data, state) {
     try {
       await apiCreateOnlinePost("twitter", post);
     } catch (err) {
-      console.error(err);
+      handleApiError(err, "Post to Twitter");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }

@@ -2,7 +2,7 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure } from "../api.js";
+import { apiGetParty, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSavePartyDrafts } from "../api.js";
 
 const DEFAULT_PARTIES = {
   Conservative: {
@@ -692,10 +692,10 @@ function render(data, state) {
         ${(party.partyShopPurchases || []).map((p, idx) => `
           <article class="tile" style="margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
             <div>
-              <b>${esc(p.name)}</b>
-              <div class="muted" style="font-size:.85em;">Purchased ${esc(p.purchasedAt)} — ${formatMoney(p.price)}${p.monthlyUpkeep > 0 ? ` · ${formatMoney(p.monthlyUpkeep)}/month` : ""}</div>
+              <b>${esc(p.name || p.itemName)}</b>
+              <div class="muted" style="font-size:.85em;">Purchased ${esc(typeof p.purchasedAt === "string" ? p.purchasedAt : (p.purchasedAt ? new Date(p.purchasedAt).toLocaleString("en-GB") : "-"))} — ${formatMoney(p.price)}${p.monthlyUpkeep > 0 ? ` · ${formatMoney(p.monthlyUpkeep)}/month` : ""}</div>
             </div>
-            ${manager ? `<button type="button" class="btn" data-action="party-remove-purchase" data-idx="${idx}">Remove</button>` : ""}
+            ${manager ? `<button type="button" class="btn" data-action="party-remove-purchase" data-id="${esc(String(p.id || ""))}" data-idx="${idx}">Remove</button>` : ""}
           </article>
         `).join("")}
       ` : ""}
@@ -855,6 +855,10 @@ function render(data, state) {
       state.openDraftId = id;
     }
 
+    // Persist drafts to DB (fire-and-forget; UI stays responsive)
+    apiSavePartyDrafts(state.activeParty, party.drafts).catch((err) => {
+      console.warn("[party-draft-form] drafts save failed:", err.message);
+    });
     saveState(data);
     render(data, state);
   });
@@ -884,12 +888,16 @@ function render(data, state) {
       const id = Number(btn.getAttribute("data-id") || 0);
       party.drafts = party.drafts.filter((d) => d.id !== id);
       if (state.openDraftId === id) state.openDraftId = null;
+      // Persist to DB
+      apiSavePartyDrafts(state.activeParty, party.drafts).catch((err) => {
+        console.warn("[delete-draft] drafts save failed:", err.message);
+      });
       saveState(data);
       render(data, state);
     });
   });
 
-  root.querySelector("#party-control-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#party-control-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!manager) return;
     const fd = new FormData(e.currentTarget);
@@ -904,10 +912,22 @@ function render(data, state) {
       party.leader.avatar = selected.avatar || "";
       party.leader.characterId = selected.name;
     }
-    party.treasury.cash = Number(fd.get("cash") || 0);
-    party.treasury.debt = Number(fd.get("debt") || 0);
-    party.treasury.members = Number(fd.get("members") || 0);
-    party.hqUrl = String(fd.get("hqUrl") || "").trim() || party.hqUrl;
+    const newCash    = Number(fd.get("cash")    || 0);
+    const newDebt    = Number(fd.get("debt")    || 0);
+    const newMembers = Number(fd.get("members") || 0);
+    const newHqUrl   = String(fd.get("hqUrl")   || "").trim();
+
+    // Persist treasury + hqUrl to DB (authoritative source)
+    const partyId = state.activeParty;
+    try {
+      await apiSetPartyTreasury(partyId, { cash: newCash, debt: newDebt, members: newMembers, hqUrl: newHqUrl || null });
+    } catch (err) {
+      console.warn("[party-control-form] treasury save failed:", err.message);
+    }
+    party.treasury.cash    = newCash;
+    party.treasury.debt    = newDebt;
+    party.treasury.members = newMembers;
+    party.hqUrl = newHqUrl || party.hqUrl;
     saveState(data);
     render(data, state);
   });
@@ -933,9 +953,9 @@ function render(data, state) {
     render(data, state);
   });
 
-  // Party shop: buy item
+  // Party shop: buy item — DB-backed (deducts treasury atomically, inserts purchase record)
   root.querySelectorAll('[data-action="party-buy-item"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!canManageStructure) return;
       const itemId = String(btn.dataset.itemId || "");
       const item = PARTY_SHOP_ITEMS.find((i) => i.id === itemId);
@@ -948,39 +968,55 @@ function render(data, state) {
       if (item.caps?.maxOwned != null && ownedCount >= item.caps.maxOwned) return;
       const cash = Number(party.treasury?.cash || 0);
       if (cash < price) return;
-      party.treasury.cash = cash - price;
-      party.partyShopPurchases = [...purchases, {
-        itemId: item.id,
-        name: item.name,
-        price,
-        monthlyUpkeep: upkeep,
-        effects: item.effects ? [...item.effects] : [],
-        riskModifier: item.riskModifier || null,
-        purchasedAt: new Date().toLocaleString("en-GB"),
-      }];
-      // Apply unlock effects immediately
-      const structure = state.dbState?.partyStructure || {};
-      structure.unlocks = structure.unlocks || {};
-      for (const e of (item.effects || [])) {
-        if (e.type === "unlock") structure.unlocks[e.value] = true;
+      btn.disabled = true;
+      try {
+        const result = await apiAddPartyShopPurchase(state.activeParty, {
+          item_id: item.id, item_name: item.name, price, monthly_upkeep: upkeep,
+          effects: item.effects ? [...item.effects] : [], risk_modifier: item.riskModifier || null,
+        });
+        // Update in-memory state from DB response
+        party.treasury.cash = Number(result.newTreasuryCash ?? cash - price);
+        party.partyShopPurchases = [...purchases, result.purchase];
+        // Apply unlock effects immediately
+        const structure = state.dbState?.partyStructure || {};
+        structure.unlocks = structure.unlocks || {};
+        for (const e of (item.effects || [])) {
+          if (e.type === "unlock") structure.unlocks[e.value] = true;
+        }
+        if (state.dbState) state.dbState.partyStructure = structure;
+        state.partyShopMessage = `Purchased "${item.name}" for ${formatMoney(price)}.${upkeep > 0 ? ` Upkeep: ${formatMoney(upkeep)}/month.` : ""}`;
+        saveState(data);
+      } catch (err) {
+        state.partyShopMessage = `Purchase failed: ${err.message}`;
+        btn.disabled = false;
       }
-      if (state.dbState) state.dbState.partyStructure = structure;
-      saveState(data);
-      state.partyShopMessage = `Purchased "${item.name}" for ${formatMoney(price)}.${upkeep > 0 ? ` Upkeep: ${formatMoney(upkeep)}/month.` : ""}`;
       render(data, state);
     });
   });
 
-  // Party shop: manager remove purchase
+  // Party shop: manager remove purchase — DB-backed
   root.querySelectorAll('[data-action="party-remove-purchase"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!manager) return;
+      const purchaseId = String(btn.dataset.id || "");
       const idx = Number(btn.dataset.idx || 0);
       const purchases = party.partyShopPurchases || [];
-      if (idx < 0 || idx >= purchases.length) return;
-      party.partyShopPurchases = purchases.filter((_, i) => i !== idx);
-      saveState(data);
-      state.partyShopMessage = "Purchase removed.";
+      btn.disabled = true;
+      try {
+        if (purchaseId) {
+          await apiRemovePartyShopPurchase(state.activeParty, purchaseId);
+          party.partyShopPurchases = purchases.filter((p) => p.id !== purchaseId);
+        } else {
+          // Fallback: use idx for legacy state-only records
+          if (idx < 0 || idx >= purchases.length) { render(data, state); return; }
+          party.partyShopPurchases = purchases.filter((_, i) => i !== idx);
+        }
+        state.partyShopMessage = "Purchase removed.";
+        saveState(data);
+      } catch (err) {
+        state.partyShopMessage = `Remove failed: ${err.message}`;
+        btn.disabled = false;
+      }
       render(data, state);
     });
   });
@@ -1071,7 +1107,33 @@ export async function initPartyPage(data) {
         apiGetShopPriceIndex().catch(() => ({ priceIndex: 1.0 })),
         apiGetPartyStructure(partyId).catch(() => ({ structure: {}, treasuryOverspend: false })),
       ]);
-      if (partyResult?.party) state.dbState.party = partyResult.party;
+      if (partyResult?.party) {
+        state.dbState.party = partyResult.party;
+
+        // Sync DB-authoritative values into in-memory party state so render is live
+        const party = data.party?.parties?.[partyId];
+        if (party && partyResult.party) {
+          const dbParty = partyResult.party;
+          // Treasury from DB
+          if (dbParty.treasury) {
+            party.treasury = {
+              cash:    Number(dbParty.treasury.cash    ?? party.treasury?.cash    ?? 0),
+              debt:    Number(dbParty.treasury.debt    ?? party.treasury?.debt    ?? 0),
+              members: Number(dbParty.treasury.members ?? party.treasury?.members ?? 0),
+            };
+          }
+          // HQ URL
+          if (dbParty.hq_url !== undefined) party.hqUrl = dbParty.hq_url;
+          // Party shop purchases from DB
+          if (Array.isArray(dbParty.partyShopPurchases)) {
+            party.partyShopPurchases = dbParty.partyShopPurchases;
+          }
+          // Party drafts from DB
+          if (Array.isArray(dbParty.drafts)) {
+            party.drafts = dbParty.drafts;
+          }
+        }
+      }
       const partyNameLower = partyId.toLowerCase();
       state.dbState.partyCharacters = (charsResult.characters || []).filter(
         (c) => (c.party || "").toLowerCase() === partyNameLower

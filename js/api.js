@@ -830,6 +830,59 @@ export async function apiSavePartyStructure(partyId, structure) {
   return body;
 }
 
+export async function apiSetPartyTreasury(partyId, fields) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/treasury`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(fields),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSetPartyTreasury failed (${res.status})`);
+  return body;
+}
+
+export async function apiGetPartyShopPurchases(partyId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/shop-purchases`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPartyShopPurchases failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAddPartyShopPurchase(partyId, purchase) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/shop-purchases`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(purchase),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAddPartyShopPurchase failed (${res.status})`);
+  return body;
+}
+
+export async function apiRemovePartyShopPurchase(partyId, id) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/shop-purchases/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRemovePartyShopPurchase failed (${res.status})`);
+  return body;
+}
+
+export async function apiSavePartyDrafts(partyId, drafts) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/drafts`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ drafts }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSavePartyDrafts failed (${res.status})`);
+  return body;
+}
+
 // ── Offices ────────────────────────────────────────────────────────────────
 
 export async function apiGetOffices() {
@@ -983,8 +1036,9 @@ export async function apiFollowupQtQuestion(id, payload) {
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`apiFollowupQtQuestion failed (${res.status})`);
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiFollowupQtQuestion failed (${res.status})`);
+  return body;
 }
 
 // ── Question Time (legacy CRUD endpoint) ────────────────────────────────────
@@ -1118,6 +1172,18 @@ export async function apiDeletePressItem(id) {
   });
   if (!res.ok) throw new Error(`apiDeletePressItem failed (${res.status})`);
   return res.json();
+}
+
+export async function apiAddPressTranscriptEntry(id, entry) {
+  const res = await fetch(`${API_BASE}/api/press/${encodeURIComponent(id)}/transcript`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ entry }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAddPressTranscriptEntry failed (${res.status})`);
+  return body;
 }
 
 // ── Polling entries ────────────────────────────────────────────────────────
@@ -1798,6 +1864,18 @@ export async function apiAdminSetSalaryOverride(characterId, override) {
   return res.json();
 }
 
+export async function apiAdminUpdateCharacterProfile(characterId, fields) {
+  const res = await fetch(`${API_BASE}/api/admin/characters/${encodeURIComponent(characterId)}/profile`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(fields),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAdminUpdateCharacterProfile failed (${res.status})`);
+  return body;
+}
+
 export async function apiAdminSetPositions(characterId, positions) {
   const res = await fetch(`${API_BASE}/api/admin/finance/set-positions`, {
     method: "POST",
@@ -1917,6 +1995,26 @@ export async function apiUpdateEvent(id, event) {
   return res.json();
 }
 
+// ── Character work plan ──────────────────────────────────────────────────────
+
+export async function apiGetMyWorkPlan() {
+  const res = await fetch(`${API_BASE}/api/me/work-plan`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyWorkPlan failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSaveMyWorkPlan(plan) {
+  const res = await fetch(`${API_BASE}/api/me/work-plan`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(plan),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSaveMyWorkPlan failed (${res.status})`);
+  return body;
+}
+
 // ── Online posts ─────────────────────────────────────────────────────────────
 export async function apiGetOnlinePosts(type) {
   const url = type ? `${API_BASE}/api/online?type=${encodeURIComponent(type)}` : `${API_BASE}/api/online`;
@@ -1959,4 +2057,109 @@ export async function apiUpdateFundraisingItem(id, item) {
   });
   if (!res.ok) throw new Error(`apiUpdateFundraisingItem failed (${res.status})`);
   return res.json();
+}
+
+// ── Player finance (DB-backed) ───────────────────────────────────────────────
+
+export async function apiGetMyFinance() {
+  const res = await fetch(`${API_BASE}/api/me/finance`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyFinance failed (${res.status})`);
+  return res.json();
+}
+
+// ── Profile change requests (player-submitted, mod/admin/speaker approval) ──
+
+export async function apiSubmitProfileChange(fields) {
+  const res = await fetch(`${API_BASE}/api/characters/profile-change`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(fields),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSubmitProfileChange failed (${res.status})`);
+  return body;
+}
+
+export async function apiGetMyProfileChanges() {
+  const res = await fetch(`${API_BASE}/api/characters/profile-changes/mine`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyProfileChanges failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetAllProfileChanges(status) {
+  const url = status
+    ? `${API_BASE}/api/admin/profile-changes?status=${encodeURIComponent(status)}`
+    : `${API_BASE}/api/admin/profile-changes`;
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetAllProfileChanges failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiApproveProfileChange(id) {
+  const res = await fetch(`${API_BASE}/api/admin/profile-changes/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiApproveProfileChange failed (${res.status})`);
+  return body;
+}
+
+export async function apiRejectProfileChange(id) {
+  const res = await fetch(`${API_BASE}/api/admin/profile-changes/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRejectProfileChange failed (${res.status})`);
+  return body;
+}
+
+export async function apiAddShopPurchase(purchase) {
+  const res = await fetch(`${API_BASE}/api/me/character/shop-purchases`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(purchase),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAddShopPurchase failed (${res.status})`);
+  return body;
+}
+
+export async function apiRemoveShopPurchase(id) {
+  const res = await fetch(`${API_BASE}/api/me/character/shop-purchases/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRemoveShopPurchase failed (${res.status})`);
+  return body;
+}
+
+export async function apiAddAdditionalRevenue(characterId, label, annualAmount) {
+  const res = await fetch(`${API_BASE}/api/me/character/additional-revenue`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id: characterId, label, annual_amount: annualAmount }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAddAdditionalRevenue failed (${res.status})`);
+  return body;
+}
+
+export async function apiRemoveAdditionalRevenue(id) {
+  const res = await fetch(`${API_BASE}/api/me/character/additional-revenue/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRemoveAdditionalRevenue failed (${res.status})`);
+  return body;
 }

@@ -1,6 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker } from "../permissions.js";
+import { handleApiError } from "../errors.js";
 import { apiCreateRedLionPost, apiGetRedLionPosts } from "../api.js";
 
 function getCharacter(data) {
@@ -124,7 +125,7 @@ function render(data) {
     try {
       await apiCreateRedLionPost(post);
     } catch (err) {
-      console.error(err);
+      handleApiError(err, "Post to Red Lion");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }

@@ -3,7 +3,8 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
-import { apiCreateEvent, apiGetEvents } from "../api.js";
+import { handleApiError } from "../errors.js";
+import { apiCreateEvent, apiGetEvents, apiUpdateEvent } from "../api.js";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -219,7 +220,7 @@ function render(data, state) {
     try {
       await apiCreateEvent(item);
     } catch (err) {
-      console.error(err);
+      handleApiError(err, "Submit event");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
@@ -278,7 +279,7 @@ function render(data, state) {
   });
 
   root.querySelectorAll("form[data-action='add-speech']").forEach((form) => {
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const id = String(form.getAttribute("data-id") || "");
       const item = data.events.items.find((x) => String(x.id) === id);
@@ -286,8 +287,19 @@ function render(data, state) {
       const fd = new FormData(form);
       const speech = String(fd.get("speech") || "").trim();
       if (!speech) return;
+      const submitBtn = form.querySelector("button[type='submit']");
+      if (submitBtn) submitBtn.disabled = true;
       item.speeches.push({ author: char?.name || "Character", body: speech, createdAt: new Date().toLocaleString("en-GB") });
-      saveState(data);
+      try {
+        await apiUpdateEvent(id, item);
+        saveState(data);
+      } catch (err) {
+        handleApiError(err, "Add speech");
+        // Revert local state on failure
+        item.speeches.pop();
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
       state.openId = id;
       render(data, state);
     });

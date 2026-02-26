@@ -1,6 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import { handleApiError } from "../errors.js";
 import {
   apiScandalsMine,
   apiScandalsOptIn,
@@ -12,6 +13,8 @@ import {
   apiModScandalClose,
   apiModScandalTemplates,
   apiModScandalOptedInCharacters,
+  apiGetMyWorkPlan,
+  apiSaveMyWorkPlan,
 } from "../api.js";
 
 const TASKS = [
@@ -500,7 +503,7 @@ function render(data, state = {}) {
   `;
 
   // ── Working week form ──────────────────────────────────────────────────────
-  root.querySelector("#cw-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#cw-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (locked) return;
 
@@ -516,12 +519,36 @@ function render(data, state = {}) {
       return;
     }
 
+    const submitBtn = e.currentTarget.querySelector("button[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+
+    // Save old values so we can revert if the API call fails
+    const prevHours          = { ...plan.hours };
+    const prevSecondJob      = plan.secondJobTitleCompany;
+    const prevSimIndex       = plan.lastSavedSimIndex;
+
     plan.hours = nextHours;
     plan.secondJobTitleCompany = String(fd.get("secondJobTitleCompany") || "").trim();
     plan.lastSavedSimIndex = simIndex;
     plan.updatedAt = new Date().toLocaleString("en-GB");
 
-    saveState(data);
+    try {
+      await apiSaveMyWorkPlan({
+        hours: plan.hours,
+        secondJobTitleCompany: plan.secondJobTitleCompany,
+        lastSavedSimIndex: plan.lastSavedSimIndex,
+      });
+      saveState(data);
+    } catch (err) {
+      // Revert local state so UI matches DB on next reload (R3: no silent local-only mutations)
+      plan.hours = prevHours;
+      plan.secondJobTitleCompany = prevSecondJob;
+      plan.lastSavedSimIndex = prevSimIndex;
+      delete plan.updatedAt;
+      handleApiError(err, "Save work plan");
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
     render(data, state);
   });
 
@@ -765,6 +792,26 @@ export async function initConstituencyWorkPage(data) {
   ensureWork(data);
   const mod = canModerate(data);
   render(data, {});
+
+  // Load work plan from DB (authoritative for the current active character)
+  if (!mod) {
+    try {
+      const result = await apiGetMyWorkPlan();
+      if (result?.workPlan) {
+        const workPlanKey = ensureWork(data);
+        const plan = data.constituencyWork.plansByCharacter[workPlanKey];
+        if (plan && result.workPlan.hours) {
+          plan.hours = result.workPlan.hours;
+          plan.secondJobTitleCompany = result.workPlan.secondJobTitleCompany || "";
+          plan.lastSavedSimIndex = result.workPlan.lastSavedSimIndex || 0;
+          render(data, {});
+        }
+      }
+    } catch (err) {
+      console.warn("[constituency-work] DB load failed:", err.message);
+    }
+  }
+
   await loadScandalData(mod);
   render(data, {});
 }

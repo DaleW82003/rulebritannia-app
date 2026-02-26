@@ -3,6 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
 import { logAction } from "../audit.js";
+import { handleApiError } from "../errors.js";
 import {
   apiGetQtQuestions, apiSubmitQtQuestion, apiAnswerQtQuestion,
   apiFollowupQtQuestion, apiPatchQtQuestion,
@@ -397,7 +398,7 @@ function render(data, state) {
   });
 
   root.querySelectorAll(".qt-followup-form").forEach((form) => {
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const qid = form.getAttribute("data-question-id");
       const text = String(new FormData(form).get("text") || "").trim();
@@ -411,16 +412,31 @@ function render(data, state) {
       question.followUps ??= [];
       if (question.followUps.length >= maxFollowUps) return;
 
-      question.followUps.push({
+      const submitBtn = form.querySelector("button[type='submit']");
+      if (submitBtn) submitBtn.disabled = true;
+
+      const followupEntry = {
         id: nowId("qtf"),
         text,
         askedBy: char?.name || "Backbench MP",
         askedByRole: normaliseRole(char?.role || "backbencher"),
         askedAtSim: simLabel,
         answer: ""
-      });
+      };
+      question.followUps.push(followupEntry);
 
-      saveState(data);
+      try {
+        await apiFollowupQtQuestion(qid, {
+          followup_text: text,
+          asked_by_character_id: char?.id || char?.characterId || null,
+        });
+        saveState(data);
+      } catch (err) {
+        handleApiError(err, "Submit follow-up");
+        question.followUps.pop(); // revert
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
       render(data, state);
     });
   });
