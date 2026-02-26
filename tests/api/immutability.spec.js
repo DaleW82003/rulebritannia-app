@@ -19,8 +19,7 @@ import assert from "node:assert/strict";
 
 const BASE_URL = process.env.BASE_URL;
 if (!BASE_URL) {
-  console.warn("⚠️  BASE_URL not set — skipping immutability tests");
-  process.exit(0);
+  throw new Error("BASE_URL is required for immutability tests");
 }
 
 const COOKIES = {
@@ -31,7 +30,6 @@ const COOKIES = {
 
 if (!COOKIES.player) {
   console.warn("⚠️  COOKIE_PLAYER not set — skipping immutability tests");
-  process.exit(0);
 }
 
 let csrfToken = "";

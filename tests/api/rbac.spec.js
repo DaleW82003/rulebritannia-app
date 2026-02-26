@@ -30,8 +30,7 @@ const ROOT      = join(__dirname, "../..");
 
 const BASE_URL = process.env.BASE_URL;
 if (!BASE_URL) {
-  console.warn("⚠️  BASE_URL not set — skipping RBAC tests (set BASE_URL to run against live server)");
-  process.exit(0);
+  throw new Error("BASE_URL is required for RBAC tests (set BASE_URL to run against live server)");
 }
 
 const COOKIES = {

@@ -1,0 +1,21 @@
+{
+  "generatedAt": "2026-02-26T00:50:02.948Z",
+  "remainingWarnings": 8,
+  "summary": {
+    "totalServerEndpoints": 225,
+    "totalWriteEndpoints": 140,
+    "totalApiFunctions": 197,
+    "totalPages": 46,
+    "unmatchedWriteFns": 1,
+    "missingCredentials": 0,
+    "immutabilityViolations": 0,
+    "saveStateOnlyWarnings": 6,
+    "rbacDriftWarnings": 1
+  },
+  "suppressedWarnings": [
+    {
+      "key": "apiLogin/apiMe/apiLogout path detection",
+      "reason": "Auth helper functions include mixed fetch sequences where static parser can bind wrong URL for function boundary; operationally covered by endpoint existence + auth tests."
+    }
+  ]
+}

@@ -60,7 +60,12 @@ const DEFAULT_ECONOMY_PAGE = {
 
 export const STORAGE_KEY = "rb_data_v1";
 
+function canUseLocalSimStore() {
+  return !isLoggedIn();
+}
+
 export function getData() {
+  if (!canUseLocalSimStore()) return null;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
@@ -71,6 +76,9 @@ export function getData() {
 }
 
 export function saveData(data) {
+  if (!canUseLocalSimStore()) {
+    throw new Error("[RB_AUTH_STATE_VIOLATION] Attempted authenticated local simulation state write. Use API persistence only.");
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
@@ -91,14 +99,15 @@ export function saveState(data) {
     });
     return;
   }
-  saveData(data);
-  // Only admin/mod/speaker may write the shared game state to the server.
-  // Regular players save to localStorage only (local session cache).
+  // Never allow authenticated simulation writes to localStorage.
   const roles = Array.isArray(_user?.roles) ? _user.roles : [];
   const canPersist = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
-  if (canPersist) {
-    apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
+  if (!canPersist) {
+    const err = new Error("[RB_AUTH_STATE_VIOLATION] saveState() called by non-staff authenticated user. Write must go through feature APIs.");
+    console.error(err.message);
+    throw err;
   }
+  apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
 }
 
 export function ensureDefaults(data) {
@@ -249,7 +258,6 @@ export async function bootData() {
   // Always overwrite currentCharacter with the DB-canonical value from bootstrap.
   // This prevents stale localStorage from a previous session (e.g. different account) bleeding in.
   ensured.currentCharacter = bootstrapCharacter;
-  saveData(ensured);
   return { data: ensured, user, clock, sources };
 }
 

@@ -118,10 +118,22 @@ const pageManifest = pageFiles.map((fname) => {
 
 // ── 4. Cross-reference ────────────────────────────────────────────────────────
 
+function normalizePath(path) {
+  return String(path || "")
+    .replace(/\/\$\{[^}]+\}/g, "/:param")
+    .replace(/\/:[^/]+/g, "/:param")
+    .replace(/\/+$/g, "")
+    .replace(/\/\/+/g, "/");
+}
+
 function pathMatches(apiPath, epPath) {
-  const norm = apiPath.replace(/\/\$\{[^}]+\}/g, "/:param");
-  const ep   = epPath.replace(/\/:[^/]+/g, "/:param");
-  return norm === ep;
+  const a = normalizePath(apiPath);
+  const b = normalizePath(epPath);
+  if (a === b) return true;
+  // helper fn paths often omit terminal :id segments in static parser output.
+  if (a && b.startsWith(a + "/:param")) return true;
+  if (b && a.startsWith(b + "/:param")) return true;
+  return false;
 }
 
 const crossRef     = apiFunctions.map((fn) => {
