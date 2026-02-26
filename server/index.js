@@ -2635,7 +2635,12 @@ async function computeCharacterWeight(charId, poolRef = pool) {
   );
   const numChars = Math.max(1, partyChars.length);
 
-  // Step 4: floor division + remainder to first character (alphabetical by UUID)
+  // Step 4: floor division + remainder.
+  // Characters are sorted ORDER BY id (UUID, lexicographic) so the tie-break is
+  // deterministic and independent of insertion order. UUID ordering is used rather
+  // than seniority/join-date because join dates are not always stored and UUIDs
+  // are always present, making this safe against missing data. The remainder seat(s)
+  // go to the alphabetically-first character in the party.
   const each = Math.floor(partySeats / numChars);
   const remainder = partySeats - each * numChars;
   const isFirst = partyChars.length > 0 && partyChars[0].id === charId;
@@ -7683,7 +7688,7 @@ const MAX_JOB_TITLE_LENGTH = 200;
 // GET /api/me/vote-weight — return the server-computed effective vote weight for the active character
 // B3 FIX: exposes computeCharacterWeight so the UI can display the correct weight without
 // running the allocation algorithm client-side.
-app.get("/api/me/vote-weight", divReadLimit, async (req, res) => {
+app.get("/api/me/vote-weight", cwpReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const charId = await getActiveCharacterId(req);

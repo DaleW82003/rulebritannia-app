@@ -97,10 +97,6 @@ export function saveState(data) {
     });
     return;
   }
-  // Guard: log a clear error in dev if anything tries to write localStorage while authenticated.
-  if (typeof process !== "undefined" && process.env?.NODE_ENV !== "production") {
-    // Browser-safe guard (process is undefined in browsers unless polyfilled)
-  }
   // Only admin/mod/speaker may persist the shared game state to the server.
   // Regular players have no shared state write — their per-character data lives in
   // dedicated API endpoints (e.g. /api/me/work-plan, /api/me/character/:id/affiliations).
