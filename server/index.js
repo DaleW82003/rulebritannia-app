@@ -422,6 +422,7 @@ async function ensureSchema() {
       updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS bills_updated_idx ON bills (updated_at DESC)`);
   // Add columns to existing bills table if missing (migration)
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
@@ -496,6 +497,8 @@ async function ensureSchema() {
   `);
   await pool.query(`ALTER TABLE motions ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE motions ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS motions_updated_idx ON motions (updated_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS motions_type_idx    ON motions (motion_type)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS statements (
@@ -508,6 +511,7 @@ async function ensureSchema() {
   `);
   await pool.query(`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS statements_updated_idx ON statements (updated_at DESC)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS regulations (
@@ -520,6 +524,7 @@ async function ensureSchema() {
   `);
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS regulations_updated_idx ON regulations (updated_at DESC)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS questiontime_questions (
@@ -528,6 +533,7 @@ async function ensureSchema() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS qt_questions_updated_idx ON questiontime_questions (updated_at DESC)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS sim_clock (
@@ -1422,10 +1428,11 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS treasury_overspend BOOLEAN NOT NULL DEFAULT false;
   `);
 
-  // ── Character finance: monthly shop upkeep ────────────────────────────────
+  // ── Character finance: monthly shop upkeep + overspend flag ──────────────
   await pool.query(`
     ALTER TABLE character_finance
-      ADD COLUMN IF NOT EXISTS shop_monthly_upkeep NUMERIC NOT NULL DEFAULT 0;
+      ADD COLUMN IF NOT EXISTS shop_monthly_upkeep NUMERIC NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS finance_overspend   BOOLEAN NOT NULL DEFAULT false;
   `);
 
   // ── New social/parliamentary entity tables ────────────────────────────────
@@ -1644,20 +1651,21 @@ const SHADOW_OFFICE_SPECS_SERVER = [
 
 /** Idempotently ensure all canonical offices exist in the DB with their spec_id. */
 async function seedOfficeSpecs() {
-  for (const { specId, title } of CABINET_OFFICE_SPECS) {
-    await pool.query(
-      `INSERT INTO offices (name, type, spec_id) VALUES ($1, 'cabinet', $2)
-       ON CONFLICT (spec_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type`,
-      [title, specId]
-    );
-  }
-  for (const { specId, title } of SHADOW_OFFICE_SPECS_SERVER) {
-    await pool.query(
-      `INSERT INTO offices (name, type, spec_id) VALUES ($1, 'shadow', $2)
-       ON CONFLICT (spec_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type`,
-      [title, specId]
-    );
-  }
+  const cabinetValues = CABINET_OFFICE_SPECS.map((_, i) => `($${i * 2 + 1}, 'cabinet', $${i * 2 + 2})`).join(", ");
+  const cabinetParams = CABINET_OFFICE_SPECS.flatMap(({ title, specId }) => [title, specId]);
+  await pool.query(
+    `INSERT INTO offices (name, type, spec_id) VALUES ${cabinetValues}
+     ON CONFLICT (spec_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type`,
+    cabinetParams
+  );
+
+  const shadowValues = SHADOW_OFFICE_SPECS_SERVER.map((_, i) => `($${i * 2 + 1}, 'shadow', $${i * 2 + 2})`).join(", ");
+  const shadowParams = SHADOW_OFFICE_SPECS_SERVER.flatMap(({ title, specId }) => [title, specId]);
+  await pool.query(
+    `INSERT INTO offices (name, type, spec_id) VALUES ${shadowValues}
+     ON CONFLICT (spec_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type`,
+    shadowParams
+  );
   console.log("[seed] office specs seeded");
 }
 
@@ -1884,10 +1892,12 @@ async function runSalaryCrediting(month, year) {
 // balances and party structure overhead from party treasuries.
 async function runShopUpkeep(/* month, year — reserved for future audit */ ) {
   try {
-    // Personal: deduct accumulated monthly upkeep for all characters
+    // Personal: deduct accumulated monthly upkeep for all characters and
+    // set finance_overspend flag when the resulting balance is negative.
     await pool.query(`
       UPDATE character_finance
          SET bank_balance      = bank_balance - shop_monthly_upkeep,
+             finance_overspend = (bank_balance - shop_monthly_upkeep) < 0,
              updated_at        = NOW()
        WHERE shop_monthly_upkeep > 0
     `);
@@ -1902,26 +1912,34 @@ async function runShopUpkeep(/* month, year — reserved for future audit */ ) {
            OR EXISTS (SELECT 1 FROM party_shop_purchases WHERE party_slug = p.slug AND monthly_upkeep > 0)
         GROUP BY p.id, p.slug, p.treasury, p.party_structure`
     );
-    for (const party of parties) {
-      try {
+
+    // Compute all deductions in JS then apply in a single batch UPDATE
+    const toUpdate = parties
+      .map((party) => {
         const overhead    = Number(party.party_structure?.monthlyOverhead || 0);
         const shopUpkeep  = Number(party.shop_upkeep || 0);
         const totalDeduct = overhead + shopUpkeep;
-        if (totalDeduct <= 0) continue;
-        const oldCash   = Number(party.treasury?.cash || 0);
-        const newCash   = oldCash - totalDeduct;
+        if (totalDeduct <= 0) return null;
+        const newCash   = Number(party.treasury?.cash || 0) - totalDeduct;
         const overspend = newCash < 0;
-        await pool.query(
-          `UPDATE parties
-              SET treasury            = jsonb_set(COALESCE(treasury,'{}'), '{cash}', to_jsonb($1::numeric)),
-                  treasury_overspend  = $2,
-                  updated_at          = NOW()
-            WHERE id = $3`,
-          [newCash, overspend, party.id]
-        );
-      } catch (partyErr) {
-        console.error(`[shopUpkeep] party ${party.slug}:`, partyErr.message);
-      }
+        return { id: party.id, newCash, overspend };
+      })
+      .filter(Boolean);
+
+    if (toUpdate.length > 0) {
+      const valuesClause = toUpdate
+        .map((_, i) => `($${i * 3 + 1}::uuid, $${i * 3 + 2}::numeric, $${i * 3 + 3}::boolean)`)
+        .join(", ");
+      const params = toUpdate.flatMap(({ id, newCash, overspend }) => [id, newCash, overspend]);
+      await pool.query(
+        `UPDATE parties AS p
+            SET treasury           = jsonb_set(COALESCE(treasury,'{}'), '{cash}', to_jsonb(v.new_cash)),
+                treasury_overspend = v.overspend,
+                updated_at         = NOW()
+           FROM (VALUES ${valuesClause}) AS v(id, new_cash, overspend)
+          WHERE p.id = v.id`,
+        params
+      );
     }
   } catch (e) {
     console.error("[runShopUpkeep] error:", e.message);
@@ -1981,20 +1999,23 @@ async function runRevenuePayouts(simMonth, simYear) {
         const payout = periodsMissed * annualRevenue;
         const newLastPaid = base + periodsMissed * 12;
 
-        await pool.query("BEGIN");
+        // Single CTE statement replaces the previous BEGIN/UPDATE/INSERT/COMMIT sequence
+        // (4 round-trips). A single statement is inherently atomic in PostgreSQL, so the
+        // balance update and payout record either both succeed or both fail together.
         await pool.query(
-          `UPDATE character_finance SET bank_balance = bank_balance + $1, updated_at = NOW() WHERE character_id = $2`,
-          [payout, p.character_id]
+          `WITH balance_update AS (
+             UPDATE character_finance
+                SET bank_balance = bank_balance + $1, updated_at = NOW()
+              WHERE character_id = $2
+           )
+           INSERT INTO character_shop_revenue_payouts (character_id, purchase_id, last_payout_sim_index)
+                VALUES ($2, $3, $4)
+           ON CONFLICT (purchase_id) DO UPDATE SET last_payout_sim_index = $4, updated_at = NOW()`,
+          [payout, p.character_id, p.id, newLastPaid]
         );
-        await pool.query(
-          `INSERT INTO character_shop_revenue_payouts (character_id, purchase_id, last_payout_sim_index)
-               VALUES ($1, $2, $3)
-           ON CONFLICT (purchase_id) DO UPDATE SET last_payout_sim_index = $3, updated_at = NOW()`,
-          [p.character_id, p.id, newLastPaid]
-        );
-        await pool.query("COMMIT");
       } catch (purchaseErr) {
-        await pool.query("ROLLBACK").catch(() => {});
+        // The CTE is atomic: if this throws, neither the balance update nor the payout
+        // record was committed, so no partial state is left.
         console.error(`[revenuePayouts] purchase ${p.id}:`, purchaseErr.message);
       }
     }
@@ -2045,14 +2066,13 @@ async function seedPlayableParties() {
   await pool.query(`
     ALTER TABLE parties ADD COLUMN IF NOT EXISTS playable BOOLEAN NOT NULL DEFAULT false;
   `);
-  for (const p of ALL_CANONICAL_PARTIES) {
-    await pool.query(
-      `INSERT INTO parties (slug, name, short_name, playable)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (slug) DO UPDATE SET short_name = EXCLUDED.short_name, playable = EXCLUDED.playable`,
-      [p.slug, p.name, p.short_name, p.playable]
-    );
-  }
+  const values = ALL_CANONICAL_PARTIES.map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`).join(", ");
+  const params = ALL_CANONICAL_PARTIES.flatMap(({ slug, name, short_name, playable }) => [slug, name, short_name, playable]);
+  await pool.query(
+    `INSERT INTO parties (slug, name, short_name, playable) VALUES ${values}
+     ON CONFLICT (slug) DO UPDATE SET short_name = EXCLUDED.short_name, playable = EXCLUDED.playable`,
+    params
+  );
 }
 
 /**
@@ -8174,10 +8194,10 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
 
     // Finance row (may not exist yet)
     const { rows: finRows } = await pool.query(
-      `SELECT bank_balance, shop_monthly_upkeep FROM character_finance WHERE character_id = $1`,
+      `SELECT bank_balance, shop_monthly_upkeep, finance_overspend FROM character_finance WHERE character_id = $1`,
       [charId]
     );
-    const fin = finRows[0] ?? { bank_balance: 0, shop_monthly_upkeep: 0 };
+    const fin = finRows[0] ?? { bank_balance: 0, shop_monthly_upkeep: 0, finance_overspend: false };
 
     // Additional revenue streams
     const { rows: revRows } = await pool.query(
@@ -8202,9 +8222,10 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
     const { annualSalary } = await resolvedAnnualSalary(charId, simIndex);
 
     res.json({
-      characterId:      charId,
-      bankBalance:      Number(fin.bank_balance),
+      characterId:       charId,
+      bankBalance:       Number(fin.bank_balance),
       shopMonthlyUpkeep: Number(fin.shop_monthly_upkeep),
+      financeOverspend:  !!fin.finance_overspend,
       annualSalary,
       additionalRevenue: revRows.map((r) => ({
         id:           r.id,
@@ -8548,7 +8569,11 @@ app.delete("/api/me/character/shop-purchases/:id", meFinanceWriteLimit, async (r
       [targetCharId]
     );
     await client.query(
-      `UPDATE character_finance SET shop_monthly_upkeep = $1, updated_at = NOW() WHERE character_id = $2`,
+      `UPDATE character_finance
+          SET shop_monthly_upkeep = $1,
+              finance_overspend   = CASE WHEN $1 = 0 THEN false ELSE finance_overspend END,
+              updated_at          = NOW()
+        WHERE character_id = $2`,
       [Number(upkeepRows[0].total), targetCharId]
     );
     await client.query("COMMIT");
@@ -8618,9 +8643,10 @@ app.post("/api/me/character/shop-purchases/:id/sell", meFinanceWriteLimit, async
     );
     await client.query(
       `UPDATE character_finance
-          SET bank_balance = bank_balance + $1,
+          SET bank_balance        = bank_balance + $1,
               shop_monthly_upkeep = $2,
-              updated_at = NOW()
+              finance_overspend   = CASE WHEN $2 = 0 THEN false ELSE finance_overspend END,
+              updated_at          = NOW()
         WHERE character_id = $3`,
       [refund, Number(upkeepRows[0].total), charId]
     );
@@ -8683,7 +8709,11 @@ app.post("/api/me/character/shop-purchases/:id/dismiss", meFinanceWriteLimit, as
       [charId]
     );
     await client.query(
-      `UPDATE character_finance SET shop_monthly_upkeep = $1, updated_at = NOW() WHERE character_id = $2`,
+      `UPDATE character_finance
+          SET shop_monthly_upkeep = $1,
+              finance_overspend   = CASE WHEN $1 = 0 THEN false ELSE finance_overspend END,
+              updated_at          = NOW()
+        WHERE character_id = $2`,
       [Number(upkeepRows[0].total), charId]
     );
     await client.query("COMMIT");

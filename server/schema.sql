@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS bills (
   discourse_topic_url TEXT,
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS bills_updated_idx ON bills (updated_at DESC);
 
 -- Motions (house and EDM)
 CREATE TABLE IF NOT EXISTS motions (
@@ -38,6 +39,8 @@ CREATE TABLE IF NOT EXISTS motions (
   discourse_topic_url TEXT,
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS motions_updated_idx ON motions (updated_at DESC);
+CREATE INDEX IF NOT EXISTS motions_type_idx    ON motions (motion_type);
 
 -- Statements
 CREATE TABLE IF NOT EXISTS statements (
@@ -47,6 +50,7 @@ CREATE TABLE IF NOT EXISTS statements (
   discourse_topic_url TEXT,
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS statements_updated_idx ON statements (updated_at DESC);
 
 -- Regulations
 CREATE TABLE IF NOT EXISTS regulations (
@@ -56,6 +60,7 @@ CREATE TABLE IF NOT EXISTS regulations (
   discourse_topic_url TEXT,
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS regulations_updated_idx ON regulations (updated_at DESC);
 
 -- Question Time questions
 CREATE TABLE IF NOT EXISTS questiontime_questions (
@@ -63,6 +68,7 @@ CREATE TABLE IF NOT EXISTS questiontime_questions (
   data       JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS qt_questions_updated_idx ON questiontime_questions (updated_at DESC);
 
 -- Press items (press releases + press conferences)
 CREATE TABLE IF NOT EXISTS press_items (
