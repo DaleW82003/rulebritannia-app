@@ -1428,10 +1428,11 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS treasury_overspend BOOLEAN NOT NULL DEFAULT false;
   `);
 
-  // ── Character finance: monthly shop upkeep ────────────────────────────────
+  // ── Character finance: monthly shop upkeep + overspend flag ──────────────
   await pool.query(`
     ALTER TABLE character_finance
-      ADD COLUMN IF NOT EXISTS shop_monthly_upkeep NUMERIC NOT NULL DEFAULT 0;
+      ADD COLUMN IF NOT EXISTS shop_monthly_upkeep NUMERIC NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS finance_overspend   BOOLEAN NOT NULL DEFAULT false;
   `);
 
   // ── New social/parliamentary entity tables ────────────────────────────────
@@ -1891,10 +1892,12 @@ async function runSalaryCrediting(month, year) {
 // balances and party structure overhead from party treasuries.
 async function runShopUpkeep(/* month, year — reserved for future audit */ ) {
   try {
-    // Personal: deduct accumulated monthly upkeep for all characters
+    // Personal: deduct accumulated monthly upkeep for all characters and
+    // set finance_overspend flag when the resulting balance is negative.
     await pool.query(`
       UPDATE character_finance
          SET bank_balance      = bank_balance - shop_monthly_upkeep,
+             finance_overspend = (bank_balance - shop_monthly_upkeep) < 0,
              updated_at        = NOW()
        WHERE shop_monthly_upkeep > 0
     `);
@@ -8191,10 +8194,10 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
 
     // Finance row (may not exist yet)
     const { rows: finRows } = await pool.query(
-      `SELECT bank_balance, shop_monthly_upkeep FROM character_finance WHERE character_id = $1`,
+      `SELECT bank_balance, shop_monthly_upkeep, finance_overspend FROM character_finance WHERE character_id = $1`,
       [charId]
     );
-    const fin = finRows[0] ?? { bank_balance: 0, shop_monthly_upkeep: 0 };
+    const fin = finRows[0] ?? { bank_balance: 0, shop_monthly_upkeep: 0, finance_overspend: false };
 
     // Additional revenue streams
     const { rows: revRows } = await pool.query(
@@ -8219,9 +8222,10 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
     const { annualSalary } = await resolvedAnnualSalary(charId, simIndex);
 
     res.json({
-      characterId:      charId,
-      bankBalance:      Number(fin.bank_balance),
+      characterId:       charId,
+      bankBalance:       Number(fin.bank_balance),
       shopMonthlyUpkeep: Number(fin.shop_monthly_upkeep),
+      financeOverspend:  !!fin.finance_overspend,
       annualSalary,
       additionalRevenue: revRows.map((r) => ({
         id:           r.id,
@@ -8565,7 +8569,11 @@ app.delete("/api/me/character/shop-purchases/:id", meFinanceWriteLimit, async (r
       [targetCharId]
     );
     await client.query(
-      `UPDATE character_finance SET shop_monthly_upkeep = $1, updated_at = NOW() WHERE character_id = $2`,
+      `UPDATE character_finance
+          SET shop_monthly_upkeep = $1,
+              finance_overspend   = CASE WHEN $1 = 0 THEN false ELSE finance_overspend END,
+              updated_at          = NOW()
+        WHERE character_id = $2`,
       [Number(upkeepRows[0].total), targetCharId]
     );
     await client.query("COMMIT");
@@ -8635,9 +8643,10 @@ app.post("/api/me/character/shop-purchases/:id/sell", meFinanceWriteLimit, async
     );
     await client.query(
       `UPDATE character_finance
-          SET bank_balance = bank_balance + $1,
+          SET bank_balance        = bank_balance + $1,
               shop_monthly_upkeep = $2,
-              updated_at = NOW()
+              finance_overspend   = CASE WHEN $2 = 0 THEN false ELSE finance_overspend END,
+              updated_at          = NOW()
         WHERE character_id = $3`,
       [refund, Number(upkeepRows[0].total), charId]
     );
@@ -8700,7 +8709,11 @@ app.post("/api/me/character/shop-purchases/:id/dismiss", meFinanceWriteLimit, as
       [charId]
     );
     await client.query(
-      `UPDATE character_finance SET shop_monthly_upkeep = $1, updated_at = NOW() WHERE character_id = $2`,
+      `UPDATE character_finance
+          SET shop_monthly_upkeep = $1,
+              finance_overspend   = CASE WHEN $1 = 0 THEN false ELSE finance_overspend END,
+              updated_at          = NOW()
+        WHERE character_id = $2`,
       [Number(upkeepRows[0].total), charId]
     );
     await client.query("COMMIT");

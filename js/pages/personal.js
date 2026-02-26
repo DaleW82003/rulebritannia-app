@@ -914,6 +914,27 @@ function render(data, state) {
   const isOwnProfile = activeName === name;
   const canShop = isOwnProfile || manager;
 
+  // Monthly upkeep: prefer server-side total (state.shopMonthlyUpkeep) for the
+  // viewed character; fall back to computing from shopPurchases for other profiles
+  // or before the API response arrives (shopMonthlyUpkeep is undefined until then).
+  const monthlyUpkeep   = isOwnProfile
+    ? (state.shopMonthlyUpkeep ?? computeMonthlyUpkeep(profile))
+    : computeMonthlyUpkeep(profile);
+  const annualUpkeep    = monthlyUpkeep * 12;
+  const investmentIncome = Number(mods?.estimatedAnnualRevenue || 0);
+  const totalAnnualIncome = Number(profile.salaryAnnual || 0) + revenueTotal + investmentIncome;
+  const netAnnualIncome   = totalAnnualIncome - annualUpkeep;
+  // Net bi-monthly: income credit minus 2 months of upkeep
+  const netBiMonthly      = biMonthlyCredit - monthlyUpkeep * 2;
+  const upkeepExceedsIncome = monthlyUpkeep > 0 && annualUpkeep > totalAnnualIncome;
+  const financeOverspend    = isOwnProfile ? !!state.financeOverspend : (profile.bankBalance < 0);
+  // Pre-computed sub-string for the upkeep detail note in the income summary tile
+  const netBiMonthlyColor = netBiMonthly >= 0 ? "#0a7f2e" : "#c00";
+  const upkeepDetailNote  = monthlyUpkeep > 0
+    ? ` · upkeep deducted monthly: -${money(monthlyUpkeep)}`
+      + ` · net per 2-month period: <b style="color:${netBiMonthlyColor};">${money(netBiMonthly)}</b>`
+    : "";
+
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Personal</div></div>
 
@@ -1066,15 +1087,29 @@ function render(data, state) {
       </article>
 
       <article class="tile">
-        <h2 style="margin-top:0;">Salary</h2>
-        <p><b>Annual Salary:</b> ${money(profile.salaryAnnual)}</p>
-        <p class="muted">Paid BiMonthly (Every 2 Months): ${money(biMonthlyCredit)}</p>
+        <h2 style="margin-top:0;">Income &amp; Upkeep Summary</h2>
+        <div style="line-height:1.8;">
+          <div><b>Annual Salary:</b> ${money(profile.salaryAnnual)}</div>
+          ${revenueTotal > 0 ? `<div><b>Additional Revenue (annual):</b> ${money(revenueTotal)}</div>` : ""}
+          ${investmentIncome > 0 ? `<div><b>Investment Income (annual):</b> ${money(investmentIncome)}</div>` : ""}
+          ${monthlyUpkeep > 0 ? `<div><b>Monthly Upkeep:</b> <span style="color:#c00;">-${money(monthlyUpkeep)}/month</span></div>` : ""}
+          <div style="border-top:1px solid #eee;margin-top:4px;padding-top:4px;">
+            <b>Net Annual Income:</b>
+            <span style="color:${netAnnualIncome >= 0 ? "#0a7f2e" : "#c00"};">${money(netAnnualIncome)}</span>
+          </div>
+          <div class="muted" style="font-size:.88em;">
+            Bi-monthly deposit: ${money(biMonthlyCredit)}${upkeepDetailNote}
+          </div>
+        </div>
+        ${upkeepExceedsIncome ? `<div style="color:#c00;margin-top:6px;">⚠️ Monthly upkeep exceeds annual income — your balance will decline each month.</div>` : ""}
       </article>
 
       <article class="tile">
         <h2 style="margin-top:0;">Bank Balance</h2>
-        <p><b>Current Balance:</b> ${money(profile.bankBalance)}</p>
-        <p class="muted">Projected Next Deposit: ${money(biMonthlyCredit)}</p>
+        <p><b>Current Balance:</b> <span style="color:${profile.bankBalance < 0 ? "#c00" : "inherit"};">${money(profile.bankBalance)}</span></p>
+        <p class="muted">Projected next bi-monthly deposit: ${money(biMonthlyCredit)}</p>
+        ${monthlyUpkeep > 0 ? `<p class="muted">Monthly upkeep deduction: -${money(monthlyUpkeep)}</p>` : ""}
+        ${financeOverspend ? `<div style="color:#c00;">⚠️ Balance in deficit — upkeep is being deducted regardless of available funds.</div>` : ""}
       </article>
 
       <article class="tile">
@@ -1902,10 +1937,16 @@ function render(data, state) {
  * Sync a finance snapshot (from apiGetMyFinance) into the in-memory profile object
  * so the render shows authoritative DB values.
  */
-function syncFinanceIntoProfile(profile, fin, data, profileName) {
+function syncFinanceIntoProfile(profile, fin, data, profileName, state) {
   if (!profile || !fin) return;
   profile.bankBalance   = Number(fin.bankBalance   ?? profile.bankBalance);
   profile.salaryAnnual  = Number(fin.annualSalary  ?? profile.salaryAnnual);
+
+  // Propagate upkeep totals and overspend flag into state for the render
+  if (state) {
+    state.shopMonthlyUpkeep = Number(fin.shopMonthlyUpkeep ?? 0);
+    state.financeOverspend  = !!fin.financeOverspend;
+  }
 
   // Replace shop purchases from DB (normalise field names)
   if (Array.isArray(fin.shopPurchases)) {
@@ -1941,7 +1982,7 @@ function syncFinanceIntoProfile(profile, fin, data, profileName) {
 
 export async function initPersonalPage(data) {
   normalisePersonal(data);
-  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "" };
+  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false };
 
   // Load finance + shop purchases from DB (authoritative source of truth).
   // Run in parallel with initial render so the page appears immediately,
@@ -1950,7 +1991,7 @@ export async function initPersonalPage(data) {
     const name = getCharacterName(data);
     const profile = name ? data.personal?.profiles?.[name] : null;
     if (profile) {
-      syncFinanceIntoProfile(profile, fin, data, name);
+      syncFinanceIntoProfile(profile, fin, data, name, state);
       render(data, state);
     }
   }).catch(() => {}); // fail silently — client state is used as fallback
