@@ -938,11 +938,13 @@ export async function apiGetShopPriceIndex() {
   return res.json();
 }
 
-export async function apiApplyShopInflation() {
+export async function apiApplyShopInflation(inflationPct) {
+  const requestBody = inflationPct != null ? JSON.stringify({ inflationPct: Number(inflationPct) }) : undefined;
   const res = await fetch(`${API_BASE}/api/shop/apply-inflation`, {
     method: "POST",
     credentials: "include",
-    headers: { ...csrfHeaders() },
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: requestBody,
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiApplyShopInflation failed (${res.status})`);

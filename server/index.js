@@ -8096,16 +8096,24 @@ app.post("/api/shop/apply-inflation", shopIndexLimit, async (req, res) => {
       }
     }
 
-    // Read inflation rate from the app state blob (economyPage.topline.inflation)
-    const { rows: stateRows } = await pool.query(
-      `SELECT s.data FROM app_state_current c
-         JOIN state_snapshots s ON s.id = c.snapshot_id
-        WHERE c.id = 'main'`
-    );
-    const stateData    = stateRows[0]?.data || {};
-    const inflationPct = Number(stateData?.economyPage?.topline?.inflation ?? 0);
+    // Read inflation rate: prefer client-provided value (from economy page state),
+    // fall back to reading from the app state blob (economyPage.topline.inflation)
+    const clientInflationPct = Number(req.body?.inflationPct);
+    let inflationPct = Number.isFinite(clientInflationPct) && clientInflationPct > 0
+      ? clientInflationPct
+      : null;
 
-    if (!Number.isFinite(inflationPct) || inflationPct === 0) {
+    if (inflationPct === null) {
+      const { rows: stateRows } = await pool.query(
+        `SELECT s.data FROM app_state_current c
+           JOIN state_snapshots s ON s.id = c.snapshot_id
+          WHERE c.id = 'main'`
+      );
+      const stateData = stateRows[0]?.data || {};
+      inflationPct = Number(stateData?.economyPage?.topline?.inflation ?? 0);
+    }
+
+    if (!Number.isFinite(inflationPct) || inflationPct <= 0) {
       return res.status(400).json({
         error: "No inflation rate configured. Please set an inflation value on the Economy page first.",
       });

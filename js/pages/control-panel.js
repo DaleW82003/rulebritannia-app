@@ -95,6 +95,8 @@ export async function initControlPanelPage(data) {
       : Promise.resolve(),
   ]);
 
+  const economyInflationPct = Number(data?.economyPage?.topline?.inflation || 0);
+
   rolePanels.innerHTML = `
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Control Panels ${controlPanelBadgesHTML(admin, data)}</h2>
@@ -189,18 +191,22 @@ export async function initControlPanelPage(data) {
       <summary style="cursor:pointer;"><b>Shop Price Inflation <span class="mod-badge">Mod / Admin</span></b></summary>
       <div style="margin-top:10px;">
         <p class="muted" style="margin:0 0 8px;">
-          Adjusts the shop price index by the economy inflation rate.
+          Adjusts the shop price index by the economy inflation rate (for both party and personal shop items).
           Can only be applied <b>once every 12 sim months</b>.
-          Inflation rate is read from the Economy page.
+          Inflation rate is set on the <a href="economy.html">Economy page</a>.
         </p>
         <div class="muted" style="margin-bottom:10px;line-height:1.8;">
           <div><b>Current Price Index:</b> ${esc(String(Number(shopPriceData.priceIndex || 1).toFixed(4)))}</div>
+          <div><b>Economy Inflation Rate:</b> ${economyInflationPct
+            ? `${esc(economyInflationPct.toFixed(2))}%`
+            : `<span style="color:var(--danger,#c00);">Not set — please configure inflation on the <a href="economy.html">Economy page</a> first</span>`}</div>
+          ${economyInflationPct ? (() => { const previewIndex = Math.round(Number(shopPriceData.priceIndex || 1) * (1 + economyInflationPct / 100) * 10000) / 10000; return `<div><b>Preview New Index:</b> ${esc(previewIndex.toFixed(4))}</div>`; })() : ""}
           <div><b>Last Applied:</b> ${shopPriceData.lastAppliedSimMonth != null
             ? `Sim month ${esc(String(shopPriceData.lastAppliedSimMonth))}/${esc(String(shopPriceData.lastAppliedSimYear))}`
             : "Never"}</div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <button class="btn" type="button" id="cp-btn-apply-inflation">Apply Inflation to Shop Prices</button>
+          <button class="btn" type="button" id="cp-btn-apply-inflation"${!economyInflationPct ? " disabled title=\"Set inflation rate on the Economy page first\"" : ""}>Apply Inflation to Shop Prices</button>
           <span id="cp-inflation-status" style="font-size:13px;"></span>
         </div>
       </div>
@@ -421,7 +427,7 @@ export async function initControlPanelPage(data) {
       inflationBtn.textContent = "Applying…";
       if (inflationStatus) inflationStatus.textContent = "";
       try {
-        const result = await apiApplyShopInflation();
+        const result = await apiApplyShopInflation(economyInflationPct || undefined);
         logAction({ action: "shop.apply_inflation", details: result });
         if (inflationStatus) {
           inflationStatus.style.color = "#1a7a1a";
