@@ -655,17 +655,48 @@ function toDateInputValue(stored) {
 
 // Compute aggregate modifiers for a profile from its purchases.
 // Handles both the new effects[] format and legacy modifiers/scrutinyRisk format.
-function computeModifiers(profile) {
+// priceIndex is used to estimate inflation-adjusted annual revenue from additionalRevenue items.
+function computeModifiers(profile, priceIndex = 1) {
   const purchases = Array.isArray(profile.shopPurchases) ? profile.shopPurchases : [];
-  let pressImpactPct = 0;
-  let pollingBoostPct = 0;
-  let scrutinyScore = 0;
+  let pressImpactPct       = 0;
+  let pollingBoostPct      = 0;
+  let scrutinyScore        = 0;
+  let efficiencyBoost      = 0;
+  let constituencyPresence = 0;
+  let constituencyCapacity = 0;
+  let policyResearch       = 0;
+  let scandalDefence       = 0;
+  let estimatedAnnualRevenue = 0;
+
   for (const p of purchases) {
     // New effects[] format
     if (Array.isArray(p.effects)) {
       for (const e of p.effects) {
-        if (e.type === "pressImpact")   pressImpactPct  += Number(e.value || 0);
-        if (e.type === "pollingBoost")  pollingBoostPct += Number(e.value || 0);
+        const v = Number(e.value || 0);
+        if (e.type === "pressImpact")         pressImpactPct       += v;
+        if (e.type === "pollingBoost")         pollingBoostPct      += v;
+        if (e.type === "efficiencyBoost")      efficiencyBoost      += v;
+        if (e.type === "constituencyPresence") constituencyPresence += v;
+        if (e.type === "constituencyCapacity") constituencyCapacity += v;
+        if (e.type === "policyResearch")       policyResearch       += v;
+        if (e.type === "scandalDefence")       scandalDefence       += v;
+        if (e.type === "additionalRevenue") {
+          // Estimate annual revenue: 20% of current price (base_price × priceIndex).
+          // Look up base_price from the purchase record first; fall back to SHOP_ITEMS catalog.
+          const baseP = Number(p.basePrice || 0);
+          if (baseP > 0) {
+            estimatedAnnualRevenue += Math.round(baseP * priceIndex * 0.20);
+          } else {
+            // Legacy: try SHOP_ITEMS catalog lookup
+            const catalogItem = SHOP_ITEMS.find((i) => i.id === (p.itemId || p.id));
+            if (catalogItem) {
+              estimatedAnnualRevenue += Math.round(catalogItem.basePrice1997 * priceIndex * 0.20);
+            } else {
+              // Final fallback: 20% of stored paid price (static)
+              estimatedAnnualRevenue += Math.round(Number(p.price || 0) * 0.20);
+            }
+          }
+        }
       }
     }
     // Legacy modifiers format (backward compat)
@@ -674,7 +705,11 @@ function computeModifiers(profile) {
     // New riskModifier format + legacy scrutinyRisk
     scrutinyScore += Number(p.riskModifier?.scandalExposure || p.scrutinyRisk || 0);
   }
-  return { pressImpactPct, pollingBoostPct, scrutinyScore };
+  return {
+    pressImpactPct, pollingBoostPct, scrutinyScore,
+    efficiencyBoost, constituencyPresence, constituencyCapacity,
+    policyResearch, scandalDefence, estimatedAnnualRevenue,
+  };
 }
 
 // Compute total monthly upkeep from active purchases (using priceIndex for new items).
@@ -692,10 +727,10 @@ function currentUpkeep(item, priceIndex) {
 }
 
 // Persist computed modifiers to state (used by press/polling pipeline).
-function syncModifiers(data, profileName) {
+function syncModifiers(data, profileName, priceIndex = 1) {
   const profile = data.personal?.profiles?.[profileName];
   if (!profile) return;
-  const mods = computeModifiers(profile);
+  const mods = computeModifiers(profile, priceIndex);
   data.effects ??= {};
   data.effects.modifiers ??= {};
   data.effects.modifiers[profileName] = mods;
@@ -869,7 +904,9 @@ function render(data, state) {
 
   const weekly = weeklyCreditAmount(profile);
   const revenueTotal = profile.additionalRevenue.reduce((sum, r) => sum + Number(r.annualRevenue || 0), 0);
-  const mods = profile.modifiers;
+  // Compute fresh modifiers with current priceIndex for accurate revenue estimates
+  const pi = state.priceIndex || 1;
+  const mods = computeModifiers(profile, pi);
   // Viewing own profile (non-manager) or any profile (manager).
   const isOwnProfile = activeName === name;
   const canShop = isOwnProfile || manager;
@@ -1044,28 +1081,18 @@ function render(data, state) {
 
       <article class="tile">
         <h2 style="margin-top:0;">Active Modifiers</h2>
-        <div class="muted" style="line-height:1.8;">
-          <div><b>Press Impact:</b> +${mods.pressImpactPct}%</div>
-          <div><b>Polling Boost:</b> +${mods.pollingBoostPct}%</div>
-          <div><b>Scrutiny Score:</b> ${mods.scrutinyScore} ${mods.scrutinyScore >= 10 ? "⚠️ High" : mods.scrutinyScore >= 5 ? "⚡ Medium" : "✅ Low"}</div>
-          ${(() => {
-            const extraEffects = profile.shopPurchases.flatMap((p) =>
-              (p.effects || []).filter((e) => !["pressImpact","pollingBoost"].includes(e.type)).map((e) => {
-                if (e.type === "constituencyPresence") return `<div>📍 Constituency Presence +${e.value}</div>`;
-                if (e.type === "constituencyCapacity") return `<div>👥 Casework Capacity +${e.value}</div>`;
-                if (e.type === "policyResearch")       return `<div>📄 Policy Research +${e.value}</div>`;
-                if (e.type === "efficiencyBoost")      return `<div>⚡ Efficiency +${e.value}</div>`;
-                if (e.type === "scandalDefence")       return `<div>🛡️ Scandal Defence +${e.value}</div>`;
-                if (e.type === "additionalRevenue")    return `<div>💰 Additional Revenue +${e.value}</div>`;
-                return `<div>${esc(e.type)} +${e.value}</div>`;
-              })
-            );
-            return extraEffects.length
-              ? `<div style="margin-top:4px;border-top:1px solid #eee;padding-top:4px;">${extraEffects.join("")}</div>`
-              : "";
-          })()}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:4px 16px;line-height:1.9;font-size:.93em;">
+          <div><b>📰 Press Impact:</b> <span style="color:${mods.pressImpactPct > 0 ? "#0a7f2e" : "inherit"}">+${mods.pressImpactPct}%</span></div>
+          <div><b>📊 Polling Boost:</b> <span style="color:${mods.pollingBoostPct > 0 ? "#0a7f2e" : "inherit"}">+${mods.pollingBoostPct}%</span></div>
+          <div><b>⚡ Efficiency:</b> <span style="color:${mods.efficiencyBoost > 0 ? "#0a7f2e" : "inherit"}">+${mods.efficiencyBoost}</span></div>
+          <div><b>📍 Constituency Work:</b> <span style="color:${mods.constituencyPresence > 0 ? "#0a7f2e" : "inherit"}">+${mods.constituencyPresence}</span></div>
+          <div><b>👥 Casework Capacity:</b> <span style="color:${mods.constituencyCapacity > 0 ? "#0a7f2e" : "inherit"}">+${mods.constituencyCapacity}</span></div>
+          <div><b>📄 Policy Research:</b> <span style="color:${mods.policyResearch > 0 ? "#0a7f2e" : "inherit"}">+${mods.policyResearch}</span></div>
+          <div><b>🛡️ Scandal Defence:</b> <span style="color:${mods.scandalDefence > 0 ? "#0a5a8a" : "inherit"}">+${mods.scandalDefence}</span></div>
+          <div><b>⚠️ Scandal Risk:</b> <span style="color:${mods.scrutinyScore >= 10 ? "#9d1d1d" : mods.scrutinyScore >= 5 ? "#b06000" : "inherit"}">${mods.scrutinyScore} ${mods.scrutinyScore >= 10 ? "— High" : mods.scrutinyScore >= 5 ? "— Medium" : "— Low"}</span></div>
+          ${mods.estimatedAnnualRevenue > 0 ? `<div style="grid-column:1/-1;border-top:1px solid #eee;padding-top:4px;margin-top:2px;"><b>💰 Shop Revenue:</b> <span style="color:#0a5a8a;">est. ${money(mods.estimatedAnnualRevenue)}/year</span> <span class="muted" style="font-size:.85em;">(20% of current price, paid every 12 sim months)</span></div>` : ""}
         </div>
-        <p class="muted" style="margin-bottom:0;font-size:.85em;">Modifiers from shop purchases are applied to press releases and polling entries.</p>
+        <p class="muted" style="margin-bottom:0;font-size:.85em;margin-top:8px;">All modifiers are cumulative from shop purchases and are applied to press releases and polling entries.</p>
       </article>
     </section>
 
@@ -1293,7 +1320,7 @@ function render(data, state) {
       btn.disabled = true;
       try {
         const result = await apiAddShopPurchase({
-          item_id: item.id, item_name: item.name, price, monthly_upkeep: upkeep,
+          item_id: item.id, item_name: item.name, price, base_price: item.basePrice1997, monthly_upkeep: upkeep,
           effects: item.effects ? [...item.effects] : [], risk_modifier: item.riskModifier || null,
         });
         // Reload finance from DB to get authoritative state
@@ -1837,6 +1864,7 @@ function syncFinanceIntoProfile(profile, fin, data, profileName) {
       name:          p.itemName || p.itemId,
       itemName:      p.itemName || p.itemId,
       price:         Number(p.price),
+      basePrice:     Number(p.basePrice || 0),
       monthlyUpkeep: Number(p.monthlyUpkeep),
       effects:       Array.isArray(p.effects) ? p.effects : [],
       riskModifier:  p.riskModifier ?? null,

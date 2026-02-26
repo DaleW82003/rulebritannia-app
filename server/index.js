@@ -1544,6 +1544,15 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS char_shop_rev_payouts_char_idx ON character_shop_revenue_payouts(character_id);
   `);
+
+  // ── base_price column for inflation-adjusted revenue payouts ──────────────
+  // Stores the item's 1997 base price (basePrice1997 from SHOP_ITEMS) so the
+  // server can compute annual revenue as: round(base_price × currentPriceIndex × 0.20).
+  // Existing records default to 0 and fall back to 20% of the stored paid price (static).
+  await pool.query(`
+    ALTER TABLE character_shop_purchases
+      ADD COLUMN IF NOT EXISTS base_price NUMERIC NOT NULL DEFAULT 0;
+  `);
 }
 
 // ── 1997 baseline salary scale (idempotent) ────────────────────────────────
@@ -1772,9 +1781,15 @@ async function runRevenuePayouts(simMonth, simYear) {
   try {
     const simIndex = simYear * 12 + (simMonth - 1);
 
+    // Fetch current price index for inflation-adjusted revenue calculation
+    const { rows: piRows } = await pool.query(
+      `SELECT price_index FROM shop_price_index WHERE id = 'main'`
+    );
+    const priceIndex = Number(piRows[0]?.price_index ?? 1);
+
     // Fetch all active shop purchases that have an additionalRevenue effect
     const { rows: purchases } = await pool.query(`
-      SELECT p.id, p.character_id, p.effects, p.purchased_at,
+      SELECT p.id, p.character_id, p.effects, p.purchased_at, p.price, p.base_price,
              COALESCE(rp.last_payout_sim_index, 0) AS last_payout_sim_index
         FROM character_shop_purchases p
         LEFT JOIN character_shop_revenue_payouts rp ON rp.purchase_id = p.id
@@ -1787,9 +1802,14 @@ async function runRevenuePayouts(simMonth, simYear) {
         const revenueEffect = effects.find((e) => e.type === "additionalRevenue");
         if (!revenueEffect) continue;
 
-        // Revenue value per effect unit — £5000/year per additionalRevenue value unit.
-        // (e.g. rental-property-reno has value:1 → £5000/year; commercial-unit has value:2 → £10000/year)
-        const annualRevenue = Number(revenueEffect.value || 1) * 5000;
+        // Annual revenue = 20% of current shop price (base_price × currentPriceIndex).
+        // This inflates inline with the economy. base_price is stored at time of purchase
+        // (item.basePrice1997). For legacy records where base_price = 0, fall back to
+        // 20% of the stored paid price (static, no further inflation).
+        const basePrice = Number(p.base_price || 0);
+        const annualRevenue = basePrice > 0
+          ? Math.round(basePrice * priceIndex * 0.20)
+          : Math.round(Number(p.price || 0) * 0.20);
 
         // Sim index uses year*12 + (month-1) where month is 1-12.
         // purchasedAt.getMonth() returns 0-11, so year*12 + getMonth() matches the formula.
@@ -7951,7 +7971,7 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
 
     // Shop purchases
     const { rows: purchaseRows } = await pool.query(
-      `SELECT id, item_id, item_name, price, monthly_upkeep, effects, risk_modifier, purchased_at
+      `SELECT id, item_id, item_name, price, base_price, monthly_upkeep, effects, risk_modifier, purchased_at
          FROM character_shop_purchases WHERE character_id = $1 ORDER BY purchased_at`,
       [charId]
     );
@@ -7980,6 +8000,7 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
         itemId:        p.item_id,
         itemName:      p.item_name,
         price:         Number(p.price),
+        basePrice:     Number(p.base_price),
         monthlyUpkeep: Number(p.monthly_upkeep),
         effects:       Array.isArray(p.effects) ? p.effects : [],
         riskModifier:  p.risk_modifier ?? null,
@@ -8193,11 +8214,12 @@ app.post("/api/me/character/shop-purchases", meFinanceWriteLimit, async (req, re
     if (!charRows.length) { client.release(); return res.status(404).json({ error: "No active character found" }); }
     const charId = charRows[0].id;
 
-    const { item_id, item_name, price, monthly_upkeep, effects = [], risk_modifier = null } = req.body || {};
+    const { item_id, item_name, price, monthly_upkeep, base_price = 0, effects = [], risk_modifier = null } = req.body || {};
     if (!item_id || !item_name) { client.release(); return res.status(400).json({ error: "item_id and item_name are required" }); }
 
-    const itemPrice  = Math.max(0, Number(price  || 0));
-    const itemUpkeep = Math.max(0, Number(monthly_upkeep || 0));
+    const itemPrice     = Math.max(0, Number(price        || 0));
+    const itemUpkeep    = Math.max(0, Number(monthly_upkeep || 0));
+    const itemBasePrice = Math.max(0, Number(base_price   || 0));
 
     await client.query("BEGIN");
 
@@ -8225,10 +8247,10 @@ app.post("/api/me/character/shop-purchases", meFinanceWriteLimit, async (req, re
 
     // Insert purchase record
     const { rows: purchaseRows } = await client.query(
-      `INSERT INTO character_shop_purchases (character_id, item_id, item_name, price, monthly_upkeep, effects, risk_modifier)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb)
-       RETURNING id, item_id, item_name, price, monthly_upkeep, effects, risk_modifier, purchased_at`,
-      [charId, String(item_id), String(item_name), itemPrice, itemUpkeep, JSON.stringify(effects), risk_modifier ? JSON.stringify(risk_modifier) : null]
+      `INSERT INTO character_shop_purchases (character_id, item_id, item_name, price, base_price, monthly_upkeep, effects, risk_modifier)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)
+       RETURNING id, item_id, item_name, price, base_price, monthly_upkeep, effects, risk_modifier, purchased_at`,
+      [charId, String(item_id), String(item_name), itemPrice, itemBasePrice, itemUpkeep, JSON.stringify(effects), risk_modifier ? JSON.stringify(risk_modifier) : null]
     );
 
     // Recalculate and persist total monthly upkeep
@@ -8251,6 +8273,7 @@ app.post("/api/me/character/shop-purchases", meFinanceWriteLimit, async (req, re
         itemId:        p.item_id,
         itemName:      p.item_name,
         price:         Number(p.price),
+        basePrice:     Number(p.base_price),
         monthlyUpkeep: Number(p.monthly_upkeep),
         effects:       Array.isArray(p.effects) ? p.effects : [],
         riskModifier:  p.risk_modifier ?? null,
