@@ -4037,6 +4037,41 @@ app.post("/api/motions", crudWriteLimit, async (req, res) => {
   }
 });
 
+
+app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(403).json({ error: "No active character. Select a character first." });
+
+    const { rows: motionRows } = await pool.query("SELECT motion_type, data FROM motions WHERE id = $1", [req.params.id]);
+    if (!motionRows.length) return res.status(404).json({ error: "Motion not found" });
+    if (motionRows[0].motion_type !== "edm") return res.status(400).json({ error: "Only EDMs can be signed" });
+
+    const { rows: charRows } = await pool.query("SELECT id, name, party FROM characters WHERE id = $1", [charId]);
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+    const char = charRows[0];
+
+    const edm = motionRows[0].data || {};
+    edm.signatures = Array.isArray(edm.signatures) ? edm.signatures : [];
+    const already = edm.signatures.some((sig) => String(sig.name || "") === String(char.name || ""));
+    if (already) return res.status(409).json({ error: "Already signed" });
+
+    const partyRes = await pool.query("SELECT data FROM parties WHERE slug = $1", [String(char.party || "").toLowerCase().replace(/\s+/g, "_")]);
+    const seats = Number(partyRes.rows[0]?.data?.seats || 1);
+    const weight = Math.max(1, seats > 0 ? 1 : 1);
+
+    edm.signatures.push({ name: char.name, party: char.party || "Independent", weight });
+
+    await pool.query("UPDATE motions SET data = $1::jsonb, updated_at = NOW() WHERE id = $2", [JSON.stringify(edm), req.params.id]);
+    await writeAuditLog(req.session.userId, "motion.edm.sign", "motion", req.params.id, null, { signer: char.name, party: char.party || "Independent" });
+    res.status(201).json({ ok: true, motion: normaliseDiscourseFields(edm) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.put("/api/motions/:id", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
@@ -8371,12 +8406,7 @@ app.patch("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
 
 app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
   try {
-    if (!requireAuth(req, res)) return;
-    // Only admin, mod, and speaker may post answers on behalf of an office.
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    if (!sessionRoles.includes("admin") && !sessionRoles.includes("mod") && !sessionRoles.includes("speaker")) {
-      return res.status(403).json({ error: "Forbidden: admin, mod, or speaker role required to post answers" });
-    }
+    if (!requireAdminModOrSpeaker(req, res)) return;
     const { answered_by_character_id, answer_text } = req.body || {};
     if (!answer_text || !answer_text.trim()) {
       return res.status(400).json({ error: "answer_text is required" });

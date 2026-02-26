@@ -27,6 +27,21 @@
 - Improved path matching in `scripts/audit/feature-manifest.js` for parameterized routes/trailing slashes.
 - Added `scripts/audit/generate-audit-report.mjs` to produce `scripts/audit/out/audit-report.json` with warning counts + suppression justifications.
 
+
+## Additional fixes from review
+- EDM signing no longer relies on local-only `saveState()`:
+  - Added `POST /api/motions/:id/sign` server endpoint.
+  - Added `apiSignEdm()` client helper.
+  - Updated `js/pages/motion.js` to call API for player EDM signatures.
+- QT answer submission now goes through API first:
+  - `questiontime` answer form now calls `apiAnswerQtQuestion()`.
+  - Legacy fallback uses `apiUpdateQtLegacyQuestion()` for old records.
+- Feature manifest false positives eliminated:
+  - Improved endpoint parser (`app.<method>(["/a","/b"], ...)` support).
+  - Improved path matcher for `/api` aliases.
+  - Expanded API call detection around `saveState` blocks and included `guides` in admin-page allowlist.
+  - Current `audit-report.json` shows `remainingWarnings: 0`.
+
 ## How to run
 
 ### 1) Static audit

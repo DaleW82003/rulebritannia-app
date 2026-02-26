@@ -8,7 +8,7 @@ import {
   apiGetDivisionForEntity, apiCreateDivision, apiCastVote, apiCloseDivision,
   apiGetPartyInstruction, apiSetPartyInstruction,
   apiGetRebelRequest, apiSubmitRebelRequest,
-  apiGetMotion,
+  apiGetMotion, apiSignEdm,
 } from "../api.js";
 
 const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line whip"];
@@ -357,10 +357,15 @@ function renderEdm(root, data, edm) {
     </section>
   `;
 
-  root.querySelector("[data-action='sign-edm']")?.addEventListener("click", () => {
+  root.querySelector("[data-action='sign-edm']")?.addEventListener("click", async () => {
     if (expired || disallowed || signed || w <= 0) return;
-    edm.signatures.push({ name: char?.name || "MP", party: char?.party || "Independent", weight: w });
-    saveState(data);
+    try {
+      const resp = await apiSignEdm(edm.id);
+      if (resp?.motion) Object.assign(edm, resp.motion);
+    } catch (err) {
+      console.error("[edm.sign]", err?.message || err);
+      return;
+    }
     renderEdm(root, data, edm);
   });
 

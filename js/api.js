@@ -256,6 +256,20 @@ export async function apiDeleteMotion(id) {
   return res.json();
 }
 
+
+export async function apiSignEdm(id) {
+  const res = await fetch(`${API_BASE}/api/motions/${encodeURIComponent(id)}/sign`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiSignEdm failed (${res.status})`);
+  }
+  return res.json();
+}
+
 // ── STATEMENTS ────────────────────────────────────────────────────────────────
 
 export async function apiGetStatements() {
