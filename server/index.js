@@ -1580,15 +1580,79 @@ async function ensureSchema() {
   `);
   await seedOfficeSpecs();
   await backfillSalaryPositions();
+
+  // ── Finance config (admin-managed salary bands, starting balances, cost index) ─
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS finance_config (
+      id                              TEXT        PRIMARY KEY DEFAULT 'main',
+      salary_bands                    JSONB       NOT NULL DEFAULT '{}'::jsonb,
+      starting_balances               JSONB       NOT NULL DEFAULT '{}'::jsonb,
+      finance_cost_index              NUMERIC     NOT NULL DEFAULT 1.0,
+      last_salary_bands_sim_year      INTEGER,
+      last_starting_balances_sim_year INTEGER,
+      last_inflation_sim_year         INTEGER,
+      updated_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by                      UUID        REFERENCES users(id)
+    );
+    INSERT INTO finance_config (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
+  `);
 }
 
 // ── Property / Finance model constants ────────────────────────────────────────
 
-// Starting bank balance seeded at character approval by financial background level (1–10)
-const STARTING_BALANCES = {
+// Default starting bank balance by financial background level (1–10)
+// Overridden at runtime by finance_config.starting_balances if set.
+const STARTING_BALANCES_DEFAULT = {
   1: 1000, 2: 2500, 3: 5000, 4: 10000, 5: 25000,
   6: 50000, 7: 100000, 8: 250000, 9: 500000, 10: 1000000,
 };
+
+// Legacy alias kept for character-approval seeding path (still uses this directly)
+const STARTING_BALANCES = STARTING_BALANCES_DEFAULT;
+
+// Default MP salary bands by position key.
+// Overridden at runtime by finance_config.salary_bands if set.
+const SALARY_BANDS_DEFAULT = {
+  prime_minister:            101749,
+  leader_opposition:          63024,
+  leader_third_party:         60387,
+  speaker:                    60387,
+  secretary_of_state:         63047,
+  minister_of_state:          53800,
+  shadow_secretary_of_state:  53800,
+  committee_chairman:         48860,
+  committee_member:           46860,
+  backbencher:                43860,
+};
+
+/**
+ * Read the finance_config row from DB and return it, merging in safe defaults
+ * for any fields that are not yet stored.
+ */
+async function getFinanceConfig() {
+  const { rows } = await pool.query(
+    `SELECT salary_bands, starting_balances, finance_cost_index,
+            last_salary_bands_sim_year, last_starting_balances_sim_year,
+            last_inflation_sim_year, updated_at, updated_by
+       FROM finance_config WHERE id = 'main'`
+  );
+  const row = rows[0] || {};
+  const salaryBands        = (row.salary_bands && Object.keys(row.salary_bands).length)
+    ? row.salary_bands : { ...SALARY_BANDS_DEFAULT };
+  const startingBalances   = (row.starting_balances && Object.keys(row.starting_balances).length)
+    ? row.starting_balances : { ...STARTING_BALANCES_DEFAULT };
+  const financeCostIndex   = Number(row.finance_cost_index ?? 1.0);
+  return {
+    salaryBands,
+    startingBalances,
+    financeCostIndex,
+    lastSalaryBandsSimYear:      row.last_salary_bands_sim_year      ?? null,
+    lastStartingBalancesSimYear: row.last_starting_balances_sim_year ?? null,
+    lastInflationSimYear:        row.last_inflation_sim_year         ?? null,
+    updatedAt:                   row.updated_at                      ?? null,
+    updatedBy:                   row.updated_by                      ?? null,
+  };
+}
 
 // Mortgage factor applied to monthly home/rental costs when property is mortgaged,
 // by financial background level (1–10). Higher level = better credit = lower factor.
@@ -1674,14 +1738,18 @@ const FAMILY_MULTIPLIERS = {
 
 /**
  * Compute property-derived finance fields for a character.
+ * @param {object} character
+ * @param {number} [financeCostIndex=1.0] - admin-managed cost inflation multiplier;
+ *   applied to home and rental costs, NOT to rental income.
  * Returns: { homeLivingCostsMonthly, rentalIncomeMonthly, rentalCostsMonthly,
  *             propertyMonthlyUpkeep, livingCostMultiplier, mortgageFactor }
  */
-function computePropertyFinance(character) {
+function computePropertyFinance(character, financeCostIndex = 1.0) {
+  const costIdx   = Number.isFinite(financeCostIndex) && financeCostIndex > 0 ? financeCostIndex : 1.0;
   const bgLevel   = Math.min(10, Math.max(1, Number(character.financial_background_level) || 5));
   const mortgageF = MORTGAGE_FACTORS[bgLevel] ?? 1.30;
 
-  // Home living costs
+  // Home living costs (multiplied by financeCostIndex)
   const home          = character.home ?? {};
   const homeBaseMonthly = HOME_MONTHLY_COSTS[home.type] ?? 0;
   const eduMult       = EDUCATION_MULTIPLIERS[character.education] ?? 1.00;
@@ -1689,9 +1757,9 @@ function computePropertyFinance(character) {
   const familyMult    = FAMILY_MULTIPLIERS[character.family] ?? 1.00;
   const livingMult    = eduMult * careerMult * familyMult;
   const homeMortgageF = home.mortgaged ? mortgageF : 1.0;
-  const homeLivingCostsMonthly = Math.round(homeBaseMonthly * livingMult * homeMortgageF);
+  const homeLivingCostsMonthly = Math.round(homeBaseMonthly * livingMult * homeMortgageF * costIdx);
 
-  // Rental income & costs
+  // Rental income (NOT inflation-uprated) & costs (multiplied by financeCostIndex)
   const rentals = Array.isArray(character.rentals) ? character.rentals : [];
   let rentalIncomeMonthly = 0;
   let rentalCostsMonthly  = 0;
@@ -1702,7 +1770,7 @@ function computePropertyFinance(character) {
     const sf = RENTAL_STATUS_FACTORS[statusKey] ?? RENTAL_STATUS_FACTORS["occupied"];
     const rMortgageF = r.mortgaged ? mortgageF : 1.0;
     rentalIncomeMonthly += Math.round(rtype.income * sf.incomeFactor);
-    rentalCostsMonthly  += Math.round(rtype.cost   * sf.costFactor * rMortgageF);
+    rentalCostsMonthly  += Math.round(rtype.cost   * sf.costFactor * rMortgageF * costIdx);
   }
 
   const propertyMonthlyUpkeep = homeLivingCostsMonthly + rentalCostsMonthly;
@@ -8433,11 +8501,16 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
     const simIndex = simYear * 12 + (simMonth - 1);
     const { annualSalary } = await resolvedAnnualSalary(charId, simIndex);
 
-    // Property-derived finance fields
-    const propFinance = computePropertyFinance(character);
+    // Finance config — provides financeCostIndex for cost computations
+    const finConfig = await getFinanceConfig();
+    const financeCostIndex = finConfig.financeCostIndex;
+
+    // Property-derived finance fields (costs inflation-adjusted via financeCostIndex)
+    const propFinance = computePropertyFinance(character, financeCostIndex);
     const shopUpkeep  = Number(fin.shop_monthly_upkeep) || 0;
 
     // Affiliation membership fees — only approved affiliations count
+    // Fees multiplied by financeCostIndex (per requirements)
     const { rows: affRows } = await pool.query(
       `SELECT ac.id AS affiliation_id, ac.name, ac.category, ac.monthly_fee
          FROM character_affiliations ca
@@ -8450,7 +8523,7 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
       affiliationId: r.affiliation_id,
       name:          r.name,
       category:      r.category,
-      monthlyFee:    Number(r.monthly_fee),
+      monthlyFee:    Math.round(Number(r.monthly_fee) * financeCostIndex),
     }));
     const affiliationsMonthlyFees = affiliationsMonthlyFeesItems.reduce((sum, a) => sum + a.monthlyFee, 0);
 
@@ -8473,6 +8546,7 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
       totalMonthlyUpkeep,
       livingCostMultiplier:     propFinance.livingCostMultiplier,
       mortgageFactor:           propFinance.mortgageFactor,
+      financeCostIndex,
       additionalRevenue: revRows.map((r) => ({
         id:           r.id,
         label:        r.label,
@@ -13195,7 +13269,199 @@ app.post("/api/admin/salary-scales/uprate", financeLimit, async (req, res) => {
   }
 });
 
-// ── RED LION ──────────────────────────────────────────────────────────────────
+// ── Finance Config Admin Endpoints ────────────────────────────────────────────
+// GET  /api/admin/finance/config           — read current finance config
+// PATCH /api/admin/finance/salary-bands    — update salary bands (once per sim year)
+// PATCH /api/admin/finance/starting-balances — update starting balances (once per sim year)
+// POST  /api/admin/finance/apply-inflation — apply inflation to finance cost index (once per sim year)
+
+const adminFinanceLimit = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+// GET /api/admin/finance/config
+app.get("/api/admin/finance/config", adminFinanceLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const cfg = await getFinanceConfig();
+    // Also return current sim year for UI display
+    const { rows: clockRows } = await pool.query(
+      "SELECT sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const currentSimYear = clockRows[0]?.sim_current_year ?? null;
+    res.json({ ...cfg, currentSimYear });
+  } catch (e) {
+    console.error("[GET /api/admin/finance/config]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PATCH /api/admin/finance/salary-bands
+app.patch("/api/admin/finance/salary-bands", adminFinanceLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { salaryBands, adminOverride } = req.body || {};
+    if (!salaryBands || typeof salaryBands !== "object" || Array.isArray(salaryBands)) {
+      return res.status(400).json({ error: "salaryBands must be an object mapping position keys to annual salaries" });
+    }
+    // Validate: all values must be non-negative numbers
+    for (const [k, v] of Object.entries(salaryBands)) {
+      if (!Number.isFinite(Number(v)) || Number(v) < 0) {
+        return res.status(400).json({ error: `Invalid salary for position '${k}': must be a non-negative number` });
+      }
+    }
+    // Read current sim year
+    const { rows: clockRows } = await pool.query(
+      "SELECT sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const currentSimYear = clockRows[0]?.sim_current_year ?? null;
+    // Enforce once-per-sim-year (unless adminOverride)
+    const cfg = await getFinanceConfig();
+    if (!adminOverride && cfg.lastSalaryBandsSimYear != null && currentSimYear != null
+        && cfg.lastSalaryBandsSimYear >= currentSimYear) {
+      return res.status(429).json({
+        error: `Salary bands have already been updated this sim year (${cfg.lastSalaryBandsSimYear}). Use adminOverride to force.`,
+        lastUpdatedSimYear: cfg.lastSalaryBandsSimYear,
+      });
+    }
+    // Normalise values to integers
+    const normalised = Object.fromEntries(Object.entries(salaryBands).map(([k, v]) => [k, Math.round(Number(v))]));
+    const before = cfg.salaryBands;
+    await pool.query(
+      `UPDATE finance_config
+          SET salary_bands               = $1::jsonb,
+              last_salary_bands_sim_year = $2,
+              updated_at                 = NOW(),
+              updated_by                 = $3
+        WHERE id = 'main'`,
+      [JSON.stringify(normalised), currentSimYear, req.session.userId]
+    );
+    await writeAuditLog(req.session.userId, "admin.finance.salary-bands.update", "finance_config", "main",
+      { salaryBands: before }, { salaryBands: normalised, simYear: currentSimYear });
+    res.json({ ok: true, salaryBands: normalised, simYear: currentSimYear });
+  } catch (e) {
+    console.error("[PATCH /api/admin/finance/salary-bands]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PATCH /api/admin/finance/starting-balances
+app.patch("/api/admin/finance/starting-balances", adminFinanceLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { startingBalances, adminOverride } = req.body || {};
+    if (!startingBalances || typeof startingBalances !== "object" || Array.isArray(startingBalances)) {
+      return res.status(400).json({ error: "startingBalances must be an object mapping levels (1-10) to starting amounts" });
+    }
+    // Validate: keys 1-10, values non-negative numbers
+    for (const [k, v] of Object.entries(startingBalances)) {
+      const level = Number(k);
+      if (!Number.isInteger(level) || level < 1 || level > 10) {
+        return res.status(400).json({ error: `Invalid level key '${k}': must be an integer 1–10` });
+      }
+      if (!Number.isFinite(Number(v)) || Number(v) < 0) {
+        return res.status(400).json({ error: `Invalid starting balance for level '${k}': must be a non-negative number` });
+      }
+    }
+    // Read current sim year
+    const { rows: clockRows } = await pool.query(
+      "SELECT sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const currentSimYear = clockRows[0]?.sim_current_year ?? null;
+    // Enforce once-per-sim-year (unless adminOverride)
+    const cfg = await getFinanceConfig();
+    if (!adminOverride && cfg.lastStartingBalancesSimYear != null && currentSimYear != null
+        && cfg.lastStartingBalancesSimYear >= currentSimYear) {
+      return res.status(429).json({
+        error: `Starting balances have already been updated this sim year (${cfg.lastStartingBalancesSimYear}). Use adminOverride to force.`,
+        lastUpdatedSimYear: cfg.lastStartingBalancesSimYear,
+      });
+    }
+    const normalised = Object.fromEntries(Object.entries(startingBalances).map(([k, v]) => [String(k), Math.round(Number(v))]));
+    const before = cfg.startingBalances;
+    await pool.query(
+      `UPDATE finance_config
+          SET starting_balances               = $1::jsonb,
+              last_starting_balances_sim_year = $2,
+              updated_at                      = NOW(),
+              updated_by                      = $3
+        WHERE id = 'main'`,
+      [JSON.stringify(normalised), currentSimYear, req.session.userId]
+    );
+    await writeAuditLog(req.session.userId, "admin.finance.starting-balances.update", "finance_config", "main",
+      { startingBalances: before }, { startingBalances: normalised, simYear: currentSimYear });
+    res.json({ ok: true, startingBalances: normalised, simYear: currentSimYear });
+  } catch (e) {
+    console.error("[PATCH /api/admin/finance/starting-balances]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/finance/apply-inflation
+app.post("/api/admin/finance/apply-inflation", adminFinanceLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { adminOverride, dryRun } = req.body || {};
+
+    // Read current sim year
+    const { rows: clockRows } = await pool.query(
+      "SELECT sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const currentSimYear = clockRows[0]?.sim_current_year ?? null;
+
+    // Enforce once-per-sim-year (unless adminOverride)
+    const cfg = await getFinanceConfig();
+    if (!adminOverride && cfg.lastInflationSimYear != null && currentSimYear != null
+        && cfg.lastInflationSimYear >= currentSimYear) {
+      return res.status(429).json({
+        error: `Finance cost inflation has already been applied this sim year (${cfg.lastInflationSimYear}). Use adminOverride to force.`,
+        lastAppliedSimYear: cfg.lastInflationSimYear,
+      });
+    }
+
+    // Read inflation rate from client body, or fall back to economy page topline
+    const clientInflationPct = Number(req.body?.inflationPct);
+    let inflationPct = Number.isFinite(clientInflationPct) && clientInflationPct > 0
+      ? clientInflationPct
+      : null;
+    if (inflationPct === null) {
+      const { rows: stateRows } = await pool.query(
+        `SELECT s.data FROM app_state_current c
+           JOIN state_snapshots s ON s.id = c.snapshot_id
+          WHERE c.id = 'main'`
+      );
+      const stateData = stateRows[0]?.data || {};
+      inflationPct = Number(stateData?.economyPage?.topline?.inflation ?? 0);
+    }
+    if (!Number.isFinite(inflationPct) || inflationPct <= 0) {
+      return res.status(400).json({
+        error: "No inflation rate configured. Please set an inflation value on the Economy page first.",
+      });
+    }
+
+    const oldIndex = cfg.financeCostIndex;
+    const newIndex = Math.round(oldIndex * (1 + inflationPct / 100) * 10000) / 10000;
+
+    if (dryRun) {
+      return res.json({ ok: true, dryRun: true, oldIndex, newIndex, inflationPct, simYear: currentSimYear });
+    }
+
+    await pool.query(
+      `UPDATE finance_config
+          SET finance_cost_index    = $1,
+              last_inflation_sim_year = $2,
+              updated_at            = NOW(),
+              updated_by            = $3
+        WHERE id = 'main'`,
+      [newIndex, currentSimYear, req.session.userId]
+    );
+    await writeAuditLog(req.session.userId, "admin.finance.apply-inflation", "finance_config", "main",
+      { financeCostIndex: oldIndex }, { financeCostIndex: newIndex, inflationPct, simYear: currentSimYear });
+    res.json({ ok: true, oldIndex, newIndex, inflationPct, simYear: currentSimYear });
+  } catch (e) {
+    console.error("[POST /api/admin/finance/apply-inflation]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.get("/api/redlion", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;

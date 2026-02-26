@@ -2142,7 +2142,59 @@ export async function apiAdminUprateScale(name, effectiveFromSimIndex, pctUplift
   return res.json();
 }
 
-// ── Red Lion ─────────────────────────────────────────────────────────────────
+// ── Finance Config (admin) ────────────────────────────────────────────────────
+
+export async function apiGetFinanceConfig() {
+  const res = await fetch(`${API_BASE}/api/admin/finance/config`, { credentials: "include" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiGetFinanceConfig failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiUpdateFinanceSalaryBands(salaryBands, adminOverride = false) {
+  const res = await fetch(`${API_BASE}/api/admin/finance/salary-bands`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ salaryBands, adminOverride }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiUpdateFinanceSalaryBands failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiUpdateFinanceStartingBalances(startingBalances, adminOverride = false) {
+  const res = await fetch(`${API_BASE}/api/admin/finance/starting-balances`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ startingBalances, adminOverride }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiUpdateFinanceStartingBalances failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiApplyFinanceInflation(inflationPct, adminOverride = false, dryRun = false) {
+  const res = await fetch(`${API_BASE}/api/admin/finance/apply-inflation`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ inflationPct, adminOverride, dryRun }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiApplyFinanceInflation failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function apiGetRedLionPosts() {
   const res = await fetch(`${API_BASE}/api/redlion`, { credentials: "include" });
   if (res.status === 401 || res.status === 404) return null;

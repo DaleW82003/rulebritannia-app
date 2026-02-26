@@ -9,7 +9,6 @@ import {
   apiAdminCreateRevenue,
   apiAdminUpdateRevenue,
   apiAdminDeleteRevenue,
-  apiAdminUprateScale,
 } from "../api.js";
 
 // All known position keys (from 1997 salary scale)
@@ -146,30 +145,6 @@ function render(host, roster, scaleRoles, state) {
       <button class="btn btn-sm" id="pb-reload">↺ Reload</button>
     </div>
 
-    <details style="margin-bottom:16px;">
-      <summary style="cursor:pointer;font-weight:600;">⚙ Salary Scale Uprate</summary>
-      <div class="tile" style="margin-top:8px;padding:12px;">
-        <form id="pb-uprate-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
-          <div>
-            <label class="label">Scale Name</label>
-            <input type="text" class="input" name="name" placeholder="e.g. 2000 Uprate" required>
-          </div>
-          <div>
-            <label class="label">Effective Sim Index (year×12+month-1)</label>
-            <input type="number" class="input" name="simIndex" placeholder="e.g. 24011" required>
-          </div>
-          <div>
-            <label class="label">% Uplift (e.g. 2.5)</label>
-            <input type="number" step="0.01" class="input" name="pct" placeholder="2.5" required>
-          </div>
-          <div style="display:flex;align-items:flex-end;">
-            <button type="submit" class="btn primary">Create Scale</button>
-          </div>
-        </form>
-        <div id="pb-uprate-msg" class="muted" style="margin-top:6px;"></div>
-      </div>
-    </details>
-
     <div id="pb-roster">
       ${filtered.length ? filtered.map((u) => renderUser(u, scaleRoles, state)).join("") : "<p class='muted'>No players found.</p>"}
     </div>
@@ -187,23 +162,6 @@ function wireEvents(host, state, reload) {
   });
 
   host.querySelector("#pb-reload")?.addEventListener("click", () => reload());
-
-  // Uprate form
-  host.querySelector("#pb-uprate-form")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const msgEl = host.querySelector("#pb-uprate-msg");
-    try {
-      const res = await apiAdminUprateScale(
-        String(fd.get("name") || "").trim(),
-        parseInt(String(fd.get("simIndex") || "0"), 10),
-        parseFloat(String(fd.get("pct") || "0"))
-      );
-      if (msgEl) msgEl.textContent = `✓ Scale created (id ${res.scale_id})`;
-    } catch (err) {
-      if (msgEl) msgEl.textContent = `✗ ${err.message}`;
-    }
-  });
 
   // Save positions
   host.querySelectorAll("[data-action='save-positions']").forEach((btn) => {
