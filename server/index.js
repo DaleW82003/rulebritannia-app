@@ -5574,10 +5574,12 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: "Press item not found" });
     const item = rows[0].data;
 
-    // Only the conference author may append transcript entries
+    // Only the conference author may append non-question transcript entries;
+    // any authenticated user may submit a question (isQuestion: true)
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
     const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
-    if (!isStaff) {
+    const isQuestion = entry.isQuestion === true;
+    if (!isStaff && !isQuestion) {
       if (!req.session.characterId) return res.status(403).json({ error: "Forbidden: no active character" });
       // Verify the character belongs to the session and authored the conference
       const { rows: charRows } = await pool.query(
@@ -5587,6 +5589,9 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
       if (!charRows.length || item.author !== charRows[0].name) {
         return res.status(403).json({ error: "Only the conference author may add transcript entries" });
       }
+    } else if (!isStaff && isQuestion) {
+      // Any authenticated user may submit a question
+      if (!req.session.userId) return res.status(403).json({ error: "Authentication required" });
     }
 
     if (item.status === "closed") return res.status(409).json({ error: "Conference is closed" });

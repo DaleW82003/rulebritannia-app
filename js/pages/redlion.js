@@ -132,7 +132,6 @@ function render(data) {
 
     data.redLion.posts.push(post);
     data.redLion.nextId += 1;
-    saveState(data);
     render(data);
   });
 

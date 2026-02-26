@@ -361,7 +361,6 @@ function render(data, state) {
     data.questionTime.questions.unshift(question);
     apiCreateQtLegacyQuestion(question).catch(console.error);
 
-    saveState(data);
     render(data, state);
   });
 
@@ -407,7 +406,6 @@ function render(data, state) {
       logAction({ action: "question-answered", target: selectedOffice.title, details: { questionId, askedBy: target.askedBy } });
     }
 
-    saveState(data);
     render(data, state);
   });
 
@@ -451,7 +449,6 @@ function render(data, state) {
           followup_text: text,
           asked_by_character_id: char?.id || char?.characterId || null,
         });
-        saveState(data);
       } catch (err) {
         handleApiError(err, "Submit follow-up");
         question.followUps.pop(); // revert

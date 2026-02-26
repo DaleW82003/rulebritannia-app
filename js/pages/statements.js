@@ -171,7 +171,6 @@ function render(data) {
     data.statements.items.push(statement);
     data.statements.nextNumber = number + 1;
 
-    saveState(data);
     toastSuccess(`MS${number}: "${title}" submitted.`);
     apiCreateDebateTopic({
       entityType: "statement", entityId: statement.id,
@@ -182,7 +181,6 @@ function render(data) {
       statement.discourseTopicId = topicId;
       statement.discourse_topic_id = topicId;
       statement.discourse_topic_url = topicUrl;
-      saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     render(data);
   });

@@ -8,7 +8,7 @@ import {
   apiGetDivisionForEntity, apiCreateDivision, apiCastVote, apiCloseDivision,
   apiGetPartyInstruction, apiSetPartyInstruction,
   apiGetRebelRequest, apiSubmitRebelRequest,
-  apiGetMotion, apiSignEdm, apiSetNpcVotes,
+  apiGetMotion, apiSignEdm, apiSetNpcVotes, apiUpdateMotion,
 } from "../api.js";
 
 const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line whip"];
@@ -208,8 +208,8 @@ async function renderHouseDb(root, data, motion) {
           <span class="division-countdown">${dbDiv.status === "open" ? (divisionCountdown || "Open") : `Closed${dbDiv.outcome ? ` · ${dbDiv.outcome}` : ""}`}</span>
         </div>
         <div class="division-totals">
-          <div class="division-total-cell aye"><div class="dc-num">${tally.aye}</div><div class="dc-lbl">Aye</div></div>
-          <div class="division-total-cell no"><div class="dc-num">${tally.no}</div><div class="dc-lbl">No</div></div>
+          <div class="division-total-cell aye"><div class="dc-num">${tally.aye}</div><div class="dc-lbl">Ayes</div></div>
+          <div class="division-total-cell no"><div class="dc-num">${tally.no}</div><div class="dc-lbl">Noes</div></div>
           <div class="division-total-cell"><div class="dc-num">${tally.abstain}</div><div class="dc-lbl">Abstain</div></div>
         </div>
         ${myVote ? `<div class="division-my-vote voted-${esc(myVote.vote)}">Your vote: <b>${esc(myVote.vote.charAt(0).toUpperCase() + myVote.vote.slice(1))}</b> · Weight: <b>${voteWeight}</b></div>` : `<div class="division-my-vote">Not yet voted · Weight: <b>${voteWeight}</b></div>`}
@@ -385,7 +385,7 @@ function renderEdm(root, data, edm) {
   if (edm.status !== "archived" && edm.closesAtSimObj && isDeadlinePassed(edm.closesAtSimObj, data.gameState)) {
     edm.status = "archived";
     edm.archivedAtSim = formatSimMonthYear(data.gameState);
-    saveState(data);
+    apiUpdateMotion(edm.id, edm).catch((err) => console.error("[motion] Failed to archive EDM:", err));
   }
 
   const expired = edm.status === "archived";
@@ -408,10 +408,10 @@ function renderEdm(root, data, edm) {
 
     <section class="tile">
       <h3 style="margin-top:0;">Signatories</h3>
-      <p><b>Weighted signatories:</b> ${edmWeightedSignatures(edm, data).toFixed(2)}</p>
-      <p><b>Signed by:</b> ${edm.signatures.length ? edm.signatures.map((s) => `${esc(s.name)} (${Number(s.weight || 0).toFixed(2)})`).join(", ") : "No player signatories yet."}</p>
+      <p><b>Signatories:</b> ${edmWeightedSignatures(edm, data).toFixed(2)}</p>
+      <p><b>Signed by:</b> ${edm.signatures.length ? edm.signatures.map((s) => `${esc(s.name)}`).join(", ") : "No player signatories yet."}</p>
       ${Object.entries(edm.npcSignatures).filter(([,v])=>v).length ? `<p><b>NPC signatures:</b> ${Object.entries(edm.npcSignatures).filter(([,v])=>v).map(([p]) => esc(p)).join(", ")}</p>` : ""}
-      ${expired ? `<p class="muted"><b>Signature period has closed.</b></p>` : disallowed ? `<p class="muted"><b>Government members cannot sign EDMs.</b></p>` : signed ? `<p class="muted"><b>You have already signed.</b></p>` : `<button class="btn" data-action="sign-edm" ${w > 0 ? "" : "disabled"}>Sign EDM (${w.toFixed(2)})</button>`}
+      ${expired ? `<p class="muted"><b>Signature period has closed.</b></p>` : disallowed ? `<p class="muted"><b>Government members cannot sign EDMs.</b></p>` : signed ? `<p class="muted"><b>You have already signed.</b></p>` : `<button class="btn" data-action="sign-edm" ${w > 0 ? "" : "disabled"}>Sign EDM</button>`}
 
       ${speaker && !expired ? `
         <div style="margin-top:12px;">

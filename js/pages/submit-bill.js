@@ -375,8 +375,6 @@ export function initSubmitBillPage(data) {
       pushAgendaDocketItem(data, bill);
     }
 
-    saveState(data);
-
     if (stage === "Second Reading") {
       const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${department ? ` (${department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
       apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw })
@@ -385,7 +383,6 @@ export function initSubmitBillPage(data) {
           bill.discourseTopicId = topicId;
           const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
           if (idx >= 0) data.orderPaperCommons[idx] = bill;
-          saveState(data);
         })
         .catch((err) => handleApiError(err, "Debate topic"));
     }

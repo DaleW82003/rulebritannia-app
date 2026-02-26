@@ -103,8 +103,7 @@ export async function initRegulationsPage(data) {
   root.innerHTML = `
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Guide to Regulations</h2>
-      <p>Regulations are laid by Government members for their own department only. Each regulation links to a dedicated open page with the full text and debate link.</p>
-      <p>Use <b>Open</b> to view and manage an individual regulation (including Speaker controls).</p>
+      <p>Regulations are laid by Government members for their own department only.</p>
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
@@ -209,7 +208,6 @@ export async function initRegulationsPage(data) {
 
     data.regulations.items.push(regulation);
     data.regulations.nextId += 1;
-    saveState(data);
     apiCreateDebateTopic({
       entityType: "regulation", entityId: regulation.id,
       title: `${regulation.department} Regulation ${regNo}: ${title}`,
@@ -219,7 +217,6 @@ export async function initRegulationsPage(data) {
       regulation.discourseTopicId = topicId;
       regulation.discourse_topic_id = topicId;
       regulation.discourse_topic_url = topicUrl;
-      saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `regulation.html?id=${encodeURIComponent(regulation.id)}`;
   });

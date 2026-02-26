@@ -227,7 +227,6 @@ function render(data, state) {
 
     data.events.items.push(item);
     state.showForm = false;
-    saveState(data);
     toastSuccess(`${eventTypeLabel(type)} submitted for approval.`);
     render(data, state);
   });
@@ -292,7 +291,6 @@ function render(data, state) {
       item.speeches.push({ author: char?.name || "Character", body: speech, createdAt: new Date().toLocaleString("en-GB") });
       try {
         await apiUpdateEvent(id, item);
-        saveState(data);
       } catch (err) {
         handleApiError(err, "Add speech");
         // Revert local state on failure

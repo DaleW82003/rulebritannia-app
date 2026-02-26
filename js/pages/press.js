@@ -522,11 +522,8 @@ function render(data, state) {
       return;
     }
     data.press.releases.push(item);
-    saveState(data);
     render(data, state);
-  });
-
-  section.querySelectorAll("[data-action='toggle-release']").forEach((btn) => btn.addEventListener("click", () => {
+  });.forEach((btn) => btn.addEventListener("click", () => {
     const id = btn.getAttribute("data-id");
     state.openRelease = state.openRelease === id ? null : id;
     render(data, state);
@@ -579,7 +576,6 @@ function render(data, state) {
       return;
     }
     data.press.conferences.push(item);
-    saveState(data);
     render(data, state);
   });
 
@@ -589,7 +585,7 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelectorAll("form[data-action='ask']").forEach((f) => f.addEventListener("submit", (e) => {
+  section.querySelectorAll("form[data-action='ask']").forEach((f) => f.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!asker) return;
     const id = e.currentTarget.getAttribute("data-id");
@@ -601,7 +597,8 @@ function render(data, state) {
     const text = String(fd.get("text") || "").trim();
     if (!text || !corrName) return;
     const from = `${corrName}, Political Correspondent for ${paper}`;
-    conf.transcript.push({ from, text });
+    const entry = { from, text };
+    conf.transcript.push(entry);
 
     data.liveDocket ??= { items: [] };
     data.liveDocket.items ??= [];
@@ -615,7 +612,12 @@ function render(data, state) {
       audience: { offices: [conf.authorOffice || ""] }
     });
 
-    saveState(data);
+    try {
+      await apiAddPressTranscriptEntry(id, { ...entry, isQuestion: true });
+    } catch (err) {
+      handleApiError(err, "Submit question");
+      conf.transcript.pop(); // revert
+    }
     render(data, state);
   }));
 
@@ -632,7 +634,6 @@ function render(data, state) {
     conf.transcript.push(entry);
     try {
       await apiAddPressTranscriptEntry(id, entry);
-      saveState(data);
     } catch (err) {
       handleApiError(err, "Conference answer");
       conf.transcript.pop(); // revert
@@ -652,7 +653,6 @@ function render(data, state) {
     conf.status = "closed";
     try {
       await apiAddPressTranscriptEntry(id, entry);
-      saveState(data);
     } catch (err) {
       handleApiError(err, "Conference walk-off");
       conf.transcript.pop(); // revert
@@ -698,11 +698,8 @@ function render(data, state) {
       return;
     }
     data.press.comments.push(item);
-    saveState(data);
     render(data, state);
-  });
-
-  section.querySelectorAll("[data-action='delete-comment']").forEach((btn) => btn.addEventListener("click", () => {
+  });.forEach((btn) => btn.addEventListener("click", () => {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
     data.press.comments = data.press.comments.filter((c) => c.id !== id);
@@ -762,7 +759,6 @@ function render(data, state) {
       return;
     }
     data.press.speeches.push(item);
-    saveState(data);
     render(data, state);
   });
 
@@ -845,7 +841,6 @@ function render(data, state) {
       return;
     }
     data.press.letters.push(item);
-    saveState(data);
     render(data, state);
   });
 

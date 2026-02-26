@@ -1277,7 +1277,6 @@ function render(data, state) {
       }
       profile.affiliations = String(fd.get("affiliations") || "").trim();
       profile.updatedAt = nowStamp();
-      saveState(data);
       if (statusEl) statusEl.textContent = "Saved to DB.";
       state.message = `Saved personal profile for ${profile.name}.`;
     } catch (err) {
@@ -1735,7 +1734,6 @@ function syncFinanceIntoProfile(profile, fin, data, profileName) {
 
 export async function initPersonalPage(data) {
   normalisePersonal(data);
-  saveState(data);
   const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "" };
 
   // Load finance + shop purchases from DB (authoritative source of truth).
