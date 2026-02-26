@@ -902,73 +902,81 @@ async function ensureSchema() {
     );
   `);
 
-  // Seed/upsert the catalog (idempotent)
+  // Add monthly_fee to affiliations_catalog (per-affiliation membership fee in £/month)
+  // Must run before the seed upsert so the column exists when rows are inserted.
   await pool.query(`
-    INSERT INTO affiliations_catalog (id, category, name) VALUES
-      ('trade_unions_unite',       'Trade Unions (Major UK)',        'Unite the Union'),
-      ('trade_unions_unison',      'Trade Unions (Major UK)',        'UNISON'),
-      ('trade_unions_gmb',         'Trade Unions (Major UK)',        'GMB'),
-      ('trade_unions_cwu',         'Trade Unions (Major UK)',        'CWU (Communication Workers Union)'),
-      ('trade_unions_rmt',         'Trade Unions (Major UK)',        'RMT'),
-      ('trade_unions_usdaw',       'Trade Unions (Major UK)',        'USDAW'),
-      ('trade_unions_nasuwt',      'Trade Unions (Major UK)',        'NASUWT'),
-      ('trade_unions_neu',         'Trade Unions (Major UK)',        'NEU (National Education Union)'),
-      ('trade_unions_bma',         'Trade Unions (Major UK)',        'BMA'),
-      ('trade_unions_tssa',        'Trade Unions (Major UK)',        'TSSA'),
-      ('think_tanks_fabian',       'Think Tanks',                   'Fabian Society'),
-      ('think_tanks_iea',          'Think Tanks',                   'Institute of Economic Affairs'),
-      ('think_tanks_policy_exch',  'Think Tanks',                   'Policy Exchange'),
-      ('think_tanks_cps',          'Think Tanks',                   'Centre for Policy Studies'),
-      ('think_tanks_ifg',          'Think Tanks',                   'Institute for Government'),
-      ('think_tanks_demos',        'Think Tanks',                   'Demos'),
-      ('think_tanks_resolution',   'Think Tanks',                   'Resolution Foundation'),
-      ('think_tanks_asi',          'Think Tanks',                   'Adam Smith Institute'),
-      ('think_tanks_chatham',      'Think Tanks',                   'Chatham House'),
-      ('think_tanks_ippr',         'Think Tanks',                   'IPPR'),
-      ('advocacy_greenpeace',      'Advocacy / Campaign Groups',    'Greenpeace UK'),
-      ('advocacy_foe',             'Advocacy / Campaign Groups',    'Friends of the Earth'),
-      ('advocacy_liberty',         'Advocacy / Campaign Groups',    'Liberty'),
-      ('advocacy_amnesty',         'Advocacy / Campaign Groups',    'Amnesty International'),
-      ('advocacy_stonewall',       'Advocacy / Campaign Groups',    'Stonewall'),
-      ('advocacy_countryside',     'Advocacy / Campaign Groups',    'Countryside Alliance'),
-      ('advocacy_taxpayers',       'Advocacy / Campaign Groups',    'TaxPayers'' Alliance'),
-      ('advocacy_openrights',      'Advocacy / Campaign Groups',    'Open Rights Group'),
-      ('advocacy_shelter',         'Advocacy / Campaign Groups',    'Shelter'),
-      ('advocacy_cnd',             'Advocacy / Campaign Groups',    'Campaign for Nuclear Disarmament'),
-      ('business_cbi',             'Business / Industry',           'CBI'),
-      ('business_fsb',             'Business / Industry',           'Federation of Small Businesses'),
-      ('business_iod',             'Business / Industry',           'Institute of Directors'),
-      ('business_bcc',             'Business / Industry',           'British Chambers of Commerce'),
-      ('business_techuk',          'Business / Industry',           'TechUK'),
-      ('business_nfu',             'Business / Industry',           'National Farmers Union'),
-      ('prof_law_society',         'Professional Associations',     'Law Society'),
-      ('prof_bar_council',         'Professional Associations',     'Bar Council'),
-      ('prof_rcn',                 'Professional Associations',     'Royal College of Nursing'),
-      ('prof_cipd',                'Professional Associations',     'Chartered Institute of Personnel & Development'),
-      ('faith_coe_synod',          'Faith / Ethical',               'Church of England Synod Member'),
-      ('faith_catholic_social',    'Faith / Ethical',               'Catholic Social Action Network'),
-      ('faith_mcb',                'Faith / Ethical',               'Muslim Council of Britain'),
-      ('faith_jlc',                'Faith / Ethical',               'Jewish Leadership Council'),
-      ('intl_nato_pa',             'International',                 'NATO Parliamentary Assembly'),
-      ('intl_council_europe',      'International',                 'Council of Europe'),
-      ('intl_cpa',                 'International',                 'Commonwealth Parliamentary Association'),
-      ('intl_wef',                 'International',                 'World Economic Forum'),
-      ('faction_1922',             'Party Factions (Internal Groups)', 'Conservative 1922 Committee'),
-      ('faction_labour_campaign',  'Party Factions (Internal Groups)', 'Labour Campaign Group'),
-      ('faction_labour_first',     'Party Factions (Internal Groups)', 'Labour First'),
-      ('faction_blue_labour',      'Party Factions (Internal Groups)', 'Blue Labour'),
-      ('faction_tory_reform',      'Party Factions (Internal Groups)', 'Tory Reform Group'),
-      ('faction_erg',              'Party Factions (Internal Groups)', 'European Research Group'),
-      ('faction_libdem_fed',       'Party Factions (Internal Groups)', 'Liberal Democrat Federalist Group'),
-      ('pressure_migwatch',        'Pressure Groups',               'Migration Watch UK'),
-      ('pressure_brit_future',     'Pressure Groups',               'British Future'),
-      ('pressure_ifs',             'Pressure Groups',               'Institute of Fiscal Studies'),
-      ('pressure_rbl',             'Pressure Groups',               'Royal British Legion'),
-      ('pressure_ukfinance',       'Pressure Groups',               'UK Finance'),
-      ('soft_rotary',              'Soft Affiliations',             'Rotary Club'),
-      ('soft_local_biz',           'Soft Affiliations',             'Local Business Network'),
-      ('soft_alumni',              'Soft Affiliations',             'University Alumni Association')
-    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category;
+    ALTER TABLE affiliations_catalog ADD COLUMN IF NOT EXISTS monthly_fee INTEGER NOT NULL DEFAULT 10;
+  `);
+
+  // Seed/upsert the catalog (idempotent). monthly_fee is per-affiliation £/month membership fee.
+  // Category defaults: Trade Unions £25, Think Tanks £50, Advocacy £15, Business £75,
+  //   Professional £30, Faith £10, International £20, Party Factions £5, Pressure £10, Soft £5
+  await pool.query(`
+    INSERT INTO affiliations_catalog (id, category, name, monthly_fee) VALUES
+      ('trade_unions_unite',       'Trade Unions (Major UK)',        'Unite the Union',                                 25),
+      ('trade_unions_unison',      'Trade Unions (Major UK)',        'UNISON',                                          25),
+      ('trade_unions_gmb',         'Trade Unions (Major UK)',        'GMB',                                             25),
+      ('trade_unions_cwu',         'Trade Unions (Major UK)',        'CWU (Communication Workers Union)',               25),
+      ('trade_unions_rmt',         'Trade Unions (Major UK)',        'RMT',                                             25),
+      ('trade_unions_usdaw',       'Trade Unions (Major UK)',        'USDAW',                                           25),
+      ('trade_unions_nasuwt',      'Trade Unions (Major UK)',        'NASUWT',                                          25),
+      ('trade_unions_neu',         'Trade Unions (Major UK)',        'NEU (National Education Union)',                  25),
+      ('trade_unions_bma',         'Trade Unions (Major UK)',        'BMA',                                             25),
+      ('trade_unions_tssa',        'Trade Unions (Major UK)',        'TSSA',                                            25),
+      ('think_tanks_fabian',       'Think Tanks',                   'Fabian Society',                                  50),
+      ('think_tanks_iea',          'Think Tanks',                   'Institute of Economic Affairs',                   50),
+      ('think_tanks_policy_exch',  'Think Tanks',                   'Policy Exchange',                                 50),
+      ('think_tanks_cps',          'Think Tanks',                   'Centre for Policy Studies',                       50),
+      ('think_tanks_ifg',          'Think Tanks',                   'Institute for Government',                        50),
+      ('think_tanks_demos',        'Think Tanks',                   'Demos',                                           50),
+      ('think_tanks_resolution',   'Think Tanks',                   'Resolution Foundation',                           50),
+      ('think_tanks_asi',          'Think Tanks',                   'Adam Smith Institute',                            50),
+      ('think_tanks_chatham',      'Think Tanks',                   'Chatham House',                                   50),
+      ('think_tanks_ippr',         'Think Tanks',                   'IPPR',                                            50),
+      ('advocacy_greenpeace',      'Advocacy / Campaign Groups',    'Greenpeace UK',                                   15),
+      ('advocacy_foe',             'Advocacy / Campaign Groups',    'Friends of the Earth',                            15),
+      ('advocacy_liberty',         'Advocacy / Campaign Groups',    'Liberty',                                         15),
+      ('advocacy_amnesty',         'Advocacy / Campaign Groups',    'Amnesty International',                           15),
+      ('advocacy_stonewall',       'Advocacy / Campaign Groups',    'Stonewall',                                       15),
+      ('advocacy_countryside',     'Advocacy / Campaign Groups',    'Countryside Alliance',                            15),
+      ('advocacy_taxpayers',       'Advocacy / Campaign Groups',    'TaxPayers'' Alliance',                            15),
+      ('advocacy_openrights',      'Advocacy / Campaign Groups',    'Open Rights Group',                               15),
+      ('advocacy_shelter',         'Advocacy / Campaign Groups',    'Shelter',                                         15),
+      ('advocacy_cnd',             'Advocacy / Campaign Groups',    'Campaign for Nuclear Disarmament',                15),
+      ('business_cbi',             'Business / Industry',           'CBI',                                             75),
+      ('business_fsb',             'Business / Industry',           'Federation of Small Businesses',                  75),
+      ('business_iod',             'Business / Industry',           'Institute of Directors',                          75),
+      ('business_bcc',             'Business / Industry',           'British Chambers of Commerce',                    75),
+      ('business_techuk',          'Business / Industry',           'TechUK',                                          75),
+      ('business_nfu',             'Business / Industry',           'National Farmers Union',                          75),
+      ('prof_law_society',         'Professional Associations',     'Law Society',                                     30),
+      ('prof_bar_council',         'Professional Associations',     'Bar Council',                                     30),
+      ('prof_rcn',                 'Professional Associations',     'Royal College of Nursing',                        30),
+      ('prof_cipd',                'Professional Associations',     'Chartered Institute of Personnel & Development',  30),
+      ('faith_coe_synod',          'Faith / Ethical',               'Church of England Synod Member',                  10),
+      ('faith_catholic_social',    'Faith / Ethical',               'Catholic Social Action Network',                  10),
+      ('faith_mcb',                'Faith / Ethical',               'Muslim Council of Britain',                       10),
+      ('faith_jlc',                'Faith / Ethical',               'Jewish Leadership Council',                       10),
+      ('intl_nato_pa',             'International',                 'NATO Parliamentary Assembly',                     20),
+      ('intl_council_europe',      'International',                 'Council of Europe',                               20),
+      ('intl_cpa',                 'International',                 'Commonwealth Parliamentary Association',           20),
+      ('intl_wef',                 'International',                 'World Economic Forum',                            20),
+      ('faction_1922',             'Party Factions (Internal Groups)', 'Conservative 1922 Committee',                  5),
+      ('faction_labour_campaign',  'Party Factions (Internal Groups)', 'Labour Campaign Group',                        5),
+      ('faction_labour_first',     'Party Factions (Internal Groups)', 'Labour First',                                 5),
+      ('faction_blue_labour',      'Party Factions (Internal Groups)', 'Blue Labour',                                  5),
+      ('faction_tory_reform',      'Party Factions (Internal Groups)', 'Tory Reform Group',                            5),
+      ('faction_erg',              'Party Factions (Internal Groups)', 'European Research Group',                      5),
+      ('faction_libdem_fed',       'Party Factions (Internal Groups)', 'Liberal Democrat Federalist Group',            5),
+      ('pressure_migwatch',        'Pressure Groups',               'Migration Watch UK',                              10),
+      ('pressure_brit_future',     'Pressure Groups',               'British Future',                                  10),
+      ('pressure_ifs',             'Pressure Groups',               'Institute of Fiscal Studies',                     10),
+      ('pressure_rbl',             'Pressure Groups',               'Royal British Legion',                            10),
+      ('pressure_ukfinance',       'Pressure Groups',               'UK Finance',                                      10),
+      ('soft_rotary',              'Soft Affiliations',             'Rotary Club',                                     5),
+      ('soft_local_biz',           'Soft Affiliations',             'Local Business Network',                          5),
+      ('soft_alumni',              'Soft Affiliations',             'University Alumni Association',                   5)
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, monthly_fee = EXCLUDED.monthly_fee;
   `);
 
   // character_affiliations: per-character affiliation status
@@ -7965,10 +7973,27 @@ app.post("/api/mod/property/set", propertyWriteLimit, async (req, res) => {
     );
     if (!before.length) return res.status(404).json({ error: "Character not found" });
 
+    // Normalize home: ensure mortgaged is boolean
+    const normalizedHome = home ?? before[0].home ?? {};
+    if (home) {
+      normalizedHome.mortgaged = !!home.mortgaged;
+    }
+
+    // Normalize rentals: ensure status is lowercase/trimmed, mortgaged is boolean
+    const VALID_STATUSES = new Set(["occupied", "vacant", "under renovation"]);
+    const normalizedRentals = (rentals ?? before[0].rentals ?? []).map((r) => {
+      const status = String(r.status || "occupied").toLowerCase().trim();
+      return {
+        ...r,
+        status:    VALID_STATUSES.has(status) ? status : "occupied",
+        mortgaged: !!r.mortgaged,
+      };
+    });
+
     const { rows } = await pool.query(
       `UPDATE characters SET home = $1::jsonb, rentals = $2::jsonb WHERE id = $3
        RETURNING id, name, home, rentals`,
-      [JSON.stringify(home ?? before[0].home ?? {}), JSON.stringify(rentals ?? before[0].rentals ?? []), character_id]
+      [JSON.stringify(normalizedHome), JSON.stringify(normalizedRentals), character_id]
     );
     await writeAuditLog(
       req.session.userId, "character.property.set", "character", character_id,
@@ -8411,7 +8436,25 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
     // Property-derived finance fields
     const propFinance = computePropertyFinance(character);
     const shopUpkeep  = Number(fin.shop_monthly_upkeep) || 0;
-    const totalMonthlyUpkeep = shopUpkeep + propFinance.propertyMonthlyUpkeep;
+
+    // Affiliation membership fees — only approved affiliations count
+    const { rows: affRows } = await pool.query(
+      `SELECT ac.id AS affiliation_id, ac.name, ac.category, ac.monthly_fee
+         FROM character_affiliations ca
+         JOIN affiliations_catalog ac ON ac.id = ca.affiliation_id
+        WHERE ca.character_id = $1 AND ca.status = 'approved'
+        ORDER BY ac.category, ac.name`,
+      [charId]
+    );
+    const affiliationsMonthlyFeesItems = affRows.map((r) => ({
+      affiliationId: r.affiliation_id,
+      name:          r.name,
+      category:      r.category,
+      monthlyFee:    Number(r.monthly_fee),
+    }));
+    const affiliationsMonthlyFees = affiliationsMonthlyFeesItems.reduce((sum, a) => sum + a.monthlyFee, 0);
+
+    const totalMonthlyUpkeep = shopUpkeep + propFinance.propertyMonthlyUpkeep + affiliationsMonthlyFees;
 
     res.json({
       characterId:              charId,
@@ -8424,6 +8467,9 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
       rentalIncomeMonthly:      propFinance.rentalIncomeMonthly,
       rentalCostsMonthly:       propFinance.rentalCostsMonthly,
       propertyMonthlyUpkeep:    propFinance.propertyMonthlyUpkeep,
+      // Affiliation membership fees
+      affiliationsMonthlyFees,
+      affiliationsMonthlyFeesItems,
       totalMonthlyUpkeep,
       livingCostMultiplier:     propFinance.livingCostMultiplier,
       mortgageFactor:           propFinance.mortgageFactor,

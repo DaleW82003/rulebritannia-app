@@ -7,87 +7,87 @@ import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpd
 // ── Affiliations catalogue ────────────────────────────────────────────────────
 const AFFILIATIONS_CATALOG = [
   { category: "Trade Unions (Major UK)", items: [
-    { id: "trade_unions_unite",  name: "Unite the Union" },
-    { id: "trade_unions_unison", name: "UNISON" },
-    { id: "trade_unions_gmb",    name: "GMB" },
-    { id: "trade_unions_cwu",    name: "CWU (Communication Workers Union)" },
-    { id: "trade_unions_rmt",    name: "RMT" },
-    { id: "trade_unions_usdaw",  name: "USDAW" },
-    { id: "trade_unions_nasuwt", name: "NASUWT" },
-    { id: "trade_unions_neu",    name: "NEU (National Education Union)" },
-    { id: "trade_unions_bma",    name: "BMA" },
-    { id: "trade_unions_tssa",   name: "TSSA" },
+    { id: "trade_unions_unite",  name: "Unite the Union",                       monthly_fee: 25 },
+    { id: "trade_unions_unison", name: "UNISON",                                monthly_fee: 25 },
+    { id: "trade_unions_gmb",    name: "GMB",                                   monthly_fee: 25 },
+    { id: "trade_unions_cwu",    name: "CWU (Communication Workers Union)",     monthly_fee: 25 },
+    { id: "trade_unions_rmt",    name: "RMT",                                   monthly_fee: 25 },
+    { id: "trade_unions_usdaw",  name: "USDAW",                                 monthly_fee: 25 },
+    { id: "trade_unions_nasuwt", name: "NASUWT",                                monthly_fee: 25 },
+    { id: "trade_unions_neu",    name: "NEU (National Education Union)",        monthly_fee: 25 },
+    { id: "trade_unions_bma",    name: "BMA",                                   monthly_fee: 25 },
+    { id: "trade_unions_tssa",   name: "TSSA",                                  monthly_fee: 25 },
   ]},
   { category: "Think Tanks", items: [
-    { id: "think_tanks_fabian",      name: "Fabian Society" },
-    { id: "think_tanks_iea",         name: "Institute of Economic Affairs" },
-    { id: "think_tanks_policy_exch", name: "Policy Exchange" },
-    { id: "think_tanks_cps",         name: "Centre for Policy Studies" },
-    { id: "think_tanks_ifg",         name: "Institute for Government" },
-    { id: "think_tanks_demos",       name: "Demos" },
-    { id: "think_tanks_resolution",  name: "Resolution Foundation" },
-    { id: "think_tanks_asi",         name: "Adam Smith Institute" },
-    { id: "think_tanks_chatham",     name: "Chatham House" },
-    { id: "think_tanks_ippr",        name: "IPPR" },
+    { id: "think_tanks_fabian",      name: "Fabian Society",                    monthly_fee: 50 },
+    { id: "think_tanks_iea",         name: "Institute of Economic Affairs",     monthly_fee: 50 },
+    { id: "think_tanks_policy_exch", name: "Policy Exchange",                   monthly_fee: 50 },
+    { id: "think_tanks_cps",         name: "Centre for Policy Studies",         monthly_fee: 50 },
+    { id: "think_tanks_ifg",         name: "Institute for Government",          monthly_fee: 50 },
+    { id: "think_tanks_demos",       name: "Demos",                             monthly_fee: 50 },
+    { id: "think_tanks_resolution",  name: "Resolution Foundation",             monthly_fee: 50 },
+    { id: "think_tanks_asi",         name: "Adam Smith Institute",              monthly_fee: 50 },
+    { id: "think_tanks_chatham",     name: "Chatham House",                     monthly_fee: 50 },
+    { id: "think_tanks_ippr",        name: "IPPR",                              monthly_fee: 50 },
   ]},
   { category: "Advocacy / Campaign Groups", items: [
-    { id: "advocacy_greenpeace",  name: "Greenpeace UK" },
-    { id: "advocacy_foe",         name: "Friends of the Earth" },
-    { id: "advocacy_liberty",     name: "Liberty" },
-    { id: "advocacy_amnesty",     name: "Amnesty International" },
-    { id: "advocacy_stonewall",   name: "Stonewall" },
-    { id: "advocacy_countryside", name: "Countryside Alliance" },
-    { id: "advocacy_taxpayers",   name: "TaxPayers' Alliance" },
-    { id: "advocacy_openrights",  name: "Open Rights Group" },
-    { id: "advocacy_shelter",     name: "Shelter" },
-    { id: "advocacy_cnd",         name: "Campaign for Nuclear Disarmament" },
+    { id: "advocacy_greenpeace",  name: "Greenpeace UK",                        monthly_fee: 15 },
+    { id: "advocacy_foe",         name: "Friends of the Earth",                 monthly_fee: 15 },
+    { id: "advocacy_liberty",     name: "Liberty",                              monthly_fee: 15 },
+    { id: "advocacy_amnesty",     name: "Amnesty International",                monthly_fee: 15 },
+    { id: "advocacy_stonewall",   name: "Stonewall",                            monthly_fee: 15 },
+    { id: "advocacy_countryside", name: "Countryside Alliance",                 monthly_fee: 15 },
+    { id: "advocacy_taxpayers",   name: "TaxPayers' Alliance",                  monthly_fee: 15 },
+    { id: "advocacy_openrights",  name: "Open Rights Group",                   monthly_fee: 15 },
+    { id: "advocacy_shelter",     name: "Shelter",                              monthly_fee: 15 },
+    { id: "advocacy_cnd",         name: "Campaign for Nuclear Disarmament",     monthly_fee: 15 },
   ]},
   { category: "Business / Industry", items: [
-    { id: "business_cbi",    name: "CBI" },
-    { id: "business_fsb",    name: "Federation of Small Businesses" },
-    { id: "business_iod",    name: "Institute of Directors" },
-    { id: "business_bcc",    name: "British Chambers of Commerce" },
-    { id: "business_techuk", name: "TechUK" },
-    { id: "business_nfu",    name: "National Farmers Union" },
+    { id: "business_cbi",    name: "CBI",                                       monthly_fee: 75 },
+    { id: "business_fsb",    name: "Federation of Small Businesses",            monthly_fee: 75 },
+    { id: "business_iod",    name: "Institute of Directors",                    monthly_fee: 75 },
+    { id: "business_bcc",    name: "British Chambers of Commerce",              monthly_fee: 75 },
+    { id: "business_techuk", name: "TechUK",                                   monthly_fee: 75 },
+    { id: "business_nfu",    name: "National Farmers Union",                    monthly_fee: 75 },
   ]},
   { category: "Professional Associations", items: [
-    { id: "prof_law_society", name: "Law Society" },
-    { id: "prof_bar_council", name: "Bar Council" },
-    { id: "prof_rcn",         name: "Royal College of Nursing" },
-    { id: "prof_cipd",        name: "Chartered Institute of Personnel & Development" },
+    { id: "prof_law_society", name: "Law Society",                              monthly_fee: 30 },
+    { id: "prof_bar_council", name: "Bar Council",                              monthly_fee: 30 },
+    { id: "prof_rcn",         name: "Royal College of Nursing",                 monthly_fee: 30 },
+    { id: "prof_cipd",        name: "Chartered Institute of Personnel & Development", monthly_fee: 30 },
   ]},
   { category: "Faith / Ethical", items: [
-    { id: "faith_coe_synod",       name: "Church of England Synod Member" },
-    { id: "faith_catholic_social", name: "Catholic Social Action Network" },
-    { id: "faith_mcb",             name: "Muslim Council of Britain" },
-    { id: "faith_jlc",             name: "Jewish Leadership Council" },
+    { id: "faith_coe_synod",       name: "Church of England Synod Member",      monthly_fee: 10 },
+    { id: "faith_catholic_social", name: "Catholic Social Action Network",      monthly_fee: 10 },
+    { id: "faith_mcb",             name: "Muslim Council of Britain",           monthly_fee: 10 },
+    { id: "faith_jlc",             name: "Jewish Leadership Council",           monthly_fee: 10 },
   ]},
   { category: "International", items: [
-    { id: "intl_nato_pa",       name: "NATO Parliamentary Assembly" },
-    { id: "intl_council_europe", name: "Council of Europe" },
-    { id: "intl_cpa",           name: "Commonwealth Parliamentary Association" },
-    { id: "intl_wef",           name: "World Economic Forum" },
+    { id: "intl_nato_pa",        name: "NATO Parliamentary Assembly",           monthly_fee: 20 },
+    { id: "intl_council_europe", name: "Council of Europe",                     monthly_fee: 20 },
+    { id: "intl_cpa",            name: "Commonwealth Parliamentary Association", monthly_fee: 20 },
+    { id: "intl_wef",            name: "World Economic Forum",                  monthly_fee: 20 },
   ]},
   { category: "Party Factions (Internal Groups)", items: [
-    { id: "faction_1922",           name: "Conservative 1922 Committee" },
-    { id: "faction_labour_campaign", name: "Labour Campaign Group" },
-    { id: "faction_labour_first",   name: "Labour First" },
-    { id: "faction_blue_labour",    name: "Blue Labour" },
-    { id: "faction_tory_reform",    name: "Tory Reform Group" },
-    { id: "faction_erg",            name: "European Research Group" },
-    { id: "faction_libdem_fed",     name: "Liberal Democrat Federalist Group" },
+    { id: "faction_1922",            name: "Conservative 1922 Committee",       monthly_fee: 5 },
+    { id: "faction_labour_campaign", name: "Labour Campaign Group",             monthly_fee: 5 },
+    { id: "faction_labour_first",    name: "Labour First",                      monthly_fee: 5 },
+    { id: "faction_blue_labour",     name: "Blue Labour",                       monthly_fee: 5 },
+    { id: "faction_tory_reform",     name: "Tory Reform Group",                 monthly_fee: 5 },
+    { id: "faction_erg",             name: "European Research Group",           monthly_fee: 5 },
+    { id: "faction_libdem_fed",      name: "Liberal Democrat Federalist Group", monthly_fee: 5 },
   ]},
   { category: "Pressure Groups", items: [
-    { id: "pressure_migwatch",   name: "Migration Watch UK" },
-    { id: "pressure_brit_future", name: "British Future" },
-    { id: "pressure_ifs",        name: "Institute of Fiscal Studies" },
-    { id: "pressure_rbl",        name: "Royal British Legion" },
-    { id: "pressure_ukfinance",  name: "UK Finance" },
+    { id: "pressure_migwatch",    name: "Migration Watch UK",                   monthly_fee: 10 },
+    { id: "pressure_brit_future", name: "British Future",                       monthly_fee: 10 },
+    { id: "pressure_ifs",         name: "Institute of Fiscal Studies",          monthly_fee: 10 },
+    { id: "pressure_rbl",         name: "Royal British Legion",                 monthly_fee: 10 },
+    { id: "pressure_ukfinance",   name: "UK Finance",                           monthly_fee: 10 },
   ]},
   { category: "Soft Affiliations", items: [
-    { id: "soft_rotary",    name: "Rotary Club" },
-    { id: "soft_local_biz", name: "Local Business Network" },
-    { id: "soft_alumni",    name: "University Alumni Association" },
+    { id: "soft_rotary",    name: "Rotary Club",                                monthly_fee: 5 },
+    { id: "soft_local_biz", name: "Local Business Network",                     monthly_fee: 5 },
+    { id: "soft_alumni",    name: "University Alumni Association",              monthly_fee: 5 },
   ]},
 ];
 
@@ -917,9 +917,10 @@ function render(data, state) {
   const monthlyUpkeep = isOwnProfile
     ? (state.totalMonthlyUpkeep ?? state.shopMonthlyUpkeep ?? computeMonthlyUpkeep(profile))
     : computeMonthlyUpkeep(profile);
-  const shopUpkeepDisplay     = isOwnProfile ? (state.shopMonthlyUpkeep ?? 0) : 0;
-  const propertyUpkeepDisplay = isOwnProfile ? (state.propertyMonthlyUpkeep ?? 0) : 0;
-  const rentalIncomeDisplay   = isOwnProfile ? (state.rentalIncomeMonthly ?? 0) : 0;
+  const shopUpkeepDisplay       = isOwnProfile ? (state.shopMonthlyUpkeep ?? 0) : 0;
+  const propertyUpkeepDisplay   = isOwnProfile ? (state.propertyMonthlyUpkeep ?? 0) : 0;
+  const affiliationsFeesDisplay = isOwnProfile ? (state.affiliationsMonthlyFees ?? 0) : 0;
+  const rentalIncomeDisplay     = isOwnProfile ? (state.rentalIncomeMonthly ?? 0) : 0;
   const annualUpkeep    = monthlyUpkeep * 12;
   const investmentIncome = Number(mods?.estimatedAnnualRevenue || 0);
   const totalAnnualIncome = Number(profile.salaryAnnual || 0) + revenueTotal + investmentIncome;
@@ -934,10 +935,11 @@ function render(data, state) {
     ? ` · upkeep deducted monthly: -${money(monthlyUpkeep)}`
       + ` · net per 2-month period: <b style="color:${netBiMonthlyColor};">${money(netBiMonthly)}</b>`
     : "";
-  // Pre-computed breakdown line for shop vs property upkeep
+  // Pre-computed breakdown line for shop vs property vs affiliations upkeep
   const upkeepBreakdownParts = [];
-  if (shopUpkeepDisplay > 0)     upkeepBreakdownParts.push(`Shop: -${money(shopUpkeepDisplay)}/month`);
-  if (propertyUpkeepDisplay > 0) upkeepBreakdownParts.push(`Property: -${money(propertyUpkeepDisplay)}/month`);
+  if (shopUpkeepDisplay > 0)       upkeepBreakdownParts.push(`Shop: -${money(shopUpkeepDisplay)}/month`);
+  if (propertyUpkeepDisplay > 0)   upkeepBreakdownParts.push(`Property: -${money(propertyUpkeepDisplay)}/month`);
+  if (affiliationsFeesDisplay > 0) upkeepBreakdownParts.push(`Affiliations: -${money(affiliationsFeesDisplay)}/month`);
   const upkeepBreakdown = isOwnProfile && upkeepBreakdownParts.length
     ? `<div class="muted" style="font-size:.85em;margin-left:12px;">${upkeepBreakdownParts.join(" · ")}</div>`
     : "";
@@ -1649,10 +1651,20 @@ function render(data, state) {
     const pendingRemove = affiliations.filter((a) => a.status === "pending_remove");
     let html = "";
     if (approved.length) {
+      // Look up monthly fees from catalog
+      const feeMap = new Map(AFFILIATIONS_CATALOG.flatMap((cat) => cat.items.map((i) => [i.id, i.monthly_fee])));
+      const approvedTotal = approved.reduce((sum, a) => sum + (feeMap.get(a.affiliation_id) ?? 0), 0);
       html += `<div style="margin-bottom:6px;"><b>Approved:</b></div>`;
-      html += `<ul style="margin:0 0 8px;padding-left:18px;">` +
-        approved.map((a) => `<li>${esc(a.name)} <span class="muted" style="font-size:.8em;">(${esc(a.category)})</span></li>`).join("") +
+      html += `<ul style="margin:0 0 4px;padding-left:18px;">` +
+        approved.map((a) => {
+          const fee = feeMap.get(a.affiliation_id);
+          const feeStr = fee != null ? ` <span class="muted" style="font-size:.82em;">£${fee}/month</span>` : "";
+          return `<li>${esc(a.name)}${feeStr} <span class="muted" style="font-size:.8em;">(${esc(a.category)})</span></li>`;
+        }).join("") +
         `</ul>`;
+      if (approvedTotal > 0) {
+        html += `<div class="muted" style="font-size:.88em;margin-bottom:8px;">Membership fees total: <b style="color:#c00;">-£${approvedTotal}/month</b></div>`;
+      }
     }
     if (pendingAdd.length) {
       html += `<div style="margin-bottom:4px;color:#b57a00;"><b>Pending addition (awaiting mod approval):</b></div>`;
@@ -1702,18 +1714,21 @@ function render(data, state) {
               ${AFFILIATIONS_CATALOG.map((cat) => `
                 <div style="margin-bottom:14px;">
                   <div style="font-weight:700;margin-bottom:6px;border-bottom:1px solid #ddd;padding-bottom:3px;">${esc(cat.category)}</div>
-                  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px;">
+                  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:4px;">
                     ${cat.items.map((item) => `
                       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.92em;padding:2px 0;">
-                        <input type="checkbox" name="aff" value="${esc(item.id)}"${tickedIds.has(item.id) ? " checked" : ""}>
-                        ${esc(item.name)}
+                        <input type="checkbox" name="aff" value="${esc(item.id)}" data-fee="${esc(String(item.monthly_fee))}"${tickedIds.has(item.id) ? " checked" : ""}>
+                        ${esc(item.name)} <span class="muted" style="font-size:.82em;">£${esc(String(item.monthly_fee))}/mo</span>
                       </label>
                     `).join("")}
                   </div>
                 </div>
               `).join("")}
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center;">
+            <div style="padding:8px 0 4px;font-size:.95em;">
+              Selected total (if approved): <b id="aff-modal-total" style="color:#c00;">£0/month</b>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center;">
               <button id="aff-modal-save" class="btn primary" type="button">Save & Submit</button>
               <button id="aff-modal-cancel" class="btn" type="button">Cancel</button>
               <span id="aff-modal-status" class="muted" style="font-size:.9em;"></span>
@@ -1721,6 +1736,17 @@ function render(data, state) {
           </div>
         `;
         document.body.appendChild(overlay);
+
+        // Live-running total: update whenever a checkbox changes
+        function updateAffTotal() {
+          const totalEl = overlay.querySelector("#aff-modal-total");
+          if (!totalEl) return;
+          const total = [...overlay.querySelectorAll('input[name="aff"]:checked')]
+            .reduce((sum, el) => sum + Number(el.dataset.fee || 0), 0);
+          totalEl.textContent = `£${total}/month`;
+        }
+        overlay.querySelector("#aff-modal-body").addEventListener("change", updateAffTotal);
+        updateAffTotal();
 
         overlay.querySelector("#aff-modal-cancel").addEventListener("click", () => overlay.remove());
         overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
@@ -1758,13 +1784,15 @@ function syncFinanceIntoProfile(profile, fin, data, profileName, state) {
 
   // Propagate upkeep totals and overspend flag into state for the render
   if (state) {
-    state.shopMonthlyUpkeep        = Number(fin.shopMonthlyUpkeep ?? 0);
-    state.financeOverspend         = !!fin.financeOverspend;
-    state.totalMonthlyUpkeep       = fin.totalMonthlyUpkeep != null ? Number(fin.totalMonthlyUpkeep) : undefined;
-    state.propertyMonthlyUpkeep    = fin.propertyMonthlyUpkeep != null ? Number(fin.propertyMonthlyUpkeep) : undefined;
-    state.homeLivingCostsMonthly   = fin.homeLivingCostsMonthly != null ? Number(fin.homeLivingCostsMonthly) : undefined;
-    state.rentalIncomeMonthly      = fin.rentalIncomeMonthly != null ? Number(fin.rentalIncomeMonthly) : undefined;
-    state.rentalCostsMonthly       = fin.rentalCostsMonthly != null ? Number(fin.rentalCostsMonthly) : undefined;
+    state.shopMonthlyUpkeep            = Number(fin.shopMonthlyUpkeep ?? 0);
+    state.financeOverspend             = !!fin.financeOverspend;
+    state.totalMonthlyUpkeep           = fin.totalMonthlyUpkeep != null ? Number(fin.totalMonthlyUpkeep) : undefined;
+    state.propertyMonthlyUpkeep        = fin.propertyMonthlyUpkeep != null ? Number(fin.propertyMonthlyUpkeep) : undefined;
+    state.homeLivingCostsMonthly       = fin.homeLivingCostsMonthly != null ? Number(fin.homeLivingCostsMonthly) : undefined;
+    state.rentalIncomeMonthly          = fin.rentalIncomeMonthly != null ? Number(fin.rentalIncomeMonthly) : undefined;
+    state.rentalCostsMonthly           = fin.rentalCostsMonthly != null ? Number(fin.rentalCostsMonthly) : undefined;
+    state.affiliationsMonthlyFees      = fin.affiliationsMonthlyFees != null ? Number(fin.affiliationsMonthlyFees) : undefined;
+    state.affiliationsMonthlyFeesItems = Array.isArray(fin.affiliationsMonthlyFeesItems) ? fin.affiliationsMonthlyFeesItems : undefined;
   }
 
   // Replace shop purchases from DB (normalise field names)
@@ -1801,7 +1829,7 @@ function syncFinanceIntoProfile(profile, fin, data, profileName, state) {
 
 export async function initPersonalPage(data) {
   normalisePersonal(data);
-  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined };
+  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined, affiliationsMonthlyFees: undefined, affiliationsMonthlyFeesItems: undefined };
 
   // Load all active characters for the moderator profile selector (non-blocking).
   if (canManage(data)) {
