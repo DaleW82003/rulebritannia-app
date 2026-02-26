@@ -336,3 +336,55 @@ See **[docs/trial-runbook.md](docs/trial-runbook.md)** for the 3-user live trial
 - How to approve users and assign roles
 - How to reset the sim between rounds using the Admin Panel **Danger Zone** tools
 - Discourse integration notes (SSO enabled; group syncing off-by-default)
+
+## Staging Audit Run
+
+The `scripts/test-staging.mjs` runner performs a four-suite live verification against a deployed backend:
+
+| Suite | What it checks |
+|---|---|
+| **Persistence** | Create entity → GET → verify entity still exists |
+| **RBAC** | Anonymous + non-staff requests rejected with 401/403 |
+| **Immutability** | Players cannot PUT/DELETE parliament items |
+| **Division authority** | Server computes vote weight; client-supplied weight ignored |
+
+### Prerequisites
+
+1. A running backend with a PostgreSQL database.
+2. At least one admin account.
+3. (Optional) A player (non-staff) account for full RBAC coverage.
+
+### How to run
+
+```bash
+BASE_URL=https://rulebritannia-app-backend.onrender.com \
+TEST_EMAIL=admin@example.com \
+TEST_PASSWORD=secret \
+node scripts/test-staging.mjs
+```
+
+With a player account:
+
+```bash
+BASE_URL=https://rulebritannia-app-backend.onrender.com \
+TEST_EMAIL=admin@example.com \
+TEST_PASSWORD=secret \
+TEST_PLAYER_EMAIL=player@example.com \
+TEST_PLAYER_PASSWORD=playersecret \
+node scripts/test-staging.mjs
+```
+
+The runner exits with code `0` (GO) or `1` (NO-GO) and prints a concise PASS/FAIL summary.
+
+### Audit report
+
+Running the feature manifest produces `scripts/audit/out/audit-report.json`:
+
+```bash
+node scripts/audit/feature-manifest.js
+```
+
+Fields:
+- `remainingWarnings` — warnings not yet suppressed (target: 0)
+- `fatalIssues` — critical issues blocking Discourse integration (target: 0)
+- `suppressedWarnings` — explicitly allowlisted warnings with justifications

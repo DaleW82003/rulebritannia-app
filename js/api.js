@@ -2015,6 +2015,13 @@ export async function apiGetMyWorkPlan() {
   return res.json();
 }
 
+/** B3 FIX: Fetch server-computed effective vote weight for the active character. */
+export async function apiGetMyVoteWeight() {
+  const res = await fetch(`${API_BASE}/api/me/vote-weight`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyVoteWeight failed (${res.status})`);
+  return res.json();
+}
+
 export async function apiSaveMyWorkPlan(plan) {
   const res = await fetch(`${API_BASE}/api/me/work-plan`, {
     method: "POST",

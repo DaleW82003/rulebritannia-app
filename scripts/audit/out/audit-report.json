@@ -1,0 +1,166 @@
+{
+  "generatedAt": "2026-02-26T12:09:55.044Z",
+  "remainingWarnings": 0,
+  "fatalIssues": 0,
+  "summary": {
+    "totalServerEndpoints": 227,
+    "totalWriteEndpoints": 141,
+    "totalApiFunctions": 199,
+    "totalPages": 46,
+    "unmatchedWriteFns": 0,
+    "suppressedWarnings": 28,
+    "missingCredentials": 0,
+    "immutabilityViolations": 0,
+    "saveStateOnlyWarnings": 0,
+    "rbacDriftWarnings": 0
+  },
+  "suppressedWarnings": [
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "reason": "Public login endpoint; no auth guard by design"
+    },
+    {
+      "method": "POST",
+      "path": "/api/snapshots/",
+      "reason": "Admin snapshot restore — path parsed before template variable"
+    },
+    {
+      "method": "POST",
+      "path": "/api/users/",
+      "reason": "resolves to /api/users/:id/roles (apiSetUserRoles)"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/characters/",
+      "reason": "resolves to /api/characters/:id (apiPatchCharacter)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/applications/",
+      "reason": "resolves to /api/admin/.../applications/:id/approve|reject"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/bio-changes/",
+      "reason": "resolves to /api/admin/bio-changes/:id/approve|reject"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/avatar-changes/",
+      "reason": "resolves to /api/admin/avatar-changes/:id/approve|reject"
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/",
+      "reason": "resolves to /api/parties/:partyId/* (multiple sub-endpoints)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/parties/",
+      "reason": "resolves to /api/parties/:partyId/* (multiple sub-endpoints)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/",
+      "reason": "resolves to /api/admin/characters/:id/* (multiple sub-endpoints)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users/",
+      "reason": "resolves to /api/admin/users/:id/* (multiple sub-endpoints)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/profile-changes/",
+      "reason": "resolves to /api/admin/profile-changes/:id/approve|reject"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/finance/revenue/",
+      "reason": "resolves to /api/admin/finance/revenue/:charId"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/finance/revenue/",
+      "reason": "resolves to /api/admin/finance/revenue/:charId"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/me/character/",
+      "reason": "resolves to /api/me/character/:id/* (multiple sub-endpoints)"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/redlion/",
+      "reason": "resolves to /api/redlion/:id"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/events/",
+      "reason": "resolves to /api/events/:id"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/fundraising/",
+      "reason": "resolves to /api/fundraising/:id"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/elections/",
+      "reason": "resolves to /api/elections/:id"
+    },
+    {
+      "method": "POST",
+      "path": "/api/elections/",
+      "reason": "resolves to /api/elections/:id/finalize"
+    },
+    {
+      "method": "POST",
+      "path": "/api/control-panel/affiliations/",
+      "reason": "resolves to /api/control-panel/affiliations/:rid/decide"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/scandals/",
+      "reason": "resolves to /api/mod/scandals/:id/decide|close"
+    },
+    {
+      "method": "POST",
+      "path": "/api/scandals/situations/",
+      "reason": "resolves to /api/scandals/situations/:id/respond"
+    },
+    {
+      "method": "POST",
+      "path": "/api/scandals/",
+      "reason": "resolves to /api/scandals/:id/choose"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/constituencies/",
+      "reason": "resolves to /api/constituencies/:id"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/constituencies/",
+      "reason": "resolves to /api/constituencies/:id"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/divisions/",
+      "reason": "resolves to /api/divisions/:id/npc-votes"
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/",
+      "reason": "resolves to /api/me/character/:id/affiliations"
+    }
+  ],
+  "issues": {
+    "unmatchedWriteFunctions": [],
+    "saveStateOnlyWrites": [],
+    "rbacDrift": [],
+    "missingCredentials": [],
+    "immutabilityViolations": []
+  }
+}

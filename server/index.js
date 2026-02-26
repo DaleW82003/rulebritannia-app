@@ -2577,6 +2577,73 @@ async function getActiveCharacterId(req) {
 }
 
 /**
+ * B3 FIX: Compute a character's effective division vote weight server-side.
+ *
+ * Logic:
+ * 1. Look up the character's party from the characters table.
+ * 2. Get the party's seat count from the most recent finalized election; fall back to
+ *    the state-snapshot blob if no election data is available.
+ * 3. Count active characters in the same party (from the characters table).
+ * 4. Distribute seats evenly (floor), giving any remainder to the first character in
+ *    alphabetical order (consistent tie-break).
+ *
+ * This mirrors the client-side buildDivisionWeights() logic but runs exclusively on
+ * the server so clients cannot influence tallies by supplying a different weight.
+ *
+ * @param {string} charId  UUID of the character casting the vote.
+ * @param {object} poolRef PostgreSQL pool (default: the module-level `pool`).
+ * @returns {Promise<number>} Effective integer vote weight (minimum 1).
+ */
+async function computeCharacterWeight(charId, poolRef = pool) {
+  const { rows: charRows } = await poolRef.query(
+    "SELECT party, is_active FROM characters WHERE id = $1",
+    [charId]
+  );
+  if (!charRows.length || !charRows[0].is_active) return 1;
+  const party = charRows[0].party || "Independent";
+
+  // Step 1: get seat count from latest finalized election
+  const { rows: elRows } = await poolRef.query(
+    `SELECT eps.seats
+       FROM election_party_summary eps
+       JOIN elections e ON e.id = eps.election_id
+      WHERE e.status = 'finalized' AND eps.party = $1
+      ORDER BY e.polling_day DESC LIMIT 1`,
+    [party]
+  );
+  let partySeats = Number(elRows[0]?.seats || 0);
+
+  // Step 2: fall back to state snapshot if no election data
+  if (!partySeats) {
+    const { rows: stateRows } = await poolRef.query(
+      `SELECT s.data
+         FROM app_state_current c
+         JOIN state_snapshots s ON s.id = c.snapshot_id
+        WHERE c.id = 'main'`
+    );
+    const stateParties = stateRows[0]?.data?.parliament?.parties || [];
+    const sp = stateParties.find((p) => p.name === party);
+    partySeats = Number(sp?.seats || 0);
+  }
+
+  if (!partySeats) return 1; // no seat data at all
+
+  // Step 3: count active characters in the same party
+  const { rows: partyChars } = await poolRef.query(
+    "SELECT id FROM characters WHERE party = $1 AND is_active = TRUE ORDER BY id",
+    [party]
+  );
+  const numChars = Math.max(1, partyChars.length);
+
+  // Step 4: floor division + remainder to first character (alphabetical by UUID)
+  const each = Math.floor(partySeats / numChars);
+  const remainder = partySeats - each * numChars;
+  const isFirst = partyChars.length > 0 && partyChars[0].id === charId;
+  return Math.max(1, each + (isFirst ? remainder : 0));
+}
+
+
+/**
  * Load and decrypt Discourse credentials from app_config.
  * Returns { baseUrl, apiKey, apiUsername } or throws if not configured.
  */
@@ -7613,6 +7680,22 @@ const cwpReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: t
 const cwpWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
 const MAX_JOB_TITLE_LENGTH = 200;
 
+// GET /api/me/vote-weight — return the server-computed effective vote weight for the active character
+// B3 FIX: exposes computeCharacterWeight so the UI can display the correct weight without
+// running the allocation algorithm client-side.
+app.get("/api/me/vote-weight", divReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(403).json({ error: "No active character" });
+    const weight = await computeCharacterWeight(charId);
+    res.json({ ok: true, weight, character_id: charId });
+  } catch (e) {
+    console.error("[GET /api/me/vote-weight]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // GET /api/me/work-plan — return active character's work plan
 app.get("/api/me/work-plan", cwpReadLimit, async (req, res) => {
   try {
@@ -7890,18 +7973,23 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const tally = { aye: 0, no: 0, abstain: 0 };
     votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
 
-    // Caller's own vote
+    // Caller's own vote and server-computed weight (B3 FIX)
     const charId = await getActiveCharacterId(req);
     let myVote = null;
+    let myWeight = 0;
     if (charId) {
-      const { rows: mv } = await pool.query(
-        "SELECT vote, weight FROM division_votes WHERE division_id = $1 AND character_id = $2",
-        [division.id, charId]
-      );
-      myVote = mv[0] || null;
+      const [mvRes, wRes] = await Promise.all([
+        pool.query(
+          "SELECT vote, weight FROM division_votes WHERE division_id = $1 AND character_id = $2",
+          [division.id, charId]
+        ),
+        computeCharacterWeight(charId),
+      ]);
+      myVote = mvRes.rows[0] || null;
+      myWeight = wRes;
     }
 
-    res.json({ division, tally, myVote });
+    res.json({ division, tally, myVote, myWeight });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7909,11 +7997,13 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
 });
 
 // POST /api/divisions/:id/vote — cast or update the caller's vote
-// Body: { vote: 'aye'|'no'|'abstain', weight?: number }
+// Body: { vote: 'aye'|'no'|'abstain' }
+// B3 FIX: weight is computed server-side; any client-provided weight is ignored.
 app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { vote, weight = 1 } = req.body || {};
+    // B3 FIX: weight is IGNORED from the client — computed server-side.
+    const { vote } = req.body || {};
     if (!vote) return res.status(400).json({ error: "vote is required" });
     const validVotes = ["aye", "no", "abstain"];
     if (!validVotes.includes(vote)) {
@@ -7932,20 +8022,23 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
     if (!divRows.length) return res.status(404).json({ error: "Division not found" });
     if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
 
+    // B3 FIX: Compute effective weight server-side — client cannot influence the tally.
+    const effectiveWeight = await computeCharacterWeight(charId);
+
     // Get character party for rebellion check
     const { rows: charRows } = await pool.query(
       "SELECT party FROM characters WHERE id = $1", [charId]
     );
     const charParty = charRows[0]?.party || null;
 
-    // Save vote (upsert)
+    // Save vote (upsert) with server-computed weight
     const { rows: voteRows } = await pool.query(
       `INSERT INTO division_votes (division_id, character_id, vote, weight)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (division_id, character_id)
        DO UPDATE SET vote = EXCLUDED.vote, weight = EXCLUDED.weight, voted_at = NOW()
        RETURNING id, division_id, character_id, vote, weight, voted_at`,
-      [req.params.id, charId, vote, Math.max(1, parseInt(weight, 10) || 1)]
+      [req.params.id, charId, vote, effectiveWeight]
     );
 
     // Rebellion logging: check if party instruction exists and vote differs

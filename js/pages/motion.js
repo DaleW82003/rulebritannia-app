@@ -1,7 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker, canAdminOrMod, canVoteDivision } from "../permissions.js";
-import { buildDivisionWeights } from "../divisions.js";
 import { getPartySeatMap } from "../engines/core-engine.js";
 import { ensureMotions, isGovernmentMember } from "./motions.js";
 import { getSimDate, simDateToObj, formatSimMonthYear, isDeadlinePassed, compareSimDates, countdownToSimMonth } from "../clock.js";
@@ -10,7 +9,7 @@ import {
   apiGetDivisionForEntity, apiCreateDivision, apiCastVote, apiCloseDivision,
   apiGetPartyInstruction, apiSetPartyInstruction,
   apiGetRebelRequest, apiSubmitRebelRequest,
-  apiGetMotion, apiSignEdm,
+  apiGetMotion, apiSignEdm, apiGetMyVoteWeight,
 } from "../api.js";
 
 const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line whip"];
@@ -22,12 +21,6 @@ function getCharacter(data) {
 function getParams() {
   const u = new URL(window.location.href);
   return { kind: u.searchParams.get("kind") || "house", id: u.searchParams.get("id") || "" };
-}
-
-function currentWeight(data) {
-  const c = getCharacter(data);
-  const { effectiveWeights } = buildDivisionWeights(data);
-  return Number(effectiveWeights[String(c?.name || "")] || 0);
 }
 
 function getMotion(data, kind, id) {
@@ -135,17 +128,23 @@ async function renderHouseDb(root, data, motion) {
   const char = getCharacter(data);
   const speaker = isSpeaker(data);
   const isStaff = canAdminOrMod(data) || speaker;
-  const voteWeight = currentWeight(data);
   const charParty = char?.party || "";
   const debateCountdown = motion.debateEndSimObj
     ? countdownToSimMonth(motion.debateEndSimObj.month, motion.debateEndSimObj.year, data.gameState)
     : "";
 
   // Load DB division state (or null if no division created yet)
-  let dbDiv = null, tally = { aye: 0, no: 0, abstain: 0 }, myVote = null;
+  // B3 FIX: myWeight now comes from the server (computed in computeCharacterWeight) —
+  // the client no longer calculates vote weight.
+  let dbDiv = null, tally = { aye: 0, no: 0, abstain: 0 }, myVote = null, voteWeight = 0;
   try {
     const result = await apiGetDivisionForEntity("motion", motion.id);
-    if (result) { dbDiv = result.division; tally = result.tally; myVote = result.myVote; }
+    if (result) {
+      dbDiv = result.division;
+      tally = result.tally;
+      myVote = result.myVote;
+      voteWeight = Number(result.myWeight || 0);
+    }
   } catch (_) { /* no division yet */ }
 
   // Load party instruction for current user's party
@@ -240,7 +239,8 @@ async function renderHouseDb(root, data, motion) {
       const msg = root.querySelector("#div-msg");
       if (msg) msg.textContent = "Voting…";
       try {
-        const result = await apiCastVote(dbDiv.id, choice, Math.round(voteWeight));
+        // B3 FIX: no weight passed — server computes it server-side
+        const result = await apiCastVote(dbDiv.id, choice);
         if (msg) msg.textContent = "Vote recorded.";
         // Re-render with updated data
         await renderHouseDb(root, data, motion);
@@ -311,11 +311,12 @@ async function renderHouseDb(root, data, motion) {
   });
 }
 
-function renderEdm(root, data, edm) {
+function renderEdm(root, data, edm, serverWeight = 0) {
   const char = getCharacter(data);
   const speaker = isSpeaker(data);
   const disallowed = isGovernmentMember(data);
-  const w = currentWeight(data);
+  // B3 FIX: weight is passed from the server (apiGetMyVoteWeight) rather than computed in the browser.
+  const w = Number(serverWeight);
   edm.signatures ??= [];
   edm.npcSignatures ??= {};
 
@@ -367,14 +368,14 @@ function renderEdm(root, data, edm) {
     if (expired || disallowed || signed || w <= 0) return;
     const sig = { name: char?.name || "MP", party: char?.party || "Independent", weight: w };
     edm.signatures.push(sig);
-    renderEdm(root, data, edm);
+    renderEdm(root, data, edm, w);
     try {
       await apiSignEdm(edm.id, sig);
       saveState(data);
     } catch (err) {
       handleApiError(err, "Sign EDM");
       edm.signatures = edm.signatures.filter((s) => s !== sig);
-      renderEdm(root, data, edm);
+      renderEdm(root, data, edm, w);
     }
   });
 
@@ -386,7 +387,7 @@ function renderEdm(root, data, edm) {
       edm.npcSignatures[party] = !!fd.get(`npc-${party}`);
     });
     saveState(data);
-    renderEdm(root, data, edm);
+    renderEdm(root, data, edm, w);
   });
 }
 
@@ -427,7 +428,14 @@ export async function initMotionPage(data) {
   const resolvedKind = item.motion_type || item._motionType || kind;
 
   if (resolvedKind === "edm") {
-    renderEdm(root, data, item);
+    // B3 FIX: fetch server-computed vote weight before rendering so the client
+    // never runs the seat-allocation algorithm.
+    let serverWeight = 0;
+    try {
+      const wRes = await apiGetMyVoteWeight();
+      serverWeight = Number(wRes.weight || 0);
+    } catch (_) { /* weight stays 0 if endpoint unavailable */ }
+    renderEdm(root, data, item, serverWeight);
     return;
   }
 

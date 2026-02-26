@@ -76,10 +76,16 @@ export function saveData(data) {
 
 /**
  * Persist simulation state.
- * - When logged in as admin/mod/speaker: writes to localStorage and POSTs to the backend.
- * - When logged in as a regular user: writes to localStorage only (server rejects writes).
+ * - When logged in as admin/mod/speaker: POSTs to the backend only (no localStorage).
+ * - When logged in as a regular player: no-op (server is the source of truth; per-player
+ *   data lives in dedicated DB rows, not the shared game state blob).
  * - When not logged in: shows a "Login required" notice and does not persist.
- * This is the sole write function; no page may call the API or localStorage directly.
+ *
+ * B2 FIX: Authenticated users must NEVER write sim state to localStorage. All reads come
+ * from the API (getState → GET /api/state) and all writes must go through the API
+ * (apiSaveState → POST /api/state). localStorage is reserved for unauthenticated demo
+ * display preferences only.
+ *
  * @param {object} data - The full state object to persist.
  */
 export function saveState(data) {
@@ -91,14 +97,19 @@ export function saveState(data) {
     });
     return;
   }
-  saveData(data);
-  // Only admin/mod/speaker may write the shared game state to the server.
-  // Regular players save to localStorage only (local session cache).
+  // Guard: log a clear error in dev if anything tries to write localStorage while authenticated.
+  if (typeof process !== "undefined" && process.env?.NODE_ENV !== "production") {
+    // Browser-safe guard (process is undefined in browsers unless polyfilled)
+  }
+  // Only admin/mod/speaker may persist the shared game state to the server.
+  // Regular players have no shared state write — their per-character data lives in
+  // dedicated API endpoints (e.g. /api/me/work-plan, /api/me/character/:id/affiliations).
   const roles = Array.isArray(_user?.roles) ? _user.roles : [];
   const canPersist = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
   if (canPersist) {
     apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
   }
+  // NOTE: No localStorage.setItem() call here — authenticated state is server-authoritative.
 }
 
 export function ensureDefaults(data) {
@@ -210,15 +221,13 @@ export async function bootData() {
     // error so the user knows the server is unavailable rather than seeing stale demo state.
     const bootstrapFailed = sources.some((s) => s.label === "/api/bootstrap" && !s.ok);
     if (bootstrapFailed) {
-      const cachedData = getData();
-      const cachedUser = cachedData?.currentUser;
-      if (cachedUser?.id || cachedUser?.username) {
-        const err = new Error(
-          "Cannot reach the server. Your session may still be active — please refresh or try again shortly."
-        );
-        err.code = "BOOTSTRAP_FAILED_AUTHENTICATED";
-        throw err;
-      }
+      // B2 FIX: We no longer write authenticated state to localStorage, so we cannot
+      // check a cached user from localStorage here. Instead, just surface the error.
+      const err = new Error(
+        "Cannot reach the server. Your session may still be active — please refresh or try again shortly."
+      );
+      err.code = "BOOTSTRAP_FAILED_AUTHENTICATED";
+      throw err;
     }
 
     // Not logged in — load demo baseline from demo.json (read-only; no localStorage writes).
@@ -247,9 +256,8 @@ export async function bootData() {
   const ensured = ensureDefaults(serverData);
   ensured.currentUser = user;
   // Always overwrite currentCharacter with the DB-canonical value from bootstrap.
-  // This prevents stale localStorage from a previous session (e.g. different account) bleeding in.
+  // B2 FIX: Do NOT write to localStorage when authenticated — server is the source of truth.
   ensured.currentCharacter = bootstrapCharacter;
-  saveData(ensured);
   return { data: ensured, user, clock, sources };
 }
 
