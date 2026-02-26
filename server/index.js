@@ -3966,35 +3966,44 @@ app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
   }
 });
 
+// ── Division weight-computation helpers ──────────────────────────────────────
+/** Party name regexes for parties with special voting rules. */
+const SPEAKER_PARTY_RE  = /^speaker$/i;
+const SINN_FEIN_PARTY_RE = /sinn\s*f[ée]in/i;
+
 /**
- * Compute the effective vote weight for a character in a bill division.
- * Mirrors the client-side buildDivisionWeights + getCurrentVoteWeight logic so the
- * server is the sole authority on vote weights (B3 requirement).
+ * Get party seat totals from the constituencies table.
+ * This is the canonical, DB-authoritative source for weighted voting calculations,
+ * matching what is displayed on the constituencies page.
  *
- * Algorithm:
- *  1. Collect all active players from game state.
- *  2. For each party, distribute party seats evenly among members.
- *  3. New backbenchers (<2 weeks) each receive 1; remaining seats split among others.
- *  4. Absent members' weights are delegated to their party leader.
- *  5. Return the effective weight for the given character name.
+ * @param {Pool} pool - pg Pool
+ * @returns {Promise<Object>} { partyName: seatCount }
  */
-function computeBillDivisionWeight(stateData, charName, charParty) {
-  const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
-  const seatsByParty = Object.fromEntries(
-    (Array.isArray(stateData?.parliament?.parties) ? stateData.parliament.parties : [])
-      .map((p) => [String(p.name || ""), Math.max(0, Math.floor(Number(p.seats || 0)))])
+async function getPartySeatsFromConstituencies(pool) {
+  const { rows } = await pool.query(
+    "SELECT party, COUNT(*) AS seats FROM constituencies WHERE party IS NOT NULL AND party <> '' GROUP BY party"
   );
+  return Object.fromEntries(rows.map((r) => [String(r.party), Number(r.seats)]));
+}
 
-  const allPlayers = (Array.isArray(stateData?.players) ? stateData.players : [])
-    .filter((p) => p != null && p.active !== false);
-
-  // Group by party
-  const byParty = new Map();
-  allPlayers.forEach((p) => {
-    const party = String(p.party || "Independent");
-    if (!byParty.has(party)) byParty.set(party, []);
-    byParty.get(party).push(p);
-  });
+/**
+ * Compute weighted vote weights for all active players.
+ *
+ * Formula: each party's constituency seat total is distributed evenly among its
+ * active, settled players. New backbenchers (<2 weeks) receive 1 until settled.
+ * Absent players' weights delegate to their party leader (or a nominated deputy).
+ *
+ * Special rules:
+ * - Speaker party members receive 0 weight (Speaker does not vote; tie-break only).
+ * - Sinn Féin members receive 0 weight (do not take their seats).
+ *
+ * @param {Object} seatsByParty - { partyName: seatCount } from constituencies DB
+ * @param {Array}  players      - active players from game state (with absent/delegatedTo/joinedAt/role)
+ * @returns {{ effectiveWeights: Object, baseWeights: Object, leaderByParty: Object }}
+ */
+function computeAllPlayerWeights(seatsByParty, players) {
+  const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+  const allPlayers = (players || []).filter((p) => p != null && p.active !== false);
 
   function isSettledBackbencher(p) {
     if (!p || p.role !== "backbencher") return true;
@@ -4014,13 +4023,24 @@ function computeBillDivisionWeight(stateData, charName, charParty) {
     );
   }
 
+  // Group by party
+  const byParty = new Map();
+  allPlayers.forEach((p) => {
+    const party = String(p.party || "Independent");
+    if (!byParty.has(party)) byParty.set(party, []);
+    byParty.get(party).push(p);
+  });
+
   const baseWeights = {};
   const leaderByParty = {};
 
   byParty.forEach((members, party) => {
     members.forEach((m) => { baseWeights[String(m.name || "")] = 0; });
 
-    const seats = seatsByParty[party] ?? 0;
+    // Speaker does not vote (tie-break only); Sinn Féin do not take their seats.
+    if (SPEAKER_PARTY_RE.test(party) || SINN_FEIN_PARTY_RE.test(party)) return;
+
+    const seats = Math.max(0, Math.floor(Number(seatsByParty[party] || 0)));
     const leader = findPartyLeader(members);
     if (leader) leaderByParty[party] = String(leader.name || "");
 
@@ -4048,7 +4068,7 @@ function computeBillDivisionWeight(stateData, charName, charParty) {
     }
   });
 
-  // Delegation: absent players' weights route to their party leader
+  // Delegation: absent players' weights route to their party leader (or deputy)
   const effectiveWeights = { ...baseWeights };
   const playersByName = Object.fromEntries(allPlayers.map((p) => [String(p.name || ""), p]));
 
@@ -4068,7 +4088,9 @@ function computeBillDivisionWeight(stateData, charName, charParty) {
       if (candidate && playersByName[candidate] && !playersByName[candidate].absent) {
         target = candidate;
       } else {
-        target = allPlayers.find((q) => String(q.party || "Independent") === party && q.name !== from && !q.absent)?.name || null;
+        target = allPlayers.find(
+          (q) => String(q.party || "Independent") === party && q.name !== from && !q.absent
+        )?.name || null;
       }
     } else if (leaderName && playersByName[leaderName] && !playersByName[leaderName].absent) {
       target = leaderName;
@@ -4080,7 +4102,7 @@ function computeBillDivisionWeight(stateData, charName, charParty) {
     }
   });
 
-  return Number(effectiveWeights[charName] || 0);
+  return { effectiveWeights, baseWeights, leaderByParty };
 }
 
 // PATCH /api/bills/:id/vote — authenticated: cast a server-authoritative vote on a bill division
@@ -4114,7 +4136,10 @@ app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
     if (!charRows.length) return res.status(400).json({ error: "No active character found" });
     const { name: charName, party: charParty } = charRows[0];
 
-    // Load current game state for server-side weight computation
+    // Seat totals from constituencies DB (authoritative source — constituencies page)
+    const seatsByParty = await getPartySeatsFromConstituencies(pool);
+
+    // Load current game state for player list (absence/delegation info)
     const { rows: stateRows } = await pool.query(
       `SELECT ss.data
          FROM state_snapshots ss
@@ -4122,9 +4147,11 @@ app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
         WHERE asc2.id = 'main'`
     );
     const stateData = stateRows[0]?.data ?? {};
+    const players = Array.isArray(stateData?.players) ? stateData.players : [];
 
-    // Compute effective weight server-side (B3: client weight is ignored)
-    const effectiveWeight = computeBillDivisionWeight(stateData, charName, charParty);
+    // Compute effective weight server-side (seats from constituencies DB, players from state)
+    const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, players);
+    const effectiveWeight = Number(effectiveWeights[charName] || 0);
 
     // Initialise division if this is the first vote
     bill.division ??= { status: "open", votes: {}, openedAt: Date.now(), rebelsByParty: {}, npcVotes: {} };
@@ -8106,9 +8133,9 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
 
     const division = rows[0];
 
-    // Tally
+    // Tally using effective_weight (server-computed seat-proportional values)
     const { rows: votes } = await pool.query(
-      `SELECT vote, SUM(weight) AS total_weight, COUNT(*) AS count
+      `SELECT vote, SUM(effective_weight) AS total_weight, COUNT(*) AS count
          FROM division_votes WHERE division_id = $1
         GROUP BY vote`,
       [division.id]
@@ -8116,18 +8143,36 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const tally = { aye: 0, no: 0, abstain: 0 };
     votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
 
-    // Caller's own vote
+    // Caller's own vote and effective weight
     const charId = await getActiveCharacterId(req);
     let myVote = null;
+    let myWeight = 0;
     if (charId) {
       const { rows: mv } = await pool.query(
-        "SELECT vote, weight FROM division_votes WHERE division_id = $1 AND character_id = $2",
+        "SELECT vote, effective_weight AS weight FROM division_votes WHERE division_id = $1 AND character_id = $2",
         [division.id, charId]
       );
       myVote = mv[0] || null;
+
+      // Compute the caller's current effective weight from constituencies DB
+      try {
+        const { rows: charRows } = await pool.query(
+          "SELECT name FROM characters WHERE id = $1", [charId]
+        );
+        const charName = charRows[0]?.name || "";
+        const seatsByParty = await getPartySeatsFromConstituencies(pool);
+        const { rows: stateRows } = await pool.query(
+          `SELECT ss.data FROM state_snapshots ss
+             JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+            WHERE asc2.id = 'main'`
+        );
+        const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
+        const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
+        myWeight = Number(effectiveWeights[charName] || 0);
+      } catch (wErr) { console.error("[division.for-entity myWeight]", wErr.message); /* weight display is best-effort */ }
     }
 
-    res.json({ division, tally, myVote });
+    res.json({ division, tally, myVote, myWeight });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -8135,7 +8180,8 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
 });
 
 // POST /api/divisions/:id/vote — cast or update the caller's vote
-// Body: { vote: 'aye'|'no'|'abstain', weight?: number }
+// Body: { vote: 'aye'|'no'|'abstain' }
+// Weight is ALWAYS computed server-side from constituencies DB + player state (client-supplied weight is ignored).
 app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
@@ -8158,20 +8204,41 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
     if (!divRows.length) return res.status(404).json({ error: "Division not found" });
     if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
 
-    // Get character party for rebellion check
+    // Get character name and party for weight computation and rebellion check
     const { rows: charRows } = await pool.query(
-      "SELECT party FROM characters WHERE id = $1", [charId]
+      "SELECT name, party FROM characters WHERE id = $1", [charId]
     );
     const charParty = charRows[0]?.party || null;
+    const charName  = charRows[0]?.name  || null;
 
-    // Save vote (upsert)
+    // Compute effective weight server-side:
+    //   seats from constituencies DB (authoritative source)
+    //   player list from game state (for absence/delegation)
+    let effectiveWeight = 1;
+    try {
+      const seatsByParty = await getPartySeatsFromConstituencies(pool);
+      const { rows: stateRows } = await pool.query(
+        `SELECT ss.data FROM state_snapshots ss
+           JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+          WHERE asc2.id = 'main'`
+      );
+      const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
+      const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
+      effectiveWeight = Number(effectiveWeights[charName] || 0);
+    } catch (wErr) {
+      console.error("[division.vote weight-calc]", wErr.message);
+      // Fall back to weight=1 so the vote is still recorded
+    }
+
+    // Save vote (upsert) — client-supplied weight is always ignored
     const { rows: voteRows } = await pool.query(
       `INSERT INTO division_votes (division_id, character_id, vote, weight, effective_weight, delegation_source_character_id)
-       VALUES ($1, $2, $3, 1, 1, NULL)
+       VALUES ($1, $2, $3, $4, $4, NULL)
        ON CONFLICT (division_id, character_id)
-       DO UPDATE SET vote = EXCLUDED.vote, weight = 1, effective_weight = 1, delegation_source_character_id = NULL, voted_at = NOW()
+       DO UPDATE SET vote = EXCLUDED.vote, weight = EXCLUDED.weight, effective_weight = EXCLUDED.effective_weight,
+                     delegation_source_character_id = NULL, voted_at = NOW()
        RETURNING id, division_id, character_id, vote, weight, effective_weight, delegation_source_character_id, voted_at`,
-      [req.params.id, charId, vote]
+      [req.params.id, charId, vote, effectiveWeight]
     );
 
     // Rebellion logging: check if party instruction exists and vote differs
@@ -8228,6 +8295,9 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
     const canClose = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
     if (!canClose) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
+    // Fetch constituency seat totals (authoritative source) outside the transaction
+    const seatsByParty = await getPartySeatsFromConstituencies(pool);
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -8238,7 +8308,7 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
       if (!divRows.length) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Division not found" }); }
       if (divRows[0].status === "closed") { await client.query("ROLLBACK"); return res.status(409).json({ error: "Already closed" }); }
 
-      // Compute player tally
+      // Compute player tally (uses server-computed effective_weight per vote)
       const { rows: votes } = await client.query(
         `SELECT vote, SUM(effective_weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
         [req.params.id]
@@ -8246,15 +8316,24 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
       const tally = { aye: 0, no: 0, abstain: 0 };
       votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
 
-      // Add NPC votes — npc_votes: { "Labour": "aye" }, rebels_by_party: { "Labour_seats": 400, "Labour": 5 }
-      // Seat counts are stored under the `${party}_seats` key in rebels_by_party by the caller (admin/speaker).
+      // Add NPC votes — npc_votes: { "SNP": "aye" }, rebels_by_party: { "SNP": 5 }
+      // Seat counts come from the constituencies DB (not from rebels_by_party keys).
+      // Sinn Féin and Speaker are excluded automatically (0 seats taken / no vote).
       const npcVotes    = divRows[0].npc_votes    || {};
       const rebelsByPty = divRows[0].rebels_by_party || {};
       for (const [party, npcVote] of Object.entries(npcVotes)) {
         if (tally[npcVote] === undefined) continue;
-        const seats  = Number(rebelsByPty[`${party}_seats`] || 0);
+        if (SINN_FEIN_PARTY_RE.test(party) || SPEAKER_PARTY_RE.test(party)) continue;
+        const seats  = Number(seatsByParty[party] || 0);
         const rebels = Number(rebelsByPty[party] || 0);
         if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
+      }
+
+      // Sinn Féin seats auto-abstain (do not take seats — excluded from aye/no counts)
+      for (const [party, seats] of Object.entries(seatsByParty)) {
+        if (SINN_FEIN_PARTY_RE.test(party) && seats > 0) {
+          tally.abstain += seats;
+        }
       }
 
       const outcome = tally.aye > tally.no ? "passed" : tally.no > tally.aye ? "failed" : "tied";

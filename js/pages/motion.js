@@ -8,10 +8,13 @@ import {
   apiGetDivisionForEntity, apiCreateDivision, apiCastVote, apiCloseDivision,
   apiGetPartyInstruction, apiSetPartyInstruction,
   apiGetRebelRequest, apiSubmitRebelRequest,
-  apiGetMotion, apiSignEdm,
+  apiGetMotion, apiSignEdm, apiSetNpcVotes,
 } from "../api.js";
 
 const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line whip"];
+
+// Parties for which player characters exist (playable) — NPC panel shows the rest.
+const PLAYABLE_PARTIES = new Set(["Conservative", "Labour", "Liberal Democrat"]);
 
 function getCharacter(data) {
   return data?.currentCharacter || data?.currentPlayer || {};
@@ -129,18 +132,26 @@ async function renderHouseDb(root, data, motion) {
   const char = getCharacter(data);
   const speaker = isSpeaker(data);
   const isStaff = canAdminOrMod(data) || speaker;
-  const voteWeight = currentWeight(data);
   const charParty = char?.party || "";
   const debateCountdown = motion.debateEndSimObj
     ? countdownToSimMonth(motion.debateEndSimObj.month, motion.debateEndSimObj.year, data.gameState)
     : "";
 
   // Load DB division state (or null if no division created yet)
-  let dbDiv = null, tally = { aye: 0, no: 0, abstain: 0 }, myVote = null;
+  let dbDiv = null, tally = { aye: 0, no: 0, abstain: 0 }, myVote = null, myWeight = 0;
   try {
     const result = await apiGetDivisionForEntity("motion", motion.id);
-    if (result) { dbDiv = result.division; tally = result.tally; myVote = result.myVote; }
+    if (result) {
+      dbDiv = result.division;
+      tally = result.tally;
+      myVote = result.myVote;
+      myWeight = Number(result.myWeight || 0);
+    }
   } catch (_) { /* no division yet */ }
+
+  // voteWeight: use server-computed effective weight (seat-proportional).
+  // Falls back to 1 only if there is a vote recorded (which carries the weight) but myWeight wasn't returned.
+  const voteWeight = myWeight || (myVote ? Number(myVote.weight || 0) : 0);
 
   // Load party instruction for current user's party
   let instr = null;
@@ -201,7 +212,7 @@ async function renderHouseDb(root, data, motion) {
           <div class="division-total-cell no"><div class="dc-num">${tally.no}</div><div class="dc-lbl">No</div></div>
           <div class="division-total-cell"><div class="dc-num">${tally.abstain}</div><div class="dc-lbl">Abstain</div></div>
         </div>
-        ${myVote ? `<div class="division-my-vote voted-${esc(myVote.vote)}">Your vote: <b>${esc(myVote.vote.charAt(0).toUpperCase() + myVote.vote.slice(1))}</b> · Weight: <b>${voteWeight.toFixed(2)}</b></div>` : `<div class="division-my-vote">Not yet voted · Weight: <b>${voteWeight.toFixed(2)}</b></div>`}
+        ${myVote ? `<div class="division-my-vote voted-${esc(myVote.vote)}">Your vote: <b>${esc(myVote.vote.charAt(0).toUpperCase() + myVote.vote.slice(1))}</b> · Weight: <b>${voteWeight}</b></div>` : `<div class="division-my-vote">Not yet voted · Weight: <b>${voteWeight}</b></div>`}
         ${dbDiv.status === "open" ? `
           <div class="tile-bottom" style="padding-top:10px;">
             <button class="btn ${myVote?.vote === "aye" ? "primary" : ""}" data-action="vote" data-choice="aye" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Aye</button>
@@ -209,6 +220,36 @@ async function renderHouseDb(root, data, motion) {
             <button class="btn ${myVote?.vote === "abstain" ? "primary" : ""}" data-action="vote" data-choice="abstain" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Abstain</button>
           </div>
         ` : `<p class="muted">Division closed. Outcome: <b>${esc(dbDiv.outcome || "—")}</b></p>`}
+        ${isStaff && dbDiv.status === "open" ? `
+          <div style="margin-top:12px;">
+            <h4 style="margin:0 0 6px;">NPC Party Votes &amp; Rebels</h4>
+            <p class="muted" style="margin:0 0 6px;font-size:0.85em;">Seat totals are taken from the constituencies page. Sinn Féin and Speaker abstain by convention.</p>
+            <form id="npc-vote-form">
+              ${(() => {
+                const seats = getPartySeatMap(data);
+                const npcParties = Object.keys(seats).filter((p) => Number(seats[p]) > 0 && !PLAYABLE_PARTIES.has(p) && !/sinn\s*f[ée]in/i.test(p) && !/^speaker$/i.test(p));
+                const npcVotes = dbDiv.npc_votes || {};
+                const rebels   = dbDiv.rebels_by_party || {};
+                if (!npcParties.length) return `<p class="muted">No NPC parties with seats.</p>`;
+                return npcParties.map((p) => `
+                  <div class="kv" style="margin-bottom:4px;">
+                    <span><b>${esc(p)}</b> (${Number(seats[p])} seats)</span>
+                    <select name="npc-${esc(p)}" class="input" style="width:110px;">
+                      <option value="">Unallocated</option>
+                      <option value="aye" ${npcVotes[p] === "aye" ? "selected" : ""}>Aye</option>
+                      <option value="no" ${npcVotes[p] === "no" ? "selected" : ""}>No</option>
+                      <option value="abstain" ${npcVotes[p] === "abstain" ? "selected" : ""}>Abstain</option>
+                    </select>
+                    <input type="number" name="rebels-${esc(p)}" min="0" max="${Number(seats[p])}" value="${Number(rebels[p] || 0)}" class="input" style="width:70px;" placeholder="Rebels">
+                  </div>`).join("");
+              })()}
+              <div class="tile-bottom" style="padding-top:6px;">
+                <button class="btn" type="submit">Save NPC Votes</button>
+              </div>
+              <p id="npc-msg" class="muted" style="margin-top:4px;"></p>
+            </form>
+          </div>
+        ` : ""}
         ${speaker ? `<div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;padding-top:10px;"><button class="btn danger" data-action="close-division" ${dbDiv.status === "closed" ? "disabled" : ""}>Close Division</button></div>` : ""}
         <p id="div-msg" class="muted" style="margin-top:6px;"></p>
       </div>
@@ -254,6 +295,33 @@ async function renderHouseDb(root, data, motion) {
       await renderHouseDb(root, data, motion);
     } catch (err) {
       if (msg) msg.textContent = `Error: ${err.message}`;
+    }
+  });
+
+  // NPC vote form (staff/speaker only)
+  root.querySelector("#npc-vote-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const msgEl = root.querySelector("#npc-msg");
+    if (msgEl) msgEl.textContent = "Saving…";
+    const seats = getPartySeatMap(data);
+    const npcParties = Object.keys(seats).filter(
+      (p) => Number(seats[p]) > 0 && !PLAYABLE_PARTIES.has(p) && !/sinn\s*f[ée]in/i.test(p) && !/^speaker$/i.test(p)
+    );
+    const npcVotes = {};
+    const rebelsByParty = {};
+    npcParties.forEach((p) => {
+      const v = String(fd.get(`npc-${p}`) || "").toLowerCase();
+      if (["aye", "no", "abstain"].includes(v)) npcVotes[p] = v;
+      const rebels = Number(fd.get(`rebels-${p}`) || 0);
+      if (rebels > 0) rebelsByParty[p] = rebels;
+    });
+    try {
+      await apiSetNpcVotes(dbDiv.id, npcVotes, rebelsByParty);
+      if (msgEl) msgEl.textContent = "NPC votes saved.";
+      await renderHouseDb(root, data, motion);
+    } catch (err) {
+      if (msgEl) msgEl.textContent = `Error: ${err.message}`;
     }
   });
 
