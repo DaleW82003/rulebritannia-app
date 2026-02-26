@@ -1574,6 +1574,141 @@ async function ensureSchema() {
   await backfillSalaryPositions();
 }
 
+// ── Property / Finance model constants ────────────────────────────────────────
+
+// Starting bank balance seeded at character approval by financial background level (1–10)
+const STARTING_BALANCES = {
+  1: 1000, 2: 2500, 3: 5000, 4: 10000, 5: 25000,
+  6: 50000, 7: 100000, 8: 250000, 9: 500000, 10: 1000000,
+};
+
+// Mortgage factor applied to monthly home/rental costs when property is mortgaged,
+// by financial background level (1–10). Higher level = better credit = lower factor.
+const MORTGAGE_FACTORS = {
+  1: 1.50, 2: 1.45, 3: 1.40, 4: 1.35, 5: 1.30,
+  6: 1.25, 7: 1.20, 8: 1.15, 9: 1.10, 10: 1.05,
+};
+
+// Base monthly living cost (£) for primary home by type
+const HOME_MONTHLY_COSTS = {
+  "Studio Flat":              500,
+  "One-Bed Flat":             700,
+  "Two-Bed Flat":             900,
+  "Terraced House":           1000,
+  "End-Terrace":              1100,
+  "Semi-Detached House":      1300,
+  "Detached Suburban House":  1700,
+  "Townhouse":                2000,
+  "Country House":            3000,
+  "Country Estate":           5000,
+  "Mansion":                  8000,
+};
+
+// Base monthly income and base monthly cost for rental properties by type
+const RENTAL_MONTHLY = {
+  "Single Room Let":         { income: 500,  cost: 150 },
+  "Studio Flat":             { income: 700,  cost: 200 },
+  "One/Two-Bed Flat":        { income: 900,  cost: 250 },
+  "Terraced House":          { income: 1100, cost: 300 },
+  "Semi-Detached House":     { income: 1300, cost: 350 },
+  "Detached House":          { income: 1600, cost: 400 },
+  "High Street Retail Unit": { income: 2000, cost: 600 },
+  "Office Unit":             { income: 2500, cost: 700 },
+  "Warehouse":               { income: 1500, cost: 400 },
+  "Holiday Let":             { income: 1800, cost: 500 },
+};
+
+// Rental status income and cost factors
+const RENTAL_STATUS_FACTORS = {
+  "occupied":          { incomeFactor: 1.00, costFactor: 1.00 },
+  "vacant":            { incomeFactor: 0,    costFactor: 0.75 },
+  "under renovation":  { incomeFactor: 0,    costFactor: 1.25 },
+};
+
+// Personal multipliers for home living costs (education)
+const EDUCATION_MULTIPLIERS = {
+  "No Qualifications":   0.85,
+  "GCSEs":               0.90,
+  "A Levels":            0.95,
+  "Certificate of HE":   1.00,
+  "Diploma":             1.00,
+  "Bachelors Degree":    1.05,
+  "Masters Degree":      1.10,
+  "Doctorate":           1.15,
+};
+
+// Personal multipliers for home living costs (pre-MP career)
+const CAREER_MULTIPLIERS = {
+  "Manual / Skilled Trade":              0.90,
+  "Public Sector Professional":          1.00,
+  "Legal Profession":                    1.10,
+  "Finance / Banking / Corporate":       1.15,
+  "Business Owner / Entrepreneur":       1.10,
+  "Political Staffer / Researcher":      0.95,
+  "Trade Union / Activist":              0.90,
+  "Media / Journalism / Communications": 1.00,
+  "Academia / Education Leadership":     1.00,
+  "Military / Police / Security":        0.95,
+};
+
+// Personal multipliers for home living costs (family status)
+const FAMILY_MULTIPLIERS = {
+  "Single":                         1.00,
+  "Married, No Children":           1.10,
+  "Married with Children":          1.30,
+  "Civil Partnership":              1.05,
+  "Divorced":                       1.05,
+  "Divorced with Children":         1.20,
+  "Widowed":                        1.00,
+  "Long-Term Partner with Children": 1.25,
+  "Long-Term Partner, No Children":  1.05,
+};
+
+/**
+ * Compute property-derived finance fields for a character.
+ * Returns: { homeLivingCostsMonthly, rentalIncomeMonthly, rentalCostsMonthly,
+ *             propertyMonthlyUpkeep, livingCostMultiplier, mortgageFactor }
+ */
+function computePropertyFinance(character) {
+  const bgLevel   = Math.min(10, Math.max(1, Number(character.financial_background_level) || 5));
+  const mortgageF = MORTGAGE_FACTORS[bgLevel] ?? 1.30;
+
+  // Home living costs
+  const home          = character.home ?? {};
+  const homeBaseMonthly = HOME_MONTHLY_COSTS[home.type] ?? 0;
+  const eduMult       = EDUCATION_MULTIPLIERS[character.education] ?? 1.00;
+  const careerMult    = CAREER_MULTIPLIERS[character.career_background] ?? 1.00;
+  const familyMult    = FAMILY_MULTIPLIERS[character.family] ?? 1.00;
+  const livingMult    = eduMult * careerMult * familyMult;
+  const homeMortgageF = home.mortgaged ? mortgageF : 1.0;
+  const homeLivingCostsMonthly = Math.round(homeBaseMonthly * livingMult * homeMortgageF);
+
+  // Rental income & costs
+  const rentals = Array.isArray(character.rentals) ? character.rentals : [];
+  let rentalIncomeMonthly = 0;
+  let rentalCostsMonthly  = 0;
+  for (const r of rentals) {
+    const rtype  = RENTAL_MONTHLY[r.type];
+    if (!rtype) continue;
+    const statusKey = String(r.status || "occupied").toLowerCase().trim();
+    const sf = RENTAL_STATUS_FACTORS[statusKey] ?? RENTAL_STATUS_FACTORS["occupied"];
+    const rMortgageF = r.mortgaged ? mortgageF : 1.0;
+    rentalIncomeMonthly += Math.round(rtype.income * sf.incomeFactor);
+    rentalCostsMonthly  += Math.round(rtype.cost   * sf.costFactor * rMortgageF);
+  }
+
+  const propertyMonthlyUpkeep = homeLivingCostsMonthly + rentalCostsMonthly;
+
+  return {
+    homeLivingCostsMonthly,
+    rentalIncomeMonthly,
+    rentalCostsMonthly,
+    propertyMonthlyUpkeep,
+    livingCostMultiplier: Math.round(livingMult * 100) / 100,
+    mortgageFactor:       mortgageF,
+  };
+}
+
 // ── 1997 baseline salary scale (idempotent) ────────────────────────────────
 // effective_from_sim_index = 1997*12 + (8-1) = 23964 + 7 = 23971 (August 1997)
 const SALARY_1997_SIM_INDEX = 1997 * 12 + 7; // August 1997 = index 23971
@@ -7269,6 +7404,17 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
       [character.id]
     ).catch((e) => console.warn("[approve] backbencher seed failed:", e.message));
 
+    // Seed starting bank balance from financial background level (one-time, only if no finance row exists)
+    const startingBalance = STARTING_BALANCES[Math.min(10, Math.max(1, Number(app_.financial_background_level) || 5))] ?? 25000;
+    await pool.query(
+      `INSERT INTO character_finance (character_id, bank_balance)
+       VALUES ($1, $2)
+       ON CONFLICT (character_id) DO UPDATE
+         SET bank_balance = EXCLUDED.bank_balance
+         WHERE character_finance.bank_balance = 0`,
+      [character.id, startingBalance]
+    ).catch((e) => console.warn("[approve] starting balance seed failed:", e.message));
+
     // Update the applicant's active sessions to reflect the new active character (best-effort).
     try {
       await pool.query(
@@ -8219,9 +8365,9 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
-    // Resolve active character for the caller
+    // Resolve active character for the caller (with property fields for finance computation)
     const { rows: charRows } = await pool.query(
-      `SELECT c.id
+      `SELECT c.id, c.home, c.rentals, c.financial_background_level, c.education, c.career_background, c.family
          FROM characters c
         WHERE c.user_id = $1 AND c.is_active = TRUE
         ORDER BY (c.id = (SELECT active_character_id FROM users WHERE id = $1)) DESC,
@@ -8230,7 +8376,8 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
       [req.session.userId]
     );
     if (!charRows.length) return res.status(404).json({ error: "No active character found" });
-    const charId = charRows[0].id;
+    const charId    = charRows[0].id;
+    const character = charRows[0];
 
     // Finance row (may not exist yet)
     const { rows: finRows } = await pool.query(
@@ -8261,12 +8408,25 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
     const simIndex = simYear * 12 + (simMonth - 1);
     const { annualSalary } = await resolvedAnnualSalary(charId, simIndex);
 
+    // Property-derived finance fields
+    const propFinance = computePropertyFinance(character);
+    const shopUpkeep  = Number(fin.shop_monthly_upkeep) || 0;
+    const totalMonthlyUpkeep = shopUpkeep + propFinance.propertyMonthlyUpkeep;
+
     res.json({
-      characterId:       charId,
-      bankBalance:       Number(fin.bank_balance),
-      shopMonthlyUpkeep: Number(fin.shop_monthly_upkeep),
-      financeOverspend:  !!fin.finance_overspend,
+      characterId:              charId,
+      bankBalance:              Number(fin.bank_balance),
+      shopMonthlyUpkeep:        shopUpkeep,
+      financeOverspend:         !!fin.finance_overspend,
       annualSalary,
+      // Property finance fields
+      homeLivingCostsMonthly:   propFinance.homeLivingCostsMonthly,
+      rentalIncomeMonthly:      propFinance.rentalIncomeMonthly,
+      rentalCostsMonthly:       propFinance.rentalCostsMonthly,
+      propertyMonthlyUpkeep:    propFinance.propertyMonthlyUpkeep,
+      totalMonthlyUpkeep,
+      livingCostMultiplier:     propFinance.livingCostMultiplier,
+      mortgageFactor:           propFinance.mortgageFactor,
       additionalRevenue: revRows.map((r) => ({
         id:           r.id,
         label:        r.label,

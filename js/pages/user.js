@@ -510,6 +510,7 @@ function render(data, state) {
       <input class="input" name="rental_${idx}_location" placeholder="Location">
       <select class="input" name="rental_${idx}_status"><option value="">Status</option>${RENTAL_STATUSES.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")}</select>
       <input class="input" name="rental_${idx}_notes" placeholder="Notes (optional)">
+      <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" name="rental_${idx}_mortgaged"> <span>Mortgaged</span></label>
     `;
     div.querySelector(`[data-remove-rental="${idx}"]`)?.addEventListener("click", () => {
       div.remove();
@@ -558,7 +559,8 @@ function render(data, state) {
           value: String(fd.get(`rental_${i}_value`) || "").trim(),
           location: String(fd.get(`rental_${i}_location`) || "").trim(),
           status: String(fd.get(`rental_${i}_status`) || "").trim(),
-          notes: String(fd.get(`rental_${i}_notes`) || "").trim()
+          notes: String(fd.get(`rental_${i}_notes`) || "").trim(),
+          mortgaged: fd.get(`rental_${i}_mortgaged`) === "on"
         });
       }
     }
