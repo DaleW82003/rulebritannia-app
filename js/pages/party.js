@@ -612,7 +612,7 @@ function render(data, state) {
       <h2 style="margin-top:0;">Party Shop <span class="muted" style="font-size:.8em;">(Chairman · Leader · Admin/Mod)</span></h2>
       <p class="muted">
         Prices × price index <b>${esc(String(state.priceIndex?.toFixed(4) ?? "1.0000"))}</b>.
-        Monthly upkeep is deducted from party treasury each sim month.
+        Monthly upkeep is deducted from party treasury each month.
         ${state.dbState?.partyStructure?.unlocks?.partyTour ? `<span style="color:#1a6a1a;">✅ Party Tour active</span>` : ""}
       </p>
       ${state.partyShopMessage ? `<p class="muted" id="party-shop-msg">${esc(state.partyShopMessage)}</p>` : ""}
@@ -857,6 +857,8 @@ function render(data, state) {
     // Persist drafts to DB (fire-and-forget; UI stays responsive)
     apiSavePartyDrafts(state.activeParty, party.drafts).catch((err) => {
       console.warn("[party-draft-form] drafts save failed:", err.message);
+      state.partyShopMessage = `Draft save failed: ${err.message}. Please try again.`;
+      render(data, state);
     });
     render(data, state);
   });
@@ -886,9 +888,10 @@ function render(data, state) {
       const id = Number(btn.getAttribute("data-id") || 0);
       party.drafts = party.drafts.filter((d) => d.id !== id);
       if (state.openDraftId === id) state.openDraftId = null;
-      // Persist to DB
       apiSavePartyDrafts(state.activeParty, party.drafts).catch((err) => {
         console.warn("[delete-draft] drafts save failed:", err.message);
+        state.partyShopMessage = `Draft remove failed: ${err.message}. Please try again.`;
+        render(data, state);
       });
       render(data, state);
     });

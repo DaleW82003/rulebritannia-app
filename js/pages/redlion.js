@@ -117,7 +117,7 @@ function render(data) {
       asBarkeep,
       avatar: asBarkeep ? "" : resolveCharacterAvatar(data, displayName, String(char?.avatar || "")),
       body,
-      createdAt: new Date().toLocaleString("en-GB")
+      createdAt: formatSimMonthYear(data.gameState)
     };
 
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
