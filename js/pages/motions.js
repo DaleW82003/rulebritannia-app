@@ -9,17 +9,15 @@ import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
 import { apiCreateDebateTopic, apiCreateMotion, apiGetMotions, apiUpdateMotion, apiDeleteMotion } from "../api.js";
 import { handleApiError } from "../errors.js";
 import { npcPartyOptions } from "../parties.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 
 const GOVERNMENT_OFFICES = new Set([
   "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade", "defence", "welfare", "education", "env-agri", "health", "eti", "culture", "home-nations"
 ]);
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 
 function isGovernmentMember(data) {
-  return GOVERNMENT_OFFICES.has(getCharacter(data)?.office);
+  return GOVERNMENT_OFFICES.has(getCharacterContext(data)?.office);
 }
 
 function ensureMotions(data) {
@@ -74,7 +72,7 @@ export async function initMotionsPage(data) {
   }
 
   const sim = simNow(data);
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const simCurrentObj = simDateToObj(getSimDate(data.gameState));
   const canPostAsNpc = isAdmin(data) || isMod(data);
   const canDelete = canAdminModOrSpeaker(data);

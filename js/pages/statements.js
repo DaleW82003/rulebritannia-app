@@ -8,15 +8,13 @@ import { apiCreateDebateTopic, apiCreateStatement, apiGetStatements, apiDeleteSt
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 
 const GOVERNMENT_OFFICES = new Set([
   "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade", "defence",
   "welfare", "education", "env-agri", "health", "eti", "culture", "home-nations"
 ]);
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 
 function simNow(data) {
   const raw = getSimDate(data.gameState);
@@ -34,7 +32,7 @@ function ensureStatements(data) {
 }
 
 function canSubmit(data) {
-  return GOVERNMENT_OFFICES.has(getCharacter(data)?.office);
+  return GOVERNMENT_OFFICES.has(getCharacterContext(data)?.office);
 }
 
 function getDebateUrl(statement) {
@@ -76,7 +74,7 @@ function render(data) {
   const speaker = isSpeaker(data);
   const canDelete = canAdminModOrSpeaker(data);
   const submitter = canSubmit(data);
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
 
   // Auto-archive statements whose deadline has passed
   const simCurrent = simDateToObj(getSimDate(data.gameState));
@@ -142,7 +140,7 @@ function render(data) {
 
     const number = Number(data.statements.nextNumber || (data.statements.items.length + 1));
     const close = plusSimMonths(sim.month, sim.year, 2);
-    const author = getCharacter(data)?.name || "Government Minister";
+    const author = getCharacterContext(data)?.name || "Government Minister";
 
     const statement = {
       id: `ms-${String(number).padStart(3, "0")}`,

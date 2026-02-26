@@ -5,6 +5,7 @@ import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateEvent, apiGetEvents, apiUpdateEvent, apiDeleteEvent } from "../api.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -12,9 +13,6 @@ function canModerate(data) {
   return canAdminOrMod(data);
 }
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 
 function isPartyLeader(char) {
   const role = String(char?.role || "");
@@ -60,7 +58,7 @@ function render(data, state) {
   if (!root) return;
 
   ensureEvents(data);
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const mod = canModerate(data);
   const hasActiveChar = mod || Boolean(char?.name);
   const canHostConference = isPartyLeader(char);

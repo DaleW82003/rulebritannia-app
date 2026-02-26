@@ -4,6 +4,7 @@ import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateOnlinePost, apiGetOnlinePosts, apiDeleteOnlinePost } from "../api.js";
 import { formatSimMonthYear } from "../clock.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 
 const CHANNELS = {
   webPost: "Post to the Web",
@@ -16,9 +17,6 @@ function canModerate(data) {
   return canAdminOrMod(data);
 }
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 
 function simIndex(data) {
   const gs = data?.gameState || {};
@@ -68,7 +66,7 @@ function render(data, state) {
   ensureOnline(data);
 
   const mod = canModerate(data);
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const hasActiveChar = mod || Boolean(char?.name);
   const limit = twitterLimit(data);
 

@@ -2,6 +2,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
 import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSavePartyDrafts } from "../api.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 
 const DEFAULT_PARTIES = {
   Conservative: {
@@ -322,9 +323,6 @@ function canManage(data) {
   return canAdminOrMod(data);
 }
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 
 function avatarFor(name, avatar) {
   if (avatar) return avatar;
@@ -384,7 +382,7 @@ function ensurePartyData(data) {
 }
 
 function accessiblePartyNames(data) {
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const party = char?.party;
   const names = Object.keys(data.party.parties);
   if (canManage(data)) return names;
@@ -416,7 +414,7 @@ function render(data, state) {
   }
 
   const party = partyFromState(data, state);
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const canView = manager || (char?.party && char.party === state.activeParty);
 
   if (!canView) {
@@ -1092,7 +1090,7 @@ function render(data, state) {
 
 export async function initPartyPage(data) {
   ensurePartyData(data);
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const state = {
     activeParty: char?.party || "",
     openDraftId: null,

@@ -2,6 +2,7 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 import {
   apiScandalsMine,
   apiScandalsOptIn,
@@ -34,9 +35,6 @@ function canModerate(data) {
   return canAdminOrMod(data);
 }
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 
 function getSimIndex(data) {
   const gs = data?.gameState || {};
@@ -58,7 +56,7 @@ function ensureWork(data) {
   data.constituencyWork ??= { plansByCharacter: {} };
   data.constituencyWork.plansByCharacter ??= {};
 
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const key = char?.name || "default";
   if (!data.constituencyWork.plansByCharacter[key]) {
     data.constituencyWork.plansByCharacter[key] = {
@@ -440,7 +438,7 @@ function render(data, state = {}) {
 
   const key = ensureWork(data);
   const plan = data.constituencyWork.plansByCharacter[key];
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const simIndex = getSimIndex(data);
   const mod = canModerate(data);
   const hasActiveChar = mod || Boolean(char?.name);
@@ -716,7 +714,7 @@ function render(data, state = {}) {
 // Partial re-render: refresh only the scandal section without re-rendering the whole page
 function renderScandalRoot(data, state) {
   const mod = canModerate(data);
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const hasActiveChar = mod || Boolean(char?.name);
   const root = document.getElementById("scandal-section-root");
   if (!root) return render(data, state); // fall back to full render

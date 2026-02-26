@@ -267,6 +267,10 @@ export function nowMs() {
   return Date.now();
 }
 
+export function nowStamp() {
+  return new Date().toLocaleString("en-GB", { hour12: false });
+}
+
 export function qs(sel, root = document) {
   return root.querySelector(sel);
 }

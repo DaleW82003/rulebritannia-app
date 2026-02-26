@@ -4,6 +4,7 @@ import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem } from "../api.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 
 const FUNDRAISERS = [
   {
@@ -52,9 +53,6 @@ function byKey(key) {
   return FUNDRAISERS.find((f) => f.key === key) || FUNDRAISERS[0];
 }
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 
 function canModerate(data) {
   return canAdminOrMod(data);
@@ -121,7 +119,7 @@ function render(data, state) {
   if (!root) return;
   ensureFundraising(data);
 
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const mod = canModerate(data);
   const hasActiveChar = mod || Boolean(char?.name);
   const list = data.fundraising.items.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
