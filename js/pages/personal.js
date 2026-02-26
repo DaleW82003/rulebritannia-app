@@ -1558,16 +1558,21 @@ function render(data, state) {
   // Bio change request form (own profile only)
   host.querySelector("#bio-change-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     const proposed_bio = String(fd.get("proposed_bio") || "").trim().slice(0, 2000);
     if (!proposed_bio) return;
     const statusEl = host.querySelector("#bio-change-status");
+    const btn = form.querySelector('[type="submit"]');
+    if (btn) btn.disabled = true;
     try {
       await apiSubmitBioChange(proposed_bio);
       if (statusEl) statusEl.textContent = "Change request submitted — awaiting mod review.";
-      e.currentTarget.reset();
+      form.reset();
     } catch (err) {
       if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+    } finally {
+      if (btn) btn.disabled = false;
     }
   });
 
@@ -1696,7 +1701,8 @@ function render(data, state) {
   // Avatar change request form (own profile only)
   host.querySelector("#avatar-change-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     const proposed_avatar = String(fd.get("proposed_avatar") || "").trim();
     const proposed_avatar_attribution = String(fd.get("proposed_avatar_attribution") || "").trim();
     const statusEl = host.querySelector("#avatar-change-status");
@@ -1708,12 +1714,16 @@ function render(data, state) {
       if (statusEl) statusEl.textContent = "Please fill in \"Who is your avatar?\".";
       return;
     }
+    const btn = form.querySelector('[type="submit"]');
+    if (btn) btn.disabled = true;
     try {
       await apiSubmitAvatarChange(proposed_avatar, proposed_avatar_attribution);
       if (statusEl) statusEl.textContent = "Change request submitted — awaiting mod review.";
-      e.currentTarget.reset();
+      form.reset();
     } catch (err) {
       if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+    } finally {
+      if (btn) btn.disabled = false;
     }
   });
 
