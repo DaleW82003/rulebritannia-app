@@ -1,15 +1,8 @@
-import { saveState } from "../core.js";
+import { saveState, nowStamp } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-
-function nowStamp() {
-  return new Date().toLocaleString("en-GB", { hour12: false });
-}
-
-function getChar(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
+import { getCharacterContext } from "../engines/core-engine.js";
 
 function isManager(data) {
   return canAdminOrMod(data);
@@ -53,14 +46,14 @@ function getShadowCabinetMemberNames(data) {
 
 function canAccessShadowCabinet(data) {
   if (isManager(data)) return true;
-  const charName = String(getChar(data)?.name || "").trim();
+  const charName = String(getCharacterContext(data)?.name || "").trim();
   if (!charName) return false;
   return getShadowCabinetMemberNames(data).has(charName);
 }
 
 function isOppositionLeader(data) {
   if (isManager(data)) return true;
-  return String(getChar(data)?.shadowOffice || "") === "leader-opposition" || String(getChar(data)?.role || "") === "leader-opposition";
+  return String(getCharacterContext(data)?.shadowOffice || "") === "leader-opposition" || String(getCharacterContext(data)?.role || "") === "leader-opposition";
 }
 
 function discussUrlForDraft(draft) {
@@ -72,7 +65,7 @@ function render(data, state) {
   if (!host) return;
 
   normaliseShadowCabinet(data);
-  const char = getChar(data);
+  const char = getCharacterContext(data);
   const manager = isManager(data);
   const canAccess = canAccessShadowCabinet(data);
   const canPostHeadline = isOppositionLeader(data);

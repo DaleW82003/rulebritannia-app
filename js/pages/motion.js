@@ -1,7 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker, canAdminOrMod, canAdminModOrSpeaker, canVoteDivision } from "../permissions.js";
-import { getPartySeatMap } from "../engines/core-engine.js";
+import { getPartySeatMap, getCharacterContext } from "../engines/core-engine.js";
 import { ensureMotions, isGovernmentMember } from "./motions.js";
 import { getSimDate, simDateToObj, formatSimMonthYear, isDeadlinePassed, compareSimDates, countdownToSimMonth } from "../clock.js";
 import {
@@ -15,10 +15,6 @@ const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line wh
 
 // Parties for which player characters exist (playable) — NPC panel shows the rest.
 const PLAYABLE_PARTIES = new Set(["Conservative", "Labour", "Liberal Democrat"]);
-
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 
 function getParams() {
   const u = new URL(window.location.href);
@@ -129,7 +125,7 @@ function renderRebelWidget(rebelReq, myVote, divStatus) {
 }
 
 async function renderHouseDb(root, data, motion) {
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const speaker = isSpeaker(data);
   const isStaff = canAdminOrMod(data) || speaker;
   const canStaff = canAdminModOrSpeaker(data);
@@ -411,7 +407,7 @@ async function renderHouseDb(root, data, motion) {
 }
 
 function renderEdm(root, data, edm) {
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const speaker = isSpeaker(data);
   const canStaff = canAdminModOrSpeaker(data);
   const disallowed = isGovernmentMember(data);

@@ -1,6 +1,7 @@
-import { saveState } from "../core.js";
+import { saveState, nowStamp } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canRaiseCivilServiceCase, canAdminOrMod } from "../permissions.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 
 const CS_DEPARTMENTS = [
   { id: "10ds", name: "10 Downing Street", officeId: "prime-minister", officeTitle: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
@@ -18,24 +19,16 @@ const CS_DEPARTMENTS = [
   { id: "home-nations", name: "Department of the Home Nations", officeId: "home-nations", officeTitle: "Secretary of State for the Home Nations" }
 ];
 
-function nowStamp() {
-  return new Date().toLocaleString("en-GB", { hour12: false });
-}
-
-function getChar(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
-
 function canModerate(data) {
   return canAdminOrMod(data);
 }
 
 function getMyOfficeId(data) {
-  return String(getChar(data)?.office || "");
+  return String(getCharacterContext(data)?.office || "");
 }
 
 function getMyOfficeIds(data) {
-  const c = getChar(data);
+  const c = getCharacterContext(data);
   if (Array.isArray(c?.offices) && c.offices.length) return c.offices;
   const single = String(c?.office || "");
   return single ? [single] : [];
@@ -291,7 +284,7 @@ function render(data, state) {
   if (!host) return;
 
   normaliseCivilService(data);
-  const char = getChar(data);
+  const char = getCharacterContext(data);
   const mod = canModerate(data);
   const myOfficeId = getMyOfficeId(data);
   const govMember = isGovernmentMember(data);

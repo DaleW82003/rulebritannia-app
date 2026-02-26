@@ -1,16 +1,9 @@
-import { saveState } from "../core.js";
+import { saveState, nowStamp } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
 import { apiGetCharacters } from "../api.js";
-
-function nowStamp() {
-  return new Date().toLocaleString("en-GB", { hour12: false });
-}
-
-function getChar(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
+import { getCharacterContext } from "../engines/core-engine.js";
 
 function isManager(data) {
   return canAdminOrMod(data);
@@ -54,14 +47,14 @@ function getCabinetMemberNames(data) {
 
 function canAccessCabinet(data) {
   if (isManager(data)) return true;
-  const charName = String(getChar(data)?.name || "").trim();
+  const charName = String(getCharacterContext(data)?.name || "").trim();
   if (!charName) return false;
   return getCabinetMemberNames(data).has(charName);
 }
 
 function isPrimeMinister(data) {
   if (isManager(data)) return true;
-  return String(getChar(data)?.office || "") === "prime-minister";
+  return String(getCharacterContext(data)?.office || "") === "prime-minister";
 }
 
 function discussUrlForDraft(data, draft) {
@@ -73,7 +66,7 @@ function render(data, state) {
   if (!host) return;
 
   normaliseCabinet(data);
-  const char = getChar(data);
+  const char = getCharacterContext(data);
   const manager = isManager(data);
   const canAccess = canAccessCabinet(data);
   const canPostHeadline = isPrimeMinister(data);

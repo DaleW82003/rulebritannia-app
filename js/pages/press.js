@@ -4,6 +4,7 @@ import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "
 import { formatSimMonthYear, getWeekdayName, isSunday, getSimDate, simDateToObj, compareSimDates } from "../clock.js";
 import { handleApiError } from "../errors.js";
 import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry } from "../api.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 
 const PARTY_CODES = {
   Conservative: "CON",
@@ -37,9 +38,6 @@ const PLAYER_ROLE_LETTER_OFFICES = {
   "party-leader-3rd-4th": { key: "third-party-leader", displayName: "Office of the Leader of the Third Party",  address: "House of Commons, London SW1A 0AA" }
 };
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 
 function ensurePress(data) {
   data.press ??= {};
@@ -58,7 +56,7 @@ function ensurePress(data) {
  * Privileged users (admin/mod/speaker) bypass this and may use NPC offices instead.
  */
 function getPlayerLetterOffice(data) {
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   return PLAYER_LETTER_OFFICES[char?.office] || PLAYER_ROLE_LETTER_OFFICES[char?.role] || null;
 }
 
@@ -211,7 +209,7 @@ function render(data, state) {
   if (!root) return;
 
   ensurePress(data);
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const now = simLabel(data);
   const marker = canMark(data);
   const asker = canAsk(data);

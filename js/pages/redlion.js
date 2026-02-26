@@ -3,10 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker } from "../permissions.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateRedLionPost, apiDeleteRedLionPost, apiGetRedLionPosts } from "../api.js";
-
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
+import { getCharacterContext } from "../engines/core-engine.js";
 
 function canPostBarkeep(data) {
   return isAdmin(data) || isMod(data) || isSpeaker(data);
@@ -20,7 +17,7 @@ function ensureRedLion(data) {
 
 function resolveCharacterAvatar(data, characterName, fallbackAvatar = "") {
   if (fallbackAvatar) return fallbackAvatar;
-  const fromCurrent = getCharacter(data);
+  const fromCurrent = getCharacterContext(data);
   if (fromCurrent?.name === characterName && fromCurrent?.avatar) return String(fromCurrent.avatar);
 
   const fromPlayers = (Array.isArray(data?.players) ? data.players : []).find((p) => p?.name === characterName);
@@ -43,7 +40,7 @@ function render(data) {
   if (!root) return;
 
   ensureRedLion(data);
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const allowBarkeep = canPostBarkeep(data);
   const hasActiveChar = allowBarkeep || Boolean(char?.name);
   const posts = data.redLion.posts;

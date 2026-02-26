@@ -1,5 +1,5 @@
 import { saveState } from "../core.js";
-import { setAbsenceState } from "../engines/core-engine.js";
+import { setAbsenceState, getCharacterContext } from "../engines/core-engine.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import {
@@ -9,20 +9,12 @@ import {
   apiGetConstituencies, apiGetCharacters,
 } from "../api.js";
 
-function nowStamp() {
-  return new Date().toLocaleString("en-GB", { hour12: false });
-}
-
 function canManage(data) {
   return canAdminModOrSpeaker(data);
 }
 
 function canAdmin(data) {
   return isAdmin(data);
-}
-
-function getChar(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
 }
 
 function seatTaken(data, constituencyName) {
@@ -60,7 +52,7 @@ function normaliseUserData(data) {
       isAdmin: !!data?.currentUser?.isAdmin,
       isMod: !!data?.currentUser?.isMod,
       isSpeaker: !!data?.currentUser?.isSpeaker,
-      activeCharacter: String(getChar(data)?.name || ""),
+      activeCharacter: String(getCharacterContext(data)?.name || ""),
       active: true
     }
   ];
@@ -240,7 +232,7 @@ function render(data, state) {
   if (!host) return;
 
   normaliseUserData(data);
-  const char = getChar(data);
+  const char = getCharacterContext(data);
   const manager = canManage(data);
   const admin = canAdmin(data);
 

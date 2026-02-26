@@ -5,6 +5,7 @@ import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
 import { apiGetBills } from "../api.js";
 import { apiGetMotions, apiGetStatements, apiGetRegulations, apiGetPressItems, apiGetEvents } from "../api.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 
 // js/pages/dashboard.js
 // Dashboard (Your Office) — Chunk 1 implementation
@@ -28,16 +29,13 @@ function fmtMoneyShort(s) {
 // Best-effort sim label (Month Year) from your stored state.
 // If you already have a more accurate clock module, you can swap this later.
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 
 function isGovernmentOffice(office = "") {
   return new Set(["prime-minister","leader-commons","chancellor","home","foreign","trade","defence","welfare","education","env-agri","health","eti","culture","home-nations"]).has(String(office));
 }
 
 function buildRoleAwareDocket(data) {
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const items = [];
   const push = (it) => items.push({ ...it, generated: true });
   const isGov = isGovernmentOffice(char?.office);

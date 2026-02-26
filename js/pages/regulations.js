@@ -6,6 +6,7 @@ import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          countdownToSimMonth } from "../clock.js";
 import { apiCreateDebateTopic, apiCreateRegulation, apiGetRegulations, apiDeleteRegulation } from "../api.js";
 import { handleApiError } from "../errors.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -29,9 +30,6 @@ const OFFICE_DEPARTMENT = {
   "home-nations": "Department for the Home Nations"
 };
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 
 function simNow(data) {
   const raw = getSimDate(data.gameState);
@@ -43,7 +41,7 @@ function simNow(data) {
 }
 
 function canMakeRegulation(data) {
-  const office = getCharacter(data)?.office;
+  const office = getCharacterContext(data)?.office;
   return Boolean(OFFICE_DEPARTMENT[office]);
 }
 
@@ -76,7 +74,7 @@ export async function initRegulationsPage(data) {
     console.error("[regulations] DB load failed:", err);
   }
 
-  const char = getCharacter(data);
+  const char = getCharacterContext(data);
   const simCurrent = simNow(data);
 
   // Auto-close regulations whose deadline has passed

@@ -1,5 +1,6 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod } from "../permissions.js";
+import { getCharacterContext } from "../engines/core-engine.js";
 import {
   apiGetBudget,
   apiAdminSeedBudget,
@@ -17,11 +18,8 @@ const EXPENDITURE_LINES = [
 ];
 const CAPITAL_LINES = ["Capital Expenditure"];
 
-function getCharacter(data) {
-  return data?.currentCharacter || data?.currentPlayer || {};
-}
 function canDraftBudget(data) {
-  return isMod(data) || getCharacter(data)?.office === "chancellor";
+  return isMod(data) || getCharacterContext(data)?.office === "chancellor";
 }
 
 function money(n) { return `£${Number(n || 0).toFixed(2)}`; }
@@ -224,7 +222,7 @@ function render(budgetDb, data, state) {
     CAPITAL_LINES.forEach((k) => { draft.capital[k] = Number(fd.get(`cap:${k}`) || 0); });
     draft.label = "Draft submission";
     try {
-      await apiSubmitBudgetDraft(draft, getCharacter(data)?.name || "User");
+      await apiSubmitBudgetDraft(draft, getCharacterContext(data)?.name || "User");
       const updated = await apiGetBudget();
       Object.assign(budgetDb, updated);
       state.openDraft = false;
