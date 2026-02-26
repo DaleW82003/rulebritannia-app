@@ -353,7 +353,7 @@ function renderBillMeta(bill, data) {
       return;
     }
     data.orderPaperCommons = (data.orderPaperCommons || []).filter((b) => b.id !== bill.id);
-    saveState(data);
+    await saveState(data);
     window.location.href = "dashboard.html";
   });
 

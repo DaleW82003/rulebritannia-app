@@ -4295,14 +4295,46 @@ app.put("/api/bills/:id", crudWriteLimit, async (req, res) => {
 });
 
 app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
+  const client = await pool.connect();
   try {
-    if (!requireAdminModOrSpeaker(req, res)) return;
-    const { rowCount } = await pool.query("DELETE FROM bills WHERE id = $1", [req.params.id]);
-    if (!rowCount) return res.status(404).json({ error: "Bill not found" });
+    if (!requireAdminModOrSpeaker(req, res)) { client.release(); return; }
+
+    await client.query("BEGIN");
+
+    const { rowCount } = await client.query("DELETE FROM bills WHERE id = $1", [req.params.id]);
+    if (!rowCount) {
+      await client.query("ROLLBACK");
+      client.release();
+      return res.status(404).json({ error: "Bill not found" });
+    }
+
+    // Also remove the bill from the current state snapshot's orderPaperCommons so that
+    // future saveState calls from stale sessions cannot re-insert the deleted bill.
+    await client.query(
+      `UPDATE state_snapshots
+          SET data = jsonb_set(
+            data,
+            '{orderPaperCommons}',
+            COALESCE(
+              (SELECT jsonb_agg(elem)
+                 FROM jsonb_array_elements(COALESCE(data->'orderPaperCommons', '[]'::jsonb)) AS elem
+                WHERE (elem->>'id') != $1),
+              '[]'::jsonb
+            ),
+            true
+          )
+        WHERE id = (SELECT snapshot_id FROM app_state_current WHERE id = 'main')`,
+      [req.params.id]
+    );
+
+    await client.query("COMMIT");
     res.json({ ok: true });
   } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
     console.error(e);
     res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
   }
 });
 
