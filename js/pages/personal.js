@@ -1,8 +1,8 @@
 import { esc } from "../ui.js";
 import { nowStamp } from "../core.js";
-import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
+import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate } from "../clock.js";
-import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiSubmitProfileChange, apiGetMyProfileChanges, apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile } from "../api.js";
+import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters } from "../api.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
 const AFFILIATIONS_CATALOG = [
@@ -1339,21 +1339,6 @@ function render(data, state) {
           <span id="add-revenue-status" class="muted" style="font-size:.9em;"></span>
         </form>
       </section>
-
-      <section class="panel" id="profile-changes-panel" style="margin-top:12px;">
-        <h2 style="margin-top:0;">Pending Profile Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></h2>
-        <div id="profile-changes-list"><div class="muted-block">Loading…</div></div>
-      </section>
-
-      <section class="panel" id="bio-changes-panel" style="margin-top:12px;">
-        <h2 style="margin-top:0;">Pending Biography Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></h2>
-        <div id="bio-changes-list"><div class="muted-block">Loading…</div></div>
-      </section>
-
-      <section class="panel" id="avatar-changes-panel" style="margin-top:12px;">
-        <h2 style="margin-top:0;">Pending Avatar Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></h2>
-        <div id="avatar-changes-list"><div class="muted-block">Loading…</div></div>
-      </section>
     ` : ""}
 
     ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
@@ -1608,128 +1593,6 @@ function render(data, state) {
     }
   });
 
-  // Admin/mod profile change review panel
-  if (manager) {
-    const profileChangesList = host.querySelector("#profile-changes-list");
-    if (profileChangesList) {
-      apiGetAllProfileChanges("pending").then(({ changes }) => {
-        if (!changes.length) {
-          profileChangesList.innerHTML = '<div class="muted-block">No pending profile change requests.</div>';
-          return;
-        }
-        profileChangesList.innerHTML = changes.map((c) => {
-          const fields = [
-            c.proposed_education         != null ? `<div><b>Education:</b> ${esc(c.proposed_education)}</div>` : "",
-            c.proposed_career_background != null ? `<div><b>Career:</b> ${esc(c.proposed_career_background)}</div>` : "",
-            c.proposed_family            != null ? `<div><b>Family:</b> ${esc(c.proposed_family)}</div>` : "",
-            c.proposed_date_of_birth     != null ? `<div><b>Date of birth:</b> ${esc(c.proposed_date_of_birth)}</div>` : "",
-            c.proposed_financial_bg_level!= null ? `<div><b>Financial background level:</b> ${esc(String(c.proposed_financial_bg_level))}</div>` : "",
-            c.proposed_twitter_handle    != null ? `<div><b>Twitter handle:</b> @${esc(c.proposed_twitter_handle)}</div>` : "",
-          ].filter(Boolean).join("");
-          return `
-            <article class="tile" style="margin-bottom:8px;" data-profile-change-id="${esc(c.id)}">
-              <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
-              <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
-              <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;font-size:.9em;line-height:1.6;">${fields}</div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button class="btn primary" type="button" data-action="approve-profile-change" data-id="${esc(c.id)}">Approve</button>
-                <button class="btn" type="button" data-action="reject-profile-change" data-id="${esc(c.id)}">Reject</button>
-              </div>
-            </article>
-          `;
-        }).join("");
-
-        profileChangesList.querySelectorAll('[data-action="approve-profile-change"]').forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            try {
-              await apiApproveProfileChange(btn.dataset.id);
-              btn.closest("article")?.remove();
-              if (!profileChangesList.querySelector("article")) {
-                profileChangesList.innerHTML = '<div class="muted-block">No pending profile change requests.</div>';
-              }
-            } catch (err) {
-              state.message = `Error: ${err.message}`;
-              render(data, state);
-            }
-          });
-        });
-
-        profileChangesList.querySelectorAll('[data-action="reject-profile-change"]').forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            try {
-              await apiRejectProfileChange(btn.dataset.id);
-              btn.closest("article")?.remove();
-              if (!profileChangesList.querySelector("article")) {
-                profileChangesList.innerHTML = '<div class="muted-block">No pending profile change requests.</div>';
-              }
-            } catch (err) {
-              state.message = `Error: ${err.message}`;
-              render(data, state);
-            }
-          });
-        });
-      }).catch(() => {
-        if (profileChangesList) profileChangesList.innerHTML = '<div class="muted-block">Could not load profile change requests.</div>';
-      });
-    }
-  }
-
-  // Admin/mod bio change review panel
-  if (manager) {
-    const bioChangesList = host.querySelector("#bio-changes-list");
-    if (bioChangesList) {
-      apiGetAllBioChanges("pending").then(({ changes }) => {
-        if (!changes.length) {
-          bioChangesList.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
-          return;
-        }
-        bioChangesList.innerHTML = changes.map((c) => `
-          <article class="tile" style="margin-bottom:8px;" data-bio-change-id="${esc(c.id)}">
-            <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
-            <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
-            <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;white-space:pre-wrap;font-size:.9em;">${esc(c.proposed_bio)}</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn primary" type="button" data-action="approve-bio-change" data-id="${esc(c.id)}">Approve</button>
-              <button class="btn" type="button" data-action="reject-bio-change" data-id="${esc(c.id)}">Reject</button>
-            </div>
-          </article>
-        `).join("");
-
-        bioChangesList.querySelectorAll('[data-action="approve-bio-change"]').forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            try {
-              await apiApproveBioChange(btn.dataset.id);
-              btn.closest("article")?.remove();
-              if (!bioChangesList.querySelector("article")) {
-                bioChangesList.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
-              }
-            } catch (err) {
-              state.message = `Error: ${err.message}`;
-              render(data, state);
-            }
-          });
-        });
-
-        bioChangesList.querySelectorAll('[data-action="reject-bio-change"]').forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            try {
-              await apiRejectBioChange(btn.dataset.id);
-              btn.closest("article")?.remove();
-              if (!bioChangesList.querySelector("article")) {
-                bioChangesList.innerHTML = '<div class="muted-block">No pending biography change requests.</div>';
-              }
-            } catch (err) {
-              state.message = `Error: ${err.message}`;
-              render(data, state);
-            }
-          });
-        });
-      }).catch(() => {
-        if (bioChangesList) bioChangesList.innerHTML = '<div class="muted-block">Could not load bio change requests.</div>';
-      });
-    }
-  }
-
   // Avatar change request form (own profile only)
   host.querySelector("#avatar-change-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1758,63 +1621,6 @@ function render(data, state) {
       if (btn) btn.disabled = false;
     }
   });
-
-  // Admin/mod avatar change review panel
-  if (manager) {
-    const avatarChangesList = host.querySelector("#avatar-changes-list");
-    if (avatarChangesList) {
-      apiGetAllAvatarChanges("pending").then(({ changes }) => {
-        if (!changes.length) {
-          avatarChangesList.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
-          return;
-        }
-        avatarChangesList.innerHTML = changes.map((c) => `
-          <article class="tile" style="margin-bottom:8px;" data-avatar-change-id="${esc(c.id)}">
-            <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
-            <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
-            <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;font-size:.9em;word-break:break-all;">${esc(c.proposed_avatar)}</div>
-            ${c.proposed_avatar_attribution ? `<div class="muted" style="font-size:.9em;margin-bottom:6px;"><b>Avatar (who):</b> ${esc(c.proposed_avatar_attribution)}</div>` : ""}
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn primary" type="button" data-action="approve-avatar-change" data-id="${esc(c.id)}">Approve</button>
-              <button class="btn" type="button" data-action="reject-avatar-change" data-id="${esc(c.id)}">Reject</button>
-            </div>
-          </article>
-        `).join("");
-
-        avatarChangesList.querySelectorAll('[data-action="approve-avatar-change"]').forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            try {
-              await apiApproveAvatarChange(btn.dataset.id);
-              btn.closest("article")?.remove();
-              if (!avatarChangesList.querySelector("article")) {
-                avatarChangesList.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
-              }
-            } catch (err) {
-              state.message = `Error: ${err.message}`;
-              render(data, state);
-            }
-          });
-        });
-
-        avatarChangesList.querySelectorAll('[data-action="reject-avatar-change"]').forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            try {
-              await apiRejectAvatarChange(btn.dataset.id);
-              btn.closest("article")?.remove();
-              if (!avatarChangesList.querySelector("article")) {
-                avatarChangesList.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
-              }
-            } catch (err) {
-              state.message = `Error: ${err.message}`;
-              render(data, state);
-            }
-          });
-        });
-      }).catch(() => {
-        if (avatarChangesList) avatarChangesList.innerHTML = '<div class="muted-block">Could not load avatar change requests.</div>';
-      });
-    }
-  }
 
   // ── Affiliations tile: load and render ──────────────────────────────────
   const affiliationsDisplay = host.querySelector("#affiliations-display");
@@ -1980,6 +1786,41 @@ function syncFinanceIntoProfile(profile, fin, data, profileName, state) {
 export async function initPersonalPage(data) {
   normalisePersonal(data);
   const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false };
+
+  // Load all active characters for the moderator profile selector (non-blocking).
+  if (canManage(data)) {
+    apiGetCharacters({ active: "true" }).then(({ characters }) => {
+      for (const c of characters) {
+        const cname = String(c.name || "").trim();
+        if (!cname) continue;
+        data.personal.profiles[cname] ??= {
+          name: cname,
+          avatar: "",
+          avatarAttribution: "",
+          profile: {
+            dateOfBirth: "",
+            education: "",
+            careerBackground: "",
+            family: "",
+            constituency: String(c.constituency || ""),
+            party: String(c.party || ""),
+            yearFirstElected: ""
+          },
+          salaryAnnual: 0,
+          bankBalance: 0,
+          financialBackgroundLevel: "",
+          affiliations: "",
+          additionalRevenue: [],
+          nextRevenueId: 1,
+          shopPurchases: [],
+          modifiers: { pressImpactPct: 0, pollingBoostPct: 0, scrutinyScore: 0 },
+          lastSundayCreditAt: "",
+          updatedAt: ""
+        };
+      }
+      render(data, state);
+    }).catch(() => {});
+  }
 
   // Load finance + shop purchases from DB (authoritative source of truth).
   // Run in parallel with initial render so the page appears immediately,

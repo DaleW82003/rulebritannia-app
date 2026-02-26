@@ -4295,14 +4295,46 @@ app.put("/api/bills/:id", crudWriteLimit, async (req, res) => {
 });
 
 app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
+  const client = await pool.connect();
   try {
-    if (!requireAdminModOrSpeaker(req, res)) return;
-    const { rowCount } = await pool.query("DELETE FROM bills WHERE id = $1", [req.params.id]);
-    if (!rowCount) return res.status(404).json({ error: "Bill not found" });
+    if (!requireAdminModOrSpeaker(req, res)) { client.release(); return; }
+
+    await client.query("BEGIN");
+
+    const { rowCount } = await client.query("DELETE FROM bills WHERE id = $1", [req.params.id]);
+    if (!rowCount) {
+      await client.query("ROLLBACK");
+      client.release();
+      return res.status(404).json({ error: "Bill not found" });
+    }
+
+    // Also remove the bill from the current state snapshot's orderPaperCommons so that
+    // future saveState calls from stale sessions cannot re-insert the deleted bill.
+    await client.query(
+      `UPDATE state_snapshots
+          SET data = jsonb_set(
+            data,
+            '{orderPaperCommons}',
+            COALESCE(
+              (SELECT jsonb_agg(elem)
+                 FROM jsonb_array_elements(COALESCE(data->'orderPaperCommons', '[]'::jsonb)) AS elem
+                WHERE (elem->>'id') != $1),
+              '[]'::jsonb
+            ),
+            true
+          )
+        WHERE id = (SELECT snapshot_id FROM app_state_current WHERE id = 'main')`,
+      [req.params.id]
+    );
+
+    await client.query("COMMIT");
     res.json({ ok: true });
   } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
     console.error(e);
     res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
   }
 });
 
@@ -8096,16 +8128,24 @@ app.post("/api/shop/apply-inflation", shopIndexLimit, async (req, res) => {
       }
     }
 
-    // Read inflation rate from the app state blob (economyPage.topline.inflation)
-    const { rows: stateRows } = await pool.query(
-      `SELECT s.data FROM app_state_current c
-         JOIN state_snapshots s ON s.id = c.snapshot_id
-        WHERE c.id = 'main'`
-    );
-    const stateData    = stateRows[0]?.data || {};
-    const inflationPct = Number(stateData?.economyPage?.topline?.inflation ?? 0);
+    // Read inflation rate: prefer client-provided value (from economy page state),
+    // fall back to reading from the app state blob (economyPage.topline.inflation)
+    const clientInflationPct = Number(req.body?.inflationPct);
+    let inflationPct = Number.isFinite(clientInflationPct) && clientInflationPct > 0
+      ? clientInflationPct
+      : null;
 
-    if (!Number.isFinite(inflationPct) || inflationPct === 0) {
+    if (inflationPct === null) {
+      const { rows: stateRows } = await pool.query(
+        `SELECT s.data FROM app_state_current c
+           JOIN state_snapshots s ON s.id = c.snapshot_id
+          WHERE c.id = 'main'`
+      );
+      const stateData = stateRows[0]?.data || {};
+      inflationPct = Number(stateData?.economyPage?.topline?.inflation ?? 0);
+    }
+
+    if (!Number.isFinite(inflationPct) || inflationPct <= 0) {
       return res.status(400).json({
         error: "No inflation rate configured. Please set an inflation value on the Economy page first.",
       });

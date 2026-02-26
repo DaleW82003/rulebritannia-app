@@ -99,7 +99,7 @@ export function saveState(data) {
     }).catch((err) => {
       console.warn("[saveState] toast module unavailable:", err);
     });
-    return;
+    return Promise.resolve();
   }
   // Only staff roles may write the global state snapshot.
   // Non-staff authenticated users rely on feature-specific API endpoints for their writes.
@@ -107,9 +107,9 @@ export function saveState(data) {
   const canPersist = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
   if (!canPersist) {
     console.warn("[saveState] skipped for non-staff user -- use feature APIs for player writes.");
-    return;
+    return Promise.resolve();
   }
-  apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
+  return apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
 }
 
 export function ensureDefaults(data) {
