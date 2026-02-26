@@ -1,5 +1,6 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
+import { getSimDate } from "../clock.js";
 import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiSubmitProfileChange, apiGetMyProfileChanges, apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile } from "../api.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
@@ -878,9 +879,10 @@ function normalisePersonal(data) {
   }
 }
 
-function weeklyCreditAmount(profile) {
+function biMonthlyCreditAmount(profile, mods) {
   const extraAnnual = profile.additionalRevenue.reduce((sum, r) => sum + Number(r.annualRevenue || 0), 0);
-  return (Number(profile.salaryAnnual || 0) + extraAnnual) / 6;
+  const investmentIncome = Number(mods?.estimatedAnnualRevenue || 0);
+  return (Number(profile.salaryAnnual || 0) + extraAnnual + investmentIncome) / 6;
 }
 
 function render(data, state) {
@@ -904,12 +906,11 @@ function render(data, state) {
     return;
   }
 
-  const weekly = weeklyCreditAmount(profile);
   const revenueTotal = profile.additionalRevenue.reduce((sum, r) => sum + Number(r.annualRevenue || 0), 0);
   // Compute fresh modifiers with current priceIndex for accurate revenue estimates
   const pi = state.priceIndex || 1;
   const mods = computeModifiers(profile, pi);
-  // Viewing own profile (non-manager) or any profile (manager).
+  const biMonthlyCredit = biMonthlyCreditAmount(profile, mods);
   const isOwnProfile = activeName === name;
   const canShop = isOwnProfile || manager;
 
@@ -1067,13 +1068,13 @@ function render(data, state) {
       <article class="tile">
         <h2 style="margin-top:0;">Salary</h2>
         <p><b>Annual Salary:</b> ${money(profile.salaryAnnual)}</p>
-        <p class="muted">Weekly sim credit (annual ÷ 6): ${money(profile.salaryAnnual / 6)}</p>
+        <p class="muted">Paid BiMonthly (Every 2 Months): ${money(biMonthlyCredit)}</p>
       </article>
 
       <article class="tile">
         <h2 style="margin-top:0;">Bank Balance</h2>
         <p><b>Current Balance:</b> ${money(profile.bankBalance)}</p>
-        <p class="muted">Projected next salary credit (annual ÷ 6, every 2 sim months): ${money(weekly)}</p>
+        <p class="muted">Projected Next Deposit: ${money(biMonthlyCredit)}</p>
       </article>
 
       <article class="tile">
@@ -1131,21 +1132,38 @@ function render(data, state) {
           const isFreeItem = Number(p.price) === 0 && Number(p.monthlyUpkeep) > 0;
           const canSell    = canShop && !isFreeItem;
           const canDismiss = canShop && isFreeItem;
+          // Compute sim month/year at time of purchase from real timestamp + gameState
+          let purchaseDateLabel = "";
+          const purchasedAtDate = p.purchasedAt ? new Date(p.purchasedAt) : null;
+          if (purchasedAtDate && !isNaN(purchasedAtDate.getTime()) && data.gameState) {
+            const simAtPurchase = getSimDate(data.gameState, purchasedAtDate);
+            purchaseDateLabel = `Purchased ${simAtPurchase.monthName} ${simAtPurchase.year} – `;
+          }
+          const EFFECT_LABELS = {
+            pressImpact:         (v) => `+${v}% press`,
+            pollingBoost:        (v) => `+${v}% polling`,
+            efficiencyBoost:     (v) => `+${v} efficiency`,
+            constituencyPresence:(v) => `+${v} constituency presence`,
+            constituencyCapacity:(v) => `+${v} casework capacity`,
+            policyResearch:      (v) => `+${v} policy research`,
+            scandalDefence:      (v) => `+${v} scandal defence`,
+            additionalRevenue:   ()  => `💰 investment income`,
+          };
+          const effectTags = Array.isArray(p.effects) && p.effects.length ? p.effects.map((e) => {
+            const fn = EFFECT_LABELS[e.type];
+            return fn ? fn(e.value) : null;
+          }).filter(Boolean).join(" · ") : "";
+          const scandalRisk = p.riskModifier?.scandalExposure || p.scrutinyRisk;
+          const scandalTag = scandalRisk ? `⚠️ +${scandalRisk} scandal risk` : "";
+          const allTags = [effectTags, scandalTag].filter(Boolean).join(" · ");
           return `
           <article class="tile" style="margin-bottom:8px;">
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:flex-start;">
               <div>
                 <b>${esc(p.name)}</b>
-                <div class="muted" style="font-size:.88em;">Purchased ${esc(p.purchasedAt)} — paid ${money(p.price)}</div>
+                <div class="muted" style="font-size:.88em;">${esc(purchaseDateLabel)}Paid ${money(p.price)}</div>
                 ${p.monthlyUpkeep > 0 ? `<div class="muted" style="font-size:.85em;">Upkeep: ${money(p.monthlyUpkeep)}/month</div>` : ""}
-                <div class="muted" style="font-size:.88em;">
-                  ${Array.isArray(p.effects) && p.effects.length ? p.effects.map((e) => {
-                    if (e.type === "pressImpact")  return `+${e.value}% press`;
-                    if (e.type === "pollingBoost") return `+${e.value}% polling`;
-                    return e.type;
-                  }).join(" · ") : ""}
-                  ${(p.riskModifier?.scandalExposure || p.scrutinyRisk) ? `⚠️ +${p.riskModifier?.scandalExposure || p.scrutinyRisk} scandal risk` : ""}
-                </div>
+                ${allTags ? `<div class="muted" style="font-size:.88em;">${allTags}</div>` : ""}
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap;">
                 ${canSell    ? `<button type="button" class="btn" data-action="sell-purchase" data-id="${esc(String(p.id || idx))}" aria-label="Sell — refund 50% of current price">Sell</button>` : ""}
