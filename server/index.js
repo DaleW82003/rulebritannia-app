@@ -4099,6 +4099,20 @@ async function advanceBillStage(billId, nextStage, simMonth, simYear, extraPatch
   return rows[0]?.data || null;
 }
 
+/**
+ * Format a sim deadline as a TEXT value for the divisions.closes_at_sim column.
+ * e.g. { month: 1, year: 1998 } → "1998-01"
+ */
+function simDeadlineToText(month, year) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+/** Returns a closes_at_sim TEXT value 1 sim month from now. */
+function nextSimMonth(simMonth, simYear) {
+  const d = simDeadline(simMonth, simYear, 1);
+  return simDeadlineToText(d.month, d.year);
+}
+
 // POST /api/bills/:id/first-reading — PM or Leader of House grants or refuses second reading
 // Body: { action: "grant" | "refuse" }
 app.post("/api/bills/:id/first-reading", crudWriteLimit, async (req, res) => {
@@ -4288,10 +4302,11 @@ function amendmentWindowOpen(bill, simMonth, simYear) {
   if (!AMENDMENT_ALLOWED_STAGES.has(bill.stage)) return false;
   const deadline = bill.stageDeadlineSim;
   if (!deadline) return true; // no deadline set yet → still open
-  // The stage lasts 2 months. The window closes after 1.5 months (0.5 months before deadline).
-  // i.e. window closes when <= 0 months remaining (we use strict < 1 sim month left).
+  // The stage lasts 2 months. The window closes after the first 1.5 months.
+  // We model this as: the window is open while at least 1 full sim month remains before the deadline.
+  // (i.e. the window closes when < 1 month remains — 0.5 months left = window closed).
   const remaining = simMonthsLeft(deadline, simMonth, simYear);
-  return remaining >= 1; // at least 1 full sim month left → window still open
+  return remaining >= 1; // "at least 1 full sim month remaining" → window open
 }
 
 // POST /api/bills/:id/amendments — any MP submits an amendment
@@ -4425,7 +4440,7 @@ app.post("/api/bills/:id/amendments/:aid/decide", crudWriteLimit, async (req, re
         const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
         const sm = clk[0]?.sim_current_month ?? 8;
         const sy = clk[0]?.sim_current_year  ?? 1997;
-        const closesAtSim = `${sy + Math.floor((sm) / 12)}-${String(((sm % 12) + 1)).padStart(2, "0")}`;
+        const closesAtSim = nextSimMonth(sm, sy);
         const { rows: divRows } = await pool.query(
           `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
            VALUES ('bill-amendment', $1, $2, $3)
@@ -4502,7 +4517,7 @@ app.post("/api/bills/:id/amendments/:aid/support", crudWriteLimit, async (req, r
       const sm = clk[0]?.sim_current_month ?? 8;
       const sy = clk[0]?.sim_current_year  ?? 1997;
       const bill = billRows[0]?.data || {};
-      const closesAtSim = `${sy + Math.floor((sm) / 12)}-${String(((sm % 12) + 1)).padStart(2, "0")}`;
+      const closesAtSim = nextSimMonth(sm, sy);
       const { rows: divRows } = await pool.query(
         `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
          VALUES ('bill-amendment', $1, $2, $3)
@@ -4595,7 +4610,7 @@ app.post("/api/bills/:id/final-division", crudWriteLimit, async (req, res) => {
     const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
-    const closesAtSim = `${sy}-${String(sm + 1 <= 12 ? sm + 1 : 1).padStart(2, "0")}`;
+    const closesAtSim = nextSimMonth(sm, sy);
 
     const { rows: divRows } = await pool.query(
       `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
@@ -4623,7 +4638,7 @@ app.post("/api/bills/:id/final-division", crudWriteLimit, async (req, res) => {
  * This mirrors the client-side logic but runs on the server for DB-authoritative updates.
  */
 function applyAmendmentToBillText(billText, articleNumber, type, amendText) {
-  if (!billText || !articleNumber) return billText;
+  if (!billText || articleNumber == null) return billText;
   const lines = String(billText).split("\n");
   const articles = [];
   let current = null;
