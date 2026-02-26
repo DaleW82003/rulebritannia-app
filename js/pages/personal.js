@@ -911,12 +911,15 @@ function render(data, state) {
   const isOwnProfile = activeName === name;
   const canShop = isOwnProfile || manager;
 
-  // Monthly upkeep: prefer server-side total (state.shopMonthlyUpkeep) for the
+  // Monthly upkeep: prefer server-side total (totalMonthlyUpkeep = shop + property) for the
   // viewed character; fall back to computing from shopPurchases for other profiles
-  // or before the API response arrives (shopMonthlyUpkeep is undefined until then).
-  const monthlyUpkeep   = isOwnProfile
-    ? (state.shopMonthlyUpkeep ?? computeMonthlyUpkeep(profile))
+  // or before the API response arrives (totalMonthlyUpkeep is undefined until then).
+  const monthlyUpkeep = isOwnProfile
+    ? (state.totalMonthlyUpkeep ?? state.shopMonthlyUpkeep ?? computeMonthlyUpkeep(profile))
     : computeMonthlyUpkeep(profile);
+  const shopUpkeepDisplay     = isOwnProfile ? (state.shopMonthlyUpkeep ?? 0) : 0;
+  const propertyUpkeepDisplay = isOwnProfile ? (state.propertyMonthlyUpkeep ?? 0) : 0;
+  const rentalIncomeDisplay   = isOwnProfile ? (state.rentalIncomeMonthly ?? 0) : 0;
   const annualUpkeep    = monthlyUpkeep * 12;
   const investmentIncome = Number(mods?.estimatedAnnualRevenue || 0);
   const totalAnnualIncome = Number(profile.salaryAnnual || 0) + revenueTotal + investmentIncome;
@@ -930,6 +933,13 @@ function render(data, state) {
   const upkeepDetailNote  = monthlyUpkeep > 0
     ? ` · upkeep deducted monthly: -${money(monthlyUpkeep)}`
       + ` · net per 2-month period: <b style="color:${netBiMonthlyColor};">${money(netBiMonthly)}</b>`
+    : "";
+  // Pre-computed breakdown line for shop vs property upkeep
+  const upkeepBreakdownParts = [];
+  if (shopUpkeepDisplay > 0)     upkeepBreakdownParts.push(`Shop: -${money(shopUpkeepDisplay)}/month`);
+  if (propertyUpkeepDisplay > 0) upkeepBreakdownParts.push(`Property: -${money(propertyUpkeepDisplay)}/month`);
+  const upkeepBreakdown = isOwnProfile && upkeepBreakdownParts.length
+    ? `<div class="muted" style="font-size:.85em;margin-left:12px;">${upkeepBreakdownParts.join(" · ")}</div>`
     : "";
 
   host.innerHTML = `
@@ -1089,7 +1099,8 @@ function render(data, state) {
           <div><b>Annual Salary:</b> ${money(profile.salaryAnnual)}</div>
           ${revenueTotal > 0 ? `<div><b>Additional Revenue (annual):</b> ${money(revenueTotal)}</div>` : ""}
           ${investmentIncome > 0 ? `<div><b>Investment Income (annual):</b> ${money(investmentIncome)}</div>` : ""}
-          ${monthlyUpkeep > 0 ? `<div><b>Monthly Upkeep:</b> <span style="color:#c00;">-${money(monthlyUpkeep)}/month</span></div>` : ""}
+          ${rentalIncomeDisplay > 0 ? `<div><b>Rental Income:</b> <span style="color:#0a7f2e;">+${money(rentalIncomeDisplay)}/month</span></div>` : ""}
+          ${monthlyUpkeep > 0 ? `<div><b>Monthly Upkeep:</b> <span style="color:#c00;">-${money(monthlyUpkeep)}/month</span>${upkeepBreakdown}</div>` : ""}
           <div style="border-top:1px solid #eee;margin-top:4px;padding-top:4px;">
             <b>Net Annual Income:</b>
             <span style="color:${netAnnualIncome >= 0 ? "#0a7f2e" : "#c00"};">${money(netAnnualIncome)}</span>
@@ -1747,8 +1758,13 @@ function syncFinanceIntoProfile(profile, fin, data, profileName, state) {
 
   // Propagate upkeep totals and overspend flag into state for the render
   if (state) {
-    state.shopMonthlyUpkeep = Number(fin.shopMonthlyUpkeep ?? 0);
-    state.financeOverspend  = !!fin.financeOverspend;
+    state.shopMonthlyUpkeep        = Number(fin.shopMonthlyUpkeep ?? 0);
+    state.financeOverspend         = !!fin.financeOverspend;
+    state.totalMonthlyUpkeep       = fin.totalMonthlyUpkeep != null ? Number(fin.totalMonthlyUpkeep) : undefined;
+    state.propertyMonthlyUpkeep    = fin.propertyMonthlyUpkeep != null ? Number(fin.propertyMonthlyUpkeep) : undefined;
+    state.homeLivingCostsMonthly   = fin.homeLivingCostsMonthly != null ? Number(fin.homeLivingCostsMonthly) : undefined;
+    state.rentalIncomeMonthly      = fin.rentalIncomeMonthly != null ? Number(fin.rentalIncomeMonthly) : undefined;
+    state.rentalCostsMonthly       = fin.rentalCostsMonthly != null ? Number(fin.rentalCostsMonthly) : undefined;
   }
 
   // Replace shop purchases from DB (normalise field names)
@@ -1785,7 +1801,7 @@ function syncFinanceIntoProfile(profile, fin, data, profileName, state) {
 
 export async function initPersonalPage(data) {
   normalisePersonal(data);
-  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false };
+  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined };
 
   // Load all active characters for the moderator profile selector (non-blocking).
   if (canManage(data)) {
