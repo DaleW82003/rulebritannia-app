@@ -538,7 +538,6 @@ function render(data, state = {}) {
         secondJobTitleCompany: plan.secondJobTitleCompany,
         lastSavedSimIndex: plan.lastSavedSimIndex,
       });
-      saveState(data);
     } catch (err) {
       // Revert local state so UI matches DB on next reload (R3: no silent local-only mutations)
       plan.hours = prevHours;

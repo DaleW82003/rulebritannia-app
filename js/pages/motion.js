@@ -8,7 +8,7 @@ import {
   apiGetDivisionForEntity, apiCreateDivision, apiCastVote, apiCloseDivision,
   apiGetPartyInstruction, apiSetPartyInstruction,
   apiGetRebelRequest, apiSubmitRebelRequest,
-  apiGetMotion, apiSignEdm, apiSetNpcVotes,
+  apiGetMotion, apiSignEdm, apiSetNpcVotes, apiUpdateMotion,
 } from "../api.js";
 
 const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line whip"];
@@ -385,7 +385,7 @@ function renderEdm(root, data, edm) {
   if (edm.status !== "archived" && edm.closesAtSimObj && isDeadlinePassed(edm.closesAtSimObj, data.gameState)) {
     edm.status = "archived";
     edm.archivedAtSim = formatSimMonthYear(data.gameState);
-    saveState(data);
+    apiUpdateMotion(edm.id, edm).catch((err) => console.error("[motion] Failed to archive EDM:", err));
   }
 
   const expired = edm.status === "archived";

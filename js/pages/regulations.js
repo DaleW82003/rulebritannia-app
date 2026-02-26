@@ -208,7 +208,6 @@ export async function initRegulationsPage(data) {
 
     data.regulations.items.push(regulation);
     data.regulations.nextId += 1;
-    saveState(data);
     apiCreateDebateTopic({
       entityType: "regulation", entityId: regulation.id,
       title: `${regulation.department} Regulation ${regNo}: ${title}`,
@@ -218,7 +217,6 @@ export async function initRegulationsPage(data) {
       regulation.discourseTopicId = topicId;
       regulation.discourse_topic_id = topicId;
       regulation.discourse_topic_url = topicUrl;
-      saveState(data);
     }).catch((err) => handleApiError(err, "Debate topic"));
     window.location.href = `regulation.html?id=${encodeURIComponent(regulation.id)}`;
   });

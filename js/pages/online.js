@@ -246,7 +246,6 @@ function render(data, state) {
       return;
     }
     data.online.webPosts.push(post);
-    saveState(data);
     state.view = "webHistory";
     render(data, state);
   });
@@ -276,7 +275,6 @@ function render(data, state) {
       return;
     }
     data.online.facebookPosts.push(post);
-    saveState(data);
     render(data, state);
   });
 
@@ -314,7 +312,6 @@ function render(data, state) {
       return;
     }
     data.online.twitterPosts.push(post);
-    saveState(data);
     render(data, state);
   });
 

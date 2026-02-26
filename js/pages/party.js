@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
@@ -861,7 +860,6 @@ function render(data, state) {
       state.partyShopMessage = `Draft save failed: ${err.message}. Please try again.`;
       render(data, state);
     });
-    saveState(data);
     render(data, state);
   });
 
@@ -895,7 +893,6 @@ function render(data, state) {
         state.partyShopMessage = `Draft remove failed: ${err.message}. Please try again.`;
         render(data, state);
       });
-      saveState(data);
       render(data, state);
     });
   });
@@ -931,7 +928,6 @@ function render(data, state) {
     party.treasury.debt    = newDebt;
     party.treasury.members = newMembers;
     party.hqUrl = newHqUrl || party.hqUrl;
-    saveState(data);
     render(data, state);
   });
 
@@ -988,7 +984,6 @@ function render(data, state) {
         }
         if (state.dbState) state.dbState.partyStructure = structure;
         state.partyShopMessage = `Purchased "${item.name}" for ${formatMoney(price)}.${upkeep > 0 ? ` Upkeep: ${formatMoney(upkeep)}/month.` : ""}`;
-        saveState(data);
       } catch (err) {
         state.partyShopMessage = `Purchase failed: ${err.message}`;
         btn.disabled = false;
@@ -1015,7 +1010,6 @@ function render(data, state) {
           party.partyShopPurchases = purchases.filter((_, i) => i !== idx);
         }
         state.partyShopMessage = "Purchase removed.";
-        saveState(data);
       } catch (err) {
         state.partyShopMessage = `Remove failed: ${err.message}`;
         btn.disabled = false;

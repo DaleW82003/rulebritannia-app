@@ -3,7 +3,7 @@ import { esc } from "../ui.js";
 import { isSpeaker } from "../permissions.js";
 import { ensureRegulations } from "./regulations.js";
 import { formatSimMonthYear, isDeadlinePassed, countdownToSimMonth } from "../clock.js";
-import { apiGetRegulation } from "../api.js";
+import { apiGetRegulation, apiUpdateRegulation } from "../api.js";
 
 function getId() {
   return new URL(window.location.href).searchParams.get("id");
@@ -39,6 +39,7 @@ export async function initRegulationPage(data) {
   if (item && item.status !== "closed" && item.debateClosesAtSimObj && isDeadlinePassed(item.debateClosesAtSimObj, data.gameState)) {
     item.status = "closed";
     item.closedAtSim = formatSimMonthYear(data.gameState);
+    apiUpdateRegulation(item.id, item).catch((err) => console.error("[regulation] Failed to auto-close:", err));
     saveState(data);
   }
 
@@ -89,6 +90,7 @@ export async function initRegulationPage(data) {
     const body = String(fd.get("body") || "").trim();
     if (title) item.shortTitle = title;
     if (body) item.body = body;
+    apiUpdateRegulation(item.id, item).catch((err) => console.error("[regulation] Failed to save edits:", err));
     saveState(data);
     initRegulationPage(data);
   });
@@ -97,6 +99,7 @@ export async function initRegulationPage(data) {
     if (!speaker || item.status === "closed") return;
     item.status = "closed";
     item.closedAtSim = formatSimMonthYear(data.gameState);
+    apiUpdateRegulation(item.id, item).catch((err) => console.error("[regulation] Failed to close regulation:", err));
     saveState(data);
     initRegulationPage(data);
   });

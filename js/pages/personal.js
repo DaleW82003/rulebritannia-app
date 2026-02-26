@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiSubmitProfileChange, apiGetMyProfileChanges, apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile } from "../api.js";
@@ -1113,7 +1112,6 @@ function render(data, state) {
           </details>
         `;
       }).join("")}
-
     </section>
 
     ${manager ? `
@@ -1290,7 +1288,6 @@ function render(data, state) {
       }
       profile.affiliations = String(fd.get("affiliations") || "").trim();
       profile.updatedAt = nowStamp();
-      saveState(data);
       if (statusEl) statusEl.textContent = "Saved to DB.";
       state.message = `Saved personal profile for ${profile.name}.`;
     } catch (err) {
@@ -1749,7 +1746,6 @@ function syncFinanceIntoProfile(profile, fin, data, profileName) {
 
 export async function initPersonalPage(data) {
   normalisePersonal(data);
-  saveState(data);
   const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "" };
 
   // Load finance + shop purchases from DB (authoritative source of truth).

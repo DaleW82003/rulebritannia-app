@@ -298,7 +298,6 @@ function render(data, state) {
 
     data.fundraising.items.push(item);
     state.showForm = false;
-    saveState(data);
     toastSuccess(`${spec.title} submitted for approval.`);
     render(data, state);
   });
