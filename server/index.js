@@ -1596,6 +1596,17 @@ async function ensureSchema() {
     );
     INSERT INTO finance_config (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
   `);
+
+  // ── Finance idempotency: track which period+character combos have had upkeep applied ─
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS finance_applied (
+      period_key   TEXT        NOT NULL,
+      character_id UUID        NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      applied_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (period_key, character_id)
+    );
+    CREATE INDEX IF NOT EXISTS finance_applied_period_idx ON finance_applied(period_key);
+  `);
 }
 
 // ── Property / Finance model constants ────────────────────────────────────────
@@ -1697,6 +1708,36 @@ const RENTAL_STATUS_FACTORS = {
   "under renovation":  { incomeFactor: 0,    costFactor: 1.25 },
 };
 
+// ── Canonical enum arrays (single source of truth for UI dropdowns) ───────────
+// Derived from the constant objects above; consumed by GET /api/config/enums.
+const ENUM_HOME_TYPES     = Object.keys(HOME_MONTHLY_COSTS);
+const ENUM_RENTAL_TYPES   = Object.keys(RENTAL_MONTHLY);
+const ENUM_RENTAL_STATUSES = Object.keys(RENTAL_STATUS_FACTORS).map((s) => {
+  // Capitalise first letter to match UI display format
+  return s.charAt(0).toUpperCase() + s.slice(1);
+});
+// Split rental types into residential and commercial
+const ENUM_RENTAL_TYPES_RESIDENTIAL = [
+  "Single Room Let", "Studio Flat", "One/Two-Bed Flat", "Terraced House",
+  "Semi-Detached House", "Detached House", "Holiday Let",
+];
+const ENUM_RENTAL_TYPES_COMMERCIAL = [
+  "High Street Retail Unit", "Office Unit", "Warehouse",
+];
+
+const ENUM_FINANCIAL_LEVELS = [
+  { level: 1,  label: "1 – Poverty" },
+  { level: 2,  label: "2 – Financially Strained" },
+  { level: 3,  label: "3 – Lower Working Class" },
+  { level: 4,  label: "4 – Skilled Working / Lower Middle" },
+  { level: 5,  label: "5 – Solid Middle Class" },
+  { level: 6,  label: "6 – Upper Middle Class" },
+  { level: 7,  label: "7 – Affluent Professional" },
+  { level: 8,  label: "8 – High Net Worth Individual" },
+  { level: 9,  label: "9 – Top 5%" },
+  { level: 10, label: "10 – Top 1%" },
+];
+
 // Personal multipliers for home living costs (education)
 const EDUCATION_MULTIPLIERS = {
   "No Qualifications":   0.85,
@@ -1708,6 +1749,7 @@ const EDUCATION_MULTIPLIERS = {
   "Masters Degree":      1.10,
   "Doctorate":           1.15,
 };
+const ENUM_EDUCATION_OPTIONS = Object.keys(EDUCATION_MULTIPLIERS);
 
 // Personal multipliers for home living costs (pre-MP career)
 const CAREER_MULTIPLIERS = {
@@ -1722,6 +1764,7 @@ const CAREER_MULTIPLIERS = {
   "Academia / Education Leadership":     1.00,
   "Military / Police / Security":        0.95,
 };
+const ENUM_CAREER_OPTIONS = Object.keys(CAREER_MULTIPLIERS);
 
 // Personal multipliers for home living costs (family status)
 const FAMILY_MULTIPLIERS = {
@@ -1735,6 +1778,7 @@ const FAMILY_MULTIPLIERS = {
   "Long-Term Partner with Children": 1.25,
   "Long-Term Partner, No Children":  1.05,
 };
+const ENUM_FAMILY_OPTIONS = Object.keys(FAMILY_MULTIPLIERS);
 
 /**
  * Compute property-derived finance fields for a character.
@@ -2101,18 +2145,61 @@ async function runSalaryCrediting(month, year) {
 // ── Monthly shop upkeep deduction ─────────────────────────────────────────────
 // Runs on every clock tick. Deducts personal item upkeep from character bank
 // balances and party structure overhead from party treasuries.
-async function runShopUpkeep(/* month, year — reserved for future audit */ ) {
-  try {
-    // Personal: deduct accumulated monthly upkeep for all characters and
-    // set finance_overspend flag when the resulting balance is negative.
-    await pool.query(`
-      UPDATE character_finance
-         SET bank_balance      = bank_balance - shop_monthly_upkeep,
-             finance_overspend = (bank_balance - shop_monthly_upkeep) < 0,
-             updated_at        = NOW()
-       WHERE shop_monthly_upkeep > 0
-    `);
+// Idempotent: uses finance_applied table to skip characters already processed
+// for the given sim period (period_key = "YYYY-MM").
+async function runShopUpkeep(month, year) {
+  const periodKey = year && month
+    ? `${String(year)}-${String(month).padStart(2, "0")}`
+    : null;
 
+  try {
+    if (periodKey) {
+      // Idempotent per-character: INSERT records for all characters with upkeep,
+      // skipping those already applied for this period. Then UPDATE only the new ones.
+      const { rows: applied } = await pool.query(`
+        WITH to_apply AS (
+          SELECT character_id FROM character_finance WHERE shop_monthly_upkeep > 0
+        ),
+        inserted AS (
+          INSERT INTO finance_applied (period_key, character_id)
+          SELECT $1, character_id FROM to_apply
+          ON CONFLICT (period_key, character_id) DO NOTHING
+          RETURNING character_id
+        )
+        UPDATE character_finance cf
+           SET bank_balance      = bank_balance - shop_monthly_upkeep,
+               finance_overspend = (bank_balance - shop_monthly_upkeep) < 0,
+               updated_at        = NOW()
+          FROM inserted
+         WHERE cf.character_id = inserted.character_id
+           AND cf.shop_monthly_upkeep > 0
+        RETURNING cf.character_id
+      `, [periodKey]);
+
+      // Log skip events: characters with upkeep that were NOT in the inserted set
+      const { rows: skipped } = await pool.query(`
+        SELECT character_id FROM finance_applied
+         WHERE period_key = $1
+           AND character_id IN (
+             SELECT character_id FROM character_finance WHERE shop_monthly_upkeep > 0
+           )
+           AND character_id != ALL($2::uuid[])
+      `, [periodKey, applied.map((r) => r.character_id)]);
+
+      if (skipped.length > 0) {
+        await writeAuditLog(null, "finance.upkeep.skip", "finance_applied", periodKey, null,
+          { periodKey, skippedCount: skipped.length, skippedCharacterIds: skipped.map((r) => r.character_id) });
+      }
+    } else {
+      // No period key: fallback to legacy bulk update (no idempotency guard)
+      await pool.query(`
+        UPDATE character_finance
+           SET bank_balance      = bank_balance - shop_monthly_upkeep,
+               finance_overspend = (bank_balance - shop_monthly_upkeep) < 0,
+               updated_at        = NOW()
+         WHERE shop_monthly_upkeep > 0
+      `);
+    }
     // Party: deduct structure monthly overhead + party shop purchase upkeep from each party treasury
     const { rows: parties } = await pool.query(
       `SELECT p.id, p.slug, p.treasury, p.party_structure,
@@ -3980,6 +4067,43 @@ app.put("/api/config", async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
+ * GET /api/config/enums — public (but requires auth); returns canonical enum arrays
+ * for all dropdown fields used in character creation/editing.
+ * This is the single source of truth for option values so UI and server always agree.
+ */
+const enumsReadLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+app.get("/api/config/enums", enumsReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    // Affiliations come from DB (so any catalog updates are reflected immediately)
+    const { rows: affRows } = await pool.query(
+      `SELECT id, category, name, monthly_fee FROM affiliations_catalog WHERE active = TRUE ORDER BY category, name`
+    );
+    // Group by category
+    const affByCategory = {};
+    for (const r of affRows) {
+      (affByCategory[r.category] ??= []).push({ id: r.id, name: r.name, monthlyFee: Number(r.monthly_fee) });
+    }
+    const affiliationOptions = Object.entries(affByCategory).map(([category, items]) => ({ category, items }));
+    res.json({
+      homeTypes:              ENUM_HOME_TYPES,
+      rentalTypes:            ENUM_RENTAL_TYPES,
+      rentalTypesResidential: ENUM_RENTAL_TYPES_RESIDENTIAL,
+      rentalTypesCommercial:  ENUM_RENTAL_TYPES_COMMERCIAL,
+      rentalStatuses:         ENUM_RENTAL_STATUSES,
+      educationOptions:       ENUM_EDUCATION_OPTIONS,
+      careerOptions:          ENUM_CAREER_OPTIONS,
+      familyOptions:          ENUM_FAMILY_OPTIONS,
+      financialLevels:        ENUM_FINANCIAL_LEVELS,
+      affiliationOptions,
+    });
+  } catch (e) {
+    console.error("[GET /api/config/enums]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -5940,7 +6064,7 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
 
     // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
     runSalaryCrediting(newMonth, newYear).catch((e) => console.error("[clock/tick] salary crediting failed:", e.message));
-    runShopUpkeep().catch((e) => console.error("[clock/tick] shop upkeep failed:", e.message));
+    runShopUpkeep(newMonth, newYear).catch((e) => console.error("[clock/tick] shop upkeep failed:", e.message));
     runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
   } catch (e) {
     console.error(e);
@@ -8570,7 +8694,95 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
   }
 });
 
-// POST /api/characters/profile-change — player submits profile field changes for mod approval
+// GET /api/me/finance/summary — authenticated owner: concise finance snapshot for debugging/validation
+app.get("/api/me/finance/summary", meFinanceReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { rows: charRows } = await pool.query(
+      `SELECT c.id, c.home, c.rentals, c.financial_background_level, c.education, c.career_background, c.family
+         FROM characters c
+        WHERE c.user_id = $1 AND c.is_active = TRUE
+        ORDER BY (c.id = (SELECT active_character_id FROM users WHERE id = $1)) DESC,
+                 c.created_at DESC
+        LIMIT 1`,
+      [req.session.userId]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "No active character found" });
+    const charId    = charRows[0].id;
+    const character = charRows[0];
+
+    const { rows: finRows } = await pool.query(
+      `SELECT bank_balance, shop_monthly_upkeep, finance_overspend FROM character_finance WHERE character_id = $1`,
+      [charId]
+    );
+    const fin = finRows[0] ?? { bank_balance: 0, shop_monthly_upkeep: 0, finance_overspend: false };
+
+    const { rows: simRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const simMonth = simRows[0]?.sim_current_month ?? 8;
+    const simYear  = simRows[0]?.sim_current_year  ?? 1997;
+
+    const finConfig = await getFinanceConfig();
+    const financeCostIndex = finConfig.financeCostIndex;
+    const propFinance = computePropertyFinance(character, financeCostIndex);
+
+    // Starting balance for their financial level (from finance_config or default)
+    const bgLevel = Math.min(10, Math.max(1, Number(character.financial_background_level) || 5));
+    const startingBalances = finConfig.startingBalances;
+    const startingBalanceAmount = Number(
+      startingBalances[bgLevel] ?? startingBalances[String(bgLevel)] ?? STARTING_BALANCES_DEFAULT[bgLevel] ?? 25000
+    );
+
+    // Mortgage markup: extra monthly cost due to mortgage on primary home
+    const home = character.home ?? {};
+    const mortgaged = !!home.mortgaged;
+    const homeBase = HOME_MONTHLY_COSTS[home.type] ?? 0;
+    const { rows: affRows } = await pool.query(
+      `SELECT COALESCE(SUM(ac.monthly_fee), 0) AS total
+         FROM character_affiliations ca
+         JOIN affiliations_catalog ac ON ac.id = ca.affiliation_id
+        WHERE ca.character_id = $1 AND ca.status = 'approved'`,
+      [charId]
+    );
+    const affiliationsMonthlyFees = Math.round(Number(affRows[0]?.total ?? 0) * financeCostIndex);
+    const shopUpkeep = Number(fin.shop_monthly_upkeep) || 0;
+
+    const homeLivingCostsMonthly  = propFinance.homeLivingCostsMonthly;
+    const rentalIncomeMonthly     = propFinance.rentalIncomeMonthly;
+    const rentalCostsMonthly      = propFinance.rentalCostsMonthly;
+    // Monthly mortgage markup = extra cost from mortgage on home only
+    let mortgageMarkup = 0;
+    if (mortgaged && homeBase > 0) {
+      const mortgageF  = propFinance.mortgageFactor;
+      const noMortgage = Math.round(homeBase * propFinance.livingCostMultiplier * financeCostIndex);
+      mortgageMarkup   = homeLivingCostsMonthly - noMortgage;
+    }
+    const netMonthlyDelta = rentalIncomeMonthly - homeLivingCostsMonthly - affiliationsMonthlyFees - shopUpkeep;
+
+    res.json({
+      characterId:          charId,
+      simMonth,
+      simYear,
+      bankBalance:          Number(fin.bank_balance),
+      financeOverspend:     !!fin.finance_overspend,
+      startingBalanceAmount,
+      monthlyLivingCost:    homeLivingCostsMonthly,
+      monthlyMortgageMarkup: mortgageMarkup,
+      monthlyRentalIncome:  rentalIncomeMonthly,
+      monthlyRentalCosts:   rentalCostsMonthly,
+      monthlyAffiliationCosts: affiliationsMonthlyFees,
+      shopMonthlyUpkeep:    shopUpkeep,
+      netMonthlyDelta,
+      financeCostIndex,
+    });
+  } catch (e) {
+    console.error("[GET /api/me/finance/summary]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 const profileChangeReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
 const profileChangeWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
 
@@ -10469,7 +10681,7 @@ app.post("/api/sim/tick", simWriteLimit, async (req, res) => {
 
     // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
     runSalaryCrediting(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] salary crediting failed:", e.message));
-    runShopUpkeep().catch((e) => console.error("[sim/tick] shop upkeep failed:", e.message));
+    runShopUpkeep(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] shop upkeep failed:", e.message));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

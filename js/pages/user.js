@@ -7,6 +7,7 @@ import {
   apiGetCharacterApplications, apiApproveCharacterApplication,
   apiRejectCharacterApplication, apiSelectCharacter,
   apiGetConstituencies, apiGetCharacters,
+  apiGetEnums,
 } from "../api.js";
 
 function canManage(data) {
@@ -267,21 +268,39 @@ function render(data, state) {
   const dbActiveChar = !isViewingOther ? dbChars.find((c) => c.is_active) : null;
   const displayActiveChar = account.activeCharacter || dbActiveChar?.name || "None";
 
-  const HOME_TYPES = [
+  // Use server-provided enums (single source of truth) when available, fall back to built-in arrays.
+  const enums = state.enums ?? {};
+  const HOME_TYPES = enums.homeTypes ?? [
     "Studio Flat", "One-Bed Flat", "Two-Bed Flat", "Terraced House", "End-Terrace",
     "Semi-Detached House", "Detached Suburban House", "Townhouse",
     "Country House", "Country Estate", "Mansion"
   ];
-  const RENTAL_TYPES = [
+  const RENTAL_TYPES = enums.rentalTypes ?? [
     "Single Room Let", "Studio Flat", "One/Two-Bed Flat", "Terraced House",
     "Semi-Detached House", "Detached House",
     "High Street Retail Unit", "Office Unit", "Warehouse", "Holiday Let"
+  ];
+  const EDUCATION_OPTIONS = enums.educationOptions ?? [
+    "No Qualifications", "GCSEs", "A Levels", "Certificate of HE", "Diploma",
+    "Bachelors Degree", "Masters Degree", "Doctorate",
+  ];
+  const CAREER_OPTIONS = enums.careerOptions ?? [
+    "Manual / Skilled Trade", "Public Sector Professional", "Legal Profession",
+    "Finance / Banking / Corporate", "Business Owner / Entrepreneur",
+    "Political Staffer / Researcher", "Trade Union / Activist",
+    "Media / Journalism / Communications", "Academia / Education Leadership",
+    "Military / Police / Security",
+  ];
+  const FAMILY_OPTIONS = enums.familyOptions ?? [
+    "Single", "Married, No Children", "Married with Children", "Civil Partnership",
+    "Divorced", "Divorced with Children", "Widowed",
+    "Long-Term Partner with Children", "Long-Term Partner, No Children",
   ];
   const PROPERTY_VALUES = [
     "Under £100,000", "£100,001 to £200,000", "£200,001 to £300,000",
     "£300,001 to £400,000", "£400,001 to £500,000", "Over £500,000"
   ];
-  const RENTAL_STATUSES = ["Occupied", "Vacant", "Under renovation"];
+  const RENTAL_STATUSES = enums.rentalStatuses ?? ["Occupied", "Vacant", "Under renovation"];
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">User</div></div>
@@ -344,39 +363,15 @@ function render(data, state) {
           <input class="input" type="date" name="date_of_birth" required>
           <select class="input" name="education" required>
             <option value="">Education level</option>
-            <option value="No Qualifications">No Qualifications</option>
-            <option value="GCSEs">GCSEs</option>
-            <option value="A Levels">A Levels</option>
-            <option value="Certificate of HE">Certificate of HE</option>
-            <option value="Diploma">Diploma</option>
-            <option value="Bachelors Degree">Bachelors Degree</option>
-            <option value="Masters Degree">Masters Degree</option>
-            <option value="Doctorate">Doctorate</option>
+            ${EDUCATION_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
           </select>
           <select class="input" name="career_background" required>
             <option value="">Pre-MP Career</option>
-            <option value="Manual / Skilled Trade">Manual / Skilled Trade</option>
-            <option value="Public Sector Professional">Public Sector Professional</option>
-            <option value="Legal Profession">Legal Profession</option>
-            <option value="Finance / Banking / Corporate">Finance / Banking / Corporate</option>
-            <option value="Business Owner / Entrepreneur">Business Owner / Entrepreneur</option>
-            <option value="Political Staffer / Researcher">Political Staffer / Researcher</option>
-            <option value="Trade Union / Activist">Trade Union / Activist</option>
-            <option value="Media / Journalism / Communications">Media / Journalism / Communications</option>
-            <option value="Academia / Education Leadership">Academia / Education Leadership</option>
-            <option value="Military / Police / Security">Military / Police / Security</option>
+            ${CAREER_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
           </select>
           <select class="input" name="family" required>
             <option value="">Family Status</option>
-            <option value="Single">Single</option>
-            <option value="Married, No Children">Married, No Children</option>
-            <option value="Married with Children">Married with Children</option>
-            <option value="Civil Partnership">Civil Partnership</option>
-            <option value="Divorced">Divorced</option>
-            <option value="Divorced with Children">Divorced with Children</option>
-            <option value="Widowed">Widowed</option>
-            <option value="Long-Term Partner with Children">Long-Term Partner with Children</option>
-            <option value="Long-Term Partner, No Children">Long-Term Partner, No Children</option>
+            ${FAMILY_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
           </select>
           <select class="input" name="party" id="char-party-select" required>
             <option value="">Select party</option>
@@ -804,5 +799,13 @@ export async function initUserPage(data) {
   }
 
   const dbState = { myCharacters, myApplications, pendingApplications };
-  render(data, { message: "", dbState, viewingUsername });
+  // Initial render (uses built-in fallback enum arrays)
+  const state = { message: "", dbState, viewingUsername, enums: null };
+  render(data, state);
+
+  // Load server enums non-blocking; re-render once loaded to update all dropdowns.
+  apiGetEnums().then((enums) => {
+    state.enums = enums;
+    render(data, state);
+  }).catch(() => { /* fall back to built-in arrays */ });
 }

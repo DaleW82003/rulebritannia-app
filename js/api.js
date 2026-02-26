@@ -2337,7 +2337,20 @@ export async function apiGetMyFinance() {
   return res.json();
 }
 
-// ── Profile change requests (player-submitted, mod/admin/speaker approval) ──
+export async function apiGetMyFinanceSummary() {
+  const res = await fetch(`${API_BASE}/api/me/finance/summary`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyFinanceSummary failed (${res.status})`);
+  return res.json();
+}
+
+// ── Config enums ────────────────────────────────────────────────────────────
+// Fetches canonical dropdown option arrays from the server (single source of truth).
+export async function apiGetEnums() {
+  const res = await fetch(`${API_BASE}/api/config/enums`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetEnums failed (${res.status})`);
+  return res.json();
+}
+
 
 export async function apiSubmitProfileChange(fields) {
   const res = await fetch(`${API_BASE}/api/characters/profile-change`, {
