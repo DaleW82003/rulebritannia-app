@@ -2,7 +2,7 @@ import { esc } from "../ui.js";
 import { nowStamp } from "../core.js";
 import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate } from "../clock.js";
-import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters } from "../api.js";
+import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums } from "../api.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
 const AFFILIATIONS_CATALOG = [
@@ -1007,45 +1007,21 @@ function render(data, state) {
                   <label class="label" for="pc-edu">Education</label>
                   <select id="pc-edu" class="input" name="education">
                     <option value="">— select —</option>
-                    <option value="No Qualifications" ${profile.profile.education === "No Qualifications" ? "selected" : ""}>No Qualifications</option>
-                    <option value="GCSEs" ${profile.profile.education === "GCSEs" ? "selected" : ""}>GCSEs</option>
-                    <option value="A Levels" ${profile.profile.education === "A Levels" ? "selected" : ""}>A Levels</option>
-                    <option value="Certificate of HE" ${profile.profile.education === "Certificate of HE" ? "selected" : ""}>Certificate of HE</option>
-                    <option value="Diploma" ${profile.profile.education === "Diploma" ? "selected" : ""}>Diploma</option>
-                    <option value="Bachelors Degree" ${profile.profile.education === "Bachelors Degree" ? "selected" : ""}>Bachelors Degree</option>
-                    <option value="Masters Degree" ${profile.profile.education === "Masters Degree" ? "selected" : ""}>Masters Degree</option>
-                    <option value="Doctorate" ${profile.profile.education === "Doctorate" ? "selected" : ""}>Doctorate</option>
+                    ${(state.enums?.educationOptions ?? ["No Qualifications","GCSEs","A Levels","Certificate of HE","Diploma","Bachelors Degree","Masters Degree","Doctorate"]).map((o) => `<option value="${esc(o)}" ${profile.profile.education === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
                   </select>
                 </div>
                 <div>
                   <label class="label" for="pc-career">Career Background</label>
                   <select id="pc-career" class="input" name="career_background">
                     <option value="">— select —</option>
-                    <option value="Manual / Skilled Trade" ${profile.profile.careerBackground === "Manual / Skilled Trade" ? "selected" : ""}>Manual / Skilled Trade</option>
-                    <option value="Public Sector Professional" ${profile.profile.careerBackground === "Public Sector Professional" ? "selected" : ""}>Public Sector Professional</option>
-                    <option value="Legal Profession" ${profile.profile.careerBackground === "Legal Profession" ? "selected" : ""}>Legal Profession</option>
-                    <option value="Finance / Banking / Corporate" ${profile.profile.careerBackground === "Finance / Banking / Corporate" ? "selected" : ""}>Finance / Banking / Corporate</option>
-                    <option value="Business Owner / Entrepreneur" ${profile.profile.careerBackground === "Business Owner / Entrepreneur" ? "selected" : ""}>Business Owner / Entrepreneur</option>
-                    <option value="Political Staffer / Researcher" ${profile.profile.careerBackground === "Political Staffer / Researcher" ? "selected" : ""}>Political Staffer / Researcher</option>
-                    <option value="Trade Union / Activist" ${profile.profile.careerBackground === "Trade Union / Activist" ? "selected" : ""}>Trade Union / Activist</option>
-                    <option value="Media / Journalism / Communications" ${profile.profile.careerBackground === "Media / Journalism / Communications" ? "selected" : ""}>Media / Journalism / Communications</option>
-                    <option value="Academia / Education Leadership" ${profile.profile.careerBackground === "Academia / Education Leadership" ? "selected" : ""}>Academia / Education Leadership</option>
-                    <option value="Military / Police / Security" ${profile.profile.careerBackground === "Military / Police / Security" ? "selected" : ""}>Military / Police / Security</option>
+                    ${(state.enums?.careerOptions ?? ["Manual / Skilled Trade","Public Sector Professional","Legal Profession","Finance / Banking / Corporate","Business Owner / Entrepreneur","Political Staffer / Researcher","Trade Union / Activist","Media / Journalism / Communications","Academia / Education Leadership","Military / Police / Security"]).map((o) => `<option value="${esc(o)}" ${profile.profile.careerBackground === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
                   </select>
                 </div>
                 <div>
                   <label class="label" for="pc-family">Family</label>
                   <select id="pc-family" class="input" name="family">
                     <option value="">— select —</option>
-                    <option value="Single" ${profile.profile.family === "Single" ? "selected" : ""}>Single</option>
-                    <option value="Married, No Children" ${profile.profile.family === "Married, No Children" ? "selected" : ""}>Married, No Children</option>
-                    <option value="Married with Children" ${profile.profile.family === "Married with Children" ? "selected" : ""}>Married with Children</option>
-                    <option value="Civil Partnership" ${profile.profile.family === "Civil Partnership" ? "selected" : ""}>Civil Partnership</option>
-                    <option value="Divorced" ${profile.profile.family === "Divorced" ? "selected" : ""}>Divorced</option>
-                    <option value="Divorced with Children" ${profile.profile.family === "Divorced with Children" ? "selected" : ""}>Divorced with Children</option>
-                    <option value="Widowed" ${profile.profile.family === "Widowed" ? "selected" : ""}>Widowed</option>
-                    <option value="Long-Term Partner with Children" ${profile.profile.family === "Long-Term Partner with Children" ? "selected" : ""}>Long-Term Partner with Children</option>
-                    <option value="Long-Term Partner, No Children" ${profile.profile.family === "Long-Term Partner, No Children" ? "selected" : ""}>Long-Term Partner, No Children</option>
+                    ${(state.enums?.familyOptions ?? ["Single","Married, No Children","Married with Children","Civil Partnership","Divorced","Divorced with Children","Widowed","Long-Term Partner with Children","Long-Term Partner, No Children"]).map((o) => `<option value="${esc(o)}" ${profile.profile.family === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
                   </select>
                 </div>
                 <div>
@@ -1056,16 +1032,7 @@ function render(data, state) {
                   <label class="label" for="pc-finbg">Financial Background Level</label>
                   <select id="pc-finbg" class="input" name="financial_background_level">
                     <option value="">— select —</option>
-                    <option value="1" ${String(profile.financialBackgroundLevel) === "1" ? "selected" : ""}>1 – Poverty</option>
-                    <option value="2" ${String(profile.financialBackgroundLevel) === "2" ? "selected" : ""}>2 – Financially Strained</option>
-                    <option value="3" ${String(profile.financialBackgroundLevel) === "3" ? "selected" : ""}>3 – Lower Working Class</option>
-                    <option value="4" ${String(profile.financialBackgroundLevel) === "4" ? "selected" : ""}>4 – Skilled Working / Lower Middle</option>
-                    <option value="5" ${String(profile.financialBackgroundLevel) === "5" ? "selected" : ""}>5 – Solid Middle Class</option>
-                    <option value="6" ${String(profile.financialBackgroundLevel) === "6" ? "selected" : ""}>6 – Upper Middle Class</option>
-                    <option value="7" ${String(profile.financialBackgroundLevel) === "7" ? "selected" : ""}>7 – Affluent Professional</option>
-                    <option value="8" ${String(profile.financialBackgroundLevel) === "8" ? "selected" : ""}>8 – High Net Worth Individual</option>
-                    <option value="9" ${String(profile.financialBackgroundLevel) === "9" ? "selected" : ""}>9 – Top 5%</option>
-                    <option value="10" ${String(profile.financialBackgroundLevel) === "10" ? "selected" : ""}>10 – Top 1%</option>
+                    ${(state.enums?.financialLevels ?? [{level:1,label:"1 – Poverty"},{level:2,label:"2 – Financially Strained"},{level:3,label:"3 – Lower Working Class"},{level:4,label:"4 – Skilled Working / Lower Middle"},{level:5,label:"5 – Solid Middle Class"},{level:6,label:"6 – Upper Middle Class"},{level:7,label:"7 – Affluent Professional"},{level:8,label:"8 – High Net Worth Individual"},{level:9,label:"9 – Top 5%"},{level:10,label:"10 – Top 1%"}]).map((fl) => `<option value="${esc(String(fl.level))}" ${String(profile.financialBackgroundLevel) === String(fl.level) ? "selected" : ""}>${esc(fl.label)}</option>`).join("")}
                   </select>
                 </div>
               </div>
@@ -1829,7 +1796,7 @@ function syncFinanceIntoProfile(profile, fin, data, profileName, state) {
 
 export async function initPersonalPage(data) {
   normalisePersonal(data);
-  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined, affiliationsMonthlyFees: undefined, affiliationsMonthlyFeesItems: undefined };
+  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined, affiliationsMonthlyFees: undefined, affiliationsMonthlyFeesItems: undefined, enums: null };
 
   // Load all active characters for the moderator profile selector (non-blocking).
   if (canManage(data)) {
@@ -1885,6 +1852,12 @@ export async function initPersonalPage(data) {
       render(data, state);
     }
   }).catch(() => {});
+
+  // Load server enum arrays non-blocking; re-render to update all dropdowns.
+  apiGetEnums().then((enums) => {
+    state.enums = enums;
+    render(data, state);
+  }).catch(() => { /* fall back to built-in arrays */ });
 
   render(data, state);
 }

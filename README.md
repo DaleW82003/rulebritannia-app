@@ -194,7 +194,45 @@ When `DISCOURSE_SSO_ENABLED=true`, the login page automatically shows a **"Login
 9. As mod/admin, verify all characters' scandals are visible and you can close any scandal manually.
 10. Attempt to trigger a scandal for a character who has NOT opted in — verify an alert prevents this.
 
+### Finance Controls (Admin/Mod)
 
+The Control Panel (`control-panel.html`) includes a **Finance Controls** section (visible to admin and mod roles) that allows management of the player financial system.
+
+#### Finance Cost Inflation
+
+- Located under "Finance Controls → Finance Cost Inflation".
+- Applies the economy inflation rate to the **finance cost index** (`financeCostIndex`), which multiplies:
+  - Home living cost bases
+  - Rental property monthly cost bases
+  - Affiliation membership monthly fees
+- **Not applied to**: MP salaries, character starting bank balances, or rental income.
+- Can only be applied **once per sim year** (enforced server-side). Check "Admin override" to re-apply within the same year.
+- Inflation rate is sourced from the Economy page topline. Set it there first.
+
+#### MP Salary Bands
+
+- Located under "Finance Controls → MP Salary Bands".
+- Allows editing the annual salary for each MP position key (Prime Minister, Speaker, Backbencher, etc.).
+- Values are used when computing character annual salaries via `/api/me/finance`.
+- Can be updated **once per sim year**. Check "Admin override" to update again within the same year.
+
+#### Character Starting Balances
+
+- Located under "Finance Controls → Character Starting Balances".
+- Allows editing the starting bank balance for each financial background level (1–10).
+- Values are applied when a new character is approved (if their current bank balance is 0).
+- Can be updated **once per sim year**. Check "Admin override" to update again within the same year.
+
+#### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/finance/config` | Returns current salary bands, starting balances, cost index, and last-updated metadata |
+| PATCH | `/api/admin/finance/salary-bands` | Update MP salary bands (once per sim year) |
+| PATCH | `/api/admin/finance/starting-balances` | Update character starting bank balance map (once per sim year) |
+| POST | `/api/admin/finance/apply-inflation` | Apply economy inflation to finance cost index (once per sim year); supports `dryRun: true` for preview |
+
+All endpoints require admin or mod role. Once-per-year enforcement uses `last_*_sim_year` fields in the `finance_config` DB table and can be bypassed with `adminOverride: true` in the request body.
 
 1. Open any page (e.g. `dashboard.html`) **without** logging in.
 2. Verify the topbar shows "Not logged in" and a "Login" link.

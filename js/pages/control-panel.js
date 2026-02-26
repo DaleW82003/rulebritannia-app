@@ -10,6 +10,7 @@ import {
   apiGetShopPriceIndex, apiApplyShopInflation,
   apiGetPendingAffiliations, apiDecideAffiliation,
   apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange,
+  apiGetFinanceConfig, apiUpdateFinanceSalaryBands, apiUpdateFinanceStartingBalances, apiApplyFinanceInflation,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -83,6 +84,7 @@ export async function initControlPanelPage(data) {
   let pendingApplications = [];
   let activeDbChars = [];
   let shopPriceData = { priceIndex: 1.0, lastAppliedSimMonth: null, lastAppliedSimYear: null };
+  let financeConfig = { salaryBands: {}, startingBalances: {}, financeCostIndex: 1.0, lastSalaryBandsSimYear: null, lastStartingBalancesSimYear: null, lastInflationSimYear: null, currentSimYear: null };
   await Promise.all([
     manager
       ? apiGetCharacterApplications("pending").catch(() => ({ applications: [] })).then((r) => { pendingApplications = r.applications; })
@@ -92,6 +94,9 @@ export async function initControlPanelPage(data) {
       : Promise.resolve(),
     canEdit
       ? apiGetShopPriceIndex().catch(() => ({})).then((r) => { shopPriceData = { ...shopPriceData, ...r }; })
+      : Promise.resolve(),
+    canEdit
+      ? apiGetFinanceConfig().catch(() => ({})).then((r) => { financeConfig = { ...financeConfig, ...r }; })
       : Promise.resolve(),
   ]);
 
@@ -208,6 +213,101 @@ export async function initControlPanelPage(data) {
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <button class="btn" type="button" id="cp-btn-apply-inflation"${!economyInflationPct ? " disabled title=\"Set inflation rate on the Economy page first\"" : ""}>Apply Inflation to Shop Prices</button>
           <span id="cp-inflation-status" style="font-size:13px;"></span>
+        </div>
+      </div>
+    </details>
+
+    <details class="tile" style="margin-bottom:10px;">
+      <summary style="cursor:pointer;"><b>Finance Controls <span class="mod-badge">Mod / Admin</span></b></summary>
+      <div style="margin-top:10px;">
+        <p class="muted" style="margin:0 0 12px;">
+          Manage the admin-controlled finance tables: MP salary bands, character starting bank balances,
+          and the finance cost index (inflation for living costs, rental costs, and affiliation fees).
+          Salary bands and starting balances can be updated <b>once per sim year</b>.
+          Finance cost inflation can be applied <b>once per sim year</b>.
+          Current sim year: <b>${financeConfig.currentSimYear != null ? esc(String(financeConfig.currentSimYear)) : "Unknown"}</b>.
+        </p>
+
+        <!-- Finance Cost Inflation -->
+        <div class="tile" style="margin-bottom:12px;padding:12px;">
+          <h4 style="margin:0 0 8px;">Finance Cost Inflation</h4>
+          <p class="muted" style="margin:0 0 8px;font-size:.9em;">
+            Applies the economy inflation rate to the finance cost index, which uprates
+            home living costs, rental costs, and affiliation membership fees.
+            Does <b>not</b> affect MP salaries, starting balances, or rental income.
+          </p>
+          <div class="muted" style="margin-bottom:10px;line-height:1.8;font-size:.9em;">
+            <div><b>Current Finance Cost Index:</b> ${esc(String(Number(financeConfig.financeCostIndex || 1).toFixed(4)))}</div>
+            <div><b>Economy Inflation Rate:</b> ${economyInflationPct
+              ? `${esc(economyInflationPct.toFixed(2))}%`
+              : `<span style="color:var(--danger,#c00);">Not set</span>`}</div>
+            ${economyInflationPct ? (() => { const pi = Math.round(Number(financeConfig.financeCostIndex || 1) * (1 + economyInflationPct / 100) * 10000) / 10000; return `<div><b>Preview New Index:</b> ${esc(pi.toFixed(4))}</div>`; })() : ""}
+            <div><b>Last Applied Sim Year:</b> ${financeConfig.lastInflationSimYear != null ? esc(String(financeConfig.lastInflationSimYear)) : "Never"}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:4px;font-size:.9em;">
+              <input type="checkbox" id="cp-fc-inflation-override"> Admin override (allow re-apply this year)
+            </label>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
+            <button class="btn" type="button" id="cp-btn-apply-fc-inflation"${!economyInflationPct ? " disabled title=\"Set inflation rate on the Economy page first\"" : ""}>Apply Finance Cost Inflation</button>
+            <span id="cp-fc-inflation-status" style="font-size:13px;"></span>
+          </div>
+        </div>
+
+        <!-- Salary Bands Editor -->
+        <div class="tile" style="margin-bottom:12px;padding:12px;">
+          <h4 style="margin:0 0 8px;">MP Salary Bands</h4>
+          <p class="muted" style="margin:0 0 8px;font-size:.9em;">
+            Set the annual salary for each MP position. Updates are applied when computing character salaries.
+            Last updated sim year: <b>${financeConfig.lastSalaryBandsSimYear != null ? esc(String(financeConfig.lastSalaryBandsSimYear)) : "Never"}</b>.
+          </p>
+          <form id="cp-salary-bands-form">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:8px;">
+              ${Object.entries({ prime_minister: "Prime Minister", leader_opposition: "Leader of Opposition", leader_third_party: "Leader of Third Party", speaker: "Speaker", secretary_of_state: "Secretary of State", minister_of_state: "Minister of State", shadow_secretary_of_state: "Shadow Secretary of State", committee_chairman: "Committee Chairman", committee_member: "Committee Member", backbencher: "Backbencher" }).map(([key, label]) => `
+                <div>
+                  <label class="label" style="font-size:.85em;">${esc(label)}</label>
+                  <input type="number" step="1" min="0" class="input" name="${esc(key)}"
+                         value="${esc(String(financeConfig.salaryBands[key] ?? ""))}">
+                </div>
+              `).join("")}
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:4px;font-size:.9em;">
+                <input type="checkbox" name="adminOverride"> Admin override (allow re-edit this year)
+              </label>
+              <button type="submit" class="btn primary">Save Salary Bands</button>
+              <span id="cp-salary-bands-status" style="font-size:13px;"></span>
+            </div>
+          </form>
+        </div>
+
+        <!-- Starting Balances Editor -->
+        <div class="tile" style="padding:12px;">
+          <h4 style="margin:0 0 8px;">Character Starting Balances</h4>
+          <p class="muted" style="margin:0 0 8px;font-size:.9em;">
+            Set the starting bank balance for each financial background level (1–10).
+            These values are used when a new character is approved.
+            Last updated sim year: <b>${financeConfig.lastStartingBalancesSimYear != null ? esc(String(financeConfig.lastStartingBalancesSimYear)) : "Never"}</b>.
+          </p>
+          <form id="cp-starting-balances-form">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:8px;">
+              ${[1,2,3,4,5,6,7,8,9,10].map((level) => `
+                <div>
+                  <label class="label" style="font-size:.85em;">Level ${level}</label>
+                  <input type="number" step="1" min="0" class="input" name="level_${level}"
+                         value="${esc(String(financeConfig.startingBalances[level] ?? financeConfig.startingBalances[String(level)] ?? ""))}">
+                </div>
+              `).join("")}
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:4px;font-size:.9em;">
+                <input type="checkbox" name="adminOverride"> Admin override (allow re-edit this year)
+              </label>
+              <button type="submit" class="btn primary">Save Starting Balances</button>
+              <span id="cp-starting-balances-status" style="font-size:13px;"></span>
+            </div>
+          </form>
         </div>
       </div>
     </details>
@@ -445,55 +545,159 @@ export async function initControlPanelPage(data) {
     });
   }
 
-    if (avatarListEl) {
-      apiGetAllAvatarChanges("pending").then(({ changes }) => {
-        if (!changes.length) {
-          avatarListEl.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
-          return;
+  // Finance Cost Inflation button
+  const fcInflationBtn    = rolePanels.querySelector("#cp-btn-apply-fc-inflation");
+  const fcInflationStatus = rolePanels.querySelector("#cp-fc-inflation-status");
+  if (fcInflationBtn) {
+    fcInflationBtn.addEventListener("click", async () => {
+      if (!canEdit) return;
+      const overrideEl = rolePanels.querySelector("#cp-fc-inflation-override");
+      const adminOverride = overrideEl?.checked ?? false;
+      fcInflationBtn.disabled = true;
+      fcInflationBtn.textContent = "Applying…";
+      if (fcInflationStatus) fcInflationStatus.textContent = "";
+      try {
+        const result = await apiApplyFinanceInflation(economyInflationPct || undefined, adminOverride);
+        logAction({ action: "admin.finance.apply-inflation", details: result });
+        if (fcInflationStatus) {
+          fcInflationStatus.style.color = "#1a7a1a";
+          fcInflationStatus.textContent = `Done. Cost index: ${Number(result.oldIndex).toFixed(4)} → ${Number(result.newIndex).toFixed(4)} (+${Number(result.inflationPct).toFixed(2)}%)`;
         }
-        avatarListEl.innerHTML = changes.map((c) => `
-          <article class="tile" style="margin-bottom:8px;" data-avatar-change-id="${esc(c.id)}">
-            <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
-            <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
-            <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;font-size:.9em;word-break:break-all;">${esc(c.proposed_avatar)}</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn primary" type="button" data-action="cp-approve-avatar-change" data-id="${esc(c.id)}">Approve</button>
-              <button class="btn" type="button" data-action="cp-reject-avatar-change" data-id="${esc(c.id)}">Reject</button>
-            </div>
-          </article>
-        `).join("");
+      } catch (err) {
+        if (fcInflationStatus) {
+          fcInflationStatus.style.color = "var(--danger,#c00)";
+          fcInflationStatus.textContent = `Error: ${err.message}`;
+        }
+      } finally {
+        fcInflationBtn.disabled = false;
+        fcInflationBtn.textContent = "Apply Finance Cost Inflation";
+      }
+    });
+  }
 
-        avatarListEl.querySelectorAll('[data-action="cp-approve-avatar-change"]').forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            try {
-              await apiApproveAvatarChange(btn.dataset.id);
-              btn.closest("article")?.remove();
-              if (!avatarListEl.querySelector("article")) {
-                avatarListEl.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
-              }
-            } catch (err) {
-              alert(`Error: ${err.message}`);
-            }
-          });
-        });
+  // Salary Bands form
+  const salaryBandsForm   = rolePanels.querySelector("#cp-salary-bands-form");
+  const salaryBandsStatus = rolePanels.querySelector("#cp-salary-bands-status");
+  if (salaryBandsForm) {
+    salaryBandsForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      const fd = new FormData(form);
+      const adminOverride = fd.get("adminOverride") === "on";
+      const salaryBands = {};
+      for (const [k, v] of fd.entries()) {
+        if (k === "adminOverride") continue;
+        const num = parseFloat(String(v).trim());
+        if (v.toString().trim() !== "" && Number.isFinite(num)) salaryBands[k] = num;
+      }
+      const btn = form.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+      if (salaryBandsStatus) salaryBandsStatus.textContent = "";
+      try {
+        const result = await apiUpdateFinanceSalaryBands(salaryBands, adminOverride);
+        logAction({ action: "admin.finance.salary-bands.update", details: result });
+        if (salaryBandsStatus) {
+          salaryBandsStatus.style.color = "#1a7a1a";
+          salaryBandsStatus.textContent = `✓ Saved for sim year ${result.simYear}.`;
+        }
+      } catch (err) {
+        if (salaryBandsStatus) {
+          salaryBandsStatus.style.color = "var(--danger,#c00)";
+          salaryBandsStatus.textContent = `✗ ${err.message}`;
+        }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    });
+  }
 
-        avatarListEl.querySelectorAll('[data-action="cp-reject-avatar-change"]').forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            try {
-              await apiRejectAvatarChange(btn.dataset.id);
-              btn.closest("article")?.remove();
-              if (!avatarListEl.querySelector("article")) {
-                avatarListEl.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
+  // Starting Balances form
+  const startingBalancesForm   = rolePanels.querySelector("#cp-starting-balances-form");
+  const startingBalancesStatus = rolePanels.querySelector("#cp-starting-balances-status");
+  if (startingBalancesForm) {
+    startingBalancesForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      const fd = new FormData(form);
+      const adminOverride = fd.get("adminOverride") === "on";
+      const startingBalances = {};
+      for (const [k, v] of fd.entries()) {
+        if (k === "adminOverride") continue;
+        const level = k.replace("level_", "");
+        const num = parseFloat(String(v).trim());
+        if (v.toString().trim() !== "" && Number.isFinite(num)) startingBalances[level] = num;
+      }
+      const btn = form.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+      if (startingBalancesStatus) startingBalancesStatus.textContent = "";
+      try {
+        const result = await apiUpdateFinanceStartingBalances(startingBalances, adminOverride);
+        logAction({ action: "admin.finance.starting-balances.update", details: result });
+        if (startingBalancesStatus) {
+          startingBalancesStatus.style.color = "#1a7a1a";
+          startingBalancesStatus.textContent = `✓ Saved for sim year ${result.simYear}.`;
+        }
+      } catch (err) {
+        if (startingBalancesStatus) {
+          startingBalancesStatus.style.color = "var(--danger,#c00)";
+          startingBalancesStatus.textContent = `✗ ${err.message}`;
+        }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    });
+  }
+
+      if (avatarListEl) {
+        apiGetAllAvatarChanges("pending").then(({ changes }) => {
+          if (!changes.length) {
+            avatarListEl.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
+            return;
+          }
+          avatarListEl.innerHTML = changes.map((c) => `
+            <article class="tile" style="margin-bottom:8px;" data-avatar-change-id="${esc(c.id)}">
+              <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
+              <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
+              <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;font-size:.9em;word-break:break-all;">${esc(c.proposed_avatar)}</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn primary" type="button" data-action="cp-approve-avatar-change" data-id="${esc(c.id)}">Approve</button>
+                <button class="btn" type="button" data-action="cp-reject-avatar-change" data-id="${esc(c.id)}">Reject</button>
+              </div>
+            </article>
+          `).join("");
+
+          avatarListEl.querySelectorAll('[data-action="cp-approve-avatar-change"]').forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              try {
+                await apiApproveAvatarChange(btn.dataset.id);
+                btn.closest("article")?.remove();
+                if (!avatarListEl.querySelector("article")) {
+                  avatarListEl.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
+                }
+              } catch (err) {
+                alert(`Error: ${err.message}`);
               }
-            } catch (err) {
-              alert(`Error: ${err.message}`);
-            }
+            });
           });
+
+          avatarListEl.querySelectorAll('[data-action="cp-reject-avatar-change"]').forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              try {
+                await apiRejectAvatarChange(btn.dataset.id);
+                btn.closest("article")?.remove();
+                if (!avatarListEl.querySelector("article")) {
+                  avatarListEl.innerHTML = '<div class="muted-block">No pending avatar change requests.</div>';
+                }
+              } catch (err) {
+                alert(`Error: ${err.message}`);
+              }
+            });
+          });
+        }).catch(() => {
+          avatarListEl.innerHTML = '<div class="muted-block">Could not load avatar change requests.</div>';
         });
-      }).catch(() => {
-        if (avatarListEl) avatarListEl.innerHTML = '<div class="muted-block">Could not load avatar change requests.</div>';
-      });
-    }
+      }
+
 
     // ── Affiliations queue ──────────────────────────────────────────────────
     const affListEl = rolePanels.querySelector("#cp-affiliations-list");
