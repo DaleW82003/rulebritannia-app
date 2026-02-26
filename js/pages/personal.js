@@ -1090,7 +1090,7 @@ function render(data, state) {
           <div><b>📄 Policy Research:</b> <span style="color:${mods.policyResearch > 0 ? "#0a7f2e" : "inherit"}">+${mods.policyResearch}</span></div>
           <div><b>🛡️ Scandal Defence:</b> <span style="color:${mods.scandalDefence > 0 ? "#0a5a8a" : "inherit"}">+${mods.scandalDefence}</span></div>
           <div><b>⚠️ Scandal Risk:</b> <span style="color:${mods.scrutinyScore >= 10 ? "#9d1d1d" : mods.scrutinyScore >= 5 ? "#b06000" : "inherit"}">${mods.scrutinyScore} ${mods.scrutinyScore >= 10 ? "— High" : mods.scrutinyScore >= 5 ? "— Medium" : "— Low"}</span></div>
-          ${mods.estimatedAnnualRevenue > 0 ? `<div style="grid-column:1/-1;border-top:1px solid #eee;padding-top:4px;margin-top:2px;"><b>💰 Shop Revenue:</b> <span style="color:#0a5a8a;">est. ${money(mods.estimatedAnnualRevenue)}/year</span> <span class="muted" style="font-size:.85em;">(20% of current price, paid every 12 sim months)</span></div>` : ""}
+          ${mods.estimatedAnnualRevenue > 0 ? `<div style="grid-column:1/-1;border-top:1px solid #eee;padding-top:4px;margin-top:2px;"><b>💰 Investment Income:</b> <span style="color:#0a5a8a;">est. ${money(mods.estimatedAnnualRevenue)}/year</span> <span class="muted" style="font-size:.85em;">(20% of current price, paid every 12 sim months)</span></div>` : ""}
         </div>
         <p class="muted" style="margin-bottom:0;font-size:.85em;margin-top:8px;">All modifiers are cumulative from shop purchases and are applied to press releases and polling entries.</p>
       </article>
@@ -1176,7 +1176,7 @@ function render(data, state) {
                   if (e.type === "policyResearch")       return `📄 research`;
                   if (e.type === "efficiencyBoost")      return `⚡ efficiency`;
                   if (e.type === "scandalDefence")       return `🛡️ scandal defence`;
-                  if (e.type === "additionalRevenue")    return `💰 revenue`;
+                  if (e.type === "additionalRevenue")    return `💰 investment income`;
                   return e.type;
                 }).join(" · ");
                 const riskTag = item.riskModifier?.scandalExposure
