@@ -523,7 +523,9 @@ function render(data, state) {
     }
     data.press.releases.push(item);
     render(data, state);
-  });.forEach((btn) => btn.addEventListener("click", () => {
+  });
+
+  section.querySelectorAll("[data-action='toggle-release']").forEach((btn) => btn.addEventListener("click", () => {
     const id = btn.getAttribute("data-id");
     state.openRelease = state.openRelease === id ? null : id;
     render(data, state);
@@ -699,7 +701,9 @@ function render(data, state) {
     }
     data.press.comments.push(item);
     render(data, state);
-  });.forEach((btn) => btn.addEventListener("click", () => {
+  });
+
+  section.querySelectorAll("[data-action='delete-comment']").forEach((btn) => btn.addEventListener("click", () => {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
     data.press.comments = data.press.comments.filter((c) => c.id !== id);
