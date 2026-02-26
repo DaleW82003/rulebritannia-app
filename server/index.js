@@ -1530,6 +1530,20 @@ async function ensureSchema() {
       updated_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW()
     )
   `);
+
+  // ── Shop revenue payouts tracking (idempotent per character + item unit) ───
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS character_shop_revenue_payouts (
+      id                  UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id        UUID    NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      purchase_id         UUID    NOT NULL REFERENCES character_shop_purchases(id) ON DELETE CASCADE,
+      last_payout_sim_index INT   NOT NULL DEFAULT 0,
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (purchase_id)
+    );
+    CREATE INDEX IF NOT EXISTS char_shop_rev_payouts_char_idx ON character_shop_revenue_payouts(character_id);
+  `);
 }
 
 // ── 1997 baseline salary scale (idempotent) ────────────────────────────────
@@ -1751,7 +1765,69 @@ async function runShopUpkeep(/* month, year — reserved for future audit */ ) {
   }
 }
 
-// The three playable parties for Rule Britannia.
+// ── Shop revenue item payouts ──────────────────────────────────────────────────
+// Runs on every clock tick. For each character shop purchase that has an
+// additionalRevenue effect, pays out every 12 sim months from purchase date.
+async function runRevenuePayouts(simMonth, simYear) {
+  try {
+    const simIndex = simYear * 12 + (simMonth - 1);
+
+    // Fetch all active shop purchases that have an additionalRevenue effect
+    const { rows: purchases } = await pool.query(`
+      SELECT p.id, p.character_id, p.effects, p.purchased_at,
+             COALESCE(rp.last_payout_sim_index, 0) AS last_payout_sim_index
+        FROM character_shop_purchases p
+        LEFT JOIN character_shop_revenue_payouts rp ON rp.purchase_id = p.id
+       WHERE p.effects @> '[{"type":"additionalRevenue"}]'::jsonb
+    `);
+
+    for (const p of purchases) {
+      try {
+        const effects = Array.isArray(p.effects) ? p.effects : [];
+        const revenueEffect = effects.find((e) => e.type === "additionalRevenue");
+        if (!revenueEffect) continue;
+
+        // Revenue value per effect unit — £5000/year per additionalRevenue value unit.
+        // (e.g. rental-property-reno has value:1 → £5000/year; commercial-unit has value:2 → £10000/year)
+        const annualRevenue = Number(revenueEffect.value || 1) * 5000;
+
+        // Sim index uses year*12 + (month-1) where month is 1-12.
+        // purchasedAt.getMonth() returns 0-11, so year*12 + getMonth() matches the formula.
+        // First payout fires 12 sim months after purchase (purchase month is the base).
+        const purchasedAt = new Date(p.purchased_at);
+        const purchaseSimIndex = purchasedAt.getFullYear() * 12 + purchasedAt.getMonth();
+
+        const lastPaid = Number(p.last_payout_sim_index);
+        // First payout base is the purchase sim index (i.e. 12 months after purchase)
+        const base = lastPaid > 0 ? lastPaid : purchaseSimIndex;
+
+        const periodsMissed = Math.floor((simIndex - base) / 12);
+        if (periodsMissed <= 0) continue;
+
+        const payout = periodsMissed * annualRevenue;
+        const newLastPaid = base + periodsMissed * 12;
+
+        await pool.query("BEGIN");
+        await pool.query(
+          `UPDATE character_finance SET bank_balance = bank_balance + $1, updated_at = NOW() WHERE character_id = $2`,
+          [payout, p.character_id]
+        );
+        await pool.query(
+          `INSERT INTO character_shop_revenue_payouts (character_id, purchase_id, last_payout_sim_index)
+               VALUES ($1, $2, $3)
+           ON CONFLICT (purchase_id) DO UPDATE SET last_payout_sim_index = $3, updated_at = NOW()`,
+          [p.character_id, p.id, newLastPaid]
+        );
+        await pool.query("COMMIT");
+      } catch (purchaseErr) {
+        await pool.query("ROLLBACK").catch(() => {});
+        console.error(`[revenuePayouts] purchase ${p.id}:`, purchaseErr.message);
+      }
+    }
+  } catch (e) {
+    console.error("[runRevenuePayouts] error:", e.message);
+  }
+}
 const PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
 
 // Server-side party name normaliser — mirrors scripts/convert-1997-csv.js.
@@ -5428,6 +5504,7 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
     // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
     runSalaryCrediting(newMonth, newYear).catch((e) => console.error("[clock/tick] salary crediting failed:", e.message));
     runShopUpkeep().catch((e) => console.error("[clock/tick] shop upkeep failed:", e.message));
+    runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -5589,7 +5666,8 @@ app.delete("/api/press/:id", pressWriteLimit, async (req, res) => {
 });
 
 // PATCH /api/press/:id/transcript — player appends to their own press conference transcript
-// Allows the conference author to add an answer entry or walk-off entry
+// Allows the conference author to add an answer entry or walk-off entry.
+// Staff (admin/mod/speaker) may post NPC journalist questions.
 app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
@@ -5602,14 +5680,18 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: "Press item not found" });
     const item = rows[0].data;
 
-    // Only the conference author may append non-question transcript entries;
-    // any authenticated user may submit a question (isQuestion: true)
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
     const isQuestion = entry.isQuestion === true;
-    if (!isStaff && !isQuestion) {
+
+    if (isQuestion) {
+      // Only staff may post NPC journalist questions
+      if (!isStaff) {
+        return res.status(403).json({ error: "Only staff may submit press conference questions" });
+      }
+    } else {
+      // Answer / walk-off: only the conference author (player)
       if (!req.session.characterId) return res.status(403).json({ error: "Forbidden: no active character" });
-      // Verify the character belongs to the session and authored the conference
       const { rows: charRows } = await pool.query(
         "SELECT name FROM characters WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
         [req.session.characterId, req.session.userId]
@@ -5617,18 +5699,33 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
       if (!charRows.length || item.author !== charRows[0].name) {
         return res.status(403).json({ error: "Only the conference author may add transcript entries" });
       }
-    } else if (!isStaff && isQuestion) {
-      // Any authenticated user may submit a question
-      if (!req.session.userId) return res.status(403).json({ error: "Authentication required" });
+      // Anti-spam: author may only answer if there is at least one unanswered question
+      if (!entry.walkOff) {
+        const transcript = Array.isArray(item.transcript) ? item.transcript : [];
+        const questionCount = transcript.filter((t) => t.isQuestion === true).length;
+        const answerCount   = transcript.filter((t) => !t.isQuestion && !t.walkOff).length;
+        if (questionCount === 0 || answerCount >= questionCount) {
+          return res.status(400).json({ error: "No unanswered questions to reply to" });
+        }
+      }
     }
 
     if (item.status === "closed") return res.status(409).json({ error: "Conference is closed" });
 
+    const entryId = `te-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const safeEntry = {
+      id:        entryId,
       from:      typeof entry.from === "string" ? entry.from.slice(0, MAX_TRANSCRIPT_FROM_LENGTH) : "Character",
       text:      entry.text.slice(0, MAX_TRANSCRIPT_TEXT_LENGTH),
       createdAt: new Date().toISOString(),
     };
+    if (isQuestion) {
+      safeEntry.isQuestion = true;
+      if (typeof entry.paper === "string")    safeEntry.paper    = entry.paper.slice(0, 100);
+      if (typeof entry.corrName === "string") safeEntry.corrName = entry.corrName.slice(0, 100);
+    }
+    if (entry.walkOff) safeEntry.walkOff = true;
+
     if (!item.transcript) item.transcript = [];
     item.transcript.push(safeEntry);
 
@@ -5638,7 +5735,7 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
       "UPDATE press_items SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at",
       [JSON.stringify(item), req.params.id]
     );
-    res.json({ ok: true, id: updated[0].id, updatedAt: updated[0].updated_at });
+    res.json({ ok: true, id: updated[0].id, entryId, updatedAt: updated[0].updated_at });
   } catch (e) {
     console.error("[PATCH /api/press/:id/transcript]", e);
     res.status(500).json({ error: "Server error" });
@@ -6635,6 +6732,14 @@ app.post("/api/admin/characters/:id/profile", charWriteLimit, async (req, res) =
       financial_background_level, twitter_handle, avatar,
       bank_balance, salary_annual,
     } = req.body || {};
+
+    // Validate date_of_birth if provided
+    if (date_of_birth !== undefined && date_of_birth !== null && date_of_birth !== "") {
+      const dob = new Date(String(date_of_birth));
+      if (isNaN(dob.getTime())) {
+        return res.status(400).json({ error: "date_of_birth must be a valid date (YYYY-MM-DD)" });
+      }
+    }
 
     const setClauses = [];
     const params = [];
@@ -7911,6 +8016,14 @@ app.post("/api/characters/profile-change", profileChangeWriteLimit, async (req, 
       date_of_birth, financial_background_level, twitter_handle,
     } = req.body || {};
 
+    // Validate date_of_birth if provided (must be a parseable date)
+    if (date_of_birth !== undefined && date_of_birth !== null && date_of_birth !== "") {
+      const dob = new Date(String(date_of_birth));
+      if (isNaN(dob.getTime())) {
+        return res.status(400).json({ error: "date_of_birth must be a valid date (YYYY-MM-DD)" });
+      }
+    }
+
     // At least one field must be provided
     const hasField = [education, career_background, family, date_of_birth, financial_background_level, twitter_handle]
       .some((v) => v !== undefined && v !== null && v !== "");
@@ -8205,6 +8318,142 @@ app.delete("/api/me/character/shop-purchases/:id", meFinanceWriteLimit, async (r
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("[DELETE /api/me/character/shop-purchases/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/me/character/shop-purchases/:id/sell
+// Player sells one purchased shop item for 50% of its CURRENT price (price * priceIndex * 0.5).
+// The purchase record is removed and the refund credited to their bank.
+app.post("/api/me/character/shop-purchases/:id/sell", meFinanceWriteLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAuth(req, res)) return;
+
+    // Resolve active character
+    const { rows: charRows } = await client.query(
+      `SELECT c.id FROM characters c
+        WHERE c.user_id = $1 AND c.is_active = TRUE
+        ORDER BY (c.id = (SELECT active_character_id FROM users WHERE id = $1)) DESC,
+                 c.created_at DESC
+        LIMIT 1`,
+      [req.session.userId]
+    );
+    if (!charRows.length) { client.release(); return res.status(404).json({ error: "No active character found" }); }
+    const charId = charRows[0].id;
+
+    // Fetch the purchase — must belong to the caller's character
+    const { rows: pRows } = await client.query(
+      `SELECT id, character_id, item_id, item_name, price, monthly_upkeep, effects, risk_modifier
+         FROM character_shop_purchases WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!pRows.length) { client.release(); return res.status(404).json({ error: "Purchase not found" }); }
+    if (pRows[0].character_id !== charId) { client.release(); return res.status(403).json({ error: "Forbidden" }); }
+
+    const purchase = pRows[0];
+
+    // Items with price == 0 cannot be sold (use dismiss instead)
+    if (Number(purchase.price) === 0) {
+      client.release();
+      return res.status(400).json({ error: "Free items must be dismissed, not sold. Use the Dismiss action." });
+    }
+
+    // Fetch current price index for refund calculation
+    const { rows: piRows } = await client.query(
+      `SELECT price_index FROM shop_price_index WHERE id = 'main'`
+    );
+    const priceIndex = Number(piRows[0]?.price_index ?? 1);
+    const currentPrice = Math.round(Number(purchase.price) * priceIndex);
+    const refund = Math.round(currentPrice * 0.5);
+
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM character_shop_purchases WHERE id = $1`, [purchase.id]);
+
+    // Recalculate total monthly upkeep
+    const { rows: upkeepRows } = await client.query(
+      `SELECT COALESCE(SUM(monthly_upkeep), 0) AS total FROM character_shop_purchases WHERE character_id = $1`,
+      [charId]
+    );
+    await client.query(
+      `UPDATE character_finance
+          SET bank_balance = bank_balance + $1,
+              shop_monthly_upkeep = $2,
+              updated_at = NOW()
+        WHERE character_id = $3`,
+      [refund, Number(upkeepRows[0].total), charId]
+    );
+    await client.query("COMMIT");
+
+    const { rows: finRows } = await client.query(
+      `SELECT bank_balance FROM character_finance WHERE character_id = $1`, [charId]
+    );
+    await writeAuditLog(req.session.userId, "shop.sell", "character_shop_purchases", purchase.id, purchase, { refund });
+    res.json({ ok: true, refund, newBankBalance: Number(finRows[0]?.bank_balance ?? 0) });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /api/me/character/shop-purchases/:id/sell]", e);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/me/character/shop-purchases/:id/dismiss
+// Player dismisses one free-with-upkeep shop item (price == 0, upkeep > 0).
+// Removes the purchase record and upkeep; no refund.
+app.post("/api/me/character/shop-purchases/:id/dismiss", meFinanceWriteLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { rows: charRows } = await client.query(
+      `SELECT c.id FROM characters c
+        WHERE c.user_id = $1 AND c.is_active = TRUE
+        ORDER BY (c.id = (SELECT active_character_id FROM users WHERE id = $1)) DESC,
+                 c.created_at DESC
+        LIMIT 1`,
+      [req.session.userId]
+    );
+    if (!charRows.length) { client.release(); return res.status(404).json({ error: "No active character found" }); }
+    const charId = charRows[0].id;
+
+    const { rows: pRows } = await client.query(
+      `SELECT id, character_id, item_id, item_name, price, monthly_upkeep
+         FROM character_shop_purchases WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!pRows.length) { client.release(); return res.status(404).json({ error: "Purchase not found" }); }
+    if (pRows[0].character_id !== charId) { client.release(); return res.status(403).json({ error: "Forbidden" }); }
+
+    const purchase = pRows[0];
+
+    // Only free items (price == 0) with upkeep can be dismissed
+    if (Number(purchase.price) !== 0) {
+      client.release();
+      return res.status(400).json({ error: "Paid items must be sold, not dismissed. Use the Sell action." });
+    }
+
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM character_shop_purchases WHERE id = $1`, [purchase.id]);
+
+    const { rows: upkeepRows } = await client.query(
+      `SELECT COALESCE(SUM(monthly_upkeep), 0) AS total FROM character_shop_purchases WHERE character_id = $1`,
+      [charId]
+    );
+    await client.query(
+      `UPDATE character_finance SET shop_monthly_upkeep = $1, updated_at = NOW() WHERE character_id = $2`,
+      [Number(upkeepRows[0].total), charId]
+    );
+    await client.query("COMMIT");
+
+    await writeAuditLog(req.session.userId, "shop.dismiss", "character_shop_purchases", purchase.id, purchase, null);
+    res.json({ ok: true });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /api/me/character/shop-purchases/:id/dismiss]", e);
     res.status(500).json({ error: "Server error" });
   } finally {
     client.release();

@@ -1,6 +1,6 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
-import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiSubmitProfileChange, apiGetMyProfileChanges, apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile } from "../api.js";
+import { apiSubmitBioChange, apiGetMyBioChanges, apiGetAllBioChanges, apiApproveBioChange, apiRejectBioChange, apiSubmitAvatarChange, apiGetAllAvatarChanges, apiApproveAvatarChange, apiRejectAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiSubmitProfileChange, apiGetMyProfileChanges, apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile } from "../api.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
 const AFFILIATIONS_CATALOG = [
@@ -633,6 +633,26 @@ const SHOP_ITEMS = [
   },
 ];
 
+// Convert a stored date string (various formats) to YYYY-MM-DD for <input type="date">.
+// Returns "" if the date cannot be parsed or is invalid.
+function toDateInputValue(stored) {
+  if (!stored) return "";
+  // Already YYYY-MM-DD — validate it by parsing
+  if (/^\d{4}-\d{2}-\d{2}$/.test(stored)) {
+    const parsed = new Date(stored + "T00:00:00");
+    if (!isNaN(parsed.getTime())) return stored;
+    return "";
+  }
+  const parsed = new Date(stored);
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, "0");
+    const d = String(parsed.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  return "";
+}
+
 // Compute aggregate modifiers for a profile from its purchases.
 // Handles both the new effects[] format and legacy modifiers/scrutinyRisk format.
 function computeModifiers(profile) {
@@ -905,7 +925,7 @@ function render(data, state) {
               <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:10px;">
                 <div>
                   <label class="label" for="pc-dob">Date of Birth</label>
-                  <input id="pc-dob" class="input" name="date_of_birth" value="${esc(profile.profile.dateOfBirth || "")}" placeholder="e.g. 14 March 1960">
+                  <input id="pc-dob" class="input" type="date" name="date_of_birth" value="${esc(toDateInputValue(profile.profile.dateOfBirth || ""))}">
                 </div>
                 <div>
                   <label class="label" for="pc-edu">Education</label>
@@ -1072,24 +1092,35 @@ function render(data, state) {
         <div class="muted" style="margin-bottom:8px;">
           Total monthly upkeep: <b>${money(computeMonthlyUpkeep(profile))}</b>
         </div>
-        ${profile.shopPurchases.map((p, idx) => `
-          <article class="tile" style="margin-bottom:8px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
-            <div>
-              <b>${esc(p.name)}</b>
-              <div class="muted">Purchased ${esc(p.purchasedAt)} — ${money(p.price)}</div>
-              ${p.monthlyUpkeep > 0 ? `<div class="muted" style="font-size:.85em;">Upkeep: ${money(p.monthlyUpkeep)}/month</div>` : ""}
-              <div class="muted" style="font-size:.9em;">
-                ${Array.isArray(p.effects) && p.effects.length ? p.effects.map((e) => {
-                  if (e.type === "pressImpact")  return `+${e.value}% press`;
-                  if (e.type === "pollingBoost") return `+${e.value}% polling`;
-                  return e.type;
-                }).join(" · ") : ""}
-                ${(p.riskModifier?.scandalExposure || p.scrutinyRisk) ? `⚠️ +${p.riskModifier?.scandalExposure || p.scrutinyRisk} scandal risk` : ""}
+        ${profile.shopPurchases.map((p, idx) => {
+          const isFreeItem = Number(p.price) === 0 && Number(p.monthlyUpkeep) > 0;
+          const canSell    = canShop && !isFreeItem;
+          const canDismiss = canShop && isFreeItem;
+          return `
+          <article class="tile" style="margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:flex-start;">
+              <div>
+                <b>${esc(p.name)}</b>
+                <div class="muted" style="font-size:.88em;">Purchased ${esc(p.purchasedAt)} — paid ${money(p.price)}</div>
+                ${p.monthlyUpkeep > 0 ? `<div class="muted" style="font-size:.85em;">Upkeep: ${money(p.monthlyUpkeep)}/month</div>` : ""}
+                <div class="muted" style="font-size:.88em;">
+                  ${Array.isArray(p.effects) && p.effects.length ? p.effects.map((e) => {
+                    if (e.type === "pressImpact")  return `+${e.value}% press`;
+                    if (e.type === "pollingBoost") return `+${e.value}% polling`;
+                    return e.type;
+                  }).join(" · ") : ""}
+                  ${(p.riskModifier?.scandalExposure || p.scrutinyRisk) ? `⚠️ +${p.riskModifier?.scandalExposure || p.scrutinyRisk} scandal risk` : ""}
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                ${canSell    ? `<button type="button" class="btn" data-action="sell-purchase" data-id="${esc(String(p.id || idx))}" aria-label="Sell — refund 50% of current price">Sell</button>` : ""}
+                ${canDismiss ? `<button type="button" class="btn" data-action="dismiss-purchase" data-id="${esc(String(p.id || idx))}">Dismiss</button>` : ""}
+                ${manager ? `<button type="button" class="btn" data-action="remove-purchase" data-id="${esc(String(p.id || idx))}">Remove</button>` : ""}
               </div>
             </div>
-            ${manager ? `<button type="button" class="btn" data-action="remove-purchase" data-id="${esc(String(p.id || idx))}">Remove</button>` : ""}
           </article>
-        `).join("")}
+        `;
+        }).join("")}
       ` : '<div class="muted-block">No items purchased.</div>'}
 
       ${Object.entries(
@@ -1290,6 +1321,46 @@ function render(data, state) {
         state.message = "Purchase removed.";
       } catch (err) {
         state.message = `Remove failed: ${err.message}`;
+      }
+      render(data, state);
+    });
+  });
+
+  // Sell purchase — player: refunds 50% of current price
+  host.querySelectorAll('[data-action="sell-purchase"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!canShop) return;
+      const purchaseId = String(btn.dataset.id || "");
+      if (!purchaseId) return;
+      btn.disabled = true;
+      try {
+        const result = await apiSellShopPurchase(purchaseId);
+        const fin = await apiGetMyFinance();
+        syncFinanceIntoProfile(profile, fin, data, activeName);
+        state.message = `Item sold. Refund: ${money(result.refund || 0)}.`;
+      } catch (err) {
+        state.message = `Sell failed: ${err.message}`;
+        btn.disabled = false;
+      }
+      render(data, state);
+    });
+  });
+
+  // Dismiss purchase — player: removes free+upkeep item with no refund
+  host.querySelectorAll('[data-action="dismiss-purchase"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!canShop) return;
+      const purchaseId = String(btn.dataset.id || "");
+      if (!purchaseId) return;
+      btn.disabled = true;
+      try {
+        await apiDismissShopPurchase(purchaseId);
+        const fin = await apiGetMyFinance();
+        syncFinanceIntoProfile(profile, fin, data, activeName);
+        state.message = "Item dismissed.";
+      } catch (err) {
+        state.message = `Dismiss failed: ${err.message}`;
+        btn.disabled = false;
       }
       render(data, state);
     });

@@ -272,7 +272,7 @@
       ],
       "immutable": false,
       "category": "parliament",
-      "immutable_note": "Author may append to own conference transcript; staff override"
+      "immutable_note": "Questions require staff (admin/mod/speaker); answers require conference author with unanswered questions"
     },
     {
       "method": "POST",
@@ -940,6 +940,26 @@
       ],
       "immutable": false,
       "category": "personal"
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/shop-purchases/:id/sell",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "personal",
+      "note": "Player sells one purchased item for 50% of current price"
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/shop-purchases/:id/dismiss",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "personal",
+      "note": "Player dismisses one free+upkeep item (no refund)"
     },
     {
       "method": "POST",
