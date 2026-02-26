@@ -693,7 +693,7 @@ function render(data, state) {
     try {
       await apiCreatePressItem({ press_type: "comment", ...item });
     } catch (err) {
-      console.error(err);
+      handleApiError(err, "Submit comment");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
@@ -757,7 +757,7 @@ function render(data, state) {
     try {
       await apiCreatePressItem({ press_type: "speech", ...item });
     } catch (err) {
-      console.error(err);
+      handleApiError(err, "Submit speech");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }

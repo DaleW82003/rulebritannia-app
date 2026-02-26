@@ -6,7 +6,7 @@ import { toastSuccess } from "../components/toast.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
          formatSimMonthYear, isDeadlinePassed, compareSimDates,
          countdownToSimMonth } from "../clock.js";
-import { apiCreateDebateTopic, apiCreateMotion } from "../api.js";
+import { apiCreateDebateTopic, apiCreateMotion, apiGetMotions } from "../api.js";
 import { handleApiError } from "../errors.js";
 import { npcPartyOptions } from "../parties.js";
 
@@ -47,11 +47,31 @@ function bodyWithPreamble(body = "") {
   return `That this House ${String(body || "").trim()}`;
 }
 
-export function initMotionsPage(data) {
+export async function initMotionsPage(data) {
   const root = document.getElementById("motions-root");
   if (!root) return;
 
   ensureMotions(data);
+
+  // Load motions from DB so they appear correctly after hard refresh
+  try {
+    const r = await apiGetMotions();
+    if (r?.motions?.length) {
+      const seenHouse = new Set(data.motions.house.map((x) => String(x.id)));
+      const seenEdm = new Set(data.motions.edm.map((x) => String(x.id)));
+      for (const item of r.motions) {
+        const kind = item.motion_type || item._motionType;
+        if (kind === "edm") {
+          if (!seenEdm.has(String(item.id))) data.motions.edm.push(item);
+        } else {
+          if (!seenHouse.has(String(item.id))) data.motions.house.push(item);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[motions] DB load failed:", err);
+  }
+
   const sim = simNow(data);
   const char = getCharacter(data);
   const simCurrentObj = simDateToObj(getSimDate(data.gameState));
@@ -85,7 +105,7 @@ export function initMotionsPage(data) {
   root.innerHTML = `
     ${tileSection({
       title: "Guide to Motions & EDMs",
-      body: `<p>Use <b>Open</b> to view the full motion/EDM page. House Motion divisions are handled on the open page. EDM signatures use weighted signatory logic and are also managed on the open page.</p>`
+      body: `<p>Use <b>Open</b> to view the full motion/EDM page. House Motion divisions are handled on the open page. EDM signatories are managed on the open page.</p>`
     })}
 
     ${tileSection({
@@ -219,7 +239,7 @@ export function initMotionsPage(data) {
       debateEndSim: formatSimDate(debateEndObj),
       debateEndSimObj: debateEndObj,
       debate: { topicId: null, topicUrl: null, opensAtSim: null, closesAtSim: null },
-      division: { status: "open", startSim: formatSimDate(debateEndObj), endSim: formatSimDate(divisionEndObj), endSimObj: divisionEndObj, votes: {}, rebelsByParty: {}, npcVotes: {} }
+      division: { status: "pending", startSim: formatSimDate(debateEndObj), endSim: formatSimDate(divisionEndObj), endSimObj: divisionEndObj, votes: {}, rebelsByParty: {}, npcVotes: {} }
     };
 
     try {

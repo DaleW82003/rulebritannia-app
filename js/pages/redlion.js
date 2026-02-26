@@ -3,6 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker } from "../permissions.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateRedLionPost, apiGetRedLionPosts } from "../api.js";
+import { formatSimMonthYear } from "../clock.js";
 
 function getCharacter(data) {
   return data?.currentCharacter || data?.currentPlayer || {};
@@ -117,7 +118,7 @@ function render(data) {
       asBarkeep,
       avatar: asBarkeep ? "" : resolveCharacterAvatar(data, displayName, String(char?.avatar || "")),
       body,
-      createdAt: new Date().toLocaleString("en-GB")
+      createdAt: formatSimMonthYear(data.gameState)
     };
 
     const submitBtn = e.currentTarget.querySelector("[type='submit']");

@@ -208,11 +208,11 @@ async function renderHouseDb(root, data, motion) {
           <span class="division-countdown">${dbDiv.status === "open" ? (divisionCountdown || "Open") : `Closed${dbDiv.outcome ? ` · ${dbDiv.outcome}` : ""}`}</span>
         </div>
         <div class="division-totals">
-          <div class="division-total-cell aye"><div class="dc-num">${tally.aye}</div><div class="dc-lbl">Aye</div></div>
-          <div class="division-total-cell no"><div class="dc-num">${tally.no}</div><div class="dc-lbl">No</div></div>
-          <div class="division-total-cell"><div class="dc-num">${tally.abstain}</div><div class="dc-lbl">Abstain</div></div>
+          <div class="division-total-cell aye"><div class="dc-num">${Math.round(Number(tally.aye || 0))}</div><div class="dc-lbl">Ayes</div></div>
+          <div class="division-total-cell no"><div class="dc-num">${Math.round(Number(tally.no || 0))}</div><div class="dc-lbl">Noes</div></div>
+          <div class="division-total-cell"><div class="dc-num">${Math.round(Number(tally.abstain || 0))}</div><div class="dc-lbl">Abstain</div></div>
         </div>
-        ${myVote ? `<div class="division-my-vote voted-${esc(myVote.vote)}">Your vote: <b>${esc(myVote.vote.charAt(0).toUpperCase() + myVote.vote.slice(1))}</b> · Weight: <b>${voteWeight}</b></div>` : `<div class="division-my-vote">Not yet voted · Weight: <b>${voteWeight}</b></div>`}
+        ${myVote ? `<div class="division-my-vote voted-${esc(myVote.vote)}">Your vote: <b>${esc(myVote.vote.charAt(0).toUpperCase() + myVote.vote.slice(1))}</b> · Weight: <b>${Math.round(Number(voteWeight))}</b></div>` : `<div class="division-my-vote">Not yet voted · Weight: <b>${Math.round(Number(voteWeight))}</b></div>`}
         ${dbDiv.status === "open" ? `
           <div class="tile-bottom" style="padding-top:10px;">
             <button class="btn ${myVote?.vote === "aye" ? "primary" : ""}" data-action="vote" data-choice="aye" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Aye</button>
@@ -408,10 +408,10 @@ function renderEdm(root, data, edm) {
 
     <section class="tile">
       <h3 style="margin-top:0;">Signatories</h3>
-      <p><b>Weighted signatories:</b> ${edmWeightedSignatures(edm, data).toFixed(2)}</p>
-      <p><b>Signed by:</b> ${edm.signatures.length ? edm.signatures.map((s) => `${esc(s.name)} (${Number(s.weight || 0).toFixed(2)})`).join(", ") : "No player signatories yet."}</p>
+      <p><b>Signatories:</b> ${Math.round(edmWeightedSignatures(edm, data))}</p>
+      <p><b>Signed by:</b> ${edm.signatures.length ? edm.signatures.map((s) => esc(s.name)).join(", ") : "No player signatories yet."}</p>
       ${Object.entries(edm.npcSignatures).filter(([,v])=>v).length ? `<p><b>NPC signatures:</b> ${Object.entries(edm.npcSignatures).filter(([,v])=>v).map(([p]) => esc(p)).join(", ")}</p>` : ""}
-      ${expired ? `<p class="muted"><b>Signature period has closed.</b></p>` : disallowed ? `<p class="muted"><b>Government members cannot sign EDMs.</b></p>` : signed ? `<p class="muted"><b>You have already signed.</b></p>` : `<button class="btn" data-action="sign-edm" ${w > 0 ? "" : "disabled"}>Sign EDM (${w.toFixed(2)})</button>`}
+      ${expired ? `<p class="muted"><b>Signature period has closed.</b></p>` : disallowed ? `<p class="muted"><b>Government members cannot sign EDMs.</b></p>` : signed ? `<p class="muted"><b>You have already signed.</b></p>` : `<button class="btn" data-action="sign-edm" ${w > 0 ? "" : "disabled"}>Sign EDM</button>`}
 
       ${speaker && !expired ? `
         <div style="margin-top:12px;">

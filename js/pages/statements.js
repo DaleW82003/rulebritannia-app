@@ -94,8 +94,7 @@ function render(data) {
   root.innerHTML = `
     ${tileSection({
       title: "Ministerial Statements Guide",
-      body: `<p>Ministerial Statements are used for major policy announcements that are not primary legislation. Statements are numbered automatically as <b>MS1, MS2, ...</b> in chronological sequence.</p>
-        <p>Each statement links to its own debate thread (normally open for <b>2 months</b>). Click <b>Open</b> to view the full statement page and debate link.</p>`
+      body: `<p>Click Open to view the full statement page and debate link. Debate lasts 2 months, there is no division on Ministerial Statements.</p>`
     })}
 
     ${submitter

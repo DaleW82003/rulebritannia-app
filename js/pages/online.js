@@ -3,6 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateOnlinePost, apiGetOnlinePosts } from "../api.js";
+import { formatSimMonthYear } from "../clock.js";
 
 const CHANNELS = {
   webPost: "Post to the Web",
@@ -232,7 +233,7 @@ function render(data, state) {
       body,
       imageUrl,
       author: mod ? author : (char?.name || author),
-      createdAt: new Date().toLocaleString("en-GB"),
+      createdAt: formatSimMonthYear(data.gameState),
       createdTs: Date.now()
     };
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
@@ -262,7 +263,7 @@ function render(data, state) {
       displayName: mod ? displayName : (char?.name || displayName),
       avatar: String(fd.get("avatar") || "").trim() || String(char?.avatar || "").trim(),
       body,
-      createdAt: new Date().toLocaleString("en-GB"),
+      createdAt: formatSimMonthYear(data.gameState),
       createdTs: Date.now()
     };
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
@@ -300,7 +301,7 @@ function render(data, state) {
       handle,
       displayName,
       body,
-      createdAt: new Date().toLocaleString("en-GB"),
+      createdAt: formatSimMonthYear(data.gameState),
       createdTs: Date.now()
     };
     const submitBtn = e.currentTarget.querySelector("[type='submit']");

@@ -103,8 +103,7 @@ export async function initRegulationsPage(data) {
   root.innerHTML = `
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Guide to Regulations</h2>
-      <p>Regulations are laid by Government members for their own department only. Each regulation links to a dedicated open page with the full text and debate link.</p>
-      <p>Use <b>Open</b> to view and manage an individual regulation (including Speaker controls).</p>
+      <p>Regulations are laid by Government members for their own department only.</p>
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
