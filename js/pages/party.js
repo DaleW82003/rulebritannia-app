@@ -1,7 +1,7 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSavePartyDrafts } from "../api.js";
+import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSavePartyDrafts } from "../api.js";
 
 const DEFAULT_PARTIES = {
   Conservative: {
@@ -577,12 +577,13 @@ function render(data, state) {
         <form id="party-control-form">
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
             <div>
-              <label class="label" for="party-leader-name">Leader (active character)</label>
-              <select id="party-leader-name" name="leaderName" class="input">
+              <label class="label" for="party-leader-select">Leader (active character)</label>
+              <select id="party-leader-select" name="leaderId" class="input">
+                <option value="">— No leader —</option>
                 ${(state.dbState?.partyCharacters?.length
                     ? state.dbState.partyCharacters.slice().sort((a, b) => a.name.localeCompare(b.name))
                     : activeCharactersForParty(data, party.name)
-                  ).map((c) => `<option value="${esc(c.name)}" ${c.name === (party.leader?.name || "") ? "selected" : ""}>${esc(c.name)}</option>`).join("") || `<option value="">No active character available</option>`}
+                  ).map((c) => `<option value="${esc(c.id)}" ${String(c.id) === String(dbLeaderId || "") ? "selected" : ""}>${esc(c.name)}</option>`).join("") || `<option value="">No active character available</option>`}
               </select>
             </div>
             <div>
@@ -901,29 +902,39 @@ function render(data, state) {
     e.preventDefault();
     if (!manager) return;
     const fd = new FormData(e.currentTarget);
-    const leaderName = String(fd.get("leaderName") || "").trim();
-    // Use DB characters as the live source of truth; fall back to state pools.
-    const candidates = state.dbState?.partyCharacters?.length
-      ? state.dbState.partyCharacters
-      : activeCharactersForParty(data, party.name);
-    const selected = candidates.find((c) => c.name === leaderName);
-    if (selected) {
-      party.leader.name = selected.name;
-      party.leader.avatar = selected.avatar || "";
-      party.leader.characterId = selected.name;
-    }
+    const leaderId = String(fd.get("leaderId") || "").trim();
     const newCash    = Number(fd.get("cash")    || 0);
     const newDebt    = Number(fd.get("debt")    || 0);
     const newMembers = Number(fd.get("members") || 0);
     const newHqUrl   = String(fd.get("hqUrl")   || "").trim();
 
-    // Persist treasury + hqUrl to DB (authoritative source)
     const partyId = state.activeParty;
+
+    // Persist party leader to DB (admin/mod only, authoritative source)
+    try {
+      await apiSetPartyLeader(partyId, leaderId || null);
+    } catch (err) {
+      console.warn("[party-control-form] leader save failed:", err.message);
+    }
+
+    // Persist treasury + hqUrl to DB (authoritative source)
     try {
       await apiSetPartyTreasury(partyId, { cash: newCash, debt: newDebt, members: newMembers, hqUrl: newHqUrl || null });
     } catch (err) {
       console.warn("[party-control-form] treasury save failed:", err.message);
     }
+
+    // Re-fetch party from DB to sync leader info
+    try {
+      const { party: updated } = await apiGetParty(partyId);
+      state.dbState = { ...state.dbState, party: updated };
+      party.leader.name        = updated.leader_name  || "";
+      party.leader.avatar      = updated.leader_avatar || "";
+      party.leader.characterId = updated.leader_id    || "";
+    } catch (err) {
+      console.warn("[party-control-form] re-fetch party failed:", err.message);
+    }
+
     party.treasury.cash    = newCash;
     party.treasury.debt    = newDebt;
     party.treasury.members = newMembers;

@@ -34,9 +34,16 @@ function getMyOfficeId(data) {
   return String(getChar(data)?.office || "");
 }
 
+function getMyOfficeIds(data) {
+  const c = getChar(data);
+  if (Array.isArray(c?.offices) && c.offices.length) return c.offices;
+  const single = String(c?.office || "");
+  return single ? [single] : [];
+}
+
 function isGovernmentMember(data) {
-  const office = getMyOfficeId(data);
-  return CS_DEPARTMENTS.some((d) => d.officeId === office);
+  const myOffices = getMyOfficeIds(data);
+  return CS_DEPARTMENTS.some((d) => myOffices.includes(d.officeId));
 }
 
 function canAccessDepartment(data, officeId) {
@@ -47,16 +54,16 @@ function canAccessDepartment(data, officeId) {
 
 function canSeeBriefing(data, briefing) {
   if (canModerate(data)) return true;
-  const officeId = getMyOfficeId(data);
-  if (!officeId) return false;
-  if (String(briefing.target_officeId || "") === officeId) return true;
-  return Array.isArray(briefing.cc_officeIds) && briefing.cc_officeIds.includes(officeId);
+  const myOffices = getMyOfficeIds(data);
+  if (!myOffices.length) return false;
+  if (myOffices.includes(String(briefing.target_officeId || ""))) return true;
+  return Array.isArray(briefing.cc_officeIds) && briefing.cc_officeIds.some((cc) => myOffices.includes(cc));
 }
 
 function canActOnBriefing(data, briefing) {
   if (canModerate(data)) return true;
-  const officeId = getMyOfficeId(data);
-  return !!officeId && String(briefing.target_officeId || "") === officeId;
+  const myOffices = getMyOfficeIds(data);
+  return myOffices.includes(String(briefing.target_officeId || ""));
 }
 
 // ── Briefing normalisation ───────────────────────────────────────────────────

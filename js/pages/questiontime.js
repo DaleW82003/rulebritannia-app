@@ -143,10 +143,10 @@ function canAskMainQuestion(data, officeId) {
 
   if (role === "shadow" || role === "minister") {
     const expectedShadowOffice = officeToShadowOfficeMap(officeId);
-    const currentShadowOffice = String(char?.shadowOffice || "");
-    const currentOffice = String(char?.office || "");
-    const matchesShadow = expectedShadowOffice && currentShadowOffice === expectedShadowOffice;
-    const matchesMinister = currentOffice && currentOffice === officeId;
+    const currentOffices       = Array.isArray(char?.offices)       ? char.offices       : (char?.office       ? [char.office]       : []);
+    const currentShadowOffices = Array.isArray(char?.shadowOffices) ? char.shadowOffices : (char?.shadowOffice ? [char.shadowOffice] : []);
+    const matchesShadow  = expectedShadowOffice && currentShadowOffices.includes(expectedShadowOffice);
+    const matchesMinister = currentOffices.includes(officeId);
     if (!matchesShadow && !matchesMinister) {
       return { ok: false, reason: "Shadow Secretaries/Ministers may only ask within their own portfolio." };
     }
