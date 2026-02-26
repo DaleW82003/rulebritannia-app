@@ -414,10 +414,13 @@ export async function initDashboardPage(data) {
   } catch { /* ignore localStorage errors */ }
 
   await Promise.allSettled([
-    // Bills → order paper + live docket
+    // Bills → order paper + live docket (replace from DB — authoritative source)
     apiGetBills().then((r) => {
-      data.orderPaperCommons ??= [];
-      mergeInto(data.orderPaperCommons, r?.bills);
+      if (Array.isArray(r?.bills)) {
+        data.orderPaperCommons = r.bills;
+      } else {
+        data.orderPaperCommons ??= [];
+      }
     }),
     // Motions → live docket
     apiGetMotions().then((r) => {
