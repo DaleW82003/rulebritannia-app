@@ -759,6 +759,7 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS bio                       TEXT,
       ADD COLUMN IF NOT EXISTS financial_background_level INTEGER NOT NULL DEFAULT 1,
       ADD COLUMN IF NOT EXISTS avatar                    TEXT,
+      ADD COLUMN IF NOT EXISTS avatar_attribution        TEXT,
       ADD COLUMN IF NOT EXISTS twitter_handle            TEXT,
       ADD COLUMN IF NOT EXISTS home                      JSONB NOT NULL DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS rentals                   JSONB NOT NULL DEFAULT '[]'::jsonb;
@@ -794,6 +795,7 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS pca_user_idx   ON pending_character_applications (applicant_user_id);
     CREATE INDEX IF NOT EXISTS pca_status_idx ON pending_character_applications (status);
     ALTER TABLE pending_character_applications ADD COLUMN IF NOT EXISTS bio TEXT;
+    ALTER TABLE pending_character_applications ADD COLUMN IF NOT EXISTS avatar_attribution TEXT;
   `);
   // Migration: add application_id FK on characters (links character back to its originating application)
   await pool.query(`
@@ -873,6 +875,7 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS pac_char_idx   ON pending_avatar_changes (character_id);
     CREATE INDEX IF NOT EXISTS pac_status_idx ON pending_avatar_changes (status);
   `);
+  await pool.query(`ALTER TABLE pending_avatar_changes ADD COLUMN IF NOT EXISTS proposed_avatar_attribution TEXT`);
 
   // ── Affiliations — proper relational tables ───────────────────────────────
   // (Supersedes any prior pending_affiliations / approved_affiliations JSONB columns
@@ -6349,7 +6352,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
       // Canonical active character: prefer session pointer, then DB pointer, then any active char.
       isLoggedIn
         ? pool.query(
-            `SELECT c.id, c.name, c.party, c.constituency, c.avatar, c.bio, c.personal_background,
+            `SELECT c.id, c.name, c.party, c.constituency, c.avatar, c.avatar_attribution, c.bio, c.personal_background,
                     c.date_of_birth, c.education, c.career_background, c.family, c.year_first_elected,
                     c.financial_background_level, c.twitter_handle,
                     c.is_active, c.user_id
@@ -6406,6 +6409,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
         party:                    c.party || "",
         constituency:             c.constituency || "",
         avatar:                   c.avatar || "",
+        avatarAttribution:        c.avatar_attribution || "",
         bio:                      c.bio || c.personal_background || "",
         is_active:                c.is_active,
         dateOfBirth:              c.date_of_birth || "",
@@ -6749,7 +6753,7 @@ app.post("/api/admin/characters/:id/profile", charWriteLimit, async (req, res) =
 
     const {
       education, career_background, family, date_of_birth,
-      financial_background_level, twitter_handle, avatar,
+      financial_background_level, twitter_handle, avatar, avatar_attribution,
       bank_balance, salary_annual,
     } = req.body || {};
 
@@ -6770,6 +6774,7 @@ app.post("/api/admin/characters/:id/profile", charWriteLimit, async (req, res) =
     if (date_of_birth     !== undefined) { setClauses.push(`date_of_birth = $${i++}`);              params.push(String(date_of_birth || "").slice(0, 50) || null); }
     if (twitter_handle    !== undefined) { setClauses.push(`twitter_handle = $${i++}`);             params.push(String(twitter_handle || "").trim().replace(/^@+/, "").slice(0, 100)); }
     if (avatar            !== undefined) { setClauses.push(`avatar = $${i++}`);                     params.push(String(avatar || "").slice(0, 500)); }
+    if (avatar_attribution !== undefined) { setClauses.push(`avatar_attribution = $${i++}`);        params.push(String(avatar_attribution || "").slice(0, 500)); }
     if (financial_background_level !== undefined) {
       const lvl = parseInt(financial_background_level, 10);
       setClauses.push(`financial_background_level = $${i++}`);
@@ -6865,12 +6870,15 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
       date_of_birth, education, career_background, family,
       year_first_elected, personal_background, bio,
       financial_background_level = 1,
-      avatar = "", twitter_handle = "",
+      avatar = "", avatar_attribution = "", twitter_handle = "",
       home = {}, rentals = []
     } = req.body || {};
 
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "name is required" });
+    }
+    if (!avatar_attribution || typeof avatar_attribution !== "string" || !avatar_attribution.trim()) {
+      return res.status(400).json({ error: "avatar_attribution (who is your avatar?) is required" });
     }
 
     // Enforce bio max length
@@ -6925,8 +6933,8 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
       `INSERT INTO pending_character_applications
          (applicant_user_id, applicant_username, name, party, constituency,
           date_of_birth, education, career_background, family, year_first_elected,
-          personal_background, bio, financial_background_level, avatar, twitter_handle, home, rentals)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb)
+          personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
        RETURNING *`,
       [
         req.session.userId, applicantUsername, name.trim(), party, constituency,
@@ -6934,6 +6942,7 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
         family ?? null, year_first_elected ?? null, personal_background ?? null, bioValue,
         Number(financial_background_level) || 1,
         String(avatar || "").trim(),
+        String(avatar_attribution || "").trim(),
         String(twitter_handle || "").trim().replace(/^@+/, ""),
         JSON.stringify(home), JSON.stringify(rentals)
       ]
@@ -7016,15 +7025,15 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
       `INSERT INTO characters
          (user_id, application_id, name, party, constituency, roles, offices, is_active,
           date_of_birth, education, career_background, family, year_first_elected,
-          personal_background, bio, financial_background_level, avatar, twitter_handle, home, rentals)
-       VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'[]'::jsonb,TRUE,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb)
+          personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals)
+       VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'[]'::jsonb,TRUE,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
        RETURNING *`,
       [
         app_.applicant_user_id, req.params.id, app_.name, app_.party, app_.constituency,
         app_.date_of_birth, app_.education, app_.career_background, app_.family,
         app_.year_first_elected, app_.personal_background, app_.bio ?? null,
         app_.financial_background_level,
-        app_.avatar, app_.twitter_handle,
+        app_.avatar, app_.avatar_attribution, app_.twitter_handle,
         JSON.stringify(app_.home ?? {}), JSON.stringify(app_.rentals ?? [])
       ]
     );
@@ -7444,9 +7453,12 @@ app.post("/api/admin/bio-changes/:id/reject", charAppWriteLimit, async (req, res
 app.post("/api/characters/avatar-change", charAppWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { proposed_avatar } = req.body || {};
+    const { proposed_avatar, proposed_avatar_attribution } = req.body || {};
     if (!proposed_avatar || typeof proposed_avatar !== "string" || !proposed_avatar.trim()) {
       return res.status(400).json({ error: "proposed_avatar is required" });
+    }
+    if (!proposed_avatar_attribution || typeof proposed_avatar_attribution !== "string" || !proposed_avatar_attribution.trim()) {
+      return res.status(400).json({ error: "proposed_avatar_attribution (who is your avatar?) is required" });
     }
 
     const { rows: charRows } = await pool.query(
@@ -7467,9 +7479,9 @@ app.post("/api/characters/avatar-change", charAppWriteLimit, async (req, res) =>
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO pending_avatar_changes (character_id, user_id, proposed_avatar)
-       VALUES ($1,$2,$3) RETURNING *`,
-      [character_id, req.session.userId, proposed_avatar.trim()]
+      `INSERT INTO pending_avatar_changes (character_id, user_id, proposed_avatar, proposed_avatar_attribution)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [character_id, req.session.userId, proposed_avatar.trim(), proposed_avatar_attribution.trim()]
     );
     await writeAuditLog(req.session.userId, "avatar_change.submit", "pending_avatar_changes", rows[0].id, null, rows[0]);
     res.status(201).json({ ok: true, change: rows[0] });
@@ -7531,8 +7543,8 @@ app.post("/api/admin/avatar-changes/:id/approve", charAppWriteLimit, async (req,
     }
 
     await pool.query(
-      "UPDATE characters SET avatar = $1 WHERE id = $2",
-      [change.proposed_avatar, change.character_id]
+      "UPDATE characters SET avatar = $1, avatar_attribution = $2 WHERE id = $3",
+      [change.proposed_avatar, change.proposed_avatar_attribution, change.character_id]
     );
     await pool.query(
       "UPDATE pending_avatar_changes SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",

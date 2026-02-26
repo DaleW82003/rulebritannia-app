@@ -328,6 +328,7 @@ function render(data, state) {
         <div class="muted"><b>Bio:</b> ${esc((char?.bio || char?.personal_background || "-").slice(0, 100))}${(char?.bio || char?.personal_background || "").length > 100 ? "…" : ""}</div>
         <div class="muted"><b>Financial level:</b> ${esc(String(char?.financialBackgroundLevel || char?.financial_background_level || "-"))}</div>
         <div class="muted"><b>Absence:</b> ${char?.absent ? "Absent" : "Active"}${char?.absent ? ` · Delegated to ${esc(char?.delegatedTo || "None")}` : ""}</div>
+        ${char?.avatarAttribution ? `<div class="muted"><b>Avatar:</b> ${esc(char.avatarAttribution)}</div>` : ""}
       </div>
 
       <div class="tile" style="margin-bottom:10px;">
@@ -398,6 +399,10 @@ function render(data, state) {
           <div style="display:flex;flex-direction:column;gap:2px;">
             <input class="input" name="avatar" placeholder="Avatar URL (optional)">
             <span class="muted" style="font-size:.8em;margin-top:2px;">Recommended: 512×512 px (min 256×256 px)</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <input class="input" name="avatar_attribution" placeholder="Who is your avatar? (required, e.g. Alan Rickman)" required>
+            <span class="muted" style="font-size:.8em;margin-top:2px;">The real-world person whose likeness is used as your avatar.</span>
           </div>
           <input class="input" name="year_first_elected" placeholder="Year first elected" required>
           <textarea class="input" name="bio" placeholder="Biography (max 2000 characters)" maxlength="2000" required style="grid-column:1/-1;resize:vertical;min-height:80px;"></textarea>
@@ -479,6 +484,7 @@ function render(data, state) {
             <div class="muted">Submitted by ${esc(p.applicant_username || "User")} at ${esc(p.submitted_at ? new Date(p.submitted_at).toLocaleString("en-GB") : "")}</div>
             <div class="muted">Constituency: ${esc(p.constituency || "-")}</div>
             <div class="muted">Bio: ${esc((p.bio || p.personal_background || "-").slice(0, 200))}${(p.bio || p.personal_background || "").length > 200 ? "…" : ""}</div>
+            ${p.avatar_attribution ? `<div class="muted">Avatar: ${esc(p.avatar_attribution)}</div>` : ""}
             <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn" type="button" data-action="approve-character" data-id="${esc(p.id)}">Approve + Activate</button>
               <button class="btn" type="button" data-action="reject-character" data-id="${esc(p.id)}">Reject</button>
@@ -544,6 +550,12 @@ function render(data, state) {
   host.querySelector("#create-character-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const avatar_attribution = String(fd.get("avatar_attribution") || "").trim();
+    if (!avatar_attribution) {
+      state.message = "Please fill in \"Who is your avatar?\" before submitting.";
+      render(data, state);
+      return;
+    }
     // Build rentals array from dynamic rows
     const rentals = [];
     for (let i = 1; i <= rentalCount; i++) {
@@ -577,6 +589,7 @@ function render(data, state) {
       bio: String(fd.get("bio") || "").trim().slice(0, 2000),
       financial_background_level: Number(fd.get("financial_background_level") || 1),
       avatar: String(fd.get("avatar") || "").trim(),
+      avatar_attribution,
       twitter_handle: String(fd.get("twitter_handle") || "").trim(),
       home,
       rentals

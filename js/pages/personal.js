@@ -801,6 +801,7 @@ function normalisePersonal(data) {
   for (const profile of Object.values(data.personal.profiles)) {
     profile.name = String(profile.name || "").trim();
     profile.avatar = String(profile.avatar || "").trim();
+    profile.avatarAttribution = String(profile.avatarAttribution || "").trim();
     profile.profile ??= {};
     for (const f of PROFILE_FIELDS) {
       profile.profile[f.key] = String(profile.profile[f.key] || "").trim();
@@ -860,6 +861,7 @@ function normalisePersonal(data) {
       if (dbChar.party)            p.profile.party            = dbChar.party;
       if (dbChar.yearFirstElected) p.profile.yearFirstElected = dbChar.yearFirstElected;
       if (dbChar.avatar)           p.avatar                   = dbChar.avatar;
+      if (dbChar.avatarAttribution != null) p.avatarAttribution = String(dbChar.avatarAttribution);
       // Sync financial background level and twitter handle from DB character record
       if (dbChar.financialBackgroundLevel != null && dbChar.financialBackgroundLevel !== "") {
         p.financialBackgroundLevel = String(dbChar.financialBackgroundLevel);
@@ -928,10 +930,14 @@ function render(data, state) {
       <article class="tile">
         <h2 style="margin-top:0;">Name and Avatar</h2>
         <div style="display:flex;gap:10px;align-items:center;">
-          ${profile.avatar ? `<img src="${esc(profile.avatar)}" alt="${esc(profile.name)}" style="width:88px;height:88px;object-fit:cover;border-radius:10px;border:1px solid #ddd;">` : '<div class="muted-block" style="width:88px;height:88px;padding:0;display:grid;place-items:center;">👤</div>'}
+          ${profile.avatar
+            ? `<img src="${esc(profile.avatar)}" alt="${esc(profile.avatarAttribution || profile.name)}" style="width:88px;height:88px;object-fit:cover;border-radius:10px;border:1px solid #ddd;flex-shrink:0;image-rendering:auto;" onerror="this.style.display='none';this.nextElementSibling.style.display='grid';">`
+              + `<div class="muted-block" style="display:none;width:88px;height:88px;padding:0;grid-template-columns:1fr;place-items:center;flex-shrink:0;border-radius:10px;">👤</div>`
+            : '<div class="muted-block" style="width:88px;height:88px;padding:0;display:grid;place-items:center;flex-shrink:0;border-radius:10px;">👤</div>'}
           <div>
             <div><b>${esc(profile.name)}</b></div>
             <div class="muted">${esc(profile.profile.party || "")}</div>
+            ${profile.avatarAttribution ? `<div class="muted" style="font-size:.85em;">Avatar: ${esc(profile.avatarAttribution)}</div>` : ""}
           </div>
         </div>
         ${isOwnProfile ? `
@@ -940,6 +946,8 @@ function render(data, state) {
             <form id="avatar-change-form" style="margin-top:10px;">
               <input class="input" name="proposed_avatar" placeholder="New avatar URL (https://...)" style="width:100%;">
               <div class="muted" style="font-size:.8em;margin-top:3px;">Recommended: 512×512 px (min 256×256 px)</div>
+              <input class="input" name="proposed_avatar_attribution" placeholder="Who is this avatar? (required, e.g. Alan Rickman)" style="width:100%;margin-top:6px;" required>
+              <div class="muted" style="font-size:.8em;margin-top:3px;">The real-world person whose likeness is used as your avatar.</div>
               <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <button class="btn primary" type="submit">Submit Change Request</button>
                 <span class="muted" id="avatar-change-status"></span>
@@ -1227,6 +1235,10 @@ function render(data, state) {
               <input id="p-avatar" class="input" name="avatar" value="${esc(profile.avatar || "")}">
             </div>
             <div>
+              <label class="label" for="p-avatar-attr">Avatar Attribution (who)</label>
+              <input id="p-avatar-attr" class="input" name="avatar_attribution" value="${esc(profile.avatarAttribution || "")}">
+            </div>
+            <div>
               <label class="label" for="p-salary">Annual Salary Override (£)</label>
               <input id="p-salary" class="input" type="number" name="salaryAnnual" value="${esc(String(profile.salaryAnnual || 0))}">
             </div>
@@ -1411,6 +1423,7 @@ function render(data, state) {
     profileUpdate.family            = String(fd.get("profile:family")             ?? "");
     profileUpdate.date_of_birth     = String(fd.get("profile:dateOfBirth")        ?? "");
     profileUpdate.avatar            = String(fd.get("avatar")                     ?? "").trim();
+    profileUpdate.avatar_attribution = String(fd.get("avatar_attribution")          ?? "").trim();
     // financial_background_level: include as number or null (empty string → null = "clear")
     const finBgRaw = fd.get("financialBackgroundLevel");
     profileUpdate.financial_background_level = finBgRaw !== null && finBgRaw !== "" ? finBgRaw : null;
@@ -1425,6 +1438,7 @@ function render(data, state) {
       syncFinanceIntoProfile(profile, fin, data, activeName);
       // Update local profile display fields too
       profile.avatar = String(fd.get("avatar") || "").trim();
+      profile.avatarAttribution = String(fd.get("avatar_attribution") || "").trim();
       for (const f of PROFILE_FIELDS) {
         const v = String(fd.get(`profile:${f.key}`) || "").trim();
         if (v) profile.profile[f.key] = v;
@@ -1666,10 +1680,18 @@ function render(data, state) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const proposed_avatar = String(fd.get("proposed_avatar") || "").trim();
-    if (!proposed_avatar) return;
+    const proposed_avatar_attribution = String(fd.get("proposed_avatar_attribution") || "").trim();
     const statusEl = host.querySelector("#avatar-change-status");
+    if (!proposed_avatar) {
+      if (statusEl) statusEl.textContent = "Please enter a new avatar URL.";
+      return;
+    }
+    if (!proposed_avatar_attribution) {
+      if (statusEl) statusEl.textContent = "Please fill in \"Who is your avatar?\".";
+      return;
+    }
     try {
-      await apiSubmitAvatarChange(proposed_avatar);
+      await apiSubmitAvatarChange(proposed_avatar, proposed_avatar_attribution);
       if (statusEl) statusEl.textContent = "Change request submitted — awaiting mod review.";
       e.currentTarget.reset();
     } catch (err) {
@@ -1691,6 +1713,7 @@ function render(data, state) {
             <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
             <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
             <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;font-size:.9em;word-break:break-all;">${esc(c.proposed_avatar)}</div>
+            ${c.proposed_avatar_attribution ? `<div class="muted" style="font-size:.9em;margin-bottom:6px;"><b>Avatar (who):</b> ${esc(c.proposed_avatar_attribution)}</div>` : ""}
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn primary" type="button" data-action="approve-avatar-change" data-id="${esc(c.id)}">Approve</button>
               <button class="btn" type="button" data-action="reject-avatar-change" data-id="${esc(c.id)}">Reject</button>
