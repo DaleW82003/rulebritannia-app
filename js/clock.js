@@ -185,7 +185,7 @@ export function realDateOfSimMonth(targetMonth, targetYear, gameState) {
 
 /**
  * Human-readable countdown to a sim month deadline.
- * Returns strings like "2d 14h 30m", "Expired", "Paused", or "N month(s)" as a fallback.
+ * Returns strings like "2d 14h 30m", "Expired", "Paused", or "N months remaining" as a fallback.
  */
 export function countdownToSimMonth(targetMonth, targetYear, gameState) {
   if (gameState.isPaused) return "Paused";
@@ -196,7 +196,7 @@ export function countdownToSimMonth(targetMonth, targetYear, gameState) {
     const now = simDateToObj(getSimDate(gameState));
     const remaining = Math.max(0, (targetYear * 12 + (targetMonth - 1)) - (now.year * 12 + (now.month - 1)));
     if (remaining <= 0) return "Expired";
-    return remaining === 1 ? "1 month" : `${remaining} months`;
+    return remaining === 1 ? "1 month remaining" : `${remaining} months remaining`;
   }
 
   const now = new Date();

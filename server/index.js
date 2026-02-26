@@ -5279,6 +5279,24 @@ app.post("/api/questiontime-questions", crudWriteLimit, async (req, res) => {
     if (!q || typeof q !== "object" || !q.id) {
       return res.status(400).json({ error: "Body must be a question object with an id" });
     }
+    // Server-side dedup: reject if same askedBy + office + text was submitted within 10 minutes
+    const askedBy = String(q.askedBy || "").trim();
+    const office  = String(q.office  || "").trim();
+    const text    = String(q.text    || "").trim();
+    if (askedBy && office && text) {
+      const { rows: dupeRows } = await pool.query(
+        `SELECT id FROM questiontime_questions
+          WHERE data->>'askedBy' = $1
+            AND data->>'office'  = $2
+            AND data->>'text'    = $3
+            AND updated_at > NOW() - INTERVAL '10 minutes'
+          LIMIT 1`,
+        [askedBy, office, text]
+      );
+      if (dupeRows.length) {
+        return res.status(409).json({ error: "A question with the same text was already submitted recently. Please wait before resubmitting." });
+      }
+    }
     const { rows: clk } = await pool.query(
       "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
     );
@@ -9371,15 +9389,32 @@ app.get("/api/qt/questions/:id", qtReadLimit, async (req, res) => {
 app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { office_id, question_text, asked_by_character_id } = req.body || {};
+    const { office_id, question_text } = req.body || {};
     if (!office_id || !question_text) {
       return res.status(400).json({ error: "office_id and question_text are required" });
+    }
+    // Always derive character from session — never trust client-supplied asked_by_character_id
+    const charId = await getActiveCharacterId(req);
+    // Server-side dedup: same character + office + text within 10 minutes → 409
+    if (charId) {
+      const { rows: dupeRows } = await pool.query(
+        `SELECT id FROM qt_questions
+          WHERE asked_by_character_id = $1
+            AND office_id             = $2
+            AND question_text         = $3
+            AND created_at > NOW() - INTERVAL '10 minutes'
+          LIMIT 1`,
+        [charId, office_id, question_text.trim()]
+      );
+      if (dupeRows.length) {
+        return res.status(409).json({ error: "A question with the same text was already submitted recently. Please wait before resubmitting." });
+      }
     }
     const { rows } = await pool.query(
       `INSERT INTO qt_questions (office_id, asked_by_character_id, question_text)
        VALUES ($1, $2, $3)
        RETURNING id, office_id, asked_by_character_id, question_text, status, created_at`,
-      [office_id, asked_by_character_id || null, question_text.trim()]
+      [office_id, charId || null, question_text.trim()]
     );
     res.status(201).json({ ok: true, question: rows[0] });
   } catch (e) {
