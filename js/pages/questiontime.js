@@ -8,6 +8,7 @@ import {
   apiGetQtQuestions, apiSubmitQtQuestion, apiAnswerQtQuestion,
   apiFollowupQtQuestion, apiPatchQtQuestion,
   apiGetQtLegacyQuestions, apiCreateQtLegacyQuestion, apiUpdateQtLegacyQuestion,
+  apiDeleteQtLegacyQuestion,
 } from "../api.js";
 import { npcPartyOptions } from "../parties.js";
 
@@ -542,6 +543,7 @@ function render(data, state) {
       data.questionTime.questions = data.questionTime.questions.filter((q) => q.id !== qid);
       saveState(data);
       render(data, state);
+      apiDeleteQtLegacyQuestion(qid).catch((err) => console.error("[questiontime] delete failed:", err));
     });
   });
 }

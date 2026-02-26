@@ -3,6 +3,7 @@ import { esc } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
 import { formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
+import { apiCreatePollingEntry, apiDeletePollingEntry } from "../api.js";
 
 function canPublish(data) {
   return canAdminOrMod(data);
@@ -153,15 +154,17 @@ function render(data) {
             <div class="muted">Published ${esc(poll.createdAt || "")}</div>
           </div>
           <div style="margin-top:6px;">${resultList(poll.results || [])}</div>
+          ${isPublisher ? `<div class="tile-bottom" style="margin-top:6px;"><button class="btn danger" type="button" data-action="delete-poll" data-id="${esc(String(poll.id))}">Delete</button></div>` : ""}
         </article>
       `).join("") : `<div class="muted-block">No historical polls yet.</div>`}
     </section>
   `;
 
-  root.querySelector("#poll-submit-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#poll-submit-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!isPublisher) return;
-    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     const simDate = String(fd.get("simDate") || "").trim();
     const text = String(fd.get("results") || "").trim();
     if (!simDate || !text) return;
@@ -186,9 +189,25 @@ function render(data) {
     };
 
     data.polling.polls.push(poll);
+    try {
+      await apiCreatePollingEntry(poll);
+    } catch (err) {
+      console.error("[polling] Failed to persist poll to DB:", err);
+    }
     saveState(data);
     logAction({ action: "poll-published", target: simDate, details: { pollId: poll.id, results } });
     render(data);
+  });
+
+  root.querySelectorAll("[data-action='delete-poll']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!isPublisher) return;
+      const id = String(btn.getAttribute("data-id") || "");
+      data.polling.polls = data.polling.polls.filter((p) => String(p.id) !== id);
+      saveState(data);
+      render(data);
+      apiDeletePollingEntry(id).catch((err) => console.error("[polling] delete failed:", err));
+    });
   });
 }
 

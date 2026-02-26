@@ -67,14 +67,74 @@ function renderReader(paper, canDelete = false) {
         ${i.bylineName ? `<div class="paper-issue-byline">By ${esc(i.bylineName)}</div>` : ""}
         ${i.imageUrl ? `<div class="paper-issue-imagewrap"><img src="${esc(i.imageUrl)}" alt=""></div>` : ""}
         <div class="paper-issue-text">${esc(i.text || "")}</div>
-        ${canDelete ? `<div class="tile-bottom" style="margin-top:8px;"><button class="btn danger" data-action="delete-article" data-paper="${esc(paper.key)}" data-article-id="${esc(i.id)}" type="button">Delete</button></div>` : ""}
+        ${canDelete ? `<div class="tile-bottom" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn" data-action="edit-article" data-paper="${esc(paper.key)}" data-article-id="${esc(i.id)}" type="button">Edit</button>
+          <button class="btn danger" data-action="delete-article" data-paper="${esc(paper.key)}" data-article-id="${esc(i.id)}" type="button">Delete</button>
+        </div>` : ""}
       </article>
     `).join("")}
   `;
 }
 
+function ensurePaperEditPanel(data, canDelete) {
+  if (document.getElementById("paperEditArticlePanel")) return;
+
+  const editPanel = document.createElement("div");
+  editPanel.id = "paperEditArticlePanel";
+  editPanel.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:9999;";
+  editPanel.innerHTML = `
+    <section class="panel" style="max-width:560px;width:100%;max-height:90vh;overflow-y:auto;">
+      <h2 style="margin-top:0;">Edit Article (Staff)</h2>
+      <form id="paperEditArticleForm">
+        <label class="label" for="peaHeadline">Headline</label>
+        <input id="peaHeadline" class="input" type="text" required maxlength="200">
+        <label class="label" for="peaText">Text</label>
+        <textarea id="peaText" class="input" rows="6" required></textarea>
+        <label class="label" for="peaByline">Byline (optional)</label>
+        <input id="peaByline" class="input" type="text" maxlength="120">
+        <label class="label" for="peaImage">Image URL (optional)</label>
+        <input id="peaImage" class="input" type="url">
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn primary" type="submit">Save</button>
+          <button class="btn" type="button" id="peaCancel">Cancel</button>
+        </div>
+      </form>
+    </section>
+  `;
+  document.body.appendChild(editPanel);
+
+  editPanel.querySelector("#peaCancel").addEventListener("click", () => {
+    editPanel.style.display = "none";
+  });
+  editPanel.addEventListener("click", (ev) => {
+    if (ev.target === editPanel) editPanel.style.display = "none";
+  });
+
+  editPanel.querySelector("#paperEditArticleForm").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const panel = document.getElementById("paperEditArticlePanel");
+    const aid = panel.dataset.articleId;
+    const pkey = panel.dataset.paperKey;
+    const paper = (data.papers?.papers || []).find((p) => p.key === pkey);
+    const art = (paper?.issues || []).find((i) => i.id === aid);
+    if (!art) return;
+    art.headline = panel.querySelector("#peaHeadline")?.value?.trim() || art.headline;
+    art.text = panel.querySelector("#peaText")?.value?.trim() || art.text;
+    art.bylineName = panel.querySelector("#peaByline")?.value?.trim() || "";
+    art.imageUrl = panel.querySelector("#peaImage")?.value?.trim() || "";
+    saveState(data);
+    panel.style.display = "none";
+    if (paper) {
+      setHTML("paperReader", renderReader(paper, canDelete));
+      bindArticleDeleteListeners(data, canDelete);
+    }
+  });
+}
+
 function bindArticleDeleteListeners(data, canDelete) {
   if (!canDelete) return;
+  ensurePaperEditPanel(data, canDelete);
+
   document.querySelectorAll("[data-action='delete-article']").forEach((delBtn) => {
     delBtn.addEventListener("click", () => {
       const articleId = delBtn.getAttribute("data-article-id");
@@ -85,6 +145,26 @@ function bindArticleDeleteListeners(data, canDelete) {
       saveState(data);
       setHTML("paperReader", renderReader(targetPaper, canDelete));
       bindArticleDeleteListeners(data, canDelete);
+    });
+  });
+
+  document.querySelectorAll("[data-action='edit-article']").forEach((editBtn) => {
+    editBtn.addEventListener("click", () => {
+      const articleId = editBtn.getAttribute("data-article-id");
+      const paperKey = editBtn.getAttribute("data-paper");
+      const targetPaper = (data.papers?.papers || []).find((p) => p.key === paperKey);
+      if (!targetPaper) return;
+      const article = (targetPaper.issues || []).find((i) => i.id === articleId);
+      if (!article) return;
+
+      const editPanel = document.getElementById("paperEditArticlePanel");
+      editPanel.querySelector("#peaHeadline").value = article.headline || "";
+      editPanel.querySelector("#peaText").value = article.text || "";
+      editPanel.querySelector("#peaByline").value = article.bylineName || "";
+      editPanel.querySelector("#peaImage").value = article.imageUrl || "";
+      editPanel.dataset.articleId = articleId;
+      editPanel.dataset.paperKey = paperKey;
+      editPanel.style.display = "flex";
     });
   });
 }

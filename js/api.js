@@ -1237,6 +1237,16 @@ export async function apiUpdateQtLegacyQuestion(id, question) {
   return res.json();
 }
 
+export async function apiDeleteQtLegacyQuestion(id) {
+  const res = await fetch(`${API_BASE}/api/questiontime-questions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: csrfHeaders(),
+  });
+  if (!res.ok) throw new Error(`apiDeleteQtLegacyQuestion failed (${res.status})`);
+  return res.json();
+}
+
 // ── Simulation State ───────────────────────────────────────────────────────
 
 export async function apiGetSim() {
@@ -1367,6 +1377,16 @@ export async function apiCreatePollingEntry(payload) {
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`apiCreatePollingEntry failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiDeletePollingEntry(id) {
+  const res = await fetch(`${API_BASE}/api/polling/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: csrfHeaders(),
+  });
+  if (!res.ok) throw new Error(`apiDeletePollingEntry failed (${res.status})`);
   return res.json();
 }
 
@@ -1809,6 +1829,16 @@ export async function apiSubmitElectionBodyResult(payload) {
   return res.json();
 }
 
+export async function apiDeleteElectionBodyResult(id) {
+  const res = await fetch(`${API_BASE}/api/elections/bodies/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: csrfHeaders(),
+  });
+  if (!res.ok) throw new Error(`apiDeleteElectionBodyResult failed (${res.status})`);
+  return res.json();
+}
+
 export async function apiResetBaseline() {
   const res = await fetch(`${API_BASE}/api/admin/reset-baseline`, {
     method: "POST",
@@ -2159,6 +2189,13 @@ export async function apiUpdateEvent(id, event) {
   if (!res.ok) throw new Error(`apiUpdateEvent failed (${res.status})`);
   return res.json();
 }
+export async function apiDeleteEvent(id) {
+  const res = await fetch(`${API_BASE}/api/events/${encodeURIComponent(id)}`, {
+    method: "DELETE", credentials: "include", headers: csrfHeaders(),
+  });
+  if (!res.ok) throw new Error(`apiDeleteEvent failed (${res.status})`);
+  return res.json();
+}
 
 // ── Character work plan ──────────────────────────────────────────────────────
 
@@ -2197,6 +2234,13 @@ export async function apiCreateOnlinePost(postType, post) {
   if (!res.ok) throw new Error(`apiCreateOnlinePost failed (${res.status})`);
   return res.json();
 }
+export async function apiDeleteOnlinePost(id) {
+  const res = await fetch(`${API_BASE}/api/online/${encodeURIComponent(id)}`, {
+    method: "DELETE", credentials: "include", headers: csrfHeaders(),
+  });
+  if (!res.ok) throw new Error(`apiDeleteOnlinePost failed (${res.status})`);
+  return res.json();
+}
 
 // ── Fundraising ───────────────────────────────────────────────────────────────
 export async function apiGetFundraisingItems() {
@@ -2221,6 +2265,13 @@ export async function apiUpdateFundraisingItem(id, item) {
     body: JSON.stringify(item),
   });
   if (!res.ok) throw new Error(`apiUpdateFundraisingItem failed (${res.status})`);
+  return res.json();
+}
+export async function apiDeleteFundraisingItem(id) {
+  const res = await fetch(`${API_BASE}/api/fundraising/${encodeURIComponent(id)}`, {
+    method: "DELETE", credentials: "include", headers: csrfHeaders(),
+  });
+  if (!res.ok) throw new Error(`apiDeleteFundraisingItem failed (${res.status})`);
   return res.json();
 }
 

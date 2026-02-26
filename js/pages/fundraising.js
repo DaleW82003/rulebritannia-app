@@ -3,7 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
-import { apiCreateFundraisingItem, apiGetFundraisingItems } from "../api.js";
+import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem } from "../api.js";
 
 const FUNDRAISERS = [
   {
@@ -206,6 +206,7 @@ function render(data, state) {
                 <button class="btn" type="button" data-action="approve" data-id="${esc(String(item.id))}">Approve + Allocate Revenue</button>
                 <button class="btn danger" type="button" data-action="cancel" data-id="${esc(String(item.id))}">Refuse</button>
               ` : ""}
+              ${mod ? `<button class="btn danger" type="button" data-action="delete-fundraiser" data-id="${esc(String(item.id))}">Delete</button>` : ""}
             </div>
             ${String(state.openId) === String(item.id) ? `
               <div style="margin-top:8px;">
@@ -364,6 +365,17 @@ function render(data, state) {
       const id = String(btn.getAttribute("data-id") || "");
       state.openId = id;
       render(data, state);
+    });
+  });
+
+  root.querySelectorAll("[data-action='delete-fundraiser']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!mod) return;
+      const id = String(btn.getAttribute("data-id") || "");
+      data.fundraising.items = data.fundraising.items.filter((x) => String(x.id) !== id);
+      saveState(data);
+      render(data, state);
+      apiDeleteFundraisingItem(id).catch((err) => console.error("[fundraising] delete failed:", err));
     });
   });
 }
