@@ -159,10 +159,11 @@ function canAskMainQuestion(data, officeId) {
   return { ok: true, reason: "" };
 }
 
-function maxFollowUpsFor(data, officeId, askedRole) {
-  const role = normaliseRole(askedRole || getCurrentCharacter(data)?.role);
+function maxFollowUpsFor(data, officeId) {
+  // Follow-up allowance is based on the CURRENT user's role, not the original asker's.
+  const role = normaliseRole(getCurrentCharacter(data)?.role);
   if (officeId === "prime-minister") {
-    if (role === "leader-opposition") return 3;
+    if (role === "leader-opposition")    return 3;
     if (role === "party-leader-3rd-4th") return 2;
     return 1;
   }
@@ -172,8 +173,18 @@ function maxFollowUpsFor(data, officeId, askedRole) {
 
 function renderQuestionLine(question, office, canAnswer, canArchive, canDeleteQ, simLabel, data) {
   const followUps = Array.isArray(question.followUps) ? question.followUps : [];
-  const maxFollowUps = maxFollowUpsFor(data, question.office, question.askedRole);
-  const canAskFollowUp = !!question.answer && !question.archived && followUps.length < maxFollowUps;
+  const maxFollowUps = maxFollowUpsFor(data, question.office);
+  // Shadow secretaries/ministers can only follow up in their own portfolio
+  const char = getCurrentCharacter(data);
+  const viewerRole = normaliseRole(char?.role);
+  let portfolioOk = true;
+  if (viewerRole === "shadow" || viewerRole === "minister") {
+    const currentOffices       = Array.isArray(char?.offices)       ? char.offices       : (char?.office       ? [char.office]       : []);
+    const currentShadowOffices = Array.isArray(char?.shadowOffices) ? char.shadowOffices : (char?.shadowOffice ? [char.shadowOffice] : []);
+    const expectedShadow = officeToShadowOfficeMap(question.office);
+    portfolioOk = (expectedShadow && currentShadowOffices.includes(expectedShadow)) || currentOffices.includes(question.office);
+  }
+  const canAskFollowUp = !!question.answer && !question.archived && followUps.length < maxFollowUps && portfolioOk;
 
   return `
     <article class="tile" style="margin-bottom:10px;">
@@ -442,9 +453,18 @@ function render(data, state) {
       if (!question || question.archived || !question.answer) return;
 
       const char = getCurrentCharacter(data);
-      const maxFollowUps = maxFollowUpsFor(data, question.office, question.askedRole);
+      const maxFollowUps = maxFollowUpsFor(data, question.office);
       question.followUps ??= [];
       if (question.followUps.length >= maxFollowUps) return;
+      // Shadow secretaries/ministers can only follow up in their own portfolio
+      const fRole = normaliseRole(char?.role);
+      if (fRole === "shadow" || fRole === "minister") {
+        const currentOffices       = Array.isArray(char?.offices)       ? char.offices       : (char?.office       ? [char.office]       : []);
+        const currentShadowOffices = Array.isArray(char?.shadowOffices) ? char.shadowOffices : (char?.shadowOffice ? [char.shadowOffice] : []);
+        const expectedShadow = officeToShadowOfficeMap(question.office);
+        const ok = (expectedShadow && currentShadowOffices.includes(expectedShadow)) || currentOffices.includes(question.office);
+        if (!ok) return;
+      }
 
       const submitBtn = form.querySelector("button[type='submit']");
       if (submitBtn) submitBtn.disabled = true;
