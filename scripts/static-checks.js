@@ -90,14 +90,18 @@ for (let i = 0; i < apiLines.length; i++) {
   if (ctx.includes("credentials")) continue;
   // Extract the path — handle template literals (`${BASE}/api/...`), plain strings, and bare paths
   const pathMatch =
-    line.match(/fetch\([`'"]?\$\{[^}]+\}(\/(?:api\/|health)[^`"'?\s$]+)/) ||
-    line.match(/fetch\([`'"](\/(?:api\/|health)[^`"'?\s]+)/) ||
-    line.match(/fetch\([`'"]?\$\{[^}]+\}(\/health[`"']?)/) ||
-    line.match(/`\$\{[^}]+\}(\/health)`/);
-  const path = pathMatch?.[1]?.replace(/[`'"]/g, "");
+    line.match(/fetch\([`'"]?\$\{[^}]+\}(\/api\/[^`"'?\s$]+)/) ||
+    line.match(/fetch\([`'"](\/api\/[^`"'?\s]+)/);
+  const path = pathMatch?.[1];
   if (path && PUBLIC_PATH_PREFIXES.some((p) => path.startsWith(p))) continue;
-  // If we couldn't resolve the path at all, skip — can't make a static determination.
-  if (!path) continue;
+  // If the path resolves to an exact public probe path (e.g. /health), skip.
+  if (!path) {
+    // Check for the exact liveness probe path: ends with `/health` with no trailing chars.
+    const probeMatch = line.match(/fetch\([`'"]?\$\{[^}]+\}(\/health)[`"')\s]/);
+    if (probeMatch) continue;
+    // Path could not be resolved statically — skip; cannot determine auth requirement.
+    continue;
+  }
   fail(`js/api.js line ${i + 1}: GET missing credentials (${line.trim().slice(0, 70)})`);
   missingGetCreds++;
 }

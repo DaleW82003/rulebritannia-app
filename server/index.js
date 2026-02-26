@@ -4878,6 +4878,8 @@ app.get("/api/debates/payload/:entityType/:entityId", discourseReadLimit, async 
     }
 
     const table = DEBATE_ENTITY_TABLES[entityType];
+    // `table` is derived from DEBATE_ENTITY_TABLES — a static compile-time whitelist of
+    // known-safe table names validated above.  Interpolating it here is not a SQL-injection risk.
     const { rows } = await pool.query(
       `SELECT id, data, created_at FROM ${table} WHERE id = $1`,
       [String(entityId)]
