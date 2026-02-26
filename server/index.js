@@ -441,7 +441,7 @@ async function ensureSchema() {
       proposed_by_party   TEXT,
       status              TEXT NOT NULL DEFAULT 'proposed'
                           CHECK (status IN ('proposed','accepted','refused','in-division','withdrawn')),
-      division_id         TEXT REFERENCES divisions(id) ON DELETE SET NULL,
+      division_id         UUID REFERENCES divisions(id) ON DELETE SET NULL,
       created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (bill_id, id)
