@@ -836,12 +836,12 @@ export async function apiRejectBioChange(id) {
   return res.json();
 }
 
-export async function apiSubmitAvatarChange(proposed_avatar) {
+export async function apiSubmitAvatarChange(proposed_avatar, proposed_avatar_attribution) {
   const res = await fetch(`${API_BASE}/api/characters/avatar-change`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ proposed_avatar }),
+    body: JSON.stringify({ proposed_avatar, proposed_avatar_attribution }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
