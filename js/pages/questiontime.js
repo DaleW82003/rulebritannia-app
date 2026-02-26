@@ -326,6 +326,7 @@ function render(data, state) {
   const submitForm = root.querySelector("#qt-submit-question-form");
   submitForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const submitBtn = submitForm.querySelector("[type='submit']");
     const fd = new FormData(submitForm);
     const text = String(fd.get("text") || "").trim();
     if (!text) return;
@@ -338,6 +339,8 @@ function render(data, state) {
       render(data, state);
       return;
     }
+
+    if (submitBtn) submitBtn.disabled = true;
 
     const char = getCurrentCharacter(data);
     const askedBy = npcName || char?.name || "Backbench MP";
@@ -367,6 +370,10 @@ function render(data, state) {
       await apiCreateQtLegacyQuestion(question);
     } catch (err) {
       console.error("[questiontime] question save failed:", err);
+      const idx = data.questionTime.questions.findIndex((q) => q.id === question.id);
+      if (idx !== -1) data.questionTime.questions.splice(idx, 1);
+      if (submitBtn) submitBtn.disabled = false;
+      return;
     }
 
     render(data, state);
@@ -526,7 +533,6 @@ function render(data, state) {
 function renderDbQtPanel(questions, data, host) {
   const canAdmin = canModerate(data);
   const canAnswer = canAdminModOrSpeaker(data);
-  const char = getCurrentCharacter(data);
 
   const byOffice = {};
   questions.forEach((q) => {
@@ -536,9 +542,13 @@ function renderDbQtPanel(questions, data, host) {
   const offices = Object.keys(byOffice);
   if (!offices.length && !canAdmin) return;
 
+  // Remove any existing DB QT panel to guarantee at most one is ever in the DOM
+  host.querySelectorAll("[data-db-qt-panel]").forEach((el) => el.remove());
+
   const panel = document.createElement("section");
   panel.className = "tile";
   panel.style.marginTop = "20px";
+  panel.dataset.dbQtPanel = "1";
   panel.innerHTML = `<h2 style="margin-top:0;">Question Time</h2>
     <p class="muted" style="margin-bottom:12px;">Questions submitted via the structured question bank.</p>
     <form id="db-qt-ask-form" style="margin-bottom:16px;">
@@ -573,20 +583,24 @@ function renderDbQtPanel(questions, data, host) {
   host.appendChild(panel);
 
   // Submit question via DB endpoint
-  panel.querySelector("#db-qt-ask-form")?.addEventListener("submit", async (e) => {
+  const dbForm = panel.querySelector("#db-qt-ask-form");
+  if (!dbForm) return;
+  const submitBtn = dbForm.querySelector("[type='submit']");
+  dbForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const form = e.target;
+    const form = e.currentTarget;
     const office_id = form.office_id.value.trim();
     const question_text = form.question_text.value.trim();
     if (!question_text) return;
+    submitBtn.disabled = true;
     try {
       await apiSubmitQtQuestion({ office_id, question_text });
       form.question_text.value = "";
       // Refresh DB questions list
       const { questions: updated } = await apiGetQtQuestions();
       renderDbQtPanel(updated, data, host);
-      panel.remove();
     } catch (err) {
+      submitBtn.disabled = false;
       alert("Failed to submit question: " + err.message);
     }
   });
@@ -594,12 +608,13 @@ function renderDbQtPanel(questions, data, host) {
   // Archive buttons
   panel.querySelectorAll("[data-dbqt-archive]").forEach((btn) => {
     btn.addEventListener("click", async () => {
+      btn.disabled = true;
       try {
         await apiPatchQtQuestion(btn.dataset.dbqtArchive, { status: "archived" });
         const { questions: updated } = await apiGetQtQuestions();
         renderDbQtPanel(updated, data, host);
-        panel.remove();
       } catch (err) {
+        btn.disabled = false;
         alert("Failed to archive: " + err.message);
       }
     });

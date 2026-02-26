@@ -63,6 +63,11 @@ export async function initMotionsPage(data) {
         if (type === "house" && !seenHouse.has(String(item.id))) data.motions.house.push(item);
         if (type === "edm" && !seenEdm.has(String(item.id))) data.motions.edm.push(item);
       }
+      // Recalculate next numbers from the max number already in the DB so they never collide
+      const maxHouse = data.motions.house.reduce((mx, m) => Math.max(mx, Number(m.number || 0)), 0);
+      const maxEdm = data.motions.edm.reduce((mx, m) => Math.max(mx, Number(m.number || 0)), 0);
+      if (maxHouse >= (data.motions.nextHouseNumber || 1)) data.motions.nextHouseNumber = maxHouse + 1;
+      if (maxEdm >= (data.motions.nextEdmNumber || 1)) data.motions.nextEdmNumber = maxEdm + 1;
     }
   } catch (err) {
     console.error("[motions] DB load failed:", err);

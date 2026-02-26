@@ -1,7 +1,7 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
-import { formatSimMonthYear, getWeekdayName, isSunday } from "../clock.js";
+import { formatSimMonthYear, getWeekdayName, isSunday, getSimDate, simDateToObj, compareSimDates } from "../clock.js";
 import { handleApiError } from "../errors.js";
 import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry } from "../api.js";
 
@@ -112,6 +112,33 @@ function plusMonths(label, months) {
   const nm = (total % 12) + 1;
   const ny = Math.floor(total / 12);
   return `${names[nm - 1]} ${ny}`;
+}
+
+/** Parse a "Month YYYY" label into a { month: 1-12, year } object, or null if invalid. */
+function parseSimLabel(label) {
+  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const parts = String(label || "").trim().split(" ");
+  if (parts.length < 2) return null;
+  const m = names.indexOf(parts[0]) + 1;
+  const y = Number(parts[1]);
+  if (m < 1 || !y) return null;
+  return { month: m, year: y };
+}
+
+/** Conference status chip: shows Ongoing if close date is in the future, else Awaiting Marking (or numeric score). */
+function conferenceStatusChip(c, data) {
+  if (c.score !== null && c.score !== undefined) {
+    const cls = Number(c.score) >= 0 ? "#0a7f2e" : "#9d1d1d";
+    const sign = Number(c.score) > 0 ? "+" : "";
+    return `<span style="color:${cls};font-weight:700;">${sign}${Number(c.score)}</span>`;
+  }
+  if (c.status === "closed") return `<span class="muted">Awaiting Marking</span>`;
+  const closes = parseSimLabel(c.closesAtSim);
+  if (closes) {
+    const now = simDateToObj(getSimDate(data?.gameState || {}));
+    if (compareSimDates(now, closes) < 0) return `<span class="muted" style="color:#0a5a8a;">Ongoing</span>`;
+  }
+  return `<span class="muted">Awaiting Marking</span>`;
 }
 
 function surname(name) {
@@ -294,7 +321,7 @@ function render(data, state) {
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div><b>${esc(c.reference)}</b> — ${esc(c.subject)}</div>
-            <div>${scoreChip(c.score)}</div>
+            <div>${conferenceStatusChip(c, data)}</div>
           </div>
           <div class="muted">By ${esc(c.author)} • Opens ${esc(c.createdAtSim)} • Closes ${esc(c.closesAtSim)}</div>
           <div class="tile-bottom"><button class="btn" data-action="toggle-conference" data-id="${esc(c.id)}" type="button">${state.openConference === c.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-conference" data-id="${esc(c.id)}" type="button">Delete</button>` : ""}</div>
