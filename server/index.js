@@ -1556,6 +1556,15 @@ async function ensureSchema() {
     ALTER TABLE character_shop_purchases
       ADD COLUMN IF NOT EXISTS base_price NUMERIC NOT NULL DEFAULT 0;
   `);
+
+  // ── Canonical office spec_id + salary positions override ──────────────────
+  await pool.query(`
+    ALTER TABLE offices ADD COLUMN IF NOT EXISTS spec_id TEXT UNIQUE;
+    ALTER TABLE character_finance
+      ADD COLUMN IF NOT EXISTS positions_override BOOLEAN NOT NULL DEFAULT false;
+  `);
+  await seedOfficeSpecs();
+  await backfillSalaryPositions();
 }
 
 // ── 1997 baseline salary scale (idempotent) ────────────────────────────────
@@ -1594,6 +1603,148 @@ async function seedSalaryScale1997() {
     );
   }
   console.log("[seed] 1997 salary scale seeded, id =", scaleId);
+}
+
+// ── Canonical office specs (mirrors client-side OFFICE_SPECS / SHADOW_OFFICE_SPECS) ──
+// Slug used to identify the Liberal Democrat party for leader_third_party salary position.
+const LIBDEM_PARTY_SLUG = "Liberal Democrat";
+
+const CABINET_OFFICE_SPECS = [
+  { specId: "prime-minister",    title: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
+  { specId: "chancellor",        title: "Chancellor of the Exchequer, and Second Lord of the Treasury" },
+  { specId: "home",              title: "Secretary of State for the Home Department" },
+  { specId: "foreign",           title: "Secretary of State for Foreign and Commonwealth Affairs" },
+  { specId: "trade",             title: "Secretary of State for Business and Trade, and President of the Board of Trade" },
+  { specId: "defence",           title: "Secretary of State for Defence" },
+  { specId: "welfare",           title: "Secretary of State for Work and Pensions" },
+  { specId: "education",         title: "Secretary of State for Education" },
+  { specId: "env-agri",          title: "Secretary of State for the Environment and Agriculture" },
+  { specId: "health",            title: "Secretary of State for Health and Social Care" },
+  { specId: "eti",               title: "Secretary of State for Transport and Infrastructure" },
+  { specId: "culture",           title: "Secretary of State for Culture, Media and Sport" },
+  { specId: "home-nations",      title: "Secretary of State for the Home Nations" },
+  { specId: "leader-commons",    title: "Leader of the House of Commons" },
+];
+const SHADOW_OFFICE_SPECS_SERVER = [
+  { specId: "leader-opposition",       title: "Leader of the Opposition" },
+  { specId: "shadow-chancellor",       title: "Shadow Chancellor of the Exchequer" },
+  { specId: "shadow-home",             title: "Shadow Secretary of State for the Home Department" },
+  { specId: "shadow-foreign",          title: "Shadow Secretary of State for Foreign and Commonwealth Affairs" },
+  { specId: "shadow-trade",            title: "Shadow Secretary of State for Business and Trade, and President of the Board of Trade" },
+  { specId: "shadow-defence",          title: "Shadow Secretary of State for Defence" },
+  { specId: "shadow-welfare",          title: "Shadow Secretary of State for Work and Pensions" },
+  { specId: "shadow-education",        title: "Shadow Secretary of State for Education" },
+  { specId: "shadow-env-agri",         title: "Shadow Secretary of State for the Environment and Agriculture" },
+  { specId: "shadow-health",           title: "Shadow Secretary of State for Health and Social Care" },
+  { specId: "shadow-eti",              title: "Shadow Secretary of State for Transport and Infrastructure" },
+  { specId: "shadow-culture",          title: "Shadow Secretary of State for Culture, Media and Sport" },
+  { specId: "shadow-home-nations",     title: "Shadow Secretary of State for the Home Nations" },
+  { specId: "shadow-leader-commons",   title: "Shadow Leader of the House of Commons" },
+];
+
+/** Idempotently ensure all canonical offices exist in the DB with their spec_id. */
+async function seedOfficeSpecs() {
+  for (const { specId, title } of CABINET_OFFICE_SPECS) {
+    await pool.query(
+      `INSERT INTO offices (name, type, spec_id) VALUES ($1, 'cabinet', $2)
+       ON CONFLICT (spec_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type`,
+      [title, specId]
+    );
+  }
+  for (const { specId, title } of SHADOW_OFFICE_SPECS_SERVER) {
+    await pool.query(
+      `INSERT INTO offices (name, type, spec_id) VALUES ($1, 'shadow', $2)
+       ON CONFLICT (spec_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type`,
+      [title, specId]
+    );
+  }
+  console.log("[seed] office specs seeded");
+}
+
+/**
+ * Seed backbencher position for all player characters that have no salary
+ * positions yet. Run once on startup so new installs and existing characters
+ * without positions get a baseline salary.
+ */
+async function backfillSalaryPositions() {
+  const { rows } = await pool.query(`
+    SELECT c.id FROM characters c
+     WHERE c.user_id IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM character_positions cp WHERE cp.character_id = c.id
+       )
+  `);
+  for (const { id } of rows) {
+    await pool.query(
+      "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
+      [id]
+    );
+  }
+  if (rows.length) console.log(`[backfill] seeded backbencher for ${rows.length} character(s)`);
+}
+
+/**
+ * Recompute a character's salary positions from authoritative DB sources:
+ *   office_assignments → offices.spec_id / type
+ *   parties.leader_character_id for Liberal Democrat leader
+ * Highest-wins is handled at query time in computeCharacterAnnualSalary.
+ * Skipped when positions_override flag is set on character_finance.
+ */
+async function recomputeSalaryPositions(characterId) {
+  // Respect manual override flag
+  const { rows: fin } = await pool.query(
+    "SELECT positions_override FROM character_finance WHERE character_id = $1",
+    [characterId]
+  );
+  if (fin[0]?.positions_override) return;
+
+  const positions = new Set(["backbencher"]);
+
+  // Positions from office assignments
+  const { rows: assignments } = await pool.query(
+    `SELECT o.spec_id, o.type
+       FROM office_assignments oa
+       JOIN offices o ON o.id = oa.office_id
+      WHERE oa.character_id = $1 AND o.spec_id IS NOT NULL`,
+    [characterId]
+  );
+  for (const { spec_id, type } of assignments) {
+    if (spec_id === "prime-minister") {
+      positions.add("prime_minister");
+    } else if (spec_id === "leader-opposition") {
+      positions.add("leader_opposition");
+    } else if (type === "cabinet") {
+      positions.add("secretary_of_state");
+    } else if (type === "shadow") {
+      positions.add("shadow_secretary_of_state");
+    }
+  }
+
+  // Liberal Democrat party leader → leader_third_party
+  const { rows: ldRows } = await pool.query(
+    "SELECT 1 FROM parties WHERE slug = $1 AND leader_character_id = $2",
+    [LIBDEM_PARTY_SLUG, characterId]
+  );
+  if (ldRows.length) positions.add("leader_third_party");
+
+  // Replace all positions atomically
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM character_positions WHERE character_id = $1", [characterId]);
+    for (const pos of positions) {
+      await client.query(
+        "INSERT INTO character_positions (character_id, position_key) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [characterId, pos]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 // ── Salary computation helpers ────────────────────────────────────────────────
@@ -6693,6 +6844,13 @@ app.post("/api/characters", charWriteLimit, async (req, res) => {
        RETURNING id, user_id, name, party, constituency, roles, offices, is_active, created_at`,
       [user_id || null, name.trim(), party, constituency, JSON.stringify(roles), JSON.stringify(offices), is_active]
     );
+    // Seed backbencher salary position for all player characters
+    if (rows[0].user_id) {
+      await pool.query(
+        "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
+        [rows[0].id]
+      );
+    }
     await writeAuditLog(req.session.userId, "character.create", "character", rows[0].id, null, rows[0]);
     res.status(201).json({ ok: true, character: rows[0] });
   } catch (e) {
@@ -7052,6 +7210,12 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
     );
 
     await client.query("COMMIT");
+
+    // Seed backbencher salary position for newly created character (best-effort)
+    await pool.query(
+      "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
+      [character.id]
+    ).catch((e) => console.warn("[approve] backbencher seed failed:", e.message));
 
     // Update the applicant's active sessions to reflect the new active character (best-effort).
     try {
@@ -7687,6 +7851,46 @@ app.get("/api/parties/:partyId", partyReadLimit, async (req, res) => {
     // Include drafts array from DB column
     party.drafts = Array.isArray(party.drafts) ? party.drafts : [];
     res.json({ party });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/parties/:partyId/set-leader — admin/mod only: set party leader (DB-backed)
+app.post("/api/parties/:partyId/set-leader", partyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { character_id } = req.body || {};
+
+    const { rows: partyRows } = await pool.query("SELECT * FROM parties WHERE slug = $1", [req.params.partyId]);
+    if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
+    const partyData = partyRows[0];
+    const oldLeaderId = partyData.leader_character_id;
+
+    if (character_id) {
+      const { rows: charRows } = await pool.query(
+        "SELECT id, party FROM characters WHERE id = $1 AND is_active = TRUE", [character_id]
+      );
+      if (!charRows.length) return res.status(404).json({ error: "Character not found or inactive" });
+      if (charRows[0].party.toLowerCase() !== partyData.slug.toLowerCase()) {
+        return res.status(409).json({ error: "Character does not belong to this party" });
+      }
+    }
+
+    const { rows: updated } = await pool.query(
+      "UPDATE parties SET leader_character_id = $1, updated_at = NOW() WHERE slug = $2 RETURNING *",
+      [character_id || null, req.params.partyId]
+    );
+
+    // Recompute salary positions for old and new leader
+    for (const charId of [oldLeaderId, character_id].filter(Boolean)) {
+      await recomputeSalaryPositions(charId).catch((e) => console.error("[salary positions]", charId, e.message));
+    }
+
+    await writeAuditLog(req.session.userId, "party.leader.set", "party", partyData.id,
+      { leader_character_id: oldLeaderId }, { leader_character_id: character_id || null });
+    res.json({ ok: true, party: updated[0] });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -8954,7 +9158,7 @@ app.get("/api/offices", officeReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query(`
-      SELECT o.id, o.name, o.type, o.created_at,
+      SELECT o.id, o.name, o.type, o.spec_id, o.created_at,
              json_agg(json_build_object(
                'character_id', a.character_id,
                'character_name', c.name,
@@ -8998,18 +9202,50 @@ app.post("/api/offices", officeWriteLimit, async (req, res) => {
 
 app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const { character_id } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
 
     // Verify office and character exist
     const [{ rows: offRows }, { rows: charRows }] = await Promise.all([
-      pool.query("SELECT id, name FROM offices WHERE id = $1", [req.params.id]),
+      pool.query("SELECT id, name, type, spec_id FROM offices WHERE id = $1", [req.params.id]),
       pool.query("SELECT id, name FROM characters WHERE id = $1", [character_id]),
     ]);
     if (!offRows.length)  return res.status(404).json({ error: "Office not found" });
     if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+    const office = offRows[0];
 
+    // Permission: admin/mod always allowed; PM can assign non-PM cabinet; LOTO can assign non-LOTO shadow
+    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      const callerCharId = await getActiveCharacterId(req);
+      if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
+      if (office.type === "cabinet" && office.spec_id !== "prime-minister") {
+        const { rows: pmCheck } = await pool.query(
+          `SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+            WHERE o.spec_id = 'prime-minister' AND oa.character_id = $1`, [callerCharId]
+        );
+        if (!pmCheck.length) return res.status(403).json({ error: "Only the Prime Minister or admin/mod can appoint cabinet offices" });
+      } else if (office.type === "shadow" && office.spec_id !== "leader-opposition") {
+        const { rows: lotoCheck } = await pool.query(
+          `SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+            WHERE o.spec_id = 'leader-opposition' AND oa.character_id = $1`, [callerCharId]
+        );
+        if (!lotoCheck.length) return res.status(403).json({ error: "Only the Leader of the Opposition or admin/mod can appoint shadow offices" });
+      } else {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+    }
+
+    // Get current holder for salary recomputation
+    const { rows: oldRows } = await pool.query(
+      "SELECT character_id FROM office_assignments WHERE office_id = $1 LIMIT 1",
+      [req.params.id]
+    );
+    const oldCharId = oldRows[0]?.character_id ?? null;
+
+    // Exclusive assignment: clear any existing holders then insert new
     const { rows } = await pool.query(
       `INSERT INTO office_assignments (office_id, character_id)
        VALUES ($1, $2)
@@ -9017,8 +9253,19 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
        RETURNING id, office_id, character_id, assigned_at`,
       [req.params.id, character_id]
     );
+    await pool.query(
+      "DELETE FROM office_assignments WHERE office_id = $1 AND character_id != $2",
+      [req.params.id, character_id]
+    );
+
+    // Recompute salary positions for old and new holder
+    const toRecompute = new Set([oldCharId, character_id].filter(Boolean));
+    for (const charId of toRecompute) {
+      await recomputeSalaryPositions(charId).catch((e) => console.error("[salary positions]", charId, e.message));
+    }
+
     await writeAuditLog(req.session.userId, "office.assign", "office_assignment", rows[0].id,
-      null, { office_id: req.params.id, character_id });
+      { old_character_id: oldCharId }, { office_id: req.params.id, character_id });
     res.status(201).json({ ok: true, assignment: rows[0] });
   } catch (e) {
     console.error(e);
@@ -9028,12 +9275,46 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
 
 app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAuth(req, res)) return;
+
+    // Permission check (same logic as assign)
+    const { rows: offRows } = await pool.query(
+      "SELECT type, spec_id FROM offices WHERE id = $1", [req.params.id]
+    );
+    if (!offRows.length) return res.status(404).json({ error: "Office not found" });
+    const office = offRows[0];
+
+    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      const callerCharId = await getActiveCharacterId(req);
+      if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
+      if (office.type === "cabinet" && office.spec_id !== "prime-minister") {
+        const { rows: pmCheck } = await pool.query(
+          `SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+            WHERE o.spec_id = 'prime-minister' AND oa.character_id = $1`, [callerCharId]
+        );
+        if (!pmCheck.length) return res.status(403).json({ error: "Forbidden" });
+      } else if (office.type === "shadow" && office.spec_id !== "leader-opposition") {
+        const { rows: lotoCheck } = await pool.query(
+          `SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+            WHERE o.spec_id = 'leader-opposition' AND oa.character_id = $1`, [callerCharId]
+        );
+        if (!lotoCheck.length) return res.status(403).json({ error: "Forbidden" });
+      } else {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+    }
+
     const { rowCount } = await pool.query(
       "DELETE FROM office_assignments WHERE office_id = $1 AND character_id = $2",
       [req.params.id, req.params.characterId]
     );
     if (!rowCount) return res.status(404).json({ error: "Assignment not found" });
+
+    // Recompute salary for removed character
+    await recomputeSalaryPositions(req.params.characterId).catch((e) => console.error("[salary positions]", e.message));
+
     await writeAuditLog(req.session.userId, "office.unassign", "office_assignment",
       `${req.params.id}:${req.params.characterId}`, { office_id: req.params.id, character_id: req.params.characterId }, null);
     res.json({ ok: true });
@@ -12460,7 +12741,7 @@ app.post("/api/admin/finance/set-salary-override", financeLimit, async (req, res
   }
 });
 
-// POST /api/admin/finance/set-positions — set character positions (replaces all)
+// POST /api/admin/finance/set-positions — set character positions (replaces all); marks positions_override
 app.post("/api/admin/finance/set-positions", financeLimit, async (req, res) => {
   try {
     if (!requireAdminModOrSpeaker(req, res)) return;
@@ -12484,6 +12765,13 @@ app.post("/api/admin/finance/set-positions", financeLimit, async (req, res) => {
           );
         }
       }
+      // Mark as manual override so auto-recompute won't overwrite
+      await client.query(
+        `INSERT INTO character_finance (character_id, positions_override)
+         VALUES ($1, true)
+         ON CONFLICT (character_id) DO UPDATE SET positions_override = true, updated_at = NOW()`,
+        [character_id]
+      );
       await client.query("COMMIT");
     } catch (err) {
       await client.query("ROLLBACK");

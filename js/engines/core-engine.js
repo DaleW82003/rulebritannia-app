@@ -13,7 +13,10 @@ export function hasRoleFlag(data, role) {
 }
 
 export function hasOffice(data, officeId) {
-  return String(getCharacterContext(data)?.office || "") === String(officeId || "");
+  const c = getCharacterContext(data);
+  // Support multi-role: check `offices` array first, fall back to scalar `office`
+  const offices = Array.isArray(c.offices) ? c.offices : (c.office ? [c.office] : []);
+  return offices.some((o) => String(o || "") === String(officeId || ""));
 }
 
 export function setAbsenceState(data, { absent, delegatedTo }) {

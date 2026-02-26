@@ -1,8 +1,6 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
-import { logAction } from "../audit.js";
-import { apiGetOffices, apiGetCharacters } from "../api.js";
+import { canAdminOrMod } from "../permissions.js";
+import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice } from "../api.js";
 
 const OFFICE_SPECS = [
   { id: "prime-minister", title: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service", short: "Prime Minister" },
@@ -137,21 +135,27 @@ function applyAssignmentEffects(data) {
     for (const p of data.players) {
       if (p && typeof p === "object") {
         p.office = null;
+        p.offices = [];
       }
     }
     for (const office of data.government.offices) {
       if (!office.holderName) continue;
       const player = data.players.find((p) => p?.name === office.holderName);
       if (player) {
-        player.office = office.id;
+        if (!Array.isArray(player.offices)) player.offices = [];
+        player.offices.push(office.id);
+        player.office = player.offices[0];
         if (office.id === "prime-minister") player.role = "prime-minister";
       }
     }
   }
 
   if (data.currentCharacter?.name) {
-    const held = data.government.offices.find((o) => o.holderName === data.currentCharacter.name);
-    data.currentCharacter.office = held ? held.id : null;
+    const heldOffices = (data.government.offices || [])
+      .filter((o) => o.holderName === data.currentCharacter.name)
+      .map((o) => o.id);
+    data.currentCharacter.offices = heldOffices;
+    data.currentCharacter.office  = heldOffices[0] || null;
   }
 }
 
@@ -193,7 +197,7 @@ function render(data, state) {
                   <label class="label" for="assign-${esc(spec.id)}">Character</label>
                   <select class="input" id="assign-${esc(spec.id)}" data-role="office-select" data-office-id="${esc(spec.id)}">
                     <option value="">Vacant</option>
-                    ${choices.map((c) => `<option value="${esc(c.name)}" ${c.name === office.holderName ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+                    ${choices.map((c) => `<option value="${esc(c.id)}" ${c.id === office.holderCharId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
                   </select>
                 ` : office.holderName ? `
                   <div style="font-weight:700;text-align:center;">${esc(office.holderName)}</div>
@@ -215,38 +219,41 @@ function render(data, state) {
 
   `;
 
-  host.querySelector("#gov-save")?.addEventListener("click", () => {
-    const changes = [];
-    for (const el of host.querySelectorAll('[data-role="office-select"]')) {
-      const officeId = String(el.dataset.officeId || "");
-      if (!canEditOffice(data, officeId)) continue;
-      const selectedName = String(el.value || "").trim();
-      const office = officeMap.get(officeId);
-      if (!office) continue;
-      if (office.holderName !== selectedName) {
-        changes.push({ office: officeId, from: office.holderName, to: selectedName });
+  host.querySelector("#gov-save")?.addEventListener("click", async () => {
+    const btn = host.querySelector("#gov-save");
+    if (btn) btn.disabled = true;
+    const newState = { message: "" };
+    try {
+      for (const el of host.querySelectorAll('[data-role="office-select"]')) {
+        const officeId = String(el.dataset.officeId || "");
+        if (!canEditOffice(data, officeId)) continue;
+        const selectedCharId = el.value || null;
+        const office = officeMap.get(officeId);
+        if (!office?.dbOfficeId) continue;
+        const currentCharId = office.holderCharId || null;
+        if (currentCharId === selectedCharId) continue;
+        if (selectedCharId) {
+          await apiAssignOffice(office.dbOfficeId, selectedCharId);
+        } else if (currentCharId) {
+          await apiUnassignOffice(office.dbOfficeId, currentCharId);
+        }
       }
-      office.holderName = selectedName;
-      office.holderAvatar = avatarFromCharacterProfile(data, selectedName) || "";
+      newState.message = "Appointments saved.";
+    } catch (err) {
+      newState.message = `Error saving: ${err.message}`;
+      console.error("[gov-save]", err);
     }
-
-    applyAssignmentEffects(data);
-    saveState(data);
-    if (changes.length) {
-      logAction({ action: "office-assigned", target: "government", details: { changes } });
-    }
-    state.message = "Appointments saved.";
-    render(data, state);
+    // Re-render always replaces the DOM (fresh enabled button); re-enable old ref as fallback
+    await initGovernmentPage(data, newState).catch(() => { if (btn) btn.disabled = false; });
   });
 
 
 }
 
-export async function initGovernmentPage(data) {
+export async function initGovernmentPage(data, renderState = { message: "" }) {
   normaliseGovernment(data);
 
   // Merge live office assignments from the DB (single source of truth).
-  // Character names are resolved via the active characters list.
   try {
     const [{ offices: dbOffices }, { characters: dbChars }] = await Promise.all([
       apiGetOffices(),
@@ -255,18 +262,21 @@ export async function initGovernmentPage(data) {
     const charById = Object.fromEntries((dbChars || []).map((c) => [c.id, c]));
     const officeMap = getOfficeMap(data);
     for (const dbOffice of (dbOffices || [])) {
-      const stateOffice = officeMap.get(dbOffice.name?.toLowerCase?.() ?? "")
-        ?? [...officeMap.values()].find((o) => o.id === dbOffice.name?.toLowerCase?.().replace(/\s+/g, "-"));
+      // Match by spec_id (set by server seed on canonical offices)
+      const stateOffice = officeMap.get(dbOffice.spec_id ?? "");
       if (!stateOffice) continue;
+      stateOffice.dbOfficeId = dbOffice.id;
       const firstAssignment = (dbOffice.assignments || [])[0];
       if (firstAssignment) {
         const char = charById[firstAssignment.character_id];
         if (char) {
-          stateOffice.holderName = char.name;
-          stateOffice.holderAvatar = avatarFromCharacterProfile(data, char.name);
+          stateOffice.holderName   = char.name;
+          stateOffice.holderCharId = char.id;
+          stateOffice.holderAvatar = char.avatar || "";
         }
       } else {
-        stateOffice.holderName = "";
+        stateOffice.holderName   = "";
+        stateOffice.holderCharId = null;
         stateOffice.holderAvatar = "";
       }
     }
@@ -276,6 +286,5 @@ export async function initGovernmentPage(data) {
   }
 
   applyAssignmentEffects(data);
-  saveState(data);
-  render(data, { message: "" });
+  render(data, renderState);
 }

@@ -32,7 +32,9 @@ export function canSignEdm(data) {
     "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade", "defence", "welfare",
     "education", "env-agri", "health", "eti", "culture", "home-nations"
   ]);
-  return !blockedOffices.has(String(c.office || ""));
+  // Block if the character holds ANY cabinet office
+  const offices = Array.isArray(c.offices) ? c.offices : (c.office ? [c.office] : []);
+  return !offices.some((o) => blockedOffices.has(String(o || "")));
 }
 
 export function canVoteDivision(data) {
@@ -51,7 +53,8 @@ export function canSeeAudienceItem(data, audience = {}) {
     if (!audience.roles.includes(c.role)) return false;
   }
   if (Array.isArray(audience.offices) && audience.offices.length) {
-    if (!audience.offices.includes(c.office)) return false;
+    const offices = Array.isArray(c.offices) ? c.offices : (c.office ? [c.office] : []);
+    if (!audience.offices.some((ao) => offices.includes(ao))) return false;
   }
   return true;
 }

@@ -1,7 +1,6 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
-import { apiGetOffices, apiGetCharacters } from "../api.js";
+import { canAdminOrMod } from "../permissions.js";
+import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice } from "../api.js";
 
 const SHADOW_OFFICE_SPECS = [
   { id: "leader-opposition", title: "Leader of the Opposition (who appoints all others)", short: "Leader of the Opposition" },
@@ -121,21 +120,29 @@ function canEditOffice(data, officeId) {
 function applyAssignmentEffects(data) {
   if (Array.isArray(data.players)) {
     for (const p of data.players) {
-      if (p && typeof p === "object") p.shadowOffice = null;
+      if (p && typeof p === "object") {
+        p.shadowOffice = null;
+        p.shadowOffices = [];
+      }
     }
     for (const office of data.opposition.offices) {
       if (!office.holderName) continue;
       const player = data.players.find((p) => p?.name === office.holderName);
       if (player) {
-        player.shadowOffice = office.id;
+        if (!Array.isArray(player.shadowOffices)) player.shadowOffices = [];
+        player.shadowOffices.push(office.id);
+        player.shadowOffice = player.shadowOffices[0];
         if (office.id === "leader-opposition") player.role = "leader-opposition";
       }
     }
   }
 
   if (data.currentCharacter?.name) {
-    const held = data.opposition.offices.find((o) => o.holderName === data.currentCharacter.name);
-    data.currentCharacter.shadowOffice = held ? held.id : null;
+    const heldShadowOffices = (data.opposition.offices || [])
+      .filter((o) => o.holderName === data.currentCharacter.name)
+      .map((o) => o.id);
+    data.currentCharacter.shadowOffices = heldShadowOffices;
+    data.currentCharacter.shadowOffice  = heldShadowOffices[0] || null;
   }
 }
 
@@ -177,7 +184,7 @@ function render(data, state) {
                   <label class="label" for="opp-assign-${esc(spec.id)}">Character</label>
                   <select class="input" id="opp-assign-${esc(spec.id)}" data-role="office-select" data-office-id="${esc(spec.id)}">
                     <option value="">Vacant</option>
-                    ${choices.map((c) => `<option value="${esc(c.name)}" ${c.name === office.holderName ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+                    ${choices.map((c) => `<option value="${esc(c.id)}" ${c.id === office.holderCharId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
                   </select>
                 ` : office.holderName ? `
                   <div style="font-weight:700;text-align:center;">${esc(office.holderName)}</div>
@@ -199,31 +206,41 @@ function render(data, state) {
 
   `;
 
-  host.querySelector("#opp-save")?.addEventListener("click", () => {
-    for (const el of host.querySelectorAll('[data-role="office-select"]')) {
-      const officeId = String(el.dataset.officeId || "");
-      if (!canEditOffice(data, officeId)) continue;
-      const selectedName = String(el.value || "").trim();
-      const office = officeMap.get(officeId);
-      if (!office) continue;
-      office.holderName = selectedName;
-      office.holderAvatar = avatarFromCharacterProfile(data, selectedName) || "";
+  host.querySelector("#opp-save")?.addEventListener("click", async () => {
+    const btn = host.querySelector("#opp-save");
+    if (btn) btn.disabled = true;
+    const newState = { message: "" };
+    try {
+      for (const el of host.querySelectorAll('[data-role="office-select"]')) {
+        const officeId = String(el.dataset.officeId || "");
+        if (!canEditOffice(data, officeId)) continue;
+        const selectedCharId = el.value || null;
+        const office = officeMap.get(officeId);
+        if (!office?.dbOfficeId) continue;
+        const currentCharId = office.holderCharId || null;
+        if (currentCharId === selectedCharId) continue;
+        if (selectedCharId) {
+          await apiAssignOffice(office.dbOfficeId, selectedCharId);
+        } else if (currentCharId) {
+          await apiUnassignOffice(office.dbOfficeId, currentCharId);
+        }
+      }
+      newState.message = "Appointments saved.";
+    } catch (err) {
+      newState.message = `Error saving: ${err.message}`;
+      console.error("[opp-save]", err);
     }
-
-    applyAssignmentEffects(data);
-    saveState(data);
-    state.message = "Appointments saved.";
-    render(data, state);
+    // Re-render always replaces the DOM (fresh enabled button); re-enable old ref as fallback
+    await initOppositionPage(data, newState).catch(() => { if (btn) btn.disabled = false; });
   });
 
 
 }
 
-export async function initOppositionPage(data) {
+export async function initOppositionPage(data, renderState = { message: "" }) {
   normaliseOpposition(data);
 
   // Merge live office assignments from the DB (single source of truth).
-  // Character names are resolved via the active characters list.
   try {
     const [{ offices: dbOffices }, { characters: dbChars }] = await Promise.all([
       apiGetOffices(),
@@ -232,18 +249,21 @@ export async function initOppositionPage(data) {
     const charById = Object.fromEntries((dbChars || []).map((c) => [c.id, c]));
     const officeMap = getOfficeMap(data);
     for (const dbOffice of (dbOffices || [])) {
-      const stateOffice = officeMap.get(dbOffice.name?.toLowerCase?.() ?? "")
-        ?? [...officeMap.values()].find((o) => o.id === dbOffice.name?.toLowerCase?.().replace(/\s+/g, "-"));
+      // Match by spec_id (set by server seed on canonical offices)
+      const stateOffice = officeMap.get(dbOffice.spec_id ?? "");
       if (!stateOffice) continue;
+      stateOffice.dbOfficeId = dbOffice.id;
       const firstAssignment = (dbOffice.assignments || [])[0];
       if (firstAssignment) {
         const char = charById[firstAssignment.character_id];
         if (char) {
-          stateOffice.holderName = char.name;
-          stateOffice.holderAvatar = avatarFromCharacterProfile(data, char.name);
+          stateOffice.holderName   = char.name;
+          stateOffice.holderCharId = char.id;
+          stateOffice.holderAvatar = char.avatar || "";
         }
       } else {
-        stateOffice.holderName = "";
+        stateOffice.holderName   = "";
+        stateOffice.holderCharId = null;
         stateOffice.holderAvatar = "";
       }
     }
@@ -253,6 +273,5 @@ export async function initOppositionPage(data) {
   }
 
   applyAssignmentEffects(data);
-  saveState(data);
-  render(data, { message: "" });
+  render(data, renderState);
 }

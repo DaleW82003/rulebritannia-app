@@ -916,6 +916,20 @@ export async function apiSetPartyLeadership(partyId, role, character_id) {
   return res.json();
 }
 
+export async function apiSetPartyLeader(partyId, character_id) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/set-leader`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ character_id }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiSetPartyLeader failed (${res.status})`);
+  }
+  return res.json();
+}
+
 // ── Shop price index ────────────────────────────────────────────────────────
 
 export async function apiGetShopPriceIndex() {
@@ -1045,7 +1059,22 @@ export async function apiAssignOffice(officeId, character_id) {
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify({ character_id }),
   });
-  if (!res.ok) throw new Error(`apiAssignOffice failed (${res.status})`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAssignOffice failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiUnassignOffice(officeId, characterId) {
+  const res = await fetch(
+    `${API_BASE}/api/offices/${encodeURIComponent(officeId)}/assign/${encodeURIComponent(characterId)}`,
+    { method: "DELETE", credentials: "include", headers: { ...csrfHeaders() } }
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiUnassignOffice failed (${res.status})`);
+  }
   return res.json();
 }
 
