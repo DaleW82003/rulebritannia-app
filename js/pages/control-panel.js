@@ -9,6 +9,7 @@ import {
   apiGetCharacters, apiAdminSetCharacterInactive, apiAdminRepairCharacterOwners,
   apiGetShopPriceIndex, apiApplyShopInflation,
   apiGetPendingAffiliations, apiDecideAffiliation,
+  apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -131,6 +132,11 @@ export async function initControlPanelPage(data) {
           </article>
         `).join("") : `<div class="muted-block">No pending character applications.</div>`}
       </div>
+    </details>
+
+    <details class="tile" style="margin-bottom:10px;" open>
+      <summary style="cursor:pointer;"><b>Pending Profile Change Requests <span class="mod-badge">Mod / Admin / Speaker</span></b></summary>
+      <div style="margin-top:10px;" id="cp-profile-changes-list"><div class="muted-block">Loading…</div></div>
     </details>
 
     <details class="tile" style="margin-bottom:10px;" open>
@@ -290,6 +296,68 @@ export async function initControlPanelPage(data) {
 
   // Load bio change requests async
   if (manager) {
+    // Load profile change requests async
+    const profileListEl = rolePanels.querySelector("#cp-profile-changes-list");
+    if (profileListEl) {
+      apiGetAllProfileChanges("pending").then(({ changes }) => {
+        if (!changes.length) {
+          profileListEl.innerHTML = '<div class="muted-block">No pending profile change requests.</div>';
+          return;
+        }
+        profileListEl.innerHTML = changes.map((c) => {
+          const fields = [
+            c.proposed_education         != null ? `<div><b>Education:</b> ${esc(c.proposed_education)}</div>` : "",
+            c.proposed_career_background != null ? `<div><b>Career:</b> ${esc(c.proposed_career_background)}</div>` : "",
+            c.proposed_family            != null ? `<div><b>Family:</b> ${esc(c.proposed_family)}</div>` : "",
+            c.proposed_date_of_birth     != null ? `<div><b>Date of birth:</b> ${esc(c.proposed_date_of_birth)}</div>` : "",
+            c.proposed_financial_bg_level!= null ? `<div><b>Financial background level:</b> ${esc(String(c.proposed_financial_bg_level))}</div>` : "",
+            c.proposed_twitter_handle    != null ? `<div><b>Twitter handle:</b> @${esc(c.proposed_twitter_handle)}</div>` : "",
+          ].filter(Boolean).join("");
+          return `
+            <article class="tile" style="margin-bottom:8px;" data-profile-change-id="${esc(c.id)}">
+              <b>${esc(c.character_name || "-")}</b> — submitted by ${esc(c.submitter_username || "-")}
+              <div class="muted" style="margin:4px 0;">Submitted: ${esc(c.submitted_at ? new Date(c.submitted_at).toLocaleString("en-GB") : "-")}</div>
+              <div style="background:var(--bg,#f8f8f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0;font-size:.9em;line-height:1.6;">${fields}</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn primary" type="button" data-action="cp-approve-profile-change" data-id="${esc(c.id)}">Approve</button>
+                <button class="btn" type="button" data-action="cp-reject-profile-change" data-id="${esc(c.id)}">Reject</button>
+              </div>
+            </article>
+          `;
+        }).join("");
+
+        profileListEl.querySelectorAll('[data-action="cp-approve-profile-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiApproveProfileChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!profileListEl.querySelector("article")) {
+                profileListEl.innerHTML = '<div class="muted-block">No pending profile change requests.</div>';
+              }
+            } catch (err) {
+              alert(`Error: ${err.message}`);
+            }
+          });
+        });
+
+        profileListEl.querySelectorAll('[data-action="cp-reject-profile-change"]').forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            try {
+              await apiRejectProfileChange(btn.dataset.id);
+              btn.closest("article")?.remove();
+              if (!profileListEl.querySelector("article")) {
+                profileListEl.innerHTML = '<div class="muted-block">No pending profile change requests.</div>';
+              }
+            } catch (err) {
+              alert(`Error: ${err.message}`);
+            }
+          });
+        });
+      }).catch(() => {
+        if (profileListEl) profileListEl.innerHTML = '<div class="muted-block">Could not load profile change requests.</div>';
+      });
+    }
+
     const bioListEl = rolePanels.querySelector("#cp-bio-changes-list");
     if (bioListEl) {
       apiGetAllBioChanges("pending").then(({ changes }) => {
