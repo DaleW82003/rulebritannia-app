@@ -41,7 +41,8 @@ function inferRoles(ctx) {
   if (/requireAdminOrMod/.test(ctx))               return ["admin", "mod"];
   if (/requireAdmin\b/.test(ctx))                  return ["admin"];
   if (/roles\.includes\("admin"\).*roles\.includes\("mod"\).*roles\.includes\("speaker"\)/s.test(ctx) ||
-      /roles\.includes\("speaker"\)/.test(ctx))    return ["admin", "mod", "speaker"];
+      /roles\.includes\("speaker"\)/.test(ctx) ||
+      /!sessionRoles\.includes\("admin"\).*&&.*!sessionRoles\.includes\("mod"\).*&&.*!sessionRoles\.includes\("speaker"\)/s.test(ctx)) return ["admin", "mod", "speaker"];
   if (/roles\.includes\("admin"\).*roles\.includes\("mod"\)/s.test(ctx)) return ["admin", "mod"];
   if (/roles\.includes\("admin"\)/.test(ctx))      return ["admin"];
   if (/requireAuth\b/.test(ctx) || /req\.session\??\.userId/.test(ctx)) return ["authenticated"];
@@ -174,9 +175,9 @@ for (const { page, savesState } of pageManifest) {
   for (let i = 0; i < pgLines.length; i++) {
     if (!pgLines[i].includes("saveState(data)") || pgLines[i].trim().startsWith("//")) continue;
     const block     = pgLines.slice(Math.max(0, i - 50), i + 6).join("\n");
-    const hasApi    = /await api[A-Z]/.test(block);
-    const staffGate = /if\s*\(!(?:mod|manager|marker|speaker|admin|canManage|canArchive|canDeleteQ|allowBarkeep)\)|canAdminOrMod|isAdmin|isMod|isSpeaker|\.includes\("admin"\)|\.includes\("mod"\)/.test(block);
-    const isInit    = /export\s+async\s+function\s+init/.test(pgLines.slice(Math.max(0, i - 5), i + 1).join("\n"));
+    const hasApi    = /await api[A-Z]/.test(block) || /api[A-Z][a-zA-Z]+\([^)]*\)\s*\.catch/.test(block);
+    const staffGate = /if\s*\(!(?:mod|manager|marker|speaker|admin|canManage|canArchive|canDeleteQ|allowBarkeep|adminMode)\)|adminMode|canAdminOrMod|isAdmin|isMod|isSpeaker|\.includes\("admin"\)|\.includes\("mod"\)/.test(block);
+    const isInit    = /export\s+(?:async\s+)?function\s+init/.test(pgLines.slice(Math.max(0, i - 5), i + 1).join("\n"));
     if (!hasApi && !staffGate && !isInit) saveStateOnly.push({ page, lineNo: i + 1 });
   }
 }

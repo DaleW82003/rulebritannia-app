@@ -3967,6 +3967,7 @@ app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
  * POST   /api/motions          — authenticated: create a motion
  * PUT    /api/motions/:id      — admin/mod: update a motion
  * DELETE /api/motions/:id      — admin/mod/speaker: delete a motion
+ * POST   /api/motions/:id/sign — authenticated: add a player signature to an EDM
  */
 app.get("/api/motions", crudReadLimit, async (req, res) => {
   try {
@@ -4059,6 +4060,40 @@ app.delete("/api/motions/:id", crudWriteLimit, async (req, res) => {
     const { rowCount } = await pool.query("DELETE FROM motions WHERE id = $1", [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: "Motion not found" });
     res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { name, party, weight } = req.body || {};
+    if (!name || !party) {
+      return res.status(400).json({ error: "name and party are required" });
+    }
+    const parsedWeight = Number(weight);
+    if (weight !== undefined && !Number.isFinite(parsedWeight)) {
+      return res.status(400).json({ error: "weight must be a finite number" });
+    }
+    const { rows } = await pool.query(
+      "SELECT id, data FROM motions WHERE id = $1 AND motion_type = 'edm'",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "EDM not found" });
+    const motion = { ...rows[0].data };
+    motion.signatures = Array.isArray(motion.signatures) ? motion.signatures : [];
+    if (motion.signatures.some((s) => s.name === name)) {
+      return res.status(409).json({ error: "Already signed" });
+    }
+    motion.signatures.push({ name, party, weight: parsedWeight || 0 });
+    const { rows: updated } = await pool.query(
+      "UPDATE motions SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING updated_at",
+      [JSON.stringify(motion), req.params.id]
+    );
+    await writeAuditLog(req.session.userId, "edm.sign", "motion", req.params.id, null, { name, party });
+    res.json({ ok: true, signatures: motion.signatures, updatedAt: updated[0].updated_at });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

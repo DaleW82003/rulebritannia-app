@@ -366,7 +366,7 @@ function render(data, state) {
   });
 
   const answerForm = root.querySelector("#qt-answer-form");
-  answerForm?.addEventListener("submit", (e) => {
+  answerForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!canAnswer) return;
 
@@ -378,6 +378,12 @@ function render(data, state) {
     const target = data.questionTime.questions.find((q) => q.id === questionId && q.office === selectedOffice.id);
     if (!target || target.archived) return;
 
+    const submitBtn = answerForm.querySelector("button[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+
+    const prevAnswer = target.answer;
+    const prevStatus = target.status;
+    const prevAnswerSeenByAsker = target.answerSeenByAsker;
     if (!target.answer) {
       target.answer = answer;
       target.answeredAtSim = simLabel;
@@ -386,7 +392,20 @@ function render(data, state) {
       logAction({ action: "question-answered", target: selectedOffice.title, details: { questionId, askedBy: target.askedBy } });
     }
 
-    saveState(data);
+    try {
+      await apiAnswerQtQuestion(questionId, {
+        answer_text: answer,
+        answered_by_character_id: char?.id || char?.characterId || null,
+      });
+      saveState(data);
+    } catch (err) {
+      handleApiError(err, "Answer question");
+      target.answer = prevAnswer;
+      target.status = prevStatus;
+      target.answerSeenByAsker = prevAnswerSeenByAsker;
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
     render(data, state);
   });
 

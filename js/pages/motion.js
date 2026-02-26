@@ -5,11 +5,12 @@ import { buildDivisionWeights } from "../divisions.js";
 import { getPartySeatMap } from "../engines/core-engine.js";
 import { ensureMotions, isGovernmentMember } from "./motions.js";
 import { getSimDate, simDateToObj, formatSimMonthYear, isDeadlinePassed, compareSimDates, countdownToSimMonth } from "../clock.js";
+import { handleApiError } from "../errors.js";
 import {
   apiGetDivisionForEntity, apiCreateDivision, apiCastVote, apiCloseDivision,
   apiGetPartyInstruction, apiSetPartyInstruction,
   apiGetRebelRequest, apiSubmitRebelRequest,
-  apiGetMotion,
+  apiGetMotion, apiSignEdm,
 } from "../api.js";
 
 const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line whip"];
@@ -362,11 +363,19 @@ function renderEdm(root, data, edm) {
     </section>
   `;
 
-  root.querySelector("[data-action='sign-edm']")?.addEventListener("click", () => {
+  root.querySelector("[data-action='sign-edm']")?.addEventListener("click", async () => {
     if (expired || disallowed || signed || w <= 0) return;
-    edm.signatures.push({ name: char?.name || "MP", party: char?.party || "Independent", weight: w });
-    saveState(data);
+    const sig = { name: char?.name || "MP", party: char?.party || "Independent", weight: w };
+    edm.signatures.push(sig);
     renderEdm(root, data, edm);
+    try {
+      await apiSignEdm(edm.id, sig);
+      saveState(data);
+    } catch (err) {
+      handleApiError(err, "Sign EDM");
+      edm.signatures = edm.signatures.filter((s) => s !== sig);
+      renderEdm(root, data, edm);
+    }
   });
 
   root.querySelector("#npc-sign-form")?.addEventListener("submit", (e) => {

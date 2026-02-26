@@ -1,1362 +1,1371 @@
 {
-  "_comment": "Declarative RBAC rules for every mutating (non-GET) endpoint. 'roles' is the minimum set of roles required. 'public' means no session at all is needed. 'authenticated' means any logged-in user. Staff roles are 'admin', 'mod', 'speaker'.",
-  "_immutable_policy": "Parliament items (bills, motions, statements, regulations) may only be created by authenticated users; updates/deletes are staff-only.",
-  "endpoints": [
-    {
-      "method": "POST",
-      "path": "/api/register",
-      "roles": [
-        "public"
-      ],
-      "immutable": false,
-      "category": "auth"
-    },
-    {
-      "method": "POST",
-      "path": "/api/auth/resend-verification",
-      "roles": [
-        "public"
-      ],
-      "immutable": false,
-      "category": "auth"
-    },
-    {
-      "method": "POST",
-      "path": "/api/state",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "state"
-    },
-    {
-      "method": "POST",
-      "path": "/api/snapshots",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "state"
-    },
-    {
-      "method": "POST",
-      "path": "/api/snapshots/:id/restore",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "state"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/config",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "config"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/discourse/config",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "discourse"
-    },
-    {
-      "method": "POST",
-      "path": "/api/discourse/test",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "discourse"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/discourse-sync-groups",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "discourse"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/discourse-sync-bills",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "discourse"
-    },
-    {
-      "method": "POST",
-      "path": "/api/audit-log",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "audit"
-    },
-    {
-      "method": "POST",
-      "path": "/api/bills",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": true,
-      "category": "parliament",
-      "immutable_note": "Player creates; staff only may edit/delete"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/bills/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "PATCH",
-      "path": "/api/bills/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/bills/:id",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "POST",
-      "path": "/api/motions",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/motions/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/motions/:id",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "POST",
-      "path": "/api/statements",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/statements/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/statements/:id",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "POST",
-      "path": "/api/regulations",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/regulations/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/regulations/:id",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "POST",
-      "path": "/api/press",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": true,
-      "category": "parliament",
-      "immutable_note": "Press items cannot be edited by author after submit"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/press/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/press/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "PATCH",
-      "path": "/api/press/:id/transcript",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "parliament",
-      "immutable_note": "Author may append to own conference transcript; staff override"
-    },
-    {
-      "method": "POST",
-      "path": "/api/qt/questions",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "PATCH",
-      "path": "/api/qt/questions/:id",
-      "roles": [
-        "admin"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "POST",
-      "path": "/api/qt/questions/:id/answer",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "POST",
-      "path": "/api/qt/questions/:id/followup",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "parliament"
-    },
-    {
-      "method": "POST",
-      "path": "/api/questiontime-questions",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/questiontime-questions/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/questiontime-questions/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": true,
-      "category": "parliament"
-    },
-    {
-      "method": "POST",
-      "path": "/api/debates/create",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "parliament"
-    },
-    {
-      "method": "POST",
-      "path": "/api/divisions/create",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "divisions"
-    },
-    {
-      "method": "POST",
-      "path": "/api/divisions/:id/vote",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "divisions"
-    },
-    {
-      "method": "POST",
-      "path": "/api/divisions/:id/close",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "divisions"
-    },
-    {
-      "method": "PATCH",
-      "path": "/api/divisions/:id/npc-votes",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "divisions"
-    },
-    {
-      "method": "POST",
-      "path": "/api/divisions/:divisionId/party-instruction",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "divisions"
-    },
-    {
-      "method": "POST",
-      "path": "/api/divisions/:divisionId/rebel-request",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "divisions"
-    },
-    {
-      "method": "POST",
-      "path": "/api/divisions/:divisionId/rebel-request/:requestId/decide",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "divisions"
-    },
-    {
-      "method": "POST",
-      "path": "/api/clock/tick",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "sim"
-    },
-    {
-      "method": "POST",
-      "path": "/api/clock/set",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "sim"
-    },
-    {
-      "method": "POST",
-      "path": "/api/sim/tick",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "sim"
-    },
-    {
-      "method": "POST",
-      "path": "/api/sim/set",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "sim"
-    },
-    {
-      "method": "POST",
-      "path": "/api/users/:id/roles",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/registrations/:id/approve",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/registrations/:id/reject",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/clear-cache",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/rebuild-cache",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/rotate-sessions",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/force-logout-all",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/import-snapshot",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/wipe-content",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/seed-demo",
-      "roles": [
-        "public"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/seed",
-      "roles": [
-        "public"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/reset-baseline",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/budget/seed",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/admin/budget/controls",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/budget/approve",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/budget/reject",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/salary-scales/uprate",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/constituencies/initialize-1997",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/admin/constituencies/clear",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/elections/seed-1997",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/finance/set-bank",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/finance/set-salary-override",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/finance/set-positions",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/finance/revenue",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "PATCH",
-      "path": "/api/admin/finance/revenue/:id",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/admin/finance/revenue/:id",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/characters",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "characters"
-    },
-    {
-      "method": "PATCH",
-      "path": "/api/characters/:id",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "characters"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/characters/:id/profile",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "characters"
-    },
-    {
-      "method": "POST",
-      "path": "/api/characters/select",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "characters"
-    },
-    {
-      "method": "POST",
-      "path": "/api/characters/apply",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "characters"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/characters/applications/:id/approve",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "characters"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/characters/applications/:id/reject",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "characters"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/characters/:id/set-inactive",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "characters"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/repair/character-owner-pointers",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "characters"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/characters/:id/assign-owner",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "characters"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/users/:id/active-character",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "characters"
-    },
-    {
-      "method": "POST",
-      "path": "/api/characters/bio-change",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "personal",
-      "approval_required": true
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/bio-changes/:id/approve",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/bio-changes/:id/reject",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/characters/avatar-change",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "personal",
-      "approval_required": true
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/avatar-changes/:id/approve",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/avatar-changes/:id/reject",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/characters/profile-change",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "personal",
-      "approval_required": true
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/profile-changes/:id/approve",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/admin/profile-changes/:id/reject",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/me/character/:id/affiliations",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "personal",
-      "approval_required": true
-    },
-    {
-      "method": "POST",
-      "path": "/api/control-panel/affiliations/:rid/decide",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/me/character/shop-purchases",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/me/character/shop-purchases/:id",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/me/character/additional-revenue",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/me/character/additional-revenue/:id",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/me/work-plan",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/finance/shop-upkeep",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/parties/:partyId/leadership",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "party"
-    },
-    {
-      "method": "POST",
-      "path": "/api/parties/:partyId/chief-whip",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "party"
-    },
-    {
-      "method": "POST",
-      "path": "/api/parties/:partyId/structure",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "party"
-    },
-    {
-      "method": "POST",
-      "path": "/api/parties/:partyId/treasury",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "party"
-    },
-    {
-      "method": "POST",
-      "path": "/api/parties/:partyId/shop-purchases",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "party"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/parties/:partyId/shop-purchases/:id",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "party"
-    },
-    {
-      "method": "POST",
-      "path": "/api/parties/:partyId/drafts",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "party"
-    },
-    {
-      "method": "POST",
-      "path": "/api/offices",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "party"
-    },
-    {
-      "method": "POST",
-      "path": "/api/offices/:id/assign",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "party"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/offices/:id/assign/:characterId",
-      "roles": [
-        "admin"
-      ],
-      "immutable": false,
-      "category": "party"
-    },
-    {
-      "method": "POST",
-      "path": "/api/elections",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "elections"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/elections/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "elections"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/elections/:id/changes",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "elections"
-    },
-    {
-      "method": "POST",
-      "path": "/api/elections/:id/finalize",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "elections"
-    },
-    {
-      "method": "POST",
-      "path": "/api/elections/bodies",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "elections"
-    },
-    {
-      "method": "POST",
-      "path": "/api/constituencies",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "elections"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/constituencies/:id",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "elections"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/constituencies/:id",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "elections"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/parliament/status",
-      "roles": [
-        "admin",
-        "mod",
-        "speaker"
-      ],
-      "immutable": false,
-      "category": "elections"
-    },
-    {
-      "method": "POST",
-      "path": "/api/budget/draft",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "budget"
-    },
-    {
-      "method": "POST",
-      "path": "/api/mod/property/set",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/shop/apply-inflation",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/scandals/optin",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/scandals/situations/:id/respond",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/scandals/:id/choose",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "personal"
-    },
-    {
-      "method": "POST",
-      "path": "/api/mod/scandal-templates",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/mod/scandals/situations/create",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/mod/scandals/:id/decision",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/mod/scandals/:id/close",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "POST",
-      "path": "/api/redlion",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "community"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/redlion/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": true,
-      "category": "community",
-      "immutable_note": "Author cannot delete own post; staff only"
-    },
-    {
-      "method": "POST",
-      "path": "/api/events",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "community"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/events/:id",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "community",
-      "immutable_note": "Author-or-staff only; verified server-side"
-    },
-    {
-      "method": "POST",
-      "path": "/api/online",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "community"
-    },
-    {
-      "method": "POST",
-      "path": "/api/fundraising",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "community"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/fundraising/:id",
-      "roles": [
-        "authenticated"
-      ],
-      "immutable": false,
-      "category": "community"
-    },
-    {
-      "method": "POST",
-      "path": "/api/polling",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "PUT",
-      "path": "/api/polling/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "admin"
-    },
-    {
-      "method": "DELETE",
-      "path": "/api/polling/:id",
-      "roles": [
-        "admin",
-        "mod"
-      ],
-      "immutable": false,
-      "category": "admin"
-    }
-  ]
+    "_comment": "Declarative RBAC rules for every mutating (non-GET) endpoint. 'roles' is the minimum set of roles required. 'public' means no session at all is needed. 'authenticated' means any logged-in user. Staff roles are 'admin', 'mod', 'speaker'.",
+    "_immutable_policy": "Parliament items (bills, motions, statements, regulations) may only be created by authenticated users; updates/deletes are staff-only.",
+    "endpoints": [
+        {
+            "method": "POST",
+            "path": "/api/register",
+            "roles": [
+                "public"
+            ],
+            "immutable": false,
+            "category": "auth"
+        },
+        {
+            "method": "POST",
+            "path": "/api/auth/resend-verification",
+            "roles": [
+                "public"
+            ],
+            "immutable": false,
+            "category": "auth"
+        },
+        {
+            "method": "POST",
+            "path": "/api/state",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "state"
+        },
+        {
+            "method": "POST",
+            "path": "/api/snapshots",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "state"
+        },
+        {
+            "method": "POST",
+            "path": "/api/snapshots/:id/restore",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "state"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/config",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "config"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/discourse/config",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "discourse"
+        },
+        {
+            "method": "POST",
+            "path": "/api/discourse/test",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "discourse"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/discourse-sync-groups",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "discourse"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/discourse-sync-bills",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "discourse"
+        },
+        {
+            "method": "POST",
+            "path": "/api/audit-log",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "audit"
+        },
+        {
+            "method": "POST",
+            "path": "/api/bills",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": true,
+            "category": "parliament",
+            "immutable_note": "Player creates; staff only may edit/delete"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/bills/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "PATCH",
+            "path": "/api/bills/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/bills/:id",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "POST",
+            "path": "/api/motions",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/motions/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/motions/:id",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "POST",
+            "path": "/api/motions/:id/sign",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "parliament"
+        },
+        {
+            "method": "POST",
+            "path": "/api/statements",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/statements/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/statements/:id",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "POST",
+            "path": "/api/regulations",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/regulations/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/regulations/:id",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "POST",
+            "path": "/api/press",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": true,
+            "category": "parliament",
+            "immutable_note": "Press items cannot be edited by author after submit"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/press/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/press/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "PATCH",
+            "path": "/api/press/:id/transcript",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "parliament",
+            "immutable_note": "Author may append to own conference transcript; staff override"
+        },
+        {
+            "method": "POST",
+            "path": "/api/qt/questions",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "PATCH",
+            "path": "/api/qt/questions/:id",
+            "roles": [
+                "admin"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "POST",
+            "path": "/api/qt/questions/:id/answer",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "POST",
+            "path": "/api/qt/questions/:id/followup",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "parliament"
+        },
+        {
+            "method": "POST",
+            "path": "/api/questiontime-questions",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/questiontime-questions/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/questiontime-questions/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": true,
+            "category": "parliament"
+        },
+        {
+            "method": "POST",
+            "path": "/api/debates/create",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "parliament"
+        },
+        {
+            "method": "POST",
+            "path": "/api/divisions/create",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "divisions"
+        },
+        {
+            "method": "POST",
+            "path": "/api/divisions/:id/vote",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "divisions"
+        },
+        {
+            "method": "POST",
+            "path": "/api/divisions/:id/close",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "divisions"
+        },
+        {
+            "method": "PATCH",
+            "path": "/api/divisions/:id/npc-votes",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "divisions"
+        },
+        {
+            "method": "POST",
+            "path": "/api/divisions/:divisionId/party-instruction",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "divisions"
+        },
+        {
+            "method": "POST",
+            "path": "/api/divisions/:divisionId/rebel-request",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "divisions"
+        },
+        {
+            "method": "POST",
+            "path": "/api/divisions/:divisionId/rebel-request/:requestId/decide",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "divisions"
+        },
+        {
+            "method": "POST",
+            "path": "/api/clock/tick",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "sim"
+        },
+        {
+            "method": "POST",
+            "path": "/api/clock/set",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "sim"
+        },
+        {
+            "method": "POST",
+            "path": "/api/sim/tick",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "sim"
+        },
+        {
+            "method": "POST",
+            "path": "/api/sim/set",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "sim"
+        },
+        {
+            "method": "POST",
+            "path": "/api/users/:id/roles",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/registrations/:id/approve",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/registrations/:id/reject",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/clear-cache",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/rebuild-cache",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/rotate-sessions",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/force-logout-all",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/import-snapshot",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/wipe-content",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/seed-demo",
+            "roles": [
+                "public"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/seed",
+            "roles": [
+                "public"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/reset-baseline",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/budget/seed",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/admin/budget/controls",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/budget/approve",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/budget/reject",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/salary-scales/uprate",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/constituencies/initialize-1997",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/admin/constituencies/clear",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/elections/seed-1997",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/finance/set-bank",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/finance/set-salary-override",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/finance/set-positions",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/finance/revenue",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "PATCH",
+            "path": "/api/admin/finance/revenue/:id",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/admin/finance/revenue/:id",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/characters",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "characters"
+        },
+        {
+            "method": "PATCH",
+            "path": "/api/characters/:id",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "characters"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/characters/:id/profile",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "characters"
+        },
+        {
+            "method": "POST",
+            "path": "/api/characters/select",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "characters"
+        },
+        {
+            "method": "POST",
+            "path": "/api/characters/apply",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "characters"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/characters/applications/:id/approve",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "characters"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/characters/applications/:id/reject",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "characters"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/characters/:id/set-inactive",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "characters"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/repair/character-owner-pointers",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "characters"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/characters/:id/assign-owner",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "characters"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/users/:id/active-character",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "characters"
+        },
+        {
+            "method": "POST",
+            "path": "/api/characters/bio-change",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "personal",
+            "approval_required": true
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/bio-changes/:id/approve",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/bio-changes/:id/reject",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/characters/avatar-change",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "personal",
+            "approval_required": true
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/avatar-changes/:id/approve",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/avatar-changes/:id/reject",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/characters/profile-change",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "personal",
+            "approval_required": true
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/profile-changes/:id/approve",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/admin/profile-changes/:id/reject",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/me/character/:id/affiliations",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "personal",
+            "approval_required": true
+        },
+        {
+            "method": "POST",
+            "path": "/api/control-panel/affiliations/:rid/decide",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/me/character/shop-purchases",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/me/character/shop-purchases/:id",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/me/character/additional-revenue",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/me/character/additional-revenue/:id",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/me/work-plan",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/finance/shop-upkeep",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/parties/:partyId/leadership",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "party"
+        },
+        {
+            "method": "POST",
+            "path": "/api/parties/:partyId/chief-whip",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "party"
+        },
+        {
+            "method": "POST",
+            "path": "/api/parties/:partyId/structure",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "party"
+        },
+        {
+            "method": "POST",
+            "path": "/api/parties/:partyId/treasury",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "party"
+        },
+        {
+            "method": "POST",
+            "path": "/api/parties/:partyId/shop-purchases",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "party"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/parties/:partyId/shop-purchases/:id",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "party"
+        },
+        {
+            "method": "POST",
+            "path": "/api/parties/:partyId/drafts",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "party"
+        },
+        {
+            "method": "POST",
+            "path": "/api/offices",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "party"
+        },
+        {
+            "method": "POST",
+            "path": "/api/offices/:id/assign",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "party"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/offices/:id/assign/:characterId",
+            "roles": [
+                "admin"
+            ],
+            "immutable": false,
+            "category": "party"
+        },
+        {
+            "method": "POST",
+            "path": "/api/elections",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "elections"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/elections/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "elections"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/elections/:id/changes",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "elections"
+        },
+        {
+            "method": "POST",
+            "path": "/api/elections/:id/finalize",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "elections"
+        },
+        {
+            "method": "POST",
+            "path": "/api/elections/bodies",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "elections"
+        },
+        {
+            "method": "POST",
+            "path": "/api/constituencies",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "elections"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/constituencies/:id",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "elections"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/constituencies/:id",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "elections"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/parliament/status",
+            "roles": [
+                "admin",
+                "mod",
+                "speaker"
+            ],
+            "immutable": false,
+            "category": "elections"
+        },
+        {
+            "method": "POST",
+            "path": "/api/budget/draft",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "budget"
+        },
+        {
+            "method": "POST",
+            "path": "/api/mod/property/set",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/shop/apply-inflation",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/scandals/optin",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/scandals/situations/:id/respond",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/scandals/:id/choose",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "personal"
+        },
+        {
+            "method": "POST",
+            "path": "/api/mod/scandal-templates",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/mod/scandals/situations/create",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/mod/scandals/:id/decision",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/mod/scandals/:id/close",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "POST",
+            "path": "/api/redlion",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "community"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/redlion/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": true,
+            "category": "community",
+            "immutable_note": "Author cannot delete own post; staff only"
+        },
+        {
+            "method": "POST",
+            "path": "/api/events",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "community"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/events/:id",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "community",
+            "immutable_note": "Author-or-staff only; verified server-side"
+        },
+        {
+            "method": "POST",
+            "path": "/api/online",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "community"
+        },
+        {
+            "method": "POST",
+            "path": "/api/fundraising",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "community"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/fundraising/:id",
+            "roles": [
+                "authenticated"
+            ],
+            "immutable": false,
+            "category": "community"
+        },
+        {
+            "method": "POST",
+            "path": "/api/polling",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "PUT",
+            "path": "/api/polling/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "admin"
+        },
+        {
+            "method": "DELETE",
+            "path": "/api/polling/:id",
+            "roles": [
+                "admin",
+                "mod"
+            ],
+            "immutable": false,
+            "category": "admin"
+        }
+    ]
 }
