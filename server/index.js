@@ -1611,6 +1611,17 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS finance_applied_period_idx ON finance_applied(period_key);
   `);
+
+  // ── Group drafts (cabinet, shadow cabinet) ────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS group_drafts (
+      group_key   TEXT        PRIMARY KEY,
+      drafts      JSONB       NOT NULL DEFAULT '[]',
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    INSERT INTO group_drafts (group_key) VALUES ('cabinet')       ON CONFLICT (group_key) DO NOTHING;
+    INSERT INTO group_drafts (group_key) VALUES ('shadowcabinet') ON CONFLICT (group_key) DO NOTHING;
+  `);
 }
 
 // ── Property / Finance model constants ────────────────────────────────────────
@@ -9687,14 +9698,14 @@ app.post("/api/parties/:partyId/drafts", partyWriteLimit, async (req, res) => {
 
     if (!isAdminOrMod) {
       if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
-      const { rows: pr } = await pool.query(
-        "SELECT leader_character_id, chairman_character_id FROM parties WHERE slug = $1",
-        [req.params.partyId]
+      // Any active character who is a member of the party may save drafts
+      const { rows: cr } = await pool.query(
+        "SELECT party FROM characters WHERE id = $1 AND is_active = TRUE",
+        [req.session.characterId]
       );
-      if (!pr.length) return res.status(404).json({ error: "Party not found" });
-      const isLeader   = String(pr[0].leader_character_id)   === String(req.session.characterId);
-      const isChairman = String(pr[0].chairman_character_id) === String(req.session.characterId);
-      if (!isLeader && !isChairman) return res.status(403).json({ error: "Forbidden" });
+      if (!cr.length) return res.status(403).json({ error: "No active character found" });
+      const isPartyMember = (cr[0].party || "").toLowerCase() === req.params.partyId.toLowerCase();
+      if (!isPartyMember) return res.status(403).json({ error: "Forbidden" });
     }
 
     const drafts = req.body?.drafts;
@@ -9709,6 +9720,134 @@ app.post("/api/parties/:partyId/drafts", partyWriteLimit, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/parties/:partyId/drafts]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Cabinet & Shadow Cabinet drafts (DB-backed) ───────────────────────────────
+const groupDraftReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const groupDraftWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+/**
+ * Returns the character_id of the caller's active character, or null.
+ * Also returns whether the caller is admin/mod/speaker.
+ */
+async function resolveCallerCharacter(req) {
+  const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+  if (isStaff) return { isStaff: true, charId: null };
+  if (!req.session.characterId) return { isStaff: false, charId: null };
+  const { rows } = await pool.query(
+    "SELECT id FROM characters WHERE id = $1 AND is_active = TRUE",
+    [req.session.characterId]
+  );
+  return { isStaff: false, charId: rows[0]?.id || null };
+}
+
+/**
+ * Check whether a character holds any office of the given type ('cabinet' or 'shadow').
+ */
+async function isOfficeHolder(charId, officeType) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM office_assignments oa
+       JOIN offices o ON o.id = oa.office_id
+      WHERE oa.character_id = $1 AND o.type = $2
+      LIMIT 1`,
+    [charId, officeType]
+  );
+  return rows.length > 0;
+}
+
+// GET /api/cabinet/drafts — fetch cabinet draft bills (cabinet members + admin/mod/speaker)
+app.get("/api/cabinet/drafts", groupDraftReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { isStaff, charId } = await resolveCallerCharacter(req);
+    if (!isStaff) {
+      if (!charId) return res.status(403).json({ error: "No active character" });
+      const ok = await isOfficeHolder(charId, "cabinet");
+      if (!ok) return res.status(403).json({ error: "Cabinet access only" });
+    }
+    const { rows } = await pool.query(
+      "SELECT drafts FROM group_drafts WHERE group_key = 'cabinet'"
+    );
+    res.json({ drafts: rows[0]?.drafts || [] });
+  } catch (e) {
+    console.error("[GET /api/cabinet/drafts]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/cabinet/drafts — save cabinet draft bills (cabinet members + admin/mod/speaker)
+// Body: { drafts: [...] }
+app.post("/api/cabinet/drafts", groupDraftWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { isStaff, charId } = await resolveCallerCharacter(req);
+    if (!isStaff) {
+      if (!charId) return res.status(403).json({ error: "No active character" });
+      const ok = await isOfficeHolder(charId, "cabinet");
+      if (!ok) return res.status(403).json({ error: "Cabinet access only" });
+    }
+    const { drafts } = req.body || {};
+    if (!Array.isArray(drafts)) return res.status(400).json({ error: "Body must be { drafts: [] }" });
+    await pool.query(
+      `INSERT INTO group_drafts (group_key, drafts, updated_at)
+          VALUES ('cabinet', $1::jsonb, NOW())
+       ON CONFLICT (group_key)
+       DO UPDATE SET drafts = EXCLUDED.drafts, updated_at = NOW()`,
+      [JSON.stringify(drafts)]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/cabinet/drafts]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/shadowcabinet/drafts — fetch shadow cabinet draft bills
+app.get("/api/shadowcabinet/drafts", groupDraftReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { isStaff, charId } = await resolveCallerCharacter(req);
+    if (!isStaff) {
+      if (!charId) return res.status(403).json({ error: "No active character" });
+      const ok = await isOfficeHolder(charId, "shadow");
+      if (!ok) return res.status(403).json({ error: "Shadow cabinet access only" });
+    }
+    const { rows } = await pool.query(
+      "SELECT drafts FROM group_drafts WHERE group_key = 'shadowcabinet'"
+    );
+    res.json({ drafts: rows[0]?.drafts || [] });
+  } catch (e) {
+    console.error("[GET /api/shadowcabinet/drafts]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/shadowcabinet/drafts — save shadow cabinet draft bills
+// Body: { drafts: [...] }
+app.post("/api/shadowcabinet/drafts", groupDraftWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { isStaff, charId } = await resolveCallerCharacter(req);
+    if (!isStaff) {
+      if (!charId) return res.status(403).json({ error: "No active character" });
+      const ok = await isOfficeHolder(charId, "shadow");
+      if (!ok) return res.status(403).json({ error: "Shadow cabinet access only" });
+    }
+    const { drafts } = req.body || {};
+    if (!Array.isArray(drafts)) return res.status(400).json({ error: "Body must be { drafts: [] }" });
+    await pool.query(
+      `INSERT INTO group_drafts (group_key, drafts, updated_at)
+          VALUES ('shadowcabinet', $1::jsonb, NOW())
+       ON CONFLICT (group_key)
+       DO UPDATE SET drafts = EXCLUDED.drafts, updated_at = NOW()`,
+      [JSON.stringify(drafts)]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/shadowcabinet/drafts]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

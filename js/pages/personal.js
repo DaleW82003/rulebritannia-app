@@ -1352,7 +1352,7 @@ function render(data, state) {
         });
         // Reload finance from DB to get authoritative state
         const fin = await apiGetMyFinance();
-        syncFinanceIntoProfile(profile, fin, data, activeName);
+        syncFinanceIntoProfile(profile, fin, data, activeName, state);
         state.message = `Purchased "${item.name}" for ${money(price)}.${upkeep > 0 ? ` Upkeep: ${money(upkeep)}/month.` : ""}`;
       } catch (err) {
         state.message = `Purchase failed: ${err.message}`;
@@ -1371,7 +1371,7 @@ function render(data, state) {
       try {
         await apiRemoveShopPurchase(purchaseId);
         const fin = await apiGetMyFinance();
-        syncFinanceIntoProfile(profile, fin, data, activeName);
+        syncFinanceIntoProfile(profile, fin, data, activeName, state);
         state.message = "Purchase removed.";
       } catch (err) {
         state.message = `Remove failed: ${err.message}`;
@@ -1390,7 +1390,7 @@ function render(data, state) {
       try {
         const result = await apiSellShopPurchase(purchaseId);
         const fin = await apiGetMyFinance();
-        syncFinanceIntoProfile(profile, fin, data, activeName);
+        syncFinanceIntoProfile(profile, fin, data, activeName, state);
         state.message = `Item sold. Refund: ${money(result.refund || 0)}.`;
       } catch (err) {
         state.message = `Sell failed: ${err.message}`;
@@ -1410,7 +1410,7 @@ function render(data, state) {
       try {
         await apiDismissShopPurchase(purchaseId);
         const fin = await apiGetMyFinance();
-        syncFinanceIntoProfile(profile, fin, data, activeName);
+        syncFinanceIntoProfile(profile, fin, data, activeName, state);
         state.message = "Item dismissed.";
       } catch (err) {
         state.message = `Dismiss failed: ${err.message}`;

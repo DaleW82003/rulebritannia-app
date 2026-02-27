@@ -1035,6 +1035,44 @@ export async function apiSavePartyDrafts(partyId, drafts) {
   return body;
 }
 
+export async function apiGetCabinetDrafts() {
+  const res = await fetch(`${API_BASE}/api/cabinet/drafts`, { credentials: "include" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiGetCabinetDrafts failed (${res.status})`);
+  return body;
+}
+
+export async function apiSaveCabinetDrafts(drafts) {
+  const res = await fetch(`${API_BASE}/api/cabinet/drafts`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ drafts }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSaveCabinetDrafts failed (${res.status})`);
+  return body;
+}
+
+export async function apiGetShadowCabinetDrafts() {
+  const res = await fetch(`${API_BASE}/api/shadowcabinet/drafts`, { credentials: "include" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiGetShadowCabinetDrafts failed (${res.status})`);
+  return body;
+}
+
+export async function apiSaveShadowCabinetDrafts(drafts) {
+  const res = await fetch(`${API_BASE}/api/shadowcabinet/drafts`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ drafts }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSaveShadowCabinetDrafts failed (${res.status})`);
+  return body;
+}
+
 // ── Offices ────────────────────────────────────────────────────────────────
 
 export async function apiGetOffices() {

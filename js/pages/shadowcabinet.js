@@ -2,6 +2,7 @@ import { saveState, nowStamp } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
+import { apiGetShadowCabinetDrafts, apiSaveShadowCabinetDrafts } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 function isManager(data) {
@@ -183,7 +184,9 @@ function render(data, state) {
       draft.commencement = commencement;
       draft.articles = articles;
       draft.updatedAt = nowStamp();
-      saveState(data);
+      apiSaveShadowCabinetDrafts(data.shadowCabinet.drafts).catch((err) => {
+        console.warn("[shadow-draft-form update] save failed:", err.message);
+      });
       state.message = `Updated ${draft.ref}.`;
       state.editingDraftId = null;
       render(data, state);
@@ -210,7 +213,9 @@ function render(data, state) {
       createdAt: nowStamp()
     };
     data.shadowCabinet.drafts.unshift(draft);
-    saveState(data);
+    apiSaveShadowCabinetDrafts(data.shadowCabinet.drafts).catch((err) => {
+      console.warn("[shadow-draft-form create] save failed:", err.message);
+    });
     state.openDraftId = id;
     state.message = `Created ${draft.ref}.`;
     render(data, state);
@@ -244,7 +249,9 @@ function render(data, state) {
       const idx = data.shadowCabinet.drafts.findIndex((x) => x.id === id);
       if (idx === -1) return;
       const [deleted] = data.shadowCabinet.drafts.splice(idx, 1);
-      saveState(data);
+      apiSaveShadowCabinetDrafts(data.shadowCabinet.drafts).catch((err) => {
+        console.warn("[shadow delete-draft] save failed:", err.message);
+      });
       if (state.openDraftId === id) state.openDraftId = null;
       if (state.editingDraftId === id) state.editingDraftId = null;
       state.message = `Deleted ${deleted.ref}.`;
@@ -253,8 +260,22 @@ function render(data, state) {
   });
 }
 
-export function initShadowCabinetPage(data) {
+export async function initShadowCabinetPage(data) {
   normaliseShadowCabinet(data);
-  saveState(data);
+
+  // Load shadow cabinet drafts from DB (authoritative source; accessible to shadow cabinet members)
+  try {
+    const { drafts } = await apiGetShadowCabinetDrafts();
+    if (Array.isArray(drafts)) {
+      data.shadowCabinet.drafts = drafts;
+      // Keep nextDraftId ahead of all existing IDs
+      const maxId = drafts.reduce((m, d) => Math.max(m, Number(d.id || 0)), 0);
+      data.shadowCabinet.nextDraftId = Math.max(Number(data.shadowCabinet.nextDraftId || 1), maxId + 1);
+    }
+  } catch (err) {
+    // Non-critical: fall back to state-based drafts if API unavailable
+    console.warn("[initShadowCabinetPage] could not load shadow cabinet drafts from DB:", err.message);
+  }
+
   render(data, { openDraftId: null, editingDraftId: null, message: "" });
 }
