@@ -344,9 +344,11 @@ function render(data, state) {
       const item = data.fundraising.items.find((x) => String(x.id) === id);
       if (!item) return;
       btn.disabled = true;
+      const t0 = Date.now();
       try {
         await apiUpdateFundraisingItem(id, { status: "cancelled" });
         item.status = "cancelled";
+        if (Date.now() - t0 > 500) toastSuccess("Fundraiser cancelled.");
         render(data, state);
       } catch (err) {
         console.error("[fundraising] cancel failed:", err);
@@ -372,6 +374,7 @@ function render(data, state) {
       if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
 
       // Apply fundraisingCapacity bonus for party-scoped fundraisers.
+      // Each +1 to fundraisingCapacity = 10% uplift on the mod-entered gross revenue.
       let adjustedGross = gross;
       let fc = 0;
       if (item.scope === "party" && item.party) {
@@ -433,6 +436,7 @@ function render(data, state) {
       } catch (err) {
         console.error("[fundraising] reload after allocate failed:", err);
       }
+      toastSuccess(`Fundraiser approved — ${item.scope === "party" ? "party treasury" : "character bank"} credited with ${money(netRevenue)}.`);
       state.openId = id;
       render(data, state);
     });
@@ -455,9 +459,11 @@ function render(data, state) {
         return;
       }
       btn.disabled = true;
+      const t0 = Date.now();
       try {
         await apiDeleteFundraisingItem(id);
         data.fundraising.items = data.fundraising.items.filter((x) => String(x.id) !== id);
+        if (Date.now() - t0 > 500) toastSuccess("Fundraiser deleted.");
         render(data, state);
       } catch (err) {
         console.error("[fundraising] delete failed:", err);

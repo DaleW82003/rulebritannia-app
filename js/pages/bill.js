@@ -13,6 +13,7 @@ import {
   apiUpdateBill, apiDeleteBill,
 } from "../api.js";
 import { handleApiError } from "../errors.js";
+import { toastSuccess, toastError } from "../components/toast.js";
 
 function $(id) {
   return document.getElementById(id);
@@ -785,8 +786,12 @@ async function renderDivision(bill, data) {
           bill.stage = "Defeated in Division";
         }
         bill.divisionOutcome = outcome;
+        toastSuccess(`Division closed — ${outcome === "passed" ? "Bill passed ✓" : "Bill defeated"}.`);
         persistAndRerender(data, bill);
-      } catch (err) { if (msg) msg.textContent = `Error: ${err.message}`; }
+      } catch (err) {
+        if (msg) msg.textContent = `Error: ${err.message}`;
+        toastError(`Close division failed: ${err.message}`);
+      }
     });
 
     voting.querySelector("#npc-vote-form")?.addEventListener("submit", async (ev) => {
@@ -815,13 +820,16 @@ async function renderDivision(bill, data) {
         if (dir && ["aye", "no", "abstain"].includes(dir)) rebelsByPartyChoice[p.name] = dir;
         else delete rebelsByPartyChoice[p.name];
       });
+      const t0 = Date.now();
       try {
         await apiSetNpcVotes(bill.formalDivisionId, npcVotes, rebelsByParty, rebelsByPartyChoice);
         if (msgEl) msgEl.textContent = "NPC votes saved.";
+        if (Date.now() - t0 > 500) toastSuccess("NPC votes saved.");
         await renderDivision(bill, data);
       } catch (err) {
         if (msgEl) msgEl.textContent = `Error: ${err.message}`;
         if (submitBtn) submitBtn.disabled = false;
+        toastError(`Save failed: ${err.message}`);
       }
     });
 
@@ -924,6 +932,7 @@ async function renderDivision(bill, data) {
       setNpcVotes(bill, npcVotes);
       setRebellions(bill, rebelsByPartyLocal);
       maybeAutoCloseDivision(bill, data);
+      const t0 = Date.now();
       try {
         await apiUpdateBill(bill.id, bill);
       } catch (err) {
@@ -937,6 +946,7 @@ async function renderDivision(bill, data) {
         if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Apply Speaker Allocation"; }
         return;
       }
+      if (Date.now() - t0 > 500) toastSuccess("Speaker allocation saved.");
       persistAndRerender(data, bill);
     });
   }

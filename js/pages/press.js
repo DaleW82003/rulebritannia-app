@@ -2,6 +2,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, getWeekdayName, isSunday, getSimDate, simDateToObj, compareSimDates } from "../clock.js";
 import { handleApiError } from "../errors.js";
+import { toastSuccess, toastError } from "../components/toast.js";
 import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry, apiMarkPressItem, apiUpdatePressItem, apiDeletePressItem } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
@@ -685,6 +686,7 @@ function render(data, state) {
     try {
       await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
       await reloadPressFromDb(data);
+      toastSuccess("Press release marked.");
     } catch (err) {
       handleApiError(err, "Mark press release");
       if (submitBtn) submitBtn.disabled = false;
@@ -830,6 +832,7 @@ function render(data, state) {
     try {
       await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
       await reloadPressFromDb(data);
+      toastSuccess("Press conference marked.");
     } catch (err) {
       handleApiError(err, "Mark press conference");
       if (submitBtn) submitBtn.disabled = false;
@@ -1008,6 +1011,7 @@ function render(data, state) {
     try {
       await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
       await reloadPressFromDb(data);
+      toastSuccess("Speech marked.");
     } catch (err) {
       handleApiError(err, "Mark speech");
       if (submitBtn) submitBtn.disabled = false;
@@ -1096,6 +1100,7 @@ function render(data, state) {
     try {
       await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
       await reloadPressFromDb(data);
+      toastSuccess("Official letter marked.");
     } catch (err) {
       handleApiError(err, "Mark official letter");
       if (submitBtn) submitBtn.disabled = false;

@@ -9,6 +9,7 @@ import {
   apiGetRebelRequest, apiSubmitRebelRequest,
   apiGetMotion, apiSignEdm, apiSetNpcVotes, apiUpdateMotion,
 } from "../api.js";
+import { toastSuccess, toastError } from "../components/toast.js";
 
 const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line whip"];
 
@@ -322,9 +323,11 @@ async function renderHouseDb(root, data, motion) {
     if (msg) msg.textContent = "Closing…";
     try {
       await apiCloseDivision(dbDiv.id);
+      toastSuccess("Division closed.");
       await renderHouseDb(root, data, motion);
     } catch (err) {
       if (msg) msg.textContent = `Error: ${err.message}`;
+      toastError(`Close division failed: ${err.message}`);
     }
   });
 
@@ -358,13 +361,16 @@ async function renderHouseDb(root, data, motion) {
       if (dir && ["aye", "no", "abstain"].includes(dir)) rebelsByPartyChoice[p.name] = dir;
       else delete rebelsByPartyChoice[p.name];
     });
+    const t0 = Date.now();
     try {
       await apiSetNpcVotes(dbDiv.id, npcVotes, rebelsByParty, rebelsByPartyChoice);
       if (msgEl) msgEl.textContent = "NPC votes saved.";
+      if (Date.now() - t0 > 500) toastSuccess("NPC votes saved.");
       await renderHouseDb(root, data, motion);
     } catch (err) {
       if (msgEl) msgEl.textContent = `Error: ${err.message}`;
       if (submitBtn) submitBtn.disabled = false;
+      toastError(`Save failed: ${err.message}`);
     }
   });
 
