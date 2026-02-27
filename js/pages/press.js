@@ -49,6 +49,24 @@ function ensurePress(data) {
   data.press.nextId ??= 1;
 }
 
+/** Re-fetches all press items from DB and updates data.press in place. Silently ignores errors. */
+async function reloadPressFromDb(data) {
+  try {
+    const r = await apiGetPressItems();
+    const byType = { release: "releases", conference: "conferences", comment: "comments", speech: "speeches", letter: "letters" };
+    const fresh = { releases: [], conferences: [], comments: [], speeches: [], letters: [] };
+    for (const item of (r?.items ?? [])) {
+      const key = byType[item._pressType || item.press_type] || "releases";
+      if (fresh[key]) fresh[key].push(item);
+    }
+    for (const key of Object.keys(fresh)) {
+      if (fresh[key].length > 0) data.press[key] = fresh[key];
+    }
+  } catch (err) {
+    console.error("[press] reload from DB failed:", err);
+  }
+}
+
 /**
  * Determine the letter-office the current character is authorised to use.
  * Returns an office descriptor { key, displayName, address } or null if not authorised.
@@ -665,9 +683,8 @@ function render(data, state) {
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
     try {
-      const result = await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
-      if (result.item) Object.assign(item, result.item);
-      else { item.score = score; item.impact = impact; item.partyScore = partyScore; item.partyEffects = partyEffects; item.is_marked = true; }
+      await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
+      await reloadPressFromDb(data);
     } catch (err) {
       handleApiError(err, "Mark press release");
       if (submitBtn) submitBtn.disabled = false;
@@ -811,9 +828,8 @@ function render(data, state) {
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
     try {
-      const result = await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
-      if (result.item) Object.assign(conf, result.item);
-      else { conf.score = score; conf.impact = impact; conf.status = "closed"; conf.is_marked = true; }
+      await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
+      await reloadPressFromDb(data);
     } catch (err) {
       handleApiError(err, "Mark press conference");
       if (submitBtn) submitBtn.disabled = false;
@@ -990,9 +1006,8 @@ function render(data, state) {
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
     try {
-      const result = await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
-      if (result.item) Object.assign(item, result.item);
-      else { item.score = score; item.impact = impact; item.partyScore = partyScore; item.partyEffects = partyEffects; item.is_marked = true; }
+      await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
+      await reloadPressFromDb(data);
     } catch (err) {
       handleApiError(err, "Mark speech");
       if (submitBtn) submitBtn.disabled = false;
@@ -1079,9 +1094,8 @@ function render(data, state) {
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
     try {
-      const result = await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
-      if (result.item) Object.assign(item, result.item);
-      else { item.score = score; item.impact = impact; item.partyScore = partyScore; item.partyEffects = partyEffects; item.is_marked = true; }
+      await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
+      await reloadPressFromDb(data);
     } catch (err) {
       handleApiError(err, "Mark official letter");
       if (submitBtn) submitBtn.disabled = false;

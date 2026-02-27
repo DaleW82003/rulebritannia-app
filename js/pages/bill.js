@@ -791,6 +791,8 @@ async function renderDivision(bill, data) {
 
     voting.querySelector("#npc-vote-form")?.addEventListener("submit", async (ev) => {
       ev.preventDefault();
+      const submitBtn = ev.currentTarget.querySelector("[type='submit']");
+      if (submitBtn) submitBtn.disabled = true;
       const fd = new FormData(ev.currentTarget);
       const msgEl = voting.querySelector("#npc-msg");
       if (msgEl) msgEl.textContent = "Saving…";
@@ -817,7 +819,10 @@ async function renderDivision(bill, data) {
         await apiSetNpcVotes(bill.formalDivisionId, npcVotes, rebelsByParty, rebelsByPartyChoice);
         if (msgEl) msgEl.textContent = "NPC votes saved.";
         await renderDivision(bill, data);
-      } catch (err) { if (msgEl) msgEl.textContent = `Error: ${err.message}`; }
+      } catch (err) {
+        if (msgEl) msgEl.textContent = `Error: ${err.message}`;
+        if (submitBtn) submitBtn.disabled = false;
+      }
     });
 
     progress.innerHTML = `
@@ -896,8 +901,10 @@ async function renderDivision(bill, data) {
       </div>
     `);
 
-    voting.querySelector("#speaker-division-controls")?.addEventListener("submit", (e) => {
+    voting.querySelector("#speaker-division-controls")?.addEventListener("submit", async (e) => {
       e.preventDefault();
+      const submitBtn = e.currentTarget.querySelector("[type='submit']");
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
       const fd = new FormData(e.currentTarget);
       const npcVotes = {};
       npcParties.forEach((p) => {
@@ -910,9 +917,26 @@ async function renderDivision(bill, data) {
         const raw = Number(fd.get(`rebels-${p.name}`) || 0);
         rebelsByPartyLocal[p.name] = Math.max(0, Math.min(seats, raw));
       });
+      // Save previous state for rollback on failure
+      const prevNpcVotes = { ...(bill.division?.npcVotes || {}) };
+      const prevRebels = { ...(bill.division?.rebelsByParty || {}) };
+      const prevStatus = bill.division?.status;
       setNpcVotes(bill, npcVotes);
       setRebellions(bill, rebelsByPartyLocal);
       maybeAutoCloseDivision(bill, data);
+      try {
+        await apiUpdateBill(bill.id, bill);
+      } catch (err) {
+        // Rollback local mutations on failure
+        if (bill.division) {
+          bill.division.npcVotes = prevNpcVotes;
+          bill.division.rebelsByParty = prevRebels;
+          bill.division.status = prevStatus;
+        }
+        handleApiError(err, "Save speaker allocation");
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Apply Speaker Allocation"; }
+        return;
+      }
       persistAndRerender(data, bill);
     });
   }

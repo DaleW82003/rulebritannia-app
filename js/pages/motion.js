@@ -331,6 +331,8 @@ async function renderHouseDb(root, data, motion) {
   // NPC vote form (staff/speaker only)
   root.querySelector("#npc-vote-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
     const fd = new FormData(e.currentTarget);
     const msgEl = root.querySelector("#npc-msg");
     if (msgEl) msgEl.textContent = "Saving…";
@@ -362,6 +364,7 @@ async function renderHouseDb(root, data, motion) {
       await renderHouseDb(root, data, motion);
     } catch (err) {
       if (msgEl) msgEl.textContent = `Error: ${err.message}`;
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 
