@@ -10556,6 +10556,20 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const tally = { aye: 0, no: 0, abstain: 0 };
     votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
 
+    // Also add NPC party votes to the live tally
+    const npcV = division.npc_votes || {};
+    const rebelP = division.rebels_by_party || {};
+    const { rows: seatRows } = await pool.query(
+      "SELECT party_name, COUNT(*) AS seats FROM constituencies WHERE party_name IS NOT NULL AND party_name <> '' GROUP BY party_name"
+    );
+    const seatsByParty = Object.fromEntries(seatRows.map(r => [r.party_name, Number(r.seats)]));
+    for (const [party, npcVote] of Object.entries(npcV)) {
+      if (tally[npcVote] === undefined) continue;
+      const seats = Number(seatsByParty[party] || 0);
+      const rebels = Number(rebelP[party] || 0);
+      if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
+    }
+
     // Caller's own vote and effective weight
     const charId = await getActiveCharacterId(req);
     let myVote = null;

@@ -227,8 +227,14 @@ async function renderHouseDb(root, data, motion) {
                 const npcParties = Object.keys(seats).filter((p) => Number(seats[p]) > 0 && !PLAYABLE_PARTIES.has(p) && !/sinn\s*f[ée]in/i.test(p) && !/^speaker$/i.test(p));
                 const npcVotes = dbDiv.npc_votes || {};
                 const rebels   = dbDiv.rebels_by_party || {};
-                if (!npcParties.length) return `<p class="muted">No NPC parties with seats.</p>`;
-                return npcParties.map((p) => `
+                if (!npcParties.length && !["Labour", "Conservative", "Liberal Democrat"].some(p => Number(seats[p] || 0) > 0)) return `<p class="muted">No NPC parties with seats.</p>`;
+                const npcTally = { aye: 0, no: 0, abstain: 0 };
+                Object.entries(npcVotes).forEach(([p, v]) => {
+                  if (npcTally[v] !== undefined && Number(seats[p] || 0) > 0) {
+                    npcTally[v] += Math.max(0, Number(seats[p]) - Number(rebels[p] || 0));
+                  }
+                });
+                return (npcParties.length ? npcParties.map((p) => `
                   <div class="kv" style="margin-bottom:4px;">
                     <span><b>${esc(p)}</b> (${Number(seats[p])} seats)</span>
                     <select name="npc-${esc(p)}" class="input" style="width:110px;">
@@ -238,7 +244,18 @@ async function renderHouseDb(root, data, motion) {
                       <option value="abstain" ${npcVotes[p] === "abstain" ? "selected" : ""}>Abstain</option>
                     </select>
                     <input type="number" name="rebels-${esc(p)}" min="0" max="${Number(seats[p])}" value="${Number(rebels[p] || 0)}" class="input" style="width:70px;" placeholder="Rebels">
-                  </div>`).join("");
+                  </div>`).join("") : "") +
+                `<p class="muted" style="margin-top:4px;">NPC contribution: Aye ${npcTally.aye}, No ${npcTally.no}, Abstain ${npcTally.abstain}</p>` +
+                `<div style="margin-top:12px;">
+                  <h5 style="margin:0 0 4px;">Rebellion (removes from player weighted vote)</h5>
+                  <p class="muted" style="margin:0 0 6px;font-size:0.85em;">Set number of rebels per party. These seats are removed from that party's weighted player vote total.</p>
+                  ${["Labour", "Conservative", "Liberal Democrat"].filter(p => Number(seats[p] || 0) > 0).map(p => `
+                    <div class="kv" style="margin-bottom:4px;">
+                      <span><b>${esc(p)}</b> (${Number(seats[p])} seats total)</span>
+                      <label>Rebels: <input type="number" name="rebels-${esc(p)}" min="0" max="${Number(seats[p])}" value="${Number(rebels[p] || 0)}" class="input" style="width:70px;"></label>
+                    </div>
+                  `).join("")}
+                </div>`;
               })()}
               <div class="tile-bottom" style="padding-top:6px;">
                 <button class="btn" type="submit">Save NPC Votes</button>
@@ -328,6 +345,14 @@ async function renderHouseDb(root, data, motion) {
       if (["aye", "no", "abstain"].includes(v)) npcVotes[p] = v;
       const rebels = Number(fd.get(`rebels-${p}`) || 0);
       if (rebels > 0) rebelsByParty[p] = rebels;
+    });
+    // Collect rebel counts for playable parties (Labour, Conservative, Liberal Democrat)
+    ["Labour", "Conservative", "Liberal Democrat"].forEach((p) => {
+      if (Number(seats[p] || 0) > 0) {
+        const rebels = Number(fd.get(`rebels-${p}`) || 0);
+        if (rebels > 0) rebelsByParty[p] = rebels;
+        else delete rebelsByParty[p];
+      }
     });
     try {
       await apiSetNpcVotes(dbDiv.id, npcVotes, rebelsByParty);
