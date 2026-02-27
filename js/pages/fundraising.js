@@ -3,7 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
-import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem } from "../api.js";
+import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem, apiCreditFundraisingToParty } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 const FUNDRAISERS = [
@@ -344,6 +344,14 @@ function render(data, state) {
         data.fundraising.balances.parties[key] = Number(data.fundraising.balances.parties[key] || 0) + net;
         const treasury = ensurePartyTreasury(data, item.party);
         if (treasury) treasury.cash = Number(treasury.cash || 0) + net;
+        // Credit DB-backed party treasury and add to party income ledger
+        if (net > 0 && item.party) {
+          apiCreditFundraisingToParty(id, {
+            partySlug: item.party,
+            amount: net,
+            note: `Fundraising: ${item.type || "event"}`,
+          }).catch((err) => console.warn("[fundraising] DB party credit failed:", err.message));
+        }
       } else {
         const key = item.hostId || item.hostName;
         const net = Number(item.netRevenue || 0);

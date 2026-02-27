@@ -1530,6 +1530,29 @@ async function ensureSchema() {
   // ── Party drafts column (party bill drafts, admin/chairman only) ──────────
   await pool.query(`ALTER TABLE parties ADD COLUMN IF NOT EXISTS drafts JSONB NOT NULL DEFAULT '[]'::jsonb`);
 
+  // ── Party membership fee + members rate-limit + intake tracking ──────────
+  await pool.query(`
+    ALTER TABLE parties
+      ADD COLUMN IF NOT EXISTS membership_fee_annual        NUMERIC NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS last_members_update_sim_index INT,
+      ADD COLUMN IF NOT EXISTS last_membership_intake_sim_year INT;
+  `);
+
+  // ── Party donations ledger ────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS party_donations (
+      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      party_slug  TEXT NOT NULL,
+      from_name   TEXT NOT NULL DEFAULT '',
+      amount      NUMERIC NOT NULL DEFAULT 0,
+      note        TEXT NOT NULL DEFAULT '',
+      sim_month   INT,
+      sim_year    INT,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS party_donations_slug_idx ON party_donations(party_slug);
+  `);
+
   // ── Expand press_items type constraint to include comment / speech / letter ─
   await pool.query(`
     DO $$
@@ -2215,7 +2238,7 @@ async function runShopUpkeep(month, year) {
          WHERE shop_monthly_upkeep > 0
       `);
     }
-    // Party: deduct structure monthly overhead + party shop purchase upkeep from each party treasury
+    // Party: deduct structure monthly overhead + HQ baseline + party shop purchase upkeep from each party treasury
     const { rows: parties } = await pool.query(
       `SELECT p.id, p.slug, p.treasury, p.party_structure,
               COALESCE(SUM(ps.monthly_upkeep), 0) AS shop_upkeep
@@ -2223,6 +2246,7 @@ async function runShopUpkeep(month, year) {
          LEFT JOIN party_shop_purchases ps ON ps.party_slug = p.slug
         WHERE (p.party_structure->>'monthlyOverhead')::numeric > 0
            OR EXISTS (SELECT 1 FROM party_shop_purchases WHERE party_slug = p.slug AND monthly_upkeep > 0)
+           OR p.slug IN ('Conservative','Labour','Liberal Democrat')
         GROUP BY p.id, p.slug, p.treasury, p.party_structure`
     );
 
@@ -2231,7 +2255,8 @@ async function runShopUpkeep(month, year) {
       .map((party) => {
         const overhead    = Number(party.party_structure?.monthlyOverhead || 0);
         const shopUpkeep  = Number(party.shop_upkeep || 0);
-        const totalDeduct = overhead + shopUpkeep;
+        const hqBaseline  = Number(HQ_BASELINE_UPKEEP_1997[party.slug] || 0);
+        const totalDeduct = overhead + shopUpkeep + hqBaseline;
         if (totalDeduct <= 0) return null;
         const newCash   = Number(party.treasury?.cash || 0) - totalDeduct;
         const overspend = newCash < 0;
@@ -2338,6 +2363,52 @@ async function runRevenuePayouts(simMonth, simYear) {
 }
 const PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
 
+// ── Fixed HQ baseline monthly upkeep (1997 values) ────────────────────────
+const HQ_BASELINE_UPKEEP_1997 = {
+  Conservative:     12000,
+  Labour:           15000,
+  "Liberal Democrat": 8000,
+};
+
+// ── Annual membership intake (January) ───────────────────────────────────────
+// Called each tick. When month === 1, credits each party treasury with
+// membership_fee_annual × members (idempotent per sim year).
+async function runMembershipIntake(month, year) {
+  if (month !== 1) return; // only January
+  try {
+    const { rows: parties } = await pool.query(
+      `SELECT id, slug, treasury, membership_fee_annual, last_membership_intake_sim_year
+         FROM parties
+        WHERE membership_fee_annual > 0
+          AND (last_membership_intake_sim_year IS NULL OR last_membership_intake_sim_year < $1)`,
+      [year]
+    );
+    for (const party of parties) {
+      const fee     = Number(party.membership_fee_annual || 0);
+      const members = Number(party.treasury?.members || 0);
+      const credit  = Math.round(fee * members);
+      if (credit <= 0) continue;
+      await pool.query(
+        `UPDATE parties
+            SET treasury = jsonb_set(COALESCE(treasury,'{}'), '{cash}',
+                             to_jsonb((COALESCE((treasury->>'cash')::numeric, 0) + $1))),
+                last_membership_intake_sim_year = $2,
+                updated_at = NOW()
+          WHERE id = $3`,
+        [credit, year, party.id]
+      );
+      await pool.query(
+        `INSERT INTO party_donations (party_slug, from_name, amount, note, sim_month, sim_year)
+         VALUES ($1, 'Membership Intake', $2, $3, 1, $4)`,
+        [party.slug, credit, `Annual membership fee intake: ${members.toLocaleString("en-GB")} members × £${fee.toLocaleString("en-GB")}`, year]
+      );
+      console.log(`[intake] ${party.slug}: credited £${credit} (${members} × £${fee}) for ${year}`);
+    }
+  } catch (e) {
+    console.error("[runMembershipIntake] error:", e.message);
+  }
+}
+
 // Server-side party name normaliser — mirrors scripts/convert-1997-csv.js.
 // Handles ASCII variants, Latin-1 mojibake and legacy CSV typos.
 const SERVER_PARTY_MAP = {
@@ -2386,6 +2457,51 @@ async function seedPlayableParties() {
      ON CONFLICT (slug) DO UPDATE SET short_name = EXCLUDED.short_name, playable = EXCLUDED.playable`,
     params
   );
+
+  // Seed baseline 1997 party structure for the 3 playable parties (idempotent: only if empty)
+  const BASELINE_STRUCTURES = {
+    Conservative: {
+      departments: { communications: 12, policy: 10, campaign: 15, compliance: 4, admin: 8, fundraising: 6, membership: 8, research: 7 },
+      nationalOffices: [
+        { region: "Scotland", size: "Regional Office", staffCount: 8 },
+        { region: "Wales",    size: "Regional Office", staffCount: 6 },
+      ],
+    },
+    Labour: {
+      departments: { communications: 14, policy: 11, campaign: 18, compliance: 4, admin: 9, fundraising: 7, membership: 10, research: 7 },
+      nationalOffices: [
+        { region: "Scotland", size: "Regional Office", staffCount: 10 },
+        { region: "Wales",    size: "Regional Office", staffCount: 8 },
+      ],
+    },
+    "Liberal Democrat": {
+      departments: { communications: 6, policy: 5, campaign: 8, compliance: 2, admin: 4, fundraising: 3, membership: 5, research: 4 },
+      nationalOffices: [
+        { region: "Scotland", size: "Regional Office", staffCount: 4 },
+        { region: "Wales",    size: "Regional Office", staffCount: 3 },
+      ],
+    },
+  };
+  for (const [slug, base] of Object.entries(BASELINE_STRUCTURES)) {
+    const totalDeptStaff   = Object.values(base.departments).reduce((s, v) => s + v, 0);
+    const totalOfficeStaff = base.nationalOffices.reduce((s, o) => s + o.staffCount, 0);
+    const totalStaff       = totalDeptStaff + totalOfficeStaff;
+    const monthlyOverhead  = Math.round(totalStaff * 1500); // STAFF_COST_1997
+    const structure = {
+      departments:    base.departments,
+      nationalOffices: base.nationalOffices,
+      totalStaff,
+      monthlyOverhead,
+      unlocks: {},
+    };
+    await pool.query(
+      `UPDATE parties
+          SET party_structure = $1::jsonb
+        WHERE slug = $2
+          AND (party_structure IS NULL OR party_structure = '{}'::jsonb OR party_structure = 'null'::jsonb)`,
+      [JSON.stringify(structure), slug]
+    );
+  }
 }
 
 /**
@@ -6090,6 +6206,7 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
     runSalaryCrediting(newMonth, newYear).catch((e) => console.error("[clock/tick] salary crediting failed:", e.message));
     runShopUpkeep(newMonth, newYear).catch((e) => console.error("[clock/tick] shop upkeep failed:", e.message));
     runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
+    runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -8354,6 +8471,8 @@ app.get("/api/parties/:partyId", partyReadLimit, async (req, res) => {
     }));
     // Include drafts array from DB column
     party.drafts = Array.isArray(party.drafts) ? party.drafts : [];
+    // Expose membership fee
+    party.membershipFeeAnnual = Number(party.membership_fee_annual || 0);
     res.json({ party });
   } catch (e) {
     console.error(e);
@@ -9511,13 +9630,45 @@ app.post("/api/parties/:partyId/treasury", partyWriteLimit, async (req, res) => 
       }
     }
 
-    const { cash, debt, members, hqUrl } = req.body || {};
+    const { cash, debt, members, hqUrl, adminOverride } = req.body || {};
 
     // Build treasury patch object and optional hq_url update
     const treasuryValues = {};
     if (cash    !== undefined) treasuryValues.cash    = parseFloat(cash)    ?? 0;
     if (debt    !== undefined) treasuryValues.debt    = parseFloat(debt)    ?? 0;
-    if (members !== undefined) treasuryValues.members = parseFloat(members) ?? 0;
+
+    // Members count: rate-limited to once per 6 sim months per party (admin can override)
+    if (members !== undefined) {
+      const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+      const simMonth = clk[0]?.sim_current_month ?? 8;
+      const simYear  = clk[0]?.sim_current_year  ?? 1997;
+      const currentSimIndex = simYear * 12 + (simMonth - 1);
+
+      const { rows: partyRow } = await pool.query(
+        "SELECT last_members_update_sim_index FROM parties WHERE slug = $1",
+        [req.params.partyId]
+      );
+      const lastUpdateSimIndex = partyRow[0]?.last_members_update_sim_index ?? null;
+      const monthsSinceLast = lastUpdateSimIndex != null ? currentSimIndex - lastUpdateSimIndex : Infinity;
+
+      if (monthsSinceLast < 6 && !isAdminOrMod) {
+        return res.status(429).json({
+          error: `Members count can only be updated once every 6 sim months. Next update available in ${6 - monthsSinceLast} sim month(s).`
+        });
+      }
+      // Admin override: allowed to bypass, but must be flagged explicitly for audit
+      if (monthsSinceLast < 6 && isAdminOrMod && !adminOverride) {
+        return res.status(409).json({
+          error: `Members count was recently updated. Pass adminOverride: true to force update.`,
+          monthsSinceLast,
+        });
+      }
+
+      treasuryValues.members = parseFloat(members) ?? 0;
+      // Update last_members_update_sim_index tracking (done in the UPDATE below via extra SET clause)
+      req._updateMembersSimIndex = currentSimIndex;
+      req._membersAdminOverride  = !!adminOverride;
+    }
 
     if (!Object.keys(treasuryValues).length && hqUrl === undefined) {
       return res.status(400).json({ error: "No fields provided" });
@@ -9525,30 +9676,190 @@ app.post("/api/parties/:partyId/treasury", partyWriteLimit, async (req, res) => 
 
     const finalParams = [];
     let idx = 1;
-    let setStr;
+    let setClauseParts = [];
 
-    if (Object.keys(treasuryValues).length && hqUrl !== undefined) {
-      setStr = `treasury = COALESCE(treasury,'{}') || $${idx++}::jsonb, hq_url = $${idx++}, updated_at = NOW()`;
-      finalParams.push(JSON.stringify(treasuryValues), String(hqUrl || "").trim() || null);
-    } else if (Object.keys(treasuryValues).length) {
-      setStr = `treasury = COALESCE(treasury,'{}') || $${idx++}::jsonb, updated_at = NOW()`;
+    if (Object.keys(treasuryValues).length) {
+      setClauseParts.push(`treasury = COALESCE(treasury,'{}') || $${idx++}::jsonb`);
       finalParams.push(JSON.stringify(treasuryValues));
-    } else {
-      setStr = `hq_url = $${idx++}, updated_at = NOW()`;
+    }
+    if (hqUrl !== undefined) {
+      setClauseParts.push(`hq_url = $${idx++}`);
       finalParams.push(String(hqUrl || "").trim() || null);
     }
+    if (req._updateMembersSimIndex != null) {
+      setClauseParts.push(`last_members_update_sim_index = $${idx++}`);
+      finalParams.push(req._updateMembersSimIndex);
+    }
+    setClauseParts.push("updated_at = NOW()");
     finalParams.push(req.params.partyId);
 
     const { rows } = await pool.query(
-      `UPDATE parties SET ${setStr} WHERE slug = $${idx} RETURNING slug, treasury, hq_url`,
+      `UPDATE parties SET ${setClauseParts.join(", ")} WHERE slug = $${idx} RETURNING slug, treasury, hq_url`,
       finalParams
     );
     if (!rows.length) return res.status(404).json({ error: "Party not found" });
 
-    await writeAuditLog(req.session.userId, "party.treasury.update", "party", req.params.partyId, null, req.body);
+    const auditExtra = req._membersAdminOverride ? { ...req.body, adminOverride: true } : req.body;
+    await writeAuditLog(req.session.userId, "party.treasury.update", "party", req.params.partyId, null, auditExtra);
     res.json({ ok: true, treasury: rows[0].treasury, hqUrl: rows[0].hq_url });
   } catch (e) {
     console.error("[POST /api/parties/:partyId/treasury]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Party membership fee ──────────────────────────────────────────────────────
+// POST /api/parties/:partyId/membership-fee — chairman/admin/mod only
+app.post("/api/parties/:partyId/membership-fee", partyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+
+    if (!isAdminOrMod) {
+      if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
+      const { rows: pr } = await pool.query(
+        "SELECT chairman_character_id FROM parties WHERE slug = $1",
+        [req.params.partyId]
+      );
+      if (!pr.length) return res.status(404).json({ error: "Party not found" });
+      const isChairman = String(pr[0].chairman_character_id) === String(req.session.characterId);
+      if (!isChairman) {
+        return res.status(403).json({ error: "Only the party chairman or admin/mod can set the membership fee" });
+      }
+    }
+
+    const fee = parseFloat(req.body?.fee ?? req.body?.membership_fee_annual);
+    if (!Number.isFinite(fee) || fee < 0) {
+      return res.status(400).json({ error: "fee must be a non-negative number" });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE parties SET membership_fee_annual = $1, updated_at = NOW() WHERE slug = $2
+       RETURNING slug, membership_fee_annual`,
+      [fee, req.params.partyId]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Party not found" });
+
+    await writeAuditLog(req.session.userId, "party.membership_fee.set", "party", req.params.partyId, null, { fee });
+    res.json({ ok: true, membershipFeeAnnual: Number(rows[0].membership_fee_annual) });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/membership-fee]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Party donations ───────────────────────────────────────────────────────────
+// GET /api/parties/:partyId/donations — chairman/leader/admin/mod
+app.get("/api/parties/:partyId/donations", partyReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+
+    if (!isAdminOrMod) {
+      if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
+      const { rows: pr } = await pool.query(
+        "SELECT leader_character_id, chairman_character_id FROM parties WHERE slug = $1",
+        [req.params.partyId]
+      );
+      if (!pr.length) return res.status(404).json({ error: "Party not found" });
+      const isLeader   = String(pr[0].leader_character_id)   === String(req.session.characterId);
+      const isChairman = String(pr[0].chairman_character_id) === String(req.session.characterId);
+      if (!isLeader && !isChairman) {
+        return res.status(403).json({ error: "Only the party chairman, leader, or admin/mod can view donations" });
+      }
+    }
+
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit || "100", 10)));
+    const { rows } = await pool.query(
+      `SELECT id, party_slug, from_name, amount, note, sim_month, sim_year, created_at
+         FROM party_donations WHERE party_slug = $1
+        ORDER BY created_at DESC LIMIT $2`,
+      [req.params.partyId, limit]
+    );
+    res.json({
+      donations: rows.map((d) => ({
+        id:        d.id,
+        fromName:  d.from_name,
+        amount:    Number(d.amount),
+        note:      d.note,
+        simMonth:  d.sim_month,
+        simYear:   d.sim_year,
+        createdAt: d.created_at,
+      })),
+    });
+  } catch (e) {
+    console.error("[GET /api/parties/:partyId/donations]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/parties/:partyId/donations — admin/mod only
+app.post("/api/parties/:partyId/donations", partyWriteLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAdminOrMod(req, res)) { client.release(); return; }
+
+    const fromName = String(req.body?.fromName || req.body?.from_name || "").trim().slice(0, 200);
+    const amount   = parseFloat(req.body?.amount);
+    const note     = String(req.body?.note || "").trim().slice(0, 500);
+
+    if (!fromName) { client.release(); return res.status(400).json({ error: "fromName is required" }); }
+    if (!Number.isFinite(amount) || amount <= 0) { client.release(); return res.status(400).json({ error: "amount must be a positive number" }); }
+
+    const { rows: clk } = await client.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const simMonth = clk[0]?.sim_current_month ?? 8;
+    const simYear  = clk[0]?.sim_current_year  ?? 1997;
+
+    await client.query("BEGIN");
+    const { rows: partyRows } = await client.query(
+      "SELECT id FROM parties WHERE slug = $1 FOR UPDATE",
+      [req.params.partyId]
+    );
+    if (!partyRows.length) {
+      await client.query("ROLLBACK");
+      client.release();
+      return res.status(404).json({ error: "Party not found" });
+    }
+
+    await client.query(
+      `UPDATE parties
+          SET treasury = jsonb_set(COALESCE(treasury,'{}'), '{cash}',
+                           to_jsonb((COALESCE((treasury->>'cash')::numeric, 0) + $1))),
+              updated_at = NOW()
+        WHERE slug = $2`,
+      [amount, req.params.partyId]
+    );
+    const { rows: donation } = await client.query(
+      `INSERT INTO party_donations (party_slug, from_name, amount, note, sim_month, sim_year)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [req.params.partyId, fromName, amount, note, simMonth, simYear]
+    );
+    await client.query("COMMIT");
+
+    await writeAuditLog(req.session.userId, "party.donation.add", "party_donations", donation[0].id, null,
+      { partySlug: req.params.partyId, fromName, amount, note });
+
+    client.release();
+    res.json({
+      ok: true,
+      donation: {
+        id:        donation[0].id,
+        fromName:  donation[0].from_name,
+        amount:    Number(donation[0].amount),
+        note:      donation[0].note,
+        simMonth:  donation[0].sim_month,
+        simYear:   donation[0].sim_year,
+        createdAt: donation[0].created_at,
+      },
+    });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    client.release();
+    console.error("[POST /api/parties/:partyId/donations]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -10904,6 +11215,7 @@ app.post("/api/sim/tick", simWriteLimit, async (req, res) => {
     // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
     runSalaryCrediting(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] salary crediting failed:", e.message));
     runShopUpkeep(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] shop upkeep failed:", e.message));
+    runMembershipIntake(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] membership intake failed:", e.message));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -14062,6 +14374,84 @@ app.put("/api/fundraising/:id", crudWriteLimit, async (req, res) => {
     );
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+// POST /api/fundraising/:id/credit-party — admin/mod: credit party treasury from fundraising revenue
+// Body: { partySlug, amount, note? }
+// Credits party treasury cash atomically, adds combined ledger entry (from_name = campaign name / "Fundraising")
+app.post("/api/fundraising/:id/credit-party", crudWriteLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAdminOrMod(req, res)) { client.release(); return; }
+
+    const partySlug = String(req.body?.partySlug || "").trim();
+    const amount    = parseFloat(req.body?.amount);
+    const note      = String(req.body?.note || "").trim().slice(0, 500);
+
+    if (!partySlug) { client.release(); return res.status(400).json({ error: "partySlug is required" }); }
+    if (!Number.isFinite(amount) || amount <= 0) { client.release(); return res.status(400).json({ error: "amount must be a positive number" }); }
+
+    // Get the fundraising item for its campaign name
+    const { rows: itemRows } = await client.query(
+      "SELECT id, data FROM fundraising_items WHERE id = $1",
+      [req.params.id]
+    );
+    if (!itemRows.length) { client.release(); return res.status(404).json({ error: "Fundraising item not found" }); }
+
+    const campaignName = String(itemRows[0].data?.name || itemRows[0].data?.title || "Fundraising").trim().slice(0, 200);
+
+    const { rows: clk } = await client.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+    const simMonth = clk[0]?.sim_current_month ?? 8;
+    const simYear  = clk[0]?.sim_current_year  ?? 1997;
+
+    await client.query("BEGIN");
+    const { rows: partyRows } = await client.query(
+      "SELECT id FROM parties WHERE slug = $1 FOR UPDATE",
+      [partySlug]
+    );
+    if (!partyRows.length) {
+      await client.query("ROLLBACK");
+      client.release();
+      return res.status(404).json({ error: "Party not found" });
+    }
+
+    await client.query(
+      `UPDATE parties
+          SET treasury = jsonb_set(COALESCE(treasury,'{}'), '{cash}',
+                           to_jsonb((COALESCE((treasury->>'cash')::numeric, 0) + $1))),
+              updated_at = NOW()
+        WHERE slug = $2`,
+      [amount, partySlug]
+    );
+    const { rows: donation } = await client.query(
+      `INSERT INTO party_donations (party_slug, from_name, amount, note, sim_month, sim_year)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [partySlug, campaignName, amount, note || `Fundraising revenue: ${campaignName}`, simMonth, simYear]
+    );
+    await client.query("COMMIT");
+
+    await writeAuditLog(req.session.userId, "party.donation.fundraising", "party_donations", donation[0].id, null,
+      { partySlug, campaignName, amount, fundraisingItemId: req.params.id });
+
+    client.release();
+    res.json({
+      ok: true,
+      donation: {
+        id:        donation[0].id,
+        fromName:  donation[0].from_name,
+        amount:    Number(donation[0].amount),
+        note:      donation[0].note,
+        simMonth:  donation[0].sim_month,
+        simYear:   donation[0].sim_year,
+        createdAt: donation[0].created_at,
+      },
+    });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    client.release();
+    console.error("[POST /api/fundraising/:id/credit-party]", e);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 app.delete("/api/fundraising/:id", crudWriteLimit, async (req, res) => {
