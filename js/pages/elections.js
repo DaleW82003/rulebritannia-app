@@ -4,6 +4,7 @@ import {
   apiGetElectionBodiesCurrent,
   apiGetElectionBodiesArchive,
   apiSubmitElectionBodyResult,
+  apiUpdateElectionBodyResult,
   apiDeleteElectionBodyResult,
 } from "../api.js";
 
@@ -45,9 +46,13 @@ const state = {
   archive: [],      // non-current finalized results
   showArchive: false,
   showSubmitForm: false,
-  submitPartyRows: [{ party: "", seats: "", votes: "", vote_share: "" }],
+  editId: null,     // id of election result being edited
+  submitPartyRows: [{ party: "", seats: "", vote_share: "" }],
   error: null,
 };
+
+// Party names for dropdown (populated at init from data.parliament.parties)
+let _partyNames = ["Conservative", "Labour", "Liberal Democrat", "SNP", "Plaid Cymru", "Green", "UKIP", "DUP", "Sinn Féin", "SDLP", "Alliance", "Independents", "Others"];
 
 // ── Render helpers ────────────────────────────────────────────────────────────
 
@@ -151,7 +156,7 @@ function renderBodyGrid(canManage = false) {
               <div class="wgo-strap">${fmtDate(result.polling_day)}</div>
               ${renderTurnout(result)}
               ${renderPartySummaryTable(result.party_summary, true)}
-              ${canManage ? `<button class="btn danger" type="button" data-action="delete-election-result" data-id="${esc(String(result.id))}" style="margin-top:6px;font-size:12px;">Delete</button>` : ""}
+              ${canManage ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;"><button class="btn" type="button" data-action="edit-election-result" data-id="${esc(String(result.id))}" style="font-size:12px;">Edit</button><button class="btn danger" type="button" data-action="delete-election-result" data-id="${esc(String(result.id))}" style="font-size:12px;">Delete</button></div>` : ""}
             ` : `<div class="wgo-strap muted" style="margin-top:8px;">No result recorded yet.</div>`}
           </div>
         `;
@@ -212,14 +217,15 @@ function renderSubmitForm() {
       </div>
       <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
         <div>
-          <label class="label" for="eb-turnout-total">Turnout Total (optional)</label>
-          <input id="eb-turnout-total" class="input" type="number" min="0" placeholder="e.g. 31286284">
+          <label class="label" for="eb-electorate">Total Electorate (optional)</label>
+          <input id="eb-electorate" class="input" type="number" min="0" placeholder="e.g. 43772000">
         </div>
         <div>
-          <label class="label" for="eb-turnout-pct">Turnout % (optional)</label>
-          <input id="eb-turnout-pct" class="input" type="number" min="0" max="100" step="0.01" placeholder="e.g. 71.46">
+          <label class="label" for="eb-votes-cast">Total Votes Cast (optional)</label>
+          <input id="eb-votes-cast" class="input" type="number" min="0" placeholder="e.g. 31286284">
         </div>
       </div>
+      <div class="muted" style="font-size:12px;margin-bottom:8px;">Turnout % will be computed automatically from Votes Cast ÷ Electorate.</div>
 
       <h4 style="margin:10px 0 6px;">Party Results</h4>
       <p class="muted" style="font-size:12px;margin:0 0 8px;">Add one row per party. Seats, votes, and vote share are all optional where not applicable.</p>
@@ -238,11 +244,14 @@ function renderSubmitForm() {
 }
 
 function renderPartyRows() {
+  const partyOptions = _partyNames.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
   return state.submitPartyRows.map((row, i) => `
-    <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr auto;gap:6px;align-items:end;margin-bottom:4px;" data-row="${i}">
-      <input class="input party-row-party" type="text" placeholder="Party name" value="${esc(row.party)}" data-i="${i}">
+    <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr auto;gap:6px;align-items:end;margin-bottom:4px;" data-row="${i}">
+      <select class="input party-row-party" data-i="${i}">
+        <option value="">— Party —</option>
+        ${_partyNames.map(p => `<option value="${esc(p)}"${row.party === p ? " selected" : ""}>${esc(p)}</option>`).join("")}
+      </select>
       <input class="input party-row-seats" type="number" min="0" placeholder="Seats" value="${esc(row.seats)}" data-i="${i}">
-      <input class="input party-row-votes" type="number" min="0" placeholder="Votes" value="${esc(row.votes)}" data-i="${i}">
       <input class="input party-row-share" type="number" min="0" max="100" step="0.01" placeholder="Vote %" value="${esc(row.vote_share)}" data-i="${i}">
       <button class="btn danger" type="button" data-remove-row="${i}" style="padding:6px 8px;font-size:12px;" ${state.submitPartyRows.length <= 1 ? "disabled" : ""}>✕</button>
     </div>
@@ -307,17 +316,19 @@ function render(data) {
 
   root.querySelector("#toggle-submit-form")?.addEventListener("click", () => {
     state.showSubmitForm = !state.showSubmitForm;
-    state.submitPartyRows = [{ party: "", seats: "", votes: "", vote_share: "" }];
+    state.editId = null;
+    state.submitPartyRows = [{ party: "", seats: "", vote_share: "" }];
     render(data);
   });
 
   root.querySelector("#cancel-submit-btn")?.addEventListener("click", () => {
     state.showSubmitForm = false;
+    state.editId = null;
     render(data);
   });
 
   root.querySelector("#add-party-row-btn")?.addEventListener("click", () => {
-    state.submitPartyRows.push({ party: "", seats: "", votes: "", vote_share: "" });
+    state.submitPartyRows.push({ party: "", seats: "", vote_share: "" });
     // Re-render only the party rows container for efficiency.
     const container = root.querySelector("#party-rows-container");
     if (container) container.innerHTML = renderPartyRows();
@@ -328,11 +339,12 @@ function render(data) {
 
   root.querySelector("#submit-election-btn")?.addEventListener("click", async () => {
     const msgEl = root.querySelector("#submit-election-msg");
-    const body_type     = root.querySelector("#eb-type")?.value || "";
-    const polling_day   = root.querySelector("#eb-polling-day")?.value || "";
-    const label         = root.querySelector("#eb-label")?.value?.trim() || "";
-    const turnout_total = Number(root.querySelector("#eb-turnout-total")?.value || 0);
-    const turnout_pct   = Number(root.querySelector("#eb-turnout-pct")?.value   || 0);
+    const body_type   = root.querySelector("#eb-type")?.value || "";
+    const polling_day = root.querySelector("#eb-polling-day")?.value || "";
+    const label       = root.querySelector("#eb-label")?.value?.trim() || "";
+    const electorate  = Number(root.querySelector("#eb-electorate")?.value || 0);
+    const votes_cast  = Number(root.querySelector("#eb-votes-cast")?.value || 0);
+    const turnout_pct = electorate > 0 ? (votes_cast / electorate) * 100 : 0;
 
     if (!polling_day) { if (msgEl) msgEl.textContent = "Polling day is required."; return; }
 
@@ -341,19 +353,29 @@ function render(data) {
     root.querySelectorAll("[data-row]").forEach(rowEl => {
       const party      = rowEl.querySelector(".party-row-party")?.value?.trim() || "";
       const seats      = Number(rowEl.querySelector(".party-row-seats")?.value || 0);
-      const votes      = Number(rowEl.querySelector(".party-row-votes")?.value || 0);
       const vote_share = Number(rowEl.querySelector(".party-row-share")?.value || 0);
+      // Compute votes from vote_share% × total_votes_cast
+      const votes      = votes_cast > 0 && vote_share > 0 ? Math.round((vote_share / 100) * votes_cast) : 0;
       if (party) partyRows.push({ party, seats, votes, vote_share });
     });
 
     try {
       if (msgEl) msgEl.textContent = "Submitting…";
-      const r = await apiSubmitElectionBodyResult({
-        body_type, polling_day, label, turnout_total, turnout_pct, party_summary: partyRows,
-      });
+      const payload = {
+        body_type, polling_day, label,
+        turnout_total: votes_cast || null, turnout_pct: turnout_pct || null,
+        party_summary: partyRows,
+      };
+      let r;
+      if (state.editId) {
+        r = await apiUpdateElectionBodyResult(state.editId, payload);
+      } else {
+        r = await apiSubmitElectionBodyResult(payload);
+      }
       if (r.error) throw new Error(r.error);
       state.showSubmitForm = false;
-      state.submitPartyRows = [{ party: "", seats: "", votes: "", vote_share: "" }];
+      state.editId = null;
+      state.submitPartyRows = [{ party: "", seats: "", vote_share: "" }];
       await reload(data);
     } catch (err) {
       if (msgEl) msgEl.textContent = `Error: ${err.message}`;
@@ -373,6 +395,37 @@ function render(data) {
       } catch (err) {
         btn.disabled = false;
         alert(`Delete failed: ${err.message}`);
+      }
+    });
+  });
+
+  root.querySelectorAll("[data-action='edit-election-result']").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!canManage) return;
+      const id = String(btn.getAttribute("data-id") || "");
+      if (!id) return;
+      const result = [...state.current, ...state.archive].find(r => String(r.id) === id);
+      if (!result) return;
+      state.editId = id;
+      state.showSubmitForm = true;
+      // Pre-populate party rows from existing result
+      state.submitPartyRows = (result.party_summary || []).map(ps => ({
+        party: ps.party || "", seats: String(ps.seats || ""), vote_share: String(ps.vote_share || "")
+      }));
+      if (!state.submitPartyRows.length) state.submitPartyRows = [{ party: "", seats: "", vote_share: "" }];
+      render(data);
+      // After re-render, fill in the form values
+      const root2 = document.getElementById("elections-root");
+      if (root2) {
+        const typeEl = root2.querySelector("#eb-type");
+        const dayEl = root2.querySelector("#eb-polling-day");
+        const labelEl = root2.querySelector("#eb-label");
+        const votesCastEl = root2.querySelector("#eb-votes-cast");
+        if (typeEl) typeEl.value = result.type || "";
+        if (dayEl) dayEl.value = (result.polling_day || "").slice(0, 10);
+        if (labelEl) labelEl.value = result.label || "";
+        if (votesCastEl) votesCastEl.value = result.turnout_total || "";
       }
     });
   });
@@ -400,7 +453,6 @@ function syncPartyRowsFromDOM(root) {
     if (state.submitPartyRows[i]) {
       state.submitPartyRows[i].party      = rowEl.querySelector(".party-row-party")?.value?.trim() || "";
       state.submitPartyRows[i].seats      = rowEl.querySelector(".party-row-seats")?.value || "";
-      state.submitPartyRows[i].votes      = rowEl.querySelector(".party-row-votes")?.value || "";
       state.submitPartyRows[i].vote_share = rowEl.querySelector(".party-row-share")?.value || "";
     }
   });
@@ -422,5 +474,11 @@ async function reload(data) {
 }
 
 export async function initElectionsPage(data) {
+  // Populate party names from game state for the dropdown
+  const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
+  if (parties.length) {
+    _partyNames = parties.map(p => p.name).filter(Boolean);
+    if (!_partyNames.includes("Others")) _partyNames.push("Others");
+  }
   await reload(data);
 }

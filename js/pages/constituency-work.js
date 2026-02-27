@@ -114,7 +114,7 @@ function renderSituationCard(sit, mod) {
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
         <button type="button" class="btn" data-action="situation-respond" data-id="${esc(sit.id)}" data-response="investigate">Investigate</button>
         <button type="button" class="btn" data-action="situation-respond" data-id="${esc(sit.id)}" data-response="report_party">Report to Party</button>
-        <button type="button" class="btn" data-action="situation-respond" data-id="${esc(sit.id)}" data-response="ignore" style="opacity:.7;">Ignore</button>
+        <button type="button" class="btn" data-action="situation-respond" data-id="${esc(sit.id)}" data-response="ignore">Ignore</button>
       </div>
     </article>
   `;
@@ -682,6 +682,8 @@ function render(data, state = {}) {
     if (submitBtn) submitBtn.disabled = true;
     try {
       await apiModScandalSituationCreate(payload);
+      await loadScandalData(mod);
+      render(data, state);
       alert("Sensitive situation created successfully.");
       form.reset();
     } catch (err) {

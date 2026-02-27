@@ -7482,7 +7482,7 @@ app.get("/api/characters", charReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { active } = req.query;
-    let q = "SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at FROM characters";
+    let q = "SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at, avatar FROM characters";
     const params = [];
     if (active === "true") { q += " WHERE is_active = TRUE"; }
     else if (active === "false") { q += " WHERE is_active = FALSE"; }
@@ -10683,9 +10683,9 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const npcV = division.npc_votes || {};
     const rebelP = division.rebels_by_party || {};
     const { rows: seatRows } = await pool.query(
-      "SELECT party_name, COUNT(*) AS seats FROM constituencies WHERE party_name IS NOT NULL AND party_name <> '' GROUP BY party_name"
+      "SELECT party, COUNT(*) AS seats FROM constituencies WHERE party IS NOT NULL AND party <> '' GROUP BY party"
     );
-    const seatsByParty = Object.fromEntries(seatRows.map(r => [r.party_name, Number(r.seats)]));
+    const seatsByParty = Object.fromEntries(seatRows.map(r => [r.party, Number(r.seats)]));
     for (const [party, npcVote] of Object.entries(npcV)) {
       if (tally[npcVote] === undefined) continue;
       const seats = Number(seatsByParty[party] || 0);
@@ -12836,6 +12836,50 @@ app.delete("/api/elections/bodies/:id", electionWriteLimit, async (req, res) => 
   }
 });
 
+// PUT /api/elections/bodies/:id — admin/mod: update an existing election result
+app.put("/api/elections/bodies/:id", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { id } = req.params;
+    const { body_type, polling_day, label = "", turnout_total = 0, turnout_pct = 0, party_summary = [] } = req.body || {};
+    if (!polling_day) return res.status(400).json({ error: "polling_day is required" });
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      await client.query(
+        `UPDATE elections SET polling_day = $1, label = $2, turnout_total = $3, turnout_pct = $4, updated_at = NOW()
+          WHERE id = $5`,
+        [polling_day, label, Number(turnout_total) || 0, Number(turnout_pct) || 0, id]
+      );
+
+      // Replace party summary
+      await client.query("DELETE FROM election_party_summary WHERE election_id = $1", [id]);
+      for (const ps of party_summary) {
+        if (!ps.party) continue;
+        await client.query(
+          `INSERT INTO election_party_summary (election_id, party, seats, votes, vote_share)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [id, ps.party, Number(ps.seats) || 0, Number(ps.votes) || 0, Number(ps.vote_share) || 0]
+        );
+      }
+
+      await client.query("COMMIT");
+      await writeAuditLog(req.session.userId, "election.body.edit", "elections", id, null, { polling_day, label });
+      res.json({ ok: true, id });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error("[PUT /api/elections/bodies/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 
 app.get("/api/constituencies/:id/events", electionReadLimit, async (req, res) => {
   try {
@@ -13315,6 +13359,7 @@ app.get("/api/profile", profileReadLimit, async (req, res) => {
 
     // Fetch approved affiliations from relational table
     let approvedAffiliations = [];
+    let officesHeld = [];
     if (r.char_id) {
       const { rows: affRows } = await pool.query(
         `SELECT ac.id, ac.category, ac.name
@@ -13325,6 +13370,17 @@ app.get("/api/profile", profileReadLimit, async (req, res) => {
         [r.char_id]
       );
       approvedAffiliations = affRows;
+
+      // Fetch current office assignments
+      const { rows: offRows } = await pool.query(
+        `SELECT o.name AS office_name, o.type AS office_type
+           FROM office_assignments oa
+           JOIN offices o ON o.id = oa.office_id
+          WHERE oa.character_id = $1
+          ORDER BY o.type, o.name`,
+        [r.char_id]
+      );
+      officesHeld = offRows;
     }
 
     res.json({
@@ -13337,6 +13393,7 @@ app.get("/api/profile", profileReadLimit, async (req, res) => {
         bio:                     r.bio                  || "",
         financial_background_level: r.financial_background_level ?? null,
         approved_affiliations:   approvedAffiliations,
+        offices_held:            officesHeld,
         date_of_birth:           r.date_of_birth        || "",
         education:               r.education            || "",
         career_background:       r.career_background    || "",

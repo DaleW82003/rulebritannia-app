@@ -1304,6 +1304,17 @@ function render(data, state) {
                 const opts = state.enums?.familyOptions ?? ["Single","Married, No Children","Married with Children","Civil Partnership","Divorced","Divorced with Children","Widowed","Long-Term Partner with Children","Long-Term Partner, No Children"];
                 return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><select id="pf-${esc(f.key)}" class="input" name="profile:${esc(f.key)}"><option value=""></option>${opts.map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></div>`;
               }
+              if (f.key === "party") {
+                const partyOpts = ["Conservative","Labour","Liberal Democrat","Independent"];
+                return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><select id="pf-party" class="input" name="profile:${esc(f.key)}"><option value=""></option>${partyOpts.map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></div>`;
+              }
+              if (f.key === "constituency") {
+                const allConsts = (data.constituencies || []).slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+                const partyVal = profile.profile.party || "";
+                const filtered = partyVal ? allConsts.filter((c) => String(c.party || "") === partyVal) : allConsts;
+                const constOpts = filtered.map((c) => `<option value="${esc(c.name)}" ${val === c.name ? "selected" : ""}>${esc(c.name)}${c.region ? ` (${esc(c.region)})` : ""}</option>`).join("");
+                return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><select id="pf-constituency" class="input" name="profile:${esc(f.key)}"><option value=""></option>${constOpts}</select></div>`;
+              }
               return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><input id="pf-${esc(f.key)}" class="input" name="profile:${esc(f.key)}" value="${esc(val)}"></div>`;
             }).join("")}
           </div>
@@ -1341,6 +1352,17 @@ function render(data, state) {
     state.selectedName = String(e.currentTarget.value || "");
     state.message = "";
     render(data, state);
+  });
+
+  // Constituency dropdown: update options when party changes
+  host.querySelector("#pf-party")?.addEventListener("change", () => {
+    const partyVal = host.querySelector("#pf-party")?.value || "";
+    const constSelect = host.querySelector("#pf-constituency");
+    if (!constSelect) return;
+    const allConsts = (data.constituencies || []).slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    const filtered = partyVal ? allConsts.filter((c) => String(c.party || "") === partyVal) : allConsts;
+    const currentVal = constSelect.value;
+    constSelect.innerHTML = `<option value=""></option>` + filtered.map((c) => `<option value="${esc(c.name)}" ${currentVal === c.name ? "selected" : ""}>${esc(c.name)}${c.region ? ` (${esc(c.region)})` : ""}</option>`).join("");
   });
 
   // Shop: buy item — DB-backed (deducts balance atomically, inserts purchase record)
