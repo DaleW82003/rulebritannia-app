@@ -1363,6 +1363,18 @@ export async function apiAddPressTranscriptEntry(id, entry) {
   return body;
 }
 
+export async function apiMarkPressItem(id, payload) {
+  const res = await fetch(`${API_BASE}/api/press/${encodeURIComponent(id)}/mark`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiMarkPressItem failed (${res.status})`);
+  return body;
+}
+
 // ── Polling entries ────────────────────────────────────────────────────────
 
 export async function apiGetPollingEntries() {

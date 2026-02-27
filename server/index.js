@@ -6183,6 +6183,13 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     if (!VALID_PRESS_TYPES.has(press_type)) {
       return res.status(400).json({ error: "press_type must be 'release', 'conference', 'speech', 'comment', or 'letter'" });
     }
+    // Enforce NPC author restriction: only admin/mod/speaker may post comments with npcAuthor flag
+    if (press_type === "comment" && item.npcAuthor) {
+      const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+      if (!roles.includes("admin") && !roles.includes("mod") && !roles.includes("speaker")) {
+        return res.status(403).json({ error: "Only admin, mod, or speaker may post as NPC" });
+      }
+    }
     const { rows: clk } = await pool.query(
       "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
     );
@@ -6312,6 +6319,63 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
     res.json({ ok: true, id: updated[0].id, entryId, updatedAt: updated[0].updated_at });
   } catch (e) {
     console.error("[PATCH /api/press/:id/transcript]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/press/:id/mark — admin/mod any day; speaker Sundays only
+app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = roles.includes("admin") || roles.includes("mod");
+    const isSpeakerRole = roles.includes("speaker");
+
+    if (!isAdminOrMod && !isSpeakerRole) {
+      return res.status(403).json({ error: "Forbidden: admin, mod, or speaker role required for marking" });
+    }
+    // Speaker may only mark on Sundays (UTC)
+    if (!isAdminOrMod && isSpeakerRole) {
+      if (new Date().getUTCDay() !== 0) {
+        return res.status(403).json({ error: "Press marking is only available on Sundays for speakers" });
+      }
+    }
+
+    const { score, impact } = req.body || {};
+    if (score === undefined || score === null) {
+      return res.status(400).json({ error: "score is required" });
+    }
+    const numScore = Number(score);
+    if (isNaN(numScore) || numScore < -5 || numScore > 5) {
+      return res.status(400).json({ error: "score must be between -5 and +5" });
+    }
+    const safeImpact = Array.isArray(impact) ? impact.map((s) => String(s).trim()).filter(Boolean) : [];
+
+    const { rows } = await pool.query(
+      "SELECT data, press_type FROM press_items WHERE id = $1",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Press item not found" });
+
+    const item = { ...rows[0].data };
+    const prevData = rows[0].data;
+    item.score = numScore;
+    item.impact = safeImpact;
+    item.is_marked = true;
+    item.marked_by = req.session.userId;
+    item.marked_at = new Date().toISOString();
+    if (rows[0].press_type === "conference") {
+      item.status = "closed";
+    }
+
+    const { rows: updated } = await pool.query(
+      "UPDATE press_items SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at",
+      [JSON.stringify(item), req.params.id]
+    );
+    await writeAuditLog(req.session.userId, "press.mark", "press_items", req.params.id, prevData, item);
+    res.json({ ok: true, id: updated[0].id, updatedAt: updated[0].updated_at, item });
+  } catch (e) {
+    console.error("[POST /api/press/:id/mark]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

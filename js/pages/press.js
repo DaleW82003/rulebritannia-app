@@ -3,7 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, getWeekdayName, isSunday, getSimDate, simDateToObj, compareSimDates } from "../clock.js";
 import { handleApiError } from "../errors.js";
-import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry } from "../api.js";
+import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry, apiMarkPressItem } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 const PARTY_CODES = {
@@ -168,6 +168,15 @@ function canMark(data) {
   return canAdminOrMod(data);
 }
 
+/** Returns true if the current user may mark press items right now.
+ *  Admin/mod: any day. Speaker: Sundays only. */
+function canMarkToday(data) {
+  return canAdminOrMod(data) || (isSpeaker(data) && isSunday());
+}
+
+/** Generic avatar shown when a privileged user posts a press comment as an NPC. */
+const NPC_COMMENT_AVATAR = "https://dummyimage.com/48x48/556677/ffffff&text=NPC";
+
 function canAsk(data) {
   return canAdminModOrSpeaker(data);
 }
@@ -217,6 +226,7 @@ function render(data, state) {
   const hasActiveChar = privileged || Boolean(char?.name);
   const sundayWindow = isSunday();
   const weekday = getWeekdayName();
+  const markToday = canMarkToday(data);
 
   const releases = data.press.releases.slice().reverse();
   const conferences = data.press.conferences.slice().reverse();
@@ -228,7 +238,7 @@ function render(data, state) {
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Press Work</h2>
       <p>Five channels are available: <b>Press Releases &amp; Statements</b>, <b>Press Conferences</b>, <b>Comments to the Press</b>, <b>Speeches</b>, and <b>Official Letters</b>. Once submitted, users cannot edit submissions.</p>
-      ${marker && !sundayWindow ? `<p class="muted">Press marking opens on Sundays only. Today is ${esc(weekday)}.</p>` : ""}
+      ${isSpeaker(data) && !canAdminOrMod(data) && !sundayWindow ? `<p class="muted">Press marking opens on Sundays only for Speakers. Today is ${esc(weekday)}.</p>` : ""}
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
@@ -286,7 +296,7 @@ function render(data, state) {
           ${r.impact?.length ? `<div class="muted">Affects: ${esc(r.impact.join(", "))}</div>` : ""}
           <div class="tile-bottom"><button class="btn" data-action="toggle-release" data-id="${esc(r.id)}" type="button">${state.openRelease === r.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-release" data-id="${esc(r.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openRelease === r.id ? `<div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(r.body)}</div>` : ""}
-          ${marker && sundayWindow && r.score === null ? `
+          ${markToday && r.score === null ? `
             <form class="tile" data-action="mark-release" data-id="${esc(r.id)}" style="margin-top:8px;">
               <label class="label">Mark score (-5 to +5)</label>
               <input class="input" type="number" name="score" min="-5" max="5" required>
@@ -362,7 +372,7 @@ function render(data, state) {
                 ${!hasUnanswered && questionCount === 0 ? `<p class="muted" style="font-size:.88em;">Waiting for questions from the press.</p>` : ""}
                 ${!hasUnanswered && questionCount > 0 ? `<p class="muted" style="font-size:.88em;">All questions answered.</p>` : ""}
               ` : ""}
-              ${marker && sundayWindow && c.score === null ? `
+              ${markToday && c.score === null ? `
                 <form data-action="mark-conference" data-id="${esc(c.id)}" style="margin-top:8px;">
                   <label class="label">Mark score (-5 to +5)</label>
                   <input class="input" type="number" name="score" min="-5" max="5" required>
@@ -385,9 +395,24 @@ function render(data, state) {
       ${!hasActiveChar
         ? `<div class="muted-block">You must have an active character to post press comments. <a href="user.html">Create or activate a character</a> first.</div>`
         : `<form id="comment-form" class="tile" style="margin-bottom:10px;">
+        ${privileged ? `
+          <label class="label">Post as</label>
+          <div style="margin-bottom:8px;">
+            <label style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;">
+              <input type="radio" name="commentIdentity" value="character" checked> Active character (${esc(char?.name || "MP")})
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:6px;">
+              <input type="radio" name="commentIdentity" value="npc"> NPC (custom name)
+            </label>
+          </div>
+          <div id="npc-name-wrapper" style="display:none;margin-bottom:8px;">
+            <label class="label" for="npc-author-name">NPC display name</label>
+            <input id="npc-author-name" name="npcAuthorName" class="input" maxlength="100" placeholder="e.g. The Press Secretary">
+          </div>
+        ` : ""}
         <label class="label" for="press-comment-body">Comment</label>
         <textarea id="press-comment-body" name="body" class="input" rows="3" required placeholder="Your passing comment to the press..."></textarea>
-        <p class="muted">Avatar is pulled from your character profile.</p>
+        <p class="muted">${privileged ? "Avatar: character avatar when posting as character; generic NPC avatar when posting as NPC." : "Avatar is pulled from your character profile."}</p>
         <button class="btn" type="submit">Post Comment</button>
       </form>`}
 
@@ -442,7 +467,7 @@ function render(data, state) {
               <div style="white-space:pre-wrap;">${esc(s.body)}</div>
             </div>
           ` : ""}
-          ${marker && sundayWindow && s.score === null ? `
+          ${markToday && s.score === null ? `
             <form class="tile" data-action="mark-speech" data-id="${esc(s.id)}" style="margin-top:8px;">
               <label class="label">Mark score (-5 to +5)</label>
               <input class="input" type="number" name="score" min="-5" max="5" required>
@@ -515,7 +540,7 @@ function render(data, state) {
               ${office?.signatory ? `<p style="margin-top:12px;" class="muted"><i>${esc(npcSignatory(l.officeKey, data) || office.signatory)}</i></p>` : ""}
             </div>
           ` : ""}
-          ${marker && sundayWindow && l.score === null ? `
+          ${markToday && l.score === null ? `
             <form class="tile" data-action="mark-letter" data-id="${esc(l.id)}" style="margin-top:8px;">
               <label class="label">Mark score (-5 to +5)</label>
               <input class="input" type="number" name="score" min="-5" max="5" required>
@@ -574,17 +599,26 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelectorAll("form[data-action='mark-release']").forEach((f) => f.addEventListener("submit", (e) => {
+  section.querySelectorAll("form[data-action='mark-release']").forEach((f) => f.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!marker || !isSunday()) return;
+    if (!canMarkToday(data)) return;
     const id = e.currentTarget.getAttribute("data-id");
     const item = data.press.releases.find((r) => r.id === id);
     if (!item) return;
     const fd = new FormData(e.currentTarget);
-    item.score = Number(fd.get("score"));
-    item.impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
-    item.status = "closed";
-    saveState(data);
+    const score = Number(fd.get("score"));
+    const impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const result = await apiMarkPressItem(id, { score, impact });
+      if (result.item) Object.assign(item, result.item);
+      else { item.score = score; item.impact = impact; item.is_marked = true; }
+    } catch (err) {
+      handleApiError(err, "Mark press release");
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
     render(data, state);
   }));
 
@@ -712,17 +746,26 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelectorAll("form[data-action='mark-conference']").forEach((f) => f.addEventListener("submit", (e) => {
+  section.querySelectorAll("form[data-action='mark-conference']").forEach((f) => f.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!marker || !isSunday()) return;
+    if (!canMarkToday(data)) return;
     const id = e.currentTarget.getAttribute("data-id");
     const conf = data.press.conferences.find((c) => c.id === id);
     if (!conf) return;
     const fd = new FormData(e.currentTarget);
-    conf.score = Number(fd.get("score"));
-    conf.impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
-    conf.status = "closed";
-    saveState(data);
+    const score = Number(fd.get("score"));
+    const impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const result = await apiMarkPressItem(id, { score, impact });
+      if (result.item) Object.assign(conf, result.item);
+      else { conf.score = score; conf.impact = impact; conf.status = "closed"; conf.is_marked = true; }
+    } catch (err) {
+      handleApiError(err, "Mark press conference");
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
     render(data, state);
   }));
 
@@ -731,12 +774,29 @@ function render(data, state) {
     const fd = new FormData(e.currentTarget);
     const body = String(fd.get("body") || "").trim();
     if (!body) return;
+
+    let author = char?.name || "MP";
+    let avatar = findCharacterAvatar(data, char?.name || "MP", char?.avatar || "");
+    let npcAuthor = false;
+
+    if (privileged) {
+      const identity = String(fd.get("commentIdentity") || "character");
+      if (identity === "npc") {
+        const npcName = String(fd.get("npcAuthorName") || "").trim();
+        if (!npcName) return;
+        author = npcName;
+        avatar = NPC_COMMENT_AVATAR;
+        npcAuthor = true;
+      }
+    }
+
     const item = {
       id: `press-${Date.now()}-${data.press.nextId++}`,
-      author: char?.name || "MP",
-      avatar: findCharacterAvatar(data, char?.name || "MP", char?.avatar || ""),
+      author,
+      avatar,
       body,
-      createdAtSim: now
+      createdAtSim: now,
+      ...(npcAuthor ? { npcAuthor: true } : {})
     };
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
@@ -749,6 +809,16 @@ function render(data, state) {
     }
     data.press.comments.push(item);
     render(data, state);
+  });
+
+  section.querySelector("#comment-form")?.addEventListener("change", (e) => {
+    if (e.target.name !== "commentIdentity") return;
+    const wrapper = section.querySelector("#npc-name-wrapper");
+    if (!wrapper) return;
+    const isNpc = e.target.value === "npc";
+    wrapper.style.display = isNpc ? "block" : "none";
+    const input = wrapper.querySelector("input");
+    if (input) input.required = isNpc;
   });
 
   section.querySelectorAll("[data-action='delete-comment']").forEach((btn) => btn.addEventListener("click", () => {
@@ -820,17 +890,26 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelectorAll("form[data-action='mark-speech']").forEach((f) => f.addEventListener("submit", (e) => {
+  section.querySelectorAll("form[data-action='mark-speech']").forEach((f) => f.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!marker || !isSunday()) return;
+    if (!canMarkToday(data)) return;
     const id = e.currentTarget.getAttribute("data-id");
     const item = data.press.speeches.find((s) => s.id === id);
     if (!item) return;
     const fd = new FormData(e.currentTarget);
-    item.score = Number(fd.get("score"));
-    item.impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
-    item.is_marked = true;
-    saveState(data);
+    const score = Number(fd.get("score"));
+    const impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const result = await apiMarkPressItem(id, { score, impact });
+      if (result.item) Object.assign(item, result.item);
+      else { item.score = score; item.impact = impact; item.is_marked = true; }
+    } catch (err) {
+      handleApiError(err, "Mark speech");
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
     render(data, state);
   }));
 
@@ -902,17 +981,26 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelectorAll("form[data-action='mark-letter']").forEach((f) => f.addEventListener("submit", (e) => {
+  section.querySelectorAll("form[data-action='mark-letter']").forEach((f) => f.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!marker || !isSunday()) return;
+    if (!canMarkToday(data)) return;
     const id = e.currentTarget.getAttribute("data-id");
     const item = data.press.letters.find((l) => l.id === id);
     if (!item) return;
     const fd = new FormData(e.currentTarget);
-    item.score = Number(fd.get("score"));
-    item.impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
-    item.is_marked = true;
-    saveState(data);
+    const score = Number(fd.get("score"));
+    const impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const result = await apiMarkPressItem(id, { score, impact });
+      if (result.item) Object.assign(item, result.item);
+      else { item.score = score; item.impact = impact; item.is_marked = true; }
+    } catch (err) {
+      handleApiError(err, "Mark official letter");
+      if (submitBtn) submitBtn.disabled = false;
+      return;
+    }
     render(data, state);
   }));
 
