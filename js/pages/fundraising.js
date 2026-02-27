@@ -49,6 +49,10 @@ const FUNDRAISERS = [
   }
 ];
 
+function isValidFundraisingItem(item) {
+  return Boolean(item?.id) && String(item.id) !== "undefined";
+}
+
 function byKey(key) {
   return FUNDRAISERS.find((f) => f.key === key) || FUNDRAISERS[0];
 }
@@ -134,7 +138,10 @@ function render(data, state) {
   const char = getCharacterContext(data);
   const mod = canModerate(data);
   const hasActiveChar = mod || Boolean(char?.name);
-  const list = data.fundraising.items.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
+  const list = data.fundraising.items
+    .filter(isValidFundraisingItem)
+    .slice()
+    .sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
 
   root.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Fundraising</div></div>
@@ -427,9 +434,21 @@ function render(data, state) {
     btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
+      if (!id || id === "undefined") {
+        toastError("This item is corrupted or stale and cannot be deleted.");
+        return;
+      }
+      const prev = data.fundraising.items.slice();
       data.fundraising.items = data.fundraising.items.filter((x) => String(x.id) !== id);
       render(data, state);
-      apiDeleteFundraisingItem(id).catch((err) => console.error("[fundraising] delete failed:", err));
+      try {
+        await apiDeleteFundraisingItem(id);
+      } catch (err) {
+        console.error("[fundraising] delete failed:", err);
+        data.fundraising.items = prev;
+        render(data, state);
+        toastError("Failed to delete item. Please try again.");
+      }
     });
   });
 }
@@ -445,6 +464,9 @@ export async function initFundraisingPage(data) {
   } catch (err) {
     console.error("[fundraising] DB load failed:", err);
   }
+
+  // Remove any items without a valid id (stale/corrupted snapshot state)
+  data.fundraising.items = data.fundraising.items.filter(isValidFundraisingItem);
 
   // Load party shop purchases for parties with pending party fundraisers so the
   // mod/admin sees the correct fundraisingCapacity bonus when approving revenue.
