@@ -9310,8 +9310,8 @@ app.delete("/api/me/character/shop-purchases/:id", meFinanceWriteLimit, async (r
     );
     await client.query(
       `UPDATE character_finance
-          SET shop_monthly_upkeep = $1,
-              finance_overspend   = CASE WHEN $1 = 0 THEN false ELSE finance_overspend END,
+          SET shop_monthly_upkeep = $1::numeric,
+              finance_overspend   = CASE WHEN $1::numeric = 0 THEN false ELSE finance_overspend END,
               updated_at          = NOW()
         WHERE character_id = $2`,
       [Number(upkeepRows[0].total), targetCharId]
@@ -9383,8 +9383,8 @@ app.post("/api/me/character/shop-purchases/:id/sell", meFinanceWriteLimit, async
     await client.query(
       `UPDATE character_finance
           SET bank_balance        = bank_balance + $1,
-              shop_monthly_upkeep = $2,
-              finance_overspend   = CASE WHEN $2 = 0 THEN false ELSE finance_overspend END,
+              shop_monthly_upkeep = $2::numeric,
+              finance_overspend   = CASE WHEN $2::numeric = 0 THEN false ELSE finance_overspend END,
               updated_at          = NOW()
         WHERE character_id = $3`,
       [refund, Number(upkeepRows[0].total), charId]
@@ -9460,8 +9460,8 @@ app.post("/api/me/character/shop-purchases/:id/dismiss", meFinanceWriteLimit, as
     );
     await client.query(
       `UPDATE character_finance
-          SET shop_monthly_upkeep = $1,
-              finance_overspend   = CASE WHEN $1 = 0 THEN false ELSE finance_overspend END,
+          SET shop_monthly_upkeep = $1::numeric,
+              finance_overspend   = CASE WHEN $1::numeric = 0 THEN false ELSE finance_overspend END,
               updated_at          = NOW()
         WHERE character_id = $2`,
       [newUpkeep, charId]
