@@ -10866,7 +10866,7 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
         const { effectiveWeights } = computeAllPlayerWeights(seatsByPartyFresh, statePlayers);
         const rawWeight = Number(effectiveWeights[charName] || 0);
         // Deduct rebel fraction from myWeight display
-        const partyRebels = Number((division.rebels_by_party || {})[charParty] || 0);
+        const partyRebels = Number(division.rebels_by_party?.[charParty] ?? 0);
         if (partyRebels > 0 && rawWeight > 0) {
           const partyTotalWeight = Object.entries(effectiveWeights)
             .filter(([n]) => {

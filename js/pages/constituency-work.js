@@ -655,7 +655,7 @@ function render(data, state = {}) {
         render(data, state);
       } catch (e) {
         alert("Failed to close scandal. Please try again.");
-        console.error(e);
+        console.error("[mod-close-scandal]", e);
         btn.disabled = false;
       }
     });
