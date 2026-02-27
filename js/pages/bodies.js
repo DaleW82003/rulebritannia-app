@@ -1,6 +1,6 @@
 import { setHTML, esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
-import { saveState } from "../core.js";
+import { apiGetBodies, apiUpdateBody } from "../api.js";
 
 const BODY_ORDER = [
   "lords",
@@ -225,7 +225,7 @@ function bindControlPanelEvents(data, state) {
         }).filter((p) => p.name);
       }
 
-      saveState(data);
+      apiUpdateBody(bodyId, body).catch(err => console.error("[bodies] save failed:", err));
       state.editingBodyId = null;
       refreshBodies(data);
       renderControlPanel(data, state);
@@ -236,10 +236,12 @@ function bindControlPanelEvents(data, state) {
 function bindEditor(data, state) {
   const btn = document.getElementById("bodiesEditorBtn");
   const panel = document.getElementById("bodiesEditorPanel");
+  const notice = document.getElementById("bodies-staff-notice");
   if (!btn || !panel) return;
 
   const allowed = canManage(data);
   btn.style.display = allowed ? "" : "none";
+  if (notice) notice.style.display = allowed ? "" : "none";
   if (!allowed) return;
 
   renderControlPanel(data, state);
@@ -249,8 +251,21 @@ function bindEditor(data, state) {
   });
 }
 
-export function initBodiesPage(data) {
+export async function initBodiesPage(data) {
   ensureBodyDefaults(data);
+  try {
+    const r = await apiGetBodies();
+    if (r.bodies && r.bodies.length) {
+      data.bodies = data.bodies || { list: [] };
+      for (const b of r.bodies) {
+        const idx = data.bodies.list.findIndex(x => x.id === b.id);
+        if (idx >= 0) Object.assign(data.bodies.list[idx], b);
+        else data.bodies.list.push(b);
+      }
+    }
+  } catch (err) {
+    console.error("[bodies] load failed:", err);
+  }
   const state = { editingBodyId: null };
   refreshBodies(data);
   bindEditor(data, state);

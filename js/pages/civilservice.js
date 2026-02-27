@@ -1,7 +1,9 @@
-import { saveState, nowStamp } from "../core.js";
+import { nowStamp } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canRaiseCivilServiceCase, canAdminOrMod } from "../permissions.js";
 import { getCharacterContext } from "../engines/core-engine.js";
+import { formatSimMonthYear } from "../clock.js";
+import { apiGetCsBriefings, apiCreateCsBriefing, apiUpdateCsBriefing, apiDeleteCsBriefing, apiGetCsCases, apiCreateCsCase, apiUpdateCsCase, apiDeleteCsCase } from "../api.js";
 
 const CS_DEPARTMENTS = [
   { id: "10ds", name: "10 Downing Street", officeId: "prime-minister", officeTitle: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
@@ -25,6 +27,11 @@ function canModerate(data) {
 
 function getMyOfficeId(data) {
   return String(getCharacterContext(data)?.office || "");
+}
+
+/** Returns current sim month/year as a timestamp label for new entries. */
+function simStamp(data) {
+  return formatSimMonthYear(data?.gameState || {});
 }
 
 function getMyOfficeIds(data) {
@@ -221,7 +228,26 @@ function renderBriefingCard(data, b, state) {
                 </div>
               ` : (b.status === "open" && !canAct ? '<div class="muted">Awaiting ministerial decision.</div>' : "")}
             </div>
-          ` : `<div class="muted-block">No active stage — briefing ${b.status === "closed" ? "closed" : "has no stages configured"}.</div>`}
+          ` : `<div class="muted-block">No active stage — briefing ${b.status === "closed" ? "closed" : "has no stages configured"}.${b.awaitingNextStage && mod ? "" : ""}</div>
+            ${b.awaitingNextStage && mod ? `
+              <div style="margin-top:8px;">
+                <b>Stage decision recorded.</b> Choose the next action:
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+                  <button type="button" class="btn" data-action="launch-next-stage" data-id="${b.id}">Launch Next Stage</button>
+                  <button type="button" class="btn danger" data-action="end-briefing" data-id="${b.id}">End Briefing</button>
+                </div>
+                <form id="next-stage-form-${b.id}" data-briefing-id="${b.id}" style="display:none;margin-top:8px;">
+                  <input name="stageTitle" class="input" required placeholder="Stage title" style="margin-bottom:4px;">
+                  <textarea name="stageText" class="input" rows="3" placeholder="Stage instructions" style="margin-bottom:4px;"></textarea>
+                  <input name="optA" class="input" placeholder="Option A label" style="margin-bottom:4px;">
+                  <input name="optB" class="input" placeholder="Option B label (optional)" style="margin-bottom:4px;">
+                  <div style="display:flex;gap:6px;">
+                    <button type="submit" class="btn" data-briefing-id="${b.id}">Launch Stage</button>
+                    <button type="button" class="btn" data-action="cancel-next-stage" data-id="${b.id}">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            ` : ""}`}
 
           ${b.auditLog.length ? `
             <details style="margin-top:8px;">
@@ -384,6 +410,11 @@ function render(data, state) {
           <form id="cs-new-case-form" style="margin-bottom:10px;">
             <label class="label" for="cs-case-title">Open New Case</label>
             <input id="cs-case-title" class="input" name="title" required placeholder="Case title">
+            ${mod ? `
+            <div style="display:flex;gap:16px;margin:6px 0;">
+              <label><input type="radio" name="csPosterChoice" value="character" checked> My Character</label>
+              <label><input type="radio" name="csPosterChoice" value="npc"> Civil Servant (NPC)</label>
+            </div>` : ""}
             <label class="label" for="cs-case-body">Initial Message</label>
             <textarea id="cs-case-body" class="input" name="body" rows="3" required placeholder="Describe the case"></textarea>
             <button type="submit" class="btn">Create Case</button>
@@ -433,7 +464,7 @@ function render(data, state) {
   // ── Event listeners ────────────────────────────────────────────────────────
 
   // Mod: create briefing
-  host.querySelector("#cs-new-briefing-form")?.addEventListener("submit", (e) => {
+  host.querySelector("#cs-new-briefing-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!mod) return;
     const fd = new FormData(e.currentTarget);
@@ -457,14 +488,19 @@ function render(data, state) {
       title,
       status: "open",
       currentStageIdx: 0,
-      createdAt: nowStamp(),
+      createdAt: simStamp(data),
       createdBy: String(char?.name || data?.currentUser?.username || "Moderator"),
       auditLog: [],
       stages: [{ id: "s1", title: stageTitle, text: stageText, options }]
     };
     normaliseBriefing(briefing);
-    data.civilService.briefings.unshift(briefing);
-    saveState(data);
+    try {
+      const r = await apiCreateCsBriefing(briefing);
+      briefing.id = r.id;
+      data.civilService.briefings.unshift(briefing);
+    } catch (err) {
+      console.error("[cs] create briefing failed:", err);
+    }
     state.message = `Briefing #${briefing.id} created.`;
     render(data, state);
   });
@@ -490,18 +526,75 @@ function render(data, state) {
         chosenOptionLabel: optLabel,
         actorName: String(char?.name || data?.currentUser?.username || "Unknown"),
         actorOffice: myOfficeId,
-        at: nowStamp()
+        at: simStamp(data)
       });
 
       if (nextStageIdx != null && nextStageIdx < briefing.stages.length) {
         briefing.currentStageIdx = nextStageIdx;
       } else {
-        briefing.status = "closed";
+        // Stage complete — hold open so mod can launch next stage or end briefing
         briefing.currentStageIdx = null;
+        briefing.awaitingNextStage = true;
       }
 
-      saveState(data);
+      apiUpdateCsBriefing(briefingId, { currentStageIdx: briefing.currentStageIdx, awaitingNextStage: briefing.awaitingNextStage, auditLog: briefing.auditLog, stages: briefing.stages }).catch(err => console.error("[cs] option failed:", err));
       state.message = `Decision recorded on Briefing #${briefingId}.`;
+      render(data, state);
+    });
+  });
+
+  // Mod: launch next stage after decision
+  host.querySelectorAll('[data-action="launch-next-stage"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!mod) return;
+      const id = Number(btn.dataset.id || 0);
+      const form = host.querySelector(`#next-stage-form-${id}`);
+      if (form) form.style.display = form.style.display === "none" ? "block" : "none";
+    });
+  });
+  host.querySelectorAll('[data-action="cancel-next-stage"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.dataset.id || 0);
+      const form = host.querySelector(`#next-stage-form-${id}`);
+      if (form) form.style.display = "none";
+    });
+  });
+  host.querySelectorAll('[data-action="end-briefing"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!mod) return;
+      const id = Number(btn.dataset.id || 0);
+      const briefing = data.civilService.briefings.find((b) => b.id === id);
+      if (!briefing || briefing.status === "closed") return;
+      briefing.status = "closed";
+      briefing.awaitingNextStage = false;
+      briefing.currentStageIdx = null;
+      apiUpdateCsBriefing(id, { status: "closed", awaitingNextStage: false, currentStageIdx: null }).catch(err => console.error("[cs] end failed:", err));
+      state.message = `Briefing #${id} ended.`;
+      render(data, state);
+    });
+  });
+  host.querySelectorAll('[id^="next-stage-form-"]').forEach((form) => {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!mod) return;
+      const id = Number(form.dataset.briefingId || form.id.replace("next-stage-form-", ""));
+      const briefing = data.civilService.briefings.find((b) => b.id === id);
+      if (!briefing || briefing.status === "closed") return;
+      const fd = new FormData(form);
+      const stageTitle = String(fd.get("stageTitle") || "").trim();
+      const stageText  = String(fd.get("stageText")  || "").trim();
+      const optA = String(fd.get("optA") || "").trim();
+      const optB = String(fd.get("optB") || "").trim();
+      if (!stageTitle) return;
+      const options = [];
+      if (optA) options.push({ id: "a", label: optA, nextStageIdx: null });
+      if (optB) options.push({ id: "b", label: optB, nextStageIdx: null });
+      const newIdx = briefing.stages.length;
+      briefing.stages.push({ id: `s${newIdx + 1}`, title: stageTitle, text: stageText, options });
+      briefing.currentStageIdx = newIdx;
+      briefing.awaitingNextStage = false;
+      apiUpdateCsBriefing(id, { stages: briefing.stages, currentStageIdx: briefing.currentStageIdx, awaitingNextStage: false }).catch(err => console.error("[cs] launch failed:", err));
+      state.message = `Stage ${newIdx + 1} launched on Briefing #${id}.`;
       render(data, state);
     });
   });
@@ -515,7 +608,7 @@ function render(data, state) {
       if (!briefing || briefing.status === "closed") return;
       briefing.status = "closed";
       briefing.currentStageIdx = null;
-      saveState(data);
+      apiUpdateCsBriefing(id, { status: "closed", currentStageIdx: null }).catch(err => console.error("[cs] close failed:", err));
       state.message = `Briefing #${id} closed.`;
       render(data, state);
     });
@@ -537,7 +630,7 @@ function render(data, state) {
       const id = Number(btn.dataset.id || 0);
       data.civilService.briefings = data.civilService.briefings.filter((b) => b.id !== id);
       if (state.openBriefingId === id) state.openBriefingId = null;
-      saveState(data);
+      apiDeleteCsBriefing(id).catch(err => console.error("[cs] del briefing failed:", err));
       state.message = `Briefing #${id} deleted.`;
       render(data, state);
     });
@@ -559,7 +652,7 @@ function render(data, state) {
     render(data, state);
   });
 
-  host.querySelector("#cs-new-case-form")?.addEventListener("submit", (e) => {
+  host.querySelector("#cs-new-case-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!dept || !canAccessDepartment(data, dept.officeId)) return;
     const fd = new FormData(e.currentTarget);
@@ -567,8 +660,12 @@ function render(data, state) {
     const body = String(fd.get("body") || "").trim();
     if (!title || !body) return;
 
-    const author = String(char?.name || "Government Member").trim();
-    const avatar = String(char?.avatar || "").trim();
+    const posterChoice = mod
+      ? ((e.currentTarget.querySelector('input[name="csPosterChoice"]:checked') || {}).value || "character")
+      : "character";
+    const isNpcPost = mod && posterChoice === "npc";
+    const author = isNpcPost ? "Civil Servant" : String(char?.name || "Government Member").trim();
+    const avatar = isNpcPost ? "" : String(char?.avatar || "").trim();
 
     const caseItem = {
       id: data.civilService.nextCaseId++,
@@ -577,19 +674,24 @@ function render(data, state) {
       status: "open",
       createdBy: author,
       createdByAvatar: avatar,
-      createdAt: nowStamp(),
+      createdAt: simStamp(data),
       messages: [
         {
           authorName: author,
           authorRole: "government",
           avatar,
           text: body,
-          createdAt: nowStamp()
+          createdAt: simStamp(data)
         }
       ]
     };
-    data.civilService.cases.unshift(caseItem);
-    saveState(data);
+    try {
+      const result = await apiCreateCsCase(caseItem);
+      caseItem.id = result.id;
+      data.civilService.cases.unshift(caseItem);
+    } catch (err) {
+      console.error("[cs] create case failed:", err);
+    }
     state.openCaseId = caseItem.id;
     state.message = `Case #${caseItem.id} created.`;
     render(data, state);
@@ -610,9 +712,9 @@ function render(data, state) {
       const item = data.civilService.cases.find((c) => c.id === id);
       if (!item || item.status === "closed") return;
       item.status = "closed";
-      item.closedAt = nowStamp();
+      item.closedAt = simStamp(data);
       item.closedBy = String(char?.name || data?.currentUser?.username || "Civil Service Moderator");
-      saveState(data);
+      apiUpdateCsCase(id, { status: "closed", closedAt: item.closedAt, closedBy: item.closedBy }).catch(err => console.error("[cs] close case failed:", err));
       state.message = `Case #${id} closed.`;
       render(data, state);
     });
@@ -624,7 +726,7 @@ function render(data, state) {
       const id = Number(btn.dataset.id || 0);
       data.civilService.cases = data.civilService.cases.filter((c) => c.id !== id);
       if (state.openCaseId === id) state.openCaseId = null;
-      saveState(data);
+      apiDeleteCsCase(id).catch(err => console.error("[cs] del case failed:", err));
       state.message = `Case #${id} deleted.`;
       render(data, state);
     });
@@ -649,9 +751,9 @@ function render(data, state) {
         authorRole: civil ? "civil-service" : "government",
         avatar: civil ? "" : String(char?.avatar || ""),
         text,
-        createdAt: nowStamp()
+        createdAt: simStamp(data)
       });
-      saveState(data);
+      apiUpdateCsCase(id, { messages: item.messages }).catch(err => console.error("[cs] msg failed:", err));
       state.message = `Reply added to Case #${id}.`;
       state.openCaseId = id;
       render(data, state);
@@ -659,8 +761,14 @@ function render(data, state) {
   });
 }
 
-export function initCivilServicePage(data) {
+export async function initCivilServicePage(data) {
   normaliseCivilService(data);
-  saveState(data);
+  try {
+    const [br, cs] = await Promise.all([apiGetCsBriefings(), apiGetCsCases()]);
+    data.civilService.briefings = br.briefings || [];
+    data.civilService.cases = cs.cases || [];
+  } catch (err) {
+    console.error("[cs] load failed:", err);
+  }
   render(data, { selectedDeptId: selectedDeptFromUrl(), openCaseId: null, openBriefingId: null, message: "" });
 }

@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
@@ -138,7 +137,6 @@ function render(data, state) {
           <div class="tile-bottom">
             <button class="btn" type="button" data-action="toggle-open" data-id="${esc(String(item.id))}">${String(state.openId) === String(item.id) ? "Close" : "Open"}</button>
             ${mod && item.status === "pending" ? `<button class="btn" type="button" data-action="approve" data-id="${esc(String(item.id))}">Approve</button><button class="btn danger" type="button" data-action="cancel" data-id="${esc(String(item.id))}">Refuse</button>` : ""}
-            ${mod && item.status === "approved" ? `<button class="btn" type="button" data-action="close" data-id="${esc(String(item.id))}">Close Now</button>` : ""}
             ${mod ? `<button class="btn danger" type="button" data-action="delete-event" data-id="${esc(String(item.id))}">Delete</button>` : ""}
           </div>
           ${String(state.openId) === String(item.id) ? `
@@ -239,49 +237,58 @@ function render(data, state) {
   });
 
   root.querySelectorAll("[data-action='approve']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
       const item = data.events.items.find((x) => String(x.id) === id);
       if (!item) return;
+      btn.disabled = true;
       item.status = "approved";
       item.approvedAt = new Date().toLocaleString("en-GB");
       item.closesAtSimIndex = simIndex(data) + 2;
-      saveState(data);
+      try {
+        await apiUpdateEvent(id, item);
+      } catch (err) {
+        handleApiError(err, "Approve event");
+        // Revert on failure
+        item.status = "pending";
+        item.approvedAt = null;
+        item.closesAtSimIndex = null;
+        btn.disabled = false;
+        render(data, state);
+        return;
+      }
       render(data, state);
     });
   });
 
   root.querySelectorAll("[data-action='cancel']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
       const item = data.events.items.find((x) => String(x.id) === id);
       if (!item) return;
+      btn.disabled = true;
       item.status = "cancelled";
-      saveState(data);
+      try {
+        await apiUpdateEvent(id, item);
+      } catch (err) {
+        handleApiError(err, "Cancel event");
+        item.status = "pending";
+        btn.disabled = false;
+        render(data, state);
+        return;
+      }
       render(data, state);
     });
   });
 
-  root.querySelectorAll("[data-action='close']").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (!mod) return;
-      const id = String(btn.getAttribute("data-id") || "");
-      const item = data.events.items.find((x) => String(x.id) === id);
-      if (!item) return;
-      item.status = "closed";
-      saveState(data);
-      render(data, state);
-    });
-  });
 
   root.querySelectorAll("[data-action='delete-event']").forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
       data.events.items = data.events.items.filter((x) => String(x.id) !== id);
-      saveState(data);
       render(data, state);
       apiDeleteEvent(id).catch((err) => console.error("[events] delete failed:", err));
     });

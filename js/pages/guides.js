@@ -1,6 +1,6 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
+import { apiGetGuides, apiCreateGuide, apiUpdateGuide, apiDeleteGuide } from "../api.js";
 
 function normaliseGuides(data) {
   data.guides ??= { items: [], nextId: 1 };
@@ -105,7 +105,7 @@ function render(data, state) {
       const id = Number(btn.dataset.guideId || 0);
       data.guides.items = data.guides.items.filter((guide) => guide.id !== id);
       if (state.editingId === id) state.editingId = null;
-      saveState(data);
+      apiDeleteGuide(id).catch(err => console.error("[guides] delete failed:", err));
       state.message = "Guide removed.";
       render(data, state);
     });
@@ -122,7 +122,7 @@ function render(data, state) {
 
   const form = host.querySelector("#guides-editor-form");
   if (form) {
-    form.addEventListener("submit", (event) => {
+    form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (!adminMode) return;
 
@@ -139,27 +139,34 @@ function render(data, state) {
         if (target) {
           target.title = title;
           target.body = body;
+          await apiUpdateGuide(state.editingId, { title, body });
           state.message = "Guide updated.";
         }
       } else {
+        const result = await apiCreateGuide({ title, body });
         data.guides.items.unshift({
-          id: data.guides.nextId,
+          id: result.item.id,
           title,
           body
         });
-        data.guides.nextId += 1;
         state.message = "Guide added.";
       }
 
       state.editingId = null;
-      saveState(data);
       render(data, state);
     });
   }
 }
 
-export function initGuidesPage(data) {
-  normaliseGuides(data);
-  saveState(data);
+export async function initGuidesPage(data) {
+  try {
+    const r = await apiGetGuides();
+    data.guides = data.guides || {};
+    data.guides.items = r.items || [];
+    data.guides.nextId = Math.max(0, ...(r.items || []).map(i => Number(i.id) || 0)) + 1;
+  } catch (err) {
+    console.error("[guides] load failed:", err);
+    normaliseGuides(data);
+  }
   render(data, { editingId: null, message: "" });
 }

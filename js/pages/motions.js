@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
@@ -347,7 +346,6 @@ export async function initMotionsPage(data) {
       } else {
         data.motions.edm = data.motions.edm.filter((m) => m.id !== id);
       }
-      saveState(data);
       initMotionsPage(data);
     });
   });

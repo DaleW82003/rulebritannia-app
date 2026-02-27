@@ -40,7 +40,6 @@ export async function initRegulationPage(data) {
     item.status = "closed";
     item.closedAtSim = formatSimMonthYear(data.gameState);
     apiUpdateRegulation(item.id, item).catch((err) => console.error("[regulation] Failed to auto-close:", err));
-    saveState(data);
   }
 
   if (!item) {
@@ -91,7 +90,6 @@ export async function initRegulationPage(data) {
     if (title) item.shortTitle = title;
     if (body) item.body = body;
     apiUpdateRegulation(item.id, item).catch((err) => console.error("[regulation] Failed to save edits:", err));
-    saveState(data);
     initRegulationPage(data);
   });
 
@@ -100,7 +98,6 @@ export async function initRegulationPage(data) {
     item.status = "closed";
     item.closedAtSim = formatSimMonthYear(data.gameState);
     apiUpdateRegulation(item.id, item).catch((err) => console.error("[regulation] Failed to close regulation:", err));
-    saveState(data);
     initRegulationPage(data);
   });
 }

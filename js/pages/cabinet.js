@@ -1,8 +1,8 @@
-import { saveState, nowStamp } from "../core.js";
+import { nowStamp } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetCharacters, apiGetCabinetDrafts, apiSaveCabinetDrafts } from "../api.js";
+import { apiGetCharacters, apiGetCabinetDrafts, apiSaveCabinetDrafts, apiSaveCabinetHeadline } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 function isManager(data) {
@@ -158,7 +158,7 @@ function render(data, state) {
     data.cabinet.headline.text = text;
     data.cabinet.headline.updatedAt = nowStamp();
     data.cabinet.headline.updatedBy = String(char?.name || "Prime Minister");
-    saveState(data);
+    apiSaveCabinetHeadline(data.cabinet.headline).catch((err) => console.error("[cabinet] headline save failed:", err));
     state.message = "Cabinet headline updated.";
     render(data, state);
   });

@@ -647,7 +647,6 @@ function render(data, state) {
     <section class="panel" style="margin-top:12px;">
       <h2 style="margin-top:0;">Party Shop <span class="muted" style="font-size:.8em;">(Chairman · Leader · Admin/Mod)</span></h2>
       <p class="muted">
-        Prices × price index <b>${esc(String(state.priceIndex?.toFixed(4) ?? "1.0000"))}</b>.
         Monthly upkeep is deducted from party treasury each month.
         ${(party.partyShopPurchases || []).some((p) => (p.effects||[]).some((e) => e.type==="unlock" && e.value==="partyTour")) || state.dbState?.partyStructure?.unlocks?.partyTour ? `<span style="color:#1a6a1a;">✅ Party Tour active</span>` : ""}
       </p>

@@ -1,6 +1,6 @@
 import { canSeeAudienceItem, isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { esc } from "../ui.js";
-import { nowMs, saveState } from "../core.js";
+import { nowMs } from "../core.js";
 import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
 import { apiGetBills } from "../api.js";
@@ -224,11 +224,19 @@ function billCountdown(bill, gameState) {
 function getWhatsGoingOnTiles(data) {
   const w = data?.whatsGoingOn || {};
   const leadStory = Array.isArray(data?.news?.stories) ? data.news.stories[0] : null;
-  const topPaper = Array.isArray(data?.papers?.papers)
-    ? data.papers.papers.find((p) => Array.isArray(p.issues) && p.issues.length)?.issues?.[0]
+  const topPaperEntry = Array.isArray(data?.papers?.papers)
+    ? data.papers.papers.find((p) => Array.isArray(p.issues) && p.issues.length)
     : null;
+  const topPaper = topPaperEntry?.issues?.[0] ?? null;
+  const topPaperName = topPaperEntry?.name || "Paper";
   const econTopline = data?.economyPage?.topline || {};
-  const masterPoll = Array.isArray(data?.polling?.tracker) ? data.polling.tracker : [];
+  // Build latest poll results from data.polling.polls (authoritative) or whatsGoingOn fallback
+  const latestPoll = Array.isArray(data?.polling?.polls) && data.polling.polls.length
+    ? data.polling.polls.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0))[0]
+    : null;
+  const masterPoll = Array.isArray(latestPoll?.results)
+    ? latestPoll.results.filter((r) => Number(r.value) >= 2)
+    : (Array.isArray(data?.polling?.tracker) ? data.polling.tracker : []);
   const econ = w?.economy || {};
   const polling = Array.isArray(w?.polling) && w.polling.length ? w.polling : masterPoll;
 
@@ -245,7 +253,7 @@ function getWhatsGoingOnTiles(data) {
     },
     {
       kicker: "PAPERS",
-      title: `${w?.papers?.paper || "Paper"}: ${w?.papers?.headline || topPaper?.headline || "No front page yet"}`,
+      title: `${w?.papers?.paper || topPaperName}: ${w?.papers?.headline || topPaper?.headline || "No front page yet"}`,
       strap: w?.papers?.strap || topPaper?.text || "—",
       href: "papers.html",
       btn: "Open"
@@ -345,7 +353,6 @@ function renderLiveDocket(data) {
           stored[item.seenActivityKey] = ts;
           localStorage.setItem(lsKey, JSON.stringify(stored));
         } catch { /* ignore */ }
-        saveState(data);
       }
       if (item.generated !== true) {
         data.liveDocket.items = data.liveDocket.items.filter((i) => i !== item);

@@ -1,7 +1,8 @@
 import { formatSimMonthYear, getSimDate } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
 import { canPostNews, canAdminOrMod } from "../permissions.js";
-import { saveState, nowMs } from "../core.js";
+import { nowMs } from "../core.js";
+import { apiGetNews, apiCreateNewsStory, apiUpdateNewsStory, apiDeleteNewsStory } from "../api.js";
 
 // 4 simulation months = 2 real weeks (2 sim months per real week per clock rules)
 const LIVE_WINDOW_SIM_MONTHS = 4;
@@ -110,7 +111,7 @@ function bindNewsDesk(data, rerender) {
     data.news.stories ??= [];
 
     const sim = formatSimMonthYear(data.gameState);
-    data.news.stories.unshift({
+    const story = {
       id: `news-${Math.random().toString(36).slice(2, 10)}`,
       createdAt: nowMs(),
       simDate: sim,
@@ -120,9 +121,10 @@ function bindNewsDesk(data, rerender) {
       imageUrl: imageUrl || "",
       text,
       flavour: type === "other"
-    });
+    };
+    data.news.stories.unshift(story);
 
-    saveState(data);
+    apiCreateNewsStory(story).catch(err => console.error("[news] create failed:", err));
     form.reset();
     panel.style.display = "none";
     rerender();
@@ -141,7 +143,14 @@ function bindArchiveToggle() {
   });
 }
 
-export function initNewsPage(data) {
+export async function initNewsPage(data) {
+  try {
+    const r = await apiGetNews();
+    data.news = data.news || { stories: [], categories: [] };
+    data.news.stories = r.stories.map(s => ({ ...s, createdAt: new Date(s.createdAt).getTime(), simDate: s.simDate, category: s.category, text: s.text, imageUrl: s.imageUrl, isBreaking: s.isBreaking, flavour: s.flavour }));
+  } catch (err) {
+    console.error("[news] load failed:", err);
+  }
   const canDelete = canAdminOrMod(data);
 
   const renderAll = () => {
@@ -169,7 +178,7 @@ export function initNewsPage(data) {
       if (deleteBtn) {
         const id = deleteBtn.getAttribute("data-id");
         data.news.stories = (data.news.stories || []).filter((s) => s.id !== id);
-        saveState(data);
+        apiDeleteNewsStory(id).catch(err => console.error("[news] delete failed:", err));
         renderAll();
         return;
       }
@@ -235,7 +244,7 @@ export function initNewsPage(data) {
         story.text = document.getElementById("editNewsText")?.value?.trim() || story.text;
         story.imageUrl = document.getElementById("editNewsImage")?.value?.trim() || "";
         story.isBreaking = document.getElementById("editNewsBreaking")?.checked || false;
-        saveState(data);
+        apiUpdateNewsStory(id, { headline: story.headline, text: story.text, imageUrl: story.imageUrl, isBreaking: story.isBreaking }).catch(err => console.error("[news] update failed:", err));
         editPanel.style.display = "none";
         renderAll();
       });

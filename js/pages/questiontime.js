@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
@@ -302,12 +301,17 @@ function render(data, state) {
           <textarea id="qt-question-text" class="input" name="text" rows="4" required placeholder="Type your parliamentary question" ${askGate.ok || canPostAsNpc ? "" : "disabled"}></textarea>
           ${canPostAsNpc ? `
           <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line);">
-            <label class="label" style="font-size:0.85em;color:var(--muted);">Post as NPC (mod/admin)</label>
-            <input class="input" name="npcName" placeholder="NPC MP name (leave blank to post as yourself)" style="margin-bottom:4px;">
-            <select class="input" name="npcParty">
-              <option value="">— NPC party —</option>
-              ${partyOptions}
-            </select>
+            <div style="display:flex;gap:16px;margin-bottom:6px;">
+              <label><input type="radio" name="qtPosterChoice" value="character" checked> My Character</label>
+              <label><input type="radio" name="qtPosterChoice" value="npc"> NPC</label>
+            </div>
+            <div id="qt-npc-fields" style="display:none;">
+              <input class="input" name="npcName" placeholder="NPC MP name" style="margin-bottom:4px;">
+              <select class="input" name="npcParty">
+                <option value="">— NPC party —</option>
+                ${partyOptions}
+              </select>
+            </div>
           </div>` : ""}
           <button class="btn" type="submit" ${askGate.ok || canPostAsNpc ? "" : "disabled"}>Submit Question</button>
           ${!askGate.ok && !canPostAsNpc ? `<p class="muted" style="margin-top:8px;">${esc(askGate.reason)}</p>` : ""}
@@ -336,6 +340,17 @@ function render(data, state) {
   `;
 
   const submitForm = root.querySelector("#qt-submit-question-form");
+
+  // Wire up poster-choice radio for staff
+  if (canPostAsNpc && submitForm) {
+    submitForm.querySelectorAll('input[name="qtPosterChoice"]').forEach((radio) => {
+      radio.addEventListener("change", () => {
+        const npcFields = submitForm.querySelector("#qt-npc-fields");
+        if (npcFields) npcFields.style.display = radio.value === "npc" ? "" : "none";
+      });
+    });
+  }
+
   submitForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const submitBtn = submitForm.querySelector("[type='submit']");
@@ -343,10 +358,14 @@ function render(data, state) {
     const text = String(fd.get("text") || "").trim();
     if (!text) return;
 
-    const npcName = canPostAsNpc ? String(fd.get("npcName") || "").trim() : "";
-    const npcParty = canPostAsNpc ? String(fd.get("npcParty") || "").trim() : "";
+    const posterChoice = canPostAsNpc
+      ? ((submitForm.querySelector('input[name="qtPosterChoice"]:checked') || {}).value || "character")
+      : "character";
+    const isNpcPost = canPostAsNpc && posterChoice === "npc";
+    const npcName = isNpcPost ? String(fd.get("npcName") || "").trim() : "";
+    const npcParty = isNpcPost ? String(fd.get("npcParty") || "").trim() : "";
 
-    if (!npcName && !askGate.ok) {
+    if (!isNpcPost && !askGate.ok) {
       // Gate is closed — re-render so the reason is clearly visible
       render(data, state);
       return;
@@ -505,7 +524,6 @@ function render(data, state) {
       question.status = "closed";
       question.archivedAtSim = simLabel;
       logAction({ action: "question-closed", target: qid, details: { office: question.office, askedBy: question.askedBy } });
-      saveState(data);
       render(data, state);
     });
   });
@@ -521,7 +539,6 @@ function render(data, state) {
       question.demandDueAtSim = createDeadline(data.gameState, 1);
       question.speakerDemandAvailable = false;
       logAction({ action: "speaker-demand", target: qid, details: { office: question.office, askedBy: question.askedBy } });
-      saveState(data);
       render(data, state);
     });
   });
@@ -541,7 +558,6 @@ function render(data, state) {
       if (!canDeleteQ) return;
       const qid = btn.getAttribute("data-question-id");
       data.questionTime.questions = data.questionTime.questions.filter((q) => q.id !== qid);
-      saveState(data);
       render(data, state);
       apiDeleteQtLegacyQuestion(qid).catch((err) => console.error("[questiontime] delete failed:", err));
     });

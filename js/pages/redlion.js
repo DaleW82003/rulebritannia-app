@@ -1,9 +1,9 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker } from "../permissions.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateRedLionPost, apiDeleteRedLionPost, apiGetRedLionPosts } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
+import { formatSimMonthYear } from "../clock.js";
 
 function canPostBarkeep(data) {
   return isAdmin(data) || isMod(data) || isSpeaker(data);
@@ -140,7 +140,6 @@ function render(data) {
       if (!(allowBarkeep || isSpeaker(data))) return;
       const id = btn.getAttribute("data-id");
       data.redLion.posts = data.redLion.posts.filter((p) => p.id !== id);
-      saveState(data);
       render(data);
       apiDeleteRedLionPost(id).catch((err) => console.error("[redlion] delete failed:", err));
     });
@@ -157,7 +156,6 @@ function render(data) {
       const trimmed = newBody.trim();
       if (!trimmed) return;
       post.body = trimmed;
-      saveState(data);
       render(data);
     });
   });

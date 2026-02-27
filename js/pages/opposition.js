@@ -33,8 +33,11 @@ function normaliseOpposition(data) {
     const existing = byId.get(spec.id) || {};
     return {
       id: spec.id,
-      holderName: String(existing.holderName || "").trim(),
-      holderAvatar: String(existing.holderAvatar || "").trim()
+      holderName:   String(existing.holderName   || "").trim(),
+      holderAvatar: String(existing.holderAvatar || "").trim(),
+      // Preserve DB-backed fields set by initOppositionPage so save handler works
+      dbOfficeId:   existing.dbOfficeId   || null,
+      holderCharId: existing.holderCharId || null,
     };
   });
 

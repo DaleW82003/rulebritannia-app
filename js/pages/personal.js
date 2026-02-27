@@ -1276,7 +1276,9 @@ function render(data, state) {
             </div>
             <div>
               <label class="label" for="p-finbg">Financial Background Level (1–10)</label>
-              <input id="p-finbg" class="input" type="number" min="1" max="10" name="financialBackgroundLevel" value="${esc(profile.financialBackgroundLevel || "")}">
+              <select id="p-finbg" class="input" name="financialBackgroundLevel">
+                ${(state.enums?.financialLevels ?? [{level:1,label:"1 – Poverty"},{level:2,label:"2 – Financially Strained"},{level:3,label:"3 – Lower Working Class"},{level:4,label:"4 – Skilled Working / Lower Middle"},{level:5,label:"5 – Solid Middle Class"},{level:6,label:"6 – Upper Middle Class"},{level:7,label:"7 – Affluent Professional"},{level:8,label:"8 – High Net Worth Individual"},{level:9,label:"9 – Top 5%"},{level:10,label:"10 – Top 1%"}]).map((fl) => `<option value="${esc(String(fl.level))}" ${String(profile.financialBackgroundLevel) === String(fl.level) ? "selected" : ""}>${esc(fl.label)}</option>`).join("")}
+              </select>
             </div>
           </div>
 
@@ -1285,12 +1287,25 @@ function render(data, state) {
 
           <h3 style="margin:10px 0 6px;">MP Profile Fields</h3>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
-            ${PROFILE_FIELDS.map((f) => `
-              <div>
-                <label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label>
-                <input id="pf-${esc(f.key)}" class="input" name="profile:${esc(f.key)}" value="${esc(profile.profile[f.key] || "")}">
-              </div>
-            `).join("")}
+            ${PROFILE_FIELDS.map((f) => {
+              const val = profile.profile[f.key] || "";
+              if (f.key === "dateOfBirth") {
+                return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><input id="pf-${esc(f.key)}" class="input" type="date" name="profile:${esc(f.key)}" value="${esc(val)}"></div>`;
+              }
+              if (f.key === "education") {
+                const opts = state.enums?.educationOptions ?? ["No Qualifications","GCSEs","A Levels","Certificate of HE","Diploma","Bachelors Degree","Masters Degree","Doctorate"];
+                return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><select id="pf-${esc(f.key)}" class="input" name="profile:${esc(f.key)}"><option value=""></option>${opts.map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></div>`;
+              }
+              if (f.key === "careerBackground") {
+                const opts = state.enums?.careerOptions ?? ["Manual / Skilled Trade","Public Sector Professional","Legal Profession","Finance / Banking / Corporate","Business Owner / Entrepreneur","Political Staffer / Researcher","Trade Union / Activist","Media / Journalism / Communications","Academia / Education Leadership","Military / Police / Security"];
+                return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><select id="pf-${esc(f.key)}" class="input" name="profile:${esc(f.key)}"><option value=""></option>${opts.map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></div>`;
+              }
+              if (f.key === "family") {
+                const opts = state.enums?.familyOptions ?? ["Single","Married, No Children","Married with Children","Civil Partnership","Divorced","Divorced with Children","Widowed","Long-Term Partner with Children","Long-Term Partner, No Children"];
+                return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><select id="pf-${esc(f.key)}" class="input" name="profile:${esc(f.key)}"><option value=""></option>${opts.map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></div>`;
+              }
+              return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><input id="pf-${esc(f.key)}" class="input" name="profile:${esc(f.key)}" value="${esc(val)}"></div>`;
+            }).join("")}
           </div>
 
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">

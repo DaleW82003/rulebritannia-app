@@ -581,6 +581,12 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS characters_active_idx ON characters (is_active);
   `);
 
+  // ── Add absent/delegated_to columns to characters if not present ─────────────────
+  await pool.query(`
+    ALTER TABLE characters ADD COLUMN IF NOT EXISTS absent BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE characters ADD COLUMN IF NOT EXISTS delegated_to TEXT;
+  `);
+
   // ── Offices & Assignments ─────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS offices (
@@ -1644,6 +1650,108 @@ async function ensureSchema() {
     );
     INSERT INTO group_drafts (group_key) VALUES ('cabinet')       ON CONFLICT (group_key) DO NOTHING;
     INSERT INTO group_drafts (group_key) VALUES ('shadowcabinet') ON CONFLICT (group_key) DO NOTHING;
+  `);
+
+  // ── News stories ─────────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS news_stories (
+      id          TEXT        PRIMARY KEY,
+      headline    TEXT        NOT NULL,
+      text        TEXT        NOT NULL DEFAULT '',
+      category    TEXT        NOT NULL DEFAULT 'Politics',
+      image_url   TEXT        NOT NULL DEFAULT '',
+      is_breaking BOOLEAN     NOT NULL DEFAULT FALSE,
+      flavour     BOOLEAN     NOT NULL DEFAULT FALSE,
+      sim_date    TEXT        NOT NULL DEFAULT '',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_by  INTEGER     REFERENCES users(id) ON DELETE SET NULL
+    );
+  `);
+
+  // ── Rules ─────────────────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rules_items (
+      id          SERIAL      PRIMARY KEY,
+      title       TEXT        NOT NULL,
+      body        TEXT        NOT NULL,
+      sort_order  INTEGER     NOT NULL DEFAULT 0,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // ── Guides ────────────────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS guides_items (
+      id          SERIAL      PRIMARY KEY,
+      title       TEXT        NOT NULL,
+      body        TEXT        NOT NULL,
+      sort_order  INTEGER     NOT NULL DEFAULT 0,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // ── Civil Service ─────────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cs_briefings (
+      id              SERIAL      PRIMARY KEY,
+      title           TEXT        NOT NULL,
+      target_office   TEXT        NOT NULL DEFAULT '',
+      cc_offices      JSONB       NOT NULL DEFAULT '[]',
+      status          TEXT        NOT NULL DEFAULT 'open',
+      current_stage_idx INTEGER,
+      awaiting_next_stage BOOLEAN NOT NULL DEFAULT FALSE,
+      stages          JSONB       NOT NULL DEFAULT '[]',
+      audit_log       JSONB       NOT NULL DEFAULT '[]',
+      created_by      TEXT        NOT NULL DEFAULT '',
+      created_at_sim  TEXT        NOT NULL DEFAULT '',
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cs_cases (
+      id              SERIAL      PRIMARY KEY,
+      dept_id         TEXT        NOT NULL DEFAULT '',
+      title           TEXT        NOT NULL,
+      status          TEXT        NOT NULL DEFAULT 'open',
+      created_by      TEXT        NOT NULL DEFAULT '',
+      created_by_avatar TEXT      NOT NULL DEFAULT '',
+      created_at_sim  TEXT        NOT NULL DEFAULT '',
+      closed_at_sim   TEXT,
+      closed_by       TEXT,
+      messages        JSONB       NOT NULL DEFAULT '[]',
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // ── Bodies data ─────────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bodies_data (
+      id          TEXT        PRIMARY KEY,
+      data        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+      sort_order  INTEGER     NOT NULL DEFAULT 0,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // ── Newspaper articles (Papers page) ────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS newspaper_articles (
+      id          TEXT        PRIMARY KEY,
+      paper_key   TEXT        NOT NULL,
+      headline    TEXT        NOT NULL,
+      text        TEXT        NOT NULL DEFAULT '',
+      byline_name TEXT        NOT NULL DEFAULT '',
+      image_url   TEXT        NOT NULL DEFAULT '',
+      sim_date    TEXT        NOT NULL DEFAULT '',
+      created_by  INTEGER     REFERENCES users(id) ON DELETE SET NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_newspaper_articles_paper_key ON newspaper_articles(paper_key);
   `);
 }
 
@@ -7578,6 +7686,21 @@ app.post("/api/admin/characters/:id/profile", charWriteLimit, async (req, res) =
 const charAppReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
 const charAppWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
 
+// PATCH /api/me/absent — authenticated: set/clear absence flag on current character
+app.patch("/api/me/absent", charWriteLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { absent = false, delegatedTo = null } = req.body || {};
+    const charId = req.session.activeCharacterId;
+    if (!charId) return res.status(400).json({ error: "No active character" });
+    await pool.query(
+      `UPDATE characters SET absent = $1, delegated_to = $2 WHERE id = $3`,
+      [!!absent, delegatedTo || null, charId]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/me/absent]", e); res.status(500).json({ error: "Server error" }); }
+});
+
 // POST /api/characters/select — set session active character
 app.post("/api/characters/select", charAppWriteLimit, async (req, res) => {
   try {
@@ -10556,6 +10679,20 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const tally = { aye: 0, no: 0, abstain: 0 };
     votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
 
+    // Also add NPC party votes to the live tally
+    const npcV = division.npc_votes || {};
+    const rebelP = division.rebels_by_party || {};
+    const { rows: seatRows } = await pool.query(
+      "SELECT party_name, COUNT(*) AS seats FROM constituencies WHERE party_name IS NOT NULL AND party_name <> '' GROUP BY party_name"
+    );
+    const seatsByParty = Object.fromEntries(seatRows.map(r => [r.party_name, Number(r.seats)]));
+    for (const [party, npcVote] of Object.entries(npcV)) {
+      if (tally[npcVote] === undefined) continue;
+      const seats = Number(seatsByParty[party] || 0);
+      const rebels = Number(rebelP[party] || 0);
+      if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
+    }
+
     // Caller's own vote and effective weight
     const charId = await getActiveCharacterId(req);
     let myVote = null;
@@ -12641,11 +12778,13 @@ app.post("/api/elections/bodies", electionWriteLimit, async (req, res) => {
       );
 
       // Create the new election record as current.
+      // $2 = polling_day (DATE), $7 = finalized_at (TIMESTAMPTZ) — same value but separate
+      // parameters to avoid 42P08 "inconsistent types deduced for parameter" error.
       const { rows: elRows } = await client.query(
         `INSERT INTO elections (type, polling_day, label, status, finalized_at, turnout_total, turnout_pct, is_current, created_by)
-         VALUES ($1, $2, $3, 'finalized', $2, $4, $5, true, $6)
+         VALUES ($1, $2, $3, 'finalized', $7, $4, $5, true, $6)
          RETURNING id`,
-        [body_type, polling_day, label, Number(turnout_total), Number(turnout_pct), req.session.userId]
+        [body_type, polling_day, label, Number(turnout_total), Number(turnout_pct), req.session.userId, polling_day]
       );
       const elId = elRows[0].id;
 
@@ -14101,6 +14240,10 @@ app.patch("/api/admin/finance/salary-bands", adminFinanceLimit, async (req, res)
     await writeAuditLog(req.session.userId, "admin.finance.salary-bands.update", "finance_config", "main",
       { salaryBands: before }, { salaryBands: normalised, simYear: currentSimYear });
     res.json({ ok: true, salaryBands: normalised, simYear: currentSimYear });
+    // Recompute salary positions for ALL active characters so their salaryAnnual reflects the new bands
+    pool.query("SELECT id FROM characters WHERE status = 'active'")
+      .then(({ rows }) => Promise.all(rows.map((r) => recomputeSalaryPositions(r.id))))
+      .catch((e) => console.error("[salary-bands] recompute all failed:", e.message));
   } catch (e) {
     console.error("[PATCH /api/admin/finance/salary-bands]", e);
     res.status(500).json({ error: "Server error" });
@@ -14476,6 +14619,481 @@ app.delete("/api/fundraising/:id", crudWriteLimit, async (req, res) => {
     await writeAuditLog(req.session.userId, "fundraising.delete", "fundraising_items", req.params.id, null, null);
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+
+// ── News Stories API ─────────────────────────────────────────────────────────
+// GET  /api/news          — authenticated: list all stories newest first
+// POST /api/news          — admin/mod: create story
+// PATCH /api/news/:id     — admin/mod: update story
+// DELETE /api/news/:id    — admin/mod: delete story
+
+app.get("/api/news", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT id, headline, text, category, image_url, is_breaking, flavour, sim_date, created_at FROM news_stories ORDER BY created_at DESC"
+    );
+    res.json({ stories: rows.map((r) => ({
+      id: r.id, headline: r.headline, text: r.text, category: r.category,
+      imageUrl: r.image_url, isBreaking: r.is_breaking, flavour: r.flavour,
+      simDate: r.sim_date, createdAt: r.created_at,
+    })) });
+  } catch (e) { console.error("[GET /api/news]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/news", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { id, headline, text, category = "Politics", imageUrl = "", isBreaking = false, flavour = false, simDate = "" } = req.body || {};
+    if (!id || !headline || !text) return res.status(400).json({ error: "id, headline and text required" });
+    const { rows } = await pool.query(
+      `INSERT INTO news_stories (id, headline, text, category, image_url, is_breaking, flavour, sim_date, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (id) DO NOTHING RETURNING id`,
+      [id, headline, text, category, imageUrl, !!isBreaking, !!flavour, simDate, req.session.userId]
+    );
+    if (!rows.length) return res.status(409).json({ error: "Story ID already exists" });
+    res.json({ ok: true, id });
+  } catch (e) { console.error("[POST /api/news]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.patch("/api/news/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { headline, text, imageUrl, isBreaking, simDate } = req.body || {};
+    const { rows } = await pool.query(
+      `UPDATE news_stories SET
+         headline    = COALESCE($2, headline),
+         text        = COALESCE($3, text),
+         image_url   = COALESCE($4, image_url),
+         is_breaking = COALESCE($5, is_breaking),
+         sim_date    = COALESCE($6, sim_date)
+       WHERE id = $1 RETURNING id`,
+      [req.params.id, headline ?? null, text ?? null, imageUrl ?? null, isBreaking != null ? !!isBreaking : null, simDate ?? null]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Story not found" });
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/news/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/news/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    await pool.query("DELETE FROM news_stories WHERE id = $1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error("[DELETE /api/news/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Rules API ─────────────────────────────────────────────────────────────────
+app.get("/api/rules", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT id, title, body, sort_order FROM rules_items ORDER BY sort_order ASC, id ASC");
+    res.json({ items: rows });
+  } catch (e) { console.error("[GET /api/rules]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/rules", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { title, body } = req.body || {};
+    if (!title || !body) return res.status(400).json({ error: "title and body required" });
+    const { rows } = await pool.query(
+      "INSERT INTO rules_items (title, body) VALUES ($1,$2) RETURNING id, title, body",
+      [title, body]
+    );
+    res.json({ ok: true, item: rows[0] });
+  } catch (e) { console.error("[POST /api/rules]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.patch("/api/rules/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { title, body } = req.body || {};
+    if (!title || !body) return res.status(400).json({ error: "title and body required" });
+    const { rows } = await pool.query(
+      "UPDATE rules_items SET title=$2, body=$3, updated_at=NOW() WHERE id=$1 RETURNING id",
+      [req.params.id, title, body]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Rule not found" });
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/rules/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/rules/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    await pool.query("DELETE FROM rules_items WHERE id=$1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error("[DELETE /api/rules/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Guides API ────────────────────────────────────────────────────────────────
+app.get("/api/guides", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT id, title, body, sort_order FROM guides_items ORDER BY sort_order ASC, id ASC");
+    res.json({ items: rows });
+  } catch (e) { console.error("[GET /api/guides]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/guides", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { title, body } = req.body || {};
+    if (!title || !body) return res.status(400).json({ error: "title and body required" });
+    const { rows } = await pool.query(
+      "INSERT INTO guides_items (title, body) VALUES ($1,$2) RETURNING id, title, body",
+      [title, body]
+    );
+    res.json({ ok: true, item: rows[0] });
+  } catch (e) { console.error("[POST /api/guides]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.patch("/api/guides/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { title, body } = req.body || {};
+    if (!title || !body) return res.status(400).json({ error: "title and body required" });
+    const { rows } = await pool.query(
+      "UPDATE guides_items SET title=$2, body=$3, updated_at=NOW() WHERE id=$1 RETURNING id",
+      [req.params.id, title, body]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Guide not found" });
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/guides/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/guides/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    await pool.query("DELETE FROM guides_items WHERE id=$1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error("[DELETE /api/guides/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Civil Service Briefings API ───────────────────────────────────────────────
+app.get("/api/civil-service/briefings", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT * FROM cs_briefings ORDER BY created_at DESC"
+    );
+    res.json({ briefings: rows.map((r) => ({
+      id: r.id, title: r.title, target_officeId: r.target_office,
+      cc_officeIds: Array.isArray(r.cc_offices) ? r.cc_offices : [], status: r.status,
+      currentStageIdx: r.current_stage_idx, awaitingNextStage: r.awaiting_next_stage,
+      stages: r.stages, auditLog: r.audit_log,
+      createdBy: r.created_by, createdAt: r.created_at_sim,
+    })) });
+  } catch (e) { console.error("[GET /api/civil-service/briefings]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/civil-service/briefings", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { title, target_officeId = "", cc_officeIds = [], stages = [], createdBy = "", createdAt = "" } = req.body || {};
+    if (!title) return res.status(400).json({ error: "title required" });
+    const { rows } = await pool.query(
+      `INSERT INTO cs_briefings (title, target_office, cc_offices, stages, current_stage_idx, created_by, created_at_sim)
+       VALUES ($1,$2,$3::jsonb,$4::jsonb,0,$5,$6)
+       RETURNING id`,
+      [title, target_officeId, JSON.stringify(cc_officeIds), JSON.stringify(stages), createdBy, createdAt]
+    );
+    res.json({ ok: true, id: rows[0].id });
+  } catch (e) { console.error("[POST /api/civil-service/briefings]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.patch("/api/civil-service/briefings/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { status, currentStageIdx, awaitingNextStage, stages, auditLog } = req.body || {};
+    const { rows } = await pool.query(
+      `UPDATE cs_briefings SET
+         status              = COALESCE($2, status),
+         current_stage_idx   = COALESCE($3, current_stage_idx),
+         awaiting_next_stage = COALESCE($4, awaiting_next_stage),
+         stages              = CASE WHEN $5::text IS NOT NULL THEN $5::jsonb ELSE stages END,
+         audit_log           = CASE WHEN $6::text IS NOT NULL THEN $6::jsonb ELSE audit_log END,
+         updated_at          = NOW()
+       WHERE id = $1 RETURNING id`,
+      [req.params.id, status ?? null, currentStageIdx ?? null, awaitingNextStage ?? null,
+       stages != null ? JSON.stringify(stages) : null,
+       auditLog != null ? JSON.stringify(auditLog) : null]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Briefing not found" });
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/civil-service/briefings/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/civil-service/briefings/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    await pool.query("DELETE FROM cs_briefings WHERE id=$1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error("[DELETE /api/civil-service/briefings/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Civil Service Cases API ───────────────────────────────────────────────────
+app.get("/api/civil-service/cases", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT * FROM cs_cases ORDER BY created_at DESC");
+    res.json({ cases: rows.map((r) => ({
+      id: r.id, deptId: r.dept_id, title: r.title, status: r.status,
+      createdBy: r.created_by, createdByAvatar: r.created_by_avatar,
+      createdAt: r.created_at_sim, closedAt: r.closed_at_sim, closedBy: r.closed_by,
+      messages: r.messages,
+    })) });
+  } catch (e) { console.error("[GET /api/civil-service/cases]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/civil-service/cases", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { deptId = "", title, createdBy = "", createdByAvatar = "", createdAt = "", messages = [] } = req.body || {};
+    if (!title) return res.status(400).json({ error: "title required" });
+    const { rows } = await pool.query(
+      `INSERT INTO cs_cases (dept_id, title, created_by, created_by_avatar, created_at_sim, messages)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb) RETURNING id`,
+      [deptId, title, createdBy, createdByAvatar, createdAt, JSON.stringify(messages)]
+    );
+    res.json({ ok: true, id: rows[0].id });
+  } catch (e) { console.error("[POST /api/civil-service/cases]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.patch("/api/civil-service/cases/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { status, closedAt, closedBy, messages } = req.body || {};
+    const { rows } = await pool.query(
+      `UPDATE cs_cases SET
+         status        = COALESCE($2, status),
+         closed_at_sim = COALESCE($3, closed_at_sim),
+         closed_by     = COALESCE($4, closed_by),
+         messages      = CASE WHEN $5::text IS NOT NULL THEN $5::jsonb ELSE messages END,
+         updated_at    = NOW()
+       WHERE id = $1 RETURNING id`,
+      [req.params.id, status ?? null, closedAt ?? null, closedBy ?? null,
+       messages != null ? JSON.stringify(messages) : null]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Case not found" });
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/civil-service/cases/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/civil-service/cases/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    await pool.query("DELETE FROM cs_cases WHERE id=$1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { console.error("[DELETE /api/civil-service/cases/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Online settings (platform toggles) ──────────────────────────────────────
+app.patch("/api/online/settings", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const settings = req.body?.settings || {};
+    // Persist platform settings in a JSON column on online_posts meta row (use upsert to app_config)
+    await pool.query(
+      `INSERT INTO app_config (key, value) VALUES ('online_settings', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(settings)]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/online/settings]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Online post edit (PATCH) ──────────────────────────────────────────────────
+app.patch("/api/online/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { body } = req.body || {};
+    if (!body) return res.status(400).json({ error: "body required" });
+    const { rows } = await pool.query(
+      "UPDATE online_posts SET body = $2 WHERE id = $1 RETURNING id",
+      [req.params.id, body]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Post not found" });
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/online/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Bodies API ────────────────────────────────────────────────────────────────
+// GET /api/bodies      — authenticated
+// PUT /api/bodies/:id  — admin/mod/speaker: update a body
+
+app.get("/api/bodies", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT id, data FROM bodies_data ORDER BY sort_order ASC, id ASC");
+    res.json({ bodies: rows.map((r) => ({ id: r.id, ...r.data })) });
+  } catch (e) { console.error("[GET /api/bodies]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/api/bodies/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const body = req.body || {};
+    const { rows } = await pool.query(
+      `INSERT INTO bodies_data (id, data, sort_order)
+       VALUES ($1, $2::jsonb, COALESCE((SELECT sort_order FROM bodies_data WHERE id=$1), 0))
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+       RETURNING id`,
+      [req.params.id, JSON.stringify(body)]
+    );
+    res.json({ ok: true, id: rows[0].id });
+  } catch (e) { console.error("[PUT /api/bodies/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Papers / Newspaper Articles API ──────────────────────────────────────────
+// GET  /api/papers                     — authenticated: get all papers with articles
+// POST /api/papers/:key/articles       — admin/mod: create article in a paper
+// PATCH /api/papers/:key/articles/:id  — admin/mod: update article
+// DELETE /api/papers/:key/articles/:id — admin/mod: delete article
+
+app.get("/api/papers", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT paper_key, id, headline, text, byline_name, image_url, sim_date, created_at FROM newspaper_articles ORDER BY created_at DESC");
+    // Group by paper_key
+    const byPaper = {};
+    for (const r of rows) {
+      byPaper[r.paper_key] ??= [];
+      byPaper[r.paper_key].push({ id: r.id, headline: r.headline, text: r.text, bylineName: r.byline_name, imageUrl: r.image_url, simDate: r.sim_date, createdAt: r.created_at });
+    }
+    res.json({ byPaper });
+  } catch (e) { console.error("[GET /api/papers]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/papers/:key/articles", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { id, headline, text = "", bylineName = "", imageUrl = "", simDate = "" } = req.body || {};
+    if (!id || !headline) return res.status(400).json({ error: "id and headline required" });
+    const { rows } = await pool.query(
+      `INSERT INTO newspaper_articles (id, paper_key, headline, text, byline_name, image_url, sim_date, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING RETURNING id`,
+      [id, req.params.key, headline, text, bylineName, imageUrl, simDate, req.session.userId]
+    );
+    if (!rows.length) return res.status(409).json({ error: "Article ID already exists" });
+    res.json({ ok: true, id });
+  } catch (e) { console.error("[POST /api/papers/:key/articles]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.patch("/api/papers/:key/articles/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { headline, text, bylineName, imageUrl } = req.body || {};
+    const { rows } = await pool.query(
+      `UPDATE newspaper_articles SET
+         headline    = COALESCE($3, headline),
+         text        = COALESCE($4, text),
+         byline_name = COALESCE($5, byline_name),
+         image_url   = COALESCE($6, image_url)
+       WHERE id = $2 AND paper_key = $1 RETURNING id`,
+      [req.params.key, req.params.id, headline ?? null, text ?? null, bylineName ?? null, imageUrl ?? null]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Article not found" });
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/papers/:key/articles/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/papers/:key/articles/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    await pool.query("DELETE FROM newspaper_articles WHERE id = $1 AND paper_key = $2", [req.params.id, req.params.key]);
+    res.json({ ok: true });
+  } catch (e) { console.error("[DELETE /api/papers/:key/articles/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Economy page data ────────────────────────────────────────────────────────
+app.get("/api/admin/economy", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'economy_page_data'");
+    res.json(rows.length ? rows[0].value : {});
+  } catch (e) { console.error("[GET /api/admin/economy]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/api/admin/economy", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const data = req.body || {};
+    await pool.query(
+      `INSERT INTO app_config (key, value) VALUES ('economy_page_data', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(data)]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PUT /api/admin/economy]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Locals page data ─────────────────────────────────────────────────────────
+app.get("/api/locals", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'locals_data'");
+    res.json(rows.length ? rows[0].value : { councils: [] });
+  } catch (e) { console.error("[GET /api/locals]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/api/locals", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const data = req.body || {};
+    await pool.query(
+      `INSERT INTO app_config (key, value) VALUES ('locals_data', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(data)]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PUT /api/locals]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Cabinet/Shadow Cabinet headline ──────────────────────────────────────────
+app.get("/api/cabinet/headline", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'cabinet_headline'");
+    res.json(rows.length ? rows[0].value : { text: "" });
+  } catch (e) { console.error("[GET /api/cabinet/headline]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/api/cabinet/headline", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const data = req.body || {};
+    await pool.query(
+      `INSERT INTO app_config (key, value) VALUES ('cabinet_headline', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(data)]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PUT /api/cabinet/headline]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.get("/api/shadowcabinet/headline", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'shadowcabinet_headline'");
+    res.json(rows.length ? rows[0].value : { text: "" });
+  } catch (e) { console.error("[GET /api/shadowcabinet/headline]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/api/shadowcabinet/headline", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const data = req.body || {};
+    await pool.query(
+      `INSERT INTO app_config (key, value) VALUES ('shadowcabinet_headline', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(data)]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PUT /api/shadowcabinet/headline]", e); res.status(500).json({ error: "Server error" }); }
 });
 
 

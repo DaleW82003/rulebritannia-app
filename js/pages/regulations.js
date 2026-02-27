@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
@@ -230,7 +229,6 @@ export async function initRegulationsPage(data) {
         return;
       }
       data.regulations.items = data.regulations.items.filter((r) => r.id !== id);
-      saveState(data);
       initRegulationsPage(data);
     });
   });
