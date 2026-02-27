@@ -1664,7 +1664,7 @@ async function ensureSchema() {
       flavour     BOOLEAN     NOT NULL DEFAULT FALSE,
       sim_date    TEXT        NOT NULL DEFAULT '',
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      created_by  INTEGER     REFERENCES users(id) ON DELETE SET NULL
+      created_by  UUID        REFERENCES users(id) ON DELETE SET NULL
     );
   `);
 
@@ -1748,7 +1748,7 @@ async function ensureSchema() {
       byline_name TEXT        NOT NULL DEFAULT '',
       image_url   TEXT        NOT NULL DEFAULT '',
       sim_date    TEXT        NOT NULL DEFAULT '',
-      created_by  INTEGER     REFERENCES users(id) ON DELETE SET NULL,
+      created_by  UUID        REFERENCES users(id) ON DELETE SET NULL,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_newspaper_articles_paper_key ON newspaper_articles(paper_key);
