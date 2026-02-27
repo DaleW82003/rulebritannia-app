@@ -1,8 +1,7 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
-import { apiCreateOnlinePost, apiGetOnlinePosts, apiDeleteOnlinePost, apiUpdateOnlinePost } from "../api.js";
+import { apiCreateOnlinePost, apiGetOnlinePosts, apiDeleteOnlinePost, apiUpdateOnlinePost, apiUpdateOnlineSettings } from "../api.js";
 import { formatSimMonthYear } from "../clock.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
@@ -234,7 +233,7 @@ function render(data, state) {
       const key = btn.getAttribute("data-key");
       if (!key) return;
       data.online.settings[key] = !data.online.settings[key];
-      saveState(data);
+      apiUpdateOnlineSettings(data.online.settings).catch((err) => console.error("[online] settings failed:", err));
       if (!data.online.settings[key] && state.view === key) state.view = null;
       render(data, state);
     });

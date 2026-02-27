@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
@@ -525,7 +524,6 @@ function render(data, state) {
       question.status = "closed";
       question.archivedAtSim = simLabel;
       logAction({ action: "question-closed", target: qid, details: { office: question.office, askedBy: question.askedBy } });
-      saveState(data);
       render(data, state);
     });
   });
@@ -541,7 +539,6 @@ function render(data, state) {
       question.demandDueAtSim = createDeadline(data.gameState, 1);
       question.speakerDemandAvailable = false;
       logAction({ action: "speaker-demand", target: qid, details: { office: question.office, askedBy: question.askedBy } });
-      saveState(data);
       render(data, state);
     });
   });
@@ -561,7 +558,6 @@ function render(data, state) {
       if (!canDeleteQ) return;
       const qid = btn.getAttribute("data-question-id");
       data.questionTime.questions = data.questionTime.questions.filter((q) => q.id !== qid);
-      saveState(data);
       render(data, state);
       apiDeleteQtLegacyQuestion(qid).catch((err) => console.error("[questiontime] delete failed:", err));
     });

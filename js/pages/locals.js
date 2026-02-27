@@ -1,6 +1,6 @@
+import { apiSaveLocals } from "../api.js";
 import { setHTML, esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
-import { saveState } from "../core.js";
 
 const COUNTRY_ORDER = ["England", "Scotland", "Wales", "Northern Ireland"];
 const PARTY_SCHEMA = {
@@ -167,7 +167,7 @@ function bindEditor(data) {
       councillors: Number(form.querySelector(`[name='councillors-${p.party}']`)?.value || 0),
       councilsControlled: Number(form.querySelector(`[name='councils-${p.party}']`)?.value || 0)
     }));
-    saveState(data);
+    apiSaveLocals(data.locals).catch((err) => console.error("[locals] save failed:", err));
     refreshLocals(data);
     loadForm();
   });

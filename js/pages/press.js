@@ -1,9 +1,8 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, getWeekdayName, isSunday, getSimDate, simDateToObj, compareSimDates } from "../clock.js";
 import { handleApiError } from "../errors.js";
-import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry, apiMarkPressItem, apiUpdatePressItem } from "../api.js";
+import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry, apiMarkPressItem, apiUpdatePressItem, apiDeletePressItem } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 const PARTY_CODES = {
@@ -850,7 +849,7 @@ function render(data, state) {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
     data.press.comments = data.press.comments.filter((c) => c.id !== id);
-    saveState(data);
+    apiDeletePressItem(id).catch((err) => console.error("[press] delete-comment failed:", err));
     render(data, state);
   }));
 
@@ -858,7 +857,7 @@ function render(data, state) {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
     data.press.releases = data.press.releases.filter((r) => r.id !== id);
-    saveState(data);
+    apiDeletePressItem(id).catch((err) => console.error("[press] delete-release failed:", err));
     render(data, state);
   }));
 
@@ -890,7 +889,6 @@ function render(data, state) {
       item.body = prev;
       handleApiError(err, "Edit press item");
     }
-    saveState(data);
     render(data, state);
   }));
 
@@ -898,7 +896,7 @@ function render(data, state) {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
     data.press.conferences = data.press.conferences.filter((c) => c.id !== id);
-    saveState(data);
+    apiDeletePressItem(id).catch((err) => console.error("[press] delete-conference failed:", err));
     render(data, state);
   }));
 
@@ -973,7 +971,7 @@ function render(data, state) {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
     data.press.speeches = data.press.speeches.filter((s) => s.id !== id);
-    saveState(data);
+    apiDeletePressItem(id).catch((err) => console.error("[press] delete-speech failed:", err));
     render(data, state);
   }));
 
@@ -1062,7 +1060,7 @@ function render(data, state) {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
     data.press.letters = data.press.letters.filter((l) => l.id !== id);
-    saveState(data);
+    apiDeletePressItem(id).catch((err) => console.error("[press] delete-letter failed:", err));
     render(data, state);
   }));
 }

@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate, simDateToObj, plusSimMonths, formatSimDate,
@@ -191,7 +190,6 @@ function render(data) {
       if (!statement || statement.status === "archived") return;
       statement.status = "archived";
       statement.archivedAtSim = formatSimMonthYear(data.gameState);
-      saveState(data);
       toastSuccess("Statement archived.");
       render(data);
     });
@@ -208,7 +206,6 @@ function render(data) {
         return;
       }
       data.statements.items = data.statements.items.filter((s) => s.id !== id);
-      saveState(data);
       toastSuccess("Statement deleted.");
       render(data);
     });

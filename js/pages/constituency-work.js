@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
@@ -699,7 +698,7 @@ function render(data, state = {}) {
     if (!mod) return;
     const fd = new FormData(e.currentTarget);
     plan.secondJobTitleCompany = String(fd.get("secondJobTitleCompany") || "").trim();
-    saveState(data);
+    apiSaveMyWorkPlan(plan).catch((err) => console.error("[cw] second job save failed:", err));
     render(data, state);
   });
 
@@ -707,7 +706,7 @@ function render(data, state = {}) {
     if (!mod) return;
     plan.secondJobTitleCompany = "";
     plan.hours["Do Second Job"] = 0;
-    saveState(data);
+    apiSaveMyWorkPlan(plan).catch((err) => console.error("[cw] second job clear failed:", err));
     render(data, state);
   });
 }

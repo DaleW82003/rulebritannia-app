@@ -581,6 +581,12 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS characters_active_idx ON characters (is_active);
   `);
 
+  // ── Add absent/delegated_to columns to characters if not present ─────────────────
+  await pool.query(`
+    ALTER TABLE characters ADD COLUMN IF NOT EXISTS absent BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE characters ADD COLUMN IF NOT EXISTS delegated_to TEXT;
+  `);
+
   // ── Offices & Assignments ─────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS offices (
@@ -7680,6 +7686,21 @@ app.post("/api/admin/characters/:id/profile", charWriteLimit, async (req, res) =
 const charAppReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
 const charAppWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
 
+// PATCH /api/me/absent — authenticated: set/clear absence flag on current character
+app.patch("/api/me/absent", charWriteLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { absent = false, delegatedTo = null } = req.body || {};
+    const charId = req.session.activeCharacterId;
+    if (!charId) return res.status(400).json({ error: "No active character" });
+    await pool.query(
+      `UPDATE characters SET absent = $1, delegated_to = $2 WHERE id = $3`,
+      [!!absent, delegatedTo || null, charId]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/me/absent]", e); res.status(500).json({ error: "Server error" }); }
+});
+
 // POST /api/characters/select — set session active character
 app.post("/api/characters/select", charAppWriteLimit, async (req, res) => {
   try {
@@ -14761,7 +14782,7 @@ app.get("/api/civil-service/briefings", crudReadLimit, async (req, res) => {
     );
     res.json({ briefings: rows.map((r) => ({
       id: r.id, title: r.title, target_officeId: r.target_office,
-      cc_officeIds: r.cc_offices, status: r.status,
+      cc_officeIds: Array.isArray(r.cc_offices) ? r.cc_offices : [], status: r.status,
       currentStageIdx: r.current_stage_idx, awaitingNextStage: r.awaiting_next_stage,
       stages: r.stages, auditLog: r.audit_log,
       createdBy: r.created_by, createdAt: r.created_at_sim,
@@ -14870,6 +14891,21 @@ app.delete("/api/civil-service/cases/:id", crudWriteLimit, async (req, res) => {
   } catch (e) { console.error("[DELETE /api/civil-service/cases/:id]", e); res.status(500).json({ error: "Server error" }); }
 });
 
+// ── Online settings (platform toggles) ──────────────────────────────────────
+app.patch("/api/online/settings", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const settings = req.body?.settings || {};
+    // Persist platform settings in a JSON column on online_posts meta row (use upsert to app_config)
+    await pool.query(
+      `INSERT INTO app_config (key, value) VALUES ('online_settings', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(settings)]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/online/settings]", e); res.status(500).json({ error: "Server error" }); }
+});
+
 // ── Online post edit (PATCH) ──────────────────────────────────────────────────
 app.patch("/api/online/:id", crudWriteLimit, async (req, res) => {
   try {
@@ -14972,6 +15008,94 @@ app.delete("/api/papers/:key/articles/:id", crudWriteLimit, async (req, res) => 
     res.json({ ok: true });
   } catch (e) { console.error("[DELETE /api/papers/:key/articles/:id]", e); res.status(500).json({ error: "Server error" }); }
 });
+
+// ── Economy page data ────────────────────────────────────────────────────────
+app.get("/api/admin/economy", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'economy_page_data'");
+    res.json(rows.length ? rows[0].value : {});
+  } catch (e) { console.error("[GET /api/admin/economy]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/api/admin/economy", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const data = req.body || {};
+    await pool.query(
+      `INSERT INTO app_config (key, value) VALUES ('economy_page_data', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(data)]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PUT /api/admin/economy]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Locals page data ─────────────────────────────────────────────────────────
+app.get("/api/locals", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'locals_data'");
+    res.json(rows.length ? rows[0].value : { councils: [] });
+  } catch (e) { console.error("[GET /api/locals]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/api/locals", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const data = req.body || {};
+    await pool.query(
+      `INSERT INTO app_config (key, value) VALUES ('locals_data', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(data)]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PUT /api/locals]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Cabinet/Shadow Cabinet headline ──────────────────────────────────────────
+app.get("/api/cabinet/headline", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'cabinet_headline'");
+    res.json(rows.length ? rows[0].value : { text: "" });
+  } catch (e) { console.error("[GET /api/cabinet/headline]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/api/cabinet/headline", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const data = req.body || {};
+    await pool.query(
+      `INSERT INTO app_config (key, value) VALUES ('cabinet_headline', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(data)]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PUT /api/cabinet/headline]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.get("/api/shadowcabinet/headline", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'shadowcabinet_headline'");
+    res.json(rows.length ? rows[0].value : { text: "" });
+  } catch (e) { console.error("[GET /api/shadowcabinet/headline]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.put("/api/shadowcabinet/headline", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const data = req.body || {};
+    await pool.query(
+      `INSERT INTO app_config (key, value) VALUES ('shadowcabinet_headline', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(data)]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[PUT /api/shadowcabinet/headline]", e); res.status(500).json({ error: "Server error" }); }
+});
+
 
 const PORT = process.env.PORT || 3000;
 

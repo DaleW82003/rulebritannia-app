@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isSpeaker, canAdminOrMod, canAdminModOrSpeaker, canVoteDivision } from "../permissions.js";
 import { getPartySeatMap, getCharacterContext } from "../engines/core-engine.js";
@@ -519,7 +518,7 @@ function renderEdm(root, data, edm) {
     npcParties.forEach(([party]) => {
       edm.npcSignatures[party] = !!fd.get(`npc-${party}`);
     });
-    saveState(data);
+    apiUpdateMotion(edm.id, edm).catch((err) => console.error("[motion] NPC sign failed:", err));
     renderEdm(root, data, edm);
   });
 

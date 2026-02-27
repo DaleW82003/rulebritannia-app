@@ -1,5 +1,4 @@
 import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolveDivisionResult, setNpcVotes, setRebellions } from "../engines/division-engine.js";
-import { saveState } from "../core.js";
 import { buildDivisionWeights } from "../divisions.js";
 import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { esc } from "../ui.js";
@@ -151,7 +150,7 @@ function ensureBillDebateTopic(bill, data) {
       bill.discourse_topic_url = topicUrl;
       const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
       if (idx >= 0) data.orderPaperCommons[idx] = bill;
-      saveState(data);
+      apiUpdateBill(bill.id, bill).catch((err) => console.error("[bill] discourse update failed:", err));
       setDebateLink(bill);
     })
     .catch((err) => handleApiError(err, "Debate topic"));
@@ -353,7 +352,6 @@ function renderBillMeta(bill, data) {
       return;
     }
     data.orderPaperCommons = (data.orderPaperCommons || []).filter((b) => b.id !== bill.id);
-    await saveState(data);
     window.location.href = "dashboard.html";
   });
 
@@ -952,7 +950,7 @@ async function renderDivision(bill, data) {
 function persistAndRerender(data, bill, rerenderAll = true) {
   const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
   if (idx >= 0) data.orderPaperCommons[idx] = bill;
-  saveState(data);
+  apiUpdateBill(bill.id, bill).catch((err) => console.error("[bill] persist failed:", err));
   if (rerenderAll) {
     renderBillMeta(bill, data);
     renderBillText(bill);
@@ -986,7 +984,7 @@ function autoAdvanceStage(bill, data) {
   // Note: Report Stage → Report Debate is triggered by staff submitting a report (server endpoint)
   // Note: Final Division stage uses formal DB division (no auto-advance here)
 
-  if (changed) saveState(data);
+  if (changed) apiUpdateBill(bill.id, bill).catch((err) => console.error("[bill] auto-advance failed:", err));
   return changed;
 }
 

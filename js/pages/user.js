@@ -1,4 +1,5 @@
-import { saveState } from "../core.js";
+import { apiUpdateMyAbsent } from "../api.js";
+
 import { setAbsenceState, getCharacterContext } from "../engines/core-engine.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
@@ -619,10 +620,18 @@ function render(data, state) {
       }
     }
 
+    const absentDelegateTo = delegatedTo || leaderForParty(data, data.currentCharacter?.party);
     data.currentCharacter.absent = true;
-    data.currentCharacter.delegatedTo = delegatedTo || leaderForParty(data, data.currentCharacter?.party);
-    saveState(data);
-    state.message = "Absence saved. Your votes are delegated.";
+    data.currentCharacter.delegatedTo = absentDelegateTo;
+    try {
+      await apiUpdateMyAbsent(true, absentDelegateTo);
+      state.message = "Absence saved. Your votes are delegated.";
+    } catch (err) {
+      data.currentCharacter.absent = false;
+      data.currentCharacter.delegatedTo = null;
+      state.message = "Failed to save absence. Please try again.";
+      console.error("[user] absent failed:", err);
+    }
     render(data, state);
   });
 
@@ -678,7 +687,6 @@ function render(data, state) {
       if (!name) return;
       const changed = setCharacterInactiveEverywhere(data, name);
       if (!changed) return;
-      saveState(data);
       state.message = `${name} marked inactive.`;
       render(data, state);
     });
@@ -701,7 +709,6 @@ function render(data, state) {
           const selfUsername = String(data?.currentUser?.username || "").trim();
           const myAccount = (data.userManagement?.accounts || []).find((a) => a.username === selfUsername);
           if (myAccount) myAccount.activeCharacter = character.name;
-          saveState(data);
         }
         const { characters: myChars } = await apiGetMyCharacters();
         state.dbState = { ...state.dbState, myCharacters: myChars };
@@ -716,8 +723,6 @@ function render(data, state) {
 
 export async function initUserPage(data) {
   normaliseUserData(data);
-  saveState(data);
-
   // Read ?account= URL param — used when navigating from A Team "view user" links.
   let viewingUsername = "";
   try {
@@ -788,7 +793,6 @@ export async function initUserPage(data) {
             const selfUsername = String(data?.currentUser?.username || "").trim();
             const myAccount = (data.userManagement?.accounts || []).find((a) => a.username === selfUsername);
             if (myAccount) myAccount.activeCharacter = character.name;
-            saveState(data);
           }
         } catch (e) {
           // Non-critical: character will still be visible in the DB list below.

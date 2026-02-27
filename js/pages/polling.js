@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
 import { formatSimMonthYear } from "../clock.js";
@@ -200,7 +199,6 @@ function render(data) {
     } catch (err) {
       console.error("[polling] Failed to persist poll to DB:", err);
     }
-    saveState(data);
     logAction({ action: "poll-published", target: simDate, details: { pollId: poll.id, results } });
     render(data);
   });
@@ -210,7 +208,6 @@ function render(data) {
       if (!isPublisher) return;
       const id = String(btn.getAttribute("data-id") || "");
       data.polling.polls = data.polling.polls.filter((p) => String(p.id) !== id);
-      saveState(data);
       render(data);
       apiDeletePollingEntry(id).catch((err) => console.error("[polling] delete failed:", err));
     });

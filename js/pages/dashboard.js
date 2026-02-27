@@ -1,6 +1,6 @@
 import { canSeeAudienceItem, isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { esc } from "../ui.js";
-import { nowMs, saveState } from "../core.js";
+import { nowMs } from "../core.js";
 import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
 import { apiGetBills } from "../api.js";
@@ -353,7 +353,6 @@ function renderLiveDocket(data) {
           stored[item.seenActivityKey] = ts;
           localStorage.setItem(lsKey, JSON.stringify(stored));
         } catch { /* ignore */ }
-        saveState(data);
       }
       if (item.generated !== true) {
         data.liveDocket.items = data.liveDocket.items.filter((i) => i !== item);

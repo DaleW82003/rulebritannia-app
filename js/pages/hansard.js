@@ -1,4 +1,5 @@
-import { saveState } from "../core.js";
+import { apiBillGrantAssent } from "../api.js";
+
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 
@@ -134,7 +135,7 @@ function render(data, state) {
       item.finalStage = "Royal Assent";
       item.legislationKind = "Act of Parliament";
       item.title = String(item.title || "").replace(/\bbill\b/ig, "Act");
-      saveState(data);
+      apiBillGrantAssent(id).catch((err) => console.error("[hansard] assent failed:", err));
       render(data, state);
     });
   });

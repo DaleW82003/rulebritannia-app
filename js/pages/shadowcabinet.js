@@ -1,8 +1,8 @@
-import { saveState, nowStamp } from "../core.js";
+import { nowStamp } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetShadowCabinetDrafts, apiSaveShadowCabinetDrafts } from "../api.js";
+import { apiGetShadowCabinetDrafts, apiSaveShadowCabinetDrafts, apiSaveShadowCabinetHeadline } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 function isManager(data) {
@@ -158,7 +158,7 @@ function render(data, state) {
     data.shadowCabinet.headline.text = text;
     data.shadowCabinet.headline.updatedAt = nowStamp();
     data.shadowCabinet.headline.updatedBy = String(char?.name || "Leader of the Opposition");
-    saveState(data);
+    apiSaveShadowCabinetHeadline(data.shadowCabinet.headline).catch((err) => console.error("[sc] headline save failed:", err));
     state.message = "Shadow Cabinet headline updated.";
     render(data, state);
   });

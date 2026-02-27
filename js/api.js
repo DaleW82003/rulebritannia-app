@@ -2753,3 +2753,62 @@ export async function apiUpdateOnlinePost(id, patch) {
   if (!res.ok) throw new Error(body.error || `apiUpdateOnlinePost failed (${res.status})`);
   return body;
 }
+
+export async function apiUpdateOnlineSettings(settings) {
+  const res = await fetch(`${API_BASE}/api/online/settings`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify({ settings }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdateOnlineSettings failed (${res.status})`);
+  return body;
+}
+
+export async function apiUpdateMyAbsent(absent, delegatedTo) {
+  const res = await fetch(`${API_BASE}/api/me/absent`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify({ absent, delegatedTo }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdateMyAbsent failed (${res.status})`);
+  return body;
+}
+
+// ── Economy page data ────────────────────────────────────────────────────────
+export async function apiGetEconomyData() {
+  const res = await fetch(`${API_BASE}/api/admin/economy`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetEconomyData failed (${res.status})`);
+  return res.json();
+}
+export async function apiSaveEconomyData(data) {
+  const res = await fetch(`${API_BASE}/api/admin/economy`, { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(data) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSaveEconomyData failed (${res.status})`);
+  return body;
+}
+
+// ── Locals page data ─────────────────────────────────────────────────────────
+export async function apiGetLocals() {
+  const res = await fetch(`${API_BASE}/api/locals`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetLocals failed (${res.status})`);
+  return res.json();
+}
+export async function apiSaveLocals(data) {
+  const res = await fetch(`${API_BASE}/api/locals`, { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(data) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSaveLocals failed (${res.status})`);
+  return body;
+}
+
+// ── Cabinet/Shadow Cabinet headline ──────────────────────────────────────────
+export async function apiSaveCabinetHeadline(headline) {
+  const res = await fetch(`${API_BASE}/api/cabinet/headline`, { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(headline) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSaveCabinetHeadline failed (${res.status})`);
+  return body;
+}
+export async function apiGetCabinetHeadline() {
+  const res = await fetch(`${API_BASE}/api/cabinet/headline`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetCabinetHeadline failed (${res.status})`);
+  return res.json();
+}
+export async function apiSaveShadowCabinetHeadline(headline) {
+  const res = await fetch(`${API_BASE}/api/shadowcabinet/headline`, { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(headline) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSaveShadowCabinetHeadline failed (${res.status})`);
+  return body;
+}
