@@ -670,7 +670,8 @@ function render(data, state = {}) {
   root.querySelector("#cw-mod-situation-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!mod) return;
-    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     const payload = {
       character_id:    String(fd.get("character_id") || "").trim(),
       template_id:     String(fd.get("template_id") || "").trim(),
@@ -678,12 +679,12 @@ function render(data, state = {}) {
       expires_in_months: fd.get("expires_in_months") ? Number(fd.get("expires_in_months")) : undefined,
     };
     if (!payload.character_id || !payload.template_id) return;
-    const submitBtn = e.currentTarget.querySelector('[type="submit"]');
+    const submitBtn = form.querySelector('[type="submit"]');
     if (submitBtn) submitBtn.disabled = true;
     try {
       await apiModScandalSituationCreate(payload);
       alert("Sensitive situation created successfully.");
-      e.currentTarget.reset();
+      form.reset();
     } catch (err) {
       alert(`Failed to create situation: ${err.message}`);
       console.error(err);

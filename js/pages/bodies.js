@@ -236,10 +236,12 @@ function bindControlPanelEvents(data, state) {
 function bindEditor(data, state) {
   const btn = document.getElementById("bodiesEditorBtn");
   const panel = document.getElementById("bodiesEditorPanel");
+  const notice = document.getElementById("bodies-staff-notice");
   if (!btn || !panel) return;
 
   const allowed = canManage(data);
   btn.style.display = allowed ? "" : "none";
+  if (notice) notice.style.display = allowed ? "" : "none";
   if (!allowed) return;
 
   renderControlPanel(data, state);

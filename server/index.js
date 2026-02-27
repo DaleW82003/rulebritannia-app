@@ -12641,11 +12641,13 @@ app.post("/api/elections/bodies", electionWriteLimit, async (req, res) => {
       );
 
       // Create the new election record as current.
+      // $2 = polling_day (DATE), $7 = finalized_at (TIMESTAMPTZ) — same value but separate
+      // parameters to avoid 42P08 "inconsistent types deduced for parameter" error.
       const { rows: elRows } = await client.query(
         `INSERT INTO elections (type, polling_day, label, status, finalized_at, turnout_total, turnout_pct, is_current, created_by)
-         VALUES ($1, $2, $3, 'finalized', $2, $4, $5, true, $6)
+         VALUES ($1, $2, $3, 'finalized', $7, $4, $5, true, $6)
          RETURNING id`,
-        [body_type, polling_day, label, Number(turnout_total), Number(turnout_pct), req.session.userId]
+        [body_type, polling_day, label, Number(turnout_total), Number(turnout_pct), req.session.userId, polling_day]
       );
       const elId = elRows[0].id;
 

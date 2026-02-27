@@ -2,6 +2,7 @@ import { setHTML, esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { saveState } from "../core.js";
 import { logAction } from "../audit.js";
+import { toastSuccess } from "../components/toast.js";
 
 function fmtPct(v) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
@@ -159,6 +160,8 @@ export function initEconomyPage(data) {
       data.economyPage = e;
       saveState(data);
       logAction({ action: "economy-saved", target: "economy", details: { topline: e.topline } });
+      setHTML("economyKeyLines", renderKeyLines(e.topline));
+      toastSuccess("Economy data saved.");
     });
   }
 }

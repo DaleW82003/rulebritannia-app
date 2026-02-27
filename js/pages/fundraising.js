@@ -377,8 +377,12 @@ function render(data, state) {
         const key = item.party || "Unknown";
         const net = Number(item.netRevenue || 0);
         data.fundraising.balances.parties[key] = Number(data.fundraising.balances.parties[key] || 0) + net;
-        const treasury = ensurePartyTreasury(data, item.party);
-        if (treasury) treasury.cash = Number(treasury.cash || 0) + net;
+        // Only update local party treasury state if the party entry already exists in state
+        // (i.e. was loaded from DB). Avoids overwriting real treasury with a 0-initialised default.
+        const existingParty = data.party?.parties?.[item.party];
+        if (existingParty?.treasury) {
+          existingParty.treasury.cash = Number(existingParty.treasury.cash || 0) + net;
+        }
         // Credit DB-backed party treasury and add to party income ledger
         if (net > 0 && item.party) {
           apiCreditFundraisingToParty(id, {

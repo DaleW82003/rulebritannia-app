@@ -224,9 +224,11 @@ function billCountdown(bill, gameState) {
 function getWhatsGoingOnTiles(data) {
   const w = data?.whatsGoingOn || {};
   const leadStory = Array.isArray(data?.news?.stories) ? data.news.stories[0] : null;
-  const topPaper = Array.isArray(data?.papers?.papers)
-    ? data.papers.papers.find((p) => Array.isArray(p.issues) && p.issues.length)?.issues?.[0]
+  const topPaperEntry = Array.isArray(data?.papers?.papers)
+    ? data.papers.papers.find((p) => Array.isArray(p.issues) && p.issues.length)
     : null;
+  const topPaper = topPaperEntry?.issues?.[0] ?? null;
+  const topPaperName = topPaperEntry?.name || "Paper";
   const econTopline = data?.economyPage?.topline || {};
   const masterPoll = Array.isArray(data?.polling?.tracker) ? data.polling.tracker : [];
   const econ = w?.economy || {};
@@ -245,7 +247,7 @@ function getWhatsGoingOnTiles(data) {
     },
     {
       kicker: "PAPERS",
-      title: `${w?.papers?.paper || "Paper"}: ${w?.papers?.headline || topPaper?.headline || "No front page yet"}`,
+      title: `${w?.papers?.paper || topPaperName}: ${w?.papers?.headline || topPaper?.headline || "No front page yet"}`,
       strap: w?.papers?.strap || topPaper?.text || "—",
       href: "papers.html",
       btn: "Open"

@@ -4,6 +4,7 @@ import { isAdmin, isMod, isSpeaker } from "../permissions.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateRedLionPost, apiDeleteRedLionPost, apiGetRedLionPosts } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
+import { formatSimMonthYear } from "../clock.js";
 
 function canPostBarkeep(data) {
   return isAdmin(data) || isMod(data) || isSpeaker(data);
