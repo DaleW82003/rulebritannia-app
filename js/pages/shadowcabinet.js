@@ -158,7 +158,7 @@ function render(data, state) {
     data.shadowCabinet.headline.text = text;
     data.shadowCabinet.headline.updatedAt = nowStamp();
     data.shadowCabinet.headline.updatedBy = String(char?.name || "Leader of the Opposition");
-    apiSaveShadowCabinetHeadline(data.shadowCabinet.headline).catch((err) => console.error("[sc] headline save failed:", err));
+    apiSaveShadowCabinetHeadline(data.shadowCabinet.headline).catch((err) => console.error("[sc] headline save failed:", err)); // UI_ONLY_OK: autosave of shadow cabinet headline text; no simulation-outcome consequence
     state.message = "Shadow Cabinet headline updated.";
     render(data, state);
   });
@@ -184,7 +184,7 @@ function render(data, state) {
       draft.commencement = commencement;
       draft.articles = articles;
       draft.updatedAt = nowStamp();
-      apiSaveShadowCabinetDrafts(data.shadowCabinet.drafts).catch((err) => {
+      apiSaveShadowCabinetDrafts(data.shadowCabinet.drafts).catch((err) => { // UI_ONLY_OK: autosave of shadow cabinet draft text; no simulation-outcome consequence
         console.warn("[shadow-draft-form update] save failed:", err.message);
       });
       state.message = `Updated ${draft.ref}.`;
@@ -213,7 +213,7 @@ function render(data, state) {
       createdAt: nowStamp()
     };
     data.shadowCabinet.drafts.unshift(draft);
-    apiSaveShadowCabinetDrafts(data.shadowCabinet.drafts).catch((err) => {
+    apiSaveShadowCabinetDrafts(data.shadowCabinet.drafts).catch((err) => { // UI_ONLY_OK: autosave of shadow cabinet draft text; no simulation-outcome consequence
       console.warn("[shadow-draft-form create] save failed:", err.message);
     });
     state.openDraftId = id;
@@ -249,7 +249,7 @@ function render(data, state) {
       const idx = data.shadowCabinet.drafts.findIndex((x) => x.id === id);
       if (idx === -1) return;
       const [deleted] = data.shadowCabinet.drafts.splice(idx, 1);
-      apiSaveShadowCabinetDrafts(data.shadowCabinet.drafts).catch((err) => {
+      apiSaveShadowCabinetDrafts(data.shadowCabinet.drafts).catch((err) => { // UI_ONLY_OK: autosave of shadow cabinet draft text; no simulation-outcome consequence
         console.warn("[shadow delete-draft] save failed:", err.message);
       });
       if (state.openDraftId === id) state.openDraftId = null;

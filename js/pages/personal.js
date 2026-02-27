@@ -1372,10 +1372,16 @@ function render(data, state) {
         // Find character id from the characters list by name
         const charId = (data.personal?._charIdByName || {})[newName];
         if (charId) {
-          apiGetCharacterFinance(charId).then((fin) => {
+          state.message = "Loading finance data…";
+          render(data, state);
+          try {
+            const fin = await apiGetCharacterFinance(charId);
             syncFinanceIntoProfile(prof, fin, data, newName, state);
-            render(data, state);
-          }).catch(() => {});
+            state.message = "";
+          } catch (err) {
+            state.message = `Failed to load finance data: ${err.message}`;
+          }
+          render(data, state);
         }
       }
     }

@@ -105,7 +105,7 @@ function render(data, state) {
       const id = Number(btn.dataset.guideId || 0);
       data.guides.items = data.guides.items.filter((guide) => guide.id !== id);
       if (state.editingId === id) state.editingId = null;
-      apiDeleteGuide(id).catch(err => console.error("[guides] delete failed:", err));
+      apiDeleteGuide(id).catch(err => console.error("[guides] delete failed:", err)); // UI_ONLY_OK: admin CMS guide deletion; no simulation-outcome consequence
       state.message = "Guide removed.";
       render(data, state);
     });

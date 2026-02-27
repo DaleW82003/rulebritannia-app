@@ -158,7 +158,7 @@ function render(data, state) {
     data.cabinet.headline.text = text;
     data.cabinet.headline.updatedAt = nowStamp();
     data.cabinet.headline.updatedBy = String(char?.name || "Prime Minister");
-    apiSaveCabinetHeadline(data.cabinet.headline).catch((err) => console.error("[cabinet] headline save failed:", err));
+    apiSaveCabinetHeadline(data.cabinet.headline).catch((err) => console.error("[cabinet] headline save failed:", err)); // UI_ONLY_OK: autosave of cabinet headline text; no simulation-outcome consequence
     state.message = "Cabinet headline updated.";
     render(data, state);
   });
@@ -184,7 +184,7 @@ function render(data, state) {
       draft.commencement = commencement;
       draft.articles = articles;
       draft.updatedAt = nowStamp();
-      apiSaveCabinetDrafts(data.cabinet.drafts).catch((err) => {
+      apiSaveCabinetDrafts(data.cabinet.drafts).catch((err) => { // UI_ONLY_OK: autosave of cabinet draft text; no simulation-outcome consequence
         console.warn("[cabinet-draft-form update] save failed:", err.message);
       });
       state.message = `Updated ${draft.ref}.`;
@@ -213,7 +213,7 @@ function render(data, state) {
       createdAt: nowStamp()
     };
     data.cabinet.drafts.unshift(draft);
-    apiSaveCabinetDrafts(data.cabinet.drafts).catch((err) => {
+    apiSaveCabinetDrafts(data.cabinet.drafts).catch((err) => { // UI_ONLY_OK: autosave of cabinet draft text; no simulation-outcome consequence
       console.warn("[cabinet-draft-form create] save failed:", err.message);
     });
     state.openDraftId = id;
@@ -249,7 +249,7 @@ function render(data, state) {
       const idx = data.cabinet.drafts.findIndex((x) => x.id === id);
       if (idx === -1) return;
       const [deleted] = data.cabinet.drafts.splice(idx, 1);
-      apiSaveCabinetDrafts(data.cabinet.drafts).catch((err) => {
+      apiSaveCabinetDrafts(data.cabinet.drafts).catch((err) => { // UI_ONLY_OK: autosave of cabinet draft text; no simulation-outcome consequence
         console.warn("[cabinet delete-draft] save failed:", err.message);
       });
       if (state.openDraftId === id) state.openDraftId = null;

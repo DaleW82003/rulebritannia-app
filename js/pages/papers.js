@@ -122,7 +122,7 @@ function ensurePaperEditPanel(data, canDelete) {
     art.text = panel.querySelector("#peaText")?.value?.trim() || art.text;
     art.bylineName = panel.querySelector("#peaByline")?.value?.trim() || "";
     art.imageUrl = panel.querySelector("#peaImage")?.value?.trim() || "";
-    apiUpdatePaperArticle(pkey, aid, { headline: art.headline, text: art.text, bylineName: art.bylineName, imageUrl: art.imageUrl }).catch(err => console.error("[papers] update failed:", err));
+    apiUpdatePaperArticle(pkey, aid, { headline: art.headline, text: art.text, bylineName: art.bylineName, imageUrl: art.imageUrl }).catch(err => console.error("[papers] update failed:", err)); // UI_ONLY_OK: admin CMS newspaper article update; no simulation-outcome consequence
     panel.style.display = "none";
     if (paper) {
       setHTML("paperReader", renderReader(paper, canDelete));
@@ -142,7 +142,7 @@ function bindArticleDeleteListeners(data, canDelete) {
       const targetPaper = (data.papers?.papers || []).find((p) => p.key === paperKey);
       if (!targetPaper) return;
       targetPaper.issues = (targetPaper.issues || []).filter((i) => i.id !== articleId);
-      apiDeletePaperArticle(paperKey, articleId).catch(err => console.error("[papers] delete failed:", err));
+      apiDeletePaperArticle(paperKey, articleId).catch(err => console.error("[papers] delete failed:", err)); // UI_ONLY_OK: admin CMS newspaper article deletion; no simulation-outcome consequence
       setHTML("paperReader", renderReader(targetPaper, canDelete));
       bindArticleDeleteListeners(data, canDelete);
     });
@@ -224,7 +224,7 @@ function bindNewsDesk(data, rerenderGrid) {
     };
     paper.issues.unshift(article);
 
-    apiCreatePaperArticle(paper.key, article).catch(err => console.error("[papers] create failed:", err));
+    apiCreatePaperArticle(paper.key, article).catch(err => console.error("[papers] create failed:", err)); // UI_ONLY_OK: admin CMS newspaper article creation; no simulation-outcome consequence
     form.reset();
     deskPanel.style.display = "none";
     rerenderGrid();

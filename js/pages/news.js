@@ -124,7 +124,7 @@ function bindNewsDesk(data, rerender) {
     };
     data.news.stories.unshift(story);
 
-    apiCreateNewsStory(story).catch(err => console.error("[news] create failed:", err));
+    apiCreateNewsStory(story).catch(err => console.error("[news] create failed:", err)); // UI_ONLY_OK: admin CMS news creation; no simulation-outcome consequence
     form.reset();
     panel.style.display = "none";
     rerender();
@@ -178,7 +178,7 @@ export async function initNewsPage(data) {
       if (deleteBtn) {
         const id = deleteBtn.getAttribute("data-id");
         data.news.stories = (data.news.stories || []).filter((s) => s.id !== id);
-        apiDeleteNewsStory(id).catch(err => console.error("[news] delete failed:", err));
+        apiDeleteNewsStory(id).catch(err => console.error("[news] delete failed:", err)); // UI_ONLY_OK: admin CMS news deletion; no simulation-outcome consequence
         renderAll();
         return;
       }
@@ -244,7 +244,7 @@ export async function initNewsPage(data) {
         story.text = document.getElementById("editNewsText")?.value?.trim() || story.text;
         story.imageUrl = document.getElementById("editNewsImage")?.value?.trim() || "";
         story.isBreaking = document.getElementById("editNewsBreaking")?.checked || false;
-        apiUpdateNewsStory(id, { headline: story.headline, text: story.text, imageUrl: story.imageUrl, isBreaking: story.isBreaking }).catch(err => console.error("[news] update failed:", err));
+        apiUpdateNewsStory(id, { headline: story.headline, text: story.text, imageUrl: story.imageUrl, isBreaking: story.isBreaking }).catch(err => console.error("[news] update failed:", err)); // UI_ONLY_OK: admin CMS news update; no simulation-outcome consequence
         editPanel.style.display = "none";
         renderAll();
       });

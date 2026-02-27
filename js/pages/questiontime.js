@@ -559,7 +559,7 @@ function render(data, state) {
       const qid = btn.getAttribute("data-question-id");
       data.questionTime.questions = data.questionTime.questions.filter((q) => q.id !== qid);
       render(data, state);
-      apiDeleteQtLegacyQuestion(qid).catch((err) => console.error("[questiontime] delete failed:", err));
+      apiDeleteQtLegacyQuestion(qid).catch((err) => console.error("[questiontime] delete failed:", err)); // UI_ONLY_OK: legacy QT question cleanup; no simulation-outcome consequence
     });
   });
 }

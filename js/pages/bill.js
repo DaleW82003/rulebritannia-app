@@ -13,6 +13,7 @@ import {
   apiUpdateBill, apiDeleteBill,
 } from "../api.js";
 import { handleApiError } from "../errors.js";
+import { toastSuccess, toastError } from "../components/toast.js";
 
 function $(id) {
   return document.getElementById(id);
@@ -143,17 +144,17 @@ function ensureBillDebateTopic(bill, data) {
   if (bill.discourseTopicId || bill.discourse_topic_id || bill.debate?.topicId) return;
   const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${bill.department ? ` (${bill.department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
   apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw })
-    .then(({ topicId, topicUrl }) => {
+    .then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write; fires after bill creation, outer .catch() handles failures
       bill.debate = { ...(bill.debate || {}), topicId, topicUrl };
       bill.discourseTopicId = topicId;
       bill.discourse_topic_id = topicId;
       bill.discourse_topic_url = topicUrl;
       const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
       if (idx >= 0) data.orderPaperCommons[idx] = bill;
-      apiUpdateBill(bill.id, bill).catch((err) => console.error("[bill] discourse update failed:", err));
+      apiUpdateBill(bill.id, bill).catch((err) => console.error("[bill] discourse update failed:", err)); // UI_ONLY_OK: inside Discourse .then() callback; metadata-only side-write with outer .catch() error handler
       setDebateLink(bill);
     })
-    .catch((err) => handleApiError(err, "Debate topic"));
+    .catch((err) => handleApiError(err, "Debate topic")); // UI_ONLY_OK: terminal error handler for the Discourse topic creation chain
 }
 
 function renderBillMeta(bill, data) {
@@ -785,12 +786,18 @@ async function renderDivision(bill, data) {
           bill.stage = "Defeated in Division";
         }
         bill.divisionOutcome = outcome;
+        toastSuccess(`Division closed — ${outcome === "passed" ? "Bill passed ✓" : "Bill defeated"}.`);
         persistAndRerender(data, bill);
-      } catch (err) { if (msg) msg.textContent = `Error: ${err.message}`; }
+      } catch (err) {
+        if (msg) msg.textContent = `Error: ${err.message}`;
+        toastError(`Close division failed: ${err.message}`);
+      }
     });
 
     voting.querySelector("#npc-vote-form")?.addEventListener("submit", async (ev) => {
       ev.preventDefault();
+      const submitBtn = ev.currentTarget.querySelector("[type='submit']");
+      if (submitBtn) submitBtn.disabled = true;
       const fd = new FormData(ev.currentTarget);
       const msgEl = voting.querySelector("#npc-msg");
       if (msgEl) msgEl.textContent = "Saving…";
@@ -813,11 +820,17 @@ async function renderDivision(bill, data) {
         if (dir && ["aye", "no", "abstain"].includes(dir)) rebelsByPartyChoice[p.name] = dir;
         else delete rebelsByPartyChoice[p.name];
       });
+      const t0 = Date.now();
       try {
         await apiSetNpcVotes(bill.formalDivisionId, npcVotes, rebelsByParty, rebelsByPartyChoice);
         if (msgEl) msgEl.textContent = "NPC votes saved.";
+        if (Date.now() - t0 > 500) toastSuccess("NPC votes saved.");
         await renderDivision(bill, data);
-      } catch (err) { if (msgEl) msgEl.textContent = `Error: ${err.message}`; }
+      } catch (err) {
+        if (msgEl) msgEl.textContent = `Error: ${err.message}`;
+        if (submitBtn) submitBtn.disabled = false;
+        toastError(`Save failed: ${err.message}`);
+      }
     });
 
     progress.innerHTML = `
@@ -896,8 +909,10 @@ async function renderDivision(bill, data) {
       </div>
     `);
 
-    voting.querySelector("#speaker-division-controls")?.addEventListener("submit", (e) => {
+    voting.querySelector("#speaker-division-controls")?.addEventListener("submit", async (e) => {
       e.preventDefault();
+      const submitBtn = e.currentTarget.querySelector("[type='submit']");
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
       const fd = new FormData(e.currentTarget);
       const npcVotes = {};
       npcParties.forEach((p) => {
@@ -910,9 +925,28 @@ async function renderDivision(bill, data) {
         const raw = Number(fd.get(`rebels-${p.name}`) || 0);
         rebelsByPartyLocal[p.name] = Math.max(0, Math.min(seats, raw));
       });
+      // Save previous state for rollback on failure
+      const prevNpcVotes = { ...(bill.division?.npcVotes || {}) };
+      const prevRebels = { ...(bill.division?.rebelsByParty || {}) };
+      const prevStatus = bill.division?.status;
       setNpcVotes(bill, npcVotes);
       setRebellions(bill, rebelsByPartyLocal);
       maybeAutoCloseDivision(bill, data);
+      const t0 = Date.now();
+      try {
+        await apiUpdateBill(bill.id, bill);
+      } catch (err) {
+        // Rollback local mutations on failure
+        if (bill.division) {
+          bill.division.npcVotes = prevNpcVotes;
+          bill.division.rebelsByParty = prevRebels;
+          bill.division.status = prevStatus;
+        }
+        handleApiError(err, "Save speaker allocation");
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Apply Speaker Allocation"; }
+        return;
+      }
+      if (Date.now() - t0 > 500) toastSuccess("Speaker allocation saved.");
       persistAndRerender(data, bill);
     });
   }
@@ -978,7 +1012,15 @@ async function renderDivision(bill, data) {
 function persistAndRerender(data, bill, rerenderAll = true) {
   const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
   if (idx >= 0) data.orderPaperCommons[idx] = bill;
-  apiUpdateBill(bill.id, bill).catch((err) => console.error("[bill] persist failed:", err));
+  // Non-blocking save; re-render proceeds immediately. Errors are surfaced via toast.
+  (async () => {
+    try { await apiUpdateBill(bill.id, bill); }
+    catch (err) {
+      console.error("[bill] persist failed:", err);
+      const { toastError: te } = await import("../components/toast.js");
+      te(`Save failed: ${err.message}`);
+    }
+  })();
   if (rerenderAll) {
     renderBillMeta(bill, data);
     renderBillText(bill);
@@ -1011,8 +1053,6 @@ function autoAdvanceStage(bill, data) {
   }
   // Note: Report Stage → Report Debate is triggered by staff submitting a report (server endpoint)
   // Note: Final Division stage uses formal DB division (no auto-advance here)
-
-  if (changed) apiUpdateBill(bill.id, bill).catch((err) => console.error("[bill] auto-advance failed:", err));
   return changed;
 }
 
@@ -1050,7 +1090,12 @@ export async function initBillPage(data) {
   }
 
   // Auto-advance expired stages (client-side display aid; server is authoritative)
-  while (autoAdvanceStage(bill, data)) { /* advance until current stage is not expired */ }
+  let stageAdvanced = false;
+  while (autoAdvanceStage(bill, data)) { stageAdvanced = true; }
+  if (stageAdvanced) {
+    try { await apiUpdateBill(bill.id, bill); }
+    catch (err) { console.error("[bill] auto-advance failed:", err); }
+  }
 
   renderBillMeta(bill, data);
   renderBillText(bill);

@@ -4,6 +4,7 @@ import { isAdmin, isMod, canRaiseCivilServiceCase, canAdminOrMod } from "../perm
 import { getCharacterContext } from "../engines/core-engine.js";
 import { formatSimMonthYear } from "../clock.js";
 import { apiGetCsBriefings, apiCreateCsBriefing, apiUpdateCsBriefing, apiDeleteCsBriefing, apiGetCsCases, apiCreateCsCase, apiUpdateCsCase, apiDeleteCsCase } from "../api.js";
+import { toastSuccess, toastError } from "../components/toast.js";
 
 const CS_DEPARTMENTS = [
   { id: "10ds", name: "10 Downing Street", officeId: "prime-minister", officeTitle: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
@@ -467,6 +468,8 @@ function render(data, state) {
   host.querySelector("#cs-new-briefing-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!mod) return;
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Creating…"; }
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
     const target_officeId = String(fd.get("target_officeId") || "").trim();
@@ -475,7 +478,10 @@ function render(data, state) {
     const stageText = String(fd.get("stageText") || "").trim();
     const optA = String(fd.get("optA") || "").trim();
     const optB = String(fd.get("optB") || "").trim();
-    if (!title || !target_officeId || !stageTitle || !stageText) return;
+    if (!title || !target_officeId || !stageTitle || !stageText) {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Create Briefing"; }
+      return;
+    }
 
     const options = [];
     if (optA) options.push({ id: "a", label: optA, nextStageIdx: null });
@@ -498,8 +504,12 @@ function render(data, state) {
       const r = await apiCreateCsBriefing(briefing);
       briefing.id = r.id;
       data.civilService.briefings.unshift(briefing);
+      toastSuccess(`Briefing #${briefing.id} created.`);
     } catch (err) {
       console.error("[cs] create briefing failed:", err);
+      toastError(`Failed to create briefing: ${err.message}`);
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Create Briefing"; }
+      return;
     }
     state.message = `Briefing #${briefing.id} created.`;
     render(data, state);
@@ -507,7 +517,7 @@ function render(data, state) {
 
   // Minister/mod: choose a briefing stage option
   host.querySelectorAll('[data-action="choose-briefing-option"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const briefingId = Number(btn.dataset.briefingId || 0);
       const stageIdx = Number(btn.dataset.stageIdx || 0);
       const optId = String(btn.dataset.optId || "");
@@ -520,24 +530,39 @@ function render(data, state) {
       if (!canActOnBriefing(data, briefing)) return;
       if (briefing.currentStageIdx !== stageIdx) return;
 
+      btn.disabled = true;
       const stage = briefing.stages[stageIdx];
-      briefing.auditLog.push({
+      const auditEntry = {
         stageTitle: stage?.title || String(stageIdx),
         chosenOptionLabel: optLabel,
         actorName: String(char?.name || data?.currentUser?.username || "Unknown"),
         actorOffice: myOfficeId,
         at: simStamp(data)
-      });
+      };
 
+      let newStageIdx = null;
+      let awaitingNextStage = false;
       if (nextStageIdx != null && nextStageIdx < briefing.stages.length) {
-        briefing.currentStageIdx = nextStageIdx;
+        newStageIdx = nextStageIdx;
       } else {
-        // Stage complete — hold open so mod can launch next stage or end briefing
-        briefing.currentStageIdx = null;
-        briefing.awaitingNextStage = true;
+        awaitingNextStage = true;
       }
 
-      apiUpdateCsBriefing(briefingId, { currentStageIdx: briefing.currentStageIdx, awaitingNextStage: briefing.awaitingNextStage, auditLog: briefing.auditLog, stages: briefing.stages }).catch(err => console.error("[cs] option failed:", err));
+      try {
+        await apiUpdateCsBriefing(briefingId, {
+          currentStageIdx: newStageIdx,
+          awaitingNextStage,
+          auditLog: [...briefing.auditLog, auditEntry],
+          stages: briefing.stages
+        });
+        const br = await apiGetCsBriefings();
+        data.civilService.briefings = br.briefings || data.civilService.briefings;
+        toastSuccess(`Decision recorded on Briefing #${briefingId}.`);
+      } catch (err) {
+        toastError(`Failed to record decision: ${err.message}`);
+        btn.disabled = false;
+        return;
+      }
       state.message = `Decision recorded on Briefing #${briefingId}.`;
       render(data, state);
     });
@@ -560,21 +585,28 @@ function render(data, state) {
     });
   });
   host.querySelectorAll('[data-action="end-briefing"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = Number(btn.dataset.id || 0);
       const briefing = data.civilService.briefings.find((b) => b.id === id);
       if (!briefing || briefing.status === "closed") return;
-      briefing.status = "closed";
-      briefing.awaitingNextStage = false;
-      briefing.currentStageIdx = null;
-      apiUpdateCsBriefing(id, { status: "closed", awaitingNextStage: false, currentStageIdx: null }).catch(err => console.error("[cs] end failed:", err));
+      btn.disabled = true;
+      try {
+        await apiUpdateCsBriefing(id, { status: "closed", awaitingNextStage: false, currentStageIdx: null });
+        const br = await apiGetCsBriefings();
+        data.civilService.briefings = br.briefings || data.civilService.briefings;
+        toastSuccess(`Briefing #${id} ended.`);
+      } catch (err) {
+        toastError(`Failed to end briefing: ${err.message}`);
+        btn.disabled = false;
+        return;
+      }
       state.message = `Briefing #${id} ended.`;
       render(data, state);
     });
   });
   host.querySelectorAll('[id^="next-stage-form-"]').forEach((form) => {
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (!mod) return;
       const id = Number(form.dataset.briefingId || form.id.replace("next-stage-form-", ""));
@@ -586,14 +618,23 @@ function render(data, state) {
       const optA = String(fd.get("optA") || "").trim();
       const optB = String(fd.get("optB") || "").trim();
       if (!stageTitle) return;
+      const submitBtn = form.querySelector("[type='submit']");
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
       const options = [];
       if (optA) options.push({ id: "a", label: optA, nextStageIdx: null });
       if (optB) options.push({ id: "b", label: optB, nextStageIdx: null });
       const newIdx = briefing.stages.length;
-      briefing.stages.push({ id: `s${newIdx + 1}`, title: stageTitle, text: stageText, options });
-      briefing.currentStageIdx = newIdx;
-      briefing.awaitingNextStage = false;
-      apiUpdateCsBriefing(id, { stages: briefing.stages, currentStageIdx: briefing.currentStageIdx, awaitingNextStage: false }).catch(err => console.error("[cs] launch failed:", err));
+      const newStages = [...briefing.stages, { id: `s${newIdx + 1}`, title: stageTitle, text: stageText, options }];
+      try {
+        await apiUpdateCsBriefing(id, { stages: newStages, currentStageIdx: newIdx, awaitingNextStage: false });
+        const br = await apiGetCsBriefings();
+        data.civilService.briefings = br.briefings || data.civilService.briefings;
+        toastSuccess(`Stage ${newIdx + 1} launched on Briefing #${id}.`);
+      } catch (err) {
+        toastError(`Failed to launch stage: ${err.message}`);
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Launch Stage"; }
+        return;
+      }
       state.message = `Stage ${newIdx + 1} launched on Briefing #${id}.`;
       render(data, state);
     });
@@ -601,14 +642,22 @@ function render(data, state) {
 
   // Mod: close briefing
   host.querySelectorAll('[data-action="close-briefing"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = Number(btn.dataset.id || 0);
       const briefing = data.civilService.briefings.find((b) => b.id === id);
       if (!briefing || briefing.status === "closed") return;
-      briefing.status = "closed";
-      briefing.currentStageIdx = null;
-      apiUpdateCsBriefing(id, { status: "closed", currentStageIdx: null }).catch(err => console.error("[cs] close failed:", err));
+      btn.disabled = true;
+      try {
+        await apiUpdateCsBriefing(id, { status: "closed", currentStageIdx: null });
+        const br = await apiGetCsBriefings();
+        data.civilService.briefings = br.briefings || data.civilService.briefings;
+        toastSuccess(`Briefing #${id} closed.`);
+      } catch (err) {
+        toastError(`Failed to close briefing: ${err.message}`);
+        btn.disabled = false;
+        return;
+      }
       state.message = `Briefing #${id} closed.`;
       render(data, state);
     });
@@ -625,12 +674,20 @@ function render(data, state) {
 
   // Mod: delete briefing
   host.querySelectorAll('[data-action="delete-briefing"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = Number(btn.dataset.id || 0);
-      data.civilService.briefings = data.civilService.briefings.filter((b) => b.id !== id);
-      if (state.openBriefingId === id) state.openBriefingId = null;
-      apiDeleteCsBriefing(id).catch(err => console.error("[cs] del briefing failed:", err));
+      btn.disabled = true;
+      try {
+        await apiDeleteCsBriefing(id);
+        data.civilService.briefings = data.civilService.briefings.filter((b) => b.id !== id);
+        if (state.openBriefingId === id) state.openBriefingId = null;
+        toastSuccess(`Briefing #${id} deleted.`);
+      } catch (err) {
+        toastError(`Failed to delete briefing: ${err.message}`);
+        btn.disabled = false;
+        return;
+      }
       state.message = `Briefing #${id} deleted.`;
       render(data, state);
     });
@@ -655,10 +712,15 @@ function render(data, state) {
   host.querySelector("#cs-new-case-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!dept || !canAccessDepartment(data, dept.officeId)) return;
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Creating…"; }
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
     const body = String(fd.get("body") || "").trim();
-    if (!title || !body) return;
+    if (!title || !body) {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Create Case"; }
+      return;
+    }
 
     const posterChoice = mod
       ? ((e.currentTarget.querySelector('input[name="csPosterChoice"]:checked') || {}).value || "character")
@@ -689,8 +751,12 @@ function render(data, state) {
       const result = await apiCreateCsCase(caseItem);
       caseItem.id = result.id;
       data.civilService.cases.unshift(caseItem);
+      toastSuccess(`Case #${caseItem.id} created.`);
     } catch (err) {
       console.error("[cs] create case failed:", err);
+      toastError(`Failed to create case: ${err.message}`);
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Create Case"; }
+      return;
     }
     state.openCaseId = caseItem.id;
     state.message = `Case #${caseItem.id} created.`;
@@ -706,34 +772,51 @@ function render(data, state) {
   });
 
   host.querySelectorAll('[data-action="close-case"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = Number(btn.dataset.id || 0);
       const item = data.civilService.cases.find((c) => c.id === id);
       if (!item || item.status === "closed") return;
-      item.status = "closed";
-      item.closedAt = simStamp(data);
-      item.closedBy = String(char?.name || data?.currentUser?.username || "Civil Service Moderator");
-      apiUpdateCsCase(id, { status: "closed", closedAt: item.closedAt, closedBy: item.closedBy }).catch(err => console.error("[cs] close case failed:", err));
+      btn.disabled = true;
+      const closedAt = simStamp(data);
+      const closedBy = String(char?.name || data?.currentUser?.username || "Civil Service Moderator");
+      try {
+        await apiUpdateCsCase(id, { status: "closed", closedAt, closedBy });
+        const cs = await apiGetCsCases();
+        data.civilService.cases = cs.cases || data.civilService.cases;
+        toastSuccess(`Case #${id} closed.`);
+      } catch (err) {
+        toastError(`Failed to close case: ${err.message}`);
+        btn.disabled = false;
+        return;
+      }
       state.message = `Case #${id} closed.`;
       render(data, state);
     });
   });
 
   host.querySelectorAll('[data-action="delete-case"]').forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = Number(btn.dataset.id || 0);
-      data.civilService.cases = data.civilService.cases.filter((c) => c.id !== id);
-      if (state.openCaseId === id) state.openCaseId = null;
-      apiDeleteCsCase(id).catch(err => console.error("[cs] del case failed:", err));
+      btn.disabled = true;
+      try {
+        await apiDeleteCsCase(id);
+        data.civilService.cases = data.civilService.cases.filter((c) => c.id !== id);
+        if (state.openCaseId === id) state.openCaseId = null;
+        toastSuccess(`Case #${id} deleted.`);
+      } catch (err) {
+        toastError(`Failed to delete case: ${err.message}`);
+        btn.disabled = false;
+        return;
+      }
       state.message = `Case #${id} deleted.`;
       render(data, state);
     });
   });
 
   host.querySelectorAll('form[data-action="post-message"]').forEach((form) => {
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (!dept) return;
       const id = Number(form.dataset.id || 0);
@@ -745,15 +828,27 @@ function render(data, state) {
       const text = String(fd.get("text") || "").trim();
       if (!text) return;
 
+      const submitBtn = form.querySelector("[type='submit']");
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Posting…"; }
+
       const civil = mod;
-      item.messages.push({
+      const newMessage = {
         authorName: civil ? "Civil Servant" : String(char?.name || "Government Member"),
         authorRole: civil ? "civil-service" : "government",
         avatar: civil ? "https://dummyimage.com/48x48/1a3050/ffffff&text=CS" : String(char?.avatar || ""),
         text,
         createdAt: simStamp(data)
-      });
-      apiUpdateCsCase(id, { messages: item.messages }).catch(err => console.error("[cs] msg failed:", err));
+      };
+
+      try {
+        await apiUpdateCsCase(id, { messages: [...item.messages, newMessage] });
+        const cs = await apiGetCsCases();
+        data.civilService.cases = cs.cases || data.civilService.cases;
+      } catch (err) {
+        toastError(`Failed to post message: ${err.message}`);
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Post Comment"; }
+        return;
+      }
       state.message = `Reply added to Case #${id}.`;
       state.openCaseId = id;
       render(data, state);

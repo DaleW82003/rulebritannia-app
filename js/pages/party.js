@@ -976,7 +976,7 @@ function render(data, state) {
     }
 
     // Persist drafts to DB (fire-and-forget; UI stays responsive)
-    apiSavePartyDrafts(state.activeParty, party.drafts).catch((err) => {
+    apiSavePartyDrafts(state.activeParty, party.drafts).catch((err) => { // UI_ONLY_OK: autosave of party draft text; no simulation-outcome consequence
       console.warn("[party-draft-form] drafts save failed:", err.message);
       state.partyShopMessage = `Draft save failed: ${err.message}. Please try again.`;
       render(data, state);
@@ -1009,7 +1009,7 @@ function render(data, state) {
       const id = Number(btn.getAttribute("data-id") || 0);
       party.drafts = party.drafts.filter((d) => d.id !== id);
       if (state.openDraftId === id) state.openDraftId = null;
-      apiSavePartyDrafts(state.activeParty, party.drafts).catch((err) => {
+      apiSavePartyDrafts(state.activeParty, party.drafts).catch((err) => { // UI_ONLY_OK: autosave of party draft text; no simulation-outcome consequence
         console.warn("[delete-draft] drafts save failed:", err.message);
         state.partyShopMessage = `Draft remove failed: ${err.message}. Please try again.`;
         render(data, state);

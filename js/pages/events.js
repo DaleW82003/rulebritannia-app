@@ -1,7 +1,7 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
-import { toastSuccess } from "../components/toast.js";
+import { toastSuccess, toastError } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateEvent, apiGetEvents, apiUpdateEvent, apiDeleteEvent } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
@@ -64,13 +64,16 @@ function render(data, state) {
   const canHostConference = isPartyLeader(char);
   const nowIdx = simIndex(data);
 
-  data.events.items.forEach((item) => {
-    if (item.status === "approved" && item.closesAtSimIndex !== null && item.closesAtSimIndex !== undefined && nowIdx > Number(item.closesAtSimIndex)) {
-      item.status = "closed";
-    }
-  });
-
-  const list = data.events.items.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
+  // Derive display-only "closed" status without mutating persistent state.
+  // Persistent status must only change via a server-confirmed API call.
+  const list = data.events.items.slice()
+    .map((item) => {
+      if (item.status === "approved" && item.closesAtSimIndex !== null && item.closesAtSimIndex !== undefined && nowIdx > Number(item.closesAtSimIndex)) {
+        return { ...item, status: "closed" };
+      }
+      return item;
+    })
+    .sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
 
   root.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Events</div></div>
@@ -223,7 +226,11 @@ function render(data, state) {
       return;
     }
 
-    data.events.items.push(item);
+    // Re-fetch from DB to get authoritative state (server assigns real id)
+    try {
+      const r = await apiGetEvents();
+      if (Array.isArray(r?.events)) data.events.items = r.events;
+    } catch (_) {}
     state.showForm = false;
     toastSuccess(`${eventTypeLabel(type)} submitted for approval.`);
     render(data, state);
@@ -244,19 +251,20 @@ function render(data, state) {
       const item = data.events.items.find((x) => String(x.id) === id);
       if (!item) return;
       btn.disabled = true;
-      item.status = "approved";
-      item.approvedAt = formatSimMonthYear(data?.gameState || {});
-      item.closesAtSimIndex = simIndex(data) + 2;
+      const approvedItem = {
+        ...item,
+        status: "approved",
+        approvedAt: formatSimMonthYear(data?.gameState || {}),
+        closesAtSimIndex: simIndex(data) + 2,
+      };
       try {
-        await apiUpdateEvent(id, item);
+        await apiUpdateEvent(id, approvedItem);
+        const r = await apiGetEvents();
+        if (Array.isArray(r?.events)) data.events.items = r.events;
+        toastSuccess("Event approved.");
       } catch (err) {
         handleApiError(err, "Approve event");
-        // Revert on failure
-        item.status = "pending";
-        item.approvedAt = null;
-        item.closesAtSimIndex = null;
         btn.disabled = false;
-        render(data, state);
         return;
       }
       render(data, state);
@@ -270,14 +278,14 @@ function render(data, state) {
       const item = data.events.items.find((x) => String(x.id) === id);
       if (!item) return;
       btn.disabled = true;
-      item.status = "cancelled";
       try {
-        await apiUpdateEvent(id, item);
+        await apiUpdateEvent(id, { ...item, status: "cancelled" });
+        const r = await apiGetEvents();
+        if (Array.isArray(r?.events)) data.events.items = r.events;
+        toastSuccess("Event refused.");
       } catch (err) {
         handleApiError(err, "Cancel event");
-        item.status = "pending";
         btn.disabled = false;
-        render(data, state);
         return;
       }
       render(data, state);
@@ -289,16 +297,17 @@ function render(data, state) {
     btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
-      const savedItems = data.events.items.slice();
-      data.events.items = data.events.items.filter((x) => String(x.id) !== id);
-      render(data, state);
+      btn.disabled = true;
       try {
         await apiDeleteEvent(id);
+        data.events.items = data.events.items.filter((x) => String(x.id) !== id);
       } catch (err) {
         console.error("[events] delete failed:", err);
-        data.events.items = savedItems; // revert
-        render(data, state);
+        toastError(`Failed to delete event: ${err.message}`);
+        btn.disabled = false;
+        return;
       }
+      render(data, state);
     });
   });
 
@@ -313,16 +322,17 @@ function render(data, state) {
       if (!speech) return;
       const submitBtn = form.querySelector("button[type='submit']");
       if (submitBtn) submitBtn.disabled = true;
-      item.speeches.push({ author: char?.name || "Character", body: speech, createdAt: formatSimMonthYear(data?.gameState || {}) });
+      const newSpeech = { author: char?.name || "Character", body: speech, createdAt: formatSimMonthYear(data?.gameState || {}) };
       try {
-        await apiUpdateEvent(id, item);
+        await apiUpdateEvent(id, { ...item, speeches: [...item.speeches, newSpeech] });
+        const r = await apiGetEvents();
+        if (Array.isArray(r?.events)) data.events.items = r.events;
       } catch (err) {
         handleApiError(err, "Add speech");
-        // Revert local state on failure
-        item.speeches.pop();
-      } finally {
         if (submitBtn) submitBtn.disabled = false;
+        return;
       }
+      if (submitBtn) submitBtn.disabled = false;
       state.openId = id;
       render(data, state);
     });

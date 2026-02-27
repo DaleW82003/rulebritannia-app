@@ -78,29 +78,27 @@ export async function initMotionsPage(data) {
   const hasActiveChar = canPostAsNpc || Boolean(char?.name);
   const partyOptions = npcPartyOptions();
 
-  // Auto-archive expired house motions and EDMs
+  // Auto-archive detection is display-only here; do not mutate persistent state.
+  // The actual status mutations would be initiated server-side.
+  // For display purposes, compute "effective" archived status without mutating.
   for (const m of data.motions.house) {
     if (m.status !== "archived" && m.division?.endSimObj && compareSimDates(simCurrentObj, m.division.endSimObj) >= 0 && m.division?.status === "open") {
-      m.division.status = "closed";
-      m.status = "archived";
-      m.archivedAtSim = sim.label;
-      apiUpdateMotion(m.id, m).catch((err) => console.error("[motions] Failed to archive house motion:", err));
+      // Mark as visually archived without persisting — DB is authoritative on next load
+      m._displayStatus = "archived";
     }
   }
   for (const m of data.motions.edm) {
     if (m.status !== "archived" && m.closesAtSimObj && compareSimDates(simCurrentObj, m.closesAtSimObj) >= 0) {
-      m.status = "archived";
-      m.archivedAtSim = sim.label;
-      apiUpdateMotion(m.id, m).catch((err) => console.error("[motions] Failed to archive EDM:", err));
+      m._displayStatus = "archived";
     }
   }
 
   const house = data.motions.house.slice().sort((a, b) => Number(b.number || 0) - Number(a.number || 0));
   const edm = data.motions.edm.slice().sort((a, b) => Number(b.number || 0) - Number(a.number || 0));
-  const openHouse = house.filter((m) => m.status !== "archived");
-  const archivedHouse = house.filter((m) => m.status === "archived");
-  const openEdm = edm.filter((m) => m.status !== "archived");
-  const archivedEdm = edm.filter((m) => m.status === "archived");
+  const openHouse = house.filter((m) => (m._displayStatus || m.status) !== "archived");
+  const archivedHouse = house.filter((m) => (m._displayStatus || m.status) === "archived");
+  const openEdm = edm.filter((m) => (m._displayStatus || m.status) !== "archived");
+  const archivedEdm = edm.filter((m) => (m._displayStatus || m.status) === "archived");
 
   root.innerHTML = `
     ${tileSection({
@@ -257,12 +255,12 @@ export async function initMotionsPage(data) {
       entityType: "motion", entityId: id,
       title: `Motion ${number}: ${title}`,
       raw: `**That this House** ${body}\n\n*Submitted by ${motion.author}.*`
-    }).then(({ topicId, topicUrl }) => {
+    }).then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after motion submit; outer .catch() handles failures
       motion.debate = { ...motion.debate, topicId, topicUrl };
       motion.discourseTopicId = topicId;
       motion.discourse_topic_id = topicId;
       motion.discourse_topic_url = topicUrl;
-    }).catch((err) => handleApiError(err, "Debate topic"));
+    }).catch((err) => handleApiError(err, "Debate topic")); // UI_ONLY_OK: terminal error handler for the Discourse topic creation chain
     window.location.href = `motion.html?kind=house&id=${encodeURIComponent(id)}`;
   });
 
@@ -321,12 +319,12 @@ export async function initMotionsPage(data) {
       entityType: "motion", entityId: id,
       title: `EDM ${number}: ${title}`,
       raw: `**That this House** ${body}\n\n*Submitted by ${edm.author}.*`
-    }).then(({ topicId, topicUrl }) => {
+    }).then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after EDM submit; outer .catch() handles failures
       edm.debate = { ...edm.debate, topicId, topicUrl };
       edm.discourseTopicId = topicId;
       edm.discourse_topic_id = topicId;
       edm.discourse_topic_url = topicUrl;
-    }).catch((err) => handleApiError(err, "Debate topic"));
+    }).catch((err) => handleApiError(err, "Debate topic")); // UI_ONLY_OK: terminal error handler for the Discourse topic creation chain
     window.location.href = `motion.html?kind=edm&id=${encodeURIComponent(id)}`;
   });
 

@@ -338,14 +338,23 @@ function render(data, state) {
   });
 
   root.querySelectorAll("[data-action='cancel']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
       const item = data.fundraising.items.find((x) => String(x.id) === id);
       if (!item) return;
-      item.status = "cancelled";
-      apiUpdateFundraisingItem(id, { status: "cancelled" }).catch(err => console.error("[fundraising] cancel failed:", err));
-      render(data, state);
+      btn.disabled = true;
+      const t0 = Date.now();
+      try {
+        await apiUpdateFundraisingItem(id, { status: "cancelled" });
+        item.status = "cancelled";
+        if (Date.now() - t0 > 500) toastSuccess("Fundraiser cancelled.");
+        render(data, state);
+      } catch (err) {
+        console.error("[fundraising] cancel failed:", err);
+        toastError(`Cancel failed: ${err.message}`);
+        btn.disabled = false;
+      }
     });
   });
 
@@ -361,6 +370,9 @@ function render(data, state) {
       const gross = Number(fd.get("grossRevenue") || 0);
       if (!Number.isFinite(gross) || gross < spec.rangeMin || gross > spec.rangeMax) return;
 
+      const submitBtn = form.querySelector("[type='submit']");
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
+
       // Apply fundraisingCapacity bonus for party-scoped fundraisers.
       // Each +1 to fundraisingCapacity = 10% uplift on the mod-entered gross revenue.
       let adjustedGross = gross;
@@ -372,67 +384,59 @@ function render(data, state) {
         }
       }
       const bonusPct = fc * 10;
+      const netRevenue = adjustedGross - spec.cost;
 
-      item.status = "approved";
-      item.baseGrossRevenue = gross;
-      item.grossRevenue = adjustedGross;
-      item.fundraisingCapacityBonus = fc > 0 ? fc : undefined;
-      item.cost = spec.cost;
-      item.netRevenue = adjustedGross - spec.cost;
-
-      if (item.scope === "party") {
-        const key = item.party || "Unknown";
-        const net = Number(item.netRevenue || 0);
-        data.fundraising.balances.parties[key] = Number(data.fundraising.balances.parties[key] || 0) + net;
-        // Only update local party treasury state if the party entry already exists in state
-        // (i.e. was loaded from DB). Avoids overwriting real treasury with a 0-initialised default.
-        const existingParty = data.party?.parties?.[item.party];
-        if (existingParty?.treasury) {
-          existingParty.treasury.cash = Number(existingParty.treasury.cash || 0) + net;
-        }
-        // Credit DB-backed party treasury and add to party income ledger (awaited; errors shown)
-        if (net > 0 && item.party) {
-          try {
-            await apiCreditFundraisingToParty(id, {
-              partySlug: item.party,
-              amount: net,
-              note: `Fundraising: ${item.type || "event"}${fc > 0 ? ` +${bonusPct}% capacity bonus` : ""}`,
-            });
-          } catch (err) {
-            console.error("[fundraising] DB party treasury credit failed:", err.message);
-            toastError(`Treasury credit failed: ${err.message}. Please retry or contact a mod.`);
-          }
-        }
-      } else {
-        const key = item.hostId || item.hostName;
-        const net = Number(item.netRevenue || 0);
-        data.fundraising.balances.factions[key] = Number(data.fundraising.balances.factions[key] || 0) + net;
-        const profile = ensurePersonalProfile(data, key);
-        if (profile) profile.bankBalance = Number(profile.bankBalance || 0) + net;
-        // Credit DB-backed character bank balance (awaited; errors shown)
-        if (net > 0 && key) {
-          try {
-            const result = await apiCreditFundraisingToCharacter(id, {
-              characterName: key,
-              amount: net,
-              note: `Fundraising: ${item.type || "event"}`,
-            });
-            if (result.bankBalance !== undefined && profile) {
-              profile.bankBalance = Number(result.bankBalance);
-            }
-          } catch (err) {
-            console.error("[fundraising] DB character bank credit failed:", err.message);
-            toastError(`Bank credit failed: ${err.message}. Please retry or contact a mod.`);
-          }
-        }
-      }
+      // Build the approved item payload (do NOT mutate local item yet)
+      const approvedPayload = {
+        status: "approved",
+        baseGrossRevenue: gross,
+        grossRevenue: adjustedGross,
+        fundraisingCapacityBonus: fc > 0 ? fc : undefined,
+        cost: spec.cost,
+        netRevenue,
+      };
 
       try {
-        await apiUpdateFundraisingItem(id, item);
+        // 1. Persist approved status to DB
+        await apiUpdateFundraisingItem(id, approvedPayload);
+
+        // 2. Credit treasury/balance to the appropriate recipient
+        if (item.scope === "party") {
+          const key = item.party || "Unknown";
+          if (netRevenue > 0 && key) {
+            await apiCreditFundraisingToParty(id, {
+              partySlug: key,
+              amount: netRevenue,
+              note: `Fundraising: ${item.type || "event"}${fc > 0 ? ` +${bonusPct}% capacity bonus` : ""}`,
+            });
+          }
+        } else {
+          const key = item.hostId || item.hostName;
+          if (netRevenue > 0 && key) {
+            await apiCreditFundraisingToCharacter(id, {
+              characterName: key,
+              amount: netRevenue,
+              note: `Fundraising: ${item.type || "event"}`,
+            });
+          }
+        }
       } catch (err) {
-        console.error("[fundraising] allocate item update failed:", err.message);
-        toastError(`Failed to save fundraiser status: ${err.message}`);
+        console.error("[fundraising] allocate failed:", err.message);
+        toastError(`Approval failed: ${err.message}. Please retry or contact a mod.`);
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Confirm Approval"; }
+        return;
       }
+
+      // 3. Re-fetch authoritative state from DB and re-render
+      try {
+        const r = await apiGetFundraisingItems();
+        if (Array.isArray(r?.items)) {
+          data.fundraising.items = r.items;
+        }
+      } catch (err) {
+        console.error("[fundraising] reload after allocate failed:", err);
+      }
+      toastSuccess(`Fundraiser approved — ${item.scope === "party" ? "party treasury" : "character bank"} credited with ${money(netRevenue)}.`);
       state.openId = id;
       render(data, state);
     });
@@ -454,16 +458,17 @@ function render(data, state) {
         toastError("This item is corrupted or stale and cannot be deleted.");
         return;
       }
-      const prev = data.fundraising.items.slice();
-      data.fundraising.items = data.fundraising.items.filter((x) => String(x.id) !== id);
-      render(data, state);
+      btn.disabled = true;
+      const t0 = Date.now();
       try {
         await apiDeleteFundraisingItem(id);
+        data.fundraising.items = data.fundraising.items.filter((x) => String(x.id) !== id);
+        if (Date.now() - t0 > 500) toastSuccess("Fundraiser deleted.");
+        render(data, state);
       } catch (err) {
         console.error("[fundraising] delete failed:", err);
-        data.fundraising.items = prev;
-        render(data, state);
         toastError("Failed to delete item. Please try again.");
+        btn.disabled = false;
       }
     });
   });

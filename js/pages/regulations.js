@@ -209,12 +209,12 @@ export async function initRegulationsPage(data) {
       entityType: "regulation", entityId: regulation.id,
       title: `${regulation.department} Regulation ${regNo}: ${title}`,
       raw: `**${regulation.department} Regulation ${regNo}: ${title}**\nLaid by ${regulation.author}. Comes into force: ${regulation.comesIntoForce}.\n\n${body}`
-    }).then(({ topicId, topicUrl }) => {
+    }).then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after regulation submit; outer .catch() handles failures
       regulation.debate = { ...regulation.debate, topicId, topicUrl };
       regulation.discourseTopicId = topicId;
       regulation.discourse_topic_id = topicId;
       regulation.discourse_topic_url = topicUrl;
-    }).catch((err) => handleApiError(err, "Debate topic"));
+    }).catch((err) => handleApiError(err, "Debate topic")); // UI_ONLY_OK: terminal error handler for the Discourse topic creation chain
     window.location.href = `regulation.html?id=${encodeURIComponent(regulation.id)}`;
   });
 

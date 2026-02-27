@@ -1,6 +1,7 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
+import { toastSuccess, toastError } from "../components/toast.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import {
   apiScandalsMine,
@@ -609,7 +610,7 @@ function render(data, state = {}) {
         await loadScandalData(mod);
         renderScandalRoot(data, state);
       } catch (e) {
-        alert("Failed to respond to situation. Please try again.");
+        toastError("Failed to respond to situation. Please try again.");
         console.error(e);
         btn.disabled = false;
       }
@@ -627,7 +628,7 @@ function render(data, state = {}) {
         await loadScandalData(mod);
         renderScandalRoot(data, state);
       } catch (e) {
-        alert("Failed to record choice. Please try again.");
+        toastError("Failed to record choice. Please try again.");
         console.error(e);
         btn.disabled = false;
       }
@@ -660,10 +661,11 @@ function render(data, state = {}) {
       btn.disabled = true;
       try {
         await apiModScandalClose(id);
+        toastSuccess("Scandal closed.");
         await loadScandalData(mod);
         render(data, state);
       } catch (e) {
-        alert("Failed to close scandal. Please try again.");
+        toastError("Failed to close scandal. Please try again.");
         console.error("[mod-close-scandal]", e);
         btn.disabled = false;
       }
@@ -678,10 +680,11 @@ function render(data, state = {}) {
       btn.disabled = true;
       try {
         await apiModSituationClose(id);
+        toastSuccess("Situation closed.");
         await loadScandalData(mod);
         render(data, state);
       } catch (e) {
-        alert("Failed to close situation. Please try again.");
+        toastError("Failed to close situation. Please try again.");
         console.error(e);
         btn.disabled = false;
       }
@@ -697,10 +700,11 @@ function render(data, state = {}) {
       btn.disabled = true;
       try {
         await apiModSituationDelete(id);
+        toastSuccess("Situation deleted.");
         await loadScandalData(mod);
         render(data, state);
       } catch (e) {
-        alert("Failed to delete situation. Please try again.");
+        toastError("Failed to delete situation. Please try again.");
         console.error(e);
         btn.disabled = false;
       }
@@ -729,7 +733,7 @@ function render(data, state = {}) {
         await loadScandalData(mod);
         render(data, state);
       } catch (e) {
-        alert("Failed to apply decision. Please try again.");
+        toastError("Failed to apply decision. Please try again.");
         console.error(e);
         if (submitBtn) submitBtn.disabled = false;
       }
@@ -755,10 +759,10 @@ function render(data, state = {}) {
       await apiModScandalSituationCreate(payload);
       await loadScandalData(mod);
       render(data, state);
-      alert("Sensitive situation created successfully.");
+      toastSuccess("Sensitive situation created successfully.");
       form.reset();
     } catch (err) {
-      alert(`Failed to create situation: ${err.message}`);
+      toastError(`Failed to create situation: ${err.message}`);
       console.error(err);
     } finally {
       if (submitBtn) submitBtn.disabled = false;
@@ -771,7 +775,7 @@ function render(data, state = {}) {
     if (!mod) return;
     const fd = new FormData(e.currentTarget);
     plan.secondJobTitleCompany = String(fd.get("secondJobTitleCompany") || "").trim();
-    apiSaveMyWorkPlan(plan).catch((err) => console.error("[cw] second job save failed:", err));
+    apiSaveMyWorkPlan(plan).catch((err) => console.error("[cw] second job save failed:", err)); // UI_ONLY_OK: autosave of work plan; no simulation-outcome consequence
     render(data, state);
   });
 
@@ -779,7 +783,7 @@ function render(data, state = {}) {
     if (!mod) return;
     plan.secondJobTitleCompany = "";
     plan.hours["Do Second Job"] = 0;
-    apiSaveMyWorkPlan(plan).catch((err) => console.error("[cw] second job clear failed:", err));
+    apiSaveMyWorkPlan(plan).catch((err) => console.error("[cw] second job clear failed:", err)); // UI_ONLY_OK: autosave of work plan; no simulation-outcome consequence
     render(data, state);
   });
 }
@@ -825,7 +829,7 @@ function attachScandalListeners(data, state, mod) {
         await loadScandalData(mod);
         renderScandalRoot(data, state);
       } catch (e) {
-        alert("Failed to respond to situation. Please try again.");
+        toastError("Failed to respond to situation. Please try again.");
         console.error(e);
         btn.disabled = false;
       }
@@ -842,7 +846,7 @@ function attachScandalListeners(data, state, mod) {
         await loadScandalData(mod);
         renderScandalRoot(data, state);
       } catch (e) {
-        alert("Failed to record choice. Please try again.");
+        toastError("Failed to record choice. Please try again.");
         console.error(e);
         btn.disabled = false;
       }

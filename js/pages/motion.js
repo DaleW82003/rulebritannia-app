@@ -9,6 +9,7 @@ import {
   apiGetRebelRequest, apiSubmitRebelRequest,
   apiGetMotion, apiSignEdm, apiSetNpcVotes, apiUpdateMotion,
 } from "../api.js";
+import { toastSuccess, toastError } from "../components/toast.js";
 
 const WHIP_LEVEL_LABELS = ["Free vote", "1-line whip", "2-line whip", "3-line whip"];
 
@@ -322,15 +323,19 @@ async function renderHouseDb(root, data, motion) {
     if (msg) msg.textContent = "Closing…";
     try {
       await apiCloseDivision(dbDiv.id);
+      toastSuccess("Division closed.");
       await renderHouseDb(root, data, motion);
     } catch (err) {
       if (msg) msg.textContent = `Error: ${err.message}`;
+      toastError(`Close division failed: ${err.message}`);
     }
   });
 
   // NPC vote form (staff/speaker only)
   root.querySelector("#npc-vote-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
     const fd = new FormData(e.currentTarget);
     const msgEl = root.querySelector("#npc-msg");
     if (msgEl) msgEl.textContent = "Saving…";
@@ -356,12 +361,16 @@ async function renderHouseDb(root, data, motion) {
       if (dir && ["aye", "no", "abstain"].includes(dir)) rebelsByPartyChoice[p.name] = dir;
       else delete rebelsByPartyChoice[p.name];
     });
+    const t0 = Date.now();
     try {
       await apiSetNpcVotes(dbDiv.id, npcVotes, rebelsByParty, rebelsByPartyChoice);
       if (msgEl) msgEl.textContent = "NPC votes saved.";
+      if (Date.now() - t0 > 500) toastSuccess("NPC votes saved.");
       await renderHouseDb(root, data, motion);
     } catch (err) {
       if (msgEl) msgEl.textContent = `Error: ${err.message}`;
+      if (submitBtn) submitBtn.disabled = false;
+      toastError(`Save failed: ${err.message}`);
     }
   });
 
@@ -442,14 +451,10 @@ function renderEdm(root, data, edm) {
   edm.signatures ??= [];
   edm.npcSignatures ??= {};
 
-  // Auto-archive expired EDM
-  if (edm.status !== "archived" && edm.closesAtSimObj && isDeadlinePassed(edm.closesAtSimObj, data.gameState)) {
-    edm.status = "archived";
-    edm.archivedAtSim = formatSimMonthYear(data.gameState);
-    apiUpdateMotion(edm.id, edm).catch((err) => console.error("[motion] Failed to archive EDM:", err));
-  }
-
-  const expired = edm.status === "archived";
+  // Display expired status without mutating persistent state.
+  // Actual archival happens server-side; DB is authoritative.
+  const expired = edm.status === "archived" ||
+    (edm.status !== "archived" && edm.closesAtSimObj && isDeadlinePassed(edm.closesAtSimObj, data.gameState));
   const signed = edm.signatures.some((s) => s.name === char?.name);
   const seats = getPartySeatMap(data);
   const npcParties = Object.entries(seats).filter(([party, n]) => Number(n) > 0 && !["Conservative", "Labour", "Liberal Democrat"].includes(party));
@@ -514,14 +519,25 @@ function renderEdm(root, data, edm) {
     renderEdm(root, data, edm);
   });
 
-  root.querySelector("#npc-sign-form")?.addEventListener("submit", (e) => {
+  root.querySelector("#npc-sign-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!speaker) return;
+    const submitBtn = e.currentTarget.querySelector("[type='submit']");
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
     const fd = new FormData(e.currentTarget);
-    npcParties.forEach(([party]) => {
-      edm.npcSignatures[party] = !!fd.get(`npc-${party}`);
-    });
-    apiUpdateMotion(edm.id, edm).catch((err) => console.error("[motion] NPC sign failed:", err));
+    const newSigs = { ...edm.npcSignatures };
+    npcParties.forEach(([party]) => { newSigs[party] = !!fd.get(`npc-${party}`); });
+    const t0 = Date.now();
+    try {
+      await apiUpdateMotion(edm.id, { ...edm, npcSignatures: newSigs });
+      edm.npcSignatures = newSigs;
+      if (Date.now() - t0 > 500) toastSuccess("NPC signatures applied.");
+    } catch (err) {
+      console.error("[motion] NPC sign failed:", err);
+      toastError(`NPC sign failed: ${err.message}`);
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Apply NPC Signatures"; }
+      return;
+    }
     renderEdm(root, data, edm);
   });
 

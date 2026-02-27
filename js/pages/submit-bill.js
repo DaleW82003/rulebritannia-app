@@ -398,13 +398,13 @@ export function initSubmitBillPage(data) {
     if (stage === "Second Reading") {
       const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${department ? ` (${department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
       apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw })
-        .then(({ topicId, topicUrl }) => {
+        .then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after bill submit; outer .catch() handles failures
           bill.debate = { ...bill.debate, topicId, topicUrl };
           bill.discourseTopicId = topicId;
           const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
           if (idx >= 0) data.orderPaperCommons[idx] = bill;
         })
-        .catch((err) => handleApiError(err, "Debate topic"));
+        .catch((err) => handleApiError(err, "Debate topic")); // UI_ONLY_OK: terminal error handler for the Discourse topic creation chain
     }
 
     toastSuccess(`Bill submitted: ${title} (${stage}).`);

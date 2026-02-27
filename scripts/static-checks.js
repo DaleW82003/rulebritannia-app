@@ -13,11 +13,11 @@
  *  5. No player-only pages have saveState() without a nearby API write call
  *  6. All server error responses use { error: <string> } shape
  *
- * Exit code 0 = all checks passed.
+ *  7. No fire-and-forget mutating API calls in any js/ file (repo-wide)
  * Exit code 1 = at least one check failed.
  */
 
-import { readFileSync, readdirSync } from "fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
@@ -273,6 +273,120 @@ if (badShapeMatches.length > MAX_SHAPE_ISSUES) {
 } else {
   pass(`Error response shapes look consistent (${badShapeMatches.length} minor variances ≤${MAX_SHAPE_ISSUES})`);
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 7. No fire-and-forget API calls anywhere in js/ tree (pessimistic policy)
+// ──────────────────────────────────────────────────────────────────────────────
+
+section("7. No fire-and-forget API calls across all js/ files");
+
+/**
+ * Walks a directory tree and returns all .js file paths.
+ * Skips js/vendor/** if it exists.
+ */
+function walkJsFiles(dir, results = []) {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const st = statSync(full);
+    if (st.isDirectory()) {
+      if (entry === "vendor") continue; // skip js/vendor/**
+      walkJsFiles(full, results);
+    } else if (entry.endsWith(".js")) {
+      results.push(full);
+    }
+  }
+  return results;
+}
+
+const JS_DIR = join(ROOT, "js");
+const allJsFiles = walkJsFiles(JS_DIR);
+
+/**
+ * Detects fire-and-forget mutating API calls across all js/**\/*.js files.
+ *
+ * Flagged patterns (without `await` and without `// UI_ONLY_OK:` on the line):
+ *  A. Same-line: apiWriteX(...).catch(   or   apiWriteX(...).then(
+ *  B. Chained continuation: a line that is a `.then(` or `.catch(` continuation
+ *     whose preceding context (≤20 lines) contains an un-awaited write API call.
+ *
+ * Write API prefix: apiCreate*, apiUpdate*, apiDelete*, apiSave*, apiPatch*,
+ *                   apiMark*, apiClose*, apiCredit*, apiSubmit*, apiSet*,
+ *                   apiAdd*, apiRemove*, apiApprove*, apiReject*, apiGrant*,
+ *                   apiRevoke*, apiDismiss*, apiSell*, apiVote*, apiSign*.
+ *
+ * Exception: Lines annotated with `// UI_ONLY_OK: <reason>` are permitted.
+ * This replaces the old allowlist mechanism — all exceptions must be explicitly
+ * documented inline in the source file.
+ */
+
+// Regex to detect write-API function names
+const WRITE_API_NAME_RE = /api(?:Create|Update|Delete|Save|Patch|Mark|Close|Credit|Submit|Set|Add|Remove|Approve|Reject|Grant|Revoke|Dismiss|Sell|Vote|Sign)[A-Z]/;
+
+// Same-line fire-and-forget: apiWriteX(...).catch( or apiWriteX(...).then(
+// (without `await` immediately before the api call)
+const FF_SAME_LINE_RE = /(?<!\bawait\b\s+)api[A-Z]\w*\s*\([^)]*\)\s*\.(?:catch|then)\s*\(/;
+
+// Continuation line: starts with optional whitespace, optional closing braces/parens, then .then( or .catch(
+const FF_CONTINUATION_RE = /^\s*(?:\}\s*)?\)?\s*\.\s*(?:then|catch)\s*\(/;
+
+// Context that indicates a safe init/data-load pattern (not a UI handler)
+const INIT_CONTEXT_RE = /\basync\s+function\s+init[A-Z]|\bPromise\.all\b/;
+
+let fireAndForgetIssues = 0;
+
+for (const filePath of allJsFiles) {
+  const relPath = filePath.replace(join(ROOT, "/"), "");
+  const content = readFileSync(filePath, "utf8");
+  const lines = content.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Skip blank lines and pure comments
+    if (!line.trim() || line.trim().startsWith("//")) continue;
+    // Exception: line has explicit UI_ONLY_OK marker
+    if (line.includes("// UI_ONLY_OK:")) continue;
+
+    // ── Pattern A: same-line fire-and-forget ──────────────────────────────
+    if (FF_SAME_LINE_RE.test(line) && WRITE_API_NAME_RE.test(line)) {
+      // Skip read-only / init / parallel-fetch contexts
+      const ctxStart = Math.max(0, i - 8);
+      const ctx = lines.slice(ctxStart, i + 1).join("\n");
+      if (!INIT_CONTEXT_RE.test(ctx)) {
+        fail(`${relPath}:${i + 1} — fire-and-forget write API (same-line): ${line.trim().slice(0, 80)}`);
+        fireAndForgetIssues++;
+        continue;
+      }
+    }
+
+    // ── Pattern B: chained continuation (.then / .catch on its own line) ──
+    if (FF_CONTINUATION_RE.test(line)) {
+      // Determine if this .then()/.catch() chains on a write API call
+      // by scanning backwards up to 20 lines for un-awaited write API opening
+      let found = false;
+      for (let j = i - 1; j >= Math.max(0, i - 20) && !found; j--) {
+        const prevLine = lines[j];
+        if (WRITE_API_NAME_RE.test(prevLine)) {
+          // Confirm it's not awaited
+          if (!/\bawait\b/.test(prevLine)) {
+            found = true;
+          }
+          break; // either way, stop scanning at the first write API line found
+        }
+      }
+      if (found) {
+        // Skip if it's inside an init/parallel-fetch context
+        const ctxStart = Math.max(0, i - 8);
+        const ctx = lines.slice(ctxStart, i + 1).join("\n");
+        if (INIT_CONTEXT_RE.test(ctx)) continue;
+        // Also skip if the continuation line itself has UI_ONLY_OK
+        // (already checked above) — reached here so it doesn't, flag it
+        fail(`${relPath}:${i + 1} — fire-and-forget write API (chained .then/.catch): ${line.trim().slice(0, 80)}`);
+        fireAndForgetIssues++;
+      }
+    }
+  }
+}
+if (!fireAndForgetIssues) pass("No fire-and-forget mutating API calls detected in js/**/*.js");
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Summary
