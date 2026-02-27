@@ -6578,7 +6578,7 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
       }
     }
 
-    const { score, impact } = req.body || {};
+    const { score, impact, partyScore, partyEffects } = req.body || {};
     if (score === undefined || score === null) {
       return res.status(400).json({ error: "score is required" });
     }
@@ -6587,6 +6587,10 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
       return res.status(400).json({ error: "score must be between -5 and +5" });
     }
     const safeImpact = Array.isArray(impact) ? impact.map((s) => String(s).trim()).filter(Boolean) : [];
+    const numPartyScore = (partyScore !== null && partyScore !== undefined) ? Number(partyScore) : null;
+    const safePartyEffects = (partyEffects && typeof partyEffects === "object" && !Array.isArray(partyEffects))
+      ? Object.fromEntries(Object.entries(partyEffects).map(([k, v]) => [String(k), Number(v)]).filter(([, v]) => !isNaN(v)))
+      : {};
 
     const { rows } = await pool.query(
       "SELECT data, press_type FROM press_items WHERE id = $1",
@@ -6598,6 +6602,8 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
     const prevData = rows[0].data;
     item.score = numScore;
     item.impact = safeImpact;
+    if (numPartyScore !== null) item.partyScore = numPartyScore;
+    if (Object.keys(safePartyEffects).length > 0) item.partyEffects = safePartyEffects;
     item.is_marked = true;
     item.marked_by = req.session.userId;
     item.marked_at = new Date().toISOString();
@@ -10665,6 +10671,87 @@ app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req,
 // GET   /api/divisions/:id       — authenticated: get division with tally
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Compute a division tally identically for both live (GET) and concluded (POST /close)
+ * endpoints so the ongoing visualisation and the final result are always in sync.
+ *
+ * Algorithm:
+ *  1. Sum player effective_weights by vote direction.
+ *  2. For each NPC party vote (excluding Sinn Féin / Speaker): add (seats − rebels)
+ *     to the voted direction; add rebel seats to their chosen direction.
+ *  3. For each playable-party rebel entry (Labour / Conservative / Lib Dem):
+ *     deduct the rebel count proportionally from already-cast player weights, then
+ *     add the rebel count to their chosen direction.
+ *  4. Sinn Féin always abstains — add their seat count unconditionally to abstain.
+ *
+ * @param {object} db            - pg Pool or PoolClient (has .query())
+ * @param {string} divisionId
+ * @param {object} npcVotes      - { partyName: "aye"|"no"|"abstain" }
+ * @param {object} rebelsByParty - { partyName: rebelCount }
+ * @param {object} rebelsByPartyChoice - { partyName: "aye"|"no"|"abstain" }
+ * @param {object} seatsByParty  - { partyName: seatCount } from constituencies DB
+ * @returns {Promise<{aye:number, no:number, abstain:number}>}
+ */
+async function computeDivisionTallyFromDb(db, divisionId, npcVotes, rebelsByParty, rebelsByPartyChoice, seatsByParty) {
+  // 1. Player votes — aggregated by party and direction
+  const { rows: pvRows } = await db.query(
+    `SELECT COALESCE(c.party, 'Independent') AS party, dv.vote,
+            SUM(dv.effective_weight) AS weight
+       FROM division_votes dv
+       LEFT JOIN characters c ON c.id = dv.character_id
+      WHERE dv.division_id = $1
+      GROUP BY COALESCE(c.party, 'Independent'), dv.vote`,
+    [divisionId]
+  );
+
+  const tally = { aye: 0, no: 0, abstain: 0 };
+  const partyVoteMap = {};
+  for (const pv of pvRows) {
+    const w = Number(pv.weight || 0);
+    if (tally[pv.vote] !== undefined) tally[pv.vote] += w;
+    if (!partyVoteMap[pv.party]) partyVoteMap[pv.party] = {};
+    partyVoteMap[pv.party][pv.vote] = (partyVoteMap[pv.party][pv.vote] || 0) + w;
+  }
+
+  // 2. NPC party votes (seat-weighted) — Speaker and Sinn Féin excluded
+  for (const [party, npcVote] of Object.entries(npcVotes)) {
+    if (tally[npcVote] === undefined) continue;
+    if (SINN_FEIN_PARTY_RE.test(party) || SPEAKER_PARTY_RE.test(party)) continue;
+    const seats = Number(seatsByParty[party] || 0);
+    const rebels = Number(rebelsByParty[party] || 0);
+    if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
+    if (rebels > 0) {
+      const rebelDir = rebelsByPartyChoice[party];
+      if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebels;
+    }
+  }
+
+  // 3. Playable-party rebels: deduct proportionally from player votes, credit rebel direction
+  for (const [party, rebels] of Object.entries(rebelsByParty)) {
+    if (npcVotes[party]) continue; // NPC parties already handled above
+    const rebelCount = Number(rebels);
+    if (rebelCount <= 0) continue;
+    const rebelDir = rebelsByPartyChoice[party];
+    const voteDirs = partyVoteMap[party] || {};
+    const totalPartyWeight = Object.values(voteDirs).reduce((s, w) => s + w, 0);
+    if (totalPartyWeight > 0) {
+      const rebelDeduction = Math.min(rebelCount, totalPartyWeight);
+      for (const [dir, weight] of Object.entries(voteDirs)) {
+        const deduct = Math.round((weight / totalPartyWeight) * rebelDeduction);
+        tally[dir] = Math.max(0, (tally[dir] || 0) - deduct);
+      }
+    }
+    if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebelCount;
+  }
+
+  // 4. Sinn Féin always abstain
+  for (const [party, seats] of Object.entries(seatsByParty)) {
+    if (SINN_FEIN_PARTY_RE.test(party) && seats > 0) tally.abstain += seats;
+  }
+
+  return tally;
+}
+
 const divReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
 const divWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
 
@@ -10690,29 +10777,35 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query(
-      "SELECT id, entity_type, entity_id, title, status, closes_at, created_at FROM divisions WHERE id = $1",
+      `SELECT id, entity_type, entity_id, title, status, closes_at, created_at,
+              npc_votes, rebels_by_party, rebels_by_party_choice
+         FROM divisions WHERE id = $1`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Division not found" });
 
-    // Aggregate weighted tally
-    const { rows: votes } = await pool.query(
-      `SELECT dv.vote,
-              SUM(dv.effective_weight) AS total_weight,
-              COUNT(*) AS count,
-              COALESCE(c.party, 'Independent') AS party
+    const npcV    = rows[0].npc_votes            || {};
+    const rebelP  = rows[0].rebels_by_party      || {};
+    const rebelCh = rows[0].rebels_by_party_choice || {};
+    const seatsByParty = await getPartySeatsFromConstituencies(pool);
+
+    // Shared tally logic (identical to close endpoint)
+    const tally = await computeDivisionTallyFromDb(pool, req.params.id, npcV, rebelP, rebelCh, seatsByParty);
+
+    // byParty breakdown (player votes only, for display)
+    const { rows: pvRows } = await pool.query(
+      `SELECT COALESCE(c.party, 'Independent') AS party, dv.vote,
+              SUM(dv.effective_weight) AS weight
          FROM division_votes dv
          LEFT JOIN characters c ON c.id = dv.character_id
         WHERE dv.division_id = $1
-        GROUP BY dv.vote, COALESCE(c.party, 'Independent')`,
+        GROUP BY COALESCE(c.party, 'Independent'), dv.vote`,
       [req.params.id]
     );
-    const tally = { aye: 0, no: 0, abstain: 0 };
     const byParty = {};
-    votes.forEach((v) => {
-      tally[v.vote] = Number(tally[v.vote] || 0) + Number(v.total_weight || 0);
+    pvRows.forEach((v) => {
       byParty[v.party] ??= { aye: 0, no: 0, abstain: 0 };
-      byParty[v.party][v.vote] = Number(byParty[v.party][v.vote] || 0) + Number(v.total_weight || 0);
+      byParty[v.party][v.vote] = Number(byParty[v.party][v.vote] || 0) + Number(v.weight || 0);
     });
 
     const { rows: delegations } = await pool.query(
@@ -10773,70 +10866,13 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     if (!rows.length) return res.status(404).json({ error: "No division found for this entity" });
 
     const division = rows[0];
+    const npcV    = division.npc_votes            || {};
+    const rebelP  = division.rebels_by_party      || {};
+    const rebelCh = division.rebels_by_party_choice || {};
+    const seatsByParty = await getPartySeatsFromConstituencies(pool);
 
-    // Tally using effective_weight (server-computed seat-proportional values)
-    const { rows: votes } = await pool.query(
-      `SELECT vote, SUM(effective_weight) AS total_weight, COUNT(*) AS count
-         FROM division_votes WHERE division_id = $1
-        GROUP BY vote`,
-      [division.id]
-    );
-    const tally = { aye: 0, no: 0, abstain: 0 };
-    votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
-
-    // Also add NPC party votes to the live tally
-    const npcV = division.npc_votes || {};
-    const rebelP = division.rebels_by_party || {};
-    const rebelChoice = division.rebels_by_party_choice || {};
-    const { rows: seatRows } = await pool.query(
-      "SELECT party, COUNT(*) AS seats FROM constituencies WHERE party IS NOT NULL AND party <> '' GROUP BY party"
-    );
-    const seatsByParty = Object.fromEntries(seatRows.map(r => [r.party, Number(r.seats)]));
-    for (const [party, npcVote] of Object.entries(npcV)) {
-      if (tally[npcVote] === undefined) continue;
-      const seats = Number(seatsByParty[party] || 0);
-      const rebels = Number(rebelP[party] || 0);
-      if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
-      // Add rebel votes to their chosen direction
-      if (rebels > 0) {
-        const rebelDir = rebelChoice[party];
-        if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebels;
-      }
-    }
-    // Playable-party rebels — deduct from player vote contributions and add to rebel direction
-    if (Object.keys(rebelP).length > 0) {
-      const { rows: partyVoteRows } = await pool.query(
-        `SELECT c.party, dv.vote, SUM(dv.effective_weight)::int AS weight
-           FROM division_votes dv
-           JOIN characters c ON c.id = dv.character_id
-          WHERE dv.division_id = $1
-          GROUP BY c.party, dv.vote`,
-        [division.id]
-      );
-      const partyVoteMap = {};
-      for (const pv of partyVoteRows) {
-        if (!partyVoteMap[pv.party]) partyVoteMap[pv.party] = {};
-        partyVoteMap[pv.party][pv.vote] = Number(pv.weight);
-      }
-      for (const [party, rebels] of Object.entries(rebelP)) {
-        if (npcV[party]) continue; // NPC parties already handled above
-        const rebelCount = Number(rebels);
-        if (rebelCount <= 0) continue;
-        const rebelDir = rebelChoice[party];
-        const voteDirs = partyVoteMap[party] || {};
-        const totalPartyWeight = Object.values(voteDirs).reduce((s, w) => s + w, 0);
-        if (totalPartyWeight > 0) {
-          // Deduct rebel count from player votes for this party (proportionally)
-          let remaining = Math.min(rebelCount, totalPartyWeight);
-          for (const [dir, weight] of Object.entries(voteDirs)) {
-            const deduct = Math.round((weight / totalPartyWeight) * remaining);
-            tally[dir] = Math.max(0, (tally[dir] || 0) - deduct);
-          }
-        }
-        // Add rebel votes to their chosen direction
-        if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebelCount;
-      }
-    }
+    // Shared tally logic (identical to close endpoint)
+    const tally = await computeDivisionTallyFromDb(pool, division.id, npcV, rebelP, rebelCh, seatsByParty);
 
     // Caller's own vote and effective weight
     const charId = await getActiveCharacterId(req);
@@ -11018,73 +11054,12 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
       if (!divRows.length) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Division not found" }); }
       if (divRows[0].status === "closed") { await client.query("ROLLBACK"); return res.status(409).json({ error: "Already closed" }); }
 
-      // Compute player tally (uses server-computed effective_weight per vote)
-      const { rows: votes } = await client.query(
-        `SELECT vote, SUM(effective_weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
-        [req.params.id]
-      );
-      const tally = { aye: 0, no: 0, abstain: 0 };
-      votes.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
-
-      // Add NPC votes — npc_votes: { "SNP": "aye" }, rebels_by_party: { "SNP": 5 }
-      // Seat counts come from the constituencies DB (not from rebels_by_party keys).
-      // Sinn Féin and Speaker are excluded automatically (0 seats taken / no vote).
-      const npcVotes    = divRows[0].npc_votes    || {};
-      const rebelsByPty = divRows[0].rebels_by_party || {};
+      const npcVotes    = divRows[0].npc_votes            || {};
+      const rebelsByPty = divRows[0].rebels_by_party      || {};
       const rebelChoicePty = divRows[0].rebels_by_party_choice || {};
-      for (const [party, npcVote] of Object.entries(npcVotes)) {
-        if (tally[npcVote] === undefined) continue;
-        if (SINN_FEIN_PARTY_RE.test(party) || SPEAKER_PARTY_RE.test(party)) continue;
-        const seats  = Number(seatsByParty[party] || 0);
-        const rebels = Number(rebelsByPty[party] || 0);
-        if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
-        // Add rebel votes to their chosen direction
-        if (rebels > 0) {
-          const rebelDir = rebelChoicePty[party];
-          if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebels;
-        }
-      }
-      // Playable-party rebels (no NPC base vote) — deduct from player votes and add to rebel direction
-      if (Object.keys(rebelsByPty).length > 0) {
-        const { rows: partyVoteRows } = await client.query(
-          `SELECT c.party, dv.vote, SUM(dv.effective_weight)::int AS weight
-             FROM division_votes dv
-             JOIN characters c ON c.id = dv.character_id
-            WHERE dv.division_id = $1
-            GROUP BY c.party, dv.vote`,
-          [req.params.id]
-        );
-        const partyVoteMap = {};
-        for (const pv of partyVoteRows) {
-          if (!partyVoteMap[pv.party]) partyVoteMap[pv.party] = {};
-          partyVoteMap[pv.party][pv.vote] = Number(pv.weight);
-        }
-        for (const [party, rebels] of Object.entries(rebelsByPty)) {
-          if (npcVotes[party]) continue; // NPC parties already handled above
-          const rebelCount = Number(rebels);
-          if (rebelCount <= 0) continue;
-          const rebelDir = rebelChoicePty[party];
-          const voteDirs = partyVoteMap[party] || {};
-          const totalPartyWeight = Object.values(voteDirs).reduce((s, w) => s + w, 0);
-          if (totalPartyWeight > 0) {
-            // Deduct rebel count from player votes for this party (proportionally)
-            let remaining = Math.min(rebelCount, totalPartyWeight);
-            for (const [dir, weight] of Object.entries(voteDirs)) {
-              const deduct = Math.round((weight / totalPartyWeight) * remaining);
-              tally[dir] = Math.max(0, (tally[dir] || 0) - deduct);
-            }
-          }
-          // Add rebel votes to their chosen direction
-          if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebelCount;
-        }
-      }
 
-      // Sinn Féin seats auto-abstain (do not take seats — excluded from aye/no counts)
-      for (const [party, seats] of Object.entries(seatsByParty)) {
-        if (SINN_FEIN_PARTY_RE.test(party) && seats > 0) {
-          tally.abstain += seats;
-        }
-      }
+      // Shared tally logic (identical to GET endpoints)
+      const tally = await computeDivisionTallyFromDb(client, req.params.id, npcVotes, rebelsByPty, rebelChoicePty, seatsByParty);
 
       const outcome = tally.aye > tally.no ? "passed" : tally.no > tally.aye ? "failed" : "tied";
       const immutableResult = { tally, outcome, closedAt: new Date().toISOString() };
@@ -14912,6 +14887,66 @@ app.delete("/api/fundraising/:id", crudWriteLimit, async (req, res) => {
     await writeAuditLog(req.session.userId, "fundraising.delete", "fundraising_items", req.params.id, null, null);
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+// POST /api/fundraising/:id/credit-character — admin/mod: credit host character bank balance for individual fundraiser
+// Body: { characterName, amount, note? }
+app.post("/api/fundraising/:id/credit-character", crudWriteLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAdminOrMod(req, res)) { client.release(); return; }
+
+    const characterName = String(req.body?.characterName || "").trim();
+    const amount        = parseFloat(req.body?.amount);
+    const note          = String(req.body?.note || "").trim().slice(0, 500);
+
+    if (!characterName) { client.release(); return res.status(400).json({ error: "characterName is required" }); }
+    if (!Number.isFinite(amount) || amount <= 0) { client.release(); return res.status(400).json({ error: "amount must be a positive number" }); }
+
+    // Get the fundraising item for its campaign name
+    const { rows: itemRows } = await client.query(
+      "SELECT id, data FROM fundraising_items WHERE id = $1",
+      [req.params.id]
+    );
+    if (!itemRows.length) { client.release(); return res.status(404).json({ error: "Fundraising item not found" }); }
+
+    // Look up character by name
+    const { rows: charRows } = await client.query(
+      "SELECT id FROM characters WHERE name = $1 LIMIT 1",
+      [characterName]
+    );
+    if (!charRows.length) { client.release(); return res.status(404).json({ error: "Character not found" }); }
+    const charId = charRows[0].id;
+
+    await client.query("BEGIN");
+    // Ensure character_finance row exists
+    await client.query(
+      `INSERT INTO character_finance (character_id, bank_balance) VALUES ($1, 0)
+       ON CONFLICT (character_id) DO NOTHING`,
+      [charId]
+    );
+    const { rows: updated } = await client.query(
+      `UPDATE character_finance SET bank_balance = bank_balance + $1, updated_at = NOW()
+        WHERE character_id = $2
+       RETURNING bank_balance`,
+      [amount, charId]
+    );
+    await client.query("COMMIT");
+
+    await writeAuditLog(req.session.userId, "fundraising.credit.character", "character_finance", charId, null,
+      { characterName, amount, note, fundraisingItemId: req.params.id });
+
+    client.release();
+    res.json({
+      ok: true,
+      bankBalance: Number(updated[0].bank_balance),
+    });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    client.release();
+    console.error("[POST /api/fundraising/:id/credit-character]", e);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 

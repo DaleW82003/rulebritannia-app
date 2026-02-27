@@ -300,32 +300,41 @@ function renderModOpenScandals(modData, state, myCharacterName = "") {
                 `).join("")}
               </details>
             ` : ""}
-            <form class="mod-decision-form" data-scandal-id="${esc(s.id)}" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;">
+            <form class="mod-decision-form" data-scandal-id="${esc(s.id)}" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
               <div>
                 <label class="label">Decision Type</label>
                 <select class="input" name="decision_type" required>
-                  <option value="severity_update">Severity Update</option>
-                  <option value="advance_stage">Advance Stage</option>
-                  <option value="public_statement">Public Statement</option>
-                  <option value="close">Close Scandal</option>
-                  <option value="escalate">Escalate</option>
+                  <option value="severity_update">Severity Update — adjust severity score only</option>
+                  <option value="advance_stage">Advance Stage — move to a specific next stage</option>
+                  <option value="public_statement">Public Statement — send a message to the player</option>
+                  <option value="close">Close Scandal — resolve and close this scandal</option>
+                  <option value="escalate">Escalate — raise severity and push to new stage</option>
                 </select>
+                <div class="muted" style="font-size:.8em;margin-top:3px;">
+                  <b>severity_update</b>: change severity ±; <b>advance_stage</b>: set Next Stage Key + optional delta;
+                  <b>public_statement</b>: write message shown to player; <b>close</b>: ends scandal, severity unchanged;
+                  <b>escalate</b>: raises severity and advances stage — requires both delta and Next Stage Key.
+                </div>
               </div>
               <div>
-                <label class="label">Next Stage Key (optional)</label>
-                <input class="input" name="next_stage_key" placeholder="e.g. resolution">
-              </div>
-              <div>
-                <label class="label">Severity Delta</label>
+                <label class="label">Severity Delta <span class="muted">(+ or −; 0 = no change)</span></label>
                 <input class="input" name="severity_delta" type="number" value="0">
+                <div class="muted" style="font-size:.8em;margin-top:3px;">Positive = more severe. Negative = de-escalate. Used by severity_update, advance_stage, and escalate.</div>
               </div>
               <div>
-                <label class="label">Public Statement (optional)</label>
-                <input class="input" name="public_statement" placeholder="Shown to player">
+                <label class="label">Next Stage Key <span class="muted">(advance_stage / escalate only)</span></label>
+                <input class="input" name="next_stage_key" placeholder="e.g. resolution, cover_up, apology">
+                <div class="muted" style="font-size:.8em;margin-top:3px;">Must match a stage key defined in the scandal template. Required for advance_stage and escalate.</div>
               </div>
               <div>
-                <label class="label">Internal Notes (mod only)</label>
-                <input class="input" name="internal_notes" placeholder="Hidden from player">
+                <label class="label">Public Statement <span class="muted">(optional — shown to player)</span></label>
+                <input class="input" name="public_statement" placeholder="e.g. The party notes the allegations…">
+                <div class="muted" style="font-size:.8em;margin-top:3px;">Visible to the player. Use for public_statement decisions or to explain a stage advance.</div>
+              </div>
+              <div>
+                <label class="label">Internal Notes <span class="muted">(mod only — hidden from player)</span></label>
+                <input class="input" name="internal_notes" placeholder="e.g. Agreed with admin to escalate">
+                <div class="muted" style="font-size:.8em;margin-top:3px;">For mod coordination — never shown to the player.</div>
               </div>
               <div style="display:flex;align-items:flex-end;gap:6px;">
                 <button type="submit" class="btn">Apply Decision</button>

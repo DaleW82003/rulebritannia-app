@@ -914,13 +914,15 @@ function render(data, state) {
   // Monthly upkeep: prefer server-side total (totalMonthlyUpkeep = shop + property) for the
   // viewed character; fall back to computing from shopPurchases for other profiles
   // or before the API response arrives (totalMonthlyUpkeep is undefined until then).
-  const monthlyUpkeep = isOwnProfile
+  // When manager views another character, state values are populated after apiGetCharacterFinance resolves.
+  const useStateFinance = isOwnProfile || (manager && state.totalMonthlyUpkeep !== undefined);
+  const monthlyUpkeep = useStateFinance
     ? (state.totalMonthlyUpkeep ?? state.shopMonthlyUpkeep ?? computeMonthlyUpkeep(profile))
     : computeMonthlyUpkeep(profile);
-  const shopUpkeepDisplay       = isOwnProfile ? (state.shopMonthlyUpkeep ?? 0) : 0;
-  const propertyUpkeepDisplay   = isOwnProfile ? (state.propertyMonthlyUpkeep ?? 0) : 0;
-  const affiliationsFeesDisplay = isOwnProfile ? (state.affiliationsMonthlyFees ?? 0) : 0;
-  const rentalIncomeDisplay     = isOwnProfile ? (state.rentalIncomeMonthly ?? 0) : 0;
+  const shopUpkeepDisplay       = useStateFinance ? (state.shopMonthlyUpkeep ?? 0) : 0;
+  const propertyUpkeepDisplay   = useStateFinance ? (state.propertyMonthlyUpkeep ?? 0) : 0;
+  const affiliationsFeesDisplay = useStateFinance ? (state.affiliationsMonthlyFees ?? 0) : 0;
+  const rentalIncomeDisplay     = useStateFinance ? (state.rentalIncomeMonthly ?? 0) : 0;
   const annualUpkeep    = monthlyUpkeep * 12;
   const investmentIncome = Number(mods?.estimatedAnnualRevenue || 0);
   const totalAnnualIncome = Number(profile.salaryAnnual || 0) + revenueTotal + investmentIncome;
@@ -928,7 +930,7 @@ function render(data, state) {
   // Net bi-monthly: income credit minus 2 months of upkeep
   const netBiMonthly      = biMonthlyCredit - monthlyUpkeep * 2;
   const upkeepExceedsIncome = monthlyUpkeep > 0 && annualUpkeep > totalAnnualIncome;
-  const financeOverspend    = isOwnProfile ? !!state.financeOverspend : (profile.bankBalance < 0);
+  const financeOverspend    = (isOwnProfile || useStateFinance) ? !!state.financeOverspend : (profile.bankBalance < 0);
   // Pre-computed colour for net bi-monthly figure
   const netBiMonthlyColor = netBiMonthly >= 0 ? "#0a7f2e" : "#c00";
   // Pre-computed breakdown lines for upkeep components (one <div> per item)
@@ -936,7 +938,7 @@ function render(data, state) {
   if (shopUpkeepDisplay > 0)       upkeepBreakdownLines.push(`Upkeep: -${money(shopUpkeepDisplay)}/month`);
   if (propertyUpkeepDisplay > 0)   upkeepBreakdownLines.push(`Cost of Living: -${money(propertyUpkeepDisplay)}/month`);
   if (affiliationsFeesDisplay > 0) upkeepBreakdownLines.push(`Affiliations: -${money(affiliationsFeesDisplay)}/month`);
-  const upkeepBreakdown = isOwnProfile && upkeepBreakdownLines.length
+  const upkeepBreakdown = (isOwnProfile || useStateFinance) && upkeepBreakdownLines.length
     ? `<div class="muted" style="font-size:.85em;margin-left:12px;line-height:1.7;">${upkeepBreakdownLines.map(l => `<div>${l}</div>`).join("")}</div>`
     : "";
 
@@ -1352,6 +1354,14 @@ function render(data, state) {
     const newName = String(e.currentTarget.value || "");
     state.selectedName = newName;
     state.message = "";
+    // Clear stale finance state before fetching new data so breakdown doesn't show wrong values
+    state.shopMonthlyUpkeep = undefined;
+    state.propertyMonthlyUpkeep = undefined;
+    state.affiliationsMonthlyFees = undefined;
+    state.affiliationsMonthlyFeesItems = undefined;
+    state.rentalIncomeMonthly = undefined;
+    state.totalMonthlyUpkeep = undefined;
+    state.financeOverspend = false;
     render(data, state);
     // Load finance data for the selected character (mod view of other profiles)
     const myName = getCharacterName(data);
@@ -1363,9 +1373,7 @@ function render(data, state) {
         const charId = (data.personal?._charIdByName || {})[newName];
         if (charId) {
           apiGetCharacterFinance(charId).then((fin) => {
-            syncFinanceIntoProfile(prof, fin, data, newName, null);
-            prof.bankBalance = Number(fin.bankBalance);
-            prof.salaryAnnual = Number(fin.annualSalary || 0);
+            syncFinanceIntoProfile(prof, fin, data, newName, state);
             render(data, state);
           }).catch(() => {});
         }

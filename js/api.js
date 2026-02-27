@@ -2455,6 +2455,18 @@ export async function apiCreditFundraisingToParty(id, { partySlug, amount, note 
   return body;
 }
 
+export async function apiCreditFundraisingToCharacter(id, { characterName, amount, note = "" }) {
+  const res = await fetch(`${API_BASE}/api/fundraising/${encodeURIComponent(id)}/credit-character`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ characterName, amount, note }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreditFundraisingToCharacter failed (${res.status})`);
+  return body;
+}
+
 // ── Player finance (DB-backed) ───────────────────────────────────────────────
 
 export async function apiGetMyFinance() {
