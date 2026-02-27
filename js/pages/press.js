@@ -216,18 +216,29 @@ function scoreChip(score) {
 function renderMarkingResult(item) {
   if (item.score === null || item.score === undefined) return "";
   const sign = (n) => (Number(n) > 0 ? "+" : "") + Number(n);
-  const partyEffects = item.partyEffects || {};
-  const partyScore   = item.partyScore;
   const authorParty  = item.party || "";
-  const hasPartyScore = partyScore !== null && partyScore !== undefined && partyScore !== 0;
-  const effectEntries = Object.entries(partyEffects).filter(([, v]) => v !== 0);
+  const partyScore   = item.partyScore;
+  const partyEffects = item.partyEffects || {};
+  // Build a unified table: author party first (from partyScore), then other parties
+  const rows = [];
+  if (authorParty) {
+    const ps = partyScore !== null && partyScore !== undefined ? Number(partyScore) : 0;
+    rows.push({ party: authorParty, score: ps, isAuthorParty: true });
+  }
+  for (const party of MARK_PARTIES) {
+    if (party === authorParty) continue;
+    const v = partyEffects[party];
+    if (v !== undefined && v !== 0) rows.push({ party, score: Number(v), isAuthorParty: false });
+  }
+  const hasPartyEffects = rows.some(r => r.score !== 0);
   return `
-    <div class="muted" style="font-size:.88em;margin-top:4px;border-left:3px solid #c5cce0;padding-left:8px;">
-      <div><b>Marking:</b> Author ${sign(item.score)}
-        ${hasPartyScore ? ` · <span title="Effect on ${esc(authorParty)}">${esc(authorParty || "own party")} ${sign(partyScore)}</span>` : ""}
+    <div style="margin-top:6px;padding:8px 10px;background:#f7f9fd;border-left:3px solid #c5cce0;border-radius:0 6px 6px 0;font-size:.88em;">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;">
+        <span><b>Author:</b> <span style="color:${Number(item.score) >= 0 ? "#0a7f2e" : "#9d1d1d"};font-weight:700;">${sign(item.score)}</span></span>
+        ${hasPartyEffects ? rows.map(r => `
+          <span ${r.isAuthorParty ? 'style="font-style:italic;"' : ""}>${esc(r.party)}: <b style="color:${r.score >= 0 ? "#0a7f2e" : "#9d1d1d"};">${sign(r.score)}</b></span>
+        `).join("") : `<span class="muted">No party effects recorded.</span>`}
       </div>
-      ${effectEntries.length ? `<div>${effectEntries.map(([p, v]) => `${esc(p)} <b>${sign(v)}</b>`).join(" · ")}</div>` : ""}
-      ${item.impact?.length ? `<div class="muted" style="font-size:.9em;">Affects: ${esc(item.impact.join(", "))}</div>` : ""}
     </div>
   `;
 }

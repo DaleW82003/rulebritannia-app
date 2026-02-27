@@ -1,7 +1,7 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection } from "../components/tile.js";
-import { toastSuccess } from "../components/toast.js";
+import { toastSuccess, toastError } from "../components/toast.js";
 import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem, apiUpdateFundraisingItem, apiCreditFundraisingToParty, apiGetParty } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { formatSimMonthYear } from "../clock.js";
@@ -393,6 +393,7 @@ function render(data, state) {
             });
           } catch (err) {
             console.error("[fundraising] DB party treasury credit failed:", err.message);
+            toastError(`Treasury credit failed: ${err.message}. Please retry or contact a mod.`);
           }
         }
       } else {
@@ -403,7 +404,12 @@ function render(data, state) {
         if (profile) profile.bankBalance = Number(profile.bankBalance || 0) + net;
       }
 
-      apiUpdateFundraisingItem(id, item).catch(err => console.error("[fundraising] allocate failed:", err));
+      try {
+        await apiUpdateFundraisingItem(id, item);
+      } catch (err) {
+        console.error("[fundraising] allocate item update failed:", err.message);
+        toastError(`Failed to save fundraiser status: ${err.message}`);
+      }
       state.openId = id;
       render(data, state);
     });
