@@ -255,12 +255,12 @@ export async function initMotionsPage(data) {
       entityType: "motion", entityId: id,
       title: `Motion ${number}: ${title}`,
       raw: `**That this House** ${body}\n\n*Submitted by ${motion.author}.*`
-    }).then(({ topicId, topicUrl }) => {
+    }).then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after motion submit; outer .catch() handles failures
       motion.debate = { ...motion.debate, topicId, topicUrl };
       motion.discourseTopicId = topicId;
       motion.discourse_topic_id = topicId;
       motion.discourse_topic_url = topicUrl;
-    }).catch((err) => handleApiError(err, "Debate topic"));
+    }).catch((err) => handleApiError(err, "Debate topic")); // UI_ONLY_OK: terminal error handler for the Discourse topic creation chain
     window.location.href = `motion.html?kind=house&id=${encodeURIComponent(id)}`;
   });
 
@@ -319,12 +319,12 @@ export async function initMotionsPage(data) {
       entityType: "motion", entityId: id,
       title: `EDM ${number}: ${title}`,
       raw: `**That this House** ${body}\n\n*Submitted by ${edm.author}.*`
-    }).then(({ topicId, topicUrl }) => {
+    }).then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after EDM submit; outer .catch() handles failures
       edm.debate = { ...edm.debate, topicId, topicUrl };
       edm.discourseTopicId = topicId;
       edm.discourse_topic_id = topicId;
       edm.discourse_topic_url = topicUrl;
-    }).catch((err) => handleApiError(err, "Debate topic"));
+    }).catch((err) => handleApiError(err, "Debate topic")); // UI_ONLY_OK: terminal error handler for the Discourse topic creation chain
     window.location.href = `motion.html?kind=edm&id=${encodeURIComponent(id)}`;
   });
 

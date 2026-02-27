@@ -209,7 +209,7 @@ function render(data) {
       const id = String(btn.getAttribute("data-id") || "");
       data.polling.polls = data.polling.polls.filter((p) => String(p.id) !== id);
       render(data);
-      apiDeletePollingEntry(id).catch((err) => console.error("[polling] delete failed:", err));
+      apiDeletePollingEntry(id).catch((err) => console.error("[polling] delete failed:", err)); // UI_ONLY_OK: admin poll entry deletion; no simulation-outcome consequence
     });
   });
 }

@@ -173,12 +173,12 @@ function render(data) {
       entityType: "statement", entityId: statement.id,
       title: `Ministerial Statement MS${number}: ${title}`,
       raw: `**Ministerial Statement by ${author}**\n\n${body}`
-    }).then(({ topicId, topicUrl }) => {
+    }).then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after statement submit; outer .catch() handles failures
       statement.debate = { ...statement.debate, topicId, topicUrl };
       statement.discourseTopicId = topicId;
       statement.discourse_topic_id = topicId;
       statement.discourse_topic_url = topicUrl;
-    }).catch((err) => handleApiError(err, "Debate topic"));
+    }).catch((err) => handleApiError(err, "Debate topic")); // UI_ONLY_OK: terminal error handler for the Discourse topic creation chain
     render(data);
   });
 

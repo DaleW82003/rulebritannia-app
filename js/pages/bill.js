@@ -144,17 +144,17 @@ function ensureBillDebateTopic(bill, data) {
   if (bill.discourseTopicId || bill.discourse_topic_id || bill.debate?.topicId) return;
   const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${bill.department ? ` (${bill.department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
   apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw })
-    .then(({ topicId, topicUrl }) => {
+    .then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write; fires after bill creation, outer .catch() handles failures
       bill.debate = { ...(bill.debate || {}), topicId, topicUrl };
       bill.discourseTopicId = topicId;
       bill.discourse_topic_id = topicId;
       bill.discourse_topic_url = topicUrl;
       const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
       if (idx >= 0) data.orderPaperCommons[idx] = bill;
-      apiUpdateBill(bill.id, bill).catch((err) => console.error("[bill] discourse update failed:", err));
+      apiUpdateBill(bill.id, bill).catch((err) => console.error("[bill] discourse update failed:", err)); // UI_ONLY_OK: inside Discourse .then() callback; metadata-only side-write with outer .catch() error handler
       setDebateLink(bill);
     })
-    .catch((err) => handleApiError(err, "Debate topic"));
+    .catch((err) => handleApiError(err, "Debate topic")); // UI_ONLY_OK: terminal error handler for the Discourse topic creation chain
 }
 
 function renderBillMeta(bill, data) {

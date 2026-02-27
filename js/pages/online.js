@@ -233,7 +233,7 @@ function render(data, state) {
       const key = btn.getAttribute("data-key");
       if (!key) return;
       data.online.settings[key] = !data.online.settings[key];
-      apiUpdateOnlineSettings(data.online.settings).catch((err) => console.error("[online] settings failed:", err));
+      apiUpdateOnlineSettings(data.online.settings).catch((err) => console.error("[online] settings failed:", err)); // UI_ONLY_OK: autosave of online settings; no simulation-outcome consequence
       if (!data.online.settings[key] && state.view === key) state.view = null;
       render(data, state);
     });
@@ -342,7 +342,7 @@ function render(data, state) {
       const id = String(btn.getAttribute("data-id") || "");
       data.online.webPosts = data.online.webPosts.filter((p) => String(p.id) !== id);
       render(data, state);
-      apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-web failed:", err));
+      apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-web failed:", err)); // UI_ONLY_OK: player content deletion; no simulation-outcome consequence
     });
   });
 
@@ -352,7 +352,7 @@ function render(data, state) {
       const id = String(btn.getAttribute("data-id") || "");
       data.online.facebookPosts = data.online.facebookPosts.filter((p) => String(p.id) !== id);
       render(data, state);
-      apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-fb failed:", err));
+      apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-fb failed:", err)); // UI_ONLY_OK: player content deletion; no simulation-outcome consequence
     });
   });
 
@@ -362,7 +362,7 @@ function render(data, state) {
       const id = String(btn.getAttribute("data-id") || "");
       data.online.twitterPosts = data.online.twitterPosts.filter((p) => String(p.id) !== id);
       render(data, state);
-      apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-tw failed:", err));
+      apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-tw failed:", err)); // UI_ONLY_OK: player content deletion; no simulation-outcome consequence
     });
   });
 
@@ -406,7 +406,7 @@ function render(data, state) {
       const fd = new FormData(form);
       post.body = String(fd.get("body") || "").trim() || post.body;
       state.editPostId = null;
-      apiUpdateOnlinePost(id, { body: post.body }).catch(err => console.error("[online] edit failed:", err));
+      apiUpdateOnlinePost(id, { body: post.body }).catch(err => console.error("[online] edit failed:", err)); // UI_ONLY_OK: player content edit; no simulation-outcome consequence
       render(data, state);
     });
   });
@@ -420,7 +420,7 @@ function render(data, state) {
       const fd = new FormData(form);
       post.body = String(fd.get("body") || "").trim() || post.body;
       state.editPostId = null;
-      apiUpdateOnlinePost(id, { body: post.body }).catch(err => console.error("[online] edit failed:", err));
+      apiUpdateOnlinePost(id, { body: post.body }).catch(err => console.error("[online] edit failed:", err)); // UI_ONLY_OK: player content edit; no simulation-outcome consequence
       render(data, state);
     });
   });
@@ -434,7 +434,7 @@ function render(data, state) {
       const fd = new FormData(form);
       post.body = String(fd.get("body") || "").trim() || post.body;
       state.editPostId = null;
-      apiUpdateOnlinePost(id, { body: post.body }).catch(err => console.error("[online] edit failed:", err));
+      apiUpdateOnlinePost(id, { body: post.body }).catch(err => console.error("[online] edit failed:", err)); // UI_ONLY_OK: player content edit; no simulation-outcome consequence
       render(data, state);
     });
   });

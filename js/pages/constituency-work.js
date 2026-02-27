@@ -775,7 +775,7 @@ function render(data, state = {}) {
     if (!mod) return;
     const fd = new FormData(e.currentTarget);
     plan.secondJobTitleCompany = String(fd.get("secondJobTitleCompany") || "").trim();
-    apiSaveMyWorkPlan(plan).catch((err) => console.error("[cw] second job save failed:", err));
+    apiSaveMyWorkPlan(plan).catch((err) => console.error("[cw] second job save failed:", err)); // UI_ONLY_OK: autosave of work plan; no simulation-outcome consequence
     render(data, state);
   });
 
@@ -783,7 +783,7 @@ function render(data, state = {}) {
     if (!mod) return;
     plan.secondJobTitleCompany = "";
     plan.hours["Do Second Job"] = 0;
-    apiSaveMyWorkPlan(plan).catch((err) => console.error("[cw] second job clear failed:", err));
+    apiSaveMyWorkPlan(plan).catch((err) => console.error("[cw] second job clear failed:", err)); // UI_ONLY_OK: autosave of work plan; no simulation-outcome consequence
     render(data, state);
   });
 }

@@ -167,7 +167,7 @@ function bindEditor(data) {
       councillors: Number(form.querySelector(`[name='councillors-${p.party}']`)?.value || 0),
       councilsControlled: Number(form.querySelector(`[name='councils-${p.party}']`)?.value || 0)
     }));
-    apiSaveLocals(data.locals).catch((err) => console.error("[locals] save failed:", err));
+    apiSaveLocals(data.locals).catch((err) => console.error("[locals] save failed:", err)); // UI_ONLY_OK: autosave of local election data; no simulation-outcome consequence
     refreshLocals(data);
     loadForm();
   });

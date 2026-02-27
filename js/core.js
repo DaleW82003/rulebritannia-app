@@ -109,7 +109,7 @@ export function saveState(data) {
     console.warn("[saveState] skipped for non-staff user -- use feature APIs for player writes.");
     return Promise.resolve();
   }
-  return apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err));
+  return apiSaveState(data).catch((err) => console.error("[saveState] API save failed:", err)); // UI_ONLY_OK: saveState() returns this promise to callers; errors are surfaced via console at the module boundary
 }
 
 export function ensureDefaults(data) {

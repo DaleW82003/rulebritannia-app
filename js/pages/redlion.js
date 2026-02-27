@@ -141,7 +141,7 @@ function render(data) {
       const id = btn.getAttribute("data-id");
       data.redLion.posts = data.redLion.posts.filter((p) => p.id !== id);
       render(data);
-      apiDeleteRedLionPost(id).catch((err) => console.error("[redlion] delete failed:", err));
+      apiDeleteRedLionPost(id).catch((err) => console.error("[redlion] delete failed:", err)); // UI_ONLY_OK: player content deletion; no simulation-outcome consequence
     });
   });
 

@@ -105,7 +105,7 @@ function render(data, state) {
       const id = Number(btn.dataset.ruleId || 0);
       data.rules.items = data.rules.items.filter((rule) => rule.id !== id);
       if (state.editingId === id) state.editingId = null;
-      apiDeleteRule(id).catch(err => console.error("[rules] delete failed:", err));
+      apiDeleteRule(id).catch(err => console.error("[rules] delete failed:", err)); // UI_ONLY_OK: admin CMS rule deletion; no simulation-outcome consequence
       state.message = "Rule removed.";
       render(data, state);
     });

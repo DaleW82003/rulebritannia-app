@@ -225,7 +225,7 @@ function bindControlPanelEvents(data, state) {
         }).filter((p) => p.name);
       }
 
-      apiUpdateBody(bodyId, body).catch(err => console.error("[bodies] save failed:", err));
+      apiUpdateBody(bodyId, body).catch(err => console.error("[bodies] save failed:", err)); // UI_ONLY_OK: admin config update; non-simulation-critical body data
       state.editingBodyId = null;
       refreshBodies(data);
       renderControlPanel(data, state);
