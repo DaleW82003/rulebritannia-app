@@ -595,7 +595,7 @@ function render(data, state) {
     render(data, state);
   });
 
-  host.querySelector("#absence-form")?.addEventListener("submit", (e) => {
+  host.querySelector("#absence-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!data.currentCharacter) return;
     const fd = new FormData(e.currentTarget);
