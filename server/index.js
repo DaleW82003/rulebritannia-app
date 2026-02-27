@@ -2359,7 +2359,11 @@ async function runShopUpkeep(month, year) {
         GROUP BY p.id, p.slug, p.treasury, p.party_structure`
     );
 
-    // Compute all deductions in JS then apply in a single batch UPDATE
+    // Compute deduction amounts in JS then apply atomically in SQL.
+    // IMPORTANT: we pass totalDeduct (not a pre-computed newCash) so the SQL UPDATE
+    // always subtracts from the *current* DB value at the moment of the write. This
+    // prevents the race where a donation/fundraising credit landing between our SELECT
+    // and UPDATE would be silently overwritten.
     const toUpdate = parties
       .map((party) => {
         const overhead    = Number(party.party_structure?.monthlyOverhead || 0);
@@ -2367,24 +2371,29 @@ async function runShopUpkeep(month, year) {
         const hqBaseline  = Number(HQ_BASELINE_UPKEEP_1997[party.slug] || 0);
         const totalDeduct = overhead + shopUpkeep + hqBaseline;
         if (totalDeduct <= 0) return null;
-        const newCash   = Number(party.treasury?.cash || 0) - totalDeduct;
-        const overspend = newCash < 0;
-        return { id: party.id, newCash, overspend };
+        return { id: party.id, totalDeduct };
       })
       .filter(Boolean);
 
     if (toUpdate.length > 0) {
       const valuesClause = toUpdate
-        .map((_, i) => `($${i * 3 + 1}::uuid, $${i * 3 + 2}::numeric, $${i * 3 + 3}::boolean)`)
+        .map((_, i) => `($${i * 2 + 1}::uuid, $${i * 2 + 2}::numeric)`)
         .join(", ");
-      const params = toUpdate.flatMap(({ id, newCash, overspend }) => [id, newCash, overspend]);
+      const params = toUpdate.flatMap(({ id, totalDeduct }) => [id, totalDeduct]);
+      // CTE computes new_cash once per row so it isn't evaluated twice in SET and WHERE.
       await pool.query(
-        `UPDATE parties AS p
-            SET treasury           = jsonb_set(COALESCE(treasury,'{}'), '{cash}', to_jsonb(v.new_cash)),
-                treasury_overspend = v.overspend,
+        `WITH computed AS (
+           SELECT p.id,
+                  COALESCE((p.treasury->>'cash')::numeric, 0) - v.total_deduct AS new_cash
+             FROM parties p
+             JOIN (VALUES ${valuesClause}) AS v(id, total_deduct) ON p.id = v.id
+         )
+         UPDATE parties AS p
+            SET treasury           = jsonb_set(COALESCE(treasury,'{}'), '{cash}', to_jsonb(c.new_cash)),
+                treasury_overspend = c.new_cash < 0,
                 updated_at         = NOW()
-           FROM (VALUES ${valuesClause}) AS v(id, new_cash, overspend)
-          WHERE p.id = v.id`,
+           FROM computed c
+          WHERE p.id = c.id`,
         params
       );
     }
@@ -2609,6 +2618,27 @@ async function seedPlayableParties() {
         WHERE slug = $2
           AND (party_structure IS NULL OR party_structure = '{}'::jsonb OR party_structure = 'null'::jsonb)`,
       [JSON.stringify(structure), slug]
+    );
+  }
+  // Seed default treasury cash for the 3 playable parties (idempotent: only if no cash key set yet).
+  // This ensures additive operations (donations, fundraising credits, membership intake) always
+  // start from the correct base rather than from 0 when the treasury JSONB is empty.
+  // Uses jsonb_set so any existing debt/members values are preserved.
+  const BASELINE_TREASURY_CASH = {
+    Conservative:     350000,
+    Labour:           290000,
+    "Liberal Democrat": 95000,
+  };
+  for (const [slug, defaultCash] of Object.entries(BASELINE_TREASURY_CASH)) {
+    await pool.query(
+      `UPDATE parties
+          SET treasury = jsonb_set(COALESCE(treasury,'{}'), '{cash}', to_jsonb($1::numeric))
+        WHERE slug = $2
+          AND (treasury IS NULL
+            OR treasury = '{}'::jsonb
+            OR treasury = 'null'::jsonb
+            OR (treasury->>'cash') IS NULL)`,
+      [defaultCash, slug]
     );
   }
 }
