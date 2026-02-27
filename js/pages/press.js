@@ -893,19 +893,25 @@ function render(data, state) {
     if (input) input.required = isNpc;
   });
 
-  section.querySelectorAll("[data-action='delete-comment']").forEach((btn) => btn.addEventListener("click", () => {
+  section.querySelectorAll("[data-action='delete-comment']").forEach((btn) => btn.addEventListener("click", async () => {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
-    data.press.comments = data.press.comments.filter((c) => c.id !== id);
-    apiDeletePressItem(id).catch((err) => console.error("[press] delete-comment failed:", err));
+    btn.disabled = true;
+    try {
+      await apiDeletePressItem(id);
+      data.press.comments = data.press.comments.filter((c) => c.id !== id);
+    } catch (err) { toastError(`Delete failed: ${err.message}`); btn.disabled = false; return; }
     render(data, state);
   }));
 
-  section.querySelectorAll("[data-action='delete-release']").forEach((btn) => btn.addEventListener("click", () => {
+  section.querySelectorAll("[data-action='delete-release']").forEach((btn) => btn.addEventListener("click", async () => {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
-    data.press.releases = data.press.releases.filter((r) => r.id !== id);
-    apiDeletePressItem(id).catch((err) => console.error("[press] delete-release failed:", err));
+    btn.disabled = true;
+    try {
+      await apiDeletePressItem(id);
+      data.press.releases = data.press.releases.filter((r) => r.id !== id);
+    } catch (err) { toastError(`Delete failed: ${err.message}`); btn.disabled = false; return; }
     render(data, state);
   }));
 
@@ -945,11 +951,14 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelectorAll("[data-action='delete-conference']").forEach((btn) => btn.addEventListener("click", () => {
+  section.querySelectorAll("[data-action='delete-conference']").forEach((btn) => btn.addEventListener("click", async () => {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
-    data.press.conferences = data.press.conferences.filter((c) => c.id !== id);
-    apiDeletePressItem(id).catch((err) => console.error("[press] delete-conference failed:", err));
+    btn.disabled = true;
+    try {
+      await apiDeletePressItem(id);
+      data.press.conferences = data.press.conferences.filter((c) => c.id !== id);
+    } catch (err) { toastError(`Delete failed: ${err.message}`); btn.disabled = false; return; }
     render(data, state);
   }));
 
@@ -1020,11 +1029,14 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelectorAll("[data-action='delete-speech']").forEach((btn) => btn.addEventListener("click", () => {
+  section.querySelectorAll("[data-action='delete-speech']").forEach((btn) => btn.addEventListener("click", async () => {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
-    data.press.speeches = data.press.speeches.filter((s) => s.id !== id);
-    apiDeletePressItem(id).catch((err) => console.error("[press] delete-speech failed:", err));
+    btn.disabled = true;
+    try {
+      await apiDeletePressItem(id);
+      data.press.speeches = data.press.speeches.filter((s) => s.id !== id);
+    } catch (err) { toastError(`Delete failed: ${err.message}`); btn.disabled = false; return; }
     render(data, state);
   }));
 
@@ -1109,11 +1121,14 @@ function render(data, state) {
     render(data, state);
   }));
 
-  section.querySelectorAll("[data-action='delete-letter']").forEach((btn) => btn.addEventListener("click", () => {
+  section.querySelectorAll("[data-action='delete-letter']").forEach((btn) => btn.addEventListener("click", async () => {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
-    data.press.letters = data.press.letters.filter((l) => l.id !== id);
-    apiDeletePressItem(id).catch((err) => console.error("[press] delete-letter failed:", err));
+    btn.disabled = true;
+    try {
+      await apiDeletePressItem(id);
+      data.press.letters = data.press.letters.filter((l) => l.id !== id);
+    } catch (err) { toastError(`Delete failed: ${err.message}`); btn.disabled = false; return; }
     render(data, state);
   }));
 }

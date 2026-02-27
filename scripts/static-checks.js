@@ -275,6 +275,102 @@ if (badShapeMatches.length > MAX_SHAPE_ISSUES) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// 7. No fire-and-forget API calls in UI event handlers (pessimistic update policy)
+// ──────────────────────────────────────────────────────────────────────────────
+
+section("7. No fire-and-forget API calls in UI event handlers");
+
+/**
+ * Detects `apiXxx(...).catch(` patterns where an API call is invoked without
+ * `await` inside an event handler / render function.  This is the hallmark of
+ * optimistic / fire-and-forget UI patterns that violate the pessimistic-update
+ * policy: the UI has already changed before the server confirms.
+ *
+ * The check deliberately excludes:
+ *  - Lines that are inside a comment (trimmed line starts with //)
+ *  - Data-load chains in init functions (.catch( used for fallback-safe parallel
+ *    fetches, e.g. Promise.all([apiGet...().catch(()=>null),...]) — these are
+ *    read-only and must not be flagged).
+ *  - Awaited calls: `await apiX(...)` — those are fine.
+ *  - Retry helpers that explicitly return a safe fallback object from catch.
+ *  - Allowlisted API functions that are genuinely safe as fire-and-forget
+ *    (autosave / content management with no simulation-outcome consequences).
+ */
+const INIT_CONTEXT_RE = /\basync\s+function\s+init[A-Z]|\bPromise\.all\b/;
+// Matches: apiSomething(...).catch(  —  but NOT  await apiSomething(...).catch(
+const FIRE_AND_FORGET_RE = /(?<!await\s)(?<!\bawait\b\s+)api[A-Z]\w*\s*\([^)]*\)\s*\.catch\s*\(/;
+
+/**
+ * API functions that are allowed to be fire-and-forget because they carry no
+ * simulation-outcome consequences:
+ *  - "Save*" functions: pure autosave (draft text, headlines, work plans, locals)
+ *  - Admin CMS content management: news stories, guides, rules, paper articles,
+ *    polling entries, online posts, Red Lion posts, QT legacy cleanup
+ *  - Body and economy admin data updates
+ * These are distinguished from simulation-critical mutations (status changes,
+ * vote tallies, balance/treasury changes, close/delete of parliamentary items).
+ */
+const FIRE_AND_FORGET_ALLOWLIST = new Set([
+  // Autosave patterns (draft text, headline, config, settings)
+  "apiSaveCabinetDrafts", "apiSaveShadowCabinetDrafts", "apiSavePartyDrafts",
+  "apiSaveCabinetHeadline", "apiSaveShadowCabinetHeadline",
+  "apiSaveMyWorkPlan", "apiSaveLocals", "apiSaveEconomyData",
+  "apiUpdateOnlineSettings",
+  // Admin content management (no simulation outcome)
+  "apiCreateNewsStory", "apiUpdateNewsStory", "apiDeleteNewsStory",
+  "apiCreateGuide", "apiUpdateGuide", "apiDeleteGuide",
+  "apiCreateRule", "apiUpdateRule", "apiDeleteRule",
+  "apiCreatePaperArticle", "apiUpdatePaperArticle", "apiDeletePaperArticle",
+  "apiDeletePollingEntry",
+  // Player content operations (content removal, not simulation state)
+  "apiDeleteOnlinePost", "apiUpdateOnlinePost",
+  "apiDeleteRedLionPost",
+  "apiDeleteQtLegacyQuestion",
+  // Body admin updates (non-simulation-critical configuration)
+  "apiUpdateBody",
+]);
+
+let fireAndForgetIssues = 0;
+for (const pageFile of pageFiles) {
+  const content = readFileSync(join(PAGES_DIR, pageFile), "utf8");
+  const lines = content.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Skip blank lines and pure comments
+    if (!line.trim() || line.trim().startsWith("//")) continue;
+    // Must contain the .catch( pattern on a mutation API call
+    if (!FIRE_AND_FORGET_RE.test(line)) continue;
+    // Skip read-only / init / parallel-fetch patterns
+    const ctxStart = Math.max(0, i - 8);
+    const ctx = lines.slice(ctxStart, i + 1).join("\n");
+    if (INIT_CONTEXT_RE.test(ctx)) continue;
+    // Only flag if the call is a mutating API (Create/Update/Delete/Save/Submit/Set/Add/Remove/Credit/Mark/Close/Cast)
+    if (!/api(?:Create|Update|Delete|Save|Submit|Set|Add|Remove|Credit|Mark|Close|Cast|Approve|Reject|Grant|Revoke|Dismiss|Sell|Vote|Sign)[A-Z]/.test(line)) continue;
+    // Check against allowlist — extract the function name being called
+    const fnMatch = line.match(/\b(api[A-Z]\w*)\s*\(/);
+    if (fnMatch && FIRE_AND_FORGET_ALLOWLIST.has(fnMatch[1])) continue;
+    // Skip fire-and-forget calls that are directly inside a .then(({ … }) => { … }) callback
+    // body — these are metadata side-effect writes where the outer promise chain already
+    // has its own .catch() handler.  We detect this by finding a `.then(` opening on a
+    // preceding line whose brace depth is still open at the current line.
+    let inThenCallback = false;
+    let depth = 0;
+    for (let j = i; j >= Math.max(0, i - 20); j--) {
+      for (const ch of lines[j].split("").reverse()) {
+        if (ch === "}") depth++;
+        else if (ch === "{") { if (depth > 0) depth--; else { inThenCallback = false; break; } }
+      }
+      if (/\.then\s*\(/.test(lines[j]) && depth === 0) { inThenCallback = true; break; }
+    }
+    if (inThenCallback) continue;
+    fail(`${pageFile}:${i + 1} — fire-and-forget mutating API call: ${line.trim().slice(0, 80)}`);
+    fireAndForgetIssues++;
+  }
+}
+if (!fireAndForgetIssues) pass("No fire-and-forget mutating API calls detected in UI handlers");
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Summary
 // ──────────────────────────────────────────────────────────────────────────────
 

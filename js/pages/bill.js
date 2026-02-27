@@ -1012,7 +1012,15 @@ async function renderDivision(bill, data) {
 function persistAndRerender(data, bill, rerenderAll = true) {
   const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
   if (idx >= 0) data.orderPaperCommons[idx] = bill;
-  apiUpdateBill(bill.id, bill).catch((err) => console.error("[bill] persist failed:", err));
+  // Non-blocking save; re-render proceeds immediately. Errors are surfaced via toast.
+  (async () => {
+    try { await apiUpdateBill(bill.id, bill); }
+    catch (err) {
+      console.error("[bill] persist failed:", err);
+      const { toastError: te } = await import("../components/toast.js");
+      te(`Save failed: ${err.message}`);
+    }
+  })();
   if (rerenderAll) {
     renderBillMeta(bill, data);
     renderBillText(bill);
@@ -1045,8 +1053,6 @@ function autoAdvanceStage(bill, data) {
   }
   // Note: Report Stage → Report Debate is triggered by staff submitting a report (server endpoint)
   // Note: Final Division stage uses formal DB division (no auto-advance here)
-
-  if (changed) apiUpdateBill(bill.id, bill).catch((err) => console.error("[bill] auto-advance failed:", err));
   return changed;
 }
 
@@ -1084,7 +1090,12 @@ export async function initBillPage(data) {
   }
 
   // Auto-advance expired stages (client-side display aid; server is authoritative)
-  while (autoAdvanceStage(bill, data)) { /* advance until current stage is not expired */ }
+  let stageAdvanced = false;
+  while (autoAdvanceStage(bill, data)) { stageAdvanced = true; }
+  if (stageAdvanced) {
+    try { await apiUpdateBill(bill.id, bill); }
+    catch (err) { console.error("[bill] auto-advance failed:", err); }
+  }
 
   renderBillMeta(bill, data);
   renderBillText(bill);
