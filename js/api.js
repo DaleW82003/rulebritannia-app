@@ -2590,3 +2590,166 @@ export async function apiGetDebatePayload(entityType, entityId) {
   if (!res.ok) throw new Error(body.error || `apiGetDebatePayload failed (${res.status})`);
   return body;
 }
+
+// ── News Stories API ─────────────────────────────────────────────────────────
+export async function apiGetNews() {
+  const res = await fetch(`${API_BASE}/api/news`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetNews failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreateNewsStory(story) {
+  const res = await fetch(`${API_BASE}/api/news`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(story) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreateNewsStory failed (${res.status})`);
+  return body;
+}
+export async function apiUpdateNewsStory(id, patch) {
+  const res = await fetch(`${API_BASE}/api/news/${encodeURIComponent(id)}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(patch) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdateNewsStory failed (${res.status})`);
+  return body;
+}
+export async function apiDeleteNewsStory(id) {
+  const res = await fetch(`${API_BASE}/api/news/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": getCsrfToken() } });
+  if (!res.ok) throw new Error(`apiDeleteNewsStory failed (${res.status})`);
+  return res.json();
+}
+
+// ── Rules API ────────────────────────────────────────────────────────────────
+export async function apiGetRules() {
+  const res = await fetch(`${API_BASE}/api/rules`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetRules failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreateRule(rule) {
+  const res = await fetch(`${API_BASE}/api/rules`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(rule) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreateRule failed (${res.status})`);
+  return body;
+}
+export async function apiUpdateRule(id, patch) {
+  const res = await fetch(`${API_BASE}/api/rules/${encodeURIComponent(id)}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(patch) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdateRule failed (${res.status})`);
+  return body;
+}
+export async function apiDeleteRule(id) {
+  const res = await fetch(`${API_BASE}/api/rules/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": getCsrfToken() } });
+  if (!res.ok) throw new Error(`apiDeleteRule failed (${res.status})`);
+  return res.json();
+}
+
+// ── Guides API ───────────────────────────────────────────────────────────────
+export async function apiGetGuides() {
+  const res = await fetch(`${API_BASE}/api/guides`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetGuides failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreateGuide(guide) {
+  const res = await fetch(`${API_BASE}/api/guides`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(guide) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreateGuide failed (${res.status})`);
+  return body;
+}
+export async function apiUpdateGuide(id, patch) {
+  const res = await fetch(`${API_BASE}/api/guides/${encodeURIComponent(id)}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(patch) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdateGuide failed (${res.status})`);
+  return body;
+}
+export async function apiDeleteGuide(id) {
+  const res = await fetch(`${API_BASE}/api/guides/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": getCsrfToken() } });
+  if (!res.ok) throw new Error(`apiDeleteGuide failed (${res.status})`);
+  return res.json();
+}
+
+// ── Civil Service API ────────────────────────────────────────────────────────
+export async function apiGetCsBriefings() {
+  const res = await fetch(`${API_BASE}/api/civil-service/briefings`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetCsBriefings failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreateCsBriefing(briefing) {
+  const res = await fetch(`${API_BASE}/api/civil-service/briefings`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(briefing) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreateCsBriefing failed (${res.status})`);
+  return body;
+}
+export async function apiUpdateCsBriefing(id, patch) {
+  const res = await fetch(`${API_BASE}/api/civil-service/briefings/${encodeURIComponent(id)}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(patch) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdateCsBriefing failed (${res.status})`);
+  return body;
+}
+export async function apiDeleteCsBriefing(id) {
+  const res = await fetch(`${API_BASE}/api/civil-service/briefings/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": getCsrfToken() } });
+  if (!res.ok) throw new Error(`apiDeleteCsBriefing failed (${res.status})`);
+  return res.json();
+}
+export async function apiGetCsCases() {
+  const res = await fetch(`${API_BASE}/api/civil-service/cases`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetCsCases failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreateCsCase(csCase) {
+  const res = await fetch(`${API_BASE}/api/civil-service/cases`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(csCase) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreateCsCase failed (${res.status})`);
+  return body;
+}
+export async function apiUpdateCsCase(id, patch) {
+  const res = await fetch(`${API_BASE}/api/civil-service/cases/${encodeURIComponent(id)}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(patch) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdateCsCase failed (${res.status})`);
+  return body;
+}
+export async function apiDeleteCsCase(id) {
+  const res = await fetch(`${API_BASE}/api/civil-service/cases/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": getCsrfToken() } });
+  if (!res.ok) throw new Error(`apiDeleteCsCase failed (${res.status})`);
+  return res.json();
+}
+
+// ── Bodies API ───────────────────────────────────────────────────────────────
+export async function apiGetBodies() {
+  const res = await fetch(`${API_BASE}/api/bodies`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetBodies failed (${res.status})`);
+  return res.json();
+}
+export async function apiUpdateBody(id, bodyData) {
+  const res = await fetch(`${API_BASE}/api/bodies/${encodeURIComponent(id)}`, { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(bodyData) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdateBody failed (${res.status})`);
+  return body;
+}
+
+// ── Newspaper articles API ───────────────────────────────────────────────────
+export async function apiGetPaperArticles() {
+  const res = await fetch(`${API_BASE}/api/papers`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPaperArticles failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreatePaperArticle(paperKey, article) {
+  const res = await fetch(`${API_BASE}/api/papers/${encodeURIComponent(paperKey)}/articles`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(article) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreatePaperArticle failed (${res.status})`);
+  return body;
+}
+export async function apiUpdatePaperArticle(paperKey, id, patch) {
+  const res = await fetch(`${API_BASE}/api/papers/${encodeURIComponent(paperKey)}/articles/${encodeURIComponent(id)}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(patch) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdatePaperArticle failed (${res.status})`);
+  return body;
+}
+export async function apiDeletePaperArticle(paperKey, id) {
+  const res = await fetch(`${API_BASE}/api/papers/${encodeURIComponent(paperKey)}/articles/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": getCsrfToken() } });
+  if (!res.ok) throw new Error(`apiDeletePaperArticle failed (${res.status})`);
+  return res.json();
+}
+
+// ── Online post edit (PATCH) ─────────────────────────────────────────────────
+export async function apiUpdateOnlinePost(id, patch) {
+  const res = await fetch(`${API_BASE}/api/online/${encodeURIComponent(id)}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() }, body: JSON.stringify(patch) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdateOnlinePost failed (${res.status})`);
+  return body;
+}

@@ -494,10 +494,10 @@ function render(data, state) {
       stages: [{ id: "s1", title: stageTitle, text: stageText, options }]
     };
     normaliseBriefing(briefing);
-    data.civilService.briefings.unshift(briefing);
     try {
       const r = await apiCreateCsBriefing(briefing);
       briefing.id = r.id;
+      data.civilService.briefings.unshift(briefing);
     } catch (err) {
       console.error("[cs] create briefing failed:", err);
     }
@@ -685,10 +685,10 @@ function render(data, state) {
         }
       ]
     };
-    data.civilService.cases.unshift(caseItem);
     try {
       const result = await apiCreateCsCase(caseItem);
       caseItem.id = result.id;
+      data.civilService.cases.unshift(caseItem);
     } catch (err) {
       console.error("[cs] create case failed:", err);
     }
