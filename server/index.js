@@ -6578,7 +6578,7 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
       }
     }
 
-    const { score, impact } = req.body || {};
+    const { score, impact, partyScore, partyEffects } = req.body || {};
     if (score === undefined || score === null) {
       return res.status(400).json({ error: "score is required" });
     }
@@ -6587,6 +6587,10 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
       return res.status(400).json({ error: "score must be between -5 and +5" });
     }
     const safeImpact = Array.isArray(impact) ? impact.map((s) => String(s).trim()).filter(Boolean) : [];
+    const numPartyScore = (partyScore !== null && partyScore !== undefined) ? Number(partyScore) : null;
+    const safePartyEffects = (partyEffects && typeof partyEffects === "object" && !Array.isArray(partyEffects))
+      ? Object.fromEntries(Object.entries(partyEffects).map(([k, v]) => [String(k), Number(v)]).filter(([, v]) => !isNaN(v)))
+      : {};
 
     const { rows } = await pool.query(
       "SELECT data, press_type FROM press_items WHERE id = $1",
@@ -6598,6 +6602,8 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
     const prevData = rows[0].data;
     item.score = numScore;
     item.impact = safeImpact;
+    if (numPartyScore !== null) item.partyScore = numPartyScore;
+    if (Object.keys(safePartyEffects).length > 0) item.partyEffects = safePartyEffects;
     item.is_marked = true;
     item.marked_by = req.session.userId;
     item.marked_at = new Date().toISOString();
@@ -10690,7 +10696,9 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query(
-      "SELECT id, entity_type, entity_id, title, status, closes_at, created_at FROM divisions WHERE id = $1",
+      `SELECT id, entity_type, entity_id, title, status, closes_at, created_at,
+              npc_votes, rebels_by_party, rebels_by_party_choice
+         FROM divisions WHERE id = $1`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Division not found" });
@@ -10714,6 +10722,60 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
       byParty[v.party] ??= { aye: 0, no: 0, abstain: 0 };
       byParty[v.party][v.vote] = Number(byParty[v.party][v.vote] || 0) + Number(v.total_weight || 0);
     });
+
+    // Apply NPC party votes (seat-weighted) to the live tally
+    const npcV = rows[0].npc_votes || {};
+    const rebelP = rows[0].rebels_by_party || {};
+    const rebelChoice = rows[0].rebels_by_party_choice || {};
+    if (Object.keys(npcV).length > 0) {
+      const { rows: seatRows } = await pool.query(
+        "SELECT party, COUNT(*) AS seats FROM constituencies WHERE party IS NOT NULL AND party <> '' GROUP BY party"
+      );
+      const seatsByParty = Object.fromEntries(seatRows.map(r => [r.party, Number(r.seats)]));
+      for (const [party, npcVote] of Object.entries(npcV)) {
+        if (tally[npcVote] === undefined) continue;
+        if (SINN_FEIN_PARTY_RE.test(party) || SPEAKER_PARTY_RE.test(party)) continue;
+        const seats = Number(seatsByParty[party] || 0);
+        const rebels = Number(rebelP[party] || 0);
+        if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
+        if (rebels > 0) {
+          const rebelDir = rebelChoice[party];
+          if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebels;
+        }
+      }
+      // Playable-party rebels — deduct from player vote contributions and add to rebel direction
+      if (Object.keys(rebelP).length > 0) {
+        const { rows: partyVoteRows } = await pool.query(
+          `SELECT c.party, dv.vote, SUM(dv.effective_weight)::int AS weight
+             FROM division_votes dv
+             JOIN characters c ON c.id = dv.character_id
+            WHERE dv.division_id = $1
+            GROUP BY c.party, dv.vote`,
+          [req.params.id]
+        );
+        const partyVoteMap = {};
+        for (const pv of partyVoteRows) {
+          if (!partyVoteMap[pv.party]) partyVoteMap[pv.party] = {};
+          partyVoteMap[pv.party][pv.vote] = Number(pv.weight);
+        }
+        for (const [party, rebels] of Object.entries(rebelP)) {
+          if (npcV[party]) continue; // NPC parties already handled above
+          const rebelCount = Number(rebels);
+          if (rebelCount <= 0) continue;
+          const rebelDir = rebelChoice[party];
+          const voteDirs = partyVoteMap[party] || {};
+          const totalPartyWeight = Object.values(voteDirs).reduce((s, w) => s + w, 0);
+          if (totalPartyWeight > 0) {
+            let remaining = Math.min(rebelCount, totalPartyWeight);
+            for (const [dir, weight] of Object.entries(voteDirs)) {
+              const deduct = Math.round((weight / totalPartyWeight) * remaining);
+              tally[dir] = Math.max(0, (tally[dir] || 0) - deduct);
+            }
+          }
+          if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebelCount;
+        }
+      }
+    }
 
     const { rows: delegations } = await pool.query(
       `SELECT character_id, delegation_source_character_id
@@ -14912,6 +14974,66 @@ app.delete("/api/fundraising/:id", crudWriteLimit, async (req, res) => {
     await writeAuditLog(req.session.userId, "fundraising.delete", "fundraising_items", req.params.id, null, null);
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
+});
+
+// POST /api/fundraising/:id/credit-character — admin/mod: credit host character bank balance for individual fundraiser
+// Body: { characterName, amount, note? }
+app.post("/api/fundraising/:id/credit-character", crudWriteLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAdminOrMod(req, res)) { client.release(); return; }
+
+    const characterName = String(req.body?.characterName || "").trim();
+    const amount        = parseFloat(req.body?.amount);
+    const note          = String(req.body?.note || "").trim().slice(0, 500);
+
+    if (!characterName) { client.release(); return res.status(400).json({ error: "characterName is required" }); }
+    if (!Number.isFinite(amount) || amount <= 0) { client.release(); return res.status(400).json({ error: "amount must be a positive number" }); }
+
+    // Get the fundraising item for its campaign name
+    const { rows: itemRows } = await client.query(
+      "SELECT id, data FROM fundraising_items WHERE id = $1",
+      [req.params.id]
+    );
+    if (!itemRows.length) { client.release(); return res.status(404).json({ error: "Fundraising item not found" }); }
+
+    // Look up character by name
+    const { rows: charRows } = await client.query(
+      "SELECT id FROM characters WHERE name = $1 LIMIT 1",
+      [characterName]
+    );
+    if (!charRows.length) { client.release(); return res.status(404).json({ error: "Character not found" }); }
+    const charId = charRows[0].id;
+
+    await client.query("BEGIN");
+    // Ensure character_finance row exists
+    await client.query(
+      `INSERT INTO character_finance (character_id, bank_balance) VALUES ($1, 0)
+       ON CONFLICT (character_id) DO NOTHING`,
+      [charId]
+    );
+    const { rows: updated } = await client.query(
+      `UPDATE character_finance SET bank_balance = bank_balance + $1, updated_at = NOW()
+        WHERE character_id = $2
+       RETURNING bank_balance`,
+      [amount, charId]
+    );
+    await client.query("COMMIT");
+
+    await writeAuditLog(req.session.userId, "fundraising.credit.character", "character_finance", charId, null,
+      { characterName, amount, note, fundraisingItemId: req.params.id });
+
+    client.release();
+    res.json({
+      ok: true,
+      bankBalance: Number(updated[0].bank_balance),
+    });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    client.release();
+    console.error("[POST /api/fundraising/:id/credit-character]", e);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 

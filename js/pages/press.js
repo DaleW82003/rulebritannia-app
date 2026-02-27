@@ -368,7 +368,6 @@ function render(data, state) {
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div><b>${esc(r.reference)}</b> — ${esc(r.subject)}</div>
-            <div>${scoreChip(r.score)}</div>
           </div>
           <div class="muted">By ${esc(r.author)} • ${esc(r.createdAtSim)}</div>
           ${renderMarkingResult(r)}
@@ -527,7 +526,6 @@ function render(data, state) {
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div><b>${esc(s.reference)}</b> — ${esc(s.title)}</div>
-            <div>${scoreChip(s.score)}</div>
           </div>
           <div class="muted">By ${esc(s.author)} • ${esc(s.audience)} • ${esc(s.createdAtSim)}</div>
           ${renderMarkingResult(s)}
@@ -587,7 +585,6 @@ function render(data, state) {
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div><b>${esc(l.reference)}</b> — ${esc(l.subject)}</div>
-            <div>${scoreChip(l.score)}</div>
           </div>
           <div class="muted">From ${esc(office?.displayName || l.officeKey)} • To: ${esc(l.recipient)} • ${esc(l.createdAtSim)}</div>
           ${renderMarkingResult(l)}

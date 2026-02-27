@@ -2,7 +2,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection } from "../components/tile.js";
 import { toastSuccess, toastError } from "../components/toast.js";
-import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem, apiUpdateFundraisingItem, apiCreditFundraisingToParty, apiGetParty } from "../api.js";
+import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem, apiUpdateFundraisingItem, apiCreditFundraisingToParty, apiCreditFundraisingToCharacter, apiGetParty } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { formatSimMonthYear } from "../clock.js";
 
@@ -409,6 +409,22 @@ function render(data, state) {
         data.fundraising.balances.factions[key] = Number(data.fundraising.balances.factions[key] || 0) + net;
         const profile = ensurePersonalProfile(data, key);
         if (profile) profile.bankBalance = Number(profile.bankBalance || 0) + net;
+        // Credit DB-backed character bank balance (awaited; errors shown)
+        if (net > 0 && key) {
+          try {
+            const result = await apiCreditFundraisingToCharacter(id, {
+              characterName: key,
+              amount: net,
+              note: `Fundraising: ${item.type || "event"}`,
+            });
+            if (result.bankBalance !== undefined && profile) {
+              profile.bankBalance = Number(result.bankBalance);
+            }
+          } catch (err) {
+            console.error("[fundraising] DB character bank credit failed:", err.message);
+            toastError(`Bank credit failed: ${err.message}. Please retry or contact a mod.`);
+          }
+        }
       }
 
       try {
