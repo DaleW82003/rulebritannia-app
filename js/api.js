@@ -994,6 +994,40 @@ export async function apiSetPartyTreasury(partyId, fields) {
   return body;
 }
 
+export async function apiSetPartyMembershipFee(partyId, fee) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/membership-fee`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ fee }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSetPartyMembershipFee failed (${res.status})`);
+  return body;
+}
+
+export async function apiGetPartyLedger(partyId, limit = 100) {
+  const res = await fetch(
+    `${API_BASE}/api/parties/${encodeURIComponent(partyId)}/donations?limit=${limit}`,
+    { credentials: "include" }
+  );
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiGetPartyLedger failed (${res.status})`);
+  return body;
+}
+
+export async function apiAddPartyDonation(partyId, { fromName, amount, note = "" }) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/donations`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ fromName, amount, note }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAddPartyDonation failed (${res.status})`);
+  return body;
+}
+
 export async function apiGetPartyShopPurchases(partyId) {
   const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/shop-purchases`, { credentials: "include" });
   if (!res.ok) throw new Error(`apiGetPartyShopPurchases failed (${res.status})`);
@@ -2377,6 +2411,17 @@ export async function apiDeleteFundraisingItem(id) {
   });
   if (!res.ok) throw new Error(`apiDeleteFundraisingItem failed (${res.status})`);
   return res.json();
+}
+export async function apiCreditFundraisingToParty(id, { partySlug, amount, note = "" }) {
+  const res = await fetch(`${API_BASE}/api/fundraising/${encodeURIComponent(id)}/credit-party`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ partySlug, amount, note }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreditFundraisingToParty failed (${res.status})`);
+  return body;
 }
 
 // ── Player finance (DB-backed) ───────────────────────────────────────────────

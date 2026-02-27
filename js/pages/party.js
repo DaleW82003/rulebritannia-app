@@ -1,7 +1,7 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSavePartyDrafts } from "../api.js";
+import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSavePartyDrafts } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 const DEFAULT_PARTIES = {
@@ -319,6 +319,24 @@ const DEPARTMENT_EFFECTS = {
 // Monthly overhead per staff member (1997 baseline)
 const STAFF_COST_1997 = 1500;
 
+// HQ baseline monthly upkeep for the 3 playable parties (mirrors server constant)
+const HQ_BASELINE_UPKEEP = {
+  Conservative:     12000,
+  Labour:           15000,
+  "Liberal Democrat": 8000,
+};
+
+const MODIFIER_LABELS = {
+  orgCapacity:        "🏛️ Org Capacity",
+  disciplineCapacity: "🔒 Discipline",
+  policyResearch:     "📄 Policy Research",
+  rapidRebuttal:      "⚡ Rapid Rebuttal",
+  campaignCapacity:   "📣 Campaign",
+  scandalDefence:     "🛡️ Scandal Defence",
+  partyPolling:       "📊 Polling",
+  fundraisingCapacity: "💰 Fundraising",
+};
+
 function canManage(data) {
   return canAdminOrMod(data);
 }
@@ -482,6 +500,25 @@ function render(data, state) {
             <div><b>Cash on hand:</b> ${esc(formatMoney(party.treasury?.cash))}</div>
             <div><b>Debt:</b> ${esc(formatMoney(party.treasury?.debt))}</div>
             <div><b>Members:</b> ${esc(Number(party.treasury?.members || 0).toLocaleString("en-GB"))}</div>
+            ${(() => {
+              const fee = Number(dbParty?.membershipFeeAnnual || dbParty?.membership_fee_annual || 0);
+              const members = Number(party.treasury?.members || 0);
+              const estimate = Math.round(fee * members);
+              return `<div style="margin-top:4px;border-top:1px solid #e0e0e0;padding-top:4px;">
+                <div><b>Annual membership fee:</b> ${fee > 0 ? esc(formatMoney(fee)) : '<span class="muted">Not set</span>'}</div>
+                ${fee > 0 ? `<div class="muted" style="font-size:.88em;">Next January intake estimate: <b>${esc(formatMoney(estimate))}</b> (${Number(members).toLocaleString()} × ${esc(formatMoney(fee))})</div>` : ''}
+              </div>`;
+            })()}
+            ${(manager || isChairman) ? `
+              <form id="party-fee-form" style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+                <input type="number" id="party-fee-input" class="input" style="width:120px;"
+                  placeholder="£ per year"
+                  value="${esc(String(Number(dbParty?.membershipFeeAnnual || dbParty?.membership_fee_annual || 0)))}"
+                  min="0" step="1">
+                <button type="submit" class="btn" style="padding:4px 10px;">Set Fee</button>
+              </form>
+              ${state.feeMessage ? `<p class="muted" style="margin:2px 0 0;">${esc(state.feeMessage)}</p>` : ""}
+            ` : ""}
           </div>
         </article>
 
@@ -612,7 +649,7 @@ function render(data, state) {
       <p class="muted">
         Prices × price index <b>${esc(String(state.priceIndex?.toFixed(4) ?? "1.0000"))}</b>.
         Monthly upkeep is deducted from party treasury each month.
-        ${state.dbState?.partyStructure?.unlocks?.partyTour ? `<span style="color:#1a6a1a;">✅ Party Tour active</span>` : ""}
+        ${(party.partyShopPurchases || []).some((p) => (p.effects||[]).some((e) => e.type==="unlock" && e.value==="partyTour")) || state.dbState?.partyStructure?.unlocks?.partyTour ? `<span style="color:#1a6a1a;">✅ Party Tour active</span>` : ""}
       </p>
       ${state.partyShopMessage ? `<p class="muted" id="party-shop-msg">${esc(state.partyShopMessage)}</p>` : ""}
       ${Object.entries(
@@ -710,13 +747,35 @@ function render(data, state) {
         const totalStaff = totalDeptStaff + totalOfficeStaff;
         const overhead = totalStaff * STAFF_COST_1997 * (state.priceIndex || 1);
         const unlocks = s.unlocks || {};
+
+        // Compute active modifiers from shop purchases
+        const purchases = party.partyShopPurchases || [];
+        const modifiers = {
+          orgCapacity: 0, disciplineCapacity: 0, policyResearch: 0,
+          rapidRebuttal: 0, campaignCapacity: 0, scandalDefence: 0,
+          partyPolling: 0, fundraisingCapacity: 0,
+        };
+        const activeUnlockSet = { ...unlocks };
+        for (const p of purchases) {
+          for (const e of (p.effects || [])) {
+            if (e.type in modifiers) modifiers[e.type] += Number(e.value || 0);
+            if (e.type === "unlock") activeUnlockSet[e.value] = true;
+          }
+        }
+
+        const hqBaseline = Number(HQ_BASELINE_UPKEEP[state.activeParty] || 0);
+        const shopMonthlyUpkeep = purchases.reduce((s, p) => s + Number(p.monthlyUpkeep || 0), 0);
+
         return `
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:12px;">
             <article class="tile">
               <h3 style="margin-top:0;">Overview</h3>
               <div class="muted" style="line-height:1.8;">
                 <div><b>Total Staff:</b> ${totalStaff}</div>
-                <div><b>Monthly Overhead:</b> ${formatMoney(Math.round(overhead))}</div>
+                <div><b>Staff Overhead:</b> ${formatMoney(Math.round(overhead))}/month</div>
+                ${hqBaseline > 0 ? `<div><b>HQ Baseline Upkeep:</b> ${formatMoney(hqBaseline)}/month</div>` : ""}
+                ${shopMonthlyUpkeep > 0 ? `<div><b>Shop Upkeep:</b> ${formatMoney(shopMonthlyUpkeep)}/month</div>` : ""}
+                <div><b>Total Monthly:</b> ${formatMoney(Math.round(overhead) + hqBaseline + shopMonthlyUpkeep)}</div>
                 <div><b>Party Treasury:</b> ${formatMoney(Number(party.treasury?.cash || 0))}</div>
                 ${state.dbState?.treasuryOverspend ? `<div style="color:#c00;">⚠️ Treasury in deficit — risk of emergency fundraising scandal</div>` : ""}
               </div>
@@ -724,9 +783,18 @@ function render(data, state) {
             <article class="tile">
               <h3 style="margin-top:0;">Active Unlocks</h3>
               <div class="muted" style="font-size:.9em;line-height:1.8;">
-                ${unlocks.partyTour ? "<div>✅ Party Tour</div>" : ""}
-                ${unlocks.nationalBroadcastEvent ? "<div>✅ National Broadcast Event</div>" : ""}
-                ${!unlocks.partyTour && !unlocks.nationalBroadcastEvent ? "<div>No special unlocks active.</div>" : ""}
+                ${activeUnlockSet.partyTour ? "<div>✅ Party Tour</div>" : ""}
+                ${activeUnlockSet.nationalBroadcastEvent ? "<div>✅ National Broadcast Event</div>" : ""}
+                ${!activeUnlockSet.partyTour && !activeUnlockSet.nationalBroadcastEvent ? "<div>No special unlocks active.</div>" : ""}
+              </div>
+            </article>
+            <article class="tile">
+              <h3 style="margin-top:0;">Active Modifiers</h3>
+              <div style="font-size:.9em;line-height:1.8;">
+                ${Object.entries(modifiers).map(([k, v]) => v > 0
+                  ? `<div>${esc(MODIFIER_LABELS[k] || k)}: <b>+${v}</b></div>`
+                  : ""
+                ).join("") || '<div class="muted">No modifiers active.</div>'}
               </div>
             </article>
           </div>
@@ -781,6 +849,57 @@ function render(data, state) {
         `;
       })() : `<div class="muted-block">Loading organisation data…</div>`}
     </section>
+
+    <section class="panel" style="margin-top:12px;">
+      <h2 style="margin-top:0;">Party Income Ledger <span class="muted" style="font-size:.8em;">(Chairman · Leader · Admin/Mod)</span></h2>
+      ${manager ? `
+        <details style="margin-bottom:12px;">
+          <summary style="cursor:pointer;font-weight:600;">Add Donation</summary>
+          <form id="party-donation-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:8px;align-items:end;">
+            <div>
+              <label class="label" for="donation-from">From (name/organisation)</label>
+              <input id="donation-from" name="fromName" class="input" placeholder="e.g. Major Donor Ltd" required>
+            </div>
+            <div>
+              <label class="label" for="donation-amount">Amount (£)</label>
+              <input id="donation-amount" name="amount" type="number" min="1" step="1" class="input" placeholder="5000" required>
+            </div>
+            <div>
+              <label class="label" for="donation-note">Note (optional)</label>
+              <input id="donation-note" name="note" class="input" placeholder="e.g. General donation">
+            </div>
+            <button type="submit" class="btn">Add Donation</button>
+          </form>
+          ${state.donationMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.donationMessage)}</p>` : ""}
+        </details>
+      ` : ""}
+      ${(state.ledger || []).length ? `
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:.9em;">
+            <thead>
+              <tr style="border-bottom:2px solid #ccc;">
+                <th style="text-align:left;padding:4px 8px;">From</th>
+                <th style="text-align:right;padding:4px 8px;">Amount</th>
+                <th style="text-align:left;padding:4px 8px;">Note</th>
+                <th style="text-align:left;padding:4px 8px;">Sim Date</th>
+                <th style="text-align:left;padding:4px 8px;">Real Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(state.ledger || []).map((d) => `
+                <tr style="border-bottom:1px solid #eee;">
+                  <td style="padding:4px 8px;">${esc(d.fromName)}</td>
+                  <td style="padding:4px 8px;text-align:right;color:#1a6a1a;"><b>${esc(formatMoney(d.amount))}</b></td>
+                  <td style="padding:4px 8px;" class="muted">${esc(d.note || "")}</td>
+                  <td style="padding:4px 8px;" class="muted">${d.simMonth ? `${esc(String(d.simMonth))}/${esc(String(d.simYear))}` : "—"}</td>
+                  <td style="padding:4px 8px;" class="muted">${esc(typeof d.createdAt === "string" ? new Date(d.createdAt).toLocaleString("en-GB") : "—")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<div class="muted-block">No income entries yet.</div>`}
+    </section>
     ` : ""}
   `;
 
@@ -789,12 +908,15 @@ function render(data, state) {
     if (!next) return;
     state.activeParty = next;
     state.openDraftId = null;
+    state.feeMessage = "";
+    state.donationMessage = "";
     // Reload DB party data for the newly selected party
     try {
-      const [partyResult, charsResult, structureResult] = await Promise.all([
+      const [partyResult, charsResult, structureResult, ledgerResult] = await Promise.all([
         apiGetParty(next).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
         apiGetPartyStructure(next).catch(() => ({ structure: {}, treasuryOverspend: false })),
+        apiGetPartyLedger(next).catch(() => ({ donations: [] })),
       ]);
       if (partyResult?.party) state.dbState = { ...state.dbState, party: partyResult.party };
       const partyNameLower = next.toLowerCase();
@@ -803,6 +925,7 @@ function render(data, state) {
       );
       state.dbState.partyStructure = structureResult.structure || {};
       state.dbState.treasuryOverspend = !!structureResult.treasuryOverspend;
+      state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
     } catch (e) {
       console.warn("[party-switch] DB reload failed:", e.message);
     }
@@ -1086,6 +1209,48 @@ function render(data, state) {
     }
     render(data, state);
   });
+
+  // Membership fee form (chairman/admin/mod)
+  root.querySelector("#party-fee-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!manager && !isChairman) return;
+    const fee = Number(document.getElementById("party-fee-input")?.value || 0);
+    try {
+      const result = await apiSetPartyMembershipFee(state.activeParty, fee);
+      if (state.dbState?.party) state.dbState.party.membershipFeeAnnual = result.membershipFeeAnnual;
+      state.feeMessage = `Annual membership fee set to ${formatMoney(result.membershipFeeAnnual)}.`;
+    } catch (err) {
+      state.feeMessage = `Error: ${err.message}`;
+    }
+    render(data, state);
+  });
+
+  // Donation form (admin/mod only)
+  root.querySelector("#party-donation-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!manager) return;
+    const fd = new FormData(e.currentTarget);
+    const fromName = String(fd.get("fromName") || "").trim();
+    const amount   = Number(fd.get("amount") || 0);
+    const note     = String(fd.get("note") || "").trim();
+    if (!fromName || amount <= 0) {
+      state.donationMessage = "Please enter a valid name and amount.";
+      render(data, state);
+      return;
+    }
+    try {
+      const result = await apiAddPartyDonation(state.activeParty, { fromName, amount, note });
+      // Update treasury in memory
+      party.treasury.cash = Number(party.treasury?.cash || 0) + amount;
+      // Prepend to ledger
+      state.ledger = [result.donation, ...(state.ledger || [])];
+      state.donationMessage = `Donation of ${formatMoney(amount)} from "${fromName}" added.`;
+      e.currentTarget.reset();
+    } catch (err) {
+      state.donationMessage = `Error: ${err.message}`;
+    }
+    render(data, state);
+  });
 }
 
 export async function initPartyPage(data) {
@@ -1098,6 +1263,9 @@ export async function initPartyPage(data) {
     leadershipMessage: "",
     partyShopMessage: "",
     structureMessage: "",
+    feeMessage: "",
+    donationMessage: "",
+    ledger: [],
     priceIndex: 1.0,
     dbState: { party: null, partyCharacters: [], sessionCharId: "", partyStructure: null, treasuryOverspend: false }
   };
@@ -1106,12 +1274,13 @@ export async function initPartyPage(data) {
   const partyId = state.activeParty || Object.keys(data.party?.parties || {})[0] || "";
   if (partyId) {
     try {
-      const [partyResult, charsResult, myCharsResult, priceResult, structureResult] = await Promise.all([
+      const [partyResult, charsResult, myCharsResult, priceResult, structureResult, ledgerResult] = await Promise.all([
         apiGetParty(partyId).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
         apiGetMyCharacters().catch(() => ({ characters: [] })),
         apiGetShopPriceIndex().catch(() => ({ priceIndex: 1.0 })),
         apiGetPartyStructure(partyId).catch(() => ({ structure: {}, treasuryOverspend: false })),
+        apiGetPartyLedger(partyId).catch(() => ({ donations: [] })),
       ]);
       if (partyResult?.party) {
         state.dbState.party = partyResult.party;
@@ -1151,6 +1320,7 @@ export async function initPartyPage(data) {
       }
       state.dbState.partyStructure = structureResult.structure || {};
       state.dbState.treasuryOverspend = !!structureResult.treasuryOverspend;
+      state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
     } catch (e) {
       console.warn("[initPartyPage] DB load failed:", e.message);
     }

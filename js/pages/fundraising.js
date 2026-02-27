@@ -3,7 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
-import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem } from "../api.js";
+import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem, apiCreditFundraisingToParty, apiGetParty } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 const FUNDRAISERS = [
@@ -102,6 +102,18 @@ function ensurePersonalProfile(data, characterName) {
   };
   data.personal.profiles[characterName].bankBalance = Number(data.personal.profiles[characterName].bankBalance || 0);
   return data.personal.profiles[characterName];
+}
+
+// Returns total fundraisingCapacity modifier for a party from their shop purchases.
+// Each +1 means a 10% uplift on gross fundraising revenue.
+function partyFundraisingCapacity(data, partyName) {
+  const purchases = data.party?.parties?.[partyName]?.partyShopPurchases || [];
+  return purchases.reduce((sum, p) => {
+    for (const e of (p.effects || [])) {
+      if (e.type === "fundraisingCapacity") sum += Number(e.value || 0);
+    }
+    return sum;
+  }, 0);
 }
 
 function visibleNet(data, item, char) {
@@ -218,20 +230,29 @@ function render(data, state) {
                 ${canSeeNet ? `
                   <div style="margin-top:8px;">
                     <b>Private Financial Result</b>
-                    <div>Gross: ${esc(money(item.grossRevenue || 0))}</div>
+                    ${item.baseGrossRevenue != null && item.baseGrossRevenue !== item.grossRevenue ? `
+                      <div>Mod-entered Gross: ${esc(money(item.baseGrossRevenue))}</div>
+                      <div style="color:#1a6a1a;">Fundraising Capacity Bonus (+${esc(String(item.fundraisingCapacityBonus || 0))} = +${esc(String((item.fundraisingCapacityBonus || 0) * 10))}%): +${esc(money((item.grossRevenue || 0) - (item.baseGrossRevenue || 0)))}</div>
+                      <div>Adjusted Gross: ${esc(money(item.grossRevenue || 0))}</div>
+                    ` : `<div>Gross: ${esc(money(item.grossRevenue || 0))}</div>`}
                     <div>Cost: ${esc(money(item.cost || 0))}</div>
                     <div><b>Net Added:</b> ${esc(money(item.netRevenue || 0))}</div>
                   </div>
                 ` : `<div class="muted" style="margin-top:8px;">Revenue details are private (host + moderators only).</div>`}
-                ${mod && item.status === "pending" ? `
-                  <form data-action="allocate" data-id="${esc(String(item.id))}" style="margin-top:8px;">
-                    <div class="form-row">
-                      <label for="alloc-${esc(String(item.id))}">Allocate Gross Revenue (${esc(money(spec.rangeMin))}-${esc(money(spec.rangeMax))})</label>
-                      <input id="alloc-${esc(String(item.id))}" name="grossRevenue" type="number" min="${esc(String(spec.rangeMin))}" max="${esc(String(spec.rangeMax))}" required>
-                    </div>
-                    <button class="btn primary" type="submit">Confirm Approval</button>
-                  </form>
-                ` : ""}
+                ${mod && item.status === "pending" ? (() => {
+                  const fc = item.scope === "party" ? partyFundraisingCapacity(data, item.party) : 0;
+                  const bonusPct = fc * 10;
+                  return `
+                    <form data-action="allocate" data-id="${esc(String(item.id))}" style="margin-top:8px;">
+                      ${fc > 0 ? `<div class="muted" style="margin-bottom:6px;color:#1a6a1a;">✨ Party fundraising capacity: <b>+${fc}</b> — gross will be boosted by <b>${bonusPct}%</b> before deducting costs.</div>` : ""}
+                      <div class="form-row">
+                        <label for="alloc-${esc(String(item.id))}">Allocate Gross Revenue (${esc(money(spec.rangeMin))}-${esc(money(spec.rangeMax))})</label>
+                        <input id="alloc-${esc(String(item.id))}" name="grossRevenue" type="number" min="${esc(String(spec.rangeMin))}" max="${esc(String(spec.rangeMax))}" required>
+                      </div>
+                      <button class="btn primary" type="submit">Confirm Approval</button>
+                    </form>
+                  `;
+                })() : ""}
               </div>
             ` : ""}
           </article>
@@ -333,10 +354,24 @@ function render(data, state) {
       const gross = Number(fd.get("grossRevenue") || 0);
       if (!Number.isFinite(gross) || gross < spec.rangeMin || gross > spec.rangeMax) return;
 
+      // Apply fundraisingCapacity bonus for party-scoped fundraisers.
+      // Each +1 to fundraisingCapacity = 10% uplift on the mod-entered gross revenue.
+      let adjustedGross = gross;
+      let fc = 0;
+      if (item.scope === "party" && item.party) {
+        fc = partyFundraisingCapacity(data, item.party);
+        if (fc > 0) {
+          adjustedGross = Math.round(gross * (1 + fc * 0.1));
+        }
+      }
+      const bonusPct = fc * 10;
+
       item.status = "approved";
-      item.grossRevenue = gross;
+      item.baseGrossRevenue = gross;
+      item.grossRevenue = adjustedGross;
+      item.fundraisingCapacityBonus = fc > 0 ? fc : undefined;
       item.cost = spec.cost;
-      item.netRevenue = gross - spec.cost;
+      item.netRevenue = adjustedGross - spec.cost;
 
       if (item.scope === "party") {
         const key = item.party || "Unknown";
@@ -344,6 +379,14 @@ function render(data, state) {
         data.fundraising.balances.parties[key] = Number(data.fundraising.balances.parties[key] || 0) + net;
         const treasury = ensurePartyTreasury(data, item.party);
         if (treasury) treasury.cash = Number(treasury.cash || 0) + net;
+        // Credit DB-backed party treasury and add to party income ledger
+        if (net > 0 && item.party) {
+          apiCreditFundraisingToParty(id, {
+            partySlug: item.party,
+            amount: net,
+            note: `Fundraising: ${item.type || "event"}${fc > 0 ? ` (+${bonusPct}% fundraising capacity bonus)` : ""}`,
+          }).catch((err) => console.warn("[fundraising] DB party credit failed:", err.message));
+        }
       } else {
         const key = item.hostId || item.hostName;
         const net = Number(item.netRevenue || 0);
@@ -391,5 +434,31 @@ export async function initFundraisingPage(data) {
   } catch (err) {
     console.error("[fundraising] DB load failed:", err);
   }
+
+  // Load party shop purchases for parties with pending party fundraisers so the
+  // mod/admin sees the correct fundraisingCapacity bonus when approving revenue.
+  const pendingParties = [
+    ...new Set(
+      data.fundraising.items
+        .filter((i) => i.scope === "party" && i.party && i.status === "pending")
+        .map((i) => i.party)
+    ),
+  ];
+  if (pendingParties.length > 0) {
+    await Promise.all(
+      pendingParties.map(async (partyName) => {
+        try {
+          const result = await apiGetParty(partyName);
+          if (result?.party && Array.isArray(result.party.partyShopPurchases)) {
+            ensurePartyTreasury(data, partyName);
+            data.party.parties[partyName].partyShopPurchases = result.party.partyShopPurchases;
+          }
+        } catch (err) {
+          console.warn(`[fundraising] failed to load party data for ${partyName}:`, err.message);
+        }
+      })
+    );
+  }
+
   render(data, { showForm: false, formType: FUNDRAISERS[0].key, openId: null });
 }
