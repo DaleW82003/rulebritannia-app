@@ -364,7 +364,6 @@ function render(data) {
       const payload = {
         body_type, polling_day, label,
         turnout_total: votes_cast || null, turnout_pct: turnout_pct || null,
-        electorate: electorate || null,
         party_summary: partyRows,
       };
       let r;
@@ -422,12 +421,10 @@ function render(data) {
         const typeEl = root2.querySelector("#eb-type");
         const dayEl = root2.querySelector("#eb-polling-day");
         const labelEl = root2.querySelector("#eb-label");
-        const electorateEl = root2.querySelector("#eb-electorate");
         const votesCastEl = root2.querySelector("#eb-votes-cast");
         if (typeEl) typeEl.value = result.type || "";
         if (dayEl) dayEl.value = (result.polling_day || "").slice(0, 10);
         if (labelEl) labelEl.value = result.label || "";
-        if (electorateEl) electorateEl.value = result.electorate || "";
         if (votesCastEl) votesCastEl.value = result.turnout_total || "";
       }
     });
