@@ -9345,7 +9345,7 @@ app.post("/api/me/character/shop-purchases/:id/sell", meFinanceWriteLimit, async
         LIMIT 1`,
       [req.session.userId]
     );
-    if (!charRows.length) { client.release(); return res.status(404).json({ error: "No active character found" }); }
+    if (!charRows.length) return res.status(404).json({ error: "No active character found" });
     const charId = charRows[0].id;
 
     // Fetch the purchase — must belong to the caller's character
@@ -9354,14 +9354,13 @@ app.post("/api/me/character/shop-purchases/:id/sell", meFinanceWriteLimit, async
          FROM character_shop_purchases WHERE id = $1`,
       [req.params.id]
     );
-    if (!pRows.length) { client.release(); return res.status(404).json({ error: "Purchase not found" }); }
-    if (pRows[0].character_id !== charId) { client.release(); return res.status(403).json({ error: "Forbidden" }); }
+    if (!pRows.length) return res.status(404).json({ error: "Purchase not found" });
+    if (pRows[0].character_id !== charId) return res.status(403).json({ error: "Forbidden" });
 
     const purchase = pRows[0];
 
     // Items with price == 0 cannot be sold (use dismiss instead)
     if (Number(purchase.price) === 0) {
-      client.release();
       return res.status(400).json({ error: "Free items must be dismissed, not sold. Use the Dismiss action." });
     }
 
@@ -9410,9 +9409,13 @@ app.post("/api/me/character/shop-purchases/:id/sell", meFinanceWriteLimit, async
 // Player dismisses one free-with-upkeep shop item (price == 0, upkeep > 0).
 // Removes the purchase record and upkeep; no refund.
 app.post("/api/me/character/shop-purchases/:id/dismiss", meFinanceWriteLimit, async (req, res) => {
-  const client = await pool.connect();
+  const requestId = randomUUID();
+  let client;
+  let charId;
   try {
     if (!requireAuth(req, res)) return;
+
+    client = await pool.connect();
 
     const { rows: charRows } = await client.query(
       `SELECT c.id FROM characters c
@@ -9423,7 +9426,7 @@ app.post("/api/me/character/shop-purchases/:id/dismiss", meFinanceWriteLimit, as
       [req.session.userId]
     );
     if (!charRows.length) return res.status(404).json({ error: "No active character found" });
-    const charId = charRows[0].id;
+    charId = charRows[0].id;
 
     const { rows: pRows } = await client.query(
       `SELECT id, character_id, item_id, item_name, price, monthly_upkeep
@@ -9468,11 +9471,15 @@ app.post("/api/me/character/shop-purchases/:id/dismiss", meFinanceWriteLimit, as
     await writeAuditLog(req.session.userId, "shop.dismiss", "character_shop_purchases", purchase.id, purchase, null);
     res.json({ ok: true });
   } catch (e) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error("[POST /api/me/character/shop-purchases/:id/dismiss]", e);
-    res.status(500).json({ error: "Server error" });
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    console.error(
+      "[POST /api/me/character/shop-purchases/:id/dismiss]",
+      { requestId, userId: req.session?.userId, charId: charId ?? "unknown", purchaseId: req.params.id },
+      e
+    );
+    res.status(500).json({ error: "Server error", requestId });
   } finally {
-    client.release();
+    if (client) client.release();
   }
 });
 
