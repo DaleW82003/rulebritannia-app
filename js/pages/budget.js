@@ -30,7 +30,7 @@ function calculateTotals(budget, adminControls) {
   const rev = sum(budget.revenues, REVENUE_LINES);
   const expCore = sum(budget.expenditures, EXPENDITURE_LINES);
   const cap = sum(budget.capital, CAPITAL_LINES);
-  const staticExp = Number(adminControls.debtInterestExpenditure || 0) + Number(adminControls.charityReliefExpenditure || 0) + Number(adminControls.otherExpensesExpenditure || 0);
+  const staticExp = ((Number(adminControls.nationalDebt ?? 0) * Number(adminControls.debtInterestPercent ?? 0)) / 100) + Number(adminControls.charityReliefExpenditure || 0) + Number(adminControls.otherExpensesExpenditure || 0);
   const totalExp = expCore + cap + staticExp;
   const deficit = rev - totalExp;
   const gdp = Number(budget.gdp || 1930);
@@ -88,8 +88,7 @@ function renderBudgetTable(ly, ty, adminControls) {
           ${sectionHeader("Expenditure")}
           ${EXPENDITURE_LINES.map((k) => row(k, money(ly.expenditures[k]), money(ty.expenditures[k]))).join("")}
           ${row("Capital Expenditure", money(lyT.cap), money(tyT.cap))}
-          <!-- Static admin-controlled lines intentionally show the same value in both LY and TY columns -->
-          ${row("Debt Interest (static)", money(adminControls.debtInterestExpenditure), money(adminControls.debtInterestExpenditure))}
+          ${row("Debt Interest", money((Number(adminControls.nationalDebt ?? 0) * Number(adminControls.debtInterestPercent ?? 0)) / 100), money((Number(adminControls.nationalDebt ?? 0) * Number(adminControls.debtInterestPercent ?? 0)) / 100))}
           ${row("Charity Tax Relief (static)", money(adminControls.charityReliefExpenditure), money(adminControls.charityReliefExpenditure))}
           ${row("Other Receipts/Expenses (static)", money(adminControls.otherExpensesExpenditure), money(adminControls.otherExpensesExpenditure))}
           ${row("Total Expenditure", money(lyT.expenditure), money(tyT.expenditure), true)}

@@ -5,6 +5,7 @@ import { toastSuccess } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateEvent, apiGetEvents, apiUpdateEvent, apiDeleteEvent } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
+import { formatSimMonthYear } from "../clock.js";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -206,7 +207,7 @@ function render(data, state) {
       guestSpeaker,
       status: "pending",
       speeches: [],
-      createdAt: new Date().toLocaleString("en-GB"),
+      createdAt: formatSimMonthYear(data?.gameState || {}),
       createdTs: Date.now(),
       approvedAt: null,
       closesAtSimIndex: null
@@ -244,7 +245,7 @@ function render(data, state) {
       if (!item) return;
       btn.disabled = true;
       item.status = "approved";
-      item.approvedAt = new Date().toLocaleString("en-GB");
+      item.approvedAt = formatSimMonthYear(data?.gameState || {});
       item.closesAtSimIndex = simIndex(data) + 2;
       try {
         await apiUpdateEvent(id, item);
@@ -305,7 +306,7 @@ function render(data, state) {
       if (!speech) return;
       const submitBtn = form.querySelector("button[type='submit']");
       if (submitBtn) submitBtn.disabled = true;
-      item.speeches.push({ author: char?.name || "Character", body: speech, createdAt: new Date().toLocaleString("en-GB") });
+      item.speeches.push({ author: char?.name || "Character", body: speech, createdAt: formatSimMonthYear(data?.gameState || {}) });
       try {
         await apiUpdateEvent(id, item);
       } catch (err) {
@@ -325,11 +326,9 @@ export async function initEventsPage(data) {
   ensureEvents(data);
   try {
     const r = await apiGetEvents();
-    if (r?.events?.length) {
-      const seen = new Set(data.events.items.map((x) => String(x.id)));
-      for (const item of r.events) {
-        if (!seen.has(String(item.id))) data.events.items.push(item);
-      }
+    if (Array.isArray(r?.events)) {
+      // Replace with DB state — source of truth; prevents deleted items reappearing
+      data.events.items = r.events;
     }
   } catch (err) {
     console.error("[events] DB load failed:", err);

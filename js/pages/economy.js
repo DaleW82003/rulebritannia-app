@@ -2,7 +2,7 @@ import { apiSaveEconomyData } from "../api.js";
 import { setHTML, esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { logAction } from "../audit.js";
-import { toastSuccess } from "../components/toast.js";
+import { toastSuccess, toastError } from "../components/toast.js";
 
 function fmtPct(v) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
@@ -143,7 +143,9 @@ export function initEconomyPage(data) {
       </section>
     `;
 
-    controlsBody.querySelector("#econ-ctrl-save")?.addEventListener("click", () => {
+    controlsBody.querySelector("#econ-ctrl-save")?.addEventListener("click", async () => {
+      const saveBtn = controlsBody.querySelector("#econ-ctrl-save");
+      if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Saving…"; }
       const e = data.economyPage || {};
       e.topline = e.topline || {};
       const fd = new FormData(controlsBody.querySelector("#econ-ctrl-topline"));
@@ -158,10 +160,17 @@ export function initEconomyPage(data) {
       });
 
       data.economyPage = e;
-      apiSaveEconomyData(e).catch((err) => console.error("[economy] save failed:", err));
-      logAction({ action: "economy-saved", target: "economy", details: { topline: e.topline } });
-      setHTML("economyKeyLines", renderKeyLines(e.topline));
-      toastSuccess("Economy data saved.");
+      try {
+        await apiSaveEconomyData(e);
+        logAction({ action: "economy-saved", target: "economy", details: { topline: e.topline } });
+        setHTML("economyKeyLines", renderKeyLines(e.topline));
+        toastSuccess("Economy data saved.");
+        if (saveBtn) { saveBtn.textContent = "Saved ✓"; setTimeout(() => { saveBtn.textContent = "Save Economy Data"; saveBtn.disabled = false; }, 2000); }
+      } catch (err) {
+        console.error("[economy] save failed:", err);
+        toastError(`Save failed: ${err.message}`);
+        if (saveBtn) { saveBtn.textContent = "Save Economy Data"; saveBtn.disabled = false; }
+      }
     });
   }
 }

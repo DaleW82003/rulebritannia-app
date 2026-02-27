@@ -384,6 +384,8 @@ function render(data, state) {
           <div class="tile-bottom"><button class="btn" data-action="toggle-conference" data-id="${esc(c.id)}" type="button">${state.openConference === c.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-conference" data-id="${esc(c.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openConference === c.id ? `
             <div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(c.body)}</div>
+              ${marker ? `<button class="btn" type="button" data-action="edit-press" data-id="${esc(c.id)}" style="margin-top:4px;">Edit (Mod)</button>` : ""}
+              ${state.editPressId === c.id ? `<form class="tile" data-action="save-edit-press" data-id="${esc(c.id)}" style="margin-top:8px;"><textarea class="input" name="body" rows="6" required>${esc(c.body)}</textarea><div style="display:flex;gap:6px;margin-top:4px;"><button class="btn" type="submit">Save</button><button class="btn" type="button" data-action="cancel-edit-press">Cancel</button></div></form>` : ""}
             <div class="tile" style="margin-top:8px;">
               <h4 style="margin-top:0;">Transcript</h4>
               ${transcript.length ? transcript.map((t) => {
@@ -459,8 +461,10 @@ function render(data, state) {
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
               <div><b>${esc(c.author)}</b></div><div class="muted">${esc(c.createdAtSim)}</div>
             </div>
-            <p style="white-space:pre-wrap;">${esc(c.body)}</p>
-            ${marker ? `<button class="btn" data-action="delete-comment" data-id="${esc(c.id)}" type="button">Delete</button>` : ""}
+            ${state.editPressId === c.id
+              ? `<form class="tile" data-action="save-edit-press" data-id="${esc(c.id)}" style="margin-top:4px;"><textarea class="input" name="body" rows="3" required>${esc(c.body)}</textarea><div style="display:flex;gap:6px;margin-top:4px;"><button class="btn" type="submit">Save</button><button class="btn" type="button" data-action="cancel-edit-press">Cancel</button></div></form>`
+              : `<p style="white-space:pre-wrap;">${esc(c.body)}</p>`}
+            ${marker ? `<button class="btn" data-action="delete-comment" data-id="${esc(c.id)}" type="button">Delete</button>${state.editPressId !== c.id ? `<button class="btn" data-action="edit-press" data-id="${esc(c.id)}" type="button" style="margin-left:4px;">Edit (Mod)</button>` : ""}` : ""}
           </div>
         </article>
       `).join("") : `<p class="muted">No comments yet.</p>`}
@@ -500,18 +504,12 @@ function render(data, state) {
             <div class="tile" style="margin-top:8px;">
               ${s.picture ? `<img src="${esc(s.picture)}" alt="Speech image" style="max-width:100%;margin-bottom:8px;display:block;" onerror="this.style.display='none'">` : ""}
               <div style="font-weight:600;margin-bottom:4px;">${esc(s.topOfSpeech)}</div>
-              <div style="white-space:pre-wrap;">${esc(s.body)}</div>
+              ${state.editPressId === s.id
+                ? `<form class="tile" data-action="save-edit-press" data-id="${esc(s.id)}" style="margin-top:8px;"><textarea class="input" name="body" rows="6" required>${esc(s.body)}</textarea><div style="display:flex;gap:6px;margin-top:4px;"><button class="btn" type="submit">Save</button><button class="btn" type="button" data-action="cancel-edit-press">Cancel</button></div></form>`
+                : `<div style="white-space:pre-wrap;">${esc(s.body)}</div>${marker ? `<button class="btn" type="button" data-action="edit-press" data-id="${esc(s.id)}" style="margin-top:4px;">Edit (Mod)</button>` : ""}`}
             </div>
           ` : ""}
-          ${markToday && s.score === null ? `
-            <form class="tile" data-action="mark-speech" data-id="${esc(s.id)}" style="margin-top:8px;">
-              <label class="label">Mark score (-5 to +5)</label>
-              <input class="input" type="number" name="score" min="-5" max="5" required>
-              <label class="label">Affect parties (comma-separated, optional)</label>
-              <input class="input" name="impact" placeholder="CON, LAB, LDM">
-              <button class="btn" type="submit">Apply Mark</button>
-            </form>
-          ` : ""}
+          ${markToday && s.score === null ? renderMarkingForm(s.id, "mark-speech", s.party || char?.party || "", "Apply Mark") : ""}
         </article>
       `).join("") : `<p class="muted">No speeches yet.</p>`}
     `;
@@ -570,7 +568,9 @@ function render(data, state) {
               </div>
               <p><b>To:</b> ${esc(l.recipient)}</p>
               <p><b>Subject:</b> ${esc(l.subject)}</p>
-              <div style="white-space:pre-wrap;margin-top:8px;">${esc(l.body)}</div>
+              ${state.editPressId === l.id
+                ? `<form class="tile" data-action="save-edit-press" data-id="${esc(l.id)}" style="margin-top:8px;"><textarea class="input" name="body" rows="6" required>${esc(l.body)}</textarea><div style="display:flex;gap:6px;margin-top:4px;"><button class="btn" type="submit">Save</button><button class="btn" type="button" data-action="cancel-edit-press">Cancel</button></div></form>`
+                : `<div style="white-space:pre-wrap;margin-top:8px;">${esc(l.body)}</div>${marker ? `<button class="btn" type="button" data-action="edit-press" data-id="${esc(l.id)}" style="margin-top:4px;">Edit (Mod)</button>` : ""}`}
               ${office?.signatory ? `<p style="margin-top:12px;" class="muted"><i>${esc(npcSignatory(l.officeKey, data) || office.signatory)}</i></p>` : ""}
             </div>
           ` : ""}
@@ -875,7 +875,12 @@ function render(data, state) {
     e.preventDefault();
     if (!marker) return;
     const id = form.getAttribute("data-id");
-    const item = data.press.releases.find((r) => r.id === id);
+    // Search all press collections for the item
+    const allItems = [
+      ...data.press.releases, ...data.press.conferences, ...data.press.comments,
+      ...data.press.speeches, ...data.press.letters
+    ];
+    const item = allItems.find((r) => r.id === id);
     if (!item) return;
     const fd = new FormData(form);
     const newBody = String(fd.get("body") || "").trim();

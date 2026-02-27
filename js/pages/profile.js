@@ -94,6 +94,18 @@ export async function initProfilePage() {
               </article>
             ` : ""}
 
+            ${char.offices_held?.length ? `
+              <article class="tile" style="grid-column:1/-1;">
+                <h3 style="margin-top:0;">🏛️ Offices Held</h3>
+                <ul style="margin:0;padding-left:16px;column-count:2;column-gap:24px;">
+                  ${char.offices_held.map((o) => {
+                    const typeLabel = { cabinet: "Government", shadow: "Opposition", parliamentary: "Parliamentary", other: "Other" }[o.office_type] || o.office_type;
+                    return `<li style="font-size:.93em;margin-bottom:4px;">${esc(o.office_name)} <span class="muted">(${esc(typeLabel)})</span></li>`;
+                  }).join("")}
+                </ul>
+              </article>
+            ` : ""}
+
             <article class="tile">
               <h3 style="margin-top:0;">Financial Background</h3>
               <p style="margin:0;">${esc(finBgLabel)}</p>

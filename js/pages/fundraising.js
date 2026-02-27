@@ -4,6 +4,7 @@ import { tileSection } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
 import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem, apiUpdateFundraisingItem, apiCreditFundraisingToParty, apiGetParty } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
+import { formatSimMonthYear } from "../clock.js";
 
 const FUNDRAISERS = [
   {
@@ -301,7 +302,7 @@ function render(data, state) {
       grossRevenue: null,
       cost: spec.cost,
       netRevenue: null,
-      createdAt: new Date().toLocaleString("en-GB"),
+      createdAt: formatSimMonthYear(data?.gameState || {}),
       createdTs: Date.now()
     };
 
@@ -398,10 +399,7 @@ function render(data, state) {
         if (profile) profile.bankBalance = Number(profile.bankBalance || 0) + net;
       }
 
-      apiUpdateFundraisingItem(id, {
-        status: item.status, baseGrossRevenue: item.baseGrossRevenue, grossRevenue: item.grossRevenue,
-        cost: item.cost, netRevenue: item.netRevenue, fundraisingCapacityBonus: item.fundraisingCapacityBonus
-      }).catch(err => console.error("[fundraising] allocate failed:", err));
+      apiUpdateFundraisingItem(id, item).catch(err => console.error("[fundraising] allocate failed:", err));
       state.openId = id;
       render(data, state);
     });
@@ -430,11 +428,9 @@ export async function initFundraisingPage(data) {
   ensureFundraising(data);
   try {
     const r = await apiGetFundraisingItems();
-    if (r?.items?.length) {
-      const seen = new Set(data.fundraising.items.map((x) => String(x.id)));
-      for (const item of r.items) {
-        if (!seen.has(String(item.id))) data.fundraising.items.push(item);
-      }
+    if (Array.isArray(r?.items)) {
+      // Replace with DB state — source of truth so deleted/partial items don't persist from stale snapshot
+      data.fundraising.items = r.items;
     }
   } catch (err) {
     console.error("[fundraising] DB load failed:", err);
