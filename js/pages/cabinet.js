@@ -2,7 +2,7 @@ import { saveState, nowStamp } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetCharacters } from "../api.js";
+import { apiGetCharacters, apiGetCabinetDrafts, apiSaveCabinetDrafts } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 function isManager(data) {
@@ -184,7 +184,9 @@ function render(data, state) {
       draft.commencement = commencement;
       draft.articles = articles;
       draft.updatedAt = nowStamp();
-      saveState(data);
+      apiSaveCabinetDrafts(data.cabinet.drafts).catch((err) => {
+        console.warn("[cabinet-draft-form update] save failed:", err.message);
+      });
       state.message = `Updated ${draft.ref}.`;
       state.editingDraftId = null;
       render(data, state);
@@ -211,7 +213,9 @@ function render(data, state) {
       createdAt: nowStamp()
     };
     data.cabinet.drafts.unshift(draft);
-    saveState(data);
+    apiSaveCabinetDrafts(data.cabinet.drafts).catch((err) => {
+      console.warn("[cabinet-draft-form create] save failed:", err.message);
+    });
     state.openDraftId = id;
     state.message = `Created ${draft.ref}.`;
     render(data, state);
@@ -245,7 +249,9 @@ function render(data, state) {
       const idx = data.cabinet.drafts.findIndex((x) => x.id === id);
       if (idx === -1) return;
       const [deleted] = data.cabinet.drafts.splice(idx, 1);
-      saveState(data);
+      apiSaveCabinetDrafts(data.cabinet.drafts).catch((err) => {
+        console.warn("[cabinet delete-draft] save failed:", err.message);
+      });
       if (state.openDraftId === id) state.openDraftId = null;
       if (state.editingDraftId === id) state.editingDraftId = null;
       state.message = `Deleted ${deleted.ref}.`;
@@ -256,11 +262,24 @@ function render(data, state) {
 
 /**
  * Initialise the Cabinet page.
- * Fetches active characters from /api/characters and merges them into the
- * government offices data before rendering (non-fatal fallback if unavailable).
+ * Fetches active characters and cabinet drafts from DB before rendering.
  */
 export async function initCabinetPage(data) {
   normaliseCabinet(data);
+
+  // Load cabinet drafts from DB (authoritative source; accessible to cabinet members)
+  try {
+    const { drafts } = await apiGetCabinetDrafts();
+    if (Array.isArray(drafts)) {
+      data.cabinet.drafts = drafts;
+      // Keep nextDraftId ahead of all existing IDs
+      const maxId = drafts.reduce((m, d) => Math.max(m, Number(d.id || 0)), 0);
+      data.cabinet.nextDraftId = Math.max(Number(data.cabinet.nextDraftId || 1), maxId + 1);
+    }
+  } catch (err) {
+    // Non-critical: fall back to state-based drafts if API unavailable
+    console.warn("[initCabinetPage] could not load cabinet drafts from DB:", err.message);
+  }
 
   // Augment government offices with characters from the DB
   try {
@@ -281,6 +300,5 @@ export async function initCabinetPage(data) {
     // Non-critical: fall back to state-based cabinet data
   }
 
-  saveState(data);
   render(data, { openDraftId: null, editingDraftId: null, message: "" });
 }
