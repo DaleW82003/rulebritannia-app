@@ -929,19 +929,15 @@ function render(data, state) {
   const netBiMonthly      = biMonthlyCredit - monthlyUpkeep * 2;
   const upkeepExceedsIncome = monthlyUpkeep > 0 && annualUpkeep > totalAnnualIncome;
   const financeOverspend    = isOwnProfile ? !!state.financeOverspend : (profile.bankBalance < 0);
-  // Pre-computed sub-string for the upkeep detail note in the income summary tile
+  // Pre-computed colour for net bi-monthly figure
   const netBiMonthlyColor = netBiMonthly >= 0 ? "#0a7f2e" : "#c00";
-  const upkeepDetailNote  = monthlyUpkeep > 0
-    ? ` · upkeep deducted monthly: -${money(monthlyUpkeep)}`
-      + ` · net per 2-month period: <b style="color:${netBiMonthlyColor};">${money(netBiMonthly)}</b>`
-    : "";
-  // Pre-computed breakdown line for shop vs property vs affiliations upkeep
-  const upkeepBreakdownParts = [];
-  if (shopUpkeepDisplay > 0)       upkeepBreakdownParts.push(`Shop: -${money(shopUpkeepDisplay)}/month`);
-  if (propertyUpkeepDisplay > 0)   upkeepBreakdownParts.push(`Property: -${money(propertyUpkeepDisplay)}/month`);
-  if (affiliationsFeesDisplay > 0) upkeepBreakdownParts.push(`Affiliations: -${money(affiliationsFeesDisplay)}/month`);
-  const upkeepBreakdown = isOwnProfile && upkeepBreakdownParts.length
-    ? `<div class="muted" style="font-size:.85em;margin-left:12px;">${upkeepBreakdownParts.join(" · ")}</div>`
+  // Pre-computed breakdown lines for upkeep components (one <div> per item)
+  const upkeepBreakdownLines = [];
+  if (shopUpkeepDisplay > 0)       upkeepBreakdownLines.push(`Upkeep: -${money(shopUpkeepDisplay)}/month`);
+  if (propertyUpkeepDisplay > 0)   upkeepBreakdownLines.push(`Cost of Living: -${money(propertyUpkeepDisplay)}/month`);
+  if (affiliationsFeesDisplay > 0) upkeepBreakdownLines.push(`Affiliations: -${money(affiliationsFeesDisplay)}/month`);
+  const upkeepBreakdown = isOwnProfile && upkeepBreakdownLines.length
+    ? `<div class="muted" style="font-size:.85em;margin-left:12px;line-height:1.7;">${upkeepBreakdownLines.map(l => `<div>${l}</div>`).join("")}</div>`
     : "";
 
   host.innerHTML = `
@@ -1062,7 +1058,7 @@ function render(data, state) {
         ` : ""}
       </article>
 
-      <article class="tile">
+      <article class="tile" style="min-height:240px;">
         <h2 style="margin-top:0;">Income &amp; Upkeep Summary</h2>
         <div style="line-height:1.8;">
           <div><b>Annual Salary:</b> ${money(profile.salaryAnnual)}</div>
@@ -1074,14 +1070,16 @@ function render(data, state) {
             <b>Net Annual Income:</b>
             <span style="color:${netAnnualIncome >= 0 ? "#0a7f2e" : "#c00"};">${money(netAnnualIncome)}</span>
           </div>
-          <div class="muted" style="font-size:.88em;">
-            Bi-monthly deposit: ${money(biMonthlyCredit)}${upkeepDetailNote}
+          <div class="muted" style="font-size:.88em;line-height:1.9;margin-top:2px;">
+            <div>Bi-monthly deposit: ${money(biMonthlyCredit)}</div>
+            ${monthlyUpkeep > 0 ? `<div>Monthly upkeep deduction: <span style="color:#c00;">-${money(monthlyUpkeep)}</span></div>` : ""}
+            ${monthlyUpkeep > 0 ? `<div>Net per 2-month period: <b style="color:${netBiMonthlyColor};">${money(netBiMonthly)}</b></div>` : ""}
           </div>
         </div>
         ${upkeepExceedsIncome ? `<div style="color:#c00;margin-top:6px;">⚠️ Monthly upkeep exceeds annual income — your balance will decline each month.</div>` : ""}
       </article>
 
-      <article class="tile">
+      <article class="tile" style="min-height:240px;">
         <h2 style="margin-top:0;">Bank Balance</h2>
         <p><b>Current Balance:</b> <span style="color:${profile.bankBalance < 0 ? "#c00" : "inherit"};">${money(profile.bankBalance)}</span></p>
         <p class="muted">Projected next bi-monthly deposit: ${money(biMonthlyCredit)}</p>
