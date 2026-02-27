@@ -14117,6 +14117,10 @@ app.patch("/api/admin/finance/salary-bands", adminFinanceLimit, async (req, res)
     await writeAuditLog(req.session.userId, "admin.finance.salary-bands.update", "finance_config", "main",
       { salaryBands: before }, { salaryBands: normalised, simYear: currentSimYear });
     res.json({ ok: true, salaryBands: normalised, simYear: currentSimYear });
+    // Recompute salary positions for ALL active characters so their salaryAnnual reflects the new bands
+    pool.query("SELECT id FROM characters WHERE status = 'active'")
+      .then(({ rows }) => Promise.all(rows.map((r) => recomputeSalaryPositions(r.id))))
+      .catch((e) => console.error("[salary-bands] recompute all failed:", e.message));
   } catch (e) {
     console.error("[PATCH /api/admin/finance/salary-bands]", e);
     res.status(500).json({ error: "Server error" });

@@ -141,7 +141,7 @@ function render(data) {
             <tbody>
               ${(Array.isArray(data?.parliament?.parties) ? data.parliament.parties : []).map((p) => {
                 const partyName = esc(p.name === "Speaker" ? "Others" : (p.name || ""));
-                return `<tr><td style="padding:4px 8px;">${partyName}</td><td style="padding:4px 8px;"><input type="number" name="party-${partyName}" min="0" max="100" step="0.1" value="0" class="input" style="width:90px;"></td></tr>`;
+                return `<tr><td style="padding:4px 8px;">${partyName}</td><td style="padding:4px 8px;"><input type="number" name="party-${partyName.replace(/[^a-zA-Z0-9 ]/g, "")}" min="0" max="100" step="0.1" value="0" class="input" style="width:90px;"></td></tr>`;
               }).join("")}
             </tbody>
           </table>

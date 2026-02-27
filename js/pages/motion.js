@@ -227,7 +227,7 @@ async function renderHouseDb(root, data, motion) {
                 const npcParties = Object.keys(seats).filter((p) => Number(seats[p]) > 0 && !PLAYABLE_PARTIES.has(p) && !/sinn\s*f[ée]in/i.test(p) && !/^speaker$/i.test(p));
                 const npcVotes = dbDiv.npc_votes || {};
                 const rebels   = dbDiv.rebels_by_party || {};
-                if (!npcParties.length && !["Labour", "Conservative", "Liberal Democrat"].some(p => Number(seats[p] || 0) > 0)) return `<p class="muted">No NPC parties with seats.</p>`;
+                if (!npcParties.length && ![...PLAYABLE_PARTIES].some(p => Number(seats[p] || 0) > 0)) return `<p class="muted">No NPC parties with seats.</p>`;
                 const npcTally = { aye: 0, no: 0, abstain: 0 };
                 Object.entries(npcVotes).forEach(([p, v]) => {
                   if (npcTally[v] !== undefined && Number(seats[p] || 0) > 0) {
@@ -249,7 +249,7 @@ async function renderHouseDb(root, data, motion) {
                 `<div style="margin-top:12px;">
                   <h5 style="margin:0 0 4px;">Rebellion (removes from player weighted vote)</h5>
                   <p class="muted" style="margin:0 0 6px;font-size:0.85em;">Set number of rebels per party. These seats are removed from that party's weighted player vote total.</p>
-                  ${["Labour", "Conservative", "Liberal Democrat"].filter(p => Number(seats[p] || 0) > 0).map(p => `
+                  ${[...PLAYABLE_PARTIES].filter(p => Number(seats[p] || 0) > 0).map(p => `
                     <div class="kv" style="margin-bottom:4px;">
                       <span><b>${esc(p)}</b> (${Number(seats[p])} seats total)</span>
                       <label>Rebels: <input type="number" name="rebels-${esc(p)}" min="0" max="${Number(seats[p])}" value="${Number(rebels[p] || 0)}" class="input" style="width:70px;"></label>
@@ -347,7 +347,7 @@ async function renderHouseDb(root, data, motion) {
       if (rebels > 0) rebelsByParty[p] = rebels;
     });
     // Collect rebel counts for playable parties (Labour, Conservative, Liberal Democrat)
-    ["Labour", "Conservative", "Liberal Democrat"].forEach((p) => {
+    [...PLAYABLE_PARTIES].forEach((p) => {
       if (Number(seats[p] || 0) > 0) {
         const rebels = Number(fd.get(`rebels-${p}`) || 0);
         if (rebels > 0) rebelsByParty[p] = rebels;

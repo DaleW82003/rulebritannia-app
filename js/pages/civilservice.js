@@ -227,7 +227,26 @@ function renderBriefingCard(data, b, state) {
                 </div>
               ` : (b.status === "open" && !canAct ? '<div class="muted">Awaiting ministerial decision.</div>' : "")}
             </div>
-          ` : `<div class="muted-block">No active stage — briefing ${b.status === "closed" ? "closed" : "has no stages configured"}.</div>`}
+          ` : `<div class="muted-block">No active stage — briefing ${b.status === "closed" ? "closed" : "has no stages configured"}.${b.awaitingNextStage && mod ? "" : ""}</div>
+            ${b.awaitingNextStage && mod ? `
+              <div style="margin-top:8px;">
+                <b>Stage decision recorded.</b> Choose the next action:
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+                  <button type="button" class="btn" data-action="launch-next-stage" data-id="${b.id}">Launch Next Stage</button>
+                  <button type="button" class="btn danger" data-action="end-briefing" data-id="${b.id}">End Briefing</button>
+                </div>
+                <form id="next-stage-form-${b.id}" data-briefing-id="${b.id}" style="display:none;margin-top:8px;">
+                  <input name="stageTitle" class="input" required placeholder="Stage title" style="margin-bottom:4px;">
+                  <textarea name="stageText" class="input" rows="3" placeholder="Stage instructions" style="margin-bottom:4px;"></textarea>
+                  <input name="optA" class="input" placeholder="Option A label" style="margin-bottom:4px;">
+                  <input name="optB" class="input" placeholder="Option B label (optional)" style="margin-bottom:4px;">
+                  <div style="display:flex;gap:6px;">
+                    <button type="submit" class="btn" data-briefing-id="${b.id}">Launch Stage</button>
+                    <button type="button" class="btn" data-action="cancel-next-stage" data-id="${b.id}">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            ` : ""}`}
 
           ${b.auditLog.length ? `
             <details style="margin-top:8px;">
@@ -507,12 +526,69 @@ function render(data, state) {
       if (nextStageIdx != null && nextStageIdx < briefing.stages.length) {
         briefing.currentStageIdx = nextStageIdx;
       } else {
-        briefing.status = "closed";
+        // Stage complete — hold open so mod can launch next stage or end briefing
         briefing.currentStageIdx = null;
+        briefing.awaitingNextStage = true;
       }
 
       saveState(data);
       state.message = `Decision recorded on Briefing #${briefingId}.`;
+      render(data, state);
+    });
+  });
+
+  // Mod: launch next stage after decision
+  host.querySelectorAll('[data-action="launch-next-stage"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!mod) return;
+      const id = Number(btn.dataset.id || 0);
+      const form = host.querySelector(`#next-stage-form-${id}`);
+      if (form) form.style.display = form.style.display === "none" ? "block" : "none";
+    });
+  });
+  host.querySelectorAll('[data-action="cancel-next-stage"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.dataset.id || 0);
+      const form = host.querySelector(`#next-stage-form-${id}`);
+      if (form) form.style.display = "none";
+    });
+  });
+  host.querySelectorAll('[data-action="end-briefing"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!mod) return;
+      const id = Number(btn.dataset.id || 0);
+      const briefing = data.civilService.briefings.find((b) => b.id === id);
+      if (!briefing || briefing.status === "closed") return;
+      briefing.status = "closed";
+      briefing.awaitingNextStage = false;
+      briefing.currentStageIdx = null;
+      saveState(data);
+      state.message = `Briefing #${id} ended.`;
+      render(data, state);
+    });
+  });
+  host.querySelectorAll('[id^="next-stage-form-"]').forEach((form) => {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!mod) return;
+      const id = Number(form.dataset.briefingId || form.id.replace("next-stage-form-", ""));
+      const briefing = data.civilService.briefings.find((b) => b.id === id);
+      if (!briefing || briefing.status === "closed") return;
+      const fd = new FormData(form);
+      const stageTitle = String(fd.get("stageTitle") || "").trim();
+      const stageText  = String(fd.get("stageText")  || "").trim();
+      const optA = String(fd.get("optA") || "").trim();
+      const optB = String(fd.get("optB") || "").trim();
+      if (!stageTitle) return;
+      const options = [];
+      if (optA) options.push({ id: "a", label: optA, nextStageIdx: null });
+      if (optB) options.push({ id: "b", label: optB, nextStageIdx: null });
+      const newIdx = briefing.stages.length;
+      briefing.stages.push({ id: `s${newIdx + 1}`, title: stageTitle, text: stageText, options });
+      briefing.currentStageIdx = newIdx;
+      briefing.awaitingNextStage = false;
+      saveState(data);
+      state.message = `Stage ${newIdx + 1} launched on Briefing #${id}.`;
       render(data, state);
     });
   });

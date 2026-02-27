@@ -3,7 +3,7 @@ import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, getWeekdayName, isSunday, getSimDate, simDateToObj, compareSimDates } from "../clock.js";
 import { handleApiError } from "../errors.js";
-import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry, apiMarkPressItem } from "../api.js";
+import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry, apiMarkPressItem, apiUpdatePressItem } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 const PARTY_CODES = {
@@ -213,6 +213,54 @@ function scoreChip(score) {
   return `<span style="color:${cls};font-weight:700;">${sign}${Number(score)}</span>`;
 }
 
+/** Known parliament parties for the marking effects table (excluding Speaker). */
+const MARK_PARTIES = ["Conservative", "Labour", "Liberal Democrat", "SNP", "Plaid Cymru", "Green", "UKIP", "DUP", "Sinn Féin", "SDLP", "Alliance", "Independents"];
+
+/**
+ * Renders the redesigned marking form.
+ * - Author mark (-5 to +5)
+ * - Effect on author's own party (-5 to +5)
+ * - Per-party effects table (all known parties, default 0 — only non-zero included on submit)
+ */
+function renderMarkingForm(id, action, authorParty, submitLabel) {
+  return `
+    <form class="tile" data-action="${esc(action)}" data-id="${esc(id)}" style="margin-top:8px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-bottom:8px;">
+        <label class="label">Author Mark (−5 to +5)
+          <input class="input" type="number" name="authorScore" min="-5" max="5" value="0" required style="margin-top:4px;">
+        </label>
+        <label class="label">Effect on Author's Party (−5 to +5)
+          <input class="input" type="number" name="partyScore" min="-5" max="5" value="0" style="margin-top:4px;">
+        </label>
+      </div>
+      <div style="margin-bottom:6px;"><b>Effects on other parties</b> <span class="muted">(set 0 for no effect)</span></div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
+        ${MARK_PARTIES.filter((p) => p !== (authorParty || "")).map((p) => `
+          <tr>
+            <td style="padding:2px 8px 2px 0;">${esc(p)}</td>
+            <td><input type="number" name="party-score-${esc(p)}" min="-5" max="5" value="0" class="input" style="width:80px;"></td>
+          </tr>
+        `).join("")}
+      </table>
+      <button class="btn" type="submit">${esc(submitLabel)}</button>
+    </form>
+  `;
+}
+
+/** Reads the new marking form and returns { score, partyScore, partyEffects, impact }. */
+function readMarkingFormData(fd) {
+  const score      = Number(fd.get("authorScore") || 0);
+  const partyScore = Number(fd.get("partyScore")  || 0);
+  const partyEffects = {};
+  for (const party of MARK_PARTIES) {
+    const v = Number(fd.get(`party-score-${party}`) || 0);
+    if (v !== 0) partyEffects[party] = v;
+  }
+  // impact array: list of party names with non-zero effects (for backward compat)
+  const impact = Object.keys(partyEffects);
+  return { score, partyScore, partyEffects, impact };
+}
+
 function render(data, state) {
   const root = document.getElementById("press-root");
   if (!root) return;
@@ -295,16 +343,12 @@ function render(data, state) {
           <div class="muted">By ${esc(r.author)} • ${esc(r.createdAtSim)}</div>
           ${r.impact?.length ? `<div class="muted">Affects: ${esc(r.impact.join(", "))}</div>` : ""}
           <div class="tile-bottom"><button class="btn" data-action="toggle-release" data-id="${esc(r.id)}" type="button">${state.openRelease === r.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-release" data-id="${esc(r.id)}" type="button">Delete</button>` : ""}</div>
-          ${state.openRelease === r.id ? `<div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(r.body)}</div>` : ""}
-          ${markToday && r.score === null ? `
-            <form class="tile" data-action="mark-release" data-id="${esc(r.id)}" style="margin-top:8px;">
-              <label class="label">Mark score (-5 to +5)</label>
-              <input class="input" type="number" name="score" min="-5" max="5" required>
-              <label class="label">Affect parties (comma-separated, optional)</label>
-              <input class="input" name="impact" placeholder="CON, LAB, LDM">
-              <button class="btn" type="submit">Apply Mark</button>
-            </form>
-          ` : ""}
+          ${state.openRelease === r.id ? (
+            state.editPressId === r.id
+              ? `<form class="tile" data-action="save-edit-press" data-id="${esc(r.id)}" style="margin-top:8px;"><textarea class="input" name="body" rows="6" required>${esc(r.body)}</textarea><div style="display:flex;gap:6px;margin-top:4px;"><button class="btn" type="submit">Save</button><button class="btn" type="button" data-action="cancel-edit-press">Cancel</button></div></form>`
+              : `<div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(r.body)}</div>${marker ? `<button class="btn" type="button" data-action="edit-press" data-id="${esc(r.id)}" style="margin-top:4px;">Edit (Mod)</button>` : ""}`
+          ) : ""}
+          ${markToday && r.score === null ? renderMarkingForm(r.id, "mark-release", r.party || char?.party || "", "Apply Mark") : ""}
         </article>
       `).join("") : `<p class="muted">No releases yet.</p>`}
     `;
@@ -372,15 +416,8 @@ function render(data, state) {
                 ${!hasUnanswered && questionCount === 0 ? `<p class="muted" style="font-size:.88em;">Waiting for questions from the press.</p>` : ""}
                 ${!hasUnanswered && questionCount > 0 ? `<p class="muted" style="font-size:.88em;">All questions answered.</p>` : ""}
               ` : ""}
-              ${markToday && c.score === null ? `
-                <form data-action="mark-conference" data-id="${esc(c.id)}" style="margin-top:8px;">
-                  <label class="label">Mark score (-5 to +5)</label>
-                  <input class="input" type="number" name="score" min="-5" max="5" required>
-                  <label class="label">Affect parties (comma-separated, optional)</label>
-                  <input class="input" name="impact" placeholder="CON, LAB, LDM">
-                  <button class="btn" type="submit">Apply Mark & Close</button>
-                </form>
-              ` : ""}
+              ${markToday && c.score === null && c.status === "closed" ? renderMarkingForm(c.id, "mark-conference", c.party || char?.party || "", "Apply Mark & Close") : ""}
+              ${markToday && c.score === null && c.status !== "closed" ? `<p class="muted" style="font-size:.85em;">Marking available once the conference closes (after 2 sim months).</p>` : ""}
             </div>
           ` : ""}
         </article>
@@ -538,15 +575,7 @@ function render(data, state) {
               ${office?.signatory ? `<p style="margin-top:12px;" class="muted"><i>${esc(npcSignatory(l.officeKey, data) || office.signatory)}</i></p>` : ""}
             </div>
           ` : ""}
-          ${markToday && l.score === null ? `
-            <form class="tile" data-action="mark-letter" data-id="${esc(l.id)}" style="margin-top:8px;">
-              <label class="label">Mark score (-5 to +5)</label>
-              <input class="input" type="number" name="score" min="-5" max="5" required>
-              <label class="label">Affect parties (comma-separated, optional)</label>
-              <input class="input" name="impact" placeholder="CON, LAB, LDM">
-              <button class="btn" type="submit">Apply Mark</button>
-            </form>
-          ` : ""}
+          ${markToday && l.score === null ? renderMarkingForm(l.id, "mark-letter", l.party || char?.party || "", "Apply Mark") : ""}
         </article>
         `;
       }).join("") : `<p class="muted">No official letters yet.</p>`}
@@ -604,14 +633,13 @@ function render(data, state) {
     const item = data.press.releases.find((r) => r.id === id);
     if (!item) return;
     const fd = new FormData(e.currentTarget);
-    const score = Number(fd.get("score"));
-    const impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const { score, partyScore, partyEffects, impact } = readMarkingFormData(fd);
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
     try {
-      const result = await apiMarkPressItem(id, { score, impact });
+      const result = await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
       if (result.item) Object.assign(item, result.item);
-      else { item.score = score; item.impact = impact; item.is_marked = true; }
+      else { item.score = score; item.impact = impact; item.partyScore = partyScore; item.partyEffects = partyEffects; item.is_marked = true; }
     } catch (err) {
       handleApiError(err, "Mark press release");
       if (submitBtn) submitBtn.disabled = false;
@@ -751,12 +779,11 @@ function render(data, state) {
     const conf = data.press.conferences.find((c) => c.id === id);
     if (!conf) return;
     const fd = new FormData(e.currentTarget);
-    const score = Number(fd.get("score"));
-    const impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const { score, partyScore, partyEffects, impact } = readMarkingFormData(fd);
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
     try {
-      const result = await apiMarkPressItem(id, { score, impact });
+      const result = await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
       if (result.item) Object.assign(conf, result.item);
       else { conf.score = score; conf.impact = impact; conf.status = "closed"; conf.is_marked = true; }
     } catch (err) {
@@ -835,6 +862,38 @@ function render(data, state) {
     render(data, state);
   }));
 
+  // Mod/admin: enter edit mode for press item
+  section.querySelectorAll("[data-action='edit-press']").forEach((btn) => btn.addEventListener("click", () => {
+    if (!marker) return;
+    state.editPressId = btn.getAttribute("data-id");
+    render(data, state);
+  }));
+  section.querySelectorAll("[data-action='cancel-edit-press']").forEach((btn) => btn.addEventListener("click", () => {
+    state.editPressId = null;
+    render(data, state);
+  }));
+  section.querySelectorAll("form[data-action='save-edit-press']").forEach((form) => form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!marker) return;
+    const id = form.getAttribute("data-id");
+    const item = data.press.releases.find((r) => r.id === id);
+    if (!item) return;
+    const fd = new FormData(form);
+    const newBody = String(fd.get("body") || "").trim();
+    if (!newBody) return;
+    const prev = item.body;
+    item.body = newBody;
+    state.editPressId = null;
+    try {
+      await apiUpdatePressItem(id, { body: newBody });
+    } catch (err) {
+      item.body = prev;
+      handleApiError(err, "Edit press item");
+    }
+    saveState(data);
+    render(data, state);
+  }));
+
   section.querySelectorAll("[data-action='delete-conference']").forEach((btn) => btn.addEventListener("click", () => {
     if (!marker) return;
     const id = btn.getAttribute("data-id");
@@ -895,14 +954,13 @@ function render(data, state) {
     const item = data.press.speeches.find((s) => s.id === id);
     if (!item) return;
     const fd = new FormData(e.currentTarget);
-    const score = Number(fd.get("score"));
-    const impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const { score, partyScore, partyEffects, impact } = readMarkingFormData(fd);
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
     try {
-      const result = await apiMarkPressItem(id, { score, impact });
+      const result = await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
       if (result.item) Object.assign(item, result.item);
-      else { item.score = score; item.impact = impact; item.is_marked = true; }
+      else { item.score = score; item.impact = impact; item.partyScore = partyScore; item.partyEffects = partyEffects; item.is_marked = true; }
     } catch (err) {
       handleApiError(err, "Mark speech");
       if (submitBtn) submitBtn.disabled = false;
@@ -985,14 +1043,13 @@ function render(data, state) {
     const item = data.press.letters.find((l) => l.id === id);
     if (!item) return;
     const fd = new FormData(e.currentTarget);
-    const score = Number(fd.get("score"));
-    const impact = String(fd.get("impact") || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const { score, partyScore, partyEffects, impact } = readMarkingFormData(fd);
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
     try {
-      const result = await apiMarkPressItem(id, { score, impact });
+      const result = await apiMarkPressItem(id, { score, partyScore, partyEffects, impact });
       if (result.item) Object.assign(item, result.item);
-      else { item.score = score; item.impact = impact; item.is_marked = true; }
+      else { item.score = score; item.impact = impact; item.partyScore = partyScore; item.partyEffects = partyEffects; item.is_marked = true; }
     } catch (err) {
       handleApiError(err, "Mark official letter");
       if (submitBtn) submitBtn.disabled = false;
@@ -1030,5 +1087,5 @@ export async function initPressPage(data) {
   const requested = params.get("view") || "releases";
   const validViews = ["releases", "conferences", "comments", "speeches", "letters"];
   const initialView = validViews.includes(requested) ? requested : "releases";
-  render(data, { view: initialView, openRelease: null, openConference: null, openSpeech: null, openLetter: null });
+  render(data, { view: initialView, openRelease: null, openConference: null, openSpeech: null, openLetter: null, editPressId: null });
 }
