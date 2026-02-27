@@ -115,7 +115,7 @@ function render(data) {
       id: `rl-${Date.now()}-${data.redLion.nextId}`,
       displayName,
       asBarkeep,
-      avatar: asBarkeep ? "" : resolveCharacterAvatar(data, displayName, String(char?.avatar || "")),
+      avatar: asBarkeep ? "https://dummyimage.com/64x64/6b3a0a/ffffff&text=🍺" : resolveCharacterAvatar(data, displayName, String(char?.avatar || "")),
       body,
       createdAt: formatSimMonthYear(data.gameState)
     };

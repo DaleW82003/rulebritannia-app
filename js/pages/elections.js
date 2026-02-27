@@ -252,7 +252,7 @@ function renderPartyRows() {
         ${_partyNames.map(p => `<option value="${esc(p)}"${row.party === p ? " selected" : ""}>${esc(p)}</option>`).join("")}
       </select>
       <input class="input party-row-seats" type="number" min="0" placeholder="Seats" value="${esc(row.seats)}" data-i="${i}">
-      <input class="input party-row-share" type="number" min="0" max="100" step="0.01" placeholder="Vote %" value="${esc(row.vote_share)}" data-i="${i}">
+      <input class="input party-row-share" type="number" min="0" max="100" step="0.01" placeholder="Vote share %" value="${esc(row.vote_share)}" data-i="${i}">
       <button class="btn danger" type="button" data-remove-row="${i}" style="padding:6px 8px;font-size:12px;" ${state.submitPartyRows.length <= 1 ? "disabled" : ""}>✕</button>
     </div>
   `).join("");

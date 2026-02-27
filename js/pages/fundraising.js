@@ -343,7 +343,7 @@ function render(data, state) {
   });
 
   root.querySelectorAll("form[data-action='allocate']").forEach((form) => {
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (!mod) return;
       const id = String(form.getAttribute("data-id") || "");
@@ -383,13 +383,17 @@ function render(data, state) {
         if (existingParty?.treasury) {
           existingParty.treasury.cash = Number(existingParty.treasury.cash || 0) + net;
         }
-        // Credit DB-backed party treasury and add to party income ledger
+        // Credit DB-backed party treasury and add to party income ledger (awaited; errors shown)
         if (net > 0 && item.party) {
-          apiCreditFundraisingToParty(id, {
-            partySlug: item.party,
-            amount: net,
-            note: `Fundraising: ${item.type || "event"}${fc > 0 ? ` (+${bonusPct}% fundraising capacity bonus)` : ""}`,
-          }).catch((err) => console.warn("[fundraising] DB party credit failed:", err.message));
+          try {
+            await apiCreditFundraisingToParty(id, {
+              partySlug: item.party,
+              amount: net,
+              note: `Fundraising: ${item.type || "event"}${fc > 0 ? ` +${bonusPct}% capacity bonus` : ""}`,
+            });
+          } catch (err) {
+            console.error("[fundraising] DB party treasury credit failed:", err.message);
+          }
         }
       } else {
         const key = item.hostId || item.hostName;

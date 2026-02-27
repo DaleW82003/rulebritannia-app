@@ -1,4 +1,4 @@
-import { apiSaveEconomyData } from "../api.js";
+import { apiSaveEconomyData, apiGetEconomyData } from "../api.js";
 import { setHTML, esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { logAction } from "../audit.js";
@@ -75,7 +75,16 @@ function renderDetail(item) {
   `;
 }
 
-export function initEconomyPage(data) {
+export async function initEconomyPage(data) {
+  // Always load from DB as authoritative source (prevents stale state snapshot from hiding saves)
+  try {
+    const dbEconomy = await apiGetEconomyData();
+    if (dbEconomy && typeof dbEconomy === "object" && !dbEconomy.error) {
+      data.economyPage = dbEconomy;
+    }
+  } catch (err) {
+    console.warn("[economy] DB load failed, using state snapshot:", err.message);
+  }
   const economy = data?.economyPage || {};
   const topline = economy.topline || {};
   const ukInfoTiles = Array.isArray(economy.ukInfoTiles) ? economy.ukInfoTiles : [];

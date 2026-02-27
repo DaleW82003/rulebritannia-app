@@ -1201,10 +1201,11 @@ async function ensureSchema() {
   // ── Extra divisions columns (idempotent) ──────────────────────────────────
   await pool.query(`
     ALTER TABLE divisions
-      ADD COLUMN IF NOT EXISTS closes_at_sim   TEXT,
-      ADD COLUMN IF NOT EXISTS npc_votes       JSONB NOT NULL DEFAULT '{}',
-      ADD COLUMN IF NOT EXISTS rebels_by_party JSONB NOT NULL DEFAULT '{}',
-      ADD COLUMN IF NOT EXISTS outcome         TEXT;
+      ADD COLUMN IF NOT EXISTS closes_at_sim          TEXT,
+      ADD COLUMN IF NOT EXISTS npc_votes              JSONB NOT NULL DEFAULT '{}',
+      ADD COLUMN IF NOT EXISTS rebels_by_party        JSONB NOT NULL DEFAULT '{}',
+      ADD COLUMN IF NOT EXISTS rebels_by_party_choice JSONB NOT NULL DEFAULT '{}',
+      ADD COLUMN IF NOT EXISTS outcome                TEXT;
   `);
 
   // ── Division whip system tables ───────────────────────────────────────────
@@ -10642,7 +10643,7 @@ app.post("/api/divisions/create", divWriteLimit, async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO divisions (entity_type, entity_id, title, closes_at, closes_at_sim)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, entity_type, entity_id, title, status, closes_at, closes_at_sim, npc_votes, rebels_by_party, outcome, created_at`,
+       RETURNING id, entity_type, entity_id, title, status, closes_at, closes_at_sim, npc_votes, rebels_by_party, rebels_by_party_choice, outcome, created_at`,
       [entity_type, String(entity_id), title, closes_at || null, closes_at_sim || null]
     );
     await writeAuditLog(req.session.userId, "division.create", "division", rows[0].id, null, rows[0]);
@@ -10660,7 +10661,7 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const { entityType, entityId } = req.params;
     const { rows } = await pool.query(
       `SELECT id, entity_type, entity_id, title, status, closes_at, closes_at_sim,
-              npc_votes, rebels_by_party, outcome, created_at
+              npc_votes, rebels_by_party, rebels_by_party_choice, outcome, created_at
          FROM divisions WHERE entity_type = $1 AND entity_id = $2
         ORDER BY created_at DESC LIMIT 1`,
       [entityType, entityId]
@@ -10682,6 +10683,7 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     // Also add NPC party votes to the live tally
     const npcV = division.npc_votes || {};
     const rebelP = division.rebels_by_party || {};
+    const rebelChoice = division.rebels_by_party_choice || {};
     const { rows: seatRows } = await pool.query(
       "SELECT party, COUNT(*) AS seats FROM constituencies WHERE party IS NOT NULL AND party <> '' GROUP BY party"
     );
@@ -10691,6 +10693,17 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
       const seats = Number(seatsByParty[party] || 0);
       const rebels = Number(rebelP[party] || 0);
       if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
+      // Add rebel votes to their chosen direction
+      if (rebels > 0) {
+        const rebelDir = rebelChoice[party];
+        if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebels;
+      }
+    }
+    // Also count rebel votes for playable-party rebels (no NPC base vote)
+    for (const [party, rebels] of Object.entries(rebelP)) {
+      if (npcV[party]) continue; // already handled above
+      const rebelDir = rebelChoice[party];
+      if (rebelDir && tally[rebelDir] !== undefined && rebels > 0) tally[rebelDir] += Number(rebels);
     }
 
     // Caller's own vote and effective weight
@@ -10852,7 +10865,7 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
     try {
       await client.query("BEGIN");
       const { rows: divRows } = await client.query(
-        "SELECT id, status, entity_type, entity_id, title, npc_votes, rebels_by_party FROM divisions WHERE id = $1 FOR UPDATE",
+        "SELECT id, status, entity_type, entity_id, title, npc_votes, rebels_by_party, rebels_by_party_choice FROM divisions WHERE id = $1 FOR UPDATE",
         [req.params.id]
       );
       if (!divRows.length) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Division not found" }); }
@@ -10871,12 +10884,24 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
       // Sinn Féin and Speaker are excluded automatically (0 seats taken / no vote).
       const npcVotes    = divRows[0].npc_votes    || {};
       const rebelsByPty = divRows[0].rebels_by_party || {};
+      const rebelChoicePty = divRows[0].rebels_by_party_choice || {};
       for (const [party, npcVote] of Object.entries(npcVotes)) {
         if (tally[npcVote] === undefined) continue;
         if (SINN_FEIN_PARTY_RE.test(party) || SPEAKER_PARTY_RE.test(party)) continue;
         const seats  = Number(seatsByParty[party] || 0);
         const rebels = Number(rebelsByPty[party] || 0);
         if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
+        // Add rebel votes to their chosen direction
+        if (rebels > 0) {
+          const rebelDir = rebelChoicePty[party];
+          if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebels;
+        }
+      }
+      // Playable-party rebels (no NPC base vote)
+      for (const [party, rebels] of Object.entries(rebelsByPty)) {
+        if (npcVotes[party]) continue; // already handled above
+        const rebelDir = rebelChoicePty[party];
+        if (rebelDir && tally[rebelDir] !== undefined && rebels > 0) tally[rebelDir] += Number(rebels);
       }
 
       // Sinn Féin seats auto-abstain (do not take seats — excluded from aye/no counts)
@@ -10916,12 +10941,12 @@ app.patch("/api/divisions/:id/npc-votes", divWriteLimit, async (req, res) => {
     const canSet = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
     if (!canSet) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
-    const { npc_votes = {}, rebels_by_party = {} } = req.body || {};
+    const { npc_votes = {}, rebels_by_party = {}, rebels_by_party_choice = {} } = req.body || {};
     const { rows } = await pool.query(
-      `UPDATE divisions SET npc_votes = $1::jsonb, rebels_by_party = $2::jsonb
+      `UPDATE divisions SET npc_votes = $1::jsonb, rebels_by_party = $2::jsonb, rebels_by_party_choice = $4::jsonb
         WHERE id = $3
-       RETURNING id, npc_votes, rebels_by_party`,
-      [JSON.stringify(npc_votes), JSON.stringify(rebels_by_party), req.params.id]
+       RETURNING id, npc_votes, rebels_by_party, rebels_by_party_choice`,
+      [JSON.stringify(npc_votes), JSON.stringify(rebels_by_party), req.params.id, JSON.stringify(rebels_by_party_choice)]
     );
     if (!rows.length) return res.status(404).json({ error: "Division not found" });
     res.json({ ok: true, division: rows[0] });

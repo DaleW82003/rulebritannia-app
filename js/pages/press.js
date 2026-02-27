@@ -212,6 +212,26 @@ function scoreChip(score) {
   return `<span style="color:${cls};font-weight:700;">${sign}${Number(score)}</span>`;
 }
 
+/** Renders a full marking summary for a marked press item. */
+function renderMarkingResult(item) {
+  if (item.score === null || item.score === undefined) return "";
+  const sign = (n) => (Number(n) > 0 ? "+" : "") + Number(n);
+  const partyEffects = item.partyEffects || {};
+  const partyScore   = item.partyScore;
+  const authorParty  = item.party || "";
+  const hasPartyScore = partyScore !== null && partyScore !== undefined && partyScore !== 0;
+  const effectEntries = Object.entries(partyEffects).filter(([, v]) => v !== 0);
+  return `
+    <div class="muted" style="font-size:.88em;margin-top:4px;border-left:3px solid #c5cce0;padding-left:8px;">
+      <div><b>Marking:</b> Author ${sign(item.score)}
+        ${hasPartyScore ? ` · <span title="Effect on ${esc(authorParty)}">${esc(authorParty || "own party")} ${sign(partyScore)}</span>` : ""}
+      </div>
+      ${effectEntries.length ? `<div>${effectEntries.map(([p, v]) => `${esc(p)} <b>${sign(v)}</b>`).join(" · ")}</div>` : ""}
+      ${item.impact?.length ? `<div class="muted" style="font-size:.9em;">Affects: ${esc(item.impact.join(", "))}</div>` : ""}
+    </div>
+  `;
+}
+
 /** Known parliament parties for the marking effects table (excluding Speaker). */
 const MARK_PARTIES = ["Conservative", "Labour", "Liberal Democrat", "SNP", "Plaid Cymru", "Green", "UKIP", "DUP", "Sinn Féin", "SDLP", "Alliance", "Independents"];
 
@@ -340,7 +360,7 @@ function render(data, state) {
             <div>${scoreChip(r.score)}</div>
           </div>
           <div class="muted">By ${esc(r.author)} • ${esc(r.createdAtSim)}</div>
-          ${r.impact?.length ? `<div class="muted">Affects: ${esc(r.impact.join(", "))}</div>` : ""}
+          ${renderMarkingResult(r)}
           <div class="tile-bottom"><button class="btn" data-action="toggle-release" data-id="${esc(r.id)}" type="button">${state.openRelease === r.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-release" data-id="${esc(r.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openRelease === r.id ? (
             state.editPressId === r.id
@@ -419,6 +439,7 @@ function render(data, state) {
               ` : ""}
               ${markToday && c.score === null && c.status === "closed" ? renderMarkingForm(c.id, "mark-conference", c.party || char?.party || "", "Apply Mark & Close") : ""}
               ${markToday && c.score === null && c.status !== "closed" ? `<p class="muted" style="font-size:.85em;">Marking available once the conference closes (after 2 sim months).</p>` : ""}
+              ${c.score !== null && c.score !== undefined ? renderMarkingResult(c) : ""}
             </div>
           ` : ""}
         </article>
@@ -498,7 +519,7 @@ function render(data, state) {
             <div>${scoreChip(s.score)}</div>
           </div>
           <div class="muted">By ${esc(s.author)} • ${esc(s.audience)} • ${esc(s.createdAtSim)}</div>
-          ${s.impact?.length ? `<div class="muted">Affects: ${esc(s.impact.join(", "))}</div>` : ""}
+          ${renderMarkingResult(s)}
           <div class="tile-bottom"><button class="btn" data-action="toggle-speech" data-id="${esc(s.id)}" type="button">${state.openSpeech === s.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-speech" data-id="${esc(s.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openSpeech === s.id ? `
             <div class="tile" style="margin-top:8px;">
@@ -558,7 +579,7 @@ function render(data, state) {
             <div>${scoreChip(l.score)}</div>
           </div>
           <div class="muted">From ${esc(office?.displayName || l.officeKey)} • To: ${esc(l.recipient)} • ${esc(l.createdAtSim)}</div>
-          ${l.impact?.length ? `<div class="muted">Affects: ${esc(l.impact.join(", "))}</div>` : ""}
+          ${renderMarkingResult(l)}
           <div class="tile-bottom"><button class="btn" data-action="toggle-letter" data-id="${esc(l.id)}" type="button">${state.openLetter === l.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-letter" data-id="${esc(l.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openLetter === l.id ? `
             <div class="tile" style="margin-top:8px;">
@@ -1076,11 +1097,14 @@ export async function initPressPage(data) {
   try {
     const r = await apiGetPressItems();
     const byType = { release: "releases", conference: "conferences", comment: "comments", speech: "speeches", letter: "letters" };
+    // Replace DB state as authoritative — prevents stale transcripts/marks after hard refresh
+    const fresh = { releases: [], conferences: [], comments: [], speeches: [], letters: [] };
     for (const item of (r?.items ?? [])) {
       const key = byType[item._pressType || item.press_type] || "releases";
-      data.press[key] ??= [];
-      const seen = new Set(data.press[key].map((x) => String(x.id)));
-      if (!seen.has(String(item.id))) data.press[key].push(item);
+      if (fresh[key]) fresh[key].push(item);
+    }
+    for (const key of Object.keys(fresh)) {
+      if (fresh[key].length > 0) data.press[key] = fresh[key];
     }
   } catch (err) {
     console.error("[press] DB load failed:", err);
