@@ -111,8 +111,8 @@ function render(data, state) {
           <label class="label" for="www-title">Title</label>
           <input id="www-title" name="title" class="input" required>
 
-          <label class="label" for="www-author">Author</label>
-          <input id="www-author" name="author" class="input" value="${esc(char?.name || "Character")}" ${mod ? "" : "readonly"}>
+          ${mod ? `<label class="label" for="www-author">Author</label>
+          <input id="www-author" name="author" class="input" value="${esc(char?.name || "Character")}">` : `<input type="hidden" name="author" value="${esc(char?.name || "Character")}">`}
 
           <label class="label" for="www-image">Image URL (optional)</label>
           <input id="www-image" name="imageUrl" class="input" placeholder="https://...">
@@ -132,8 +132,16 @@ function render(data, state) {
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;"><b>${esc(p.title)}</b><span class="muted">${esc(p.createdAt || "")}</span></div>
             <div class="muted">By ${esc(p.author)}</div>
             ${p.imageUrl ? `<img src="${esc(p.imageUrl)}" alt="web post image" style="max-width:100%;border-radius:8px;margin-top:8px;">` : ""}
-            <div style="white-space:pre-wrap;margin-top:8px;">${esc(p.body)}</div>
-            ${mod ? `<button class="btn" type="button" data-action="delete-web" data-id="${esc(String(p.id))}">Delete</button>` : ""}
+            ${state.editPostId === String(p.id) ? `
+              <form data-action="save-edit-web" data-id="${esc(String(p.id))}" style="margin-top:8px;">
+                <input class="input" name="body" required value="${esc(p.body)}" style="margin-bottom:4px;">
+                <div style="display:flex;gap:6px;"><button class="btn" type="submit">Save</button><button class="btn" type="button" data-action="cancel-edit">Cancel</button></div>
+              </form>
+            ` : `<div style="white-space:pre-wrap;margin-top:8px;">${esc(p.body)}</div>`}
+            ${mod ? `<div style="margin-top:6px;display:flex;gap:6px;">
+              <button class="btn" type="button" data-action="edit-web" data-id="${esc(String(p.id))}">Edit</button>
+              <button class="btn danger" type="button" data-action="delete-web" data-id="${esc(String(p.id))}">Delete</button>
+            </div>` : ""}
           </article>
         `).join("") : `<div class="muted">No web posts yet.</div>`}
       </section>
@@ -145,8 +153,8 @@ function render(data, state) {
         ${!hasActiveChar
           ? `<div class="muted-block">You must have an active character to post on Facebook. <a href="user.html">Create or activate a character</a> first.</div>`
           : `<form id="online-facebook-form" style="margin-bottom:10px;">
-          <label class="label" for="fb-name">Display Name</label>
-          <input id="fb-name" name="displayName" class="input" value="${esc(char?.name || "Character")}" ${mod ? "" : "readonly"}>
+          ${mod ? `<label class="label" for="fb-name">Display Name</label>
+          <input id="fb-name" name="displayName" class="input" value="${esc(char?.name || "Character")}">` : `<input type="hidden" name="displayName" value="${esc(char?.name || "Character")}">`}
           <label class="label" for="fb-avatar">Avatar URL (optional)</label>
           <input id="fb-avatar" name="avatar" class="input" placeholder="https://..." value="${esc(char?.avatar || "")}">
           <label class="label" for="fb-body">Post</label>
@@ -159,8 +167,16 @@ function render(data, state) {
             <img src="${esc(avatarFor(p.displayName, p.avatar))}" width="42" height="42" style="border-radius:999px;object-fit:cover;" alt="avatar">
             <div style="flex:1;">
               <div><b>${esc(p.displayName)}</b> <span class="muted">${esc(p.createdAt || "")}</span></div>
-              <div style="white-space:pre-wrap;">${esc(p.body)}</div>
-              ${mod ? `<button class="btn" type="button" data-action="delete-fb" data-id="${esc(String(p.id))}">Delete</button>` : ""}
+              ${state.editPostId === String(p.id) ? `
+                <form data-action="save-edit-fb" data-id="${esc(String(p.id))}" style="margin-top:4px;">
+                  <textarea class="input" name="body" required rows="3" style="margin-bottom:4px;">${esc(p.body)}</textarea>
+                  <div style="display:flex;gap:6px;"><button class="btn" type="submit">Save</button><button class="btn" type="button" data-action="cancel-edit">Cancel</button></div>
+                </form>
+              ` : `<div style="white-space:pre-wrap;">${esc(p.body)}</div>`}
+              ${mod ? `<div style="margin-top:4px;display:flex;gap:6px;">
+                <button class="btn" type="button" data-action="edit-fb" data-id="${esc(String(p.id))}">Edit</button>
+                <button class="btn danger" type="button" data-action="delete-fb" data-id="${esc(String(p.id))}">Delete</button>
+              </div>` : ""}
             </div>
           </article>
         `).join("") : `<div class="muted">No Facebook posts yet.</div>`}
@@ -189,8 +205,16 @@ function render(data, state) {
           <article class="tile" style="margin-bottom:8px;">
             <div><b>${esc(p.handle)}</b> <span class="muted">${esc(p.createdAt || "")}</span></div>
             <div>${esc(p.displayName)}</div>
-            <div style="white-space:pre-wrap;">${esc(p.body)}</div>
-            ${mod ? `<button class="btn" type="button" data-action="delete-tw" data-id="${esc(String(p.id))}">Delete</button>` : ""}
+            ${state.editPostId === String(p.id) ? `
+              <form data-action="save-edit-tw" data-id="${esc(String(p.id))}" style="margin-top:4px;">
+                <textarea class="input" name="body" required rows="3" maxlength="${limit}" style="margin-bottom:4px;">${esc(p.body)}</textarea>
+                <div style="display:flex;gap:6px;"><button class="btn" type="submit">Save</button><button class="btn" type="button" data-action="cancel-edit">Cancel</button></div>
+              </form>
+            ` : `<div style="white-space:pre-wrap;">${esc(p.body)}</div>`}
+            ${mod ? `<div style="margin-top:4px;display:flex;gap:6px;">
+              <button class="btn" type="button" data-action="edit-tw" data-id="${esc(String(p.id))}">Edit</button>
+              <button class="btn danger" type="button" data-action="delete-tw" data-id="${esc(String(p.id))}">Delete</button>
+            </div>` : ""}
           </article>
         `).join("") : `<div class="muted">No tweets yet.</div>`}
       </section>
@@ -345,6 +369,79 @@ function render(data, state) {
       apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-tw failed:", err));
     });
   });
+
+  // Edit buttons — enter edit mode
+  root.querySelectorAll("[data-action='edit-web']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!mod) return;
+      state.editPostId = String(btn.getAttribute("data-id") || "");
+      render(data, state);
+    });
+  });
+  root.querySelectorAll("[data-action='edit-fb']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!mod) return;
+      state.editPostId = String(btn.getAttribute("data-id") || "");
+      render(data, state);
+    });
+  });
+  root.querySelectorAll("[data-action='edit-tw']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!mod) return;
+      state.editPostId = String(btn.getAttribute("data-id") || "");
+      render(data, state);
+    });
+  });
+  root.querySelectorAll("[data-action='cancel-edit']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.editPostId = null;
+      render(data, state);
+    });
+  });
+
+  // Save edit forms
+  root.querySelectorAll("form[data-action='save-edit-web']").forEach((form) => {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!mod) return;
+      const id = String(form.getAttribute("data-id") || "");
+      const post = data.online.webPosts.find((p) => String(p.id) === id);
+      if (!post) return;
+      const fd = new FormData(form);
+      post.body = String(fd.get("body") || "").trim() || post.body;
+      state.editPostId = null;
+      saveState(data);
+      render(data, state);
+    });
+  });
+  root.querySelectorAll("form[data-action='save-edit-fb']").forEach((form) => {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!mod) return;
+      const id = String(form.getAttribute("data-id") || "");
+      const post = data.online.facebookPosts.find((p) => String(p.id) === id);
+      if (!post) return;
+      const fd = new FormData(form);
+      post.body = String(fd.get("body") || "").trim() || post.body;
+      state.editPostId = null;
+      saveState(data);
+      render(data, state);
+    });
+  });
+  root.querySelectorAll("form[data-action='save-edit-tw']").forEach((form) => {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!mod) return;
+      const id = String(form.getAttribute("data-id") || "");
+      const post = data.online.twitterPosts.find((p) => String(p.id) === id);
+      if (!post) return;
+      const fd = new FormData(form);
+      post.body = String(fd.get("body") || "").trim() || post.body;
+      state.editPostId = null;
+      saveState(data);
+      render(data, state);
+    });
+  });
 }
 
 export async function initOnlinePage(data) {
@@ -365,5 +462,5 @@ export async function initOnlinePage(data) {
   } catch (err) {
     console.error("[online] DB load failed:", err);
   }
-  render(data, { view: null });
+  render(data, { view: null, editPostId: null });
 }

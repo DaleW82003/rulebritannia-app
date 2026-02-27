@@ -507,8 +507,6 @@ function render(data, state) {
           <input id="letter-subject" name="subject" class="input" required>
           <label class="label" for="letter-body">Body</label>
           <textarea id="letter-body" name="body" class="input" rows="8" required></textarea>
-          <label class="label" for="letter-ref">Reference code (optional)</label>
-          <input id="letter-ref" name="refCode" class="input" type="text" placeholder="Leave blank to auto-generate">
           <button class="btn" type="submit">Send Letter</button>
         </form>
       ` : `
@@ -928,7 +926,6 @@ function render(data, state) {
     const recipient = String(fd.get("recipient") || "").trim();
     const subject = String(fd.get("subject") || "").trim();
     const body = String(fd.get("body") || "").trim();
-    const refCode = String(fd.get("refCode") || "").trim();
     if (!officeKey || !recipient || !subject || !body) return;
 
     // Enforce office authorization client-side
@@ -950,7 +947,7 @@ function render(data, state) {
     const autoRef = `${prefix}-LTR-${serial}`;
     const item = {
       id: `press-${Date.now()}-${data.press.nextId++}`,
-      reference: refCode || autoRef,
+      reference: autoRef,
       officeKey,
       officeName: office?.displayName || officeKey,
       recipient,

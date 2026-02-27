@@ -230,7 +230,13 @@ function getWhatsGoingOnTiles(data) {
   const topPaper = topPaperEntry?.issues?.[0] ?? null;
   const topPaperName = topPaperEntry?.name || "Paper";
   const econTopline = data?.economyPage?.topline || {};
-  const masterPoll = Array.isArray(data?.polling?.tracker) ? data.polling.tracker : [];
+  // Build latest poll results from data.polling.polls (authoritative) or whatsGoingOn fallback
+  const latestPoll = Array.isArray(data?.polling?.polls) && data.polling.polls.length
+    ? data.polling.polls.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0))[0]
+    : null;
+  const masterPoll = Array.isArray(latestPoll?.results)
+    ? latestPoll.results.filter((r) => Number(r.value) >= 2)
+    : (Array.isArray(data?.polling?.tracker) ? data.polling.tracker : []);
   const econ = w?.economy || {};
   const polling = Array.isArray(w?.polling) && w.polling.length ? w.polling : masterPoll;
 

@@ -2,6 +2,7 @@ import { saveState, nowStamp } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canRaiseCivilServiceCase, canAdminOrMod } from "../permissions.js";
 import { getCharacterContext } from "../engines/core-engine.js";
+import { formatSimMonthYear } from "../clock.js";
 
 const CS_DEPARTMENTS = [
   { id: "10ds", name: "10 Downing Street", officeId: "prime-minister", officeTitle: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
@@ -25,6 +26,11 @@ function canModerate(data) {
 
 function getMyOfficeId(data) {
   return String(getCharacterContext(data)?.office || "");
+}
+
+/** Returns current sim month/year as a timestamp label for new entries. */
+function simStamp(data) {
+  return formatSimMonthYear(data?.gameState || {});
 }
 
 function getMyOfficeIds(data) {
@@ -384,6 +390,11 @@ function render(data, state) {
           <form id="cs-new-case-form" style="margin-bottom:10px;">
             <label class="label" for="cs-case-title">Open New Case</label>
             <input id="cs-case-title" class="input" name="title" required placeholder="Case title">
+            ${mod ? `
+            <div style="display:flex;gap:16px;margin:6px 0;">
+              <label><input type="radio" name="csPosterChoice" value="character" checked> My Character</label>
+              <label><input type="radio" name="csPosterChoice" value="npc"> Civil Servant (NPC)</label>
+            </div>` : ""}
             <label class="label" for="cs-case-body">Initial Message</label>
             <textarea id="cs-case-body" class="input" name="body" rows="3" required placeholder="Describe the case"></textarea>
             <button type="submit" class="btn">Create Case</button>
@@ -457,7 +468,7 @@ function render(data, state) {
       title,
       status: "open",
       currentStageIdx: 0,
-      createdAt: nowStamp(),
+      createdAt: simStamp(data),
       createdBy: String(char?.name || data?.currentUser?.username || "Moderator"),
       auditLog: [],
       stages: [{ id: "s1", title: stageTitle, text: stageText, options }]
@@ -490,7 +501,7 @@ function render(data, state) {
         chosenOptionLabel: optLabel,
         actorName: String(char?.name || data?.currentUser?.username || "Unknown"),
         actorOffice: myOfficeId,
-        at: nowStamp()
+        at: simStamp(data)
       });
 
       if (nextStageIdx != null && nextStageIdx < briefing.stages.length) {
@@ -567,8 +578,12 @@ function render(data, state) {
     const body = String(fd.get("body") || "").trim();
     if (!title || !body) return;
 
-    const author = String(char?.name || "Government Member").trim();
-    const avatar = String(char?.avatar || "").trim();
+    const posterChoice = mod
+      ? ((e.currentTarget.querySelector('input[name="csPosterChoice"]:checked') || {}).value || "character")
+      : "character";
+    const isNpcPost = mod && posterChoice === "npc";
+    const author = isNpcPost ? "Civil Servant" : String(char?.name || "Government Member").trim();
+    const avatar = isNpcPost ? "" : String(char?.avatar || "").trim();
 
     const caseItem = {
       id: data.civilService.nextCaseId++,
@@ -577,14 +592,14 @@ function render(data, state) {
       status: "open",
       createdBy: author,
       createdByAvatar: avatar,
-      createdAt: nowStamp(),
+      createdAt: simStamp(data),
       messages: [
         {
           authorName: author,
           authorRole: "government",
           avatar,
           text: body,
-          createdAt: nowStamp()
+          createdAt: simStamp(data)
         }
       ]
     };
@@ -610,7 +625,7 @@ function render(data, state) {
       const item = data.civilService.cases.find((c) => c.id === id);
       if (!item || item.status === "closed") return;
       item.status = "closed";
-      item.closedAt = nowStamp();
+      item.closedAt = simStamp(data);
       item.closedBy = String(char?.name || data?.currentUser?.username || "Civil Service Moderator");
       saveState(data);
       state.message = `Case #${id} closed.`;
@@ -649,7 +664,7 @@ function render(data, state) {
         authorRole: civil ? "civil-service" : "government",
         avatar: civil ? "" : String(char?.avatar || ""),
         text,
-        createdAt: nowStamp()
+        createdAt: simStamp(data)
       });
       saveState(data);
       state.message = `Reply added to Case #${id}.`;

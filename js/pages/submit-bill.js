@@ -145,17 +145,23 @@ function renderBuilder(canPostAsNpc, partyOptions) {
 
       ${canPostAsNpc ? `
       <div class="muted-block" style="margin-top:12px;padding:10px;border:1px solid var(--line);">
-        <div class="wgo-kicker" style="margin-bottom:6px;">NPC Submission (mod/admin)</div>
-        <div class="form-row">
-          <label for="npcNameInput">NPC MP Name <span style="color:var(--danger);">*</span></label>
-          <input id="npcNameInput" name="npcName" maxlength="100" placeholder="Enter MP name" required>
+        <div class="wgo-kicker" style="margin-bottom:6px;">Posting as (mod/admin/speaker)</div>
+        <div style="display:flex;gap:16px;margin-bottom:8px;">
+          <label><input type="radio" name="posterChoice" value="character" checked> My Character</label>
+          <label><input type="radio" name="posterChoice" value="npc"> NPC</label>
         </div>
-        <div class="form-row" style="margin-top:6px;">
-          <label for="npcPartyInput">Party <span style="color:var(--danger);">*</span></label>
-          <select id="npcPartyInput" name="npcParty" required>
-            <option value="">— Select party —</option>
-            ${partyOptions}
-          </select>
+        <div id="npcFields" style="display:none;">
+          <div class="form-row">
+            <label for="npcNameInput">NPC MP Name <span style="color:var(--danger);">*</span></label>
+            <input id="npcNameInput" name="npcName" maxlength="100" placeholder="Enter MP name">
+          </div>
+          <div class="form-row" style="margin-top:6px;">
+            <label for="npcPartyInput">Party <span style="color:var(--danger);">*</span></label>
+            <select id="npcPartyInput" name="npcParty">
+              <option value="">— Select party —</option>
+              ${partyOptions}
+            </select>
+          </div>
         </div>
       </div>` : ""}
 
@@ -272,7 +278,7 @@ export function initSubmitBillPage(data) {
   if (permission) {
     permission.style.display = "";
     if (canPostAsNpc) {
-      permission.innerHTML = `<div class="muted-block">Submitting as <b>NPC</b> (mod/admin). You must enter an MP name and select a party. The bill will be tagged <b>[NPC]</b>.</div>`;
+      permission.innerHTML = `<div class="muted-block">Staff: select whether to post as your character or as an NPC using the controls below.</div>`;
     } else {
       permission.innerHTML = `<div class="muted-block">Submitting as <b>${esc(currentCharacter(data).name || "MP")}</b>. PMBs are available to all MPs. Government bills are for PM / Leader of the House. Opposition bills are capped yearly (Leader of the Opposition: 3; Third Party Leader: 1).</div>`;
     }
@@ -282,6 +288,16 @@ export function initSubmitBillPage(data) {
   const countInput = form?.querySelector("#articleCountInput");
   const articlesContainer = form?.querySelector("#articlesContainer");
   if (!form || !countInput || !articlesContainer) return;
+
+  // Wire up poster-choice radio to show/hide NPC fields
+  if (canPostAsNpc) {
+    form.querySelectorAll('input[name="posterChoice"]').forEach((radio) => {
+      radio.addEventListener("change", () => {
+        const npcFields = form.querySelector("#npcFields");
+        if (npcFields) npcFields.style.display = radio.value === "npc" ? "" : "none";
+      });
+    });
+  }
 
   const paintArticles = () => {
     articlesContainer.innerHTML = renderArticleEditors(countInput.value);
@@ -300,14 +316,19 @@ export function initSubmitBillPage(data) {
       if (typeChoice === "opposition-third" && eligibility.thirdRemaining <= 0) return;
     }
 
-    const npcName = canPostAsNpc ? String(form.querySelector("#npcNameInput")?.value || "").trim() : "";
-    const npcParty = canPostAsNpc ? String(form.querySelector("#npcPartyInput")?.value || "").trim() : "";
+    const posterChoice = canPostAsNpc
+      ? ((form.querySelector('input[name="posterChoice"]:checked') || {}).value || "character")
+      : "character";
+    const isNpcPost = canPostAsNpc && posterChoice === "npc";
 
-    if (canPostAsNpc && !npcName) {
+    const npcName = isNpcPost ? String(form.querySelector("#npcNameInput")?.value || "").trim() : "";
+    const npcParty = isNpcPost ? String(form.querySelector("#npcPartyInput")?.value || "").trim() : "";
+
+    if (isNpcPost && !npcName) {
       form.querySelector("#npcNameInput")?.focus();
       return;
     }
-    if (canPostAsNpc && !npcParty) {
+    if (isNpcPost && !npcParty) {
       form.querySelector("#npcPartyInput")?.focus();
       return;
     }
@@ -316,11 +337,11 @@ export function initSubmitBillPage(data) {
     const department = form.querySelector("#billDepartmentInput").value || "Cabinet Office (General)";
     const now = Date.now();
 
-    const author = canPostAsNpc ? `${npcName} [NPC]` : (c.name || "Unknown MP");
+    const author = isNpcPost ? `${npcName} [NPC]` : (c.name || "Unknown MP");
 
     let billType = "pmb";
     let stage = "First Reading";
-    if (!canPostAsNpc) {
+    if (!isNpcPost) {
       if (typeChoice === "government") {
         billType = "government";
         stage = "Second Reading";
@@ -341,7 +362,7 @@ export function initSubmitBillPage(data) {
       id: uniqueId,
       title,
       author,
-      ...(canPostAsNpc ? { npc: true, npcParty } : {}),
+      ...(isNpcPost ? { npc: true, npcParty } : {}),
       department,
       billType,
       stage,

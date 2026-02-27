@@ -164,11 +164,12 @@ function render(budgetDb, data, state) {
       <section class="panel" style="margin-bottom:12px;">
         <h2 style="margin-top:0;">Admin Budget Controls</h2>
         <form id="budget-admin-form">
+          <label class="label">National Debt (£bn)
+            <input class="input" name="nationalDebt" type="number" step="0.01" value="${esc(String(adminControls.nationalDebt ?? 0))}" placeholder="e.g. 350">
+            <span class="muted" style="font-size:0.85em;">Debt Interest Expenditure will be auto-calculated as Debt Interest % of this value.</span>
+          </label>
           <label class="label">Debt Interest %
             <input class="input" name="debtInterestPercent" type="number" step="0.01" value="${esc(String(adminControls.debtInterestPercent))}">
-          </label>
-          <label class="label">Debt Interest Expenditure
-            <input class="input" name="debtInterestExpenditure" type="number" step="0.01" value="${esc(String(adminControls.debtInterestExpenditure))}">
           </label>
           <label class="label">Charity Relief Expenditure
             <input class="input" name="charityReliefExpenditure" type="number" step="0.01" value="${esc(String(adminControls.charityReliefExpenditure))}">
@@ -176,6 +177,7 @@ function render(budgetDb, data, state) {
           <label class="label">Other Expenses Expenditure
             <input class="input" name="otherExpensesExpenditure" type="number" step="0.01" value="${esc(String(adminControls.otherExpensesExpenditure))}">
           </label>
+          <div class="muted" style="margin-bottom:6px;">Calculated Debt Interest Expenditure: <b>${esc(money((Number(adminControls.nationalDebt ?? 0) * Number(adminControls.debtInterestPercent ?? 0)) / 100))}</b></div>
           <button class="btn" type="submit">Save Admin Controls</button>
         </form>
         ${state.adminMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.adminMessage)}</p>` : ""}
@@ -236,9 +238,14 @@ function render(budgetDb, data, state) {
     e.preventDefault();
     if (!admin) return;
     const fd = new FormData(e.currentTarget);
+    const nationalDebt         = Number(fd.get("nationalDebt")           || 0);
+    const debtInterestPercent  = Number(fd.get("debtInterestPercent")    || 0);
+    // Auto-calculate Debt Interest Expenditure from national debt and %
+    const debtInterestExpenditure = (nationalDebt * debtInterestPercent) / 100;
     const controls = {
-      debtInterestPercent:      Number(fd.get("debtInterestPercent") || 0),
-      debtInterestExpenditure:  Number(fd.get("debtInterestExpenditure") || 0),
+      nationalDebt,
+      debtInterestPercent,
+      debtInterestExpenditure,
       charityReliefExpenditure: Number(fd.get("charityReliefExpenditure") || 0),
       otherExpensesExpenditure: Number(fd.get("otherExpensesExpenditure") || 0),
     };

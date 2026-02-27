@@ -27,21 +27,19 @@ function normalizeShares(entries) {
 }
 
 function seatProjection(data, poll) {
-  const parties = data?.parliament?.parties || [];
   const seatsTotal = Number(data?.parliament?.totalSeats || 650);
   const shares = normalizeShares(poll.results || []);
 
-  const byParty = Object.fromEntries(shares.map((s) => [s.party, s.value]));
+  // Project seats for each party that has a poll share.
   const projected = [];
   let allocated = 0;
-
-  parties.forEach((p) => {
-    const share = Number(byParty[p.name] || 0);
-    const seats = Math.floor((share / 100) * seatsTotal);
+  for (const s of shares) {
+    const seats = Math.floor((s.value / 100) * seatsTotal);
     allocated += seats;
-    projected.push({ party: p.name, seats, remainder: ((share / 100) * seatsTotal) - seats });
-  });
+    projected.push({ party: s.party, seats, remainder: (s.value / 100) * seatsTotal - seats });
+  }
 
+  // Distribute remaining seats to highest-remainder parties.
   let gap = seatsTotal - allocated;
   if (gap > 0) {
     projected
@@ -137,8 +135,17 @@ function render(data) {
           <label class="label" for="polling-sim-date">Simulation Month &amp; Year</label>
           <input id="polling-sim-date" name="simDate" class="input" value="${esc(currentSimLabel(data))}" readonly aria-readonly="true" style="background:#f0f4fb;cursor:default;">
 
-          <label class="label" for="polling-results">Party shares (one per line: Party=Value)</label>
-          <textarea id="polling-results" name="results" class="input" rows="6" required placeholder="Labour=34.5\nConservative=31.1\nLiberal Democrat=11.8\nGreen=5.0\nSNP=3.0"></textarea>
+          <label class="label">Party poll shares (%)</label>
+          <table style="border-collapse:collapse;width:100%;margin-bottom:8px;">
+            <thead><tr><th style="text-align:left;padding:4px 8px;">Party</th><th style="text-align:left;padding:4px 8px;">Share (%)</th></tr></thead>
+            <tbody>
+              ${(Array.isArray(data?.parliament?.parties) ? data.parliament.parties : []).map((p) => {
+                const partyName = esc(p.name === "Speaker" ? "Others" : (p.name || ""));
+                return `<tr><td style="padding:4px 8px;">${partyName}</td><td style="padding:4px 8px;"><input type="number" name="party-${partyName}" min="0" max="100" step="0.1" value="0" class="input" style="width:90px;"></td></tr>`;
+              }).join("")}
+            </tbody>
+          </table>
+          <p class="muted" style="font-size:0.85em;margin-bottom:8px;">Parties polling under 2% are excluded from public display but all values are saved.</p>
 
           <button type="submit" class="btn">Publish Poll</button>
         </form>
@@ -151,7 +158,7 @@ function render(data) {
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div><b>Poll ${esc(String(poll.id || idx + 1))}</b> • ${esc(poll.simDate || "")}</div>
-            <div class="muted">Published ${esc(poll.createdAt || "")}</div>
+            <div class="muted">Published – ${esc(poll.simDate || poll.createdAt || "")}</div>
           </div>
           <div style="margin-top:6px;">${resultList(poll.results || [])}</div>
           ${isPublisher ? `<div class="tile-bottom" style="margin-top:6px;"><button class="btn danger" type="button" data-action="delete-poll" data-id="${esc(String(poll.id))}">Delete</button></div>` : ""}
@@ -166,17 +173,16 @@ function render(data) {
     const form = e.currentTarget;
     const fd = new FormData(form);
     const simDate = String(fd.get("simDate") || "").trim();
-    const text = String(fd.get("results") || "").trim();
-    if (!simDate || !text) return;
+    if (!simDate) return;
 
-    const results = text.split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const [party, value] = line.split("=");
-        return { party: String(party || "").trim(), value: Number(value || 0) };
+    const parties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
+    const results = parties
+      .map((p) => {
+        const partyName = p.name === "Speaker" ? "Others" : (p.name || "");
+        const value = Number(fd.get("party-" + partyName) || 0);
+        return partyName ? { party: partyName, value } : null;
       })
-      .filter((r) => r.party && Number.isFinite(r.value));
+      .filter((r) => r && r.party && Number.isFinite(r.value) && r.value > 0);
 
     if (!results.length) return;
 
@@ -184,7 +190,7 @@ function render(data) {
       id: data.polling.nextId++,
       simDate,
       results,
-      createdAt: new Date().toLocaleString("en-GB"),
+      createdAt: simDate,
       createdTs: Date.now()
     };
 
