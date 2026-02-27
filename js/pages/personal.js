@@ -1841,7 +1841,7 @@ export async function initPersonalPage(data) {
         if (!cname) continue;
         data.personal.profiles[cname] ??= {
           name: cname,
-          avatar: "",
+          avatar: String(c.avatar || ""),
           avatarAttribution: "",
           profile: {
             dateOfBirth: "",
@@ -1863,6 +1863,11 @@ export async function initPersonalPage(data) {
           lastSundayCreditAt: "",
           updatedAt: ""
         };
+        // Always update avatar/party/constituency from authoritative DB data
+        const prof = data.personal.profiles[cname];
+        if (c.avatar && !prof.avatar) prof.avatar = String(c.avatar);
+        if (c.party)        prof.profile.party        = String(c.party);
+        if (c.constituency) prof.profile.constituency = String(c.constituency);
       }
       render(data, state);
     }).catch(() => {});

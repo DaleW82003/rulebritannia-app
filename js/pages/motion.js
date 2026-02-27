@@ -226,6 +226,7 @@ async function renderHouseDb(root, data, motion) {
                 const npcParties = Object.keys(seats).filter((p) => Number(seats[p]) > 0 && !PLAYABLE_PARTIES.has(p) && !/sinn\s*f[ée]in/i.test(p) && !/^speaker$/i.test(p));
                 const npcVotes = dbDiv.npc_votes || {};
                 const rebels   = dbDiv.rebels_by_party || {};
+                const rebelChoice = dbDiv.rebels_by_party_choice || {};
                 if (!npcParties.length && ![...PLAYABLE_PARTIES].some(p => Number(seats[p] || 0) > 0)) return `<p class="muted">No NPC parties with seats.</p>`;
                 const npcTally = { aye: 0, no: 0, abstain: 0 };
                 Object.entries(npcVotes).forEach(([p, v]) => {
@@ -247,11 +248,17 @@ async function renderHouseDb(root, data, motion) {
                 `<p class="muted" style="margin-top:4px;">NPC contribution: Aye ${npcTally.aye}, No ${npcTally.no}, Abstain ${npcTally.abstain}</p>` +
                 `<div style="margin-top:12px;">
                   <h5 style="margin:0 0 4px;">Rebellion (removes from player weighted vote)</h5>
-                  <p class="muted" style="margin:0 0 6px;font-size:0.85em;">Set number of rebels per party. These seats are removed from that party's weighted player vote total.</p>
+                  <p class="muted" style="margin:0 0 6px;font-size:0.85em;">Set rebel count + direction. Rebels are removed from the party's weighted vote and added to their chosen direction.</p>
                   ${[...PLAYABLE_PARTIES].filter(p => Number(seats[p] || 0) > 0).map(p => `
-                    <div class="kv" style="margin-bottom:4px;">
+                    <div class="kv" style="margin-bottom:4px;flex-wrap:wrap;gap:4px;">
                       <span><b>${esc(p)}</b> (${Number(seats[p])} seats total)</span>
                       <label>Rebels: <input type="number" name="rebels-${esc(p)}" min="0" max="${Number(seats[p])}" value="${Number(rebels[p] || 0)}" class="input" style="width:70px;"></label>
+                      <select name="rebel-dir-${esc(p)}" class="input" style="width:110px;" title="Rebel vote direction">
+                        <option value="">— direction —</option>
+                        <option value="aye" ${rebelChoice[p] === "aye" ? "selected" : ""}>Rebel → Aye</option>
+                        <option value="no" ${rebelChoice[p] === "no" ? "selected" : ""}>Rebel → No</option>
+                        <option value="abstain" ${rebelChoice[p] === "abstain" ? "selected" : ""}>Rebel → Abstain</option>
+                      </select>
                     </div>
                   `).join("")}
                 </div>`;
@@ -339,22 +346,34 @@ async function renderHouseDb(root, data, motion) {
     );
     const npcVotes = {};
     const rebelsByParty = {};
+    const rebelsByPartyChoice = {};
     npcParties.forEach((p) => {
       const v = String(fd.get(`npc-${p}`) || "").toLowerCase();
       if (["aye", "no", "abstain"].includes(v)) npcVotes[p] = v;
       const rebels = Number(fd.get(`rebels-${p}`) || 0);
       if (rebels > 0) rebelsByParty[p] = rebels;
     });
-    // Collect rebel counts for playable parties (Labour, Conservative, Liberal Democrat)
+    // Collect rebel counts + directions for playable parties (Labour, Conservative, Liberal Democrat)
     [...PLAYABLE_PARTIES].forEach((p) => {
       if (Number(seats[p] || 0) > 0) {
         const rebels = Number(fd.get(`rebels-${p}`) || 0);
         if (rebels > 0) rebelsByParty[p] = rebels;
         else delete rebelsByParty[p];
+        const dir = String(fd.get(`rebel-dir-${p}`) || "").toLowerCase();
+        if (dir && ["aye", "no", "abstain"].includes(dir)) rebelsByPartyChoice[p] = dir;
+        else delete rebelsByPartyChoice[p];
+      }
+    });
+    // Also collect rebel directions for NPC parties that have rebels
+    npcParties.forEach((p) => {
+      const rebels = Number(fd.get(`rebels-${p}`) || 0);
+      if (rebels > 0) {
+        const dir = String(fd.get(`rebel-dir-${p}`) || "").toLowerCase();
+        if (dir && ["aye", "no", "abstain"].includes(dir)) rebelsByPartyChoice[p] = dir;
       }
     });
     try {
-      await apiSetNpcVotes(dbDiv.id, npcVotes, rebelsByParty);
+      await apiSetNpcVotes(dbDiv.id, npcVotes, rebelsByParty, rebelsByPartyChoice);
       if (msgEl) msgEl.textContent = "NPC votes saved.";
       await renderHouseDb(root, data, motion);
     } catch (err) {

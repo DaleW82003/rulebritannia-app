@@ -1646,12 +1646,12 @@ export async function apiGetDivisionForEntity(entityType, entityId) {
   return res.json();
 }
 
-export async function apiSetNpcVotes(divisionId, npcVotes, rebelsByParty = {}) {
+export async function apiSetNpcVotes(divisionId, npcVotes, rebelsByParty = {}, rebelsByPartyChoice = {}) {
   const res = await fetch(`${API_BASE}/api/divisions/${encodeURIComponent(divisionId)}/npc-votes`, {
     method: "PATCH",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ npc_votes: npcVotes, rebels_by_party: rebelsByParty }),
+    body: JSON.stringify({ npc_votes: npcVotes, rebels_by_party: rebelsByParty, rebels_by_party_choice: rebelsByPartyChoice }),
   });
   if (!res.ok) throw new Error(`apiSetNpcVotes failed (${res.status})`);
   return res.json();

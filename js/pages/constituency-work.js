@@ -247,12 +247,13 @@ function renderModScandalCreate(templates, optedInCharacters) {
 }
 
 function renderModOpenScandals(modData, state) {
-  const scandals = modData?.scandals || [];
-  const choices  = modData?.player_choices || [];
-  const decisions = modData?.mod_decisions || [];
+  const scandals   = modData?.scandals   || [];
+  const choices    = modData?.player_choices || [];
+  const decisions  = modData?.mod_decisions  || [];
+  const situations = modData?.situations  || [];
 
-  if (!scandals.length) {
-    return `<section class="panel" style="margin-bottom:12px;"><h2 style="margin-top:0;">Moderator: Open Scandals</h2><div class="muted-block">No open scandals.</div></section>`;
+  if (!scandals.length && !situations.length) {
+    return `<section class="panel" style="margin-bottom:12px;"><h2 style="margin-top:0;">Moderator: Open Scandals</h2><div class="muted-block">No open scandals or situations.</div></section>`;
   }
 
   const cards = scandals.map((s) => {
@@ -338,6 +339,15 @@ function renderModOpenScandals(modData, state) {
   return `
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Moderator: Open Scandals</h2>
+      ${situations.length ? `
+        <h3 style="margin:8px 0 4px;">Open Situations (awaiting player action)</h3>
+        ${situations.map((sit) => `
+          <article class="tile" style="margin-bottom:6px;">
+            <b>${esc(sit.title_override || sit.title || "Situation")}</b> — <em>${esc(sit.character_name || "Unknown")}</em>
+            <div class="muted">${stageBadge("open")} · Category: ${esc(sit.category || "—")} · Created: ${esc(simMonthLabel(sit.created_sim_year, sit.created_sim_month))}</div>
+          </article>
+        `).join("")}
+      ` : ""}
       ${cards.join("")}
     </section>
   `;

@@ -289,9 +289,16 @@ function render(data, state) {
     btn.addEventListener("click", async () => {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
+      const savedItems = data.events.items.slice();
       data.events.items = data.events.items.filter((x) => String(x.id) !== id);
       render(data, state);
-      apiDeleteEvent(id).catch((err) => console.error("[events] delete failed:", err));
+      try {
+        await apiDeleteEvent(id);
+      } catch (err) {
+        console.error("[events] delete failed:", err);
+        data.events.items = savedItems; // revert
+        render(data, state);
+      }
     });
   });
 

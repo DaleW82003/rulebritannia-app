@@ -749,7 +749,7 @@ function render(data, state) {
       item.messages.push({
         authorName: civil ? "Civil Servant" : String(char?.name || "Government Member"),
         authorRole: civil ? "civil-service" : "government",
-        avatar: civil ? "" : String(char?.avatar || ""),
+        avatar: civil ? "https://dummyimage.com/48x48/1a3050/ffffff&text=CS" : String(char?.avatar || ""),
         text,
         createdAt: simStamp(data)
       });
