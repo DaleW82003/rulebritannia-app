@@ -667,6 +667,7 @@ async function renderDivision(bill, data) {
   // If a formal DB division exists, use it (authoritative weighted votes)
   if (bill.formalDivisionId) {
     let dbDiv = null, tally = { aye: 0, no: 0, abstain: 0 }, myVote = null, myWeight = 0;
+    let byParty = {}, seatsByParty = {};
     try {
       const result = await apiGetDivisionForEntity("bill", bill.id);
       if (result) {
@@ -674,6 +675,8 @@ async function renderDivision(bill, data) {
         tally = result.tally;
         myVote = result.myVote;
         myWeight = Number(result.myWeight || 0);
+        byParty = result.byParty || {};
+        seatsByParty = result.seatsByParty || {};
       }
     } catch (_) {}
 
@@ -699,6 +702,23 @@ async function renderDivision(bill, data) {
           <div class="division-total-cell no"><div class="dc-num">${tally.no}</div><div class="dc-lbl">No</div></div>
           <div class="division-total-cell"><div class="dc-num">${tally.abstain}</div><div class="dc-lbl">Abstain</div></div>
         </div>
+        ${Object.keys(byParty).length ? `
+          <details style="margin-top:8px;">
+            <summary style="cursor:pointer;font-size:.85em;color:#555;">Party breakdown</summary>
+            <div class="division-party-breakdown" style="margin-top:6px;font-size:.85em;">
+              ${Object.entries(byParty)
+                .filter(([, v]) => Object.values(v).some(n => Number(n) > 0))
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([party, v]) => {
+                  const parts = [];
+                  if (Number(v.aye || 0) > 0)     parts.push(`<span style="color:#0a7f2e;">${Math.round(v.aye)} Aye</span>`);
+                  if (Number(v.no || 0) > 0)      parts.push(`<span style="color:#9d1d1d;">${Math.round(v.no)} No</span>`);
+                  if (Number(v.abstain || 0) > 0) parts.push(`<span style="color:#555;">${Math.round(v.abstain)} Abstain</span>`);
+                  return `<div class="division-party-row"><span><b>${esc(party)}</b></span><span>${parts.join(" · ")}</span></div>`;
+                }).join("")}
+            </div>
+          </details>
+        ` : ""}
         <div class="division-my-vote ${esc(myVoteClass)}">${myVoteLabel} · Weight: <b>${myWeight}</b></div>
         ${divStatus === "open" ? `
           <div class="tile-bottom" style="padding-top:10px;">
@@ -713,36 +733,44 @@ async function renderDivision(bill, data) {
             <p class="muted small">Seat totals from constituencies page. Sinn Féin/Speaker excluded.</p>
             <form id="npc-vote-form">
               ${(() => {
-                const npcParties = parties.filter((p) => !p.playable && Number(p.seats || 0) > 0 && !autoAbstainNpc.has(p.name) && !/^speaker$/i.test(p.name));
+                // Use seat counts from constituencies (server source of truth), not stale data.parliament.parties[].seats
+                const playableNames = new Set(parties.filter(p => p.playable).map(p => p.name));
+                const sinnFeinRE = /sinn\s*f[ée]in/i;
+                const speakerRE  = /^speaker$/i;
+                const npcEntries = Object.entries(seatsByParty)
+                  .filter(([name, seats]) => seats > 0 && !playableNames.has(name) && !sinnFeinRE.test(name) && !speakerRE.test(name))
+                  .sort((a, b) => b[1] - a[1]);
+                const playableEntries = Object.entries(seatsByParty)
+                  .filter(([name, seats]) => seats > 0 && playableNames.has(name))
+                  .sort((a, b) => b[1] - a[1]);
                 const npcVotes = dbDiv?.npc_votes || {};
                 const rebels = dbDiv?.rebels_by_party || {};
                 const rebelChoice = dbDiv?.rebels_by_party_choice || {};
-                const playableParties = parties.filter((p) => p.playable && Number(p.seats || 0) > 0);
-                if (!npcParties.length && !playableParties.length) return `<p class="muted">No parties with seats.</p>`;
-                return npcParties.map((p) => `
+                if (!npcEntries.length && !playableEntries.length) return `<p class="muted">No parties with seats found in constituencies.</p>`;
+                return npcEntries.map(([name, seats]) => `
                   <div class="kv" style="margin-bottom:4px;">
-                    <span><b>${esc(p.name)}</b> (${Number(p.seats || 0)} seats)</span>
-                    <select name="npc-${esc(p.name)}" class="input" style="width:110px;">
+                    <span><b>${esc(name)}</b> (${seats} seats)</span>
+                    <select name="npc-${esc(name)}" class="input" style="width:110px;">
                       <option value="">Unallocated</option>
-                      <option value="aye" ${npcVotes[p.name] === "aye" ? "selected" : ""}>Aye</option>
-                      <option value="no" ${npcVotes[p.name] === "no" ? "selected" : ""}>No</option>
-                      <option value="abstain" ${npcVotes[p.name] === "abstain" ? "selected" : ""}>Abstain</option>
+                      <option value="aye" ${npcVotes[name] === "aye" ? "selected" : ""}>Aye</option>
+                      <option value="no" ${npcVotes[name] === "no" ? "selected" : ""}>No</option>
+                      <option value="abstain" ${npcVotes[name] === "abstain" ? "selected" : ""}>Abstain</option>
                     </select>
-                    <input type="number" name="rebels-${esc(p.name)}" min="0" max="${Number(p.seats || 0)}" value="${Number((rebels[p.name] || 0))}" class="input" style="width:70px;" placeholder="Rebels">
+                    <input type="number" name="rebels-${esc(name)}" min="0" max="${seats}" value="${Number(rebels[name] || 0)}" class="input" style="width:70px;" placeholder="Rebels">
                   </div>`).join("") +
-                (playableParties.length ? `
+                (playableEntries.length ? `
                   <div style="margin-top:10px;">
                     <h5 style="margin:0 0 4px;">Rebellion (removes from player weighted vote)</h5>
                     <p class="muted" style="margin:0 0 6px;font-size:0.85em;">Set rebel count + direction. Rebels are removed from the party weighted vote and added to their chosen direction.</p>
-                    ${playableParties.map((p) => `
+                    ${playableEntries.map(([name, seats]) => `
                       <div class="kv" style="margin-bottom:4px;flex-wrap:wrap;gap:4px;">
-                        <span><b>${esc(p.name)}</b> (${Number(p.seats || 0)} seats)</span>
-                        <label>Rebels: <input type="number" name="rebels-${esc(p.name)}" min="0" max="${Number(p.seats || 0)}" value="${Number(rebels[p.name] || 0)}" class="input" style="width:70px;"></label>
-                        <select name="rebel-dir-${esc(p.name)}" class="input" style="width:110px;" title="Rebel vote direction">
+                        <span><b>${esc(name)}</b> (${seats} seats)</span>
+                        <label>Rebels: <input type="number" name="rebels-${esc(name)}" min="0" max="${seats}" value="${Number(rebels[name] || 0)}" class="input" style="width:70px;"></label>
+                        <select name="rebel-dir-${esc(name)}" class="input" style="width:110px;" title="Rebel vote direction">
                           <option value="">— direction —</option>
-                          <option value="aye" ${rebelChoice[p.name] === "aye" ? "selected" : ""}>Rebel → Aye</option>
-                          <option value="no" ${rebelChoice[p.name] === "no" ? "selected" : ""}>Rebel → No</option>
-                          <option value="abstain" ${rebelChoice[p.name] === "abstain" ? "selected" : ""}>Rebel → Abstain</option>
+                          <option value="aye" ${rebelChoice[name] === "aye" ? "selected" : ""}>Rebel → Aye</option>
+                          <option value="no" ${rebelChoice[name] === "no" ? "selected" : ""}>Rebel → No</option>
+                          <option value="abstain" ${rebelChoice[name] === "abstain" ? "selected" : ""}>Rebel → Abstain</option>
                         </select>
                       </div>`).join("")}
                   </div>` : "");
@@ -801,24 +829,32 @@ async function renderDivision(bill, data) {
       const fd = new FormData(ev.currentTarget);
       const msgEl = voting.querySelector("#npc-msg");
       if (msgEl) msgEl.textContent = "Saving…";
-      const npcParties = parties.filter((p) => !p.playable && Number(p.seats || 0) > 0 && !autoAbstainNpc.has(p.name) && !/^speaker$/i.test(p.name));
-      const playableParties = parties.filter((p) => p.playable && Number(p.seats || 0) > 0);
+      // Use seatsByParty from constituencies (source of truth) — same data used by the form
+      const playableNames = new Set(parties.filter(p => p.playable).map(p => p.name));
+      const sinnFeinRE = /sinn\s*f[ée]in/i;
+      const speakerRE  = /^speaker$/i;
+      const npcNames = Object.entries(seatsByParty)
+        .filter(([name, seats]) => seats > 0 && !playableNames.has(name) && !sinnFeinRE.test(name) && !speakerRE.test(name))
+        .map(([name]) => name);
+      const playablePartyNames = Object.entries(seatsByParty)
+        .filter(([name, seats]) => seats > 0 && playableNames.has(name))
+        .map(([name]) => name);
       const npcVotes = {};
       const rebelsByParty = {};
       const rebelsByPartyChoice = {};
-      npcParties.forEach((p) => {
-        const v = String(fd.get(`npc-${p.name}`) || "").toLowerCase();
-        if (["aye", "no", "abstain"].includes(v)) npcVotes[p.name] = v;
-        const rebels = Number(fd.get(`rebels-${p.name}`) || 0);
-        if (rebels > 0) rebelsByParty[p.name] = rebels;
+      npcNames.forEach((name) => {
+        const v = String(fd.get(`npc-${name}`) || "").toLowerCase();
+        if (["aye", "no", "abstain"].includes(v)) npcVotes[name] = v;
+        const rebels = Number(fd.get(`rebels-${name}`) || 0);
+        if (rebels > 0) rebelsByParty[name] = rebels;
       });
-      playableParties.forEach((p) => {
-        const rebels = Number(fd.get(`rebels-${p.name}`) || 0);
-        if (rebels > 0) rebelsByParty[p.name] = rebels;
-        else delete rebelsByParty[p.name];
-        const dir = String(fd.get(`rebel-dir-${p.name}`) || "").toLowerCase();
-        if (dir && ["aye", "no", "abstain"].includes(dir)) rebelsByPartyChoice[p.name] = dir;
-        else delete rebelsByPartyChoice[p.name];
+      playablePartyNames.forEach((name) => {
+        const rebels = Number(fd.get(`rebels-${name}`) || 0);
+        if (rebels > 0) rebelsByParty[name] = rebels;
+        else delete rebelsByParty[name];
+        const dir = String(fd.get(`rebel-dir-${name}`) || "").toLowerCase();
+        if (dir && ["aye", "no", "abstain"].includes(dir)) rebelsByPartyChoice[name] = dir;
+        else delete rebelsByPartyChoice[name];
       });
       const t0 = Date.now();
       try {
@@ -836,7 +872,26 @@ async function renderDivision(bill, data) {
     progress.innerHTML = `
       <h2>Division Progress</h2>
       <div class="kv"><span>Status</span><b>${esc(divStatus)}</b></div>
-      <p class="muted small">Vote totals use server-computed seat-proportional weights from constituencies.</p>
+      <p class="muted small">Vote totals use seat counts from the constituencies page as source of truth.</p>
+      ${Object.keys(seatsByParty).length ? `
+        <div class="division-party-breakdown" style="margin-top:6px;font-size:.85em;">
+          ${Object.entries(seatsByParty)
+            .filter(([, s]) => s > 0)
+            .sort((a, b) => b[1] - a[1])
+            .map(([party, seats]) => {
+              const v = byParty[party] || {};
+              const voteParts = [];
+              if (Number(v.aye || 0) > 0)     voteParts.push(`<span style="color:#0a7f2e;">${Math.round(v.aye)} Aye</span>`);
+              if (Number(v.no || 0) > 0)      voteParts.push(`<span style="color:#9d1d1d;">${Math.round(v.no)} No</span>`);
+              if (Number(v.abstain || 0) > 0) voteParts.push(`<span style="color:#555;">${Math.round(v.abstain)} Abstain</span>`);
+              const playableNames = new Set(parties.filter(p => p.playable).map(p => p.name));
+              const npcLabel = playableNames.has(party) ? "" : " <span class='muted'>(NPC)</span>";
+              const sinnFein = /sinn\s*f[ée]in/i.test(party) ? " <span class='muted'>(auto-abstain)</span>" : "";
+              const npcVoteDir = (dbDiv?.npc_votes || {})[party];
+              const unallocated = !playableNames.has(party) && !/sinn\s*f[ée]in/i.test(party) && !/^speaker$/i.test(party) && !npcVoteDir && !voteParts.length;
+              return `<div class="division-party-row"><span><b>${esc(party)}</b>${npcLabel}${sinnFein} (${seats})</span><span>${voteParts.length ? voteParts.join(" · ") : unallocated ? "<span class='muted'>unallocated</span>" : ""}</span></div>`;
+            }).join("")}
+        </div>` : ""}
     `;
     return;
   }

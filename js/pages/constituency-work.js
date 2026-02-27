@@ -354,7 +354,6 @@ function renderModOpenScandals(modData, state, myCharacterName = "") {
       ${situations.length ? `
         <h3 style="margin:8px 0 4px;">Open Situations (awaiting player action)</h3>
         ${situations.map((sit) => {
-          const isOwn = myCharacterName && sit.character_name === myCharacterName;
           return `
             <article class="tile" style="margin-bottom:6px;">
               <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -362,12 +361,10 @@ function renderModOpenScandals(modData, state, myCharacterName = "") {
                   <b>${esc(sit.title_override || sit.title || "Situation")}</b> — <em>${esc(sit.character_name || "Unknown")}</em>
                   <div class="muted">${stageBadge("open")} · Category: ${esc(sit.category || "—")} · Created: ${esc(simMonthLabel(sit.created_sim_year, sit.created_sim_month))}</div>
                 </div>
-                ${!isOwn ? `
-                  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
                     <button type="button" class="btn" data-action="mod-close-situation" data-id="${esc(sit.id)}">Close</button>
                     <button type="button" class="btn" style="background:#c00;color:#fff;" data-action="mod-delete-situation" data-id="${esc(sit.id)}">Delete</button>
                   </div>
-                ` : `<span class="muted" style="font-size:.85em;">Your character</span>`}
               </div>
             </article>
           `;

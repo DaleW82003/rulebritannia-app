@@ -2359,7 +2359,11 @@ async function runShopUpkeep(month, year) {
         GROUP BY p.id, p.slug, p.treasury, p.party_structure`
     );
 
-    // Compute all deductions in JS then apply in a single batch UPDATE
+    // Compute deduction amounts in JS then apply atomically in SQL.
+    // IMPORTANT: we pass totalDeduct (not a pre-computed newCash) so the SQL UPDATE
+    // always subtracts from the *current* DB value at the moment of the write. This
+    // prevents the race where a donation/fundraising credit landing between our SELECT
+    // and UPDATE would be silently overwritten.
     const toUpdate = parties
       .map((party) => {
         const overhead    = Number(party.party_structure?.monthlyOverhead || 0);
@@ -2367,24 +2371,29 @@ async function runShopUpkeep(month, year) {
         const hqBaseline  = Number(HQ_BASELINE_UPKEEP_1997[party.slug] || 0);
         const totalDeduct = overhead + shopUpkeep + hqBaseline;
         if (totalDeduct <= 0) return null;
-        const newCash   = Number(party.treasury?.cash || 0) - totalDeduct;
-        const overspend = newCash < 0;
-        return { id: party.id, newCash, overspend };
+        return { id: party.id, totalDeduct };
       })
       .filter(Boolean);
 
     if (toUpdate.length > 0) {
       const valuesClause = toUpdate
-        .map((_, i) => `($${i * 3 + 1}::uuid, $${i * 3 + 2}::numeric, $${i * 3 + 3}::boolean)`)
+        .map((_, i) => `($${i * 2 + 1}::uuid, $${i * 2 + 2}::numeric)`)
         .join(", ");
-      const params = toUpdate.flatMap(({ id, newCash, overspend }) => [id, newCash, overspend]);
+      const params = toUpdate.flatMap(({ id, totalDeduct }) => [id, totalDeduct]);
+      // CTE computes new_cash once per row so it isn't evaluated twice in SET and WHERE.
       await pool.query(
-        `UPDATE parties AS p
-            SET treasury           = jsonb_set(COALESCE(treasury,'{}'), '{cash}', to_jsonb(v.new_cash)),
-                treasury_overspend = v.overspend,
+        `WITH computed AS (
+           SELECT p.id,
+                  COALESCE((p.treasury->>'cash')::numeric, 0) - v.total_deduct AS new_cash
+             FROM parties p
+             JOIN (VALUES ${valuesClause}) AS v(id, total_deduct) ON p.id = v.id
+         )
+         UPDATE parties AS p
+            SET treasury           = jsonb_set(COALESCE(treasury,'{}'), '{cash}', to_jsonb(c.new_cash)),
+                treasury_overspend = c.new_cash < 0,
                 updated_at         = NOW()
-           FROM (VALUES ${valuesClause}) AS v(id, new_cash, overspend)
-          WHERE p.id = v.id`,
+           FROM computed c
+          WHERE p.id = c.id`,
         params
       );
     }
@@ -2609,6 +2618,27 @@ async function seedPlayableParties() {
         WHERE slug = $2
           AND (party_structure IS NULL OR party_structure = '{}'::jsonb OR party_structure = 'null'::jsonb)`,
       [JSON.stringify(structure), slug]
+    );
+  }
+  // Seed default treasury cash for the 3 playable parties (idempotent: only if no cash key set yet).
+  // This ensures additive operations (donations, fundraising credits, membership intake) always
+  // start from the correct base rather than from 0 when the treasury JSONB is empty.
+  // Uses jsonb_set so any existing debt/members values are preserved.
+  const BASELINE_TREASURY_CASH = {
+    Conservative:     350000,
+    Labour:           290000,
+    "Liberal Democrat": 95000,
+  };
+  for (const [slug, defaultCash] of Object.entries(BASELINE_TREASURY_CASH)) {
+    await pool.query(
+      `UPDATE parties
+          SET treasury = jsonb_set(COALESCE(treasury,'{}'), '{cash}', to_jsonb($1::numeric))
+        WHERE slug = $2
+          AND (treasury IS NULL
+            OR treasury = '{}'::jsonb
+            OR treasury = 'null'::jsonb
+            OR (treasury->>'cash') IS NULL)`,
+      [defaultCash, slug]
     );
   }
 }
@@ -10713,16 +10743,33 @@ async function computeDivisionTallyFromDb(db, divisionId, npcVotes, rebelsByPart
     partyVoteMap[pv.party][pv.vote] = (partyVoteMap[pv.party][pv.vote] || 0) + w;
   }
 
+  // byParty tracks per-party seat contributions to the final tally (player + NPC + rebels + Sinn Féin)
+  const byParty = {};
+  for (const [party, votes] of Object.entries(partyVoteMap)) {
+    byParty[party] = { ...votes };
+  }
+
   // 2. NPC party votes (seat-weighted) — Speaker and Sinn Féin excluded
   for (const [party, npcVote] of Object.entries(npcVotes)) {
     if (tally[npcVote] === undefined) continue;
     if (SINN_FEIN_PARTY_RE.test(party) || SPEAKER_PARTY_RE.test(party)) continue;
     const seats = Number(seatsByParty[party] || 0);
     const rebels = Number(rebelsByParty[party] || 0);
-    if (seats > 0) tally[npcVote] += Math.max(0, seats - rebels);
+    const effective = Math.max(0, seats - rebels);
+    if (seats > 0) {
+      tally[npcVote] += effective;
+      if (effective > 0) {
+        byParty[party] = byParty[party] || {};
+        byParty[party][npcVote] = (byParty[party][npcVote] || 0) + effective;
+      }
+    }
     if (rebels > 0) {
       const rebelDir = rebelsByPartyChoice[party];
-      if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebels;
+      if (rebelDir && tally[rebelDir] !== undefined) {
+        tally[rebelDir] += rebels;
+        byParty[party] = byParty[party] || {};
+        byParty[party][rebelDir] = (byParty[party][rebelDir] || 0) + rebels;
+      }
     }
   }
 
@@ -10739,17 +10786,28 @@ async function computeDivisionTallyFromDb(db, divisionId, npcVotes, rebelsByPart
       for (const [dir, weight] of Object.entries(voteDirs)) {
         const deduct = Math.round((weight / totalPartyWeight) * rebelDeduction);
         tally[dir] = Math.max(0, (tally[dir] || 0) - deduct);
+        if (byParty[party]) {
+          byParty[party][dir] = Math.max(0, (byParty[party][dir] || 0) - deduct);
+        }
       }
     }
-    if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebelCount;
+    if (rebelDir && tally[rebelDir] !== undefined) {
+      tally[rebelDir] += rebelCount;
+      byParty[party] = byParty[party] || {};
+      byParty[party][rebelDir] = (byParty[party][rebelDir] || 0) + rebelCount;
+    }
   }
 
   // 4. Sinn Féin always abstain
   for (const [party, seats] of Object.entries(seatsByParty)) {
-    if (SINN_FEIN_PARTY_RE.test(party) && seats > 0) tally.abstain += seats;
+    if (SINN_FEIN_PARTY_RE.test(party) && seats > 0) {
+      tally.abstain += seats;
+      byParty[party] = byParty[party] || {};
+      byParty[party].abstain = (byParty[party].abstain || 0) + seats;
+    }
   }
 
-  return tally;
+  return { tally, byParty };
 }
 
 const divReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
@@ -10789,24 +10847,8 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
     const rebelCh = rows[0].rebels_by_party_choice || {};
     const seatsByParty = await getPartySeatsFromConstituencies(pool);
 
-    // Shared tally logic (identical to close endpoint)
-    const tally = await computeDivisionTallyFromDb(pool, req.params.id, npcV, rebelP, rebelCh, seatsByParty);
-
-    // byParty breakdown (player votes only, for display)
-    const { rows: pvRows } = await pool.query(
-      `SELECT COALESCE(c.party, 'Independent') AS party, dv.vote,
-              SUM(dv.effective_weight) AS weight
-         FROM division_votes dv
-         LEFT JOIN characters c ON c.id = dv.character_id
-        WHERE dv.division_id = $1
-        GROUP BY COALESCE(c.party, 'Independent'), dv.vote`,
-      [req.params.id]
-    );
-    const byParty = {};
-    pvRows.forEach((v) => {
-      byParty[v.party] ??= { aye: 0, no: 0, abstain: 0 };
-      byParty[v.party][v.vote] = Number(byParty[v.party][v.vote] || 0) + Number(v.weight || 0);
-    });
+    // Tally + per-party breakdown (includes NPC seats, rebels, Sinn Féin auto-abstain)
+    const { tally, byParty } = await computeDivisionTallyFromDb(pool, req.params.id, npcV, rebelP, rebelCh, seatsByParty);
 
     const { rows: delegations } = await pool.query(
       `SELECT character_id, delegation_source_character_id
@@ -10818,7 +10860,7 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
 
     const immutableResult = rows[0].immutable_result || null;
 
-    res.json({ division: rows[0], tally, byParty, delegationMap: delegations, immutableResult });
+    res.json({ division: rows[0], tally, byParty, seatsByParty, delegationMap: delegations, immutableResult });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -10871,8 +10913,8 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const rebelCh = division.rebels_by_party_choice || {};
     const seatsByParty = await getPartySeatsFromConstituencies(pool);
 
-    // Shared tally logic (identical to close endpoint)
-    const tally = await computeDivisionTallyFromDb(pool, division.id, npcV, rebelP, rebelCh, seatsByParty);
+    // Tally + per-party breakdown (includes NPC seats, rebels, Sinn Féin auto-abstain)
+    const { tally, byParty } = await computeDivisionTallyFromDb(pool, division.id, npcV, rebelP, rebelCh, seatsByParty);
 
     // Caller's own vote and effective weight
     const charId = await getActiveCharacterId(req);
@@ -10918,7 +10960,7 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
       } catch (wErr) { console.error("[division.for-entity myWeight]", wErr.message); /* weight display is best-effort */ }
     }
 
-    res.json({ division, tally, myVote, myWeight });
+    res.json({ division, tally, byParty, seatsByParty, myVote, myWeight });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -11059,7 +11101,7 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
       const rebelChoicePty = divRows[0].rebels_by_party_choice || {};
 
       // Shared tally logic (identical to GET endpoints)
-      const tally = await computeDivisionTallyFromDb(client, req.params.id, npcVotes, rebelsByPty, rebelChoicePty, seatsByParty);
+      const { tally } = await computeDivisionTallyFromDb(client, req.params.id, npcVotes, rebelsByPty, rebelChoicePty, seatsByParty);
 
       const outcome = tally.aye > tally.no ? "passed" : tally.no > tally.aye ? "failed" : "tied";
       const immutableResult = { tally, outcome, closedAt: new Date().toISOString() };
