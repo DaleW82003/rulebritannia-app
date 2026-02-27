@@ -9422,7 +9422,7 @@ app.post("/api/me/character/shop-purchases/:id/dismiss", meFinanceWriteLimit, as
         LIMIT 1`,
       [req.session.userId]
     );
-    if (!charRows.length) { client.release(); return res.status(404).json({ error: "No active character found" }); }
+    if (!charRows.length) return res.status(404).json({ error: "No active character found" });
     const charId = charRows[0].id;
 
     const { rows: pRows } = await client.query(
@@ -9430,14 +9430,13 @@ app.post("/api/me/character/shop-purchases/:id/dismiss", meFinanceWriteLimit, as
          FROM character_shop_purchases WHERE id = $1`,
       [req.params.id]
     );
-    if (!pRows.length) { client.release(); return res.status(404).json({ error: "Purchase not found" }); }
-    if (pRows[0].character_id !== charId) { client.release(); return res.status(403).json({ error: "Forbidden" }); }
+    if (!pRows.length) return res.status(404).json({ error: "Purchase not found" });
+    if (pRows[0].character_id !== charId) return res.status(403).json({ error: "Forbidden" });
 
     const purchase = pRows[0];
 
-    // Only free items (price == 0) with upkeep can be dismissed
+    // Only free items (price == 0) can be dismissed; paid items must be sold
     if (Number(purchase.price) !== 0) {
-      client.release();
       return res.status(400).json({ error: "Paid items must be sold, not dismissed. Use the Sell action." });
     }
 
@@ -9448,13 +9447,21 @@ app.post("/api/me/character/shop-purchases/:id/dismiss", meFinanceWriteLimit, as
       `SELECT COALESCE(SUM(monthly_upkeep), 0) AS total FROM character_shop_purchases WHERE character_id = $1`,
       [charId]
     );
+    const newUpkeep = Number(upkeepRows[0].total);
+
+    // Ensure character_finance row exists before updating upkeep
+    await client.query(
+      `INSERT INTO character_finance (character_id, bank_balance)
+       VALUES ($1, 0) ON CONFLICT (character_id) DO NOTHING`,
+      [charId]
+    );
     await client.query(
       `UPDATE character_finance
           SET shop_monthly_upkeep = $1,
               finance_overspend   = CASE WHEN $1 = 0 THEN false ELSE finance_overspend END,
               updated_at          = NOW()
         WHERE character_id = $2`,
-      [Number(upkeepRows[0].total), charId]
+      [newUpkeep, charId]
     );
     await client.query("COMMIT");
 
