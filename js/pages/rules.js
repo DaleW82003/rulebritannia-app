@@ -1,6 +1,6 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
+import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule } from "../api.js";
 
 function normaliseRules(data) {
   data.rules ??= { items: [], nextId: 1 };
@@ -105,7 +105,7 @@ function render(data, state) {
       const id = Number(btn.dataset.ruleId || 0);
       data.rules.items = data.rules.items.filter((rule) => rule.id !== id);
       if (state.editingId === id) state.editingId = null;
-      saveState(data);
+      apiDeleteRule(id).catch(err => console.error("[rules] delete failed:", err));
       state.message = "Rule removed.";
       render(data, state);
     });
@@ -122,7 +122,7 @@ function render(data, state) {
 
   const form = host.querySelector("#rules-editor-form");
   if (form) {
-    form.addEventListener("submit", (event) => {
+    form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (!adminMode) return;
 
@@ -139,27 +139,34 @@ function render(data, state) {
         if (target) {
           target.title = title;
           target.body = body;
+          await apiUpdateRule(state.editingId, { title, body });
           state.message = "Rule updated.";
         }
       } else {
+        const result = await apiCreateRule({ title, body });
         data.rules.items.unshift({
-          id: data.rules.nextId,
+          id: result.item.id,
           title,
           body
         });
-        data.rules.nextId += 1;
         state.message = "Rule added.";
       }
 
       state.editingId = null;
-      saveState(data);
       render(data, state);
     });
   }
 }
 
-export function initRulesPage(data) {
-  normaliseRules(data);
-  saveState(data);
+export async function initRulesPage(data) {
+  try {
+    const r = await apiGetRules();
+    data.rules = data.rules || {};
+    data.rules.items = r.items || [];
+    data.rules.nextId = Math.max(0, ...(r.items || []).map(i => Number(i.id) || 0)) + 1;
+  } catch (err) {
+    console.error("[rules] load failed:", err);
+    normaliseRules(data);
+  }
   render(data, { editingId: null, message: "" });
 }

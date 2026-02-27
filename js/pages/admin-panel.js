@@ -1,6 +1,5 @@
 import { requireAdmin } from "../auth.js";
 import { esc } from "../ui.js";
-import { saveState } from "../core.js";
 import { runSundayRoll } from "../engines/core-engine.js";
 import {
   apiLogout, apiGetState, apiGetConfig, apiSaveConfig,
@@ -967,7 +966,6 @@ export async function initAdminPanelPage(data) {
             data.gameState ??= {};
             data.gameState.startSimMonth = parsed.getMonth() + 1; // 1-12
             data.gameState.startSimYear  = parsed.getFullYear();
-            saveState(data);
           }
         }
 
@@ -1174,7 +1172,6 @@ export async function initAdminPanelPage(data) {
           data.gameState.isPaused = false;
           data.gameState.pausedAtRealDate = "";
         }
-        saveState(data);
         if (statusEl) statusEl.textContent = `Game clock ${data.gameState.isPaused ? "paused" : "unpaused"}.`;
         render();
       }
@@ -1194,7 +1191,6 @@ export async function initAdminPanelPage(data) {
       data.gameState.started = true;
       data.gameState.startRealDate = now.toISOString();
       data.gameState.isPaused = false;
-      saveState(data);
       render();
     });
 
@@ -1203,7 +1199,6 @@ export async function initAdminPanelPage(data) {
       const gender = String(new FormData(e.currentTarget).get("monarchGender") || "Queen");
       data.adminSettings ??= {};
       data.adminSettings.monarchGender = gender === "King" ? "King" : "Queen";
-      saveState(data);
       const statusEl = host.querySelector("#sim-control-status");
       if (statusEl) statusEl.textContent = `Monarch updated to ${data.adminSettings.monarchGender}.`;
     });
@@ -1213,7 +1208,6 @@ export async function initAdminPanelPage(data) {
       const closed = String(new FormData(e.currentTarget).get("libDemClosed") || "open") === "closed";
       data.adminSettings ??= {};
       data.adminSettings.libDemClosedToNewChars = closed;
-      saveState(data);
       const statusEl = host.querySelector("#sim-control-status");
       if (statusEl) statusEl.textContent = `Liberal Democrat is now ${closed ? "closed" : "open"} to new characters.`;
     });

@@ -1,4 +1,3 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
@@ -259,7 +258,6 @@ function render(data, state) {
         render(data, state);
         return;
       }
-      saveState(data);
       render(data, state);
     });
   });
@@ -281,7 +279,6 @@ function render(data, state) {
         render(data, state);
         return;
       }
-      saveState(data);
       render(data, state);
     });
   });
@@ -292,7 +289,6 @@ function render(data, state) {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
       data.events.items = data.events.items.filter((x) => String(x.id) !== id);
-      saveState(data);
       render(data, state);
       apiDeleteEvent(id).catch((err) => console.error("[events] delete failed:", err));
     });

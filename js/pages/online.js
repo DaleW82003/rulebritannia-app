@@ -2,7 +2,7 @@ import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
-import { apiCreateOnlinePost, apiGetOnlinePosts, apiDeleteOnlinePost } from "../api.js";
+import { apiCreateOnlinePost, apiGetOnlinePosts, apiDeleteOnlinePost, apiUpdateOnlinePost } from "../api.js";
 import { formatSimMonthYear } from "../clock.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
@@ -342,7 +342,6 @@ function render(data, state) {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
       data.online.webPosts = data.online.webPosts.filter((p) => String(p.id) !== id);
-      saveState(data);
       render(data, state);
       apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-web failed:", err));
     });
@@ -353,7 +352,6 @@ function render(data, state) {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
       data.online.facebookPosts = data.online.facebookPosts.filter((p) => String(p.id) !== id);
-      saveState(data);
       render(data, state);
       apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-fb failed:", err));
     });
@@ -364,7 +362,6 @@ function render(data, state) {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
       data.online.twitterPosts = data.online.twitterPosts.filter((p) => String(p.id) !== id);
-      saveState(data);
       render(data, state);
       apiDeleteOnlinePost(id).catch((err) => console.error("[online] delete-tw failed:", err));
     });
@@ -410,7 +407,7 @@ function render(data, state) {
       const fd = new FormData(form);
       post.body = String(fd.get("body") || "").trim() || post.body;
       state.editPostId = null;
-      saveState(data);
+      apiUpdateOnlinePost(id, { body: post.body }).catch(err => console.error("[online] edit failed:", err));
       render(data, state);
     });
   });
@@ -424,7 +421,7 @@ function render(data, state) {
       const fd = new FormData(form);
       post.body = String(fd.get("body") || "").trim() || post.body;
       state.editPostId = null;
-      saveState(data);
+      apiUpdateOnlinePost(id, { body: post.body }).catch(err => console.error("[online] edit failed:", err));
       render(data, state);
     });
   });
@@ -438,7 +435,7 @@ function render(data, state) {
       const fd = new FormData(form);
       post.body = String(fd.get("body") || "").trim() || post.body;
       state.editPostId = null;
-      saveState(data);
+      apiUpdateOnlinePost(id, { body: post.body }).catch(err => console.error("[online] edit failed:", err));
       render(data, state);
     });
   });

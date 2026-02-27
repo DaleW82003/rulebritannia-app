@@ -1,7 +1,7 @@
 import { formatSimMonthYear } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
 import { canPostNews, canAdminOrMod } from "../permissions.js";
-import { saveState } from "../core.js";
+import { apiCreatePaperArticle, apiUpdatePaperArticle, apiDeletePaperArticle, apiGetPaperArticles } from "../api.js";
 
 function byNewest(a, b) {
   return Number(b?.createdAt || 0) - Number(a?.createdAt || 0);
@@ -122,7 +122,7 @@ function ensurePaperEditPanel(data, canDelete) {
     art.text = panel.querySelector("#peaText")?.value?.trim() || art.text;
     art.bylineName = panel.querySelector("#peaByline")?.value?.trim() || "";
     art.imageUrl = panel.querySelector("#peaImage")?.value?.trim() || "";
-    saveState(data);
+    apiUpdatePaperArticle(pkey, aid, { headline: art.headline, text: art.text, bylineName: art.bylineName, imageUrl: art.imageUrl }).catch(err => console.error("[papers] update failed:", err));
     panel.style.display = "none";
     if (paper) {
       setHTML("paperReader", renderReader(paper, canDelete));
@@ -142,7 +142,7 @@ function bindArticleDeleteListeners(data, canDelete) {
       const targetPaper = (data.papers?.papers || []).find((p) => p.key === paperKey);
       if (!targetPaper) return;
       targetPaper.issues = (targetPaper.issues || []).filter((i) => i.id !== articleId);
-      saveState(data);
+      apiDeletePaperArticle(paperKey, articleId).catch(err => console.error("[papers] delete failed:", err));
       setHTML("paperReader", renderReader(targetPaper, canDelete));
       bindArticleDeleteListeners(data, canDelete);
     });
@@ -213,7 +213,7 @@ function bindNewsDesk(data, rerenderGrid) {
     const paper = (data.papers?.papers || []).find((p) => p.key === paperKey);
     if (!paper) return;
     paper.issues ??= [];
-    paper.issues.unshift({
+    const article = {
       id: `${paperKey}-${Math.random().toString(36).slice(2, 10)}`,
       createdAt: Date.now(),
       simDate: formatSimMonthYear(data.gameState),
@@ -221,16 +221,29 @@ function bindNewsDesk(data, rerenderGrid) {
       imageUrl: imageUrl || "",
       bylineName,
       text
-    });
+    };
+    paper.issues.unshift(article);
 
-    saveState(data);
+    apiCreatePaperArticle(paper.key, article).catch(err => console.error("[papers] create failed:", err));
     form.reset();
     deskPanel.style.display = "none";
     rerenderGrid();
   });
 }
 
-export function initPapersPage(data) {
+export async function initPapersPage(data) {
+  try {
+    const r = await apiGetPaperArticles();
+    if (r.byPaper) {
+      for (const paper of (data.papers?.papers || [])) {
+        if (r.byPaper[paper.key]) {
+          paper.issues = r.byPaper[paper.key].map(a => ({ ...a, createdAt: new Date(a.createdAt).getTime() }));
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[papers] load failed:", err);
+  }
   const papers = data.papers?.papers || [];
   const canDelete = canAdminOrMod(data);
   const paperSelect = document.getElementById("papersDeskPaper");

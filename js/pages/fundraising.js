@@ -1,9 +1,8 @@
-import { saveState } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection } from "../components/tile.js";
 import { toastSuccess } from "../components/toast.js";
-import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem, apiCreditFundraisingToParty, apiGetParty } from "../api.js";
+import { apiCreateFundraisingItem, apiGetFundraisingItems, apiDeleteFundraisingItem, apiUpdateFundraisingItem, apiCreditFundraisingToParty, apiGetParty } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 const FUNDRAISERS = [
@@ -337,7 +336,7 @@ function render(data, state) {
       const item = data.fundraising.items.find((x) => String(x.id) === id);
       if (!item) return;
       item.status = "cancelled";
-      saveState(data);
+      apiUpdateFundraisingItem(id, { status: "cancelled" }).catch(err => console.error("[fundraising] cancel failed:", err));
       render(data, state);
     });
   });
@@ -399,7 +398,10 @@ function render(data, state) {
         if (profile) profile.bankBalance = Number(profile.bankBalance || 0) + net;
       }
 
-      saveState(data);
+      apiUpdateFundraisingItem(id, {
+        status: item.status, baseGrossRevenue: item.baseGrossRevenue, grossRevenue: item.grossRevenue,
+        cost: item.cost, netRevenue: item.netRevenue, fundraisingCapacityBonus: item.fundraisingCapacityBonus
+      }).catch(err => console.error("[fundraising] allocate failed:", err));
       state.openId = id;
       render(data, state);
     });
@@ -418,7 +420,6 @@ function render(data, state) {
       if (!mod) return;
       const id = String(btn.getAttribute("data-id") || "");
       data.fundraising.items = data.fundraising.items.filter((x) => String(x.id) !== id);
-      saveState(data);
       render(data, state);
       apiDeleteFundraisingItem(id).catch((err) => console.error("[fundraising] delete failed:", err));
     });
