@@ -249,7 +249,7 @@ function renderMarkingResult(item) {
     const v = partyEffects[party];
     if (v !== undefined && v !== 0) rows.push({ party, score: Number(v), isAuthorParty: false });
   }
-  const hasPartyEffects = rows.some(r => r.score !== 0);
+  const hasPartyEffects = rows.length > 0;
   return `
     <div style="margin-top:6px;padding:8px 10px;background:#f7f9fd;border-left:3px solid #c5cce0;border-radius:0 6px 6px 0;font-size:.88em;">
       <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;">
@@ -650,6 +650,7 @@ function render(data, state) {
       subject,
       body,
       author: char?.name || "MP",
+      party: char?.party || "",
       createdAtSim: now,
       score: null,
       impact: []
@@ -710,6 +711,7 @@ function render(data, state) {
       subject,
       body,
       author: char?.name || "MP",
+      party: char?.party || "",
       authorOffice: char?.office || "",
       createdAtSim: now,
       closesAtSim: plusMonths(now, 2),
@@ -982,6 +984,7 @@ function render(data, state) {
       body,
       picture,
       author: char?.name || "MP",
+      party: char?.party || "",
       authorOffice: char?.office || char?.role || "",
       createdAtSim: now,
       score: null,
@@ -1075,6 +1078,7 @@ function render(data, state) {
       subject,
       body,
       author: privileged && isNpc ? (npcSignatory(officeKey, data) || office?.displayName || officeKey) : (char?.name || "MP"),
+      party: (privileged && isNpc) ? "" : (char?.party || ""),
       createdAtSim: now,
       score: null,
       impact: [],

@@ -346,7 +346,7 @@ function render(data, state) {
       btn.disabled = true;
       const t0 = Date.now();
       try {
-        await apiUpdateFundraisingItem(id, { status: "cancelled" });
+        await apiUpdateFundraisingItem(id, { ...item, status: "cancelled" });
         item.status = "cancelled";
         if (Date.now() - t0 > 500) toastSuccess("Fundraiser cancelled.");
         render(data, state);
@@ -397,8 +397,8 @@ function render(data, state) {
       };
 
       try {
-        // 1. Persist approved status to DB
-        await apiUpdateFundraisingItem(id, approvedPayload);
+        // 1. Persist approved status to DB — merge with full item so id and all fields are preserved
+        await apiUpdateFundraisingItem(id, { ...item, ...approvedPayload });
 
         // 2. Credit treasury/balance to the appropriate recipient
         if (item.scope === "party") {
