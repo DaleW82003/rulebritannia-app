@@ -2,7 +2,7 @@ import { esc } from "../ui.js";
 import { nowStamp } from "../core.js";
 import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate } from "../clock.js";
-import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums } from "../api.js";
+import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums } from "../api.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
 const AFFILIATIONS_CATALOG = [
@@ -1348,10 +1348,29 @@ function render(data, state) {
     ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
   `;
 
-  host.querySelector("#personal-profile-select")?.addEventListener("change", (e) => {
-    state.selectedName = String(e.currentTarget.value || "");
+  host.querySelector("#personal-profile-select")?.addEventListener("change", async (e) => {
+    const newName = String(e.currentTarget.value || "");
+    state.selectedName = newName;
     state.message = "";
     render(data, state);
+    // Load finance data for the selected character (mod view of other profiles)
+    const myName = getCharacterName(data);
+    if (newName && newName !== myName && canManage(data)) {
+      const profiles = data.personal?.profiles || {};
+      const prof = profiles[newName];
+      if (prof) {
+        // Find character id from the characters list by name
+        const charId = (data.personal?._charIdByName || {})[newName];
+        if (charId) {
+          apiGetCharacterFinance(charId).then((fin) => {
+            syncFinanceIntoProfile(prof, fin, data, newName, null);
+            prof.bankBalance = Number(fin.bankBalance);
+            prof.salaryAnnual = Number(fin.annualSalary || 0);
+            render(data, state);
+          }).catch(() => {});
+        }
+      }
+    }
   });
 
   // Constituency dropdown: update options when party changes
@@ -1844,17 +1863,18 @@ export async function initPersonalPage(data) {
           avatar: String(c.avatar || ""),
           avatarAttribution: "",
           profile: {
-            dateOfBirth: "",
-            education: "",
-            careerBackground: "",
-            family: "",
+            dateOfBirth: String(c.date_of_birth || "").slice(0, 10),
+            education: String(c.education || ""),
+            careerBackground: String(c.career_background || ""),
+            family: String(c.family || ""),
             constituency: String(c.constituency || ""),
             party: String(c.party || ""),
-            yearFirstElected: ""
+            yearFirstElected: String(c.year_first_elected || "")
           },
+          bio: String(c.bio || c.personal_background || ""),
           salaryAnnual: 0,
           bankBalance: 0,
-          financialBackgroundLevel: "",
+          financialBackgroundLevel: String(c.financial_background_level || ""),
           affiliations: "",
           additionalRevenue: [],
           nextRevenueId: 1,
@@ -1863,11 +1883,21 @@ export async function initPersonalPage(data) {
           lastSundayCreditAt: "",
           updatedAt: ""
         };
-        // Always update avatar/party/constituency from authoritative DB data
+        // Store character ID for finance lookup
+        data.personal._charIdByName ??= {};
+        data.personal._charIdByName[cname] = String(c.id || "");
+        // Always update avatar and profile fields from authoritative DB data
         const prof = data.personal.profiles[cname];
-        if (c.avatar && !prof.avatar) prof.avatar = String(c.avatar);
+        prof.avatar = String(c.avatar || "");
         if (c.party)        prof.profile.party        = String(c.party);
         if (c.constituency) prof.profile.constituency = String(c.constituency);
+        if (c.date_of_birth) prof.profile.dateOfBirth  = String(c.date_of_birth).slice(0, 10);
+        if (c.education)    prof.profile.education     = String(c.education);
+        if (c.career_background) prof.profile.careerBackground = String(c.career_background);
+        if (c.family)       prof.profile.family        = String(c.family);
+        if (c.year_first_elected) prof.profile.yearFirstElected = String(c.year_first_elected);
+        if (c.bio || c.personal_background) prof.bio = String(c.bio || c.personal_background || "");
+        if (c.financial_background_level) prof.financialBackgroundLevel = String(c.financial_background_level);
       }
       render(data, state);
     }).catch(() => {});

@@ -11,6 +11,8 @@ import {
   apiModScandalsOpen,
   apiModScandalDecision,
   apiModScandalClose,
+  apiModSituationClose,
+  apiModSituationDelete,
   apiModScandalTemplates,
   apiModScandalOptedInCharacters,
   apiGetMyWorkPlan,
@@ -246,7 +248,7 @@ function renderModScandalCreate(templates, optedInCharacters) {
   `;
 }
 
-function renderModOpenScandals(modData, state) {
+function renderModOpenScandals(modData, state, myCharacterName = "") {
   const scandals   = modData?.scandals   || [];
   const choices    = modData?.player_choices || [];
   const decisions  = modData?.mod_decisions  || [];
@@ -341,12 +343,25 @@ function renderModOpenScandals(modData, state) {
       <h2 style="margin-top:0;">Moderator: Open Scandals</h2>
       ${situations.length ? `
         <h3 style="margin:8px 0 4px;">Open Situations (awaiting player action)</h3>
-        ${situations.map((sit) => `
-          <article class="tile" style="margin-bottom:6px;">
-            <b>${esc(sit.title_override || sit.title || "Situation")}</b> — <em>${esc(sit.character_name || "Unknown")}</em>
-            <div class="muted">${stageBadge("open")} · Category: ${esc(sit.category || "—")} · Created: ${esc(simMonthLabel(sit.created_sim_year, sit.created_sim_month))}</div>
-          </article>
-        `).join("")}
+        ${situations.map((sit) => {
+          const isOwn = myCharacterName && sit.character_name === myCharacterName;
+          return `
+            <article class="tile" style="margin-bottom:6px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <div>
+                  <b>${esc(sit.title_override || sit.title || "Situation")}</b> — <em>${esc(sit.character_name || "Unknown")}</em>
+                  <div class="muted">${stageBadge("open")} · Category: ${esc(sit.category || "—")} · Created: ${esc(simMonthLabel(sit.created_sim_year, sit.created_sim_month))}</div>
+                </div>
+                ${!isOwn ? `
+                  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <button type="button" class="btn" data-action="mod-close-situation" data-id="${esc(sit.id)}">Close</button>
+                    <button type="button" class="btn" style="background:#c00;color:#fff;" data-action="mod-delete-situation" data-id="${esc(sit.id)}">Delete</button>
+                  </div>
+                ` : `<span class="muted" style="font-size:.85em;">Your character</span>`}
+              </div>
+            </article>
+          `;
+        }).join("")}
       ` : ""}
       ${cards.join("")}
     </section>
@@ -494,7 +509,7 @@ function render(data, state = {}) {
 
     ${mod ? `
       ${renderModScandalCreate(_templates, _optedInCharacters)}
-      ${renderModOpenScandals(_modScandalData, state)}
+      ${renderModOpenScandals(_modScandalData, state, String(char?.name || ""))}
 
       <section class="panel">
         <h2 style="margin-top:0;">Moderator Check Panel</h2>
@@ -640,6 +655,43 @@ function render(data, state = {}) {
         render(data, state);
       } catch (e) {
         alert("Failed to close scandal. Please try again.");
+        console.error(e);
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // ── Mod: close situation ──────────────────────────────────────────────────
+  root.querySelectorAll('[data-action="mod-close-situation"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!mod) return;
+      const id = btn.dataset.id;
+      btn.disabled = true;
+      try {
+        await apiModSituationClose(id);
+        await loadScandalData(mod);
+        render(data, state);
+      } catch (e) {
+        alert("Failed to close situation. Please try again.");
+        console.error(e);
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // ── Mod: delete situation ─────────────────────────────────────────────────
+  root.querySelectorAll('[data-action="mod-delete-situation"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!mod) return;
+      const id = btn.dataset.id;
+      if (!confirm("Delete this situation? This cannot be undone.")) return;
+      btn.disabled = true;
+      try {
+        await apiModSituationDelete(id);
+        await loadScandalData(mod);
+        render(data, state);
+      } catch (e) {
+        alert("Failed to delete situation. Please try again.");
         console.error(e);
         btn.disabled = false;
       }

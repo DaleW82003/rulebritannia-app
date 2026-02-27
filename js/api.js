@@ -1611,6 +1611,26 @@ export async function apiModScandalClose(scandalId) {
   return res.json();
 }
 
+export async function apiModSituationClose(situationId) {
+  const res = await fetch(`${API_BASE}/api/mod/scandals/situations/${encodeURIComponent(situationId)}/close`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) throw new Error(`apiModSituationClose failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiModSituationDelete(situationId) {
+  const res = await fetch(`${API_BASE}/api/mod/scandals/situations/${encodeURIComponent(situationId)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: csrfHeaders(),
+  });
+  if (!res.ok) throw new Error(`apiModSituationDelete failed (${res.status})`);
+  return res.json();
+}
+
 export async function apiModScandalTemplates() {
   const res = await fetch(`${API_BASE}/api/mod/scandal-templates`, { credentials: "include" });
   if (!res.ok) throw new Error(`apiModScandalTemplates failed (${res.status})`);
@@ -2440,6 +2460,12 @@ export async function apiCreditFundraisingToParty(id, { partySlug, amount, note 
 export async function apiGetMyFinance() {
   const res = await fetch(`${API_BASE}/api/me/finance`, { credentials: "include" });
   if (!res.ok) throw new Error(`apiGetMyFinance failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetCharacterFinance(characterId) {
+  const res = await fetch(`${API_BASE}/api/admin/characters/${encodeURIComponent(characterId)}/finance`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetCharacterFinance failed (${res.status})`);
   return res.json();
 }
 

@@ -7483,7 +7483,13 @@ app.get("/api/characters", charReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { active } = req.query;
-    let q = "SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at, avatar FROM characters";
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isPrivileged = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    // Admin/mod get extended profile fields so the personal page mod view can display full profiles
+    const extraFields = isPrivileged
+      ? ", date_of_birth, education, career_background, family, year_first_elected, personal_background, bio, financial_background_level, twitter_handle"
+      : "";
+    let q = `SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at, avatar${extraFields} FROM characters`;
     const params = [];
     if (active === "true") { q += " WHERE is_active = TRUE"; }
     else if (active === "false") { q += " WHERE is_active = FALSE"; }
@@ -9022,6 +9028,104 @@ app.get("/api/me/finance", meFinanceReadLimit, async (req, res) => {
     });
   } catch (e) {
     console.error("[GET /api/me/finance]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/admin/characters/:id/finance — admin/mod: full finance snapshot for any character
+app.get("/api/admin/characters/:id/finance", meFinanceReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const charId = req.params.id;
+    const { rows: charRows } = await pool.query(
+      `SELECT c.id, c.home, c.rentals, c.financial_background_level, c.education, c.career_background, c.family
+         FROM characters c WHERE c.id = $1`,
+      [charId]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+    const character = charRows[0];
+
+    const { rows: finRows } = await pool.query(
+      `SELECT bank_balance, shop_monthly_upkeep, finance_overspend FROM character_finance WHERE character_id = $1`,
+      [charId]
+    );
+    const fin = finRows[0] ?? { bank_balance: 0, shop_monthly_upkeep: 0, finance_overspend: false };
+
+    const { rows: revRows } = await pool.query(
+      `SELECT id, label, annual_amount FROM character_additional_revenue WHERE character_id = $1 ORDER BY created_at`,
+      [charId]
+    );
+    const { rows: purchaseRows } = await pool.query(
+      `SELECT id, item_id, item_name, price, base_price, monthly_upkeep, effects, risk_modifier, purchased_at
+         FROM character_shop_purchases WHERE character_id = $1 ORDER BY purchased_at`,
+      [charId]
+    );
+
+    const { rows: simRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const simMonth = simRows[0]?.sim_current_month ?? 8;
+    const simYear  = simRows[0]?.sim_current_year  ?? 1997;
+    const simIndex = simYear * 12 + (simMonth - 1);
+    const { annualSalary } = await resolvedAnnualSalary(charId, simIndex);
+
+    const finConfig = await getFinanceConfig();
+    const financeCostIndex = finConfig.financeCostIndex;
+    const propFinance = computePropertyFinance(character, financeCostIndex);
+    const shopUpkeep  = Number(fin.shop_monthly_upkeep) || 0;
+
+    const { rows: affRows } = await pool.query(
+      `SELECT ac.id AS affiliation_id, ac.name, ac.category, ac.monthly_fee
+         FROM character_affiliations ca
+         JOIN affiliations_catalog ac ON ac.id = ca.affiliation_id
+        WHERE ca.character_id = $1 AND ca.status = 'approved'
+        ORDER BY ac.category, ac.name`,
+      [charId]
+    );
+    const affiliationsMonthlyFeesItems = affRows.map((r) => ({
+      affiliationId: r.affiliation_id,
+      name:          r.name,
+      category:      r.category,
+      monthlyFee:    Math.round(Number(r.monthly_fee) * financeCostIndex),
+    }));
+    const affiliationsMonthlyFees = affiliationsMonthlyFeesItems.reduce((sum, a) => sum + a.monthlyFee, 0);
+    const totalMonthlyUpkeep = shopUpkeep + propFinance.propertyMonthlyUpkeep + affiliationsMonthlyFees;
+
+    res.json({
+      characterId:              charId,
+      bankBalance:              Number(fin.bank_balance),
+      shopMonthlyUpkeep:        shopUpkeep,
+      financeOverspend:         !!fin.finance_overspend,
+      annualSalary,
+      homeLivingCostsMonthly:   propFinance.homeLivingCostsMonthly,
+      rentalIncomeMonthly:      propFinance.rentalIncomeMonthly,
+      rentalCostsMonthly:       propFinance.rentalCostsMonthly,
+      propertyMonthlyUpkeep:    propFinance.propertyMonthlyUpkeep,
+      affiliationsMonthlyFees,
+      affiliationsMonthlyFeesItems,
+      totalMonthlyUpkeep,
+      livingCostMultiplier:     propFinance.livingCostMultiplier,
+      mortgageFactor:           propFinance.mortgageFactor,
+      financeCostIndex,
+      additionalRevenue: revRows.map((r) => ({
+        id:           r.id,
+        label:        r.label,
+        annualAmount: Number(r.annual_amount),
+      })),
+      shopPurchases: purchaseRows.map((p) => ({
+        id:            p.id,
+        itemId:        p.item_id,
+        itemName:      p.item_name,
+        price:         Number(p.price),
+        basePrice:     Number(p.base_price),
+        monthlyUpkeep: Number(p.monthly_upkeep),
+        effects:       Array.isArray(p.effects) ? p.effects : [],
+        riskModifier:  p.risk_modifier ?? null,
+        purchasedAt:   p.purchased_at,
+      })),
+    });
+  } catch (e) {
+    console.error("[GET /api/admin/characters/:id/finance]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -10699,11 +10803,39 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
         if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebels;
       }
     }
-    // Also count rebel votes for playable-party rebels (no NPC base vote)
-    for (const [party, rebels] of Object.entries(rebelP)) {
-      if (npcV[party]) continue; // already handled above
-      const rebelDir = rebelChoice[party];
-      if (rebelDir && tally[rebelDir] !== undefined && rebels > 0) tally[rebelDir] += Number(rebels);
+    // Playable-party rebels — deduct from player vote contributions and add to rebel direction
+    if (Object.keys(rebelP).length > 0) {
+      const { rows: partyVoteRows } = await pool.query(
+        `SELECT c.party, dv.vote, SUM(dv.effective_weight)::int AS weight
+           FROM division_votes dv
+           JOIN characters c ON c.id = dv.character_id
+          WHERE dv.division_id = $1
+          GROUP BY c.party, dv.vote`,
+        [division.id]
+      );
+      const partyVoteMap = {};
+      for (const pv of partyVoteRows) {
+        if (!partyVoteMap[pv.party]) partyVoteMap[pv.party] = {};
+        partyVoteMap[pv.party][pv.vote] = Number(pv.weight);
+      }
+      for (const [party, rebels] of Object.entries(rebelP)) {
+        if (npcV[party]) continue; // NPC parties already handled above
+        const rebelCount = Number(rebels);
+        if (rebelCount <= 0) continue;
+        const rebelDir = rebelChoice[party];
+        const voteDirs = partyVoteMap[party] || {};
+        const totalPartyWeight = Object.values(voteDirs).reduce((s, w) => s + w, 0);
+        if (totalPartyWeight > 0) {
+          // Deduct rebel count from player votes for this party (proportionally)
+          let remaining = Math.min(rebelCount, totalPartyWeight);
+          for (const [dir, weight] of Object.entries(voteDirs)) {
+            const deduct = Math.round((weight / totalPartyWeight) * remaining);
+            tally[dir] = Math.max(0, (tally[dir] || 0) - deduct);
+          }
+        }
+        // Add rebel votes to their chosen direction
+        if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebelCount;
+      }
     }
 
     // Caller's own vote and effective weight
@@ -10717,21 +10849,36 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
       );
       myVote = mv[0] || null;
 
-      // Compute the caller's current effective weight from constituencies DB
+      // Compute the caller's current effective weight from constituencies DB, minus rebels for their party
       try {
         const { rows: charRows } = await pool.query(
-          "SELECT name FROM characters WHERE id = $1", [charId]
+          "SELECT name, party FROM characters WHERE id = $1", [charId]
         );
         const charName = charRows[0]?.name || "";
-        const seatsByParty = await getPartySeatsFromConstituencies(pool);
+        const charParty = charRows[0]?.party || "";
+        const seatsByPartyFresh = await getPartySeatsFromConstituencies(pool);
         const { rows: stateRows } = await pool.query(
           `SELECT ss.data FROM state_snapshots ss
              JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
             WHERE asc2.id = 'main'`
         );
         const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-        const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
-        myWeight = Number(effectiveWeights[charName] || 0);
+        const { effectiveWeights } = computeAllPlayerWeights(seatsByPartyFresh, statePlayers);
+        const rawWeight = Number(effectiveWeights[charName] || 0);
+        // Deduct rebel fraction from myWeight display
+        const partyRebels = Number((division.rebels_by_party || {})[charParty] || 0);
+        if (partyRebels > 0 && rawWeight > 0) {
+          const partyTotalWeight = Object.entries(effectiveWeights)
+            .filter(([n]) => {
+              const pl = statePlayers.find((p) => String(p.name || "") === n);
+              return pl && String(pl.party || "") === charParty;
+            })
+            .reduce((s, [, w]) => s + Number(w), 0);
+          const fraction = partyTotalWeight > 0 ? rawWeight / partyTotalWeight : 0;
+          myWeight = Math.max(0, rawWeight - Math.round(fraction * partyRebels));
+        } else {
+          myWeight = rawWeight;
+        }
       } catch (wErr) { console.error("[division.for-entity myWeight]", wErr.message); /* weight display is best-effort */ }
     }
 
@@ -10897,11 +11044,39 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
           if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebels;
         }
       }
-      // Playable-party rebels (no NPC base vote)
-      for (const [party, rebels] of Object.entries(rebelsByPty)) {
-        if (npcVotes[party]) continue; // already handled above
-        const rebelDir = rebelChoicePty[party];
-        if (rebelDir && tally[rebelDir] !== undefined && rebels > 0) tally[rebelDir] += Number(rebels);
+      // Playable-party rebels (no NPC base vote) — deduct from player votes and add to rebel direction
+      if (Object.keys(rebelsByPty).length > 0) {
+        const { rows: partyVoteRows } = await client.query(
+          `SELECT c.party, dv.vote, SUM(dv.effective_weight)::int AS weight
+             FROM division_votes dv
+             JOIN characters c ON c.id = dv.character_id
+            WHERE dv.division_id = $1
+            GROUP BY c.party, dv.vote`,
+          [req.params.id]
+        );
+        const partyVoteMap = {};
+        for (const pv of partyVoteRows) {
+          if (!partyVoteMap[pv.party]) partyVoteMap[pv.party] = {};
+          partyVoteMap[pv.party][pv.vote] = Number(pv.weight);
+        }
+        for (const [party, rebels] of Object.entries(rebelsByPty)) {
+          if (npcVotes[party]) continue; // NPC parties already handled above
+          const rebelCount = Number(rebels);
+          if (rebelCount <= 0) continue;
+          const rebelDir = rebelChoicePty[party];
+          const voteDirs = partyVoteMap[party] || {};
+          const totalPartyWeight = Object.values(voteDirs).reduce((s, w) => s + w, 0);
+          if (totalPartyWeight > 0) {
+            // Deduct rebel count from player votes for this party (proportionally)
+            let remaining = Math.min(rebelCount, totalPartyWeight);
+            for (const [dir, weight] of Object.entries(voteDirs)) {
+              const deduct = Math.round((weight / totalPartyWeight) * remaining);
+              tally[dir] = Math.max(0, (tally[dir] || 0) - deduct);
+            }
+          }
+          // Add rebel votes to their chosen direction
+          if (rebelDir && tally[rebelDir] !== undefined) tally[rebelDir] += rebelCount;
+        }
       }
 
       // Sinn Féin seats auto-abstain (do not take seats — excluded from aye/no counts)
@@ -12389,6 +12564,42 @@ app.post("/api/mod/scandals/:id/close", scandalWriteLimit, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/mod/scandals/:id/close]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── POST /api/mod/scandals/situations/:id/close ──────────────────────────
+app.post("/api/mod/scandals/situations/:id/close", scandalWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows } = await pool.query(
+      `UPDATE scandal_situations SET status = 'closed'
+        WHERE id = $1 AND status != 'closed'
+        RETURNING id`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Situation not found or already closed" });
+    await writeAuditLog(req.session.userId, "scandal.mod.situation.close", "scandal_situations", req.params.id, null, null);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/mod/scandals/situations/:id/close]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── DELETE /api/mod/scandals/situations/:id ──────────────────────────────
+app.delete("/api/mod/scandals/situations/:id", scandalWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rowCount } = await pool.query(
+      "DELETE FROM scandal_situations WHERE id = $1",
+      [req.params.id]
+    );
+    if (!rowCount) return res.status(404).json({ error: "Situation not found" });
+    await writeAuditLog(req.session.userId, "scandal.mod.situation.delete", "scandal_situations", req.params.id, null, null);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[DELETE /api/mod/scandals/situations/:id]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -15096,7 +15307,7 @@ app.get("/api/admin/economy", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'economy_page_data'");
-    res.json(rows.length ? rows[0].value : {});
+    res.json(rows.length ? JSON.parse(rows[0].value) : {});
   } catch (e) { console.error("[GET /api/admin/economy]", e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -15118,7 +15329,7 @@ app.get("/api/locals", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'locals_data'");
-    res.json(rows.length ? rows[0].value : { councils: [] });
+    res.json(rows.length ? JSON.parse(rows[0].value) : { councils: [] });
   } catch (e) { console.error("[GET /api/locals]", e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -15140,7 +15351,7 @@ app.get("/api/cabinet/headline", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'cabinet_headline'");
-    res.json(rows.length ? rows[0].value : { text: "" });
+    res.json(rows.length ? JSON.parse(rows[0].value) : { text: "" });
   } catch (e) { console.error("[GET /api/cabinet/headline]", e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -15161,7 +15372,7 @@ app.get("/api/shadowcabinet/headline", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT value FROM app_config WHERE key = 'shadowcabinet_headline'");
-    res.json(rows.length ? rows[0].value : { text: "" });
+    res.json(rows.length ? JSON.parse(rows[0].value) : { text: "" });
   } catch (e) { console.error("[GET /api/shadowcabinet/headline]", e); res.status(500).json({ error: "Server error" }); }
 });
 

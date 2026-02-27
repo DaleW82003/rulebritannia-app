@@ -67,7 +67,7 @@ function renderPartySummaryTable(partySummary, compact) {
             <div style="font-weight:700;font-size:13px;">${esc(ps.party)}</div>
             <div style="font-size:12px;color:#555;">
               ${ps.seats ? `${esc(String(ps.seats))} seats` : ""}
-              ${ps.vote_share ? ` &nbsp;·&nbsp; ${Number(ps.vote_share).toFixed(1)}%` : ""}
+              ${ps.vote_share ? ` &nbsp;·&nbsp; Vote share: ${Number(ps.vote_share).toFixed(1)}%` : ""}
             </div>
           </div>
         `).join("")}
