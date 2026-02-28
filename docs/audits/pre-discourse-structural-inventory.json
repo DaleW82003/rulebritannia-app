@@ -1,0 +1,3279 @@
+{
+  "generatedAt": "2026-02-28T03:09:16.086Z",
+  "summary": {
+    "totalServerEndpoints": 305,
+    "totalWriteEndpoints": 199,
+    "totalApiFunctions": 273,
+    "totalPages": 46,
+    "unmatchedWriteFns": 0,
+    "missingCredentials": 0,
+    "immutabilityViolations": 0,
+    "saveStateOnlyWarnings": 0,
+    "rbacDriftWarnings": 3
+  },
+  "htmlPages": [
+    "admin-panel.html",
+    "bill.html",
+    "bodies.html",
+    "budget.html",
+    "cabinet.html",
+    "civilservice.html",
+    "community-rules.html",
+    "constituencies.html",
+    "constituency-work.html",
+    "control-panel.html",
+    "dashboard.html",
+    "debates.html",
+    "economy.html",
+    "elections.html",
+    "events.html",
+    "fundraising.html",
+    "government.html",
+    "guides.html",
+    "hansard.html",
+    "index.html",
+    "locals.html",
+    "login.html",
+    "motion.html",
+    "motions.html",
+    "news.html",
+    "online.html",
+    "opposition.html",
+    "papers.html",
+    "party.html",
+    "personal.html",
+    "playerbase.html",
+    "polling.html",
+    "press.html",
+    "privacy.html",
+    "profile.html",
+    "questiontime.html",
+    "redlion.html",
+    "register.html",
+    "regulation.html",
+    "regulations.html",
+    "report.html",
+    "rules.html",
+    "shadowcabinet.html",
+    "statement.html",
+    "statements.html",
+    "submit-bill.html",
+    "team.html",
+    "terms.html",
+    "user.html",
+    "verify-email.html"
+  ],
+  "jsModules": [
+    "js/api.js",
+    "js/audit.js",
+    "js/auth.js",
+    "js/bill-drafting.js",
+    "js/clock.js",
+    "js/components/form-row.js",
+    "js/components/modal.js",
+    "js/components/tile.js",
+    "js/components/toast.js",
+    "js/core.js",
+    "js/divisions.js",
+    "js/engines/control-panel-engine.js",
+    "js/engines/core-engine.js",
+    "js/engines/division-engine.js",
+    "js/engines/permission-engine.js",
+    "js/errors.js",
+    "js/main.js",
+    "js/pages/admin-panel.js",
+    "js/pages/bill.js",
+    "js/pages/bodies.js",
+    "js/pages/budget.js",
+    "js/pages/cabinet.js",
+    "js/pages/civilservice.js",
+    "js/pages/constituencies.js",
+    "js/pages/constituency-work.js",
+    "js/pages/control-panel.js",
+    "js/pages/dashboard.js",
+    "js/pages/debates.js",
+    "js/pages/economy.js",
+    "js/pages/elections.js",
+    "js/pages/events.js",
+    "js/pages/fundraising.js",
+    "js/pages/government.js",
+    "js/pages/guides.js",
+    "js/pages/hansard.js",
+    "js/pages/landing.js",
+    "js/pages/locals.js",
+    "js/pages/login.js",
+    "js/pages/motion.js",
+    "js/pages/motions.js",
+    "js/pages/news.js",
+    "js/pages/online.js",
+    "js/pages/opposition.js",
+    "js/pages/papers.js",
+    "js/pages/party.js",
+    "js/pages/personal.js",
+    "js/pages/playerbase.js",
+    "js/pages/polling.js",
+    "js/pages/press.js",
+    "js/pages/profile.js",
+    "js/pages/questiontime.js",
+    "js/pages/redlion.js",
+    "js/pages/register.js",
+    "js/pages/regulation.js",
+    "js/pages/regulations.js",
+    "js/pages/rules.js",
+    "js/pages/shadowcabinet.js",
+    "js/pages/statement.js",
+    "js/pages/statements.js",
+    "js/pages/submit-bill.js",
+    "js/pages/team.js",
+    "js/pages/user.js",
+    "js/pages/verify-email.js",
+    "js/parties.js",
+    "js/permissions.js",
+    "js/ui.js"
+  ],
+  "apiRoutes": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 3604
+    },
+    {
+      "method": "GET",
+      "path": "/api/permissions",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 3616
+    },
+    {
+      "method": "GET",
+      "path": "/csrf-token",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 3640
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 3662
+    },
+    {
+      "method": "GET",
+      "path": "/auth/me",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 3729
+    },
+    {
+      "method": "POST",
+      "path": "/auth/logout",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 3756
+    },
+    {
+      "method": "POST",
+      "path": "/api/register",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 3788
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/verify-email",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 3912
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/resend-verification",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 3968
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/registrations",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4014
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/registrations/:id/approve",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4036
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/registrations/:id/reject",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4096
+    },
+    {
+      "method": "GET",
+      "path": "/api/state",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4132
+    },
+    {
+      "method": "POST",
+      "path": "/api/state",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 4152
+    },
+    {
+      "method": "GET",
+      "path": "/api/snapshots",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4200
+    },
+    {
+      "method": "POST",
+      "path": "/api/snapshots",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4226
+    },
+    {
+      "method": "POST",
+      "path": "/api/snapshots/:id/restore",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4264
+    },
+    {
+      "method": "GET",
+      "path": "/api/config",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 4302
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4315
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/enums",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4359
+    },
+    {
+      "method": "GET",
+      "path": "/api/discourse/config",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4400
+    },
+    {
+      "method": "PUT",
+      "path": "/api/discourse/config",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": false,
+      "lineNo": 4419
+    },
+    {
+      "method": "POST",
+      "path": "/api/discourse/test",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4463
+    },
+    {
+      "method": "GET",
+      "path": "/api/discourse/sso",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 4537
+    },
+    {
+      "method": "GET",
+      "path": "/api/discourse/sso/callback",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 4574
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/sso-readiness",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4662
+    },
+    {
+      "method": "POST",
+      "path": "/api/audit-log",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4758
+    },
+    {
+      "method": "GET",
+      "path": "/api/audit-log",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": false,
+      "lineNo": 4779
+    },
+    {
+      "method": "GET",
+      "path": "/api/bills",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4843
+    },
+    {
+      "method": "GET",
+      "path": "/api/bills/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4854
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4866
+    },
+    {
+      "method": "PUT",
+      "path": "/api/bills/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 4892
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bills/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": false,
+      "lineNo": 4911
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/first-reading",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5045
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/report",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 5100
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/withdraw",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5141
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/assent",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 5190
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/amendments",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5241
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/amendments/:aid/decide",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5317
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/amendments/:aid/support",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5402
+    },
+    {
+      "method": "GET",
+      "path": "/api/bills/:id/amendments",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5473
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/final-division",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 5495
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bills/:id/vote",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5747
+    },
+    {
+      "method": "GET",
+      "path": "/api/motions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5842
+    },
+    {
+      "method": "GET",
+      "path": "/api/motions/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5861
+    },
+    {
+      "method": "POST",
+      "path": "/api/motions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5876
+    },
+    {
+      "method": "POST",
+      "path": "/api/motions/:id/sign",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5906
+    },
+    {
+      "method": "PUT",
+      "path": "/api/motions/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 5938
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/motions/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 5960
+    },
+    {
+      "method": "GET",
+      "path": "/api/statements",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5980
+    },
+    {
+      "method": "GET",
+      "path": "/api/statements/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5991
+    },
+    {
+      "method": "POST",
+      "path": "/api/statements",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6006
+    },
+    {
+      "method": "PUT",
+      "path": "/api/statements/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6032
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/statements/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 6051
+    },
+    {
+      "method": "GET",
+      "path": "/api/regulations",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6071
+    },
+    {
+      "method": "GET",
+      "path": "/api/regulations/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6082
+    },
+    {
+      "method": "POST",
+      "path": "/api/regulations",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6097
+    },
+    {
+      "method": "PUT",
+      "path": "/api/regulations/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6123
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/regulations/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 6142
+    },
+    {
+      "method": "GET",
+      "path": "/api/questiontime-questions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6162
+    },
+    {
+      "method": "GET",
+      "path": "/api/questiontime-questions/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6175
+    },
+    {
+      "method": "POST",
+      "path": "/api/questiontime-questions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6190
+    },
+    {
+      "method": "PUT",
+      "path": "/api/questiontime-questions/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6234
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/questiontime-questions/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6253
+    },
+    {
+      "method": "GET",
+      "path": "/api/clock",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 6275
+    },
+    {
+      "method": "POST",
+      "path": "/api/clock/tick",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 6290
+    },
+    {
+      "method": "POST",
+      "path": "/api/clock/set",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 6354
+    },
+    {
+      "method": "GET",
+      "path": "/api/press",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 6412
+    },
+    {
+      "method": "GET",
+      "path": "/api/press/:id",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 6427
+    },
+    {
+      "method": "POST",
+      "path": "/api/press",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 6441
+    },
+    {
+      "method": "PUT",
+      "path": "/api/press/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6479
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/press/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6502
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/press/:id/transcript",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6518
+    },
+    {
+      "method": "POST",
+      "path": "/api/press/:id/mark",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": false,
+      "lineNo": 6593
+    },
+    {
+      "method": "GET",
+      "path": "/api/polling",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 6666
+    },
+    {
+      "method": "GET",
+      "path": "/api/polling/:id",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 6678
+    },
+    {
+      "method": "POST",
+      "path": "/api/polling",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6692
+    },
+    {
+      "method": "PUT",
+      "path": "/api/polling/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6718
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/polling/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6739
+    },
+    {
+      "method": "POST",
+      "path": "/api/debates/create",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 6775
+    },
+    {
+      "method": "GET",
+      "path": "/api/debates/payload/:entityType/:entityId",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6890
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/roles",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6995
+    },
+    {
+      "method": "POST",
+      "path": "/api/users/:id/roles",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7011
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/discourse-sync-preview",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7066
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/discourse-sync-groups",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7122
+    },
+    {
+      "method": "GET",
+      "path": "/api/bootstrap",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7211
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/clear-cache",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7349
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/rebuild-cache",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7371
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/rotate-sessions",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": false,
+      "lineNo": 7393
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/force-logout-all",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7421
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/export-snapshot",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7438
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/import-snapshot",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7471
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7531
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7556
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7573
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7588
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/characters/:id",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7619
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/:id/profile",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 7654
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/me/absent",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7746
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/select",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7761
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/apply",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 7794
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/applications/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7889
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/characters/applications",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 7904
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/applications/:id/approve",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 7921
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/applications/:id/reject",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8031
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/:id/set-inactive",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8061
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/repair/character-owner-pointers",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8115
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/bio-change",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8250
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/bio-changes/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8293
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/bio-changes",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8312
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/bio-changes/:id/approve",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8331
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/bio-changes/:id/reject",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8364
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/avatar-change",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8400
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/avatar-changes/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8441
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/avatar-changes",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8460
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/avatar-changes/:id/approve",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8479
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/avatar-changes/:id/reject",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8511
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/property/set",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8541
+    },
+    {
+      "method": "GET",
+      "path": "/api/parties/canonical",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8597
+    },
+    {
+      "method": "GET",
+      "path": "/api/parties/:partyId",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8610
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/set-leader",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8663
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/leadership",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8702
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/chief-whip",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8772
+    },
+    {
+      "method": "GET",
+      "path": "/api/shop/price-index",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8829
+    },
+    {
+      "method": "POST",
+      "path": "/api/shop/apply-inflation",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8850
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/shop-upkeep",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8932
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/finance",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8968
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/characters/:id/finance",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 9085
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/finance/summary",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9183
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/profile-change",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9274
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/profile-changes/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9346
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/profile-changes",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 9366
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/profile-changes/:id/approve",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 9386
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/profile-changes/:id/reject",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 9429
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/shop-purchases",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 9455
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/me/character/shop-purchases/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 9547
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/shop-purchases/:id/sell",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 9609
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/shop-purchases/:id/dismiss",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 9686
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/additional-revenue",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 9762
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/me/character/additional-revenue/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 9790
+    },
+    {
+      "method": "GET",
+      "path": "/api/parties/:partyId/structure",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9809
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/structure",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9824
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/treasury",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9901
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/membership-fee",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10002
+    },
+    {
+      "method": "GET",
+      "path": "/api/parties/:partyId/donations",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10044
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/donations",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 10090
+    },
+    {
+      "method": "GET",
+      "path": "/api/parties/:partyId/shop-purchases",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10159
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/shop-purchases",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 10187
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/parties/:partyId/shop-purchases/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10266
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/drafts",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10291
+    },
+    {
+      "method": "GET",
+      "path": "/api/cabinet/drafts",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10361
+    },
+    {
+      "method": "POST",
+      "path": "/api/cabinet/drafts",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10382
+    },
+    {
+      "method": "GET",
+      "path": "/api/shadowcabinet/drafts",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10408
+    },
+    {
+      "method": "POST",
+      "path": "/api/shadowcabinet/drafts",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10429
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/work-plan",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10460
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/work-plan",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10493
+    },
+    {
+      "method": "GET",
+      "path": "/api/offices",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10535
+    },
+    {
+      "method": "POST",
+      "path": "/api/offices",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 10558
+    },
+    {
+      "method": "POST",
+      "path": "/api/offices/:id/assign",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10581
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/offices/:id/assign/:characterId",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10654
+    },
+    {
+      "method": "GET",
+      "path": "/api/divisions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10826
+    },
+    {
+      "method": "GET",
+      "path": "/api/divisions/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10844
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/create",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10881
+    },
+    {
+      "method": "GET",
+      "path": "/api/divisions/for-entity/:entityType/:entityId",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10907
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/:id/vote",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10983
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/:id/close",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 11089
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/divisions/:id/npc-votes",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11139
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/:divisionId/party-instruction",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11165
+    },
+    {
+      "method": "GET",
+      "path": "/api/divisions/:divisionId/party-instruction/:partySlug",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11225
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/:divisionId/rebel-request",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11245
+    },
+    {
+      "method": "GET",
+      "path": "/api/divisions/:divisionId/rebel-request",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11283
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/:divisionId/rebel-request/:requestId/decide",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11306
+    },
+    {
+      "method": "GET",
+      "path": "/api/qt/questions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11369
+    },
+    {
+      "method": "GET",
+      "path": "/api/qt/questions/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11393
+    },
+    {
+      "method": "POST",
+      "path": "/api/qt/questions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11427
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/qt/questions/:id",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 11464
+    },
+    {
+      "method": "POST",
+      "path": "/api/qt/questions/:id/answer",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": false,
+      "lineNo": 11485
+    },
+    {
+      "method": "POST",
+      "path": "/api/qt/questions/:id/followup",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11523
+    },
+    {
+      "method": "GET",
+      "path": "/api/sim",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11555
+    },
+    {
+      "method": "POST",
+      "path": "/api/sim/tick",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 11567
+    },
+    {
+      "method": "POST",
+      "path": "/api/sim/set",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 11603
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bills/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 11654
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/discourse-sync-bills",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 11711
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/wipe-content",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 11770
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/seed-demo",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 12012
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/seed",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 12017
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/dashboard",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 12026
+    },
+    {
+      "method": "GET",
+      "path": "/api/scandals/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12072
+    },
+    {
+      "method": "POST",
+      "path": "/api/scandals/optin",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12129
+    },
+    {
+      "method": "POST",
+      "path": "/api/scandals/situations/:id/respond",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12150
+    },
+    {
+      "method": "POST",
+      "path": "/api/scandals/:id/choose",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12223
+    },
+    {
+      "method": "GET",
+      "path": "/api/mod/scandal-templates",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12321
+    },
+    {
+      "method": "GET",
+      "path": "/api/mod/scandals/opted-in-characters",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12337
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/scandal-templates",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12355
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/scandals/situations/create",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12382
+    },
+    {
+      "method": "GET",
+      "path": "/api/mod/scandals/open",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12442
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/scandals/:id/decision",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12500
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/scandals/:id/close",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12586
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/mod/scandals/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12608
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/scandals/situations/:id/close",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12626
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/mod/scandals/situations/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12645
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections/seat-totals",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12682
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections/current",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12696
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12726
+    },
+    {
+      "method": "POST",
+      "path": "/api/elections",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12744
+    },
+    {
+      "method": "PUT",
+      "path": "/api/elections/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12763
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections/:id/changes",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12784
+    },
+    {
+      "method": "PUT",
+      "path": "/api/elections/:id/changes",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12804
+    },
+    {
+      "method": "POST",
+      "path": "/api/elections/:id/finalize",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12858
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/elections/seed-1997",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12939
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections/bodies/current",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12974
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections/bodies/archive",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13012
+    },
+    {
+      "method": "POST",
+      "path": "/api/elections/bodies",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 13050
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/elections/bodies/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 13116
+    },
+    {
+      "method": "PUT",
+      "path": "/api/elections/bodies/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 13130
+    },
+    {
+      "method": "GET",
+      "path": "/api/constituencies/:id/events",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13174
+    },
+    {
+      "method": "GET",
+      "path": "/api/constituencies",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13219
+    },
+    {
+      "method": "POST",
+      "path": "/api/constituencies",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13239
+    },
+    {
+      "method": "PUT",
+      "path": "/api/constituencies/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13264
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/constituencies/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13328
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/constituencies/initialize-1997",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": false,
+      "lineNo": 13343
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/constituencies/clear",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13392
+    },
+    {
+      "method": "GET",
+      "path": "/api/parliament/status",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13416
+    },
+    {
+      "method": "PUT",
+      "path": "/api/parliament/status",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13434
+    },
+    {
+      "method": "GET",
+      "path": "/api/budget",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13475
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/budget/seed",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13494
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/budget/controls",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13513
+    },
+    {
+      "method": "POST",
+      "path": "/api/budget/draft",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 13534
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/budget/approve",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13551
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/budget/reject",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13573
+    },
+    {
+      "method": "GET",
+      "path": "/api/team",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13592
+    },
+    {
+      "method": "GET",
+      "path": "/api/profile",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13620
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/character/:id/affiliations",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13712
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/:id/affiliations",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13742
+    },
+    {
+      "method": "GET",
+      "path": "/api/control-panel/affiliations/pending",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13856
+    },
+    {
+      "method": "POST",
+      "path": "/api/control-panel/affiliations/:rid/decide",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13881
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13949
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/characters",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13984
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/:id/assign-owner",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": false,
+      "lineNo": 14017
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users/:id/active-character",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 14084
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/reset-baseline",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": false,
+      "lineNo": 14138
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/playerbase",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14212
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/finance/set-bank",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14304
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/finance/set-salary-override",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14330
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/finance/set-positions",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14358
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/finance/revenue",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14405
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/finance/revenue/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14427
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/finance/revenue/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14455
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/salary-scales/uprate",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": false,
+      "lineNo": 14472
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/finance/config",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14531
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/finance/salary-bands",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14548
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/finance/starting-balances",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14601
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/finance/apply-inflation",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14653
+    },
+    {
+      "method": "GET",
+      "path": "/api/redlion",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14719
+    },
+    {
+      "method": "POST",
+      "path": "/api/redlion",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14727
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/redlion/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14740
+    },
+    {
+      "method": "GET",
+      "path": "/api/events",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14749
+    },
+    {
+      "method": "POST",
+      "path": "/api/events",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14757
+    },
+    {
+      "method": "PUT",
+      "path": "/api/events/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14770
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/events/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14804
+    },
+    {
+      "method": "GET",
+      "path": "/api/online",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14815
+    },
+    {
+      "method": "POST",
+      "path": "/api/online",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14826
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/online/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14839
+    },
+    {
+      "method": "GET",
+      "path": "/api/fundraising",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14850
+    },
+    {
+      "method": "POST",
+      "path": "/api/fundraising",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14858
+    },
+    {
+      "method": "PUT",
+      "path": "/api/fundraising/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14871
+    },
+    {
+      "method": "POST",
+      "path": "/api/fundraising/:id/credit-party",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 14886
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/fundraising/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14960
+    },
+    {
+      "method": "POST",
+      "path": "/api/fundraising/:id/credit-character",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 14972
+    },
+    {
+      "method": "GET",
+      "path": "/api/news",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15037
+    },
+    {
+      "method": "POST",
+      "path": "/api/news",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15051
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/news/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15067
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/news/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15086
+    },
+    {
+      "method": "GET",
+      "path": "/api/rules",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15095
+    },
+    {
+      "method": "POST",
+      "path": "/api/rules",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15103
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/rules/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15116
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/rules/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15130
+    },
+    {
+      "method": "GET",
+      "path": "/api/guides",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15139
+    },
+    {
+      "method": "POST",
+      "path": "/api/guides",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15147
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/guides/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15160
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/guides/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15174
+    },
+    {
+      "method": "GET",
+      "path": "/api/civil-service/briefings",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15183
+    },
+    {
+      "method": "POST",
+      "path": "/api/civil-service/briefings",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15199
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/civil-service/briefings/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15214
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/civil-service/briefings/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15236
+    },
+    {
+      "method": "GET",
+      "path": "/api/civil-service/cases",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15245
+    },
+    {
+      "method": "POST",
+      "path": "/api/civil-service/cases",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15258
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/civil-service/cases/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15272
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/civil-service/cases/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15292
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/online/settings",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15301
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/online/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15316
+    },
+    {
+      "method": "GET",
+      "path": "/api/bodies",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15334
+    },
+    {
+      "method": "PUT",
+      "path": "/api/bodies/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15342
+    },
+    {
+      "method": "GET",
+      "path": "/api/papers",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15363
+    },
+    {
+      "method": "POST",
+      "path": "/api/papers/:key/articles",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15377
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/papers/:key/articles/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15392
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/papers/:key/articles/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15410
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/economy",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15419
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/economy",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15427
+    },
+    {
+      "method": "GET",
+      "path": "/api/locals",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15441
+    },
+    {
+      "method": "PUT",
+      "path": "/api/locals",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15449
+    },
+    {
+      "method": "GET",
+      "path": "/api/cabinet/headline",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15463
+    },
+    {
+      "method": "PUT",
+      "path": "/api/cabinet/headline",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15471
+    },
+    {
+      "method": "GET",
+      "path": "/api/shadowcabinet/headline",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15484
+    },
+    {
+      "method": "PUT",
+      "path": "/api/shadowcabinet/headline",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15492
+    }
+  ],
+  "dbTables": [
+    "app_state",
+    "state_snapshots",
+    "app_state_current",
+    "bills",
+    "motions",
+    "statements",
+    "regulations",
+    "questiontime_questions",
+    "press_items",
+    "polling_entries",
+    "sim_clock",
+    "user_roles",
+    "audit_log",
+    "pending_registrations"
+  ],
+  "roleDefinitions": {
+    "system": [
+      "admin",
+      "mod",
+      "speaker"
+    ],
+    "party": [
+      "party:labour",
+      "party:conservative",
+      "party:liberal_democrat"
+    ],
+    "offices": [
+      "office:prime_minister",
+      "office:leader_of_opposition",
+      "office:secretary_of_state",
+      "office:shadow_secretary_of_state",
+      "office:leader_of_third_party",
+      "office:backbencher",
+      "office:permanent_secretary",
+      "office:civil_servant"
+    ],
+    "allValid": [
+      "admin",
+      "mod",
+      "speaker",
+      "party:labour",
+      "party:conservative",
+      "party:liberal_democrat",
+      "office:prime_minister",
+      "office:leader_of_opposition",
+      "office:secretary_of_state",
+      "office:shadow_secretary_of_state",
+      "office:leader_of_third_party",
+      "office:backbencher",
+      "office:permanent_secretary",
+      "office:civil_servant"
+    ]
+  },
+  "entityTypes": [
+    "bill",
+    "motion",
+    "statement",
+    "regulation",
+    "question",
+    "press_item",
+    "amendment",
+    "division",
+    "edm",
+    "event",
+    "fundraising",
+    "shop",
+    "finance",
+    "civil_service_case",
+    "office_assignment"
+  ],
+  "dependencyGraph": [
+    {
+      "feature": "Bills",
+      "api": [
+        "POST /api/bills",
+        "PATCH /api/bills/:id/vote",
+        "PUT /api/bills/:id"
+      ],
+      "dbTables": [
+        "bills",
+        "divisions",
+        "division_votes"
+      ],
+      "ui": [
+        "submit-bill.html",
+        "bill.html",
+        "js/pages/submit-bill.js",
+        "js/pages/bill.js"
+      ]
+    },
+    {
+      "feature": "Motions",
+      "api": [
+        "POST /api/motions",
+        "PUT /api/motions/:id",
+        "POST /api/motions/:id/sign"
+      ],
+      "dbTables": [
+        "motions"
+      ],
+      "ui": [
+        "motions.html",
+        "motion.html",
+        "js/pages/motions.js",
+        "js/pages/motion.js"
+      ]
+    },
+    {
+      "feature": "Regulations",
+      "api": [
+        "POST /api/regulations",
+        "PUT /api/regulations/:id"
+      ],
+      "dbTables": [
+        "regulations"
+      ],
+      "ui": [
+        "regulations.html",
+        "regulation.html",
+        "js/pages/regulations.js",
+        "js/pages/regulation.js"
+      ]
+    },
+    {
+      "feature": "Statements",
+      "api": [
+        "POST /api/statements",
+        "PUT /api/statements/:id"
+      ],
+      "dbTables": [
+        "statements"
+      ],
+      "ui": [
+        "statements.html",
+        "statement.html",
+        "js/pages/statements.js",
+        "js/pages/statement.js"
+      ]
+    },
+    {
+      "feature": "Press",
+      "api": [
+        "POST /api/press",
+        "PUT /api/press/:id"
+      ],
+      "dbTables": [
+        "press_items"
+      ],
+      "ui": [
+        "press.html",
+        "js/pages/press.js"
+      ]
+    },
+    {
+      "feature": "Divisions",
+      "api": [
+        "POST /api/divisions/create",
+        "POST /api/divisions/:id/vote",
+        "POST /api/divisions/:id/close"
+      ],
+      "dbTables": [
+        "divisions",
+        "division_votes",
+        "division_party_instructions"
+      ],
+      "ui": [
+        "bill.html",
+        "motion.html",
+        "js/divisions.js",
+        "js/pages/bill.js"
+      ]
+    },
+    {
+      "feature": "Party Offices",
+      "api": [
+        "POST /api/offices/:id/assign",
+        "DELETE /api/offices/:id/assign/:characterId"
+      ],
+      "dbTables": [
+        "offices",
+        "office_assignments"
+      ],
+      "ui": [
+        "party.html",
+        "government.html",
+        "opposition.html",
+        "js/pages/party.js"
+      ]
+    },
+    {
+      "feature": "Economy & Budget",
+      "api": [
+        "GET /api/admin/economy",
+        "PUT /api/admin/economy",
+        "POST /api/budget/drafts"
+      ],
+      "dbTables": [
+        "app_state_current",
+        "state_snapshots"
+      ],
+      "ui": [
+        "economy.html",
+        "budget.html",
+        "js/pages/economy.js",
+        "js/pages/budget.js"
+      ]
+    }
+  ],
+  "rbacDrift": [
+    {
+      "rule": {
+        "method": "POST",
+        "path": "/api/press",
+        "roles": [
+          "authenticated"
+        ],
+        "immutable": true,
+        "category": "parliament",
+        "immutable_note": "Press items cannot be edited by author after submit"
+      },
+      "drift": "matrix=[authenticated] server=[admin,mod,speaker]"
+    },
+    {
+      "rule": {
+        "method": "POST",
+        "path": "/api/offices/:id/assign",
+        "roles": [
+          "admin"
+        ],
+        "immutable": false,
+        "category": "party"
+      },
+      "drift": "matrix=[admin] server=[authenticated]"
+    },
+    {
+      "rule": {
+        "method": "DELETE",
+        "path": "/api/offices/:id/assign/:characterId",
+        "roles": [
+          "admin"
+        ],
+        "immutable": false,
+        "category": "party"
+      },
+      "drift": "matrix=[admin] server=[authenticated]"
+    }
+  ]
+}
