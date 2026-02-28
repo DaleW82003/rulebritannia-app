@@ -1077,8 +1077,21 @@
       "method": "POST",
       "path": "/api/offices/:id/assign",
       "roles": [
-        "admin"
+        "authenticated"
       ],
+      "intendedAuthority": {
+        "allow": [
+          "admin",
+          "mod",
+          "prime_minister",
+          "leader_of_opposition"
+        ],
+        "scope": {
+          "prime_minister": "government offices only",
+          "leader_of_opposition": "opposition/shadow offices only"
+        }
+      },
+      "rationale": "These routes are listed as [authenticated] in route inventory because session auth is required; authorization is enforced inside the handler with explicit 403 unless (admin/mod) or (PM/LOTO within scoped office domain). This matrix documents the intended authority.",
       "immutable": false,
       "category": "party"
     },
@@ -1086,8 +1099,21 @@
       "method": "DELETE",
       "path": "/api/offices/:id/assign/:characterId",
       "roles": [
-        "admin"
+        "authenticated"
       ],
+      "intendedAuthority": {
+        "allow": [
+          "admin",
+          "mod",
+          "prime_minister",
+          "leader_of_opposition"
+        ],
+        "scope": {
+          "prime_minister": "government offices only",
+          "leader_of_opposition": "opposition/shadow offices only"
+        }
+      },
+      "rationale": "These routes are listed as [authenticated] in route inventory because session auth is required; authorization is enforced inside the handler with explicit 403 unless (admin/mod) or (PM/LOTO within scoped office domain). This matrix documents the intended authority.",
       "immutable": false,
       "category": "party"
     },
