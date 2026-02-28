@@ -1302,6 +1302,29 @@ export async function apiFollowupQtQuestion(id, payload) {
   return body;
 }
 
+export async function apiAnswerQtFollowup(id, payload) {
+  const res = await fetch(`${API_BASE}/api/qt/followups/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAnswerQtFollowup failed (${res.status})`);
+  return body;
+}
+
+export async function apiDeleteQtQuestion(id) {
+  const res = await fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: csrfHeaders(),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiDeleteQtQuestion failed (${res.status})`);
+  return body;
+}
+
 // ── Question Time (legacy CRUD endpoint) ────────────────────────────────────
 
 export async function apiGetQtLegacyQuestions() {

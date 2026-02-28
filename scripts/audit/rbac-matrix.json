@@ -287,7 +287,9 @@
       "method": "PATCH",
       "path": "/api/qt/questions/:id",
       "roles": [
-        "admin"
+        "admin",
+        "mod",
+        "speaker"
       ],
       "immutable": true,
       "category": "parliament"
@@ -310,6 +312,27 @@
         "authenticated"
       ],
       "immutable": false,
+      "category": "parliament"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/qt/followups/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "immutable": true,
+      "category": "parliament"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/qt/questions/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "immutable": true,
       "category": "parliament"
     },
     {

@@ -651,38 +651,57 @@ async function ensureSchema() {
       id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       office_id             TEXT NOT NULL,
       asked_by_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      asked_by_name         TEXT,
       question_text         TEXT NOT NULL,
       status                TEXT NOT NULL DEFAULT 'open'
                             CHECK (status IN ('open','answered','archived')),
+      asked_at_sim          TEXT,
+      due_at_sim            TEXT,
+      speaker_demanded_at   TIMESTAMPTZ,
+      demand_due_at_sim     TEXT,
+      npc_party             TEXT,
       created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS qt_questions_office_idx ON qt_questions (office_id);
     CREATE INDEX IF NOT EXISTS qt_questions_status_idx ON qt_questions (status);
   `);
+  // Migrations for existing installs
+  await pool.query(`ALTER TABLE qt_questions ADD COLUMN IF NOT EXISTS asked_by_name TEXT`);
+  await pool.query(`ALTER TABLE qt_questions ADD COLUMN IF NOT EXISTS asked_at_sim TEXT`);
+  await pool.query(`ALTER TABLE qt_questions ADD COLUMN IF NOT EXISTS due_at_sim TEXT`);
+  await pool.query(`ALTER TABLE qt_questions ADD COLUMN IF NOT EXISTS speaker_demanded_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE qt_questions ADD COLUMN IF NOT EXISTS demand_due_at_sim TEXT`);
+  await pool.query(`ALTER TABLE qt_questions ADD COLUMN IF NOT EXISTS npc_party TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS qt_answers (
-      id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      question_id             UUID NOT NULL REFERENCES qt_questions(id) ON DELETE CASCADE,
+      id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      question_id              UUID NOT NULL REFERENCES qt_questions(id) ON DELETE CASCADE,
       answered_by_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
-      answer_text             TEXT NOT NULL,
-      created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      answer_text              TEXT NOT NULL,
+      answered_at_sim          TEXT,
+      created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS qt_answers_question_idx ON qt_answers (question_id);
   `);
+  await pool.query(`ALTER TABLE qt_answers ADD COLUMN IF NOT EXISTS answered_at_sim TEXT`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS qt_followups (
       id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       question_id           UUID NOT NULL REFERENCES qt_questions(id) ON DELETE CASCADE,
       asked_by_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      asked_by_name         TEXT,
       followup_text         TEXT NOT NULL,
       answer_text           TEXT NOT NULL DEFAULT '',
+      asked_at_sim          TEXT,
       created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS qt_followups_question_idx ON qt_followups (question_id);
   `);
+  await pool.query(`ALTER TABLE qt_followups ADD COLUMN IF NOT EXISTS asked_by_name TEXT`);
+  await pool.query(`ALTER TABLE qt_followups ADD COLUMN IF NOT EXISTS asked_at_sim TEXT`);
 
   // ── Simulation State (authoritative clock) ────────────────────────────────
   await pool.query(`
@@ -11471,12 +11490,14 @@ app.post("/api/divisions/:divisionId/rebel-request/:requestId/decide", divWriteL
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QUESTION TIME (structured DB-driven)
-// GET    /api/qt/questions                  — authenticated: list QT questions
+// GET    /api/qt/questions                  — authenticated: list QT questions (with answers+followups)
 // POST   /api/qt/questions                  — authenticated: submit question
-// PATCH  /api/qt/questions/:id              — admin/mod: update status
-// POST   /api/qt/questions/:id/answer       — authenticated: post answer
+// PATCH  /api/qt/questions/:id              — admin/mod/speaker: update status / speaker-demand
+// POST   /api/qt/questions/:id/answer       — admin/mod/speaker: post answer
 // POST   /api/qt/questions/:id/followup     — authenticated: post follow-up
+// PATCH  /api/qt/followups/:id              — admin/mod/speaker: answer a follow-up
 // GET    /api/qt/questions/:id              — authenticated: get question + answers
+// DELETE /api/qt/questions/:id              — admin/mod: hard-delete
 // ═══════════════════════════════════════════════════════════════════════════
 
 const qtReadLimit  = rateLimit({ windowMs: 60_000, max: 300, standardHeaders: true, legacyHeaders: false });
@@ -11488,7 +11509,23 @@ app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
     const { office_id, status } = req.query;
     let q = `
       SELECT q.id, q.office_id, q.question_text, q.status, q.created_at, q.updated_at,
-             c.name AS asked_by_name
+             q.asked_at_sim, q.due_at_sim, q.speaker_demanded_at, q.demand_due_at_sim, q.npc_party,
+             COALESCE(c.name, q.asked_by_name) AS asked_by_name,
+             (SELECT a.answer_text FROM qt_answers a WHERE a.question_id = q.id ORDER BY a.created_at LIMIT 1) AS answer_text,
+             (SELECT a.answered_at_sim FROM qt_answers a WHERE a.question_id = q.id ORDER BY a.created_at LIMIT 1) AS answered_at_sim,
+             COALESCE((
+               SELECT json_agg(json_build_object(
+                 'id',           f.id,
+                 'followup_text', f.followup_text,
+                 'answer_text',  f.answer_text,
+                 'asked_by_name', COALESCE(fc.name, f.asked_by_name),
+                 'asked_at_sim', f.asked_at_sim,
+                 'created_at',  f.created_at
+               ) ORDER BY f.created_at)
+               FROM qt_followups f
+               LEFT JOIN characters fc ON fc.id = f.asked_by_character_id
+               WHERE f.question_id = q.id
+             ), '[]'::json) AS followups
         FROM qt_questions q
         LEFT JOIN characters c ON c.id = q.asked_by_character_id
     `;
@@ -11543,7 +11580,7 @@ app.get("/api/qt/questions/:id", qtReadLimit, async (req, res) => {
 app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { office_id, question_text } = req.body || {};
+    const { office_id, question_text, asked_by_name, asked_at_sim, due_at_sim, npc_party } = req.body || {};
     if (!office_id || !question_text) {
       return res.status(400).json({ error: "office_id and question_text are required" });
     }
@@ -11565,11 +11602,21 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
       }
     }
     const { rows } = await pool.query(
-      `INSERT INTO qt_questions (office_id, asked_by_character_id, question_text)
-       VALUES ($1, $2, $3)
-       RETURNING id, office_id, asked_by_character_id, question_text, status, created_at`,
-      [office_id, charId || null, question_text.trim()]
+      `INSERT INTO qt_questions
+         (office_id, asked_by_character_id, asked_by_name, question_text, asked_at_sim, due_at_sim, npc_party)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, office_id, asked_by_character_id, asked_by_name, question_text, status, asked_at_sim, due_at_sim, npc_party, created_at`,
+      [
+        office_id,
+        charId || null,
+        (asked_by_name || "").trim() || null,
+        question_text.trim(),
+        (asked_at_sim || "").trim() || null,
+        (due_at_sim || "").trim() || null,
+        (npc_party || "").trim() || null,
+      ]
     );
+    await writeAuditLog(req.session.userId, "qt.question.submit", "qt_question", rows[0].id, null, { office_id, asked_by_name: rows[0].asked_by_name });
     res.status(201).json({ ok: true, question: rows[0] });
   } catch (e) {
     console.error(e);
@@ -11579,15 +11626,34 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
 
 app.patch("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
-    const { status } = req.body || {};
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { status, action, demand_due_at_sim } = req.body || {};
+
+    if (action === "speaker-demand") {
+      // Speaker issues a demand for an answer — sets speaker_demanded_at + demand deadline
+      const { rows } = await pool.query(
+        `UPDATE qt_questions
+            SET speaker_demanded_at = NOW(),
+                demand_due_at_sim   = $1,
+                updated_at          = NOW()
+          WHERE id = $2 AND status = 'open'
+          RETURNING id, status, speaker_demanded_at, demand_due_at_sim`,
+        [(demand_due_at_sim || "").trim() || null, req.params.id]
+      );
+      if (!rows.length) return res.status(404).json({ error: "Question not found or not open" });
+      await writeAuditLog(req.session.userId, "qt.question.speaker-demand", "qt_question", req.params.id, null, rows[0]);
+      return res.json({ ok: true, question: rows[0] });
+    }
+
+    // Status update: closed is an alias for archived
+    const normalised = status === "closed" ? "archived" : status;
     const validStatuses = ["open", "answered", "archived"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: `status must be one of: ${validStatuses.join(", ")}` });
+    if (!validStatuses.includes(normalised)) {
+      return res.status(400).json({ error: `status must be one of: ${validStatuses.join(", ")} (or "closed")` });
     }
     const { rows } = await pool.query(
       "UPDATE qt_questions SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING id, status",
-      [status, req.params.id]
+      [normalised, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Question not found" });
     await writeAuditLog(req.session.userId, "qt.question.status", "qt_question", req.params.id, null, rows[0]);
@@ -11601,7 +11667,7 @@ app.patch("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
 app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
   try {
     if (!requireAdminModOrSpeaker(req, res)) return;
-    const { answered_by_character_id, answer_text } = req.body || {};
+    const { answered_by_character_id, answer_text, answered_at_sim } = req.body || {};
     if (!answer_text || !answer_text.trim()) {
       return res.status(400).json({ error: "answer_text is required" });
     }
@@ -11614,15 +11680,16 @@ app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
       if (!qRows.length) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Question not found" }); }
 
       const { rows } = await client.query(
-        `INSERT INTO qt_answers (question_id, answered_by_character_id, answer_text)
-         VALUES ($1, $2, $3) RETURNING id, question_id, answer_text, created_at`,
-        [req.params.id, answered_by_character_id || null, answer_text.trim()]
+        `INSERT INTO qt_answers (question_id, answered_by_character_id, answer_text, answered_at_sim)
+         VALUES ($1, $2, $3, $4) RETURNING id, question_id, answer_text, answered_at_sim, created_at`,
+        [req.params.id, answered_by_character_id || null, answer_text.trim(), (answered_at_sim || "").trim() || null]
       );
       await client.query(
         "UPDATE qt_questions SET status = 'answered', updated_at = NOW() WHERE id = $1",
         [req.params.id]
       );
       await client.query("COMMIT");
+      await writeAuditLog(req.session.userId, "qt.question.answered", "qt_question", req.params.id, null, { answer_id: rows[0].id });
       res.status(201).json({ ok: true, answer: rows[0] });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -11639,19 +11706,53 @@ app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
 app.post("/api/qt/questions/:id/followup", qtWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { asked_by_character_id, followup_text, answer_text = "" } = req.body || {};
+    const { asked_by_character_id, followup_text, asked_by_name, asked_at_sim } = req.body || {};
     if (!followup_text || !followup_text.trim()) {
       return res.status(400).json({ error: "followup_text is required" });
     }
+    const charId = await getActiveCharacterId(req);
     const { rows: qRows } = await pool.query("SELECT id FROM qt_questions WHERE id = $1", [req.params.id]);
     if (!qRows.length) return res.status(404).json({ error: "Question not found" });
 
     const { rows } = await pool.query(
-      `INSERT INTO qt_followups (question_id, asked_by_character_id, followup_text, answer_text)
-       VALUES ($1, $2, $3, $4) RETURNING id, question_id, followup_text, answer_text, created_at`,
-      [req.params.id, asked_by_character_id || null, followup_text.trim(), answer_text.trim()]
+      `INSERT INTO qt_followups (question_id, asked_by_character_id, asked_by_name, followup_text, asked_at_sim)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id, question_id, followup_text, answer_text, asked_at_sim, created_at`,
+      [req.params.id, charId || asked_by_character_id || null, (asked_by_name || "").trim() || null, followup_text.trim(), (asked_at_sim || "").trim() || null]
     );
     res.status(201).json({ ok: true, followup: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.patch("/api/qt/followups/:id", qtWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { answer_text } = req.body || {};
+    if (!answer_text || !answer_text.trim()) {
+      return res.status(400).json({ error: "answer_text is required" });
+    }
+    const { rows } = await pool.query(
+      "UPDATE qt_followups SET answer_text = $1 WHERE id = $2 RETURNING id, question_id, followup_text, answer_text",
+      [answer_text.trim(), req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Follow-up not found" });
+    await writeAuditLog(req.session.userId, "qt.followup.answered", "qt_followup", req.params.id, null, { answer_text: rows[0].answer_text });
+    res.json({ ok: true, followup: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM qt_questions WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Question not found" });
+    await writeAuditLog(req.session.userId, "qt.question.deleted", "qt_question", req.params.id, null, null);
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
