@@ -4911,14 +4911,13 @@ app.put("/api/bills/:id", crudWriteLimit, async (req, res) => {
 app.delete("/api/bills/:id", crudWriteLimit, async (req, res) => {
   const client = await pool.connect();
   try {
-    if (!requireAdminModOrSpeaker(req, res)) { client.release(); return; }
+    if (!requireAdminModOrSpeaker(req, res)) { return; }
 
     await client.query("BEGIN");
 
     const { rowCount } = await client.query("DELETE FROM bills WHERE id = $1", [req.params.id]);
     if (!rowCount) {
       await client.query("ROLLBACK");
-      client.release();
       return res.status(404).json({ error: "Bill not found" });
     }
 
@@ -9466,11 +9465,11 @@ app.post("/api/me/character/shop-purchases", meFinanceWriteLimit, async (req, re
         LIMIT 1`,
       [req.session.userId]
     );
-    if (!charRows.length) { client.release(); return res.status(404).json({ error: "No active character found" }); }
+    if (!charRows.length) { return res.status(404).json({ error: "No active character found" }); }
     const charId = charRows[0].id;
 
     const { item_id, item_name, price, monthly_upkeep, base_price = 0, effects = [], risk_modifier = null } = req.body || {};
-    if (!item_id || !item_name) { client.release(); return res.status(400).json({ error: "item_id and item_name are required" }); }
+    if (!item_id || !item_name) { return res.status(400).json({ error: "item_id and item_name are required" }); }
 
     const itemPrice     = Math.max(0, Number(price        || 0));
     const itemUpkeep    = Math.max(0, Number(monthly_upkeep || 0));
@@ -9491,7 +9490,6 @@ app.post("/api/me/character/shop-purchases", meFinanceWriteLimit, async (req, re
     );
     if (!finRows.length || Number(finRows[0].bank_balance) < itemPrice) {
       await client.query("ROLLBACK");
-      client.release();
       return res.status(402).json({ error: "Insufficient funds" });
     }
 
@@ -9559,7 +9557,7 @@ app.delete("/api/me/character/shop-purchases/:id", meFinanceWriteLimit, async (r
         LIMIT 1`,
       [req.session.userId]
     );
-    if (!charRows.length) { client.release(); return res.status(404).json({ error: "No active character found" }); }
+    if (!charRows.length) { return res.status(404).json({ error: "No active character found" }); }
     const charId = charRows[0].id;
 
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
@@ -9570,9 +9568,8 @@ app.delete("/api/me/character/shop-purchases/:id", meFinanceWriteLimit, async (r
       `SELECT character_id FROM character_shop_purchases WHERE id = $1`,
       [req.params.id]
     );
-    if (!pRows.length) { client.release(); return res.status(404).json({ error: "Purchase not found" }); }
+    if (!pRows.length) { return res.status(404).json({ error: "Purchase not found" }); }
     if (!isAdminOrMod && pRows[0].character_id !== charId) {
-      client.release();
       return res.status(403).json({ error: "Forbidden" });
     }
 
@@ -10093,14 +10090,14 @@ app.get("/api/parties/:partyId/donations", partyReadLimit, async (req, res) => {
 app.post("/api/parties/:partyId/donations", partyWriteLimit, async (req, res) => {
   const client = await pool.connect();
   try {
-    if (!requireAdminOrMod(req, res)) { client.release(); return; }
+    if (!requireAdminOrMod(req, res)) { return; }
 
     const fromName = String(req.body?.fromName || req.body?.from_name || "").trim().slice(0, 200);
     const amount   = parseFloat(req.body?.amount);
     const note     = String(req.body?.note || "").trim().slice(0, 500);
 
-    if (!fromName) { client.release(); return res.status(400).json({ error: "fromName is required" }); }
-    if (!Number.isFinite(amount) || amount <= 0) { client.release(); return res.status(400).json({ error: "amount must be a positive number" }); }
+    if (!fromName) { return res.status(400).json({ error: "fromName is required" }); }
+    if (!Number.isFinite(amount) || amount <= 0) { return res.status(400).json({ error: "amount must be a positive number" }); }
 
     const { rows: clk } = await client.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
     const simMonth = clk[0]?.sim_current_month ?? 8;
@@ -10113,7 +10110,6 @@ app.post("/api/parties/:partyId/donations", partyWriteLimit, async (req, res) =>
     );
     if (!partyRows.length) {
       await client.query("ROLLBACK");
-      client.release();
       return res.status(404).json({ error: "Party not found" });
     }
 
@@ -10135,7 +10131,6 @@ app.post("/api/parties/:partyId/donations", partyWriteLimit, async (req, res) =>
     await writeAuditLog(req.session.userId, "party.donation.add", "party_donations", donation[0].id, null,
       { partySlug: req.params.partyId, fromName, amount, note });
 
-    client.release();
     res.json({
       ok: true,
       donation: {
@@ -10150,9 +10145,10 @@ app.post("/api/parties/:partyId/donations", partyWriteLimit, async (req, res) =>
     });
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
-    client.release();
     console.error("[POST /api/parties/:partyId/donations]", e);
     res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
   }
 });
 
@@ -10191,24 +10187,24 @@ app.get("/api/parties/:partyId/shop-purchases", partyReadLimit, async (req, res)
 app.post("/api/parties/:partyId/shop-purchases", partyShopLimit, async (req, res) => {
   const client = await pool.connect();
   try {
-    if (!requireAuth(req, res)) { client.release(); return; }
+    if (!requireAuth(req, res)) { return; }
 
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
     const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
     if (!isAdminOrMod) {
-      if (!req.session.characterId) { client.release(); return res.status(403).json({ error: "No active character selected" }); }
+      if (!req.session.characterId) { return res.status(403).json({ error: "No active character selected" }); }
       const { rows: pr } = await client.query(
         "SELECT leader_character_id, chairman_character_id FROM parties WHERE slug = $1",
         [req.params.partyId]
       );
-      if (!pr.length) { client.release(); return res.status(404).json({ error: "Party not found" }); }
+      if (!pr.length) { return res.status(404).json({ error: "Party not found" }); }
       const isLeader   = String(pr[0].leader_character_id)   === String(req.session.characterId);
       const isChairman = String(pr[0].chairman_character_id) === String(req.session.characterId);
-      if (!isLeader && !isChairman) { client.release(); return res.status(403).json({ error: "Forbidden" }); }
+      if (!isLeader && !isChairman) { return res.status(403).json({ error: "Forbidden" }); }
     }
 
     const { item_id, item_name, price, monthly_upkeep, effects, risk_modifier } = req.body || {};
-    if (!item_id || !item_name) { client.release(); return res.status(400).json({ error: "item_id and item_name required" }); }
+    if (!item_id || !item_name) { return res.status(400).json({ error: "item_id and item_name required" }); }
     const priceParsed  = Math.max(0, parseFloat(price)          || 0);
     const upkeepParsed = Math.max(0, parseFloat(monthly_upkeep) || 0);
 
@@ -10219,9 +10215,9 @@ app.post("/api/parties/:partyId/shop-purchases", partyShopLimit, async (req, res
       "SELECT id, treasury FROM parties WHERE slug = $1 FOR UPDATE",
       [req.params.partyId]
     );
-    if (!partyRows.length) { await client.query("ROLLBACK"); client.release(); return res.status(404).json({ error: "Party not found" }); }
+    if (!partyRows.length) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Party not found" }); }
     const currentCash = Number(partyRows[0].treasury?.cash ?? 0);
-    if (currentCash < priceParsed) { await client.query("ROLLBACK"); client.release(); return res.status(409).json({ error: "Insufficient party funds" }); }
+    if (currentCash < priceParsed) { await client.query("ROLLBACK"); return res.status(409).json({ error: "Insufficient party funds" }); }
 
     // Deduct from treasury
     const newCash = currentCash - priceParsed;
@@ -14890,21 +14886,21 @@ app.put("/api/fundraising/:id", crudWriteLimit, async (req, res) => {
 app.post("/api/fundraising/:id/credit-party", crudWriteLimit, async (req, res) => {
   const client = await pool.connect();
   try {
-    if (!requireAdminOrMod(req, res)) { client.release(); return; }
+    if (!requireAdminOrMod(req, res)) { return; }
 
     const partySlug = String(req.body?.partySlug || "").trim();
     const amount    = parseFloat(req.body?.amount);
     const note      = String(req.body?.note || "").trim().slice(0, 500);
 
-    if (!partySlug) { client.release(); return res.status(400).json({ error: "partySlug is required" }); }
-    if (!Number.isFinite(amount) || amount <= 0) { client.release(); return res.status(400).json({ error: "amount must be a positive number" }); }
+    if (!partySlug) { return res.status(400).json({ error: "partySlug is required" }); }
+    if (!Number.isFinite(amount) || amount <= 0) { return res.status(400).json({ error: "amount must be a positive number" }); }
 
     // Get the fundraising item for its campaign name
     const { rows: itemRows } = await client.query(
       "SELECT id, data FROM fundraising_items WHERE id = $1",
       [req.params.id]
     );
-    if (!itemRows.length) { client.release(); return res.status(404).json({ error: "Fundraising item not found" }); }
+    if (!itemRows.length) { return res.status(404).json({ error: "Fundraising item not found" }); }
 
     const campaignName = String(itemRows[0].data?.name || itemRows[0].data?.title || "Fundraising").trim().slice(0, 200);
 
@@ -14919,7 +14915,6 @@ app.post("/api/fundraising/:id/credit-party", crudWriteLimit, async (req, res) =
     );
     if (!partyRows.length) {
       await client.query("ROLLBACK");
-      client.release();
       return res.status(404).json({ error: "Party not found" });
     }
 
@@ -14941,7 +14936,6 @@ app.post("/api/fundraising/:id/credit-party", crudWriteLimit, async (req, res) =
     await writeAuditLog(req.session.userId, "party.donation.fundraising", "party_donations", donation[0].id, null,
       { partySlug, campaignName, amount, fundraisingItemId: req.params.id });
 
-    client.release();
     res.json({
       ok: true,
       donation: {
@@ -14956,9 +14950,10 @@ app.post("/api/fundraising/:id/credit-party", crudWriteLimit, async (req, res) =
     });
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
-    client.release();
     console.error("[POST /api/fundraising/:id/credit-party]", e);
     res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
   }
 });
 
@@ -14977,28 +14972,28 @@ app.delete("/api/fundraising/:id", crudWriteLimit, async (req, res) => {
 app.post("/api/fundraising/:id/credit-character", crudWriteLimit, async (req, res) => {
   const client = await pool.connect();
   try {
-    if (!requireAdminOrMod(req, res)) { client.release(); return; }
+    if (!requireAdminOrMod(req, res)) { return; }
 
     const characterName = String(req.body?.characterName || "").trim();
     const amount        = parseFloat(req.body?.amount);
     const note          = String(req.body?.note || "").trim().slice(0, 500);
 
-    if (!characterName) { client.release(); return res.status(400).json({ error: "characterName is required" }); }
-    if (!Number.isFinite(amount) || amount <= 0) { client.release(); return res.status(400).json({ error: "amount must be a positive number" }); }
+    if (!characterName) { return res.status(400).json({ error: "characterName is required" }); }
+    if (!Number.isFinite(amount) || amount <= 0) { return res.status(400).json({ error: "amount must be a positive number" }); }
 
     // Get the fundraising item for its campaign name
     const { rows: itemRows } = await client.query(
       "SELECT id, data FROM fundraising_items WHERE id = $1",
       [req.params.id]
     );
-    if (!itemRows.length) { client.release(); return res.status(404).json({ error: "Fundraising item not found" }); }
+    if (!itemRows.length) { return res.status(404).json({ error: "Fundraising item not found" }); }
 
     // Look up character by name
     const { rows: charRows } = await client.query(
       "SELECT id FROM characters WHERE name = $1 LIMIT 1",
       [characterName]
     );
-    if (!charRows.length) { client.release(); return res.status(404).json({ error: "Character not found" }); }
+    if (!charRows.length) { return res.status(404).json({ error: "Character not found" }); }
     const charId = charRows[0].id;
 
     await client.query("BEGIN");
@@ -15019,16 +15014,16 @@ app.post("/api/fundraising/:id/credit-character", crudWriteLimit, async (req, re
     await writeAuditLog(req.session.userId, "fundraising.credit.character", "character_finance", charId, null,
       { characterName, amount, note, fundraisingItemId: req.params.id });
 
-    client.release();
     res.json({
       ok: true,
       bankBalance: Number(updated[0].bank_balance),
     });
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
-    client.release();
     console.error("[POST /api/fundraising/:id/credit-character]", e);
     res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
   }
 });
 
