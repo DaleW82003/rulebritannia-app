@@ -756,7 +756,6 @@ async function renderDivision(bill, data) {
                       <option value="no" ${npcVotes[name] === "no" ? "selected" : ""}>No</option>
                       <option value="abstain" ${npcVotes[name] === "abstain" ? "selected" : ""}>Abstain</option>
                     </select>
-                    <input type="number" name="rebels-${esc(name)}" min="0" max="${seats}" value="${Number(rebels[name] || 0)}" class="input" style="width:70px;" placeholder="Rebels">
                   </div>`).join("") +
                 (playableEntries.length ? `
                   <div style="margin-top:10px;">
@@ -845,8 +844,6 @@ async function renderDivision(bill, data) {
       npcNames.forEach((name) => {
         const v = String(fd.get(`npc-${name}`) || "").toLowerCase();
         if (["aye", "no", "abstain"].includes(v)) npcVotes[name] = v;
-        const rebels = Number(fd.get(`rebels-${name}`) || 0);
-        if (rebels > 0) rebelsByParty[name] = rebels;
       });
       playablePartyNames.forEach((name) => {
         const rebels = Number(fd.get(`rebels-${name}`) || 0);
