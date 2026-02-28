@@ -37,7 +37,7 @@ async function req(path, { method='GET', cookie, body, csrfToken }={}) {
   const headers = {
     ...(cookie ? { cookie } : {}),
     ...(body ? { 'Content-Type': 'application/json' } : {}),
-    ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
+    ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
   };
   const res = await fetch(`${base}${path}`, {
     method,
