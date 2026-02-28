@@ -47,6 +47,23 @@
       line-height: 1.65;
       margin: 0 0 28px;
     }
+    .credibility-chips {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin: 0 0 28px;
+    }
+    .credibility-chips span {
+      border: 1px solid rgba(255,255,255,.35);
+      background: rgba(255,255,255,.12);
+      border-radius: 999px;
+      padding: 7px 13px;
+      font-size: .82rem;
+      font-weight: 700;
+      letter-spacing: .01em;
+      white-space: nowrap;
+    }
     .landing-cta-row {
       display: flex;
       gap: 14px;
@@ -111,9 +128,13 @@
     }
 
     .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: stretch;
       gap: 18px;
+      margin: 0 auto;
+      max-width: 1120px;
     }
     .feature-tile {
       background: var(--panel);
@@ -121,6 +142,10 @@
       border-radius: var(--radius);
       padding: 22px;
       box-shadow: var(--shadow);
+      flex: 1 1 320px;
+      max-width: 360px;
+      display: flex;
+      flex-direction: column;
     }
     .feature-tile h3 {
       margin: 0 0 10px;
@@ -130,6 +155,7 @@
     }
     .feature-tile ul {
       margin: 0;
+      flex-grow: 1;
       padding: 0 0 0 18px;
       color: var(--muted);
       font-size: .9rem;
@@ -138,6 +164,103 @@
     .feature-tile-icon {
       font-size: 1.8rem;
       margin-bottom: 10px;
+    }
+
+    .roles-grid,
+    .faq-grid {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: stretch;
+      gap: 16px;
+      margin: 0 auto;
+      max-width: 1120px;
+    }
+    .role-card,
+    .faq-item,
+    .commitment-note {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius2);
+      box-shadow: var(--shadow);
+    }
+    .role-card,
+    .faq-item {
+      padding: 18px;
+      flex: 1 1 240px;
+      max-width: 320px;
+      display: flex;
+      flex-direction: column;
+    }
+    .role-card h3,
+    .faq-item h3 {
+      margin: 0 0 8px;
+      color: var(--navy);
+      font-size: 1.05rem;
+    }
+    .role-card p,
+    .faq-item p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: .92rem;
+    }
+    .role-card ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: .88rem;
+      line-height: 1.65;
+    }
+
+    .timeline-wrap {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+      max-width: 880px;
+      margin: 0 auto;
+    }
+    .timeline-step {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 14px;
+      align-items: start;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius2);
+      padding: 14px 16px;
+      box-shadow: var(--shadow);
+    }
+    .timeline-step .step-number {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: .95rem;
+      color: #fff;
+      background: linear-gradient(180deg, var(--navy), var(--navy2));
+      flex-shrink: 0;
+    }
+    .timeline-step strong {
+      color: var(--navy);
+      display: block;
+      margin-bottom: 2px;
+    }
+    .timeline-step span {
+      color: var(--muted);
+      font-size: .9rem;
+      line-height: 1.6;
+    }
+    .commitment-note {
+      margin: 8px auto 0;
+      max-width: 880px;
+      padding: 14px 16px;
+      color: var(--muted);
+      font-size: .88rem;
+      text-align: center;
     }
 
     .section-break {
@@ -245,6 +368,39 @@
       margin: 0 0 12px;
     }
     .landing-footer-cta p { opacity: .88; margin: 0 0 22px; }
+
+    @media (max-width: 480px) {
+      .landing-hero {
+        min-height: 430px;
+      }
+      .landing-hero-content {
+        padding: 38px 16px;
+      }
+      .landing-cta-row {
+        flex-direction: column;
+      }
+      .btn-hero {
+        width: 100%;
+        text-align: center;
+      }
+      .what-it-does-list {
+        grid-template-columns: 1fr;
+      }
+      .features-grid,
+      .roles-grid,
+      .faq-grid {
+        max-width: 100%;
+      }
+      .feature-tile,
+      .role-card,
+      .faq-item {
+        flex-basis: 100%;
+        max-width: 100%;
+      }
+      .timeline-step {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 
@@ -267,11 +423,19 @@
   <div class="landing-hero">
     <img class="hero-bg" src="./assets/landing/hero-1.jpg" alt="">
     <div class="landing-hero-content">
-      <h1>Rule Britannia</h1>
+      <h1>Run Parliament. Shape Britain’s future — live.</h1>
       <p>
-        A live, database-backed political simulation platform where players govern, legislate, debate,
-        and compete within a structured parliamentary system driven by automation and enforced process.
+        Rule Britannia is a persistent UK political simulation where bills, votes, media, party discipline,
+        and constituency work shape a live national timeline. It’s moderated, rules-first, and designed so
+        politics feels consequential.
       </p>
+      <div class="credibility-chips" aria-label="Platform credibility highlights">
+        <span>Persistent world state</span>
+        <span>Role-based permissions</span>
+        <span>Moderated outcomes</span>
+        <span>Parliamentary procedure</span>
+        <span>Discourse-ready debates</span>
+      </div>
       <div class="landing-cta-row">
         <a href="register.html" class="btn-hero primary">Apply to Join</a>
         <a href="login.html" class="btn-hero secondary">Sign In</a>
@@ -294,6 +458,40 @@
     </ul>
   </section>
 
+  <!-- Participation Timeline -->
+  <section class="landing-section" aria-labelledby="participation-heading">
+    <h2 id="participation-heading">What participating looks like</h2>
+    <div class="timeline-wrap">
+      <div class="timeline-step">
+        <span class="step-number">1</span>
+        <div><strong>Apply and get approved</strong><span>Submit your application and receive moderator approval before joining the live sim.</span></div>
+      </div>
+      <div class="timeline-step">
+        <span class="step-number">2</span>
+        <div><strong>Create/select your MP and party path</strong><span>Choose your MP profile, align with a party, and set your initial political direction.</span></div>
+      </div>
+      <div class="timeline-step">
+        <span class="step-number">3</span>
+        <div><strong>Set weekly priorities</strong><span>Balance parliament, media, party operations, and constituency work based on your goals.</span></div>
+      </div>
+      <div class="timeline-step">
+        <span class="step-number">4</span>
+        <div><strong>Submit work to the official record</strong><span>Bills, motions, questions, and statements become part of the permanent parliamentary timeline.</span></div>
+      </div>
+      <div class="timeline-step">
+        <span class="step-number">5</span>
+        <div><strong>Debates and divisions run</strong><span>When voting windows close, outcomes lock in and immediately affect power, policy, and strategy.</span></div>
+      </div>
+      <div class="timeline-step">
+        <span class="step-number">6</span>
+        <div><strong>Moderators adjudicate edge cases</strong><span>Disputes and unusual events are resolved consistently, then the world state updates for everyone.</span></div>
+      </div>
+    </div>
+    <div class="commitment-note">
+      <strong>Time commitment:</strong> Casual: 15–30 mins/day • Active: 1–2 hrs/day • Session nights: live events/divisions
+    </div>
+  </section>
+
   <!-- Section break with image -->
   <div class="section-break" style="background:linear-gradient(180deg,var(--navy),var(--navy2));">
     <img src="./assets/landing/hero-2.jpg" alt="">
@@ -312,9 +510,9 @@
         <div class="feature-tile-icon">🏛️</div>
         <h3>Govern &amp; Oppose</h3>
         <ul>
-          <li>Take office as a minister or opposition frontbencher</li>
-          <li>Form and break coalitions</li>
-          <li>Manage party discipline and internal politics</li>
+          <li>Take ministerial or opposition roles with responsibilities that affect live outcomes</li>
+          <li>Build alliances, negotiate support, and hold fragile majorities together</li>
+          <li>Set party direction and enforce discipline when votes are tight</li>
         </ul>
       </div>
 
@@ -322,9 +520,9 @@
         <div class="feature-tile-icon">📜</div>
         <h3>Legislate</h3>
         <ul>
-          <li>Draft and submit bills through all parliamentary stages</li>
-          <li>Propose amendments and respond to opposition</li>
-          <li>Secure majorities and navigate divisions</li>
+          <li>Draft bills and guide them through formal parliamentary stages</li>
+          <li>Amend proposals, answer criticism, and reshape text in committee-style process</li>
+          <li>Win divisions to turn proposals into binding simulation outcomes</li>
         </ul>
       </div>
 
@@ -332,9 +530,9 @@
         <div class="feature-tile-icon">🎙️</div>
         <h3>Question Ministers</h3>
         <ul>
-          <li>Submit written and oral questions with deadlines</li>
-          <li>Receive structured follow-up and ministerial answers</li>
-          <li>Hold the executive to account in Question Time</li>
+          <li>Submit written or oral questions under clear deadlines and formats</li>
+          <li>Press for follow-ups and force official answers into the record</li>
+          <li>Use Question Time to test government readiness and expose gaps</li>
         </ul>
       </div>
 
@@ -342,9 +540,9 @@
         <div class="feature-tile-icon">🗳️</div>
         <h3>Compete Politically</h3>
         <ul>
-          <li>Campaign in constituencies and track polling</li>
-          <li>Contest general and by-elections</li>
-          <li>Build a public profile through press and media</li>
+          <li>Campaign in constituencies and react to changing voter sentiment</li>
+          <li>Contest elections where campaign choices carry forward into the next term</li>
+          <li>Shape your profile through press cycles and political messaging</li>
         </ul>
       </div>
 
@@ -352,9 +550,9 @@
         <div class="feature-tile-icon">💷</div>
         <h3>Shape the Economy</h3>
         <ul>
-          <li>Set fiscal policy through the Budget</li>
-          <li>Respond to live macroeconomic indicators</li>
-          <li>Manage public finances and departmental spending</li>
+          <li>Set fiscal direction through budget choices that influence party credibility</li>
+          <li>Respond to economic indicators that raise political risks or opportunities</li>
+          <li>Prioritise spending trade-offs and defend them in parliament</li>
         </ul>
       </div>
 
@@ -362,12 +560,113 @@
         <div class="feature-tile-icon">💬</div>
         <h3>Debate</h3>
         <ul>
-          <li>Discourse forum integration ready</li>
-          <li>Linked debate threads for bills, motions, and statements</li>
-          <li>Rich cross-platform parliamentary discourse</li>
+          <li>Use linked threads for bill, motion, and statement debates</li>
+          <li>Keep speechmaking and argument trails attached to parliamentary actions</li>
+          <li>Carry debate context forward into votes and moderation decisions</li>
         </ul>
       </div>
 
+      <div class="feature-tile">
+        <div class="feature-tile-icon">🧭</div>
+        <h3>Constituency &amp; Scandals (Opt-in)</h3>
+        <ul>
+          <li>Run constituency casework and local campaigns that influence reputation</li>
+          <li>Opt into scandal events to add higher-risk narrative pressure</li>
+          <li>Moderator decisions determine outcomes and downstream consequences</li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Roles -->
+  <section class="landing-section" aria-labelledby="roles-heading">
+    <h2 id="roles-heading">Roles in the simulation</h2>
+    <div class="roles-grid">
+      <article class="role-card">
+        <h3>Player (MP)</h3>
+        <p>Core participants representing seats and advancing their political agenda.</p>
+        <ul>
+          <li>Submit bills, questions, motions, and statements</li>
+          <li>Vote in divisions and join debates</li>
+          <li>Balance party, media, and constituency commitments</li>
+        </ul>
+      </article>
+      <article class="role-card">
+        <h3>Party Leadership</h3>
+        <p>Sets strategic direction and messaging for each parliamentary party.</p>
+        <ul>
+          <li>Assign frontbench roles and priorities</li>
+          <li>Coordinate legislative and media strategy</li>
+          <li>Negotiate coalition or confidence arrangements</li>
+        </ul>
+      </article>
+      <article class="role-card">
+        <h3>Chief Whip</h3>
+        <p>Manages vote discipline so party plans survive key parliamentary moments.</p>
+        <ul>
+          <li>Issue voting guidance and attendance expectations</li>
+          <li>Track support before divisions close</li>
+          <li>Escalate discipline issues through party channels</li>
+        </ul>
+      </article>
+      <article class="role-card">
+        <h3>Speaker / Mods</h3>
+        <p>Keeps process fair and resolves edge cases under published rules.</p>
+        <ul>
+          <li>Adjudicate disputes and procedural ambiguity</li>
+          <li>Confirm outcomes and timeline consistency</li>
+          <li>Maintain continuity of the shared world state</li>
+        </ul>
+      </article>
+      <article class="role-card">
+        <h3>Admin</h3>
+        <p>Operates the platform, onboarding, and policy framework for the sim.</p>
+        <ul>
+          <li>Approve applications and assign access</li>
+          <li>Configure simulation settings and tooling</li>
+          <li>Oversee moderation standards and platform health</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="landing-section" aria-labelledby="faq-heading">
+    <h2 id="faq-heading">FAQ</h2>
+    <div class="faq-grid">
+      <article class="faq-item">
+        <h3>Is this live 24/7 or session-based?</h3>
+        <p>The world state is persistent 24/7, with key activity peaks around scheduled session nights and voting windows.</p>
+      </article>
+      <article class="faq-item">
+        <h3>Do I need deep Westminster knowledge?</h3>
+        <p>No. The system is structured so motivated newcomers can learn by doing, while experienced players still have strategic depth.</p>
+      </article>
+      <article class="faq-item">
+        <h3>What is public versus logged-in?</h3>
+        <p>This landing page is public. Active gameplay tools, records, and role actions are available once your account is approved.</p>
+      </article>
+      <article class="faq-item">
+        <h3>How are disputes and scandals handled?</h3>
+        <p>Moderators apply published rules, adjudicate edge cases, and then update the official timeline with the final ruling.</p>
+      </article>
+      <article class="faq-item">
+        <h3>Can I play casually?</h3>
+        <p>Yes. Casual play is viable at around 15–30 minutes daily, with optional higher involvement during major debates or divisions.</p>
+      </article>
+      <article class="faq-item">
+        <h3>When does Discourse integration happen?</h3>
+        <p>Debate links are designed to map bills and motions to discussion threads so argument history can feed directly into outcomes.</p>
+      </article>
+      <article class="faq-item">
+        <h3>Do moderators control political outcomes?</h3>
+        <p>Routine outcomes come from player actions and voting rules; moderators mainly intervene for disputes, edge cases, and consistency.</p>
+      </article>
+      <article class="faq-item">
+        <h3>Can I switch roles later?</h3>
+        <p>Yes, role assignments can evolve through in-sim political changes or admin decisions, depending on party and parliamentary dynamics.</p>
+      </article>
     </div>
   </section>
 
