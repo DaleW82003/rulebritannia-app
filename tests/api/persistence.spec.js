@@ -12,73 +12,27 @@
  *   node --test tests/api/persistence.spec.js
  *
  * Required environment variables:
- *   BASE_URL      - e.g. https://rulebritannia-app.onrender.com
- *   COOKIE_PLAYER - session cookie for an authenticated player
- *   COOKIE_MOD    - session cookie for a mod user
- *   COOKIE_ADMIN  - session cookie for an admin user
+ *   BASE_URL                   - e.g. https://rulebritannia-app.onrender.com
+ *   TEST_EMAIL / TEST_PASSWORD - admin/mod credentials (used for staff writes)
  *
  * Optional:
- *   TEST_PARTY_ID - UUID of an existing party to use for party tests
+ *   TEST_BACKBENCHER_EMAIL / TEST_BACKBENCHER_PASSWORD - player credentials
  */
 
 import { test, describe, before } from "node:test";
 import assert from "node:assert/strict";
-import { fileURLToPath } from "url";
+import { loginAs, apiGet, apiPost, apiDelete } from "./helpers/session.js";
 
-const BASE_URL = process.env.BASE_URL;
-if (!BASE_URL) {
-  throw new Error("BASE_URL is required for persistence tests");
-}
-
-const COOKIES = {
-  player: process.env.COOKIE_PLAYER || "",
-  mod:    process.env.COOKIE_MOD    || "",
-  admin:  process.env.COOKIE_ADMIN  || "",
-};
-
-if (!COOKIES.player) {
-  console.warn("⚠️  COOKIE_PLAYER not set — skipping persistence tests");
-}
-
-let csrfToken = "";
+let adminSession = null;
+let playerSession = null;
 
 before(async () => {
-  const res = await fetch(`${BASE_URL}/api/csrf-token`, {
-    headers: { Cookie: COOKIES.admin || COOKIES.mod || COOKIES.player },
-  });
-  const data = await res.json().catch(() => ({}));
-  csrfToken = data.csrfToken || data.token || "";
+  [adminSession, playerSession] = await Promise.all([
+    loginAs("admin"),
+    loginAs("player"),
+  ]);
+  if (!playerSession) console.warn("⚠️  TEST_BACKBENCHER_EMAIL/PASSWORD not set — some tests will skip");
 });
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-async function apiPost(path, body, cookie) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method:  "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-csrf-token": csrfToken,
-      Cookie:          cookie,
-    },
-    body: JSON.stringify(body),
-  });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
-}
-
-async function apiGet(path, cookie) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { Cookie: cookie },
-  });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
-}
-
-async function apiDelete(path, cookie) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method:  "DELETE",
-    headers: { "x-csrf-token": csrfToken, Cookie: cookie },
-  });
-  return { status: res.status };
-}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -90,7 +44,7 @@ describe("R3 persistence: Red Lion posts survive a reload", () => {
     const { status, body } = await apiPost(
       "/api/redlion",
       { displayName: "TestCharacter", body: testBody, asBarkeep: false, avatar: "" },
-      COOKIES.player
+      playerSession
     );
     // Post to redlion requires authenticated user; mod or speaker creates posts on behalf
     assert.ok([200, 201, 403].includes(status), `Unexpected status ${status}`);
@@ -99,7 +53,7 @@ describe("R3 persistence: Red Lion posts survive a reload", () => {
 
   test("GET /api/redlion returns the created post", async () => {
     if (!createdId) { console.warn("    (skipped — post not created)"); return; }
-    const { status, body } = await apiGet("/api/redlion", COOKIES.player);
+    const { status, body } = await apiGet("/api/redlion", playerSession);
     assert.equal(status, 200, "GET /api/redlion should return 200");
     const posts = body.posts || body;
     const found = Array.isArray(posts) && posts.find((p) => p.id === createdId);
@@ -124,14 +78,14 @@ describe("R3 persistence: online posts survive a reload", () => {
         createdTs: Date.now(),
       },
     };
-    const { status, body } = await apiPost("/api/online", postPayload, COOKIES.player);
+    const { status, body } = await apiPost("/api/online", postPayload, playerSession);
     assert.ok([200, 201, 400].includes(status), `Unexpected status ${status}`);
     if (status === 201 || status === 200) createdId = body.id;
   });
 
   test("GET /api/online returns the created post", async () => {
     if (!createdId) { console.warn("    (skipped — post not created)"); return; }
-    const { status, body } = await apiGet("/api/online?type=web", COOKIES.player);
+    const { status, body } = await apiGet("/api/online?type=web", playerSession);
     assert.equal(status, 200, "GET /api/online should return 200");
     const posts = body.posts || body;
     assert.ok(Array.isArray(posts), "Response should contain a posts array");
@@ -148,7 +102,7 @@ describe("R3 persistence: QT question submission survives a reload", () => {
     const { status, body } = await apiPost(
       "/api/qt/questions",
       { office: "prime-minister", text: testText, session_label: "Test Session" },
-      COOKIES.player
+      playerSession
     );
     assert.ok([200, 201, 400, 409].includes(status), `Unexpected status ${status}`);
     if (body.id) createdId = body.id;
@@ -156,7 +110,7 @@ describe("R3 persistence: QT question submission survives a reload", () => {
 
   test("GET /api/qt/questions returns the created question", async () => {
     if (!createdId) { console.warn("    (skipped — question not created)"); return; }
-    const { status, body } = await apiGet("/api/qt/questions", COOKIES.player);
+    const { status, body } = await apiGet("/api/qt/questions", playerSession);
     assert.equal(status, 200);
     const qs = body.questions || body;
     assert.ok(Array.isArray(qs), "Should return an array of questions");
@@ -176,13 +130,13 @@ describe("R3 persistence: constituency work plan survives a reload", () => {
     const { status } = await apiPost(
       "/api/me/work-plan",
       { hours: testHours, secondJobTitleCompany: "Test Co", lastSavedSimIndex: 0 },
-      COOKIES.player
+      playerSession
     );
     assert.ok([200, 201].includes(status), `POST /api/me/work-plan returned ${status}`);
   });
 
   test("GET /api/me/work-plan returns saved work plan", async () => {
-    const { status, body } = await apiGet("/api/me/work-plan", COOKIES.player);
+    const { status, body } = await apiGet("/api/me/work-plan", playerSession);
     assert.equal(status, 200, "GET /api/me/work-plan should return 200");
     const plan = body.workPlan || body;
     assert.ok(plan, "Response should contain workPlan");
@@ -217,7 +171,7 @@ describe("R3 persistence: press release survives a reload", () => {
         score: null,
         impact: [],
       },
-      COOKIES.player
+      adminSession
     );
     assert.ok([200, 201].includes(status), `POST /api/press returned ${status}`);
     createdId = body.id || id;
@@ -225,7 +179,7 @@ describe("R3 persistence: press release survives a reload", () => {
 
   test("GET /api/press returns the press release (R3: DB-backed)", async () => {
     if (!createdId) { console.warn("    (skipped — press item not created)"); return; }
-    const { status, body } = await apiGet(`/api/press?type=release`, COOKIES.player);
+    const { status, body } = await apiGet(`/api/press?type=release`, playerSession || adminSession);
     assert.equal(status, 200);
     const items = body.releases || body.items || body;
     assert.ok(Array.isArray(items), "Should return an array");
