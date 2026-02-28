@@ -8,11 +8,27 @@ if (!BASE_URL || !TEST_EMAIL || !TEST_PASSWORD) {
 const base = BASE_URL.replace(/\/$/, '');
 
 async function login(email, password) {
-  const res = await fetch(`${base}/api/auth/login`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  const url = `${base}/api/auth/login`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': 'rb-ci/1.0',
+      'Accept': 'application/json,text/plain,*/*',
+    },
     body: JSON.stringify({ email, password })
   });
-  if (!res.ok) throw new Error(`login failed ${res.status}`);
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    // Print *which* login failed + what the server said (trimmed)
+    console.error(`login() failed for email=${String(email || "").slice(0, 3)}***`);
+    console.error(`url=${url}`);
+    console.error(`status=${res.status}`);
+    console.error(`body=${text.slice(0, 800)}`);
+    throw new Error(`login failed ${res.status}`);
+  }
+
   const cookie = res.headers.get('set-cookie');
   if (!cookie) throw new Error('no set-cookie on login');
   return cookie.split(';')[0];
