@@ -1,127 +1,73 @@
 name: E2E Staging (RB GO-NO-GO)
 
-
-
 on:
-
   workflow_dispatch:
-
   push:
-
     branches: [ "main", "backend", "phase1-rebuild" ]
 
-
-
 jobs:
-
   e2e:
-
     runs-on: ubuntu-latest
-
     timeout-minutes: 20
 
-
-
     steps:
-
       - name: Checkout
-
         uses: actions/checkout@v4
 
-
-
       - name: Setup Node
-
         uses: actions/setup-node@v4
-
         with:
-
           node-version: "20"
 
-
-
       - name: Install server dependencies
-
         working-directory: server
-
         run: npm ci
 
-
-
       - name: Static checks
-
         run: node scripts/static-checks.js
 
-
-
       - name: Feature manifest
-
         run: node scripts/audit/feature-manifest.js --json > manifest.json
 
-
-
       - name: Generate audit report
-
         run: node scripts/audit/generate-audit-report.mjs
 
-
-
       - name: Run staging smoke (requires env)
-
         env:
-
           BASE_URL: ${{ secrets.BASE_URL }}
-
           TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
-
           TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
-
           TEST_BACKBENCHER_EMAIL: ${{ secrets.TEST_BACKBENCHER_EMAIL }}
-
           TEST_BACKBENCHER_PASSWORD: ${{ secrets.TEST_BACKBENCHER_PASSWORD }}
-
-        run: node scripts/test-staging.mjs
-
-
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "BASE_URL not configured — skipping staging smoke"
+            exit 0
+          fi
+          node scripts/test-staging.mjs
 
       - name: Run API spec tests (requires env)
-
         env:
-
           BASE_URL: ${{ secrets.BASE_URL }}
-
-          TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
-
-          TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
-
-          TEST_BACKBENCHER_EMAIL: ${{ secrets.TEST_BACKBENCHER_EMAIL }}
-
-          TEST_BACKBENCHER_PASSWORD: ${{ secrets.TEST_BACKBENCHER_PASSWORD }}
-
-        run: node --test tests/api/*.spec.js
-
-
+          COOKIE_PLAYER: ${{ secrets.COOKIE_PLAYER }}
+          COOKIE_MOD: ${{ secrets.COOKIE_MOD }}
+          COOKIE_ADMIN: ${{ secrets.COOKIE_ADMIN }}
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "BASE_URL not configured — skipping API spec tests"
+            exit 0
+          fi
+          node --test tests/api/*.spec.js
 
       - name: Upload evidence artifacts
-
         if: always()
-
         uses: actions/upload-artifact@v4
-
         with:
-
           name: rb-e2e-evidence
-
           path: |
-
             manifest.json
-
             audit-report*.md
-
             audit-report*.json
-
             **/test-results*.json
-
             **/test-results*.md
-
             **/reports/**

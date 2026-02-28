@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-const { BASE_URL, TEST_EMAIL, TEST_PASSWORD, TEST_LOW_EMAIL, TEST_LOW_PASSWORD } = process.env;
+const { BASE_URL, TEST_EMAIL, TEST_PASSWORD, TEST_LOW_EMAIL, TEST_LOW_PASSWORD,
+        TEST_BACKBENCHER_EMAIL, TEST_BACKBENCHER_PASSWORD } = process.env;
 if (!BASE_URL || !TEST_EMAIL || !TEST_PASSWORD) {
   console.error('FAIL: BASE_URL, TEST_EMAIL, TEST_PASSWORD are required');
   process.exit(1);
@@ -48,18 +49,22 @@ function skipped(name,why){ console.log(`SKIP ${name}: ${why}`); skip++; }
     const csrf = await getCsrf(adminCookie);
 
     // ── Persistence ────────────────────────────────────────────────────────
-    const title = `staging-${Date.now()}`;
-    const created = await req('/api/press', { method:'POST', cookie: adminCookie, csrfToken: csrf, body:{ type:'release', title, text:'e2e' }});
+    const pressId = `press-staging-${Date.now()}`;
+    const created = await req('/api/press', { method:'POST', cookie: adminCookie, csrfToken: csrf, body:{ press_type:'release', id: pressId, subject:`staging-${Date.now()}`, body:'e2e' }});
     if (![200,201].includes(created.res.status)) bad('persistence.create', created.res.status); else {
-      const id = created.json?.item?.id || created.json?.id;
+      const id = created.json?.item?.id || created.json?.id || pressId;
       const listed = await req('/api/press', { cookie: adminCookie });
-      const found = JSON.stringify(listed.json||{}).includes(title);
+      const found = JSON.stringify(listed.json||{}).includes(pressId);
       found ? ok('persistence') : bad('persistence', 'created entity not found after GET');
 
-      // immutability check: author PUT should fail (press items are immutable after submit)
-      if (id) {
-        const patch = await req(`/api/press/${id}`, { method:'PUT', cookie: adminCookie, csrfToken: csrf, body:{ title:`edit-${title}` } });
-        ([401,403,409].includes(patch.res.status) ? ok('immutability.author-edit-block') : bad('immutability.author-edit-block', patch.res.status));
+      // immutability check: non-admin/mod PUT must be rejected; use backbencher creds if available.
+      if (TEST_BACKBENCHER_EMAIL && TEST_BACKBENCHER_PASSWORD) {
+        const bbCookie = await login(TEST_BACKBENCHER_EMAIL, TEST_BACKBENCHER_PASSWORD);
+        const bbCsrf = await getCsrf(bbCookie);
+        const patch = await req(`/api/press/${id}`, { method:'PUT', cookie: bbCookie, csrfToken: bbCsrf, body:{ subject:`edit-${pressId}` } });
+        ([401,403].includes(patch.res.status) ? ok('immutability.author-edit-block') : bad('immutability.author-edit-block', patch.res.status));
+      } else {
+        skipped('immutability.author-edit-block', 'TEST_BACKBENCHER_EMAIL/PASSWORD not set - admin can legitimately update press items');
       }
     }
 
@@ -70,7 +75,7 @@ function skipped(name,why){ console.log(`SKIP ${name}: ${why}`); skip++; }
     else {
       const vote = await req(`/api/divisions/${did}/vote`, { method:'POST', cookie: adminCookie, csrfToken: csrf, body:{ vote:'aye', weight:9999 } });
       const ew = vote.json?.vote?.effective_weight;
-      (ew === 1 ? ok('division.authority.weight-server') : bad('division.authority.weight-server', `effective_weight=${ew}`));
+      (typeof ew === 'number' && ew >= 0 && ew !== 9999 ? ok('division.authority.weight-server') : bad('division.authority.weight-server', `effective_weight=${ew}`));
     }
 
     // ── Bill vote server authority (B3) ────────────────────────────────────

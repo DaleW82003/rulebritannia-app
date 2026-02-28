@@ -1611,6 +1611,16 @@ export async function apiModScandalClose(scandalId) {
   return res.json();
 }
 
+export async function apiModScandalDelete(scandalId) {
+  const res = await fetch(`${API_BASE}/api/mod/scandals/${encodeURIComponent(scandalId)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: csrfHeaders(),
+  });
+  if (!res.ok) throw new Error(`apiModScandalDelete failed (${res.status})`);
+  return res.json();
+}
+
 export async function apiModSituationClose(situationId) {
   const res = await fetch(`${API_BASE}/api/mod/scandals/situations/${encodeURIComponent(situationId)}/close`, {
     method: "POST",
