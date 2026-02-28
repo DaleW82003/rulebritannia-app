@@ -35,48 +35,61 @@ function isGovernmentOffice(office = "") {
   return new Set(["prime-minister","leader-commons","chancellor","home","foreign","trade","defence","welfare","education","env-agri","health","eti","culture","home-nations"]).has(String(office));
 }
 
-function buildRoleAwareDocket(data) {
+/** Item types that the Speaker is allowed to see in the Staff docket. */
+const SPEAKER_STAFF_TYPES = new Set(["bill", "debate", "division", "motion", "edm", "statement", "regulation", "question"]);
+
+/**
+ * Build docket items for the "Your Actions" tab (personalised to active character).
+ * Caps are removed for persistent open items so actionable work is never hidden.
+ */
+function buildPlayerDocketItems(data) {
   const char = getCharacterContext(data);
   const items = [];
   const push = (it) => items.push({ ...it, generated: true });
   const isGov = isGovernmentOffice(char?.office);
   const canAgenda = ["prime-minister", "leader-commons"].includes(String(char?.office || ""));
 
-  (data?.motions?.edm || []).filter((m) => m?.status !== "archived").slice(0, 4).forEach((m) => {
-    if (!isGov) push({ type: "edm", title: `Open EDM #${m.number}: ${m.title}`, detail: "Review/sign current Early Day Motion.", ctaLabel: "Open Motions", href: "motions.html", priority: "med" });
+  // EDMs (non-government only) — uncapped
+  (data?.motions?.edm || []).filter((m) => m?.status !== "archived").forEach((m) => {
+    if (!isGov) push({ type: "edm", iconClass: "icon-edm", title: `Open EDM #${m.number}: ${m.title}`, detail: "Review/sign current Early Day Motion.", ctaLabel: "Open Motions", href: "motions.html", priority: "med" });
   });
 
-  (data?.motions?.house || []).filter((m) => m?.status !== "archived").slice(0, 4).forEach((m) => {
-    push({ type: m?.division?.status === "open" ? "division" : "motion", title: `Open House Motion #${m.number}: ${m.title}`, detail: m?.division?.status === "open" ? "Division in progress." : "Debate open.", ctaLabel: "Open Motions", href: "motions.html", priority: "med" });
+  // House motions — uncapped
+  (data?.motions?.house || []).filter((m) => m?.status !== "archived").forEach((m) => {
+    push({ type: m?.division?.status === "open" ? "division" : "motion", iconClass: `icon-${m?.division?.status === "open" ? "division" : "motion"}`, title: `Open House Motion #${m.number}: ${m.title}`, detail: m?.division?.status === "open" ? "Division in progress." : "Debate open.", ctaLabel: "Open Motions", href: "motions.html", priority: "med" });
   });
 
-  (data?.regulations?.items || []).filter((r) => r?.status !== "archived").slice(0, 4).forEach((r) => {
-    push({ type: "regulation", title: `Open Regulation #${r.regulationNumber}: ${r.shortTitle}`, detail: "Regulation debate or division is open.", ctaLabel: "Open Regulations", href: "regulations.html", priority: "med" });
+  // Regulations — uncapped
+  (data?.regulations?.items || []).filter((r) => r?.status !== "archived").forEach((r) => {
+    push({ type: "regulation", iconClass: "icon-regulation", title: `Open Regulation #${r.regulationNumber}: ${r.shortTitle}`, detail: "Regulation debate or division is open.", ctaLabel: "Open Regulations", href: "regulations.html", priority: "med" });
   });
 
-  (data?.statements?.items || []).filter((st) => st?.status !== "archived").slice(0, 4).forEach((st) => {
-    push({ type: "statement", title: `Open Statement #${st.number}: ${st.title}`, detail: "Statement debate currently open.", ctaLabel: "Open Statements", href: "statements.html", priority: "low" });
+  // Statements — uncapped
+  (data?.statements?.items || []).filter((st) => st?.status !== "archived").forEach((st) => {
+    push({ type: "statement", iconClass: "icon-statement", title: `Open Statement #${st.number}: ${st.title}`, detail: "Statement debate currently open.", ctaLabel: "Open Statements", href: "statements.html", priority: "low" });
   });
 
-  (data?.orderPaperCommons || []).filter((b) => b?.status === "in-progress").slice(0, 6).forEach((b) => {
-    push({ type: b?.division?.status === "open" ? "division" : "debate", title: `${b.title}`, detail: `${b.stage || "Stage"} is active.`, ctaLabel: "Open Bill", href: `bill.html?id=${encodeURIComponent(b.id)}`, priority: "high" });
-    if (canAgenda && b.stage === "First Reading") push({ type: "bill", title: `Set second reading gate: ${b.title}`, detail: "PM/Leader of the House action required.", ctaLabel: "Open Bill", href: `bill.html?id=${encodeURIComponent(b.id)}`, priority: "high" });
+  // Bills — uncapped
+  (data?.orderPaperCommons || []).filter((b) => b?.status === "in-progress").forEach((b) => {
+    push({ type: b?.division?.status === "open" ? "division" : "debate", iconClass: `icon-${b?.division?.status === "open" ? "division" : "bill"}`, title: `${b.title}`, detail: `${b.stage || "Stage"} is active.`, ctaLabel: "Open Bill", href: `bill.html?id=${encodeURIComponent(b.id)}`, priority: "high" });
+    if (canAgenda && b.stage === "First Reading") push({ type: "bill", iconClass: "icon-bill", title: `Set second reading gate: ${b.title}`, detail: "PM/Leader of the House action required.", ctaLabel: "Open Bill", href: `bill.html?id=${encodeURIComponent(b.id)}`, priority: "high" });
   });
 
+  // Question Time — uncapped
   const qAll = data?.questionTime?.questions || [];
-  qAll.filter((q) => !q.archived && !q.answer && String(q.askedBy || "") !== String(char?.name || "")).slice(0, 4).forEach((q) => {
+  qAll.filter((q) => !q.archived && !q.answer && String(q.askedBy || "") !== String(char?.name || "")).forEach((q) => {
     if (canAdminModOrSpeaker(data) || ["prime-minister","leader-commons", q.office].includes(String(char?.office || ""))) {
-      push({ type: "question", title: "Question awaiting ministerial answer", detail: q.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "high" });
+      push({ type: "question", iconClass: "icon-question", title: "Question awaiting ministerial answer", detail: q.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "high" });
     }
   });
 
-  qAll.filter((q) => !q.archived && q.answer && String(q.askedBy || "") === String(char?.name || "") && !q.answerSeenByAsker).slice(0, 4).forEach((q) => {
-    push({ type: "speaker", title: "Your question has been answered", detail: (q.text || "").slice(0, 100), ctaLabel: "View Answer", href: `questiontime.html?questionId=${encodeURIComponent(q.id)}`, priority: "high", dismissOnClick: true, dismissQuestionId: q.id });
+  qAll.filter((q) => !q.archived && q.answer && String(q.askedBy || "") === String(char?.name || "") && !q.answerSeenByAsker).forEach((q) => {
+    push({ type: "speaker", iconClass: "icon-speaker", title: "Your question has been answered", detail: (q.text || "").slice(0, 100), ctaLabel: "View Answer", href: `questiontime.html?questionId=${encodeURIComponent(q.id)}`, priority: "high", dismissOnClick: true, dismissQuestionId: q.id });
   });
 
-  qAll.filter((q) => !q.archived && q.answer && String(q.askedBy || "") === String(char?.name || "").slice(0,999)).forEach((q) => {
-    (q.followUps || []).filter((f) => !f.answer && String(f.askedBy || "") === String(char?.name || "")).slice(0, 2).forEach((f) => {
-      push({ type: "question", title: "Open follow-up awaiting answer", detail: f.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "med" });
+  qAll.filter((q) => !q.archived && q.answer && String(q.askedBy || "") === String(char?.name || "")).forEach((q) => {
+    (q.followUps || []).filter((f) => !f.answer && String(f.askedBy || "") === String(char?.name || "")).forEach((f) => {
+      push({ type: "question", iconClass: "icon-question", title: "Open follow-up awaiting answer", detail: f.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "med" });
     });
   });
 
@@ -96,7 +109,7 @@ function buildRoleAwareDocket(data) {
     const detail = newConferences.length === 1
       ? (latest.subject || "")
       : "New activity whilst you were away.";
-    push({ type: "conference", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=conferences", priority: "med", dismissOnClick: true, seenActivityKey: "pressConference" });
+    push({ type: "conference", iconClass: "icon-conference", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=conferences", priority: "med", dismissOnClick: true, seenActivityKey: "pressConference" });
   }
 
   const newComments = (data?.press?.comments || []).filter(
@@ -110,7 +123,7 @@ function buildRoleAwareDocket(data) {
     const detail = newComments.length === 1
       ? (latest.body || "").slice(0, 100)
       : "New activity whilst you were away.";
-    push({ type: "presscomment", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=comments", priority: "med", dismissOnClick: true, seenActivityKey: "pressComment" });
+    push({ type: "presscomment", iconClass: "icon-presscomment", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=comments", priority: "med", dismissOnClick: true, seenActivityKey: "pressComment" });
   }
 
   const newSpeeches = (data?.press?.speeches || []).filter(
@@ -124,7 +137,7 @@ function buildRoleAwareDocket(data) {
     const detail = newSpeeches.length === 1
       ? (latest.title || "")
       : "New activity whilst you were away.";
-    push({ type: "speech", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=speeches", priority: "med", dismissOnClick: true, seenActivityKey: "pressSpeech" });
+    push({ type: "speech", iconClass: "icon-speech", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=speeches", priority: "med", dismissOnClick: true, seenActivityKey: "pressSpeech" });
   }
 
   const newLetters = (data?.press?.letters || []).filter(
@@ -138,7 +151,7 @@ function buildRoleAwareDocket(data) {
     const detail = newLetters.length === 1
       ? (latest.subject || "")
       : "New activity whilst you were away.";
-    push({ type: "letter", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=letters", priority: "med", dismissOnClick: true, seenActivityKey: "pressLetter" });
+    push({ type: "letter", iconClass: "icon-letter", title: label, detail, ctaLabel: "Open Press", href: "press.html?view=letters", priority: "med", dismissOnClick: true, seenActivityKey: "pressLetter" });
   }
 
   const newEvents = (data?.events?.items || []).filter(
@@ -150,7 +163,83 @@ function buildRoleAwareDocket(data) {
     const label = newEvents.length === 1
       ? `${latest.hostName || "Someone"} held ${typeLabel}`
       : `${newEvents.length} new Events`;
-    push({ type: "event", title: label, detail: newEvents.length === 1 ? (latest.location || "") : "New activity whilst you were away.", ctaLabel: "Open Events", href: "events.html", priority: "med", dismissOnClick: true, seenActivityKey: "event" });
+    push({ type: "event", iconClass: "icon-event", title: label, detail: newEvents.length === 1 ? (latest.location || "") : "New activity whilst you were away.", ctaLabel: "Open Events", href: "events.html", priority: "med", dismissOnClick: true, seenActivityKey: "event" });
+  }
+
+  return items;
+}
+
+/**
+ * Build docket items for the "Staff" tab.
+ * - Admin/Mod: all parliamentary categories + economy/polling/news status items.
+ * - Speaker: procedural Parliament items only (bills, divisions, motions, EDMs,
+ *   statements, regulations, question time).
+ */
+function buildStaffDocketItems(data) {
+  if (!canAdminModOrSpeaker(data)) return [];
+
+  const speakerOnly = isSpeaker(data) && !isAdmin(data) && !isMod(data);
+  const items = [];
+  const push = (it) => {
+    // Speaker is restricted to procedural Parliament item types only
+    if (speakerOnly && !SPEAKER_STAFF_TYPES.has(it.type)) return;
+    items.push({ ...it, generated: true });
+  };
+
+  // Bills / Divisions (all in-progress) — uncapped
+  (data?.orderPaperCommons || []).filter((b) => b?.status === "in-progress").forEach((b) => {
+    push({ type: b?.division?.status === "open" ? "division" : "debate", iconClass: `icon-${b?.division?.status === "open" ? "division" : "bill"}`, title: `${b.title}`, detail: `${b.stage || "Stage"} is active.`, ctaLabel: "Open Bill", href: `bill.html?id=${encodeURIComponent(b.id)}`, priority: "high" });
+  });
+
+  // House Motions — uncapped
+  (data?.motions?.house || []).filter((m) => m?.status !== "archived").forEach((m) => {
+    push({ type: m?.division?.status === "open" ? "division" : "motion", iconClass: `icon-${m?.division?.status === "open" ? "division" : "motion"}`, title: `House Motion #${m.number}: ${m.title}`, detail: m?.division?.status === "open" ? "Division in progress." : "Debate open.", ctaLabel: "Open Motions", href: "motions.html", priority: "med" });
+  });
+
+  // EDMs — uncapped
+  (data?.motions?.edm || []).filter((m) => m?.status !== "archived").forEach((m) => {
+    push({ type: "edm", iconClass: "icon-edm", title: `EDM #${m.number}: ${m.title}`, detail: "Early Day Motion open for signature.", ctaLabel: "Open Motions", href: "motions.html", priority: "med" });
+  });
+
+  // Statements — uncapped
+  (data?.statements?.items || []).filter((st) => st?.status !== "archived").forEach((st) => {
+    push({ type: "statement", iconClass: "icon-statement", title: `Statement #${st.number}: ${st.title}`, detail: "Statement debate currently open.", ctaLabel: "Open Statements", href: "statements.html", priority: "low" });
+  });
+
+  // Regulations — uncapped
+  (data?.regulations?.items || []).filter((r) => r?.status !== "archived").forEach((r) => {
+    push({ type: "regulation", iconClass: "icon-regulation", title: `Regulation #${r.regulationNumber}: ${r.shortTitle}`, detail: "Regulation debate or division is open.", ctaLabel: "Open Regulations", href: "regulations.html", priority: "med" });
+  });
+
+  // Question Time — all unanswered questions (staff oversight)
+  const qAll = data?.questionTime?.questions || [];
+  qAll.filter((q) => !q.archived && !q.answer).forEach((q) => {
+    push({ type: "question", iconClass: "icon-question", title: "Question awaiting ministerial answer", detail: q.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "high" });
+  });
+
+  // Non-procedural items — Admin/Mod only (Speaker excluded)
+  if (!speakerOnly) {
+    // Economy status summary
+    const econ = data?.economyPage?.topline || {};
+    if (Object.keys(econ).length) {
+      push({ type: "economy", iconClass: "icon-economy", title: "Economy Status", detail: `Inflation ${fmtPct(econ.inflation)} · Unemployment ${fmtPct(econ.unemployment)} · GDP growth ${fmtPct(econ.gdpGrowth)}`, ctaLabel: "Open Economy", href: "economy.html", priority: "low" });
+    }
+
+    // Latest polling topline
+    const polls = data?.polling?.polls || [];
+    if (polls.length) {
+      const latest = polls.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0))[0];
+      const top3 = (latest?.results || []).filter((r) => Number(r.value) >= 2).sort((a, b) => Number(b.value) - Number(a.value)).slice(0, 3);
+      if (top3.length) {
+        push({ type: "poll", iconClass: "icon-poll", title: "Latest Polling Topline", detail: top3.map((r) => `${r.party} ${Number(r.value).toFixed(1)}%`).join(" · "), ctaLabel: "Open Polling", href: "polling.html", priority: "low" });
+      }
+    }
+
+    // Latest news headline
+    const stories = (data?.news?.stories || []).slice().sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+    if (stories.length) {
+      push({ type: "news", iconClass: "icon-news", title: stories[0].headline || "Latest News Story", detail: (stories[0].text || "").slice(0, 100), ctaLabel: "Open News", href: "news.html", priority: "low" });
+    }
   }
 
   return items;
@@ -158,25 +247,31 @@ function buildRoleAwareDocket(data) {
 
 function iconFor(type) {
   // Simple symbols for immersion (you can replace with SVG later)
+  // Each entry is [emoji, css-icon-class] so callers can use either
   const map = {
-    question: "❓",
-    motion: "📜",
-    edm: "✍️",
-    statement: "🗣️",
-    division: "🗳️",
-    speaker: "🔔",
-    amendment: "🧾",
-    "amendment-division": "🗳️",
-    regulation: "🧾",
-    debate: "💬",
-    bill: "🏛️",
-    conference: "🎙️",
-    presscomment: "💬",
-    speech: "🎤",
-    letter: "✉️",
-    event: "🎉",
+    question:            ["❓", "icon-question"],
+    motion:              ["📜", "icon-motion"],
+    edm:                 ["✍️", "icon-edm"],
+    statement:           ["🗣️", "icon-statement"],
+    division:            ["🗳️", "icon-division"],
+    speaker:             ["🔔", "icon-speaker"],
+    amendment:           ["🧾", "icon-amendment"],
+    "amendment-division":["🗳️", "icon-amendment-division"],
+    regulation:          ["🧾", "icon-regulation"],
+    debate:              ["💬", "icon-debate"],
+    bill:                ["🏛️", "icon-bill"],
+    conference:          ["🎙️", "icon-conference"],
+    presscomment:        ["💬", "icon-presscomment"],
+    speech:              ["🎤", "icon-speech"],
+    letter:              ["✉️", "icon-letter"],
+    event:               ["🎉", "icon-event"],
+    economy:             ["📊", "icon-economy"],
+    poll:                ["📈", "icon-poll"],
+    news:                ["📰", "icon-news"],
   };
-  return map[type] || "•";
+  const entry = map[type];
+  if (!entry) return { emoji: "•", cls: "icon-default" };
+  return { emoji: entry[0], cls: entry[1] };
 }
 
 /** Extract the real-time timestamp embedded in a press item's id (format: "press-<ts>-<n>"). */
@@ -306,28 +401,22 @@ function renderWhatsGoingOn(data) {
   `;
 }
 
-function renderLiveDocket(data) {
-  const root = $("live-docket");
-  if (!root) return;
-
-  data.liveDocket ??= { asOf: "Today", items: [] };
-  data.liveDocket.items ??= [];
-  data.liveDocket.seenActivityTs ??= {};
-
-  const combined = [...data.liveDocket.items, ...buildRoleAwareDocket(data)];
-  const visible = combined.filter((it) => canSeeAudienceItem(data, it?.audience));
-
+/** Render a single flat list of docket items into a container element. */
+function renderDocketList(container, visible, data) {
   if (!visible.length) {
-    root.innerHTML = `<div class="muted-block">No actions available right now.</div>`;
+    container.innerHTML = `<div class="muted-block">No actions available right now.</div>`;
     return;
   }
 
-  root.innerHTML = `
+  container.innerHTML = `
     <div class="docket-list">
-      ${visible.map((it, idx) => `
+      ${visible.map((it, idx) => {
+        const icon = iconFor(it.type);
+        const iconCls = it.iconClass || icon.cls;
+        return `
         <div class="docket-item ${esc(it.priority || "")}">
           <div class="docket-left">
-            <div class="docket-icon" aria-hidden="true">${esc(iconFor(it.type))}</div>
+            <div class="docket-icon ${esc(iconCls)}" aria-hidden="true">${esc(icon.emoji)}</div>
             <div>
               <div class="docket-title">${esc(it.title)}</div>
               <div class="docket-detail">${esc(it.detail || "")}</div>
@@ -337,11 +426,12 @@ function renderLiveDocket(data) {
             ${it.href ? `<a class="btn" data-docket-idx="${idx}" href="${esc(it.href)}">${esc(it.ctaLabel || "Open")}</a>` : ""}
           </div>
         </div>
-      `).join("")}
+        `;
+      }).join("")}
     </div>
   `;
 
-  root.querySelectorAll("a[data-docket-idx]").forEach((a) => {
+  container.querySelectorAll("a[data-docket-idx]").forEach((a) => {
     a.addEventListener("click", () => {
       const item = visible[Number(a.getAttribute("data-docket-idx") || -1)];
       if (!item?.dismissOnClick) return;
@@ -364,6 +454,74 @@ function renderLiveDocket(data) {
       if (item.generated !== true) {
         data.liveDocket.items = data.liveDocket.items.filter((i) => i !== item);
       }
+    });
+  });
+}
+
+function renderLiveDocket(data) {
+  const root = $("live-docket");
+  if (!root) return;
+
+  data.liveDocket ??= { asOf: "Today", items: [] };
+  data.liveDocket.items ??= [];
+  data.liveDocket.seenActivityTs ??= {};
+
+  const isStaff = canAdminModOrSpeaker(data);
+
+  // Restore last active tab from localStorage (per user)
+  const tabLsKey = `rb_docket_tab_${data.currentUser?.username || ""}`;
+  let activeTab = "actions";
+  try {
+    const stored = localStorage.getItem(tabLsKey);
+    if (stored === "staff" && isStaff) activeTab = "staff";
+  } catch { /* ignore */ }
+
+  // Build item sets
+  const playerItems = [...data.liveDocket.items, ...buildPlayerDocketItems(data)];
+  const actionsVisible = playerItems.filter((it) => canSeeAudienceItem(data, it?.audience));
+  const staffItems = buildStaffDocketItems(data);
+
+  // Build tab HTML (Staff tab only rendered for staff users)
+  root.innerHTML = `
+    <div class="docket-tabs" role="tablist" aria-label="Live Docket tabs">
+      <button
+        class="docket-tab${activeTab === "actions" ? " active" : ""}"
+        data-tab="actions"
+        role="tab"
+        aria-selected="${activeTab === "actions"}"
+        aria-controls="docket-panel-actions"
+      >Your Actions</button>
+      ${isStaff ? `<button
+        class="docket-tab${activeTab === "staff" ? " active" : ""}"
+        data-tab="staff"
+        role="tab"
+        aria-selected="${activeTab === "staff"}"
+        aria-controls="docket-panel-staff"
+      >Staff</button>` : ""}
+    </div>
+    <div id="docket-panel-actions" class="docket-panel" role="tabpanel" ${activeTab !== "actions" ? 'hidden' : ""}></div>
+    ${isStaff ? `<div id="docket-panel-staff" class="docket-panel" role="tabpanel" ${activeTab !== "staff" ? 'hidden' : ""}></div>` : ""}
+  `;
+
+  // Render each panel's content
+  renderDocketList(root.querySelector("#docket-panel-actions"), actionsVisible, data);
+  if (isStaff) {
+    renderDocketList(root.querySelector("#docket-panel-staff"), staffItems, data);
+  }
+
+  // Tab switching
+  root.querySelectorAll(".docket-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.getAttribute("data-tab");
+      root.querySelectorAll(".docket-tab").forEach((b) => {
+        b.classList.toggle("active", b === btn);
+        b.setAttribute("aria-selected", String(b === btn));
+      });
+      root.querySelectorAll(".docket-panel").forEach((panel) => {
+        const show = panel.id === `docket-panel-${tab}`;
+        panel.hidden = !show;
+      });
+      try { localStorage.setItem(tabLsKey, tab); } catch { /* ignore */ }
     });
   });
 }
