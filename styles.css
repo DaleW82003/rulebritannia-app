@@ -562,6 +562,23 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
    Docket (generic list)
    ========================= */
 .docket-list{ display:flex; flex-direction:column; gap:10px; }
+.docket-tabs{ display:flex; gap:6px; margin-bottom:12px; border-bottom:2px solid var(--line); padding-bottom:0; }
+.docket-tab{
+  background:none;
+  border:none;
+  padding:8px 16px;
+  font-size:13px;
+  font-weight:700;
+  color:var(--muted);
+  cursor:pointer;
+  border-bottom:3px solid transparent;
+  margin-bottom:-2px;
+  border-radius:6px 6px 0 0;
+  transition:color .15s, border-color .15s;
+}
+.docket-tab:hover{ color:var(--navy); }
+.docket-tab.active{ color:var(--navy); border-bottom-color:var(--accent,#1e54ff); }
+.docket-panel{ outline:none; }
 .submission-route{ display:block; }
 .submission-route div label { display:block; cursor:pointer; font-weight:400; color:var(--text); }
 .submission-route div label input[type="radio"] { vertical-align:middle; margin-right:4px; }

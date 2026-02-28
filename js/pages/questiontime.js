@@ -6,8 +6,7 @@ import { handleApiError } from "../errors.js";
 import {
   apiGetQtQuestions, apiSubmitQtQuestion, apiAnswerQtQuestion,
   apiFollowupQtQuestion, apiPatchQtQuestion,
-  apiGetQtLegacyQuestions, apiCreateQtLegacyQuestion, apiUpdateQtLegacyQuestion,
-  apiDeleteQtLegacyQuestion,
+  apiAnswerQtFollowup, apiDeleteQtQuestion,
 } from "../api.js";
 import { npcPartyOptions } from "../parties.js";
 
@@ -28,10 +27,6 @@ const QT_OFFICES = [
   { id: "home-nations", title: "Secretary of State for the Home Nations", holder: "" },
   { id: "leader-commons", title: "Leader of the House of Commons", holder: "" }
 ];
-
-function nowId(prefix = "id") {
-  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-}
 
 function getCurrentCharacter(data) {
   return data?.currentCharacter || data?.currentPlayer || {};
@@ -214,7 +209,15 @@ function renderQuestionLine(question, office, canAnswer, canArchive, canDeleteQ,
         <div style="border-top:1px solid #ddd;padding-top:8px;margin-top:8px;">
           <p style="margin:6px 0;"><b>Follow-up:</b> ${esc(f.text || "")}</p>
           <p class="muted" style="margin:6px 0;">Asked by ${esc(f.askedBy || "MP")} • ${esc(f.askedAtSim || simLabel)}</p>
-          ${f.answer ? `<p style="margin:6px 0;"><b>Answer:</b> ${esc(f.answer)}</p>` : `<p class="muted" style="margin:6px 0;">Awaiting clarification response.</p>`}
+          ${f.answer ? `<p style="margin:6px 0;"><b>Answer:</b> ${esc(f.answer)}</p>` : `
+            <p class="muted" style="margin:6px 0;">Awaiting clarification response.</p>
+            ${canAnswer ? `
+              <form class="qt-answer-followup-form" data-followup-id="${esc(f.id)}" style="margin-top:6px;">
+                <textarea name="text" rows="2" class="input" placeholder="Answer this follow-up" required></textarea>
+                <button class="btn" type="submit" style="margin-top:4px;">Answer Follow-up</button>
+              </form>
+            ` : ""}
+          `}
         </div>
       `).join("")}
 
@@ -232,6 +235,18 @@ function renderQuestionLine(question, office, canAnswer, canArchive, canDeleteQ,
       ${canDeleteQ ? `<button class="btn danger" data-action="delete-question" data-question-id="${esc(question.id)}" type="button">Delete</button>` : ""}
     </article>
   `;
+}
+
+/** Reload question data from the DB then re-render the page. */
+async function reloadAndRender(data, state) {
+  try {
+    const { questions: rows } = await apiGetQtQuestions();
+    data.questionTime.questions = rows.map(dbRowToQuestion);
+  } catch (err) {
+    console.error("[questiontime] reload failed:", err);
+  }
+  normaliseQuestionTime(data);
+  render(data, state);
 }
 
 function render(data, state) {
@@ -381,7 +396,6 @@ function render(data, state) {
     const npcParty = isNpcPost ? String(fd.get("npcParty") || "").trim() : "";
 
     if (!isNpcPost && !askGate.ok) {
-      // Gate is closed — re-render so the reason is clearly visible
       render(data, state);
       return;
     }
@@ -390,39 +404,22 @@ function render(data, state) {
 
     const char = getCurrentCharacter(data);
     const askedBy = npcName || char?.name || "Backbench MP";
-    const askedRole = npcName ? "backbencher" : normaliseRole(char?.role || "backbencher");
 
-    const question = {
-      id: nowId("qt"),
-      office: selectedOffice.id,
-      askedBy,
-      askedRole,
-      ...(npcName ? { npc: true, npcParty } : {}),
-      askedAtSim: simLabel,
-      createdAtTs: Date.now(),
-      dueAtSim: createDeadline(data.gameState, 1),
-      text,
-      status: "submitted",
-      answer: "",
-      followUps: [],
-      archived: false,
-      answerSeenByAsker: false,
-      speakerDemandedAtTs: 0,
-      speakerDemandAvailable: false
-    };
-
-    data.questionTime.questions.unshift(question);
     try {
-      await apiCreateQtLegacyQuestion(question);
+      await apiSubmitQtQuestion({
+        office_id:     selectedOffice.id,
+        question_text: text,
+        asked_by_name: askedBy,
+        asked_at_sim:  simLabel,
+        due_at_sim:    createDeadline(data.gameState, 1),
+        ...(npcParty ? { npc_party: npcParty } : {}),
+      });
+      submitForm.reset();
+      await reloadAndRender(data, state);
     } catch (err) {
-      console.error("[questiontime] question save failed:", err);
-      const idx = data.questionTime.questions.findIndex((q) => q.id === question.id);
-      if (idx !== -1) data.questionTime.questions.splice(idx, 1);
+      handleApiError(err, "Submit question");
       if (submitBtn) submitBtn.disabled = false;
-      return;
     }
-
-    render(data, state);
   });
 
   const answerForm = root.querySelector("#qt-answer-form");
@@ -440,34 +437,14 @@ function render(data, state) {
 
     try {
       await apiAnswerQtQuestion(questionId, {
-        answered_by_character_id: getCurrentCharacter(data)?.id || null,
-        answer_text: answer,
+        answer_text:  answer,
+        answered_at_sim: simLabel,
       });
+      logAction({ action: "question-answered", target: selectedOffice.title, details: { questionId } });
+      await reloadAndRender(data, state);
     } catch (err) {
-      // Legacy QT records may not exist in structured /api/qt/questions table yet.
-      try {
-        await apiUpdateQtLegacyQuestion(questionId, {
-          ...target,
-          answer,
-          answeredAtSim: simLabel,
-          status: "answered",
-          answerSeenByAsker: false,
-        });
-      } catch (legacyErr) {
-        handleApiError(legacyErr, "Answer question");
-        return;
-      }
+      handleApiError(err, "Answer question");
     }
-
-    if (!target.answer) {
-      target.answer = answer;
-      target.answeredAtSim = simLabel;
-      target.status = "answered";
-      target.answerSeenByAsker = false;
-      logAction({ action: "question-answered", target: selectedOffice.title, details: { questionId, askedBy: target.askedBy } });
-    }
-
-    render(data, state);
   });
 
   root.querySelectorAll("[data-action='open-office']").forEach((btn) => {
@@ -489,8 +466,7 @@ function render(data, state) {
 
       const char = getCurrentCharacter(data);
       const maxFollowUps = maxFollowUpsFor(data, question.office);
-      question.followUps ??= [];
-      if (question.followUps.length >= maxFollowUps) return;
+      if ((question.followUps || []).length >= maxFollowUps) return;
       // Shadow secretaries/ministers can only follow up in their own portfolio
       const fRole = normaliseRole(char?.role);
       if (fRole === "shadow" || fRole === "minister") {
@@ -504,57 +480,71 @@ function render(data, state) {
       const submitBtn = form.querySelector("button[type='submit']");
       if (submitBtn) submitBtn.disabled = true;
 
-      const followupEntry = {
-        id: nowId("qtf"),
-        text,
-        askedBy: char?.name || "Backbench MP",
-        askedByRole: normaliseRole(char?.role || "backbencher"),
-        askedAtSim: simLabel,
-        answer: ""
-      };
-      question.followUps.push(followupEntry);
-
       try {
         await apiFollowupQtQuestion(qid, {
           followup_text: text,
-          asked_by_character_id: char?.id || char?.characterId || null,
+          asked_by_name: char?.name || "Backbench MP",
+          asked_at_sim:  simLabel,
         });
+        await reloadAndRender(data, state);
       } catch (err) {
         handleApiError(err, "Submit follow-up");
-        question.followUps.pop(); // revert
-      } finally {
         if (submitBtn) submitBtn.disabled = false;
       }
-      render(data, state);
+    });
+  });
+
+  root.querySelectorAll(".qt-answer-followup-form").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fid = form.getAttribute("data-followup-id");
+      const text = String(new FormData(form).get("text") || "").trim();
+      if (!fid || !text || !canAnswer) return;
+
+      const submitBtn = form.querySelector("button[type='submit']");
+      if (submitBtn) submitBtn.disabled = true;
+
+      try {
+        await apiAnswerQtFollowup(fid, { answer_text: text });
+        await reloadAndRender(data, state);
+      } catch (err) {
+        handleApiError(err, "Answer follow-up");
+        if (submitBtn) submitBtn.disabled = false;
+      }
     });
   });
 
   root.querySelectorAll("[data-action='archive']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!canArchive) return;
       const qid = btn.getAttribute("data-question-id");
-      const question = data.questionTime.questions.find((q) => q.id === qid);
-      if (!question) return;
-      question.archived = true;
-      question.status = "closed";
-      question.archivedAtSim = simLabel;
-      logAction({ action: "question-closed", target: qid, details: { office: question.office, askedBy: question.askedBy } });
-      render(data, state);
+      if (!qid) return;
+      btn.disabled = true;
+      try {
+        await apiPatchQtQuestion(qid, { status: "archived" });
+        logAction({ action: "question-closed", target: qid, details: {} });
+        await reloadAndRender(data, state);
+      } catch (err) {
+        handleApiError(err, "Close question");
+        btn.disabled = false;
+      }
     });
   });
 
   root.querySelectorAll("[data-action='demand']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!canArchive) return;
       const qid = btn.getAttribute("data-question-id");
-      const question = data.questionTime.questions.find((q) => q.id === qid);
-      if (!question || question.answer || question.archived) return;
-      question.speakerDemandedAtTs = Date.now();
-      question.speakerDemandedAtSim = simLabel;
-      question.demandDueAtSim = createDeadline(data.gameState, 1);
-      question.speakerDemandAvailable = false;
-      logAction({ action: "speaker-demand", target: qid, details: { office: question.office, askedBy: question.askedBy } });
-      render(data, state);
+      if (!qid) return;
+      btn.disabled = true;
+      try {
+        await apiPatchQtQuestion(qid, { action: "speaker-demand", demand_due_at_sim: createDeadline(data.gameState, 1) });
+        logAction({ action: "speaker-demand", target: qid, details: {} });
+        await reloadAndRender(data, state);
+      } catch (err) {
+        handleApiError(err, "Speaker demand");
+        btn.disabled = false;
+      }
     });
   });
 
@@ -569,142 +559,75 @@ function render(data, state) {
   });
 
   root.querySelectorAll("[data-action='delete-question']").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (!canDeleteQ) return;
       const qid = btn.getAttribute("data-question-id");
-      data.questionTime.questions = data.questionTime.questions.filter((q) => q.id !== qid);
-      render(data, state);
-      apiDeleteQtLegacyQuestion(qid).catch((err) => console.error("[questiontime] delete failed:", err)); // UI_ONLY_OK: legacy QT question cleanup; no simulation-outcome consequence
-    });
-  });
-}
-
-/**
- * Render the DB-driven Question Time panel (new structured questions).
- * Displayed as a separate tile below the legacy QT section.
- */
-function renderDbQtPanel(questions, data, host) {
-  const canAdmin = canModerate(data);
-  const canAnswer = canAdminModOrSpeaker(data);
-
-  const byOffice = {};
-  questions.forEach((q) => {
-    (byOffice[q.office_id] = byOffice[q.office_id] || []).push(q);
-  });
-
-  const offices = Object.keys(byOffice);
-  if (!offices.length && !canAdmin) return;
-
-  // Remove any existing DB QT panel to guarantee at most one is ever in the DOM
-  host.querySelectorAll("[data-db-qt-panel]").forEach((el) => el.remove());
-
-  const panel = document.createElement("section");
-  panel.className = "tile";
-  panel.style.marginTop = "20px";
-  panel.dataset.dbQtPanel = "1";
-  panel.innerHTML = `<h2 style="margin-top:0;">Question Time</h2>
-    <p class="muted" style="margin-bottom:12px;">Questions submitted via the structured question bank.</p>
-    <form id="db-qt-ask-form" style="margin-bottom:16px;">
-      <label class="label" for="db-qt-office">Office</label>
-      <select id="db-qt-office" name="office_id" class="input" style="margin-bottom:8px;">
-        ${QT_OFFICES.map((o) => `<option value="${esc(o.id)}">${esc(o.title)}</option>`).join("")}
-      </select>
-      <label class="label" for="db-qt-text">Your Question</label>
-      <textarea id="db-qt-text" name="question_text" class="input" rows="3" placeholder="Enter your question for the minister"></textarea>
-      <button class="btn" type="submit" style="margin-top:6px;">Submit Question</button>
-    </form>
-    <div id="db-qt-questions-list">
-      ${questions.length === 0 ? `<p class="muted">No questions yet.</p>` : offices.map((officeId) => {
-        const office = QT_OFFICES.find((o) => o.id === officeId) || { title: officeId };
-        const qs = byOffice[officeId];
-        return `<details open style="margin-bottom:12px;">
-          <summary style="font-weight:700;cursor:pointer;">${esc(office.title)} (${qs.length})</summary>
-          ${qs.map((q) => `
-            <article class="tile" style="margin:8px 0;padding:10px;">
-              <div style="display:flex;justify-content:space-between;">
-                <span><b>${esc(q.asked_by_name || "MP")}</b></span>
-                <span class="badge badge-${q.status}">${esc(q.status)}</span>
-              </div>
-              <p style="margin:6px 0;"><b>Q:</b> ${esc(q.question_text)}</p>
-              ${canAdmin && q.status !== "archived" ? `<button class="btn btn-sm" data-dbqt-archive="${esc(q.id)}" type="button">Archive</button>` : ""}
-            </article>
-          `).join("")}
-        </details>`;
-      }).join("")}
-    </div>`;
-
-  host.appendChild(panel);
-
-  // Submit question via DB endpoint
-  const dbForm = panel.querySelector("#db-qt-ask-form");
-  if (!dbForm) return;
-  const submitBtn = dbForm.querySelector("[type='submit']");
-  dbForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const office_id = form.office_id.value.trim();
-    const question_text = form.question_text.value.trim();
-    if (!question_text) return;
-    submitBtn.disabled = true;
-    try {
-      await apiSubmitQtQuestion({ office_id, question_text });
-      form.question_text.value = "";
-      // Refresh DB questions list
-      const { questions: updated } = await apiGetQtQuestions();
-      renderDbQtPanel(updated, data, host);
-    } catch (err) {
-      submitBtn.disabled = false;
-      alert("Failed to submit question: " + err.message);
-    }
-  });
-
-  // Archive buttons
-  panel.querySelectorAll("[data-dbqt-archive]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
+      if (!qid) return;
       btn.disabled = true;
       try {
-        await apiPatchQtQuestion(btn.dataset.dbqtArchive, { status: "archived" });
-        const { questions: updated } = await apiGetQtQuestions();
-        renderDbQtPanel(updated, data, host);
+        await apiDeleteQtQuestion(qid);
+        await reloadAndRender(data, state);
       } catch (err) {
+        handleApiError(err, "Delete question");
         btn.disabled = false;
-        alert("Failed to archive: " + err.message);
       }
     });
   });
 }
 
 /**
- * Initialise the Question Time page.
- * Renders the legacy state-based QT panel then augments it with DB-sourced
- * questions fetched from /api/qt/questions (non-fatal fallback if unavailable).
+ * Map a DB row from GET /api/qt/questions to the question shape used by render().
+ */
+function dbRowToQuestion(row) {
+  const followUps = (row.followups || []).map((f) => ({
+    id:          f.id,
+    text:        f.followup_text,
+    answer:      f.answer_text || "",
+    askedBy:     f.asked_by_name || "MP",
+    askedByRole: "backbencher",
+    askedAtSim:  f.asked_at_sim || "",
+  }));
+  return {
+    id:                  row.id,
+    office:              row.office_id,
+    askedBy:             row.asked_by_name || "MP",
+    askedAtSim:          row.asked_at_sim || "",
+    createdAtTs:         row.created_at ? new Date(row.created_at).getTime() : 0,
+    dueAtSim:            row.due_at_sim || "",
+    text:                row.question_text,
+    answer:              row.answer_text || "",
+    answeredAtSim:       row.answered_at_sim || "",
+    status:              row.status,
+    archived:            row.status === "archived",
+    followUps,
+    speakerDemandedAtTs: row.speaker_demanded_at ? new Date(row.speaker_demanded_at).getTime() : 0,
+    demandDueAtSim:      row.demand_due_at_sim || "",
+    speakerDemandAvailable: false, // computed later in render
+    answerSeenByAsker:   false,
+    npc:                 !!row.npc_party,
+    npcParty:            row.npc_party || "",
+  };
+}
+
+/**
+ * Initialise the Question Time page using the DB-backed /api/qt/* endpoints.
+ * All submissions, answers, follow-ups, follow-up answers, closures, and
+ * speaker demands are persisted to the database immediately.
  */
 export async function initQuestionTimePage(data) {
   normaliseQuestionTime(data);
 
-  // Hydrate legacy questions from DB
+  // Load all questions from DB (authoritative)
   try {
-    const r = await apiGetQtLegacyQuestions();
-    if (r?.questions?.length) {
-      const seen = new Set(data.questionTime.questions.map((q) => String(q.id)));
-      for (const q of r.questions) {
-        if (!seen.has(String(q.id))) data.questionTime.questions.push(q);
-      }
-    }
+    const { questions: rows } = await apiGetQtQuestions();
+    data.questionTime.questions = rows.map(dbRowToQuestion);
   } catch (err) {
-    console.error("[questiontime] legacy DB load failed:", err);
+    console.error("[questiontime] DB load failed:", err);
+    data.questionTime.questions = [];
   }
+
+  normaliseQuestionTime(data);
 
   const state = { selectedOfficeId: data.questionTime.offices[0]?.id || null };
   render(data, state);
-
-  // Augment with DB-driven questions from the structured QT endpoint
-  const host = document.getElementById("question-time-root") || document.getElementById("qt-root");
-  if (!host) return;
-  try {
-    const { questions } = await apiGetQtQuestions();
-    renderDbQtPanel(questions, data, host);
-  } catch {
-    // Non-critical: DB questions unavailable, legacy state-based QT still works
-  }
 }
