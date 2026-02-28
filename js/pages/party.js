@@ -3,6 +3,7 @@ import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
 import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSavePartyDrafts } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
+import { logAction } from "../audit.js";
 
 const DEFAULT_PARTIES = {
   Conservative: {
@@ -1115,6 +1116,22 @@ function render(data, state) {
         }
         if (state.dbState) state.dbState.partyStructure = structure;
         state.partyShopMessage = `Purchased "${item.name}" for ${formatMoney(price)}.${upkeep > 0 ? ` Upkeep: ${formatMoney(upkeep)}/month.` : ""}`;
+        const actorChar = getCharacterContext(data);
+        logAction({
+          action: "party-shop-purchase",
+          target: state.activeParty,
+          details: {
+            partyId: state.activeParty,
+            partyName: party?.name || state.activeParty,
+            actorId: actorChar?.id || actorChar?.characterId || "",
+            actorName: actorChar?.name || "",
+            itemId: item.id,
+            itemName: item.name,
+            price,
+            monthlyUpkeep: upkeep,
+            headline: `${actorChar?.name || "Someone"} purchased "${item.name}" for ${formatMoney(price)} from the ${party?.name || state.activeParty} party shop.`,
+          },
+        });
       } catch (err) {
         state.partyShopMessage = `Purchase failed: ${err.message}`;
         btn.disabled = false;
@@ -1132,6 +1149,7 @@ function render(data, state) {
       const purchases = party.partyShopPurchases || [];
       btn.disabled = true;
       try {
+        const removed = purchaseId ? purchases.find((p) => p.id === purchaseId) : purchases[idx];
         if (purchaseId) {
           await apiRemovePartyShopPurchase(state.activeParty, purchaseId);
           party.partyShopPurchases = purchases.filter((p) => p.id !== purchaseId);
@@ -1141,6 +1159,21 @@ function render(data, state) {
           party.partyShopPurchases = purchases.filter((_, i) => i !== idx);
         }
         state.partyShopMessage = "Purchase removed.";
+        const actorChar = getCharacterContext(data);
+        logAction({
+          action: "party-shop-dismissal",
+          target: state.activeParty,
+          details: {
+            partyId: state.activeParty,
+            partyName: party?.name || state.activeParty,
+            actorId: actorChar?.id || actorChar?.characterId || "",
+            actorName: actorChar?.name || "",
+            purchaseId: purchaseId || String(idx),
+            itemId: removed?.itemId || "",
+            itemName: removed?.itemName || "",
+            headline: `${actorChar?.name || "Someone"} removed "${removed?.itemName || "an item"}" from the ${party?.name || state.activeParty} party shop.`,
+          },
+        });
       } catch (err) {
         state.partyShopMessage = `Remove failed: ${err.message}`;
         btn.disabled = false;
@@ -1200,9 +1233,28 @@ function render(data, state) {
       unlocks: existing.unlocks || {},
     };
     try {
+      const beforeStructure = state.dbState?.partyStructure || {};
       const result = await apiSavePartyStructure(state.activeParty, structure);
       state.dbState = { ...state.dbState, partyStructure: result.structure };
       state.structureMessage = `Organisation saved. Monthly overhead: ${formatMoney(monthlyOverhead)}.`;
+      const actorChar = getCharacterContext(data);
+      logAction({
+        action: "party-organisation-updated",
+        target: state.activeParty,
+        details: {
+          partyId: state.activeParty,
+          partyName: party?.name || state.activeParty,
+          actorId: actorChar?.id || actorChar?.characterId || "",
+          actorName: actorChar?.name || "",
+          beforeTotalStaff: beforeStructure.totalStaff ?? null,
+          afterTotalStaff: totalStaff,
+          beforeMonthlyOverhead: beforeStructure.monthlyOverhead ?? null,
+          afterMonthlyOverhead: monthlyOverhead,
+          departments,
+          officeCount: offices.length,
+          headline: `${actorChar?.name || "Someone"} updated ${party?.name || state.activeParty} party organisation: ${totalStaff} total staff, overhead ${formatMoney(monthlyOverhead)}/month.`,
+        },
+      });
     } catch (err) {
       state.structureMessage = `Error: ${err.message}`;
     }

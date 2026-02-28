@@ -11,6 +11,7 @@ import {
   apiGetPendingAffiliations, apiDecideAffiliation,
   apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange,
   apiGetFinanceConfig, apiUpdateFinanceSalaryBands, apiUpdateFinanceStartingBalances, apiApplyFinanceInflation,
+  apiGetAuditLog,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -309,6 +310,21 @@ export async function initControlPanelPage(data) {
             </div>
           </form>
         </div>
+      </div>
+    </details>
+    ` : ""}
+
+    ${canEdit ? `
+    <details class="tile" style="margin-bottom:10px;" open>
+      <summary style="cursor:pointer;"><b>Activity Feeds <span class="mod-badge">Mod / Admin</span></b></summary>
+      <div style="margin-top:10px;">
+        <p class="muted" style="margin:0 0 10px;font-size:.9em;">Timestamped log of party organisation changes, party shop transactions, and character shop (Politician) transactions. Newest first.</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;" id="cp-feed-tabs">
+          <button class="btn" type="button" data-feed-tab="party-org" style="font-weight:600;">Party Organisation</button>
+          <button class="btn" type="button" data-feed-tab="party-shop">Party Shop</button>
+          <button class="btn" type="button" data-feed-tab="politician">Politician Log</button>
+        </div>
+        <div id="cp-feed-panel" style="min-height:60px;"><div class="muted-block">Loading…</div></div>
       </div>
     </details>
     ` : ""}
@@ -780,5 +796,68 @@ export async function initControlPanelPage(data) {
         .then(({ requests }) => renderAffiliationRequests(requests))
         .catch(() => { affListEl.innerHTML = '<div class="muted-block">Could not load affiliation requests.</div>'; });
     }
+  }
+
+  // ── Activity Feeds ──────────────────────────────────────────────────────────
+  if (canEdit) {
+    const feedPanel = rolePanels.querySelector("#cp-feed-panel");
+    const feedTabs  = rolePanels.querySelector("#cp-feed-tabs");
+
+    const FEED_DEFS = {
+      "party-org":  { label: "Party Organisation", actions: ["party-organisation-updated"] },
+      "party-shop": { label: "Party Shop",          actions: ["party-shop-purchase", "party-shop-dismissal"] },
+      "politician": { label: "Politician Log",       actions: ["character-shop-purchase", "character-shop-sale", "character-shop-dismissal"] },
+    };
+
+    function formatFeedEntry(entry) {
+      const d = entry.details || {};
+      const ts = entry.created_at ? new Date(entry.created_at).toLocaleString("en-GB") : "—";
+      const headline = esc(d.headline || entry.action || "");
+      const actor = esc(d.actorName || entry.actor_name || entry.actor_id || "");
+      return `
+        <article style="border-bottom:1px solid var(--line,#eee);padding:8px 0;">
+          <div style="font-size:.82em;color:#888;">${esc(ts)}</div>
+          <div style="margin:2px 0;">${headline}</div>
+          ${actor ? `<div class="muted" style="font-size:.85em;">Actor: ${actor}</div>` : ""}
+          <div class="muted" style="font-size:.8em;font-family:monospace;">${esc(entry.action)}</div>
+        </article>
+      `;
+    }
+
+    async function loadFeed(tab) {
+      if (!feedPanel) return;
+      feedPanel.innerHTML = '<div class="muted-block">Loading…</div>';
+      const def = FEED_DEFS[tab];
+      if (!def) return;
+      try {
+        const entries = [];
+        await Promise.all(def.actions.map(async (action) => {
+          const result = await apiGetAuditLog({ action, limit: 50 });
+          entries.push(...(result.entries || []));
+        }));
+        entries.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+        if (!entries.length) {
+          feedPanel.innerHTML = `<div class="muted-block">No ${esc(def.label)} entries yet.</div>`;
+          return;
+        }
+        feedPanel.innerHTML = entries.slice(0, 50).map(formatFeedEntry).join("");
+      } catch (err) {
+        feedPanel.innerHTML = `<div class="muted-block">Could not load feed: ${esc(err.message)}</div>`;
+      }
+    }
+
+    let activeFeedTab = "party-org";
+    if (feedTabs) {
+      feedTabs.querySelectorAll("[data-feed-tab]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          activeFeedTab = String(btn.dataset.feedTab || "party-org");
+          feedTabs.querySelectorAll("[data-feed-tab]").forEach((b) => {
+            b.style.fontWeight = b === btn ? "600" : "";
+          });
+          loadFeed(activeFeedTab);
+        });
+      });
+    }
+    loadFeed(activeFeedTab);
   }
 }

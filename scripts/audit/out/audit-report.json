@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-02-28T03:08:18.928Z",
-  "remainingWarnings": 3,
+  "generatedAt": "2026-02-28T15:31:32.552Z",
+  "remainingWarnings": 1,
   "summary": {
     "totalServerEndpoints": 305,
     "totalWriteEndpoints": 199,
@@ -10,7 +10,7 @@
     "missingCredentials": 0,
     "immutabilityViolations": 0,
     "saveStateOnlyWarnings": 0,
-    "rbacDriftWarnings": 3
+    "rbacDriftWarnings": 1
   },
   "suppressedWarnings": []
 }
