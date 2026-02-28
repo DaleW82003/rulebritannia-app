@@ -100,7 +100,12 @@ jobs:
             exit 0
           fi
           node scripts/test-staging.mjs
-
+      - name: Debug origin (Render) for a couple endpoints
+        env:
+          ORIGIN: https://rulebritannia-app-backend.onrender.com
+        run: |
+          node -e "fetch(process.env.ORIGIN + '/api/health').then(r=>console.log('/api/health', r.status)).catch(e=>console.error(e))"
+          node -e "fetch(process.env.ORIGIN + '/api/bootstrap').then(r=>console.log('/api/bootstrap', r.status)).catch(e=>console.error(e))"
       - name: Run API spec tests (requires env)
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
