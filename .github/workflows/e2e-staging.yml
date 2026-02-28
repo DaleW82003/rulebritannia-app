@@ -3,7 +3,7 @@ name: E2E Staging (RB GO-NO-GO)
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "backend", "phase1-rebuild" ]
+    branches: ["main", "backend", "phase1-rebuild"]
 
 jobs:
   e2e:
@@ -32,7 +32,7 @@ jobs:
       - name: Generate audit report
         run: node scripts/audit/generate-audit-report.mjs
 
-      # ✅ DEBUG STEP (Option 1): put this RIGHT BEFORE "Run staging smoke"
+      # Debug step: prints status + key headers + first bytes of body for /api/auth/login
       - name: Debug login (status + headers + first bytes of body)
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
@@ -44,52 +44,46 @@ jobs:
             exit 0
           fi
 
-          node - <<'NODE'
+          cat > /tmp/rb-debug-login.mjs <<'EOF'
           const base = (process.env.BASE_URL || "").replace(/\/$/, "");
           const email = process.env.TEST_EMAIL;
           const password = process.env.TEST_PASSWORD;
 
-          (async () => {
-            const url = `${base}/api/auth/login`;
+          const url = `${base}/api/auth/login`;
 
-            // Don't print secrets. Just show where we're calling.
-            console.log("Debug login URL:", url);
+          console.log("Debug login URL:", url);
 
-            const res = await fetch(url, {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                "user-agent": "rb-ci/1.0",
-                "accept": "application/json,text/plain,*/*",
-              },
-              body: JSON.stringify({ email, password }),
-            });
-
-            const setCookie = res.headers.get("set-cookie");
-            const contentType = res.headers.get("content-type");
-            const server = res.headers.get("server");
-            const cfRay = res.headers.get("cf-ray");
-
-            // Read body (often Cloudflare HTML or JSON error)
-            const text = await res.text().catch(() => "");
-
-            console.log("HTTP status:", res.status);
-            console.log("content-type:", contentType);
-            console.log("server:", server);
-            console.log("cf-ray:", cfRay);
-            console.log("set-cookie present:", Boolean(setCookie));
-
-            console.log("--- body (first 800 chars) ---");
-            console.log(text.slice(0, 800));
-            console.log("--- end body ---");
-
-            // Optional: fail the step if login is blocked, so it’s obvious in the UI
-            if (!res.ok) process.exit(1);
-          })().catch((err) => {
-            console.error("Debug login error:", err?.message || err);
-            process.exit(1);
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "user-agent": "rb-ci/1.0",
+              "accept": "application/json,text/plain,*/*",
+            },
+            body: JSON.stringify({ email, password }),
           });
-NODE
+
+          const setCookie = res.headers.get("set-cookie");
+          const contentType = res.headers.get("content-type");
+          const server = res.headers.get("server");
+          const cfRay = res.headers.get("cf-ray");
+
+          const text = await res.text().catch(() => "");
+
+          console.log("HTTP status:", res.status);
+          console.log("content-type:", contentType);
+          console.log("server:", server);
+          console.log("cf-ray:", cfRay);
+          console.log("set-cookie present:", Boolean(setCookie));
+
+          console.log("--- body (first 800 chars) ---");
+          console.log(text.slice(0, 800));
+          console.log("--- end body ---");
+
+          if (!res.ok) process.exit(1);
+          EOF
+
+          node /tmp/rb-debug-login.mjs
 
       - name: Run staging smoke (requires env)
         env:
