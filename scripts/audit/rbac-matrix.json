@@ -1444,6 +1444,131 @@
       ],
       "immutable": false,
       "category": "admin"
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/:id/whip/withdraw",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/:id/whip/restore",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/expulsions",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/expulsions/:id/approve",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "immutable": false,
+      "category": "admin"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/expulsions/:id/deny",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "immutable": false,
+      "category": "admin"
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/elections",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/elections/:id/nominate",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/elections/:id/vote",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/elections/:id/open-voting",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/elections/:id/close",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/elections/:id/runoff",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/privy-council/appoint",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "immutable": false,
+      "category": "admin"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/privy-council/remove",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "immutable": false,
+      "category": "admin"
     }
   ]
 }

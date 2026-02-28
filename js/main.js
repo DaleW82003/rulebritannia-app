@@ -41,6 +41,7 @@ import { initBudgetPage } from "./pages/budget.js";
 import { initCivilServicePage } from "./pages/civilservice.js";
 import { initCabinetPage } from "./pages/cabinet.js";
 import { initShadowCabinetPage } from "./pages/shadowcabinet.js";
+import { initPrivyCouncilPage } from "./pages/privycouncil.js";
 
 import { initPersonalPage } from "./pages/personal.js";
 import { initUserPage } from "./pages/user.js";
@@ -160,6 +161,7 @@ function renderDataSourcePanel(sources) {
       civilservice: initCivilServicePage,
       cabinet: initCabinetPage,
       shadowcabinet: initShadowCabinetPage,
+      "privy-council": initPrivyCouncilPage,
 
       personal: initPersonalPage,
       user: initUserPage,

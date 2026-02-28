@@ -39,6 +39,7 @@ const PAGE_HREF_MAP = {
   civilservice:        "civilservice.html",
   cabinet:             "cabinet.html",
   shadowcabinet:       "shadowcabinet.html",
+  "privy-council":     "privy-council.html",
   personal:            "personal.html",
   user:                "user.html",
   team:                "team.html",
@@ -397,6 +398,24 @@ export function esc(s) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+/**
+ * Format an MP name with the correct parliamentary honorific.
+ *
+ * Rules (render-time only — never store the formatted name in DB):
+ *   - Privy Councillors → "The Right Honourable [name]"
+ *   - All other MPs     → "The Honourable [name]"
+ *
+ * @param {string}  name          — The MP's bare name (from DB characters.name)
+ * @param {object}  [opts]
+ * @param {boolean} [opts.isPrivy=false]  — true if the MP is a Privy Councillor
+ * @returns {string}
+ */
+export function formatMPName(name, { isPrivy = false } = {}) {
+  const n = String(name ?? "").trim();
+  if (!n) return n;
+  return isPrivy ? `The Right Honourable ${n}` : `The Honourable ${n}`;
 }
 
 

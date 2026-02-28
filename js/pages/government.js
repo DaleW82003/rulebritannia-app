@@ -34,6 +34,7 @@ function normaliseGovernment(data) {
       id: spec.id,
       holderName:   String(existing.holderName   || "").trim(),
       holderAvatar: String(existing.holderAvatar || "").trim(),
+      holderParty:  String(existing.holderParty  || "").trim(),
       // Preserve DB-backed fields set by initGovernmentPage so save handler works
       dbOfficeId:   existing.dbOfficeId   || null,
       holderCharId: existing.holderCharId || null,
@@ -204,6 +205,7 @@ function render(data, state) {
                   </select>
                 ` : office.holderName ? `
                   <div style="font-weight:700;text-align:center;">${esc(office.holderName)}</div>
+                  ${office.holderParty ? `<div class="muted" style="text-align:center;font-size:0.85em;">${esc(office.holderParty)}</div>` : ""}
                 ` : `
                   <div style="text-align:center;color:var(--muted,#888);font-style:italic;">Vacant</div>
                 `}
@@ -275,11 +277,13 @@ export async function initGovernmentPage(data, renderState = { message: "" }) {
         if (char) {
           stateOffice.holderName   = char.name;
           stateOffice.holderCharId = char.id;
+          stateOffice.holderParty  = char.party || "";
           stateOffice.holderAvatar = char.avatar || "";
         }
       } else {
         stateOffice.holderName   = "";
         stateOffice.holderCharId = null;
+        stateOffice.holderParty  = "";
         stateOffice.holderAvatar = "";
       }
     }

@@ -2916,3 +2916,109 @@ export async function apiSaveShadowCabinetHeadline(headline) {
   if (!res.ok) throw new Error(body.error || `apiSaveShadowCabinetHeadline failed (${res.status})`);
   return body;
 }
+
+// ── Whip discipline ──────────────────────────────────────────────────────────
+export async function apiWithdrawWhip(characterId, note = "") {
+  const res = await fetch(`${API_BASE}/api/characters/${encodeURIComponent(characterId)}/whip/withdraw`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ note }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiWithdrawWhip failed (${res.status})`);
+  return body;
+}
+export async function apiRestoreWhip(characterId) {
+  const res = await fetch(`${API_BASE}/api/characters/${encodeURIComponent(characterId)}/whip/restore`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRestoreWhip failed (${res.status})`);
+  return body;
+}
+
+// ── Party expulsion workflow ──────────────────────────────────────────────────
+export async function apiRequestExpulsion(partyId, characterId, reason = "") {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/expulsions`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId, reason }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRequestExpulsion failed (${res.status})`);
+  return body;
+}
+export async function apiGetExpulsions(status = "pending") {
+  const res = await fetch(`${API_BASE}/api/mod/expulsions?status=${encodeURIComponent(status)}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetExpulsions failed (${res.status})`);
+  return res.json();
+}
+export async function apiApproveExpulsion(id) {
+  const res = await fetch(`${API_BASE}/api/mod/expulsions/${encodeURIComponent(id)}/approve`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiApproveExpulsion failed (${res.status})`);
+  return body;
+}
+export async function apiDenyExpulsion(id) {
+  const res = await fetch(`${API_BASE}/api/mod/expulsions/${encodeURIComponent(id)}/deny`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiDenyExpulsion failed (${res.status})`);
+  return body;
+}
+
+// ── Party leader elections ────────────────────────────────────────────────────
+export async function apiGetPartyElections(partyId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPartyElections failed (${res.status})`);
+  return res.json();
+}
+export async function apiStartPartyElection(partyId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiStartPartyElection failed (${res.status})`);
+  return body;
+}
+export async function apiGetPartyElection(partyId, electionId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections/${encodeURIComponent(electionId)}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPartyElection failed (${res.status})`);
+  return res.json();
+}
+export async function apiNominateForElection(partyId, electionId, characterId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections/${encodeURIComponent(electionId)}/nominate`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiNominateForElection failed (${res.status})`);
+  return body;
+}
+export async function apiVoteInElection(partyId, electionId, nomineeId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections/${encodeURIComponent(electionId)}/vote`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ nominee_id: nomineeId }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiVoteInElection failed (${res.status})`);
+  return body;
+}
+export async function apiOpenElectionVoting(partyId, electionId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections/${encodeURIComponent(electionId)}/open-voting`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiOpenElectionVoting failed (${res.status})`);
+  return body;
+}
+export async function apiCloseElection(partyId, electionId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections/${encodeURIComponent(electionId)}/close`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCloseElection failed (${res.status})`);
+  return body;
+}
+export async function apiRunoffElection(partyId, electionId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections/${encodeURIComponent(electionId)}/runoff`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRunoffElection failed (${res.status})`);
+  return body;
+}
+
+// ── Privy Council ────────────────────────────────────────────────────────────
+export async function apiGetPrivyCouncil() {
+  const res = await fetch(`${API_BASE}/api/privy-council`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPrivyCouncil failed (${res.status})`);
+  return res.json();
+}
+export async function apiAppointPrivyCouncillor(characterId, reason = "") {
+  const res = await fetch(`${API_BASE}/api/mod/privy-council/appoint`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId, reason }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAppointPrivyCouncillor failed (${res.status})`);
+  return body;
+}
+export async function apiRemovePrivyCouncillor(characterId) {
+  const res = await fetch(`${API_BASE}/api/mod/privy-council/remove`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiRemovePrivyCouncillor failed (${res.status})`);
+  return body;
+}
