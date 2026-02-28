@@ -1,0 +1,7756 @@
+{
+  "generatedAt": "2026-02-28T02:58:14.063Z",
+  "summary": {
+    "totalServerEndpoints": 305,
+    "totalWriteEndpoints": 199,
+    "totalApiFunctions": 273,
+    "totalPages": 46,
+    "unmatchedWriteFns": 0,
+    "missingCredentials": 0,
+    "immutabilityViolations": 0,
+    "saveStateOnlyWarnings": 0,
+    "rbacDriftWarnings": 3
+  },
+  "pages": [
+    {
+      "page": "admin-panel",
+      "apiFns": [
+        "apiAdminAssignCharacterOwner",
+        "apiAdminClearCache",
+        "apiAdminDiscourseSyncBills",
+        "apiAdminForceLogoutAll",
+        "apiAdminGetCharacters",
+        "apiAdminGetUsers",
+        "apiAdminRebuildCache",
+        "apiAdminRepairCharacterOwners",
+        "apiAdminRotateSessions",
+        "apiAdminSetUserActiveCharacter",
+        "apiAdminSyncDiscourseGroups",
+        "apiApproveRegistration",
+        "apiGetAdminDashboard",
+        "apiGetAuditLog",
+        "apiGetConfig",
+        "apiGetDiscourseConfig",
+        "apiGetDiscourseSyncPreview",
+        "apiGetHealth",
+        "apiGetPendingRegistrations",
+        "apiGetSnapshots",
+        "apiGetSsoReadiness",
+        "apiGetState",
+        "apiKey",
+        "apiLogout",
+        "apiRejectRegistration",
+        "apiRestoreSnapshot",
+        "apiSaveConfig",
+        "apiSaveDiscourseConfig",
+        "apiSaveSnapshot",
+        "apiSeedDemo",
+        "apiSetUserRoles",
+        "apiTestDiscourse",
+        "apiUser",
+        "apiWipeContent"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "bill",
+      "apiFns": [
+        "apiBillAmendmentDecide",
+        "apiBillAmendmentSupport",
+        "apiBillFirstReading",
+        "apiBillGrantAssent",
+        "apiBillOpenFinalDivision",
+        "apiBillSubmitReport",
+        "apiBillVote",
+        "apiBillWithdraw",
+        "apiCastVote",
+        "apiCloseDivision",
+        "apiCreateDebateTopic",
+        "apiDeleteBill",
+        "apiGetBill",
+        "apiGetBillAmendments",
+        "apiGetDivisionForEntity",
+        "apiSetNpcVotes",
+        "apiSubmitBillAmendment",
+        "apiUpdateBill"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "bodies",
+      "apiFns": [
+        "apiGetBodies",
+        "apiUpdateBody"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "budget",
+      "apiFns": [
+        "apiAdminApproveBudget",
+        "apiAdminRejectBudget",
+        "apiAdminSeedBudget",
+        "apiAdminUpdateBudgetControls",
+        "apiGetBudget",
+        "apiSubmitBudgetDraft"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "cabinet",
+      "apiFns": [
+        "apiGetCabinetDrafts",
+        "apiGetCharacters",
+        "apiSaveCabinetDrafts",
+        "apiSaveCabinetHeadline"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "civilservice",
+      "apiFns": [
+        "apiCreateCsBriefing",
+        "apiCreateCsCase",
+        "apiDeleteCsBriefing",
+        "apiDeleteCsCase",
+        "apiGetCsBriefings",
+        "apiGetCsCases",
+        "apiUpdateCsBriefing",
+        "apiUpdateCsCase"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "constituencies",
+      "apiFns": [
+        "apiGetCharacters",
+        "apiGetConstituencies",
+        "apiGetParliamentStatus",
+        "apiUpdateConstituency",
+        "apiUpdateParliamentStatus"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "constituency-work",
+      "apiFns": [
+        "apiGetMyWorkPlan",
+        "apiModScandalClose",
+        "apiModScandalDecision",
+        "apiModScandalDelete",
+        "apiModScandalOptedInCharacters",
+        "apiModScandalSituationCreate",
+        "apiModScandalTemplates",
+        "apiModScandalsOpen",
+        "apiModSituationClose",
+        "apiModSituationDelete",
+        "apiSaveMyWorkPlan",
+        "apiScandalChoose",
+        "apiScandalSituationRespond",
+        "apiScandalsMine",
+        "apiScandalsOptIn"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "control-panel",
+      "apiFns": [
+        "apiAdminRepairCharacterOwners",
+        "apiAdminSetCharacterInactive",
+        "apiApplyFinanceInflation",
+        "apiApplyShopInflation",
+        "apiApproveAvatarChange",
+        "apiApproveBioChange",
+        "apiApproveCharacterApplication",
+        "apiApproveProfileChange",
+        "apiDecideAffiliation",
+        "apiGetAllAvatarChanges",
+        "apiGetAllBioChanges",
+        "apiGetAllProfileChanges",
+        "apiGetCharacterApplications",
+        "apiGetCharacters",
+        "apiGetFinanceConfig",
+        "apiGetPendingAffiliations",
+        "apiGetShopPriceIndex",
+        "apiRejectAvatarChange",
+        "apiRejectBioChange",
+        "apiRejectCharacterApplication",
+        "apiRejectProfileChange",
+        "apiUpdateFinanceSalaryBands",
+        "apiUpdateFinanceStartingBalances"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "dashboard",
+      "apiFns": [
+        "apiGetBills",
+        "apiGetEvents",
+        "apiGetMotions",
+        "apiGetPressItems",
+        "apiGetRegulations",
+        "apiGetStatements"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "debates",
+      "apiFns": [
+        "apiGetBills",
+        "apiGetMotions",
+        "apiGetRegulations",
+        "apiGetStatements"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "economy",
+      "apiFns": [
+        "apiGetEconomyData",
+        "apiSaveEconomyData"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "elections",
+      "apiFns": [
+        "apiDeleteElectionBodyResult",
+        "apiGetElectionBodiesArchive",
+        "apiGetElectionBodiesCurrent",
+        "apiSubmitElectionBodyResult",
+        "apiUpdateElectionBodyResult"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "events",
+      "apiFns": [
+        "apiCreateEvent",
+        "apiDeleteEvent",
+        "apiGetEvents",
+        "apiUpdateEvent"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "fundraising",
+      "apiFns": [
+        "apiCreateFundraisingItem",
+        "apiCreditFundraisingToCharacter",
+        "apiCreditFundraisingToParty",
+        "apiDeleteFundraisingItem",
+        "apiGetFundraisingItems",
+        "apiGetParty",
+        "apiUpdateFundraisingItem"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "government",
+      "apiFns": [
+        "apiAssignOffice",
+        "apiGetCharacters",
+        "apiGetOffices",
+        "apiUnassignOffice"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "guides",
+      "apiFns": [
+        "apiCreateGuide",
+        "apiDeleteGuide",
+        "apiGetGuides",
+        "apiUpdateGuide"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "hansard",
+      "apiFns": [
+        "apiBillGrantAssent"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "landing",
+      "apiFns": [],
+      "savesState": false
+    },
+    {
+      "page": "locals",
+      "apiFns": [
+        "apiSaveLocals"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "login",
+      "apiFns": [
+        "apiLogin"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "motion",
+      "apiFns": [
+        "apiCastVote",
+        "apiCloseDivision",
+        "apiCreateDivision",
+        "apiGetDivisionForEntity",
+        "apiGetMotion",
+        "apiGetPartyInstruction",
+        "apiGetRebelRequest",
+        "apiSetNpcVotes",
+        "apiSetPartyInstruction",
+        "apiSignEdm",
+        "apiSubmitRebelRequest",
+        "apiUpdateMotion"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "motions",
+      "apiFns": [
+        "apiCreateDebateTopic",
+        "apiCreateMotion",
+        "apiDeleteMotion",
+        "apiGetMotions",
+        "apiUpdateMotion"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "news",
+      "apiFns": [
+        "apiCreateNewsStory",
+        "apiDeleteNewsStory",
+        "apiGetNews",
+        "apiUpdateNewsStory"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "online",
+      "apiFns": [
+        "apiCreateOnlinePost",
+        "apiDeleteOnlinePost",
+        "apiGetOnlinePosts",
+        "apiUpdateOnlinePost",
+        "apiUpdateOnlineSettings"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "opposition",
+      "apiFns": [
+        "apiAssignOffice",
+        "apiGetCharacters",
+        "apiGetOffices",
+        "apiUnassignOffice"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "papers",
+      "apiFns": [
+        "apiCreatePaperArticle",
+        "apiDeletePaperArticle",
+        "apiGetPaperArticles",
+        "apiUpdatePaperArticle"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "party",
+      "apiFns": [
+        "apiAddPartyDonation",
+        "apiAddPartyShopPurchase",
+        "apiGetCharacters",
+        "apiGetMyCharacters",
+        "apiGetParty",
+        "apiGetPartyLedger",
+        "apiGetPartyStructure",
+        "apiGetShopPriceIndex",
+        "apiRemovePartyShopPurchase",
+        "apiSavePartyDrafts",
+        "apiSavePartyStructure",
+        "apiSetChiefWhip",
+        "apiSetPartyLeader",
+        "apiSetPartyLeadership",
+        "apiSetPartyMembershipFee",
+        "apiSetPartyTreasury"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "personal",
+      "apiFns": [
+        "apiAddAdditionalRevenue",
+        "apiAddShopPurchase",
+        "apiAdminUpdateCharacterProfile",
+        "apiDismissShopPurchase",
+        "apiGetCharacterAffiliations",
+        "apiGetCharacterFinance",
+        "apiGetCharacters",
+        "apiGetEnums",
+        "apiGetMyFinance",
+        "apiGetShopPriceIndex",
+        "apiRemoveAdditionalRevenue",
+        "apiRemoveShopPurchase",
+        "apiSellShopPurchase",
+        "apiSubmitAvatarChange",
+        "apiSubmitBioChange",
+        "apiSubmitCharacterAffiliations",
+        "apiSubmitProfileChange",
+        "apiUpdateCharacterShopUpkeep"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "playerbase",
+      "apiFns": [
+        "apiAdminCreateRevenue",
+        "apiAdminDeleteRevenue",
+        "apiAdminSetBank",
+        "apiAdminSetPositions",
+        "apiAdminSetSalaryOverride",
+        "apiAdminUpdateRevenue",
+        "apiGetPlayerbase"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "polling",
+      "apiFns": [
+        "apiCreatePollingEntry",
+        "apiDeletePollingEntry",
+        "apiGetPollingEntries"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "press",
+      "apiFns": [
+        "apiAddPressTranscriptEntry",
+        "apiCreatePressItem",
+        "apiDeletePressItem",
+        "apiGetPressItems",
+        "apiMarkPressItem",
+        "apiUpdatePressItem"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "profile",
+      "apiFns": [
+        "apiGetPublicProfile"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "questiontime",
+      "apiFns": [
+        "apiAnswerQtQuestion",
+        "apiCreateQtLegacyQuestion",
+        "apiDeleteQtLegacyQuestion",
+        "apiFollowupQtQuestion",
+        "apiGetQtLegacyQuestions",
+        "apiGetQtQuestions",
+        "apiPatchQtQuestion",
+        "apiSubmitQtQuestion",
+        "apiUpdateQtLegacyQuestion"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "redlion",
+      "apiFns": [
+        "apiCreateRedLionPost",
+        "apiDeleteRedLionPost",
+        "apiGetRedLionPosts"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "register",
+      "apiFns": [],
+      "savesState": false
+    },
+    {
+      "page": "regulation",
+      "apiFns": [
+        "apiGetRegulation",
+        "apiUpdateRegulation"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "regulations",
+      "apiFns": [
+        "apiCreateDebateTopic",
+        "apiCreateRegulation",
+        "apiDeleteRegulation",
+        "apiGetRegulations"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "rules",
+      "apiFns": [
+        "apiCreateRule",
+        "apiDeleteRule",
+        "apiGetRules",
+        "apiUpdateRule"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "shadowcabinet",
+      "apiFns": [
+        "apiGetShadowCabinetDrafts",
+        "apiSaveShadowCabinetDrafts",
+        "apiSaveShadowCabinetHeadline"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "statement",
+      "apiFns": [
+        "apiGetStatement",
+        "apiUpdateStatement"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "statements",
+      "apiFns": [
+        "apiCreateDebateTopic",
+        "apiCreateStatement",
+        "apiDeleteStatement",
+        "apiGetStatements"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "submit-bill",
+      "apiFns": [
+        "apiCreateBill",
+        "apiCreateDebateTopic"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "team",
+      "apiFns": [
+        "apiAdminGetUsers",
+        "apiGetTeam",
+        "apiSetUserRoles"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "user",
+      "apiFns": [
+        "apiApplyCharacter",
+        "apiApproveCharacterApplication",
+        "apiGetCharacterApplications",
+        "apiGetCharacters",
+        "apiGetConstituencies",
+        "apiGetEnums",
+        "apiGetMyApplications",
+        "apiGetMyCharacters",
+        "apiRejectCharacterApplication",
+        "apiSelectCharacter",
+        "apiUpdateMyAbsent"
+      ],
+      "savesState": false
+    },
+    {
+      "page": "verify-email",
+      "apiFns": [],
+      "savesState": false
+    }
+  ],
+  "serverEndpoints": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 3604
+    },
+    {
+      "method": "GET",
+      "path": "/api/permissions",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 3616
+    },
+    {
+      "method": "GET",
+      "path": "/csrf-token",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 3640
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 3662
+    },
+    {
+      "method": "GET",
+      "path": "/auth/me",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 3729
+    },
+    {
+      "method": "POST",
+      "path": "/auth/logout",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 3756
+    },
+    {
+      "method": "POST",
+      "path": "/api/register",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 3788
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/verify-email",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 3912
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/resend-verification",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 3968
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/registrations",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4014
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/registrations/:id/approve",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4036
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/registrations/:id/reject",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4096
+    },
+    {
+      "method": "GET",
+      "path": "/api/state",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4132
+    },
+    {
+      "method": "POST",
+      "path": "/api/state",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 4152
+    },
+    {
+      "method": "GET",
+      "path": "/api/snapshots",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4200
+    },
+    {
+      "method": "POST",
+      "path": "/api/snapshots",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4226
+    },
+    {
+      "method": "POST",
+      "path": "/api/snapshots/:id/restore",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4264
+    },
+    {
+      "method": "GET",
+      "path": "/api/config",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 4302
+    },
+    {
+      "method": "PUT",
+      "path": "/api/config",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4315
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/enums",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4359
+    },
+    {
+      "method": "GET",
+      "path": "/api/discourse/config",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4400
+    },
+    {
+      "method": "PUT",
+      "path": "/api/discourse/config",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": false,
+      "lineNo": 4419
+    },
+    {
+      "method": "POST",
+      "path": "/api/discourse/test",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4463
+    },
+    {
+      "method": "GET",
+      "path": "/api/discourse/sso",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 4537
+    },
+    {
+      "method": "GET",
+      "path": "/api/discourse/sso/callback",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 4574
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/sso-readiness",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 4662
+    },
+    {
+      "method": "POST",
+      "path": "/api/audit-log",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4758
+    },
+    {
+      "method": "GET",
+      "path": "/api/audit-log",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": false,
+      "lineNo": 4779
+    },
+    {
+      "method": "GET",
+      "path": "/api/bills",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4843
+    },
+    {
+      "method": "GET",
+      "path": "/api/bills/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4854
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 4866
+    },
+    {
+      "method": "PUT",
+      "path": "/api/bills/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 4892
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bills/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": false,
+      "lineNo": 4911
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/first-reading",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5045
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/report",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 5100
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/withdraw",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5141
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/assent",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 5190
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/amendments",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5241
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/amendments/:aid/decide",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5317
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/amendments/:aid/support",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5402
+    },
+    {
+      "method": "GET",
+      "path": "/api/bills/:id/amendments",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5473
+    },
+    {
+      "method": "POST",
+      "path": "/api/bills/:id/final-division",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 5495
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bills/:id/vote",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5747
+    },
+    {
+      "method": "GET",
+      "path": "/api/motions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5842
+    },
+    {
+      "method": "GET",
+      "path": "/api/motions/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5861
+    },
+    {
+      "method": "POST",
+      "path": "/api/motions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5876
+    },
+    {
+      "method": "POST",
+      "path": "/api/motions/:id/sign",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5906
+    },
+    {
+      "method": "PUT",
+      "path": "/api/motions/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 5938
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/motions/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 5960
+    },
+    {
+      "method": "GET",
+      "path": "/api/statements",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5980
+    },
+    {
+      "method": "GET",
+      "path": "/api/statements/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 5991
+    },
+    {
+      "method": "POST",
+      "path": "/api/statements",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6006
+    },
+    {
+      "method": "PUT",
+      "path": "/api/statements/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6032
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/statements/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 6051
+    },
+    {
+      "method": "GET",
+      "path": "/api/regulations",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6071
+    },
+    {
+      "method": "GET",
+      "path": "/api/regulations/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6082
+    },
+    {
+      "method": "POST",
+      "path": "/api/regulations",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6097
+    },
+    {
+      "method": "PUT",
+      "path": "/api/regulations/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6123
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/regulations/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 6142
+    },
+    {
+      "method": "GET",
+      "path": "/api/questiontime-questions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6162
+    },
+    {
+      "method": "GET",
+      "path": "/api/questiontime-questions/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6175
+    },
+    {
+      "method": "POST",
+      "path": "/api/questiontime-questions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6190
+    },
+    {
+      "method": "PUT",
+      "path": "/api/questiontime-questions/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6234
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/questiontime-questions/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6253
+    },
+    {
+      "method": "GET",
+      "path": "/api/clock",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 6275
+    },
+    {
+      "method": "POST",
+      "path": "/api/clock/tick",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 6290
+    },
+    {
+      "method": "POST",
+      "path": "/api/clock/set",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 6354
+    },
+    {
+      "method": "GET",
+      "path": "/api/press",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 6412
+    },
+    {
+      "method": "GET",
+      "path": "/api/press/:id",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 6427
+    },
+    {
+      "method": "POST",
+      "path": "/api/press",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 6441
+    },
+    {
+      "method": "PUT",
+      "path": "/api/press/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6479
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/press/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6502
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/press/:id/transcript",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6518
+    },
+    {
+      "method": "POST",
+      "path": "/api/press/:id/mark",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": false,
+      "lineNo": 6593
+    },
+    {
+      "method": "GET",
+      "path": "/api/polling",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 6666
+    },
+    {
+      "method": "GET",
+      "path": "/api/polling/:id",
+      "roles": [
+        "public"
+      ],
+      "writesDb": true,
+      "lineNo": 6678
+    },
+    {
+      "method": "POST",
+      "path": "/api/polling",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6692
+    },
+    {
+      "method": "PUT",
+      "path": "/api/polling/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6718
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/polling/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 6739
+    },
+    {
+      "method": "POST",
+      "path": "/api/debates/create",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 6775
+    },
+    {
+      "method": "GET",
+      "path": "/api/debates/payload/:entityType/:entityId",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6890
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/roles",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 6995
+    },
+    {
+      "method": "POST",
+      "path": "/api/users/:id/roles",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7011
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/discourse-sync-preview",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7066
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/discourse-sync-groups",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7122
+    },
+    {
+      "method": "GET",
+      "path": "/api/bootstrap",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7211
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/clear-cache",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7349
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/rebuild-cache",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7371
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/rotate-sessions",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": false,
+      "lineNo": 7393
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/force-logout-all",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7421
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/export-snapshot",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7438
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/import-snapshot",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7471
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7531
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7556
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7573
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7588
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/characters/:id",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 7619
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/:id/profile",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 7654
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/me/absent",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7746
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/select",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7761
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/apply",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 7794
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/applications/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 7889
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/characters/applications",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 7904
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/applications/:id/approve",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 7921
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/applications/:id/reject",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8031
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/:id/set-inactive",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8061
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/repair/character-owner-pointers",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8115
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/bio-change",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8250
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/bio-changes/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8293
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/bio-changes",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8312
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/bio-changes/:id/approve",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8331
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/bio-changes/:id/reject",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8364
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/avatar-change",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8400
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/avatar-changes/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8441
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/avatar-changes",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8460
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/avatar-changes/:id/approve",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8479
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/avatar-changes/:id/reject",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 8511
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/property/set",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8541
+    },
+    {
+      "method": "GET",
+      "path": "/api/parties/canonical",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8597
+    },
+    {
+      "method": "GET",
+      "path": "/api/parties/:partyId",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8610
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/set-leader",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8663
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/leadership",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8702
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/chief-whip",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8772
+    },
+    {
+      "method": "GET",
+      "path": "/api/shop/price-index",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8829
+    },
+    {
+      "method": "POST",
+      "path": "/api/shop/apply-inflation",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 8850
+    },
+    {
+      "method": "POST",
+      "path": "/api/finance/shop-upkeep",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8932
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/finance",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 8968
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/characters/:id/finance",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 9085
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/finance/summary",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9183
+    },
+    {
+      "method": "POST",
+      "path": "/api/characters/profile-change",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9274
+    },
+    {
+      "method": "GET",
+      "path": "/api/characters/profile-changes/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9346
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/profile-changes",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 9366
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/profile-changes/:id/approve",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 9386
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/profile-changes/:id/reject",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 9429
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/shop-purchases",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 9455
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/me/character/shop-purchases/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 9547
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/shop-purchases/:id/sell",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 9609
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/shop-purchases/:id/dismiss",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 9686
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/additional-revenue",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 9762
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/me/character/additional-revenue/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 9790
+    },
+    {
+      "method": "GET",
+      "path": "/api/parties/:partyId/structure",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9809
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/structure",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9824
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/treasury",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 9901
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/membership-fee",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10002
+    },
+    {
+      "method": "GET",
+      "path": "/api/parties/:partyId/donations",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10044
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/donations",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 10090
+    },
+    {
+      "method": "GET",
+      "path": "/api/parties/:partyId/shop-purchases",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10159
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/shop-purchases",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 10187
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/parties/:partyId/shop-purchases/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10266
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/drafts",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10291
+    },
+    {
+      "method": "GET",
+      "path": "/api/cabinet/drafts",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10361
+    },
+    {
+      "method": "POST",
+      "path": "/api/cabinet/drafts",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10382
+    },
+    {
+      "method": "GET",
+      "path": "/api/shadowcabinet/drafts",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10408
+    },
+    {
+      "method": "POST",
+      "path": "/api/shadowcabinet/drafts",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10429
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/work-plan",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10460
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/work-plan",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10493
+    },
+    {
+      "method": "GET",
+      "path": "/api/offices",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10535
+    },
+    {
+      "method": "POST",
+      "path": "/api/offices",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 10558
+    },
+    {
+      "method": "POST",
+      "path": "/api/offices/:id/assign",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10581
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/offices/:id/assign/:characterId",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10654
+    },
+    {
+      "method": "GET",
+      "path": "/api/divisions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10826
+    },
+    {
+      "method": "GET",
+      "path": "/api/divisions/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10844
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/create",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10881
+    },
+    {
+      "method": "GET",
+      "path": "/api/divisions/for-entity/:entityType/:entityId",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10907
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/:id/vote",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 10983
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/:id/close",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": false,
+      "lineNo": 11089
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/divisions/:id/npc-votes",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11139
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/:divisionId/party-instruction",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11165
+    },
+    {
+      "method": "GET",
+      "path": "/api/divisions/:divisionId/party-instruction/:partySlug",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11225
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/:divisionId/rebel-request",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11245
+    },
+    {
+      "method": "GET",
+      "path": "/api/divisions/:divisionId/rebel-request",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11283
+    },
+    {
+      "method": "POST",
+      "path": "/api/divisions/:divisionId/rebel-request/:requestId/decide",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11306
+    },
+    {
+      "method": "GET",
+      "path": "/api/qt/questions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11369
+    },
+    {
+      "method": "GET",
+      "path": "/api/qt/questions/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11393
+    },
+    {
+      "method": "POST",
+      "path": "/api/qt/questions",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11427
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/qt/questions/:id",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 11464
+    },
+    {
+      "method": "POST",
+      "path": "/api/qt/questions/:id/answer",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": false,
+      "lineNo": 11485
+    },
+    {
+      "method": "POST",
+      "path": "/api/qt/questions/:id/followup",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11523
+    },
+    {
+      "method": "GET",
+      "path": "/api/sim",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 11555
+    },
+    {
+      "method": "POST",
+      "path": "/api/sim/tick",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 11567
+    },
+    {
+      "method": "POST",
+      "path": "/api/sim/set",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 11603
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bills/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 11654
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/discourse-sync-bills",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 11711
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/wipe-content",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 11770
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/seed-demo",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 12012
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/seed",
+      "roles": [
+        "public"
+      ],
+      "writesDb": false,
+      "lineNo": 12017
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/dashboard",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 12026
+    },
+    {
+      "method": "GET",
+      "path": "/api/scandals/mine",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12072
+    },
+    {
+      "method": "POST",
+      "path": "/api/scandals/optin",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12129
+    },
+    {
+      "method": "POST",
+      "path": "/api/scandals/situations/:id/respond",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12150
+    },
+    {
+      "method": "POST",
+      "path": "/api/scandals/:id/choose",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12223
+    },
+    {
+      "method": "GET",
+      "path": "/api/mod/scandal-templates",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12321
+    },
+    {
+      "method": "GET",
+      "path": "/api/mod/scandals/opted-in-characters",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12337
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/scandal-templates",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12355
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/scandals/situations/create",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12382
+    },
+    {
+      "method": "GET",
+      "path": "/api/mod/scandals/open",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12442
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/scandals/:id/decision",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12500
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/scandals/:id/close",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12586
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/mod/scandals/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12608
+    },
+    {
+      "method": "POST",
+      "path": "/api/mod/scandals/situations/:id/close",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12626
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/mod/scandals/situations/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12645
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections/seat-totals",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12682
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections/current",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12696
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12726
+    },
+    {
+      "method": "POST",
+      "path": "/api/elections",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12744
+    },
+    {
+      "method": "PUT",
+      "path": "/api/elections/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12763
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections/:id/changes",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12784
+    },
+    {
+      "method": "PUT",
+      "path": "/api/elections/:id/changes",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12804
+    },
+    {
+      "method": "POST",
+      "path": "/api/elections/:id/finalize",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12858
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/elections/seed-1997",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 12939
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections/bodies/current",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 12974
+    },
+    {
+      "method": "GET",
+      "path": "/api/elections/bodies/archive",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13012
+    },
+    {
+      "method": "POST",
+      "path": "/api/elections/bodies",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 13050
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/elections/bodies/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 13116
+    },
+    {
+      "method": "PUT",
+      "path": "/api/elections/bodies/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 13130
+    },
+    {
+      "method": "GET",
+      "path": "/api/constituencies/:id/events",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13174
+    },
+    {
+      "method": "GET",
+      "path": "/api/constituencies",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13219
+    },
+    {
+      "method": "POST",
+      "path": "/api/constituencies",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13239
+    },
+    {
+      "method": "PUT",
+      "path": "/api/constituencies/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13264
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/constituencies/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13328
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/constituencies/initialize-1997",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": false,
+      "lineNo": 13343
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/constituencies/clear",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13392
+    },
+    {
+      "method": "GET",
+      "path": "/api/parliament/status",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13416
+    },
+    {
+      "method": "PUT",
+      "path": "/api/parliament/status",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13434
+    },
+    {
+      "method": "GET",
+      "path": "/api/budget",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13475
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/budget/seed",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13494
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/budget/controls",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13513
+    },
+    {
+      "method": "POST",
+      "path": "/api/budget/draft",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 13534
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/budget/approve",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13551
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/budget/reject",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13573
+    },
+    {
+      "method": "GET",
+      "path": "/api/team",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13592
+    },
+    {
+      "method": "GET",
+      "path": "/api/profile",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13620
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/character/:id/affiliations",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13712
+    },
+    {
+      "method": "POST",
+      "path": "/api/me/character/:id/affiliations",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 13742
+    },
+    {
+      "method": "GET",
+      "path": "/api/control-panel/affiliations/pending",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13856
+    },
+    {
+      "method": "POST",
+      "path": "/api/control-panel/affiliations/:rid/decide",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 13881
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13949
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/characters",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 13984
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/characters/:id/assign-owner",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": false,
+      "lineNo": 14017
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users/:id/active-character",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": true,
+      "lineNo": 14084
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/reset-baseline",
+      "roles": [
+        "admin"
+      ],
+      "writesDb": false,
+      "lineNo": 14138
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/playerbase",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14212
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/finance/set-bank",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14304
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/finance/set-salary-override",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14330
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/finance/set-positions",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14358
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/finance/revenue",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14405
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/finance/revenue/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14427
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/finance/revenue/:id",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": true,
+      "lineNo": 14455
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/salary-scales/uprate",
+      "roles": [
+        "admin",
+        "mod",
+        "speaker"
+      ],
+      "writesDb": false,
+      "lineNo": 14472
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/finance/config",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14531
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/finance/salary-bands",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14548
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/finance/starting-balances",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14601
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/finance/apply-inflation",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14653
+    },
+    {
+      "method": "GET",
+      "path": "/api/redlion",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14719
+    },
+    {
+      "method": "POST",
+      "path": "/api/redlion",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14727
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/redlion/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14740
+    },
+    {
+      "method": "GET",
+      "path": "/api/events",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14749
+    },
+    {
+      "method": "POST",
+      "path": "/api/events",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14757
+    },
+    {
+      "method": "PUT",
+      "path": "/api/events/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14770
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/events/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14804
+    },
+    {
+      "method": "GET",
+      "path": "/api/online",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14815
+    },
+    {
+      "method": "POST",
+      "path": "/api/online",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14826
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/online/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14839
+    },
+    {
+      "method": "GET",
+      "path": "/api/fundraising",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14850
+    },
+    {
+      "method": "POST",
+      "path": "/api/fundraising",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14858
+    },
+    {
+      "method": "PUT",
+      "path": "/api/fundraising/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 14871
+    },
+    {
+      "method": "POST",
+      "path": "/api/fundraising/:id/credit-party",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 14886
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/fundraising/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 14960
+    },
+    {
+      "method": "POST",
+      "path": "/api/fundraising/:id/credit-character",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": false,
+      "lineNo": 14972
+    },
+    {
+      "method": "GET",
+      "path": "/api/news",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15037
+    },
+    {
+      "method": "POST",
+      "path": "/api/news",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15051
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/news/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15067
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/news/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15086
+    },
+    {
+      "method": "GET",
+      "path": "/api/rules",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15095
+    },
+    {
+      "method": "POST",
+      "path": "/api/rules",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15103
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/rules/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15116
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/rules/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15130
+    },
+    {
+      "method": "GET",
+      "path": "/api/guides",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15139
+    },
+    {
+      "method": "POST",
+      "path": "/api/guides",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15147
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/guides/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15160
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/guides/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15174
+    },
+    {
+      "method": "GET",
+      "path": "/api/civil-service/briefings",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15183
+    },
+    {
+      "method": "POST",
+      "path": "/api/civil-service/briefings",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15199
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/civil-service/briefings/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15214
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/civil-service/briefings/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15236
+    },
+    {
+      "method": "GET",
+      "path": "/api/civil-service/cases",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15245
+    },
+    {
+      "method": "POST",
+      "path": "/api/civil-service/cases",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15258
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/civil-service/cases/:id",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15272
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/civil-service/cases/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15292
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/online/settings",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15301
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/online/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15316
+    },
+    {
+      "method": "GET",
+      "path": "/api/bodies",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15334
+    },
+    {
+      "method": "PUT",
+      "path": "/api/bodies/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15342
+    },
+    {
+      "method": "GET",
+      "path": "/api/papers",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15363
+    },
+    {
+      "method": "POST",
+      "path": "/api/papers/:key/articles",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15377
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/papers/:key/articles/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15392
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/papers/:key/articles/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15410
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/economy",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15419
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/economy",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15427
+    },
+    {
+      "method": "GET",
+      "path": "/api/locals",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15441
+    },
+    {
+      "method": "PUT",
+      "path": "/api/locals",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15449
+    },
+    {
+      "method": "GET",
+      "path": "/api/cabinet/headline",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15463
+    },
+    {
+      "method": "PUT",
+      "path": "/api/cabinet/headline",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15471
+    },
+    {
+      "method": "GET",
+      "path": "/api/shadowcabinet/headline",
+      "roles": [
+        "authenticated"
+      ],
+      "writesDb": true,
+      "lineNo": 15484
+    },
+    {
+      "method": "PUT",
+      "path": "/api/shadowcabinet/headline",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "writesDb": true,
+      "lineNo": 15492
+    }
+  ],
+  "crossReference": [
+    {
+      "fnName": "apiGetPermissions",
+      "method": "GET",
+      "apiPath": "/api/permissions",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/permissions",
+        "roles": [
+          "public"
+        ],
+        "writesDb": false,
+        "lineNo": 3616
+      }
+    },
+    {
+      "fnName": "apiLogin",
+      "method": "POST",
+      "apiPath": "/api/auth/login",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/auth/login",
+        "roles": [
+          "public"
+        ],
+        "writesDb": true,
+        "lineNo": 3662
+      }
+    },
+    {
+      "fnName": "apiMe",
+      "method": "GET",
+      "apiPath": "/api/auth/me",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/auth/me",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 3729
+      }
+    },
+    {
+      "fnName": "apiBootstrap",
+      "method": "GET",
+      "apiPath": "/api/bootstrap",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/bootstrap",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 7211
+      }
+    },
+    {
+      "fnName": "apiLogout",
+      "method": "GET",
+      "apiPath": "/api/csrf-token",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/csrf-token",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": false,
+        "lineNo": 3640
+      }
+    },
+    {
+      "fnName": "apiGetState",
+      "method": "GET",
+      "apiPath": "/api/state",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/state",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4132
+      }
+    },
+    {
+      "fnName": "apiSaveState",
+      "method": "POST",
+      "apiPath": "/api/state",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/state",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 4152
+      }
+    },
+    {
+      "fnName": "apiGetSnapshots",
+      "method": "GET",
+      "apiPath": "/api/snapshots",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/snapshots",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 4200
+      }
+    },
+    {
+      "fnName": "apiSaveSnapshot",
+      "method": "POST",
+      "apiPath": "/api/snapshots",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/snapshots",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 4226
+      }
+    },
+    {
+      "fnName": "apiRestoreSnapshot",
+      "method": "POST",
+      "apiPath": "/api/snapshots/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/snapshots",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 4226
+      }
+    },
+    {
+      "fnName": "apiGetConfig",
+      "method": "GET",
+      "apiPath": "/api/config",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/config",
+        "roles": [
+          "public"
+        ],
+        "writesDb": true,
+        "lineNo": 4302
+      }
+    },
+    {
+      "fnName": "apiSaveConfig",
+      "method": "PUT",
+      "apiPath": "/api/config",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/config",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 4315
+      }
+    },
+    {
+      "fnName": "apiLogAction",
+      "method": "POST",
+      "apiPath": "/api/audit-log",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/audit-log",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4758
+      }
+    },
+    {
+      "fnName": "apiGetAuditLog",
+      "method": "GET",
+      "apiPath": "/api/audit-log",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/audit-log",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": false,
+        "lineNo": 4779
+      }
+    },
+    {
+      "fnName": "apiGetBills",
+      "method": "GET",
+      "apiPath": "/api/bills",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4843
+      }
+    },
+    {
+      "fnName": "apiGetBill",
+      "method": "GET",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4843
+      }
+    },
+    {
+      "fnName": "apiCreateBill",
+      "method": "POST",
+      "apiPath": "/api/bills",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4866
+      }
+    },
+    {
+      "fnName": "apiUpdateBill",
+      "method": "PUT",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/bills/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 4892
+      }
+    },
+    {
+      "fnName": "apiBillVote",
+      "method": "PATCH",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/bills/:id/vote",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 5747
+      }
+    },
+    {
+      "fnName": "apiDeleteBill",
+      "method": "DELETE",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/bills/:id",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": false,
+        "lineNo": 4911
+      }
+    },
+    {
+      "fnName": "apiBillFirstReading",
+      "method": "POST",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4866
+      }
+    },
+    {
+      "fnName": "apiBillSubmitReport",
+      "method": "POST",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4866
+      }
+    },
+    {
+      "fnName": "apiBillWithdraw",
+      "method": "POST",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4866
+      }
+    },
+    {
+      "fnName": "apiBillGrantAssent",
+      "method": "POST",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4866
+      }
+    },
+    {
+      "fnName": "apiBillOpenFinalDivision",
+      "method": "POST",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4866
+      }
+    },
+    {
+      "fnName": "apiGetBillAmendments",
+      "method": "GET",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4843
+      }
+    },
+    {
+      "fnName": "apiSubmitBillAmendment",
+      "method": "POST",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4866
+      }
+    },
+    {
+      "fnName": "apiBillAmendmentDecide",
+      "method": "POST",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4866
+      }
+    },
+    {
+      "fnName": "apiBillAmendmentSupport",
+      "method": "POST",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/bills",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4866
+      }
+    },
+    {
+      "fnName": "apiGetMotions",
+      "method": "GET",
+      "apiPath": "/api/motions",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/motions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 5842
+      }
+    },
+    {
+      "fnName": "apiGetMotion",
+      "method": "GET",
+      "apiPath": "/api/motions/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/motions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 5842
+      }
+    },
+    {
+      "fnName": "apiCreateMotion",
+      "method": "POST",
+      "apiPath": "/api/motions",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/motions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 5876
+      }
+    },
+    {
+      "fnName": "apiUpdateMotion",
+      "method": "PUT",
+      "apiPath": "/api/motions/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/motions/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 5938
+      }
+    },
+    {
+      "fnName": "apiDeleteMotion",
+      "method": "DELETE",
+      "apiPath": "/api/motions/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/motions/:id",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 5960
+      }
+    },
+    {
+      "fnName": "apiSignEdm",
+      "method": "POST",
+      "apiPath": "/api/motions/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/motions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 5876
+      }
+    },
+    {
+      "fnName": "apiGetStatements",
+      "method": "GET",
+      "apiPath": "/api/statements",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/statements",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 5980
+      }
+    },
+    {
+      "fnName": "apiGetStatement",
+      "method": "GET",
+      "apiPath": "/api/statements/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/statements",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 5980
+      }
+    },
+    {
+      "fnName": "apiCreateStatement",
+      "method": "POST",
+      "apiPath": "/api/statements",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/statements",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 6006
+      }
+    },
+    {
+      "fnName": "apiUpdateStatement",
+      "method": "PUT",
+      "apiPath": "/api/statements/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/statements/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 6032
+      }
+    },
+    {
+      "fnName": "apiDeleteStatement",
+      "method": "DELETE",
+      "apiPath": "/api/statements/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/statements/:id",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 6051
+      }
+    },
+    {
+      "fnName": "apiGetRegulations",
+      "method": "GET",
+      "apiPath": "/api/regulations",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/regulations",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 6071
+      }
+    },
+    {
+      "fnName": "apiGetRegulation",
+      "method": "GET",
+      "apiPath": "/api/regulations/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/regulations",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 6071
+      }
+    },
+    {
+      "fnName": "apiCreateRegulation",
+      "method": "POST",
+      "apiPath": "/api/regulations",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/regulations",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 6097
+      }
+    },
+    {
+      "fnName": "apiUpdateRegulation",
+      "method": "PUT",
+      "apiPath": "/api/regulations/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/regulations/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 6123
+      }
+    },
+    {
+      "fnName": "apiDeleteRegulation",
+      "method": "DELETE",
+      "apiPath": "/api/regulations/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/regulations/:id",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 6142
+      }
+    },
+    {
+      "fnName": "apiGetClock",
+      "method": "GET",
+      "apiPath": "/api/clock",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/clock",
+        "roles": [
+          "public"
+        ],
+        "writesDb": true,
+        "lineNo": 6275
+      }
+    },
+    {
+      "fnName": "apiClockTick",
+      "method": "POST",
+      "apiPath": "/api/clock/tick",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/clock/tick",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 6290
+      }
+    },
+    {
+      "fnName": "apiClockSet",
+      "method": "POST",
+      "apiPath": "/api/clock/set",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/clock/set",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 6354
+      }
+    },
+    {
+      "fnName": "apiGetDiscourseConfig",
+      "method": "GET",
+      "apiPath": "/api/discourse/config",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/discourse/config",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 4400
+      }
+    },
+    {
+      "fnName": "apiSaveDiscourseConfig",
+      "method": "PUT",
+      "apiPath": "/api/discourse/config",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/discourse/config",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": false,
+        "lineNo": 4419
+      }
+    },
+    {
+      "fnName": "apiTestDiscourse",
+      "method": "POST",
+      "apiPath": "/api/discourse/test",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/discourse/test",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 4463
+      }
+    },
+    {
+      "fnName": "apiCreateDebateTopic",
+      "method": "POST",
+      "apiPath": "/api/debates/create",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/debates/create",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": false,
+        "lineNo": 6775
+      }
+    },
+    {
+      "fnName": "apiGetMyRoles",
+      "method": "GET",
+      "apiPath": "/api/me/roles",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/me/roles",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 6995
+      }
+    },
+    {
+      "fnName": "apiSetUserRoles",
+      "method": "POST",
+      "apiPath": "/api/users/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/users/:id/roles",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 7011
+      }
+    },
+    {
+      "fnName": "apiGetDiscourseSyncPreview",
+      "method": "GET",
+      "apiPath": "/api/admin/discourse-sync-preview",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/admin/discourse-sync-preview",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 7066
+      }
+    },
+    {
+      "fnName": "apiGetSsoReadiness",
+      "method": "GET",
+      "apiPath": "/api/admin/sso-readiness",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/admin/sso-readiness",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 4662
+      }
+    },
+    {
+      "fnName": "apiAdminSyncDiscourseGroups",
+      "method": "POST",
+      "apiPath": "/api/admin/discourse-sync-groups",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/discourse-sync-groups",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 7122
+      }
+    },
+    {
+      "fnName": "apiAdminExportSnapshot",
+      "method": "GET",
+      "apiPath": "/api/admin/export-snapshot",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/admin/export-snapshot",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 7438
+      }
+    },
+    {
+      "fnName": "apiAdminImportSnapshot",
+      "method": "POST",
+      "apiPath": "/api/admin/import-snapshot",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/import-snapshot",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 7471
+      }
+    },
+    {
+      "fnName": "apiGetCharacters",
+      "method": "GET",
+      "apiPath": "/api/characters",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/characters",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 7531
+      }
+    },
+    {
+      "fnName": "apiGetCharacter",
+      "method": "GET",
+      "apiPath": "/api/characters/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/characters",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 7531
+      }
+    },
+    {
+      "fnName": "apiCreateCharacter",
+      "method": "POST",
+      "apiPath": "/api/characters",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/characters",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 7588
+      }
+    },
+    {
+      "fnName": "apiPatchCharacter",
+      "method": "PATCH",
+      "apiPath": "/api/characters/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/characters/:id",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 7619
+      }
+    },
+    {
+      "fnName": "apiGetMyCharacters",
+      "method": "GET",
+      "apiPath": "/api/characters/mine",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/characters/mine",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 7556
+      }
+    },
+    {
+      "fnName": "apiSelectCharacter",
+      "method": "POST",
+      "apiPath": "/api/characters/select",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/characters/select",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 7761
+      }
+    },
+    {
+      "fnName": "apiApplyCharacter",
+      "method": "POST",
+      "apiPath": "/api/characters/apply",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/characters/apply",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": false,
+        "lineNo": 7794
+      }
+    },
+    {
+      "fnName": "apiGetMyApplications",
+      "method": "GET",
+      "apiPath": "/api/characters/applications/mine",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/characters/applications/mine",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 7889
+      }
+    },
+    {
+      "fnName": "apiApproveCharacterApplication",
+      "method": "POST",
+      "apiPath": "/api/admin/characters/applications/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/characters/applications/:id/approve",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": false,
+        "lineNo": 7921
+      }
+    },
+    {
+      "fnName": "apiRejectCharacterApplication",
+      "method": "POST",
+      "apiPath": "/api/admin/characters/applications/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/characters/applications/:id/approve",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": false,
+        "lineNo": 7921
+      }
+    },
+    {
+      "fnName": "apiAdminSetCharacterInactive",
+      "method": "POST",
+      "apiPath": "/api/admin/characters/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/characters/:id/profile",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 7654
+      }
+    },
+    {
+      "fnName": "apiAdminRepairCharacterOwners",
+      "method": "POST",
+      "apiPath": "/api/admin/repair/character-owner-pointers",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/repair/character-owner-pointers",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8115
+      }
+    },
+    {
+      "fnName": "apiSubmitBioChange",
+      "method": "POST",
+      "apiPath": "/api/characters/bio-change",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/characters/bio-change",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 8250
+      }
+    },
+    {
+      "fnName": "apiGetMyBioChanges",
+      "method": "GET",
+      "apiPath": "/api/characters/bio-changes/mine",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/characters/bio-changes/mine",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 8293
+      }
+    },
+    {
+      "fnName": "apiApproveBioChange",
+      "method": "POST",
+      "apiPath": "/api/admin/bio-changes/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/bio-changes/:id/approve",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 8331
+      }
+    },
+    {
+      "fnName": "apiRejectBioChange",
+      "method": "POST",
+      "apiPath": "/api/admin/bio-changes/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/bio-changes/:id/approve",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 8331
+      }
+    },
+    {
+      "fnName": "apiSubmitAvatarChange",
+      "method": "POST",
+      "apiPath": "/api/characters/avatar-change",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/characters/avatar-change",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 8400
+      }
+    },
+    {
+      "fnName": "apiApproveAvatarChange",
+      "method": "POST",
+      "apiPath": "/api/admin/avatar-changes/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/avatar-changes/:id/approve",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 8479
+      }
+    },
+    {
+      "fnName": "apiRejectAvatarChange",
+      "method": "POST",
+      "apiPath": "/api/admin/avatar-changes/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/avatar-changes/:id/approve",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 8479
+      }
+    },
+    {
+      "fnName": "apiSetProperty",
+      "method": "POST",
+      "apiPath": "/api/mod/property/set",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/mod/property/set",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8541
+      }
+    },
+    {
+      "fnName": "apiGetParty",
+      "method": "GET",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/parties/:partyId",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 8610
+      }
+    },
+    {
+      "fnName": "apiSetPartyLeadership",
+      "method": "POST",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/parties/:partyId/set-leader",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8663
+      }
+    },
+    {
+      "fnName": "apiSetPartyLeader",
+      "method": "POST",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/parties/:partyId/set-leader",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8663
+      }
+    },
+    {
+      "fnName": "apiGetShopPriceIndex",
+      "method": "GET",
+      "apiPath": "/api/shop/price-index",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/shop/price-index",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 8829
+      }
+    },
+    {
+      "fnName": "apiApplyShopInflation",
+      "method": "POST",
+      "apiPath": "/api/shop/apply-inflation",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/shop/apply-inflation",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8850
+      }
+    },
+    {
+      "fnName": "apiUpdateCharacterShopUpkeep",
+      "method": "POST",
+      "apiPath": "/api/finance/shop-upkeep",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/finance/shop-upkeep",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 8932
+      }
+    },
+    {
+      "fnName": "apiGetPartyStructure",
+      "method": "GET",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/parties/:partyId",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 8610
+      }
+    },
+    {
+      "fnName": "apiSavePartyStructure",
+      "method": "POST",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/parties/:partyId/set-leader",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8663
+      }
+    },
+    {
+      "fnName": "apiSetPartyTreasury",
+      "method": "POST",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/parties/:partyId/set-leader",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8663
+      }
+    },
+    {
+      "fnName": "apiSetPartyMembershipFee",
+      "method": "POST",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/parties/:partyId/set-leader",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8663
+      }
+    },
+    {
+      "fnName": "apiAddPartyDonation",
+      "method": "POST",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/parties/:partyId/set-leader",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8663
+      }
+    },
+    {
+      "fnName": "apiGetPartyShopPurchases",
+      "method": "GET",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/parties/:partyId",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 8610
+      }
+    },
+    {
+      "fnName": "apiAddPartyShopPurchase",
+      "method": "POST",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/parties/:partyId/set-leader",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8663
+      }
+    },
+    {
+      "fnName": "apiRemovePartyShopPurchase",
+      "method": "DELETE",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/parties/:partyId/shop-purchases/:id",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10266
+      }
+    },
+    {
+      "fnName": "apiSavePartyDrafts",
+      "method": "POST",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/parties/:partyId/set-leader",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8663
+      }
+    },
+    {
+      "fnName": "apiGetCabinetDrafts",
+      "method": "GET",
+      "apiPath": "/api/cabinet/drafts",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/cabinet/drafts",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10361
+      }
+    },
+    {
+      "fnName": "apiSaveCabinetDrafts",
+      "method": "POST",
+      "apiPath": "/api/cabinet/drafts",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/cabinet/drafts",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10382
+      }
+    },
+    {
+      "fnName": "apiGetShadowCabinetDrafts",
+      "method": "GET",
+      "apiPath": "/api/shadowcabinet/drafts",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/shadowcabinet/drafts",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10408
+      }
+    },
+    {
+      "fnName": "apiSaveShadowCabinetDrafts",
+      "method": "POST",
+      "apiPath": "/api/shadowcabinet/drafts",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/shadowcabinet/drafts",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10429
+      }
+    },
+    {
+      "fnName": "apiGetOffices",
+      "method": "GET",
+      "apiPath": "/api/offices",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/offices",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10535
+      }
+    },
+    {
+      "fnName": "apiCreateOffice",
+      "method": "POST",
+      "apiPath": "/api/offices",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/offices",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 10558
+      }
+    },
+    {
+      "fnName": "apiAssignOffice",
+      "method": "POST",
+      "apiPath": "/api/offices/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/offices",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 10558
+      }
+    },
+    {
+      "fnName": "apiGetDivisions",
+      "method": "GET",
+      "apiPath": "/api/divisions",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/divisions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10826
+      }
+    },
+    {
+      "fnName": "apiGetDivision",
+      "method": "GET",
+      "apiPath": "/api/divisions/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/divisions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10826
+      }
+    },
+    {
+      "fnName": "apiCreateDivision",
+      "method": "POST",
+      "apiPath": "/api/divisions/create",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/divisions/create",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10881
+      }
+    },
+    {
+      "fnName": "apiVoteDivision",
+      "method": "POST",
+      "apiPath": "/api/divisions/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/divisions/:id/vote",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10983
+      }
+    },
+    {
+      "fnName": "apiCloseDivision",
+      "method": "POST",
+      "apiPath": "/api/divisions/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/divisions/:id/vote",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10983
+      }
+    },
+    {
+      "fnName": "apiCastVote",
+      "method": "POST",
+      "apiPath": "/api/divisions/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/divisions/:id/vote",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10983
+      }
+    },
+    {
+      "fnName": "apiGetQtQuestions",
+      "method": "GET",
+      "apiPath": "/api/qt/questions",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/qt/questions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 11369
+      }
+    },
+    {
+      "fnName": "apiGetQtQuestion",
+      "method": "GET",
+      "apiPath": "/api/qt/questions/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/qt/questions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 11369
+      }
+    },
+    {
+      "fnName": "apiSubmitQtQuestion",
+      "method": "POST",
+      "apiPath": "/api/qt/questions",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/qt/questions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 11427
+      }
+    },
+    {
+      "fnName": "apiPatchQtQuestion",
+      "method": "PATCH",
+      "apiPath": "/api/qt/questions/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/qt/questions/:id",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 11464
+      }
+    },
+    {
+      "fnName": "apiAnswerQtQuestion",
+      "method": "POST",
+      "apiPath": "/api/qt/questions/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/qt/questions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 11427
+      }
+    },
+    {
+      "fnName": "apiFollowupQtQuestion",
+      "method": "POST",
+      "apiPath": "/api/qt/questions/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/qt/questions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 11427
+      }
+    },
+    {
+      "fnName": "apiGetQtLegacyQuestions",
+      "method": "GET",
+      "apiPath": "/api/questiontime-questions",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/questiontime-questions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 6162
+      }
+    },
+    {
+      "fnName": "apiCreateQtLegacyQuestion",
+      "method": "POST",
+      "apiPath": "/api/questiontime-questions",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/questiontime-questions",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 6190
+      }
+    },
+    {
+      "fnName": "apiUpdateQtLegacyQuestion",
+      "method": "PUT",
+      "apiPath": "/api/questiontime-questions/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/questiontime-questions/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 6234
+      }
+    },
+    {
+      "fnName": "apiDeleteQtLegacyQuestion",
+      "method": "DELETE",
+      "apiPath": "/api/questiontime-questions/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/questiontime-questions/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 6253
+      }
+    },
+    {
+      "fnName": "apiGetSim",
+      "method": "GET",
+      "apiPath": "/api/sim",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/sim",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 11555
+      }
+    },
+    {
+      "fnName": "apiSimTick",
+      "method": "POST",
+      "apiPath": "/api/sim/tick",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/sim/tick",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 11567
+      }
+    },
+    {
+      "fnName": "apiSimSet",
+      "method": "POST",
+      "apiPath": "/api/sim/set",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/sim/set",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 11603
+      }
+    },
+    {
+      "fnName": "apiGetAdminDashboard",
+      "method": "GET",
+      "apiPath": "/api/admin/dashboard",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/admin/dashboard",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 12026
+      }
+    },
+    {
+      "fnName": "apiAdminDiscourseSyncBills",
+      "method": "POST",
+      "apiPath": "/api/admin/discourse-sync-bills",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/discourse-sync-bills",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 11711
+      }
+    },
+    {
+      "fnName": "apiPatchBill",
+      "method": "PATCH",
+      "apiPath": "/api/bills/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/bills/:id/vote",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 5747
+      }
+    },
+    {
+      "fnName": "apiCreatePressItem",
+      "method": "POST",
+      "apiPath": "/api/press",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/press",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 6441
+      }
+    },
+    {
+      "fnName": "apiUpdatePressItem",
+      "method": "PUT",
+      "apiPath": "/api/press/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/press/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 6479
+      }
+    },
+    {
+      "fnName": "apiDeletePressItem",
+      "method": "DELETE",
+      "apiPath": "/api/press/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/press/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 6502
+      }
+    },
+    {
+      "fnName": "apiAddPressTranscriptEntry",
+      "method": "PATCH",
+      "apiPath": "/api/press/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/press/:id/transcript",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 6518
+      }
+    },
+    {
+      "fnName": "apiMarkPressItem",
+      "method": "POST",
+      "apiPath": "/api/press/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/press",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 6441
+      }
+    },
+    {
+      "fnName": "apiGetPollingEntries",
+      "method": "GET",
+      "apiPath": "/api/polling",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/polling",
+        "roles": [
+          "public"
+        ],
+        "writesDb": true,
+        "lineNo": 6666
+      }
+    },
+    {
+      "fnName": "apiCreatePollingEntry",
+      "method": "POST",
+      "apiPath": "/api/polling",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/polling",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 6692
+      }
+    },
+    {
+      "fnName": "apiDeletePollingEntry",
+      "method": "DELETE",
+      "apiPath": "/api/polling/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/polling/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 6739
+      }
+    },
+    {
+      "fnName": "apiSeedDemo",
+      "method": "POST",
+      "apiPath": "/api/admin/seed-demo",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/seed-demo",
+        "roles": [
+          "public"
+        ],
+        "writesDb": false,
+        "lineNo": 12012
+      }
+    },
+    {
+      "fnName": "apiWipeContent",
+      "method": "POST",
+      "apiPath": "/api/admin/wipe-content",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/wipe-content",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 11770
+      }
+    },
+    {
+      "fnName": "apiGetPendingRegistrations",
+      "method": "GET",
+      "apiPath": "/api/admin/registrations",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/admin/registrations",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 4014
+      }
+    },
+    {
+      "fnName": "apiApproveRegistration",
+      "method": "POST",
+      "apiPath": "/api/admin/registrations/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/registrations/:id/approve",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 4036
+      }
+    },
+    {
+      "fnName": "apiRejectRegistration",
+      "method": "POST",
+      "apiPath": "/api/admin/registrations/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/registrations/:id/approve",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 4036
+      }
+    },
+    {
+      "fnName": "apiScandalsMine",
+      "method": "GET",
+      "apiPath": "/api/scandals/mine",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/scandals/mine",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 12072
+      }
+    },
+    {
+      "fnName": "apiScandalsOptIn",
+      "method": "POST",
+      "apiPath": "/api/scandals/optin",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/scandals/optin",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 12129
+      }
+    },
+    {
+      "fnName": "apiScandalSituationRespond",
+      "method": "POST",
+      "apiPath": "/api/scandals/situations/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/scandals/situations/:id/respond",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 12150
+      }
+    },
+    {
+      "fnName": "apiScandalChoose",
+      "method": "POST",
+      "apiPath": "/api/scandals/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/scandals/:id/choose",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 12223
+      }
+    },
+    {
+      "fnName": "apiModScandalSituationCreate",
+      "method": "POST",
+      "apiPath": "/api/mod/scandals/situations/create",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/mod/scandals/situations/create",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12382
+      }
+    },
+    {
+      "fnName": "apiModScandalsOpen",
+      "method": "GET",
+      "apiPath": "/api/mod/scandals/open",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/mod/scandals/open",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12442
+      }
+    },
+    {
+      "fnName": "apiModScandalDecision",
+      "method": "POST",
+      "apiPath": "/api/mod/scandals/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/mod/scandals/:id/decision",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12500
+      }
+    },
+    {
+      "fnName": "apiModScandalClose",
+      "method": "POST",
+      "apiPath": "/api/mod/scandals/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/mod/scandals/:id/decision",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12500
+      }
+    },
+    {
+      "fnName": "apiModScandalDelete",
+      "method": "DELETE",
+      "apiPath": "/api/mod/scandals/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/mod/scandals/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12608
+      }
+    },
+    {
+      "fnName": "apiModSituationClose",
+      "method": "POST",
+      "apiPath": "/api/mod/scandals/situations/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/mod/scandals/situations/:id/close",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12626
+      }
+    },
+    {
+      "fnName": "apiModSituationDelete",
+      "method": "DELETE",
+      "apiPath": "/api/mod/scandals/situations/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/mod/scandals/situations/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12645
+      }
+    },
+    {
+      "fnName": "apiModScandalTemplates",
+      "method": "GET",
+      "apiPath": "/api/mod/scandal-templates",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/mod/scandal-templates",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12321
+      }
+    },
+    {
+      "fnName": "apiModScandalOptedInCharacters",
+      "method": "GET",
+      "apiPath": "/api/mod/scandals/opted-in-characters",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/mod/scandals/opted-in-characters",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12337
+      }
+    },
+    {
+      "fnName": "apiModScandalTemplateUpsert",
+      "method": "POST",
+      "apiPath": "/api/mod/scandal-templates",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/mod/scandal-templates",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12355
+      }
+    },
+    {
+      "fnName": "apiSetNpcVotes",
+      "method": "PATCH",
+      "apiPath": "/api/divisions/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/divisions/:id/npc-votes",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 11139
+      }
+    },
+    {
+      "fnName": "apiSetChiefWhip",
+      "method": "POST",
+      "apiPath": "/api/parties/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/parties/:partyId/set-leader",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 8663
+      }
+    },
+    {
+      "fnName": "apiGetConstituencies",
+      "method": "GET",
+      "apiPath": "/api/constituencies",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/constituencies/:id/events",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 13174
+      }
+    },
+    {
+      "fnName": "apiSaveConstituency",
+      "method": "POST",
+      "apiPath": "/api/constituencies",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/constituencies",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 13239
+      }
+    },
+    {
+      "fnName": "apiUpdateConstituency",
+      "method": "PUT",
+      "apiPath": "/api/constituencies/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/constituencies/:id",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 13264
+      }
+    },
+    {
+      "fnName": "apiDeleteConstituency",
+      "method": "DELETE",
+      "apiPath": "/api/constituencies/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/constituencies/:id",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 13328
+      }
+    },
+    {
+      "fnName": "apiInitialize1997Constituencies",
+      "method": "POST",
+      "apiPath": "/api/admin/constituencies/initialize-1997",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/constituencies/initialize-1997",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": false,
+        "lineNo": 13343
+      }
+    },
+    {
+      "fnName": "apiClearConstituencies",
+      "method": "DELETE",
+      "apiPath": "/api/admin/constituencies/clear",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/admin/constituencies/clear",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 13392
+      }
+    },
+    {
+      "fnName": "apiGetParliamentStatus",
+      "method": "GET",
+      "apiPath": "/api/parliament/status",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/parliament/status",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 13416
+      }
+    },
+    {
+      "fnName": "apiUpdateParliamentStatus",
+      "method": "PUT",
+      "apiPath": "/api/parliament/status",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/parliament/status",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 13434
+      }
+    },
+    {
+      "fnName": "apiGetCanonicalParties",
+      "method": "GET",
+      "apiPath": "/api/parties/canonical",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/parties/canonical",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 8597
+      }
+    },
+    {
+      "fnName": "apiGetElectionSeatTotals",
+      "method": "GET",
+      "apiPath": "/api/elections/seat-totals",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/elections/seat-totals",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 12682
+      }
+    },
+    {
+      "fnName": "apiGetCurrentElection",
+      "method": "GET",
+      "apiPath": "/api/elections/current",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/elections/current",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 12696
+      }
+    },
+    {
+      "fnName": "apiGetElections",
+      "method": "GET",
+      "apiPath": "/api/elections",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/elections",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 12726
+      }
+    },
+    {
+      "fnName": "apiCreateElection",
+      "method": "POST",
+      "apiPath": "/api/elections",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/elections",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12744
+      }
+    },
+    {
+      "fnName": "apiUpdateElection",
+      "method": "PUT",
+      "apiPath": "/api/elections/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/elections/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12763
+      }
+    },
+    {
+      "fnName": "apiGetElectionChanges",
+      "method": "GET",
+      "apiPath": "/api/elections/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/elections",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 12726
+      }
+    },
+    {
+      "fnName": "apiSaveElectionChanges",
+      "method": "PUT",
+      "apiPath": "/api/elections/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/elections/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12763
+      }
+    },
+    {
+      "fnName": "apiFinalizeElection",
+      "method": "POST",
+      "apiPath": "/api/elections/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/elections",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12744
+      }
+    },
+    {
+      "fnName": "apiSeedElection1997",
+      "method": "POST",
+      "apiPath": "/api/admin/elections/seed-1997",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/elections/seed-1997",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 12939
+      }
+    },
+    {
+      "fnName": "apiGetElectionBodiesCurrent",
+      "method": "GET",
+      "apiPath": "/api/elections/bodies/current",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/elections/bodies/current",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 12974
+      }
+    },
+    {
+      "fnName": "apiGetElectionBodiesArchive",
+      "method": "GET",
+      "apiPath": "/api/elections/bodies/archive",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/elections/bodies/archive",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 13012
+      }
+    },
+    {
+      "fnName": "apiSubmitElectionBodyResult",
+      "method": "POST",
+      "apiPath": "/api/elections/bodies",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/elections/bodies",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": false,
+        "lineNo": 13050
+      }
+    },
+    {
+      "fnName": "apiUpdateElectionBodyResult",
+      "method": "PUT",
+      "apiPath": "/api/elections/bodies/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/elections/bodies/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": false,
+        "lineNo": 13130
+      }
+    },
+    {
+      "fnName": "apiDeleteElectionBodyResult",
+      "method": "DELETE",
+      "apiPath": "/api/elections/bodies/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/elections/bodies/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 13116
+      }
+    },
+    {
+      "fnName": "apiResetBaseline",
+      "method": "POST",
+      "apiPath": "/api/admin/reset-baseline",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/reset-baseline",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": false,
+        "lineNo": 14138
+      }
+    },
+    {
+      "fnName": "apiGetConstituencyEvents",
+      "method": "GET",
+      "apiPath": "/api/constituencies/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/constituencies/:id/events",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 13174
+      }
+    },
+    {
+      "fnName": "apiGetBudget",
+      "method": "GET",
+      "apiPath": "/api/budget",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/budget",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 13475
+      }
+    },
+    {
+      "fnName": "apiAdminSeedBudget",
+      "method": "POST",
+      "apiPath": "/api/admin/budget/seed",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/budget/seed",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 13494
+      }
+    },
+    {
+      "fnName": "apiAdminUpdateBudgetControls",
+      "method": "PUT",
+      "apiPath": "/api/admin/budget/controls",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/admin/budget/controls",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 13513
+      }
+    },
+    {
+      "fnName": "apiSubmitBudgetDraft",
+      "method": "POST",
+      "apiPath": "/api/budget/draft",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/budget/draft",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 13534
+      }
+    },
+    {
+      "fnName": "apiAdminApproveBudget",
+      "method": "POST",
+      "apiPath": "/api/admin/budget/approve",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/budget/approve",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 13551
+      }
+    },
+    {
+      "fnName": "apiAdminRejectBudget",
+      "method": "POST",
+      "apiPath": "/api/admin/budget/reject",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/budget/reject",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 13573
+      }
+    },
+    {
+      "fnName": "apiGetTeam",
+      "method": "GET",
+      "apiPath": "/api/team",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/team",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 13592
+      }
+    },
+    {
+      "fnName": "apiGetPublicProfile",
+      "method": "GET",
+      "apiPath": "/api/profile",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/profile",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 13620
+      }
+    },
+    {
+      "fnName": "apiGetCharacterAffiliations",
+      "method": "GET",
+      "apiPath": "/api/me/character/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/me/character/:id/affiliations",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 13712
+      }
+    },
+    {
+      "fnName": "apiSubmitCharacterAffiliations",
+      "method": "POST",
+      "apiPath": "/api/me/character/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/me/character/:id/affiliations",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 13742
+      }
+    },
+    {
+      "fnName": "apiGetPendingAffiliations",
+      "method": "GET",
+      "apiPath": "/api/control-panel/affiliations/pending",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/control-panel/affiliations/pending",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 13856
+      }
+    },
+    {
+      "fnName": "apiDecideAffiliation",
+      "method": "POST",
+      "apiPath": "/api/control-panel/affiliations/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/control-panel/affiliations/:rid/decide",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 13881
+      }
+    },
+    {
+      "fnName": "apiAdminGetUsers",
+      "method": "GET",
+      "apiPath": "/api/admin/users",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/admin/users",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 13949
+      }
+    },
+    {
+      "fnName": "apiAdminAssignCharacterOwner",
+      "method": "POST",
+      "apiPath": "/api/admin/characters/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/characters/:id/profile",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 7654
+      }
+    },
+    {
+      "fnName": "apiAdminSetUserActiveCharacter",
+      "method": "POST",
+      "apiPath": "/api/admin/users/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/users/:id/active-character",
+        "roles": [
+          "admin"
+        ],
+        "writesDb": true,
+        "lineNo": 14084
+      }
+    },
+    {
+      "fnName": "apiGetPlayerbase",
+      "method": "GET",
+      "apiPath": "/api/admin/playerbase",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/admin/playerbase",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 14212
+      }
+    },
+    {
+      "fnName": "apiAdminSetBank",
+      "method": "POST",
+      "apiPath": "/api/admin/finance/set-bank",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/finance/set-bank",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 14304
+      }
+    },
+    {
+      "fnName": "apiAdminSetSalaryOverride",
+      "method": "POST",
+      "apiPath": "/api/admin/finance/set-salary-override",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/finance/set-salary-override",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 14330
+      }
+    },
+    {
+      "fnName": "apiAdminUpdateCharacterProfile",
+      "method": "POST",
+      "apiPath": "/api/admin/characters/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/characters/:id/profile",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 7654
+      }
+    },
+    {
+      "fnName": "apiAdminSetPositions",
+      "method": "POST",
+      "apiPath": "/api/admin/finance/set-positions",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/finance/set-positions",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 14358
+      }
+    },
+    {
+      "fnName": "apiAdminCreateRevenue",
+      "method": "POST",
+      "apiPath": "/api/admin/finance/revenue",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/finance/revenue",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 14405
+      }
+    },
+    {
+      "fnName": "apiAdminUpdateRevenue",
+      "method": "PATCH",
+      "apiPath": "/api/admin/finance/revenue/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/admin/finance/revenue/:id",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 14427
+      }
+    },
+    {
+      "fnName": "apiAdminDeleteRevenue",
+      "method": "DELETE",
+      "apiPath": "/api/admin/finance/revenue/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/admin/finance/revenue/:id",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 14455
+      }
+    },
+    {
+      "fnName": "apiAdminUprateScale",
+      "method": "POST",
+      "apiPath": "/api/admin/salary-scales/uprate",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/salary-scales/uprate",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": false,
+        "lineNo": 14472
+      }
+    },
+    {
+      "fnName": "apiGetFinanceConfig",
+      "method": "GET",
+      "apiPath": "/api/admin/finance/config",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/admin/finance/config",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 14531
+      }
+    },
+    {
+      "fnName": "apiUpdateFinanceSalaryBands",
+      "method": "PATCH",
+      "apiPath": "/api/admin/finance/salary-bands",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/admin/finance/salary-bands",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 14548
+      }
+    },
+    {
+      "fnName": "apiUpdateFinanceStartingBalances",
+      "method": "PATCH",
+      "apiPath": "/api/admin/finance/starting-balances",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/admin/finance/starting-balances",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 14601
+      }
+    },
+    {
+      "fnName": "apiApplyFinanceInflation",
+      "method": "POST",
+      "apiPath": "/api/admin/finance/apply-inflation",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/finance/apply-inflation",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 14653
+      }
+    },
+    {
+      "fnName": "apiGetRedLionPosts",
+      "method": "GET",
+      "apiPath": "/api/redlion",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/redlion",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 14719
+      }
+    },
+    {
+      "fnName": "apiCreateRedLionPost",
+      "method": "POST",
+      "apiPath": "/api/redlion",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/redlion",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 14727
+      }
+    },
+    {
+      "fnName": "apiDeleteRedLionPost",
+      "method": "DELETE",
+      "apiPath": "/api/redlion/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/redlion/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 14740
+      }
+    },
+    {
+      "fnName": "apiGetEvents",
+      "method": "GET",
+      "apiPath": "/api/events",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/events",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 14749
+      }
+    },
+    {
+      "fnName": "apiCreateEvent",
+      "method": "POST",
+      "apiPath": "/api/events",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/events",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 14757
+      }
+    },
+    {
+      "fnName": "apiUpdateEvent",
+      "method": "PUT",
+      "apiPath": "/api/events/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/events/:id",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 14770
+      }
+    },
+    {
+      "fnName": "apiDeleteEvent",
+      "method": "DELETE",
+      "apiPath": "/api/events/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/events/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 14804
+      }
+    },
+    {
+      "fnName": "apiGetMyWorkPlan",
+      "method": "GET",
+      "apiPath": "/api/me/work-plan",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/me/work-plan",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10460
+      }
+    },
+    {
+      "fnName": "apiSaveMyWorkPlan",
+      "method": "POST",
+      "apiPath": "/api/me/work-plan",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/me/work-plan",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 10493
+      }
+    },
+    {
+      "fnName": "apiCreateOnlinePost",
+      "method": "POST",
+      "apiPath": "/api/online",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/online",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 14826
+      }
+    },
+    {
+      "fnName": "apiDeleteOnlinePost",
+      "method": "DELETE",
+      "apiPath": "/api/online/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/online/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 14839
+      }
+    },
+    {
+      "fnName": "apiGetFundraisingItems",
+      "method": "GET",
+      "apiPath": "/api/fundraising",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/fundraising",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 14850
+      }
+    },
+    {
+      "fnName": "apiCreateFundraisingItem",
+      "method": "POST",
+      "apiPath": "/api/fundraising",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/fundraising",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 14858
+      }
+    },
+    {
+      "fnName": "apiUpdateFundraisingItem",
+      "method": "PUT",
+      "apiPath": "/api/fundraising/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/fundraising/:id",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 14871
+      }
+    },
+    {
+      "fnName": "apiDeleteFundraisingItem",
+      "method": "DELETE",
+      "apiPath": "/api/fundraising/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/fundraising/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 14960
+      }
+    },
+    {
+      "fnName": "apiCreditFundraisingToParty",
+      "method": "POST",
+      "apiPath": "/api/fundraising/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/fundraising",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 14858
+      }
+    },
+    {
+      "fnName": "apiCreditFundraisingToCharacter",
+      "method": "POST",
+      "apiPath": "/api/fundraising/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/fundraising",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 14858
+      }
+    },
+    {
+      "fnName": "apiGetMyFinance",
+      "method": "GET",
+      "apiPath": "/api/me/finance",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/me/finance",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 8968
+      }
+    },
+    {
+      "fnName": "apiGetCharacterFinance",
+      "method": "GET",
+      "apiPath": "/api/admin/characters/",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/admin/characters/:id/finance",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 9085
+      }
+    },
+    {
+      "fnName": "apiGetMyFinanceSummary",
+      "method": "GET",
+      "apiPath": "/api/me/finance/summary",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/me/finance/summary",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 9183
+      }
+    },
+    {
+      "fnName": "apiGetEnums",
+      "method": "GET",
+      "apiPath": "/api/config/enums",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/config/enums",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 4359
+      }
+    },
+    {
+      "fnName": "apiSubmitProfileChange",
+      "method": "POST",
+      "apiPath": "/api/characters/profile-change",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/characters/profile-change",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 9274
+      }
+    },
+    {
+      "fnName": "apiGetMyProfileChanges",
+      "method": "GET",
+      "apiPath": "/api/characters/profile-changes/mine",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/characters/profile-changes/mine",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 9346
+      }
+    },
+    {
+      "fnName": "apiApproveProfileChange",
+      "method": "POST",
+      "apiPath": "/api/admin/profile-changes/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/profile-changes/:id/approve",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 9386
+      }
+    },
+    {
+      "fnName": "apiRejectProfileChange",
+      "method": "POST",
+      "apiPath": "/api/admin/profile-changes/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/admin/profile-changes/:id/approve",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 9386
+      }
+    },
+    {
+      "fnName": "apiAddShopPurchase",
+      "method": "POST",
+      "apiPath": "/api/me/character/shop-purchases",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/me/character/shop-purchases",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": false,
+        "lineNo": 9455
+      }
+    },
+    {
+      "fnName": "apiRemoveShopPurchase",
+      "method": "DELETE",
+      "apiPath": "/api/me/character/shop-purchases/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/me/character/shop-purchases/:id",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": false,
+        "lineNo": 9547
+      }
+    },
+    {
+      "fnName": "apiSellShopPurchase",
+      "method": "POST",
+      "apiPath": "/api/me/character/shop-purchases/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/me/character/shop-purchases",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": false,
+        "lineNo": 9455
+      }
+    },
+    {
+      "fnName": "apiDismissShopPurchase",
+      "method": "POST",
+      "apiPath": "/api/me/character/shop-purchases/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/me/character/shop-purchases",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": false,
+        "lineNo": 9455
+      }
+    },
+    {
+      "fnName": "apiAddAdditionalRevenue",
+      "method": "POST",
+      "apiPath": "/api/me/character/additional-revenue",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/me/character/additional-revenue",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 9762
+      }
+    },
+    {
+      "fnName": "apiRemoveAdditionalRevenue",
+      "method": "DELETE",
+      "apiPath": "/api/me/character/additional-revenue/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/me/character/additional-revenue/:id",
+        "roles": [
+          "admin",
+          "mod",
+          "speaker"
+        ],
+        "writesDb": true,
+        "lineNo": 9790
+      }
+    },
+    {
+      "fnName": "apiGetHealth",
+      "method": "GET",
+      "apiPath": "/health",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/health",
+        "roles": [
+          "public"
+        ],
+        "writesDb": false,
+        "lineNo": 3604
+      }
+    },
+    {
+      "fnName": "apiGetNews",
+      "method": "GET",
+      "apiPath": "/api/news",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/news",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15037
+      }
+    },
+    {
+      "fnName": "apiCreateNewsStory",
+      "method": "POST",
+      "apiPath": "/api/news",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/news",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15051
+      }
+    },
+    {
+      "fnName": "apiUpdateNewsStory",
+      "method": "PATCH",
+      "apiPath": "/api/news/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/news/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15067
+      }
+    },
+    {
+      "fnName": "apiDeleteNewsStory",
+      "method": "DELETE",
+      "apiPath": "/api/news/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/news/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15086
+      }
+    },
+    {
+      "fnName": "apiGetRules",
+      "method": "GET",
+      "apiPath": "/api/rules",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/rules",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15095
+      }
+    },
+    {
+      "fnName": "apiCreateRule",
+      "method": "POST",
+      "apiPath": "/api/rules",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/rules",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15103
+      }
+    },
+    {
+      "fnName": "apiUpdateRule",
+      "method": "PATCH",
+      "apiPath": "/api/rules/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/rules/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15116
+      }
+    },
+    {
+      "fnName": "apiDeleteRule",
+      "method": "DELETE",
+      "apiPath": "/api/rules/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/rules/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15130
+      }
+    },
+    {
+      "fnName": "apiGetGuides",
+      "method": "GET",
+      "apiPath": "/api/guides",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/guides",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15139
+      }
+    },
+    {
+      "fnName": "apiCreateGuide",
+      "method": "POST",
+      "apiPath": "/api/guides",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/guides",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15147
+      }
+    },
+    {
+      "fnName": "apiUpdateGuide",
+      "method": "PATCH",
+      "apiPath": "/api/guides/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/guides/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15160
+      }
+    },
+    {
+      "fnName": "apiDeleteGuide",
+      "method": "DELETE",
+      "apiPath": "/api/guides/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/guides/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15174
+      }
+    },
+    {
+      "fnName": "apiGetCsBriefings",
+      "method": "GET",
+      "apiPath": "/api/civil-service/briefings",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/civil-service/briefings",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15183
+      }
+    },
+    {
+      "fnName": "apiCreateCsBriefing",
+      "method": "POST",
+      "apiPath": "/api/civil-service/briefings",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/civil-service/briefings",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15199
+      }
+    },
+    {
+      "fnName": "apiUpdateCsBriefing",
+      "method": "PATCH",
+      "apiPath": "/api/civil-service/briefings/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/civil-service/briefings/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15214
+      }
+    },
+    {
+      "fnName": "apiDeleteCsBriefing",
+      "method": "DELETE",
+      "apiPath": "/api/civil-service/briefings/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/civil-service/briefings/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15236
+      }
+    },
+    {
+      "fnName": "apiGetCsCases",
+      "method": "GET",
+      "apiPath": "/api/civil-service/cases",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/civil-service/cases",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15245
+      }
+    },
+    {
+      "fnName": "apiCreateCsCase",
+      "method": "POST",
+      "apiPath": "/api/civil-service/cases",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/civil-service/cases",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15258
+      }
+    },
+    {
+      "fnName": "apiUpdateCsCase",
+      "method": "PATCH",
+      "apiPath": "/api/civil-service/cases/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/civil-service/cases/:id",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15272
+      }
+    },
+    {
+      "fnName": "apiDeleteCsCase",
+      "method": "DELETE",
+      "apiPath": "/api/civil-service/cases/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/civil-service/cases/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15292
+      }
+    },
+    {
+      "fnName": "apiGetBodies",
+      "method": "GET",
+      "apiPath": "/api/bodies",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/bodies",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15334
+      }
+    },
+    {
+      "fnName": "apiUpdateBody",
+      "method": "PUT",
+      "apiPath": "/api/bodies/",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/bodies/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15342
+      }
+    },
+    {
+      "fnName": "apiGetPaperArticles",
+      "method": "GET",
+      "apiPath": "/api/papers",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/papers",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15363
+      }
+    },
+    {
+      "fnName": "apiCreatePaperArticle",
+      "method": "POST",
+      "apiPath": "/api/papers/",
+      "matched": true,
+      "endpoint": {
+        "method": "POST",
+        "path": "/api/papers/:key/articles",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15377
+      }
+    },
+    {
+      "fnName": "apiUpdatePaperArticle",
+      "method": "PATCH",
+      "apiPath": "/api/papers/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/papers/:key/articles/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15392
+      }
+    },
+    {
+      "fnName": "apiDeletePaperArticle",
+      "method": "DELETE",
+      "apiPath": "/api/papers/",
+      "matched": true,
+      "endpoint": {
+        "method": "DELETE",
+        "path": "/api/papers/:key/articles/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15410
+      }
+    },
+    {
+      "fnName": "apiUpdateOnlinePost",
+      "method": "PATCH",
+      "apiPath": "/api/online/",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/online/:id",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15316
+      }
+    },
+    {
+      "fnName": "apiUpdateOnlineSettings",
+      "method": "PATCH",
+      "apiPath": "/api/online/settings",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/online/settings",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15301
+      }
+    },
+    {
+      "fnName": "apiUpdateMyAbsent",
+      "method": "PATCH",
+      "apiPath": "/api/me/absent",
+      "matched": true,
+      "endpoint": {
+        "method": "PATCH",
+        "path": "/api/me/absent",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 7746
+      }
+    },
+    {
+      "fnName": "apiGetEconomyData",
+      "method": "GET",
+      "apiPath": "/api/admin/economy",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/admin/economy",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15419
+      }
+    },
+    {
+      "fnName": "apiSaveEconomyData",
+      "method": "PUT",
+      "apiPath": "/api/admin/economy",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/admin/economy",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15427
+      }
+    },
+    {
+      "fnName": "apiGetLocals",
+      "method": "GET",
+      "apiPath": "/api/locals",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/locals",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15441
+      }
+    },
+    {
+      "fnName": "apiSaveLocals",
+      "method": "PUT",
+      "apiPath": "/api/locals",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/locals",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15449
+      }
+    },
+    {
+      "fnName": "apiSaveCabinetHeadline",
+      "method": "PUT",
+      "apiPath": "/api/cabinet/headline",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/cabinet/headline",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15471
+      }
+    },
+    {
+      "fnName": "apiGetCabinetHeadline",
+      "method": "GET",
+      "apiPath": "/api/cabinet/headline",
+      "matched": true,
+      "endpoint": {
+        "method": "GET",
+        "path": "/api/cabinet/headline",
+        "roles": [
+          "authenticated"
+        ],
+        "writesDb": true,
+        "lineNo": 15463
+      }
+    },
+    {
+      "fnName": "apiSaveShadowCabinetHeadline",
+      "method": "PUT",
+      "apiPath": "/api/shadowcabinet/headline",
+      "matched": true,
+      "endpoint": {
+        "method": "PUT",
+        "path": "/api/shadowcabinet/headline",
+        "roles": [
+          "admin",
+          "mod"
+        ],
+        "writesDb": true,
+        "lineNo": 15492
+      }
+    }
+  ],
+  "issues": {
+    "unmatchedWriteFunctions": [],
+    "missingCredentials": [],
+    "immutabilityViolations": [],
+    "saveStateOnlyWrites": [],
+    "rbacDrift": [
+      {
+        "rule": {
+          "method": "POST",
+          "path": "/api/press",
+          "roles": [
+            "authenticated"
+          ],
+          "immutable": true,
+          "category": "parliament",
+          "immutable_note": "Press items cannot be edited by author after submit"
+        },
+        "drift": "matrix=[authenticated] server=[admin,mod,speaker]"
+      },
+      {
+        "rule": {
+          "method": "POST",
+          "path": "/api/offices/:id/assign",
+          "roles": [
+            "admin"
+          ],
+          "immutable": false,
+          "category": "party"
+        },
+        "drift": "matrix=[admin] server=[authenticated]"
+      },
+      {
+        "rule": {
+          "method": "DELETE",
+          "path": "/api/offices/:id/assign/:characterId",
+          "roles": [
+            "admin"
+          ],
+          "immutable": false,
+          "category": "party"
+        },
+        "drift": "matrix=[admin] server=[authenticated]"
+      }
+    ]
+  }
+}
