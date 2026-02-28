@@ -3016,8 +3016,8 @@ export async function apiAppointPrivyCouncillor(characterId, reason = "") {
   if (!res.ok) throw new Error(body.error || `apiAppointPrivyCouncillor failed (${res.status})`);
   return body;
 }
-export async function apiRemovePrivyCouncillor(characterId) {
-  const res = await fetch(`${API_BASE}/api/mod/privy-council/remove`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId }) });
+export async function apiRemovePrivyCouncillor(characterId, { force = false } = {}) {
+  const res = await fetch(`${API_BASE}/api/mod/privy-council/remove`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId, force }) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiRemovePrivyCouncillor failed (${res.status})`);
   return body;

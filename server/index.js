@@ -738,6 +738,7 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
   // ↑ Migration guards: press_items was created in an earlier schema version without these columns;
   //   ALTER TABLE ensures existing databases receive the new columns idempotently.
+  await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
 
   // ── Polling entries ───────────────────────────────────────────────────────
   await pool.query(`
@@ -6501,6 +6502,9 @@ app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
  * PUT    /api/press/:id          — admin/mod: update a press item
  * DELETE /api/press/:id          — admin/mod: delete a press item
  */
+// Spec IDs for offices that automatically qualify a character for "The Right Honourable" prefix.
+const RH_QUALIFYING_SPEC_IDS = "'prime-minister','leader-opposition'";
+
 const pressReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
 const pressWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
 const MAX_TRANSCRIPT_FROM_LENGTH = 200;
@@ -6509,12 +6513,45 @@ const MAX_TRANSCRIPT_TEXT_LENGTH = 2000;
 app.get("/api/press", pressReadLimit, async (req, res) => {
   try {
     const { type } = req.query;
+    // Compute author_display_name on read: RH for privy councillors, PM, LoTO, or Third Party Leader
+    const baseQ = `
+      SELECT pi.id, pi.press_type, pi.data, pi.updated_at,
+             pi.author_character_id,
+             CASE
+               WHEN pi.author_character_id IS NULL THEN pi.data->>'author'
+               WHEN (pi.data->>'npcAuthor')::boolean IS TRUE THEN pi.data->>'author'
+               WHEN (
+                 pcm.character_id IS NOT NULL
+                 OR EXISTS (
+                   SELECT 1 FROM office_assignments oa2
+                     JOIN offices o2 ON o2.id = oa2.office_id
+                    WHERE oa2.character_id = pi.author_character_id
+                      AND o2.spec_id IN (${RH_QUALIFYING_SPEC_IDS})
+                 )
+                 OR EXISTS (
+                   SELECT 1 FROM parties
+                    WHERE leader_character_id = pi.author_character_id
+                      AND slug = '${LIBDEM_PARTY_SLUG}'
+                 )
+               ) THEN 'The Right Honourable ' || c.name
+               ELSE 'The Honourable ' || c.name
+             END AS author_display_name
+        FROM press_items pi
+        LEFT JOIN characters c ON c.id = pi.author_character_id
+        LEFT JOIN privy_council_members pcm ON pcm.character_id = pi.author_character_id
+    `;
     const q = type
-      ? "SELECT id, press_type, data, updated_at FROM press_items WHERE press_type = $1 ORDER BY updated_at DESC"
-      : "SELECT id, press_type, data, updated_at FROM press_items ORDER BY updated_at DESC";
+      ? baseQ + " WHERE pi.press_type = $1 ORDER BY pi.updated_at DESC"
+      : baseQ + " ORDER BY pi.updated_at DESC";
     const params = type ? [type] : [];
     const { rows } = await pool.query(q, params);
-    res.json({ items: rows.map((r) => normaliseDiscourseFields({ ...r.data, _pressType: r.press_type, _updatedAt: r.updated_at })) });
+    res.json({ items: rows.map((r) => normaliseDiscourseFields({
+      ...r.data,
+      _pressType: r.press_type,
+      _updatedAt: r.updated_at,
+      author_character_id: r.author_character_id,
+      author_display_name: r.author_display_name,
+    })) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6524,11 +6561,42 @@ app.get("/api/press", pressReadLimit, async (req, res) => {
 app.get("/api/press/:id", pressReadLimit, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      "SELECT id, press_type, data, updated_at FROM press_items WHERE id = $1",
+      `SELECT pi.id, pi.press_type, pi.data, pi.updated_at,
+              pi.author_character_id,
+              CASE
+                WHEN pi.author_character_id IS NULL THEN pi.data->>'author'
+                WHEN (pi.data->>'npcAuthor')::boolean IS TRUE THEN pi.data->>'author'
+                WHEN (
+                  pcm.character_id IS NOT NULL
+                  OR EXISTS (
+                    SELECT 1 FROM office_assignments oa2
+                      JOIN offices o2 ON o2.id = oa2.office_id
+                     WHERE oa2.character_id = pi.author_character_id
+                       AND o2.spec_id IN (${RH_QUALIFYING_SPEC_IDS})
+                  )
+                  OR EXISTS (
+                    SELECT 1 FROM parties
+                     WHERE leader_character_id = pi.author_character_id
+                       AND slug = '${LIBDEM_PARTY_SLUG}'
+                  )
+                ) THEN 'The Right Honourable ' || c.name
+                ELSE 'The Honourable ' || c.name
+              END AS author_display_name
+         FROM press_items pi
+         LEFT JOIN characters c ON c.id = pi.author_character_id
+         LEFT JOIN privy_council_members pcm ON pcm.character_id = pi.author_character_id
+        WHERE pi.id = $1`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Press item not found" });
-    res.json({ item: normaliseDiscourseFields({ ...rows[0].data, _pressType: rows[0].press_type, _updatedAt: rows[0].updated_at }) });
+    const r = rows[0];
+    res.json({ item: normaliseDiscourseFields({
+      ...r.data,
+      _pressType: r.press_type,
+      _updatedAt: r.updated_at,
+      author_character_id: r.author_character_id,
+      author_display_name: r.author_display_name,
+    }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6559,11 +6627,13 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
     const enriched = attachLifecycle({ ...item }, sm, sy);
+    // Store the authoring character ID (null for NPC-authored items)
+    const authorCharId = item.npcAuthor ? null : (req.session.characterId || null);
     const { rows } = await pool.query(
-      `INSERT INTO press_items (id, press_type, data) VALUES ($1, $2, $3::jsonb)
+      `INSERT INTO press_items (id, press_type, data, author_character_id) VALUES ($1, $2, $3::jsonb, $4)
        ON CONFLICT (id) DO UPDATE SET press_type = EXCLUDED.press_type, data = EXCLUDED.data, updated_at = NOW()
        RETURNING id, updated_at`,
-      [enriched.id, press_type, JSON.stringify(enriched)]
+      [enriched.id, press_type, JSON.stringify(enriched), authorCharId]
     );
     await writeAuditLog(req.session.userId, "press.create", "press_items", enriched.id, null, enriched);
     res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
@@ -11149,13 +11219,35 @@ app.post("/api/mod/privy-council/appoint", privyWriteLimit, async (req, res) => 
 app.post("/api/mod/privy-council/remove", privyWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { character_id } = req.body || {};
+    const { character_id, force = false } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
+
+    // Guard: block removal of characters who currently hold a permanent qualifying office
+    // (PM, LoTO, Third Party Leader — these positions carry automatic lifetime PC membership).
+    // Pass force: true in the request body to override (e.g. to correct a mistaken appointment).
+    if (!force) {
+      const { rows: permCheck } = await pool.query(
+        `SELECT 1 FROM office_assignments oa
+           JOIN offices o ON o.id = oa.office_id
+          WHERE oa.character_id = $1 AND o.spec_id IN (${RH_QUALIFYING_SPEC_IDS})
+         UNION ALL
+         SELECT 1 FROM parties
+          WHERE leader_character_id = $1 AND slug = '${LIBDEM_PARTY_SLUG}'
+         LIMIT 1`,
+        [character_id]
+      );
+      if (permCheck.length) {
+        return res.status(409).json({
+          error: "Cannot remove a Privy Councillor who currently holds a permanent qualifying office (PM, LoTO, or Third Party Leader). Pass force: true to override for mistaken appointments."
+        });
+      }
+    }
+
     const { rowCount } = await pool.query(
       "DELETE FROM privy_council_members WHERE character_id = $1", [character_id]
     );
     if (!rowCount) return res.status(404).json({ error: "Character is not a Privy Councillor" });
-    await writeAuditLog(req.session.userId, "privy_council.remove", "character", character_id, {}, {});
+    await writeAuditLog(req.session.userId, "privy_council.remove", "character", character_id, {}, { forced: !!force });
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/mod/privy-council/remove]", e);

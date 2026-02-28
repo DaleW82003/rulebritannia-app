@@ -388,7 +388,7 @@ function render(data, state) {
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div><b>${esc(r.reference)}</b> — ${esc(r.subject)}</div>
           </div>
-          <div class="muted">By ${esc(r.author)} • ${esc(r.createdAtSim)}</div>
+          <div class="muted">By ${esc(r.author_display_name || r.author)} • ${esc(r.createdAtSim)}</div>
           ${renderMarkingResult(r)}
           <div class="tile-bottom"><button class="btn" data-action="toggle-release" data-id="${esc(r.id)}" type="button">${state.openRelease === r.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-release" data-id="${esc(r.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openRelease === r.id ? (
@@ -429,7 +429,7 @@ function render(data, state) {
             <div><b>${esc(c.reference)}</b> — ${esc(c.subject)}</div>
             <div>${conferenceStatusChip(c, data)}</div>
           </div>
-          <div class="muted">By ${esc(c.author)} • Opens ${esc(c.createdAtSim)} • Closes ${esc(c.closesAtSim)}</div>
+          <div class="muted">By ${esc(c.author_display_name || c.author)} • Opens ${esc(c.createdAtSim)} • Closes ${esc(c.closesAtSim)}</div>
           <div class="tile-bottom"><button class="btn" data-action="toggle-conference" data-id="${esc(c.id)}" type="button">${state.openConference === c.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-conference" data-id="${esc(c.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openConference === c.id ? `
             <div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(c.body)}</div>
@@ -509,7 +509,7 @@ function render(data, state) {
           <img src="${esc(findCharacterAvatar(data, c.author, c.avatar))}" alt="${esc(c.author)} avatar" width="44" height="44" style="border-radius:999px;object-fit:cover;">
           <div style="flex:1;">
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-              <div><b>${esc(c.author)}</b></div><div class="muted">${esc(c.createdAtSim)}</div>
+              <div><b>${esc(c.author_display_name || c.author)}</b></div><div class="muted">${esc(c.createdAtSim)}</div>
             </div>
             ${state.editPressId === c.id
               ? `<form class="tile" data-action="save-edit-press" data-id="${esc(c.id)}" style="margin-top:4px;"><textarea class="input" name="body" rows="3" required>${esc(c.body)}</textarea><div style="display:flex;gap:6px;margin-top:4px;"><button class="btn" type="submit">Save</button><button class="btn" type="button" data-action="cancel-edit-press">Cancel</button></div></form>`
@@ -546,7 +546,7 @@ function render(data, state) {
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div><b>${esc(s.reference)}</b> — ${esc(s.title)}</div>
           </div>
-          <div class="muted">By ${esc(s.author)} • ${esc(s.audience)} • ${esc(s.createdAtSim)}</div>
+          <div class="muted">By ${esc(s.author_display_name || s.author)} • ${esc(s.audience)} • ${esc(s.createdAtSim)}</div>
           ${renderMarkingResult(s)}
           <div class="tile-bottom"><button class="btn" data-action="toggle-speech" data-id="${esc(s.id)}" type="button">${state.openSpeech === s.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-speech" data-id="${esc(s.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openSpeech === s.id ? `

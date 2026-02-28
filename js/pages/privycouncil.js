@@ -91,7 +91,19 @@ function render(members, data, state, manager) {
           await apiRemovePrivyCouncillor(charId);
           await initPrivyCouncilPage(data, { message: "Removed from Privy Council." });
         } catch (err) {
-          await initPrivyCouncilPage(data, { message: `Error: ${err.message}` });
+          // If blocked due to permanent qualifying office, offer a force-remove option
+          if (err.message?.includes("permanent qualifying office")) {
+            if (confirm(`${err.message}\n\nDo you want to force-remove this member (use only for mistaken appointments)?`)) {
+              try {
+                await apiRemovePrivyCouncillor(charId, { force: true });
+                await initPrivyCouncilPage(data, { message: "Force-removed from Privy Council." });
+              } catch (err2) {
+                await initPrivyCouncilPage(data, { message: `Error: ${err2.message}` });
+              }
+            }
+          } else {
+            await initPrivyCouncilPage(data, { message: `Error: ${err.message}` });
+          }
         }
       });
     });
