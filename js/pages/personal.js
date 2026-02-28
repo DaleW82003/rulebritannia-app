@@ -3,6 +3,7 @@ import { nowStamp } from "../core.js";
 import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate } from "../clock.js";
 import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums } from "../api.js";
+import { logAction } from "../audit.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
 const AFFILIATIONS_CATALOG = [
@@ -1520,6 +1521,19 @@ function render(data, state) {
         const fin = await apiGetMyFinance();
         syncFinanceIntoProfile(profile, fin, data, activeName, state);
         state.message = `Purchased "${item.name}" for ${money(price)}.${upkeep > 0 ? ` Upkeep: ${money(upkeep)}/month.` : ""}`;
+        logAction({
+          action: "character-shop-purchase",
+          target: activeName,
+          details: {
+            characterId: result.purchase?.characterId || profile?.profile?.id || "",
+            characterName: activeName,
+            itemId: item.id,
+            itemName: item.name,
+            price,
+            monthlyUpkeep: upkeep,
+            headline: `${activeName} purchased "${item.name}" for ${money(price)} from the character shop.`,
+          },
+        });
       } catch (err) {
         state.message = `Purchase failed: ${err.message}`;
       }
@@ -1534,11 +1548,23 @@ function render(data, state) {
       const purchaseId = String(btn.dataset.id || "");
       if (!purchaseId) return;
       btn.disabled = true;
+      const removedItem = profile.shopPurchases?.find((p) => p.id === purchaseId);
       try {
         await apiRemoveShopPurchase(purchaseId);
         const fin = await apiGetMyFinance();
         syncFinanceIntoProfile(profile, fin, data, activeName, state);
         state.message = "Purchase removed.";
+        logAction({
+          action: "character-shop-dismissal",
+          target: activeName,
+          details: {
+            characterName: activeName,
+            purchaseId,
+            itemId: removedItem?.itemId || "",
+            itemName: removedItem?.itemName || "",
+            headline: `Admin removed "${removedItem?.itemName || "an item"}" from ${activeName}'s character shop.`,
+          },
+        });
       } catch (err) {
         state.message = `Remove failed: ${err.message}`;
       }
@@ -1553,11 +1579,24 @@ function render(data, state) {
       const purchaseId = String(btn.dataset.id || "");
       if (!purchaseId) return;
       btn.disabled = true;
+      const soldItem = profile.shopPurchases?.find((p) => p.id === purchaseId);
       try {
         const result = await apiSellShopPurchase(purchaseId);
         const fin = await apiGetMyFinance();
         syncFinanceIntoProfile(profile, fin, data, activeName, state);
         state.message = `Item sold. Refund: ${money(result.refund || 0)}.`;
+        logAction({
+          action: "character-shop-sale",
+          target: activeName,
+          details: {
+            characterName: activeName,
+            purchaseId,
+            itemId: soldItem?.itemId || "",
+            itemName: soldItem?.itemName || "",
+            refund: result.refund || 0,
+            headline: `${activeName} sold "${soldItem?.itemName || "an item"}" from the character shop (refund: ${money(result.refund || 0)}).`,
+          },
+        });
       } catch (err) {
         state.message = `Sell failed: ${err.message}`;
         btn.disabled = false;
@@ -1573,11 +1612,23 @@ function render(data, state) {
       const purchaseId = String(btn.dataset.id || "");
       if (!purchaseId) return;
       btn.disabled = true;
+      const dismissedItem = profile.shopPurchases?.find((p) => p.id === purchaseId);
       try {
         await apiDismissShopPurchase(purchaseId);
         const fin = await apiGetMyFinance();
         syncFinanceIntoProfile(profile, fin, data, activeName, state);
         state.message = "Item dismissed.";
+        logAction({
+          action: "character-shop-dismissal",
+          target: activeName,
+          details: {
+            characterName: activeName,
+            purchaseId,
+            itemId: dismissedItem?.itemId || "",
+            itemName: dismissedItem?.itemName || "",
+            headline: `${activeName} dismissed "${dismissedItem?.itemName || "an item"}" from the character shop.`,
+          },
+        });
       } catch (err) {
         state.message = `Dismiss failed: ${err.message}`;
         btn.disabled = false;

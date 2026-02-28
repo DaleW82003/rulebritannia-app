@@ -10262,7 +10262,7 @@ app.post("/api/parties/:partyId/shop-purchases", partyShopLimit, async (req, res
   }
 });
 
-// DELETE /api/parties/:partyId/shop-purchases/:id — remove a party shop purchase
+// DELETE /api/parties/:partyId/shop-purchases/:id — remove a party shop purchase (admin/mod only)
 app.delete("/api/parties/:partyId/shop-purchases/:id", partyShopLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
@@ -10281,6 +10281,122 @@ app.delete("/api/parties/:partyId/shop-purchases/:id", partyShopLimit, async (re
     res.json({ ok: true });
   } catch (e) {
     console.error("[DELETE /api/parties/:partyId/shop-purchases/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/parties/:partyId/shop-purchases/:id/sell
+// Party leader, chairman, admin, or mod: sell a paid item for 50% of current price.
+// Refund is credited back to the party treasury.
+app.post("/api/parties/:partyId/shop-purchases/:id/sell", partyShopLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      if (!req.session.characterId) { return res.status(403).json({ error: "No active character selected" }); }
+      const { rows: pr } = await client.query(
+        "SELECT leader_character_id, chairman_character_id FROM parties WHERE slug = $1",
+        [req.params.partyId]
+      );
+      if (!pr.length) { return res.status(404).json({ error: "Party not found" }); }
+      const isLeader   = String(pr[0].leader_character_id)   === String(req.session.characterId);
+      const isChairman = String(pr[0].chairman_character_id) === String(req.session.characterId);
+      if (!isLeader && !isChairman) { return res.status(403).json({ error: "Forbidden" }); }
+    }
+
+    // Fetch the purchase — must belong to this party
+    const { rows: pRows } = await client.query(
+      `SELECT id, party_slug, item_id, item_name, price, monthly_upkeep, effects, risk_modifier
+         FROM party_shop_purchases WHERE id = $1 AND party_slug = $2`,
+      [req.params.id, req.params.partyId]
+    );
+    if (!pRows.length) return res.status(404).json({ error: "Purchase not found" });
+    const purchase = pRows[0];
+
+    // Items with price == 0 cannot be sold (use dismiss instead)
+    if (Number(purchase.price) === 0) {
+      return res.status(400).json({ error: "Free items must be dismissed, not sold. Use the Dismiss action." });
+    }
+
+    // Fetch current price index for refund calculation
+    const { rows: piRows } = await client.query(
+      `SELECT price_index FROM shop_price_index WHERE id = 'main'`
+    );
+    const priceIndex = Number(piRows[0]?.price_index ?? 1);
+    const currentPrice = Math.round(Number(purchase.price) * priceIndex);
+    const refund = Math.round(currentPrice * 0.5);
+
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM party_shop_purchases WHERE id = $1`, [purchase.id]);
+
+    // Credit refund to party treasury
+    const { rows: partyRows } = await client.query(
+      `SELECT treasury FROM parties WHERE slug = $1 FOR UPDATE`,
+      [req.params.partyId]
+    );
+    const currentCash = Number(partyRows[0]?.treasury?.cash ?? 0);
+    const newCash = currentCash + refund;
+    await client.query(
+      `UPDATE parties SET treasury = COALESCE(treasury,'{}') || $1::jsonb, updated_at = NOW() WHERE slug = $2`,
+      [JSON.stringify({ cash: newCash }), req.params.partyId]
+    );
+    await client.query("COMMIT");
+
+    await writeAuditLog(req.session.userId, "party.shop.sell", "party_shop_purchases", purchase.id, purchase, { refund });
+    res.json({ ok: true, refund, newTreasuryCash: newCash });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /api/parties/:partyId/shop-purchases/:id/sell]", e);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/parties/:partyId/shop-purchases/:id/dismiss
+// Party leader, chairman, admin, or mod: dismiss a free-with-upkeep item (price == 0).
+// No refund; just removes the purchase record.
+app.post("/api/parties/:partyId/shop-purchases/:id/dismiss", partyShopLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      if (!req.session.characterId) { return res.status(403).json({ error: "No active character selected" }); }
+      const { rows: pr } = await pool.query(
+        "SELECT leader_character_id, chairman_character_id FROM parties WHERE slug = $1",
+        [req.params.partyId]
+      );
+      if (!pr.length) { return res.status(404).json({ error: "Party not found" }); }
+      const isLeader   = String(pr[0].leader_character_id)   === String(req.session.characterId);
+      const isChairman = String(pr[0].chairman_character_id) === String(req.session.characterId);
+      if (!isLeader && !isChairman) { return res.status(403).json({ error: "Forbidden" }); }
+    }
+
+    // Fetch the purchase — must belong to this party
+    const { rows: pRows } = await pool.query(
+      `SELECT id, party_slug, item_id, item_name, price, monthly_upkeep
+         FROM party_shop_purchases WHERE id = $1 AND party_slug = $2`,
+      [req.params.id, req.params.partyId]
+    );
+    if (!pRows.length) return res.status(404).json({ error: "Purchase not found" });
+    const purchase = pRows[0];
+
+    // Only free items (price == 0) can be dismissed; paid items must be sold
+    if (Number(purchase.price) !== 0) {
+      return res.status(400).json({ error: "Paid items must be sold, not dismissed. Use the Sell action." });
+    }
+
+    await pool.query(`DELETE FROM party_shop_purchases WHERE id = $1`, [purchase.id]);
+
+    await writeAuditLog(req.session.userId, "party.shop.dismiss", "party_shop_purchases", purchase.id, purchase, null);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/shop-purchases/:id/dismiss]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

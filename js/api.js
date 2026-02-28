@@ -1057,6 +1057,28 @@ export async function apiRemovePartyShopPurchase(partyId, id) {
   return body;
 }
 
+export async function apiSellPartyShopPurchase(partyId, id) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/shop-purchases/${encodeURIComponent(id)}/sell`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSellPartyShopPurchase failed (${res.status})`);
+  return body;
+}
+
+export async function apiDismissPartyShopPurchase(partyId, id) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/shop-purchases/${encodeURIComponent(id)}/dismiss`, {
+    method: "POST",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiDismissPartyShopPurchase failed (${res.status})`);
+  return body;
+}
+
 export async function apiSavePartyDrafts(partyId, drafts) {
   const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/drafts`, {
     method: "POST",
