@@ -76,22 +76,30 @@ async function login(email, password) {
  * If session is provided, sends Cookie + X-CSRF-Token (for write ops).
  */
 async function req(path, { method = "GET", session, body } = {}) {
+  const url = `${base}${path}`;
   const headers = {
     ...(body ? { "Content-Type": "application/json" } : {}),
     ...(session?.cookie ? { Cookie: session.cookie } : {}),
     ...(session?.csrfToken ? { "X-CSRF-Token": session.csrfToken } : {}),
   };
 
-  const res = await fetch(`${base}${path}`, {
+  const res = await fetch(url, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
   });
 
+  const raw = await res.text().catch(() => "");
   let json = null;
-  try { json = await res.json(); } catch {}
+  try { json = JSON.parse(raw); } catch {}
 
-  return { res, json };
+  // Print debug info when something important fails
+  if (res.status === 401 || res.status === 403 || res.status >= 500) {
+    const msg = (json && (json.error || json.message)) ? (json.error || json.message) : raw;
+    console.log(`DEBUG ${method} ${path} -> ${res.status} ${String(msg || "").slice(0, 200)}`);
+  }
+
+  return { res, json, raw };
 }
 
 (async () => {
