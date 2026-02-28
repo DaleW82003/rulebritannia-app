@@ -1,7 +1,7 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSavePartyDrafts } from "../api.js";
+import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { logAction } from "../audit.js";
 
@@ -730,7 +730,11 @@ function render(data, state) {
               <b>${esc(p.name || p.itemName)}</b>
               <div class="muted" style="font-size:.85em;">Purchased ${esc(typeof p.purchasedAt === "string" ? p.purchasedAt : (p.purchasedAt ? new Date(p.purchasedAt).toLocaleString("en-GB") : "-"))} — ${formatMoney(p.price)}${p.monthlyUpkeep > 0 ? ` · ${formatMoney(p.monthlyUpkeep)}/month` : ""}</div>
             </div>
-            ${manager ? `<button type="button" class="btn" data-action="party-remove-purchase" data-id="${esc(String(p.id || ""))}" data-idx="${idx}">Remove</button>` : ""}
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              ${canManageStructure && Number(p.price) > 0 ? `<button type="button" class="btn" data-action="party-sell-purchase" data-id="${esc(String(p.id || ""))}">Sell (50% refund)</button>` : ""}
+              ${canManageStructure && Number(p.price) === 0 ? `<button type="button" class="btn" data-action="party-dismiss-purchase" data-id="${esc(String(p.id || ""))}">Dismiss</button>` : ""}
+              ${manager ? `<button type="button" class="btn" data-action="party-remove-purchase" data-id="${esc(String(p.id || ""))}" data-idx="${idx}">Remove</button>` : ""}
+            </div>
           </article>
         `).join("")}
       ` : ""}
@@ -1176,6 +1180,80 @@ function render(data, state) {
         });
       } catch (err) {
         state.partyShopMessage = `Remove failed: ${err.message}`;
+        btn.disabled = false;
+      }
+      render(data, state);
+    });
+  });
+
+  // Party shop: sell purchase (leader/chairman/admin/mod) — 50% refund to treasury
+  root.querySelectorAll('[data-action="party-sell-purchase"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!canManageStructure) return;
+      const purchaseId = String(btn.dataset.id || "");
+      if (!purchaseId) return;
+      btn.disabled = true;
+      const purchases = party.partyShopPurchases || [];
+      const soldItem = purchases.find((p) => p.id === purchaseId);
+      try {
+        const result = await apiSellPartyShopPurchase(state.activeParty, purchaseId);
+        party.partyShopPurchases = purchases.filter((p) => p.id !== purchaseId);
+        if (party.treasury) party.treasury.cash = Number(result.newTreasuryCash ?? party.treasury.cash);
+        state.partyShopMessage = `"${soldItem?.itemName || soldItem?.name || "Item"}" sold. Refund: ${formatMoney(result.refund || 0)} returned to treasury.`;
+        const actorChar = getCharacterContext(data);
+        logAction({
+          action: "party-shop-sale",
+          target: state.activeParty,
+          details: {
+            partyId: state.activeParty,
+            partyName: party?.name || state.activeParty,
+            actorId: actorChar?.id || actorChar?.characterId || "",
+            actorName: actorChar?.name || "",
+            purchaseId,
+            itemId: soldItem?.itemId || "",
+            itemName: soldItem?.itemName || soldItem?.name || "",
+            refund: result.refund || 0,
+            headline: `${actorChar?.name || "Someone"} sold "${soldItem?.itemName || soldItem?.name || "an item"}" from the ${party?.name || state.activeParty} party shop (refund: ${formatMoney(result.refund || 0)}).`,
+          },
+        });
+      } catch (err) {
+        state.partyShopMessage = `Sell failed: ${err.message}`;
+        btn.disabled = false;
+      }
+      render(data, state);
+    });
+  });
+
+  // Party shop: dismiss purchase (leader/chairman/admin/mod) — free items, no refund
+  root.querySelectorAll('[data-action="party-dismiss-purchase"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!canManageStructure) return;
+      const purchaseId = String(btn.dataset.id || "");
+      if (!purchaseId) return;
+      btn.disabled = true;
+      const purchases = party.partyShopPurchases || [];
+      const dismissedItem = purchases.find((p) => p.id === purchaseId);
+      try {
+        await apiDismissPartyShopPurchase(state.activeParty, purchaseId);
+        party.partyShopPurchases = purchases.filter((p) => p.id !== purchaseId);
+        state.partyShopMessage = `"${dismissedItem?.itemName || dismissedItem?.name || "Item"}" dismissed.`;
+        const actorChar = getCharacterContext(data);
+        logAction({
+          action: "party-shop-dismissal",
+          target: state.activeParty,
+          details: {
+            partyId: state.activeParty,
+            partyName: party?.name || state.activeParty,
+            actorId: actorChar?.id || actorChar?.characterId || "",
+            actorName: actorChar?.name || "",
+            purchaseId,
+            itemId: dismissedItem?.itemId || "",
+            itemName: dismissedItem?.itemName || dismissedItem?.name || "",
+            headline: `${actorChar?.name || "Someone"} dismissed "${dismissedItem?.itemName || dismissedItem?.name || "an item"}" from the ${party?.name || state.activeParty} party shop.`,
+          },
+        });
+      } catch (err) {
+        state.partyShopMessage = `Dismiss failed: ${err.message}`;
         btn.disabled = false;
       }
       render(data, state);

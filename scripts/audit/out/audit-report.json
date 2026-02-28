@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-02-28T15:31:32.552Z",
+  "generatedAt": "2026-02-28T16:02:02.990Z",
   "remainingWarnings": 1,
   "summary": {
-    "totalServerEndpoints": 305,
-    "totalWriteEndpoints": 199,
-    "totalApiFunctions": 273,
+    "totalServerEndpoints": 307,
+    "totalWriteEndpoints": 201,
+    "totalApiFunctions": 275,
     "totalPages": 46,
     "unmatchedWriteFns": 0,
     "missingCredentials": 0,

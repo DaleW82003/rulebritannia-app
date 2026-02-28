@@ -1057,6 +1057,24 @@
     },
     {
       "method": "POST",
+      "path": "/api/parties/:partyId/shop-purchases/:id/sell",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/shop-purchases/:id/dismiss",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
       "path": "/api/parties/:partyId/drafts",
       "roles": [
         "authenticated"
