@@ -195,6 +195,30 @@ export function ensureDefaults(data) {
   return data;
 }
 
+/**
+ * Rebuild data.parliament.parties from DB-backed bootstrap data.
+ * Constituencies are the source of truth for seat counts; the parties table
+ * is the source of truth for the playable flag.
+ * This must run after ensureDefaults() so parliament.parties already exists.
+ */
+function applyBootstrapParliament(data, bootstrap) {
+  const canonicalParties = Array.isArray(bootstrap?.canonicalParties) ? bootstrap.canonicalParties : [];
+  const seatTotals       = Array.isArray(bootstrap?.seatTotals)       ? bootstrap.seatTotals       : [];
+  if (!canonicalParties.length) return; // No DB data yet — leave ensureDefaults values in place.
+
+  const seatMap = {};
+  for (const r of seatTotals) seatMap[String(r.party)] = Number(r.seats);
+
+  data.parliament.parties = canonicalParties.map((cp) => ({
+    name:     cp.name,
+    seats:    seatMap[cp.name] || 0,
+    playable: Boolean(cp.playable),
+  }));
+
+  data.parliament.totalSeats = data.parliament.parties.reduce((s, p) => s + p.seats, 0) || 650;
+}
+
+
 export async function bootData() {
   const sources = [];
 
@@ -260,6 +284,12 @@ export async function bootData() {
   // Always overwrite currentCharacter with the DB-canonical value from bootstrap.
   // This prevents stale localStorage from a previous session (e.g. different account) bleeding in.
   ensured.currentCharacter = bootstrapCharacter;
+
+  // Constituencies are the source of truth for parliament seat counts.
+  // Always rebuild parliament.parties from the DB-backed bootstrap data so that
+  // no stale state or client-side baseline can override the live seat picture.
+  applyBootstrapParliament(ensured, bootstrap);
+
   return { data: ensured, user, clock, sources };
 }
 

@@ -12,6 +12,7 @@ import {
   apiModScandalsOpen,
   apiModScandalDecision,
   apiModScandalClose,
+  apiModScandalDelete,
   apiModSituationClose,
   apiModSituationDelete,
   apiModScandalTemplates,
@@ -250,12 +251,13 @@ function renderModScandalCreate(templates, optedInCharacters) {
 }
 
 function renderModOpenScandals(modData, state, myCharacterName = "") {
-  const scandals   = modData?.scandals   || [];
-  const choices    = modData?.player_choices || [];
-  const decisions  = modData?.mod_decisions  || [];
-  const situations = modData?.situations  || [];
+  const scandals        = modData?.scandals        || [];
+  const choices         = modData?.player_choices  || [];
+  const decisions       = modData?.mod_decisions   || [];
+  const situations      = modData?.situations      || [];
+  const closedScandals  = modData?.closed_scandals || [];
 
-  if (!scandals.length && !situations.length) {
+  if (!scandals.length && !situations.length && !closedScandals.length) {
     return `<section class="panel" style="margin-bottom:12px;"><h2 style="margin-top:0;">Moderator: Open Scandals</h2><div class="muted-block">No open scandals or situations.</div></section>`;
   }
 
@@ -371,6 +373,22 @@ function renderModOpenScandals(modData, state, myCharacterName = "") {
         }).join("")}
       ` : ""}
       ${cards.join("")}
+      ${closedScandals.length ? `
+        <details style="margin-top:8px;">
+          <summary class="muted" style="cursor:pointer;">Closed scandals (${closedScandals.length}) — click to expand for deletion</summary>
+          ${closedScandals.map((s) => `
+            <article class="tile" style="margin-top:6px;">
+              <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+                <div>
+                  <b>${esc(s.title)}</b> — <em>${esc(s.character_name || "Unknown")}</em>
+                  <div class="muted">${stageBadge("closed")} · Severity: ${esc(String(s.severity_current))} · Closed: ${s.closed_at ? new Date(s.closed_at).toLocaleDateString("en-GB") : "—"}</div>
+                </div>
+                <button type="button" class="btn" style="background:#c00;color:#fff;" data-action="mod-delete-scandal" data-id="${esc(s.id)}">Delete</button>
+              </div>
+            </article>
+          `).join("")}
+        </details>
+      ` : ""}
     </section>
   `;
 }
@@ -708,7 +726,27 @@ function render(data, state = {}) {
     });
   });
 
-  // ── Mod: apply decision ───────────────────────────────────────────────────
+  // ── Mod: delete scandal (including closed) ───────────────────────────────
+  root.querySelectorAll('[data-action="mod-delete-scandal"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!mod) return;
+      const id = btn.dataset.id;
+      if (!confirm("Permanently delete this scandal record? This cannot be undone.")) return;
+      btn.disabled = true;
+      try {
+        await apiModScandalDelete(id);
+        toastSuccess("Scandal deleted.");
+        await loadScandalData(mod);
+        render(data, state);
+      } catch (e) {
+        toastError("Failed to delete scandal. Please try again.");
+        console.error(e);
+        btn.disabled = false;
+      }
+    });
+  });
+
+
   root.querySelectorAll(".mod-decision-form").forEach((form) => {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();

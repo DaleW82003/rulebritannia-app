@@ -7215,7 +7215,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     const isLoggedIn = Boolean(req.session?.userId);
 
     // Always fetch: clock + config.  Conditionally fetch: user row + state + active character.
-    const [clockRows, configRows, userRows, stateRows, charRows] = await Promise.all([
+    const [clockRows, configRows, userRows, stateRows, charRows, seatTotalRows, canonicalPartyRows] = await Promise.all([
       pool.query(
         "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
       ).then((r) => r.rows),
@@ -7253,6 +7253,16 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
             [req.session.userId]
           ).then((r) => r.rows)
         : Promise.resolve([]),
+
+      // Constituency seat totals — the canonical, DB-authoritative seat count per party.
+      pool.query(
+        `SELECT party, COUNT(*) AS seats FROM constituencies GROUP BY party ORDER BY seats DESC`
+      ).then((r) => r.rows).catch((err) => { console.error("[bootstrap] constituencies query failed:", err.message); return []; }),
+
+      // Canonical party list (slug, name, playable flag) from parties table.
+      pool.query(
+        `SELECT slug, name, playable FROM parties ORDER BY playable DESC, name`
+      ).then((r) => r.rows).catch((err) => { console.error("[bootstrap] parties query failed:", err.message); return []; }),
     ]);
 
     // Clock — fall back to defaults if the table row doesn't exist yet.
@@ -7270,14 +7280,18 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     config.turnstile_enabled  = TURNSTILE_ENABLED;
     config.turnstile_site_key = TURNSTILE_SITE_KEY;
 
+    // Constituency-backed seat totals and canonical party flags — source of truth for parliament.
+    const seatTotals = seatTotalRows.map((r) => ({ party: r.party, seats: Number(r.seats) }));
+    const canonicalParties = canonicalPartyRows.map((r) => ({ name: r.name, playable: Boolean(r.playable) }));
+
     if (isLoggedIn && !userRows.length) {
       // Session references a deleted user; destroy it silently.
       req.session.destroy(() => {});
-      return res.json({ clock, config, user: null, csrfToken: null, state: null });
+      return res.json({ clock, config, user: null, csrfToken: null, state: null, seatTotals, canonicalParties });
     }
 
     if (!isLoggedIn) {
-      return res.json({ clock, config, user: null, csrfToken: null, state: null, is_demo: true });
+      return res.json({ clock, config, user: null, csrfToken: null, state: null, is_demo: true, seatTotals, canonicalParties });
     }
 
     // Lazily generate CSRF token for sessions that pre-date the feature.
@@ -7311,7 +7325,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
       };
     }
 
-    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state, currentCharacter, is_demo: false });
+    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state, currentCharacter, seatTotals, canonicalParties, is_demo: false });
   } catch (e) {
     console.error("[bootstrap]", e);
     res.status(500).json({ error: "Server error" });
@@ -12433,7 +12447,7 @@ app.get("/api/mod/scandals/open", scandalReadLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
 
-    const [scandalRows, choiceRows, decisionRows, situationRows] = await Promise.all([
+    const [scandalRows, choiceRows, decisionRows, situationRows, closedScandalRows] = await Promise.all([
       pool.query(
         `SELECT s.*, c.name AS character_name
            FROM scandals s
@@ -12463,13 +12477,22 @@ app.get("/api/mod/scandals/open", scandalReadLimit, async (req, res) => {
           WHERE ss.status = 'open'
           ORDER BY ss.created_at DESC`
       ),
+      pool.query(
+        `SELECT s.*, c.name AS character_name
+           FROM scandals s
+           JOIN characters c ON c.id = s.character_id
+          WHERE s.status = 'closed'
+          ORDER BY s.closed_at DESC
+          LIMIT 100`
+      ),
     ]);
 
     res.json({
-      scandals:   scandalRows.rows,
-      player_choices: choiceRows.rows,
-      mod_decisions:  decisionRows.rows,
-      situations:     situationRows.rows,
+      scandals:        scandalRows.rows,
+      player_choices:  choiceRows.rows,
+      mod_decisions:   decisionRows.rows,
+      situations:      situationRows.rows,
+      closed_scandals: closedScandalRows.rows,
     });
   } catch (e) {
     console.error("[GET /api/mod/scandals/open]", e);
@@ -12585,7 +12608,25 @@ app.post("/api/mod/scandals/:id/close", scandalWriteLimit, async (req, res) => {
   }
 });
 
-// ── POST /api/mod/scandals/situations/:id/close ──────────────────────────
+// ── DELETE /api/mod/scandals/:id ──────────────────────────────────────────
+app.delete("/api/mod/scandals/:id", scandalWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows: before } = await pool.query(
+      "SELECT id, character_id, status FROM scandals WHERE id = $1",
+      [req.params.id]
+    );
+    if (!before.length) return res.status(404).json({ error: "Scandal not found" });
+    await pool.query("DELETE FROM scandals WHERE id = $1", [req.params.id]);
+    await writeAuditLog(req.session.userId, "scandal.mod.delete", "scandals", req.params.id, before[0], null);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[DELETE /api/mod/scandals/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+
 app.post("/api/mod/scandals/situations/:id/close", scandalWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;

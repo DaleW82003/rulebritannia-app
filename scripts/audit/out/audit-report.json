@@ -1,16 +1,16 @@
 {
-  "generatedAt": "2026-02-26T12:58:49.502Z",
-  "remainingWarnings": 0,
+  "generatedAt": "2026-02-28T00:18:43.879Z",
+  "remainingWarnings": 3,
   "summary": {
-    "totalServerEndpoints": 231,
-    "totalWriteEndpoints": 144,
-    "totalApiFunctions": 199,
+    "totalServerEndpoints": 305,
+    "totalWriteEndpoints": 199,
+    "totalApiFunctions": 273,
     "totalPages": 46,
     "unmatchedWriteFns": 0,
     "missingCredentials": 0,
     "immutabilityViolations": 0,
     "saveStateOnlyWarnings": 0,
-    "rbacDriftWarnings": 0
+    "rbacDriftWarnings": 3
   },
   "suppressedWarnings": []
 }
