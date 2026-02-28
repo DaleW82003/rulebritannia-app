@@ -5,6 +5,7 @@ import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
 import { apiGetBills } from "../api.js";
 import { apiGetMotions, apiGetStatements, apiGetRegulations, apiGetPressItems, apiGetEvents } from "../api.js";
+import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 // js/pages/dashboard.js
@@ -223,11 +224,17 @@ function billCountdown(bill, gameState) {
 
 function getWhatsGoingOnTiles(data) {
   const w = data?.whatsGoingOn || {};
-  const leadStory = Array.isArray(data?.news?.stories) ? data.news.stories[0] : null;
+  const sortedStories = Array.isArray(data?.news?.stories)
+    ? data.news.stories.slice().sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    : [];
+  const leadStory = sortedStories[0] || null;
   const topPaperEntry = Array.isArray(data?.papers?.papers)
     ? data.papers.papers.find((p) => Array.isArray(p.issues) && p.issues.length)
     : null;
-  const topPaper = topPaperEntry?.issues?.[0] ?? null;
+  const sortedIssues = topPaperEntry?.issues
+    ? topPaperEntry.issues.slice().sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    : [];
+  const topPaper = sortedIssues[0] ?? null;
   const topPaperName = topPaperEntry?.name || "Paper";
   const econTopline = data?.economyPage?.topline || {};
   // Build latest poll results from data.polling.polls (authoritative) or whatsGoingOn fallback
@@ -465,6 +472,44 @@ export async function initDashboardPage(data) {
       data.events ??= { items: [] };
       data.events.items ??= [];
       mergeInto(data.events.items, r?.events);
+    }),
+    // Polling → What's Going On tile
+    apiGetPollingEntries().then((r) => {
+      if (Array.isArray(r?.entries)) {
+        data.polling ??= { polls: [], nextId: 1 };
+        data.polling.polls = r.entries;
+      }
+    }).catch((err) => {
+      console.error("[dashboard] polling DB load failed", err);
+    }),
+    // News → What's Going On tile
+    apiGetNews().then((r) => {
+      if (Array.isArray(r?.stories)) {
+        data.news ??= { stories: [], categories: [] };
+        data.news.stories = r.stories.map((s) => ({ ...s, createdAt: new Date(s.createdAt).getTime() }));
+      }
+    }).catch((err) => {
+      console.error("[dashboard] news DB load failed", err);
+    }),
+    // Papers → What's Going On tile
+    apiGetPaperArticles().then((r) => {
+      if (r?.byPaper) {
+        for (const paper of (data.papers?.papers || [])) {
+          if (r.byPaper[paper.key]) {
+            paper.issues = r.byPaper[paper.key].map((a) => ({ ...a, createdAt: new Date(a.createdAt).getTime() }));
+          }
+        }
+      }
+    }).catch((err) => {
+      console.error("[dashboard] papers DB load failed", err);
+    }),
+    // Economy → What's Going On tile
+    apiGetEconomyData().then((r) => {
+      if (r && typeof r === "object" && !r.error) {
+        data.economyPage = r;
+      }
+    }).catch((err) => {
+      console.error("[dashboard] economy DB load failed", err);
     }),
   ]);
 
