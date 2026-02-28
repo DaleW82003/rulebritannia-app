@@ -37,9 +37,21 @@ function simStamp(data) {
 
 function getMyOfficeIds(data) {
   const c = getCharacterContext(data);
-  if (Array.isArray(c?.offices) && c.offices.length) return c.offices;
+  const ids = new Set();
+  if (Array.isArray(c?.offices)) {
+    c.offices.map(String).filter(Boolean).forEach((id) => ids.add(id));
+  }
   const single = String(c?.office || "");
-  return single ? [single] : [];
+  if (single) ids.add(single);
+
+  const myName = String(c?.name || "").trim();
+  if (myName) {
+    for (const office of (data?.government?.offices || [])) {
+      if (String(office?.holderName || "").trim() === myName) ids.add(String(office?.id || ""));
+    }
+  }
+
+  return [...ids].filter(Boolean);
 }
 
 function isGovernmentMember(data) {

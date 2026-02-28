@@ -101,6 +101,89 @@ const PROFILE_FIELDS = [
   { key: "yearFirstElected", label: "Year first elected" }
 ];
 
+
+const GOVERNMENT_OFFICE_LABELS = {
+  "prime-minister": "Prime Minister",
+  "chancellor": "Chancellor of the Exchequer",
+  "home": "Home Secretary",
+  "foreign": "Foreign Secretary",
+  "trade": "Secretary of State for Business and Trade",
+  "defence": "Defence Secretary",
+  "welfare": "Secretary of State for Work and Pensions",
+  "education": "Education Secretary",
+  "env-agri": "Secretary of State for the Environment and Agriculture",
+  "health": "Health Secretary",
+  "eti": "Secretary of State for Transport and Infrastructure",
+  "culture": "Secretary of State for Culture, Media and Sport",
+  "home-nations": "Secretary of State for the Home Nations",
+  "leader-commons": "Leader of the House of Commons"
+};
+
+const SHADOW_OFFICE_LABELS = {
+  "leader-opposition": "Leader of the Opposition",
+  "shadow-chancellor": "Shadow Chancellor",
+  "shadow-home": "Shadow Home Secretary",
+  "shadow-foreign": "Shadow Foreign Secretary",
+  "shadow-trade": "Shadow Business & Trade",
+  "shadow-defence": "Shadow Defence Secretary",
+  "shadow-welfare": "Shadow Work & Pensions",
+  "shadow-education": "Shadow Education Secretary",
+  "shadow-env-agri": "Shadow Environment & Agriculture",
+  "shadow-health": "Shadow Health Secretary",
+  "shadow-eti": "Shadow Transport & Infrastructure",
+  "shadow-culture": "Shadow Culture, Media & Sport",
+  "shadow-home-nations": "Shadow Home Nations",
+  "shadow-leader-commons": "Shadow Leader of the House"
+};
+
+function getPublicOfficesForCharacter(data, characterName, profileParty = "") {
+  const target = String(characterName || "").trim();
+  if (!target) return [];
+
+  const result = [];
+  const seen = new Set();
+  const addOffice = (scope, key, title) => {
+    const id = `${scope}:${key}`;
+    if (!title || seen.has(id)) return;
+    seen.add(id);
+    result.push({ scope, title });
+  };
+
+  for (const o of (data?.government?.offices || [])) {
+    if (String(o?.holderName || "").trim() !== target) continue;
+    const id = String(o?.id || "");
+    addOffice("Government", id, GOVERNMENT_OFFICE_LABELS[id] || id || "Government Office");
+  }
+
+  for (const o of (data?.opposition?.offices || [])) {
+    if (String(o?.holderName || "").trim() !== target) continue;
+    const id = String(o?.id || "");
+    addOffice("Opposition", id, SHADOW_OFFICE_LABELS[id] || id || "Opposition Office");
+  }
+
+  const targetParty = String(profileParty || "").trim();
+  const partyEntries = Object.entries(data?.parties || {});
+  for (const [partyName, party] of partyEntries) {
+    if (targetParty && String(partyName) !== targetParty) continue;
+    if (String(party?.leader?.name || "").trim() === target) {
+      addOffice("Party", `leader:${partyName}`, `${partyName} Party Leader`);
+    }
+  }
+
+  const playerRecord = (Array.isArray(data?.players) ? data.players : []).find((pl) => String(pl?.name || "").trim() === target);
+  if (playerRecord?.partyLeader) {
+    const partyName = String(playerRecord.party || targetParty || "Party").trim();
+    addOffice("Party", `player:${partyName}`, `${partyName} Party Leader`);
+  }
+
+  if (String(data?.currentCharacter?.name || "").trim() === target && data?.currentCharacter?.partyLeader) {
+    const partyName = String(data?.currentCharacter?.party || targetParty || "Party").trim();
+    addOffice("Party", `current:${partyName}`, `${partyName} Party Leader`);
+  }
+
+  return result;
+}
+
 const FINANCIAL_BACKGROUND_LABELS = {
   1:  "1 – Poverty",
   2:  "2 – Financially Strained",
@@ -910,6 +993,7 @@ function render(data, state) {
   const biMonthlyCredit = biMonthlyCreditAmount(profile, mods);
   const isOwnProfile = activeName === name;
   const canShop = isOwnProfile || manager;
+  const publicOffices = getPublicOfficesForCharacter(data, activeName, profile?.profile?.party || "");
 
   // Monthly upkeep: prefer server-side total (totalMonthlyUpkeep = shop + property) for the
   // viewed character; fall back to computing from shopPurchases for other profiles
@@ -1059,6 +1143,20 @@ function render(data, state) {
           </details>
         ` : ""}
       </article>
+
+      ${publicOffices.length ? `
+        <article class="tile" style="grid-column:1/-1;">
+          <h2 style="margin-top:0;">Offices Held</h2>
+          <div style="display:grid;gap:8px;">
+            ${publicOffices.map((o) => `
+              <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                <b>${esc(o.title)}</b>
+                <span class="muted">${esc(o.scope)}</span>
+              </div>
+            `).join("")}
+          </div>
+        </article>
+      ` : ""}
 
       <article class="tile" style="min-height:240px;">
         <h2 style="margin-top:0;">Income &amp; Upkeep Summary</h2>
