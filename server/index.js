@@ -13692,11 +13692,10 @@ app.delete("/api/mod/scandals/situations/:id", scandalWriteLimit, async (req, re
 // GET  /api/constituencies/:id/events          — authenticated: event log for a constituency
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const electionReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
-const electionWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
-
+const electionsApiReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
+const electionsApiWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
 // GET /api/elections/seat-totals
-app.get("/api/elections/seat-totals", electionReadLimit, async (req, res) => {
+app.get("/api/elections/seat-totals", electionsApiReadLimit, async (req, res) => {
   try {
     if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
     const { rows } = await pool.query(
@@ -13710,7 +13709,7 @@ app.get("/api/elections/seat-totals", electionReadLimit, async (req, res) => {
 });
 
 // GET /api/elections/current
-app.get("/api/elections/current", electionReadLimit, async (req, res) => {
+app.get("/api/elections/current", electionsApiReadLimit, async (req, res) => {
   try {
     if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
     const { rows: stateRows } = await pool.query(
@@ -13740,7 +13739,7 @@ app.get("/api/elections/current", electionReadLimit, async (req, res) => {
 });
 
 // GET /api/elections
-app.get("/api/elections", electionReadLimit, async (req, res) => {
+app.get("/api/elections", electionsApiReadLimit, async (req, res) => {
   try {
     if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
     const { rows } = await pool.query(
@@ -13758,7 +13757,7 @@ app.get("/api/elections", electionReadLimit, async (req, res) => {
 });
 
 // POST /api/elections
-app.post("/api/elections", electionWriteLimit, async (req, res) => {
+app.post("/api/elections", electionsApiWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const { type = "general", polling_day, label = "" } = req.body || {};
@@ -13777,7 +13776,7 @@ app.post("/api/elections", electionWriteLimit, async (req, res) => {
 });
 
 // PUT /api/elections/:id  — update label / polling_day
-app.put("/api/elections/:id", electionWriteLimit, async (req, res) => {
+app.put("/api/elections/:id", electionsApiWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const { label, polling_day } = req.body || {};
@@ -13798,7 +13797,7 @@ app.put("/api/elections/:id", electionWriteLimit, async (req, res) => {
 });
 
 // GET /api/elections/:id/changes
-app.get("/api/elections/:id/changes", electionReadLimit, async (req, res) => {
+app.get("/api/elections/:id/changes", electionsApiReadLimit, async (req, res) => {
   try {
     if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
     const { rows } = await pool.query(
@@ -13818,7 +13817,7 @@ app.get("/api/elections/:id/changes", electionReadLimit, async (req, res) => {
 });
 
 // PUT /api/elections/:id/changes  — replace all flip entries for a pending election
-app.put("/api/elections/:id/changes", electionWriteLimit, async (req, res) => {
+app.put("/api/elections/:id/changes", electionsApiWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const { changes = [], partySummary = [] } = req.body || {};
@@ -13872,7 +13871,7 @@ app.put("/api/elections/:id/changes", electionWriteLimit, async (req, res) => {
 
 // POST /api/elections/:id/finalize
 // Applies constituency flips, writes constituency_events, updates last_general_election_id.
-app.post("/api/elections/:id/finalize", electionWriteLimit, async (req, res) => {
+app.post("/api/elections/:id/finalize", electionsApiWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const { rows: elRows } = await pool.query("SELECT * FROM elections WHERE id = $1", [req.params.id]);
@@ -13953,7 +13952,7 @@ app.post("/api/elections/:id/finalize", electionWriteLimit, async (req, res) => 
 });
 
 // POST /api/admin/elections/seed-1997  — idempotent re-seed of 1997 baseline
-app.post("/api/admin/elections/seed-1997", electionWriteLimit, async (req, res) => {
+app.post("/api/admin/elections/seed-1997", electionsApiWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     await seedElection1997();
@@ -13988,7 +13987,7 @@ const ELECTION_BODY_TYPES = [
 ];
 
 // GET /api/elections/bodies/current
-app.get("/api/elections/bodies/current", electionReadLimit, async (req, res) => {
+app.get("/api/elections/bodies/current", electionsApiReadLimit, async (req, res) => {
   try {
     if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
     const { rows: elRows } = await pool.query(
@@ -14026,7 +14025,7 @@ app.get("/api/elections/bodies/current", electionReadLimit, async (req, res) => 
 });
 
 // GET /api/elections/bodies/archive
-app.get("/api/elections/bodies/archive", electionReadLimit, async (req, res) => {
+app.get("/api/elections/bodies/archive", electionsApiReadLimit, async (req, res) => {
   try {
     if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
     const { rows: elRows } = await pool.query(
@@ -14064,7 +14063,7 @@ app.get("/api/elections/bodies/archive", electionReadLimit, async (req, res) => 
 });
 
 // POST /api/elections/bodies  — submit new result for a body (replaces current, archives previous)
-app.post("/api/elections/bodies", electionWriteLimit, async (req, res) => {
+app.post("/api/elections/bodies", electionsApiWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const { body_type, polling_day, label = "", turnout_total = 0, turnout_pct = 0, party_summary = [] } = req.body || {};
@@ -14130,7 +14129,7 @@ app.post("/api/elections/bodies", electionWriteLimit, async (req, res) => {
   }
 });
 
-app.delete("/api/elections/bodies/:id", electionWriteLimit, async (req, res) => {
+app.delete("/api/elections/bodies/:id", electionsApiWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const { rowCount } = await pool.query("DELETE FROM elections WHERE id = $1", [req.params.id]);
@@ -14144,7 +14143,7 @@ app.delete("/api/elections/bodies/:id", electionWriteLimit, async (req, res) => 
 });
 
 // PUT /api/elections/bodies/:id — admin/mod: update an existing election result
-app.put("/api/elections/bodies/:id", electionWriteLimit, async (req, res) => {
+app.put("/api/elections/bodies/:id", electionsApiWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const { id } = req.params;
@@ -14188,7 +14187,7 @@ app.put("/api/elections/bodies/:id", electionWriteLimit, async (req, res) => {
 });
 
 
-app.get("/api/constituencies/:id/events", electionReadLimit, async (req, res) => {
+app.get("/api/constituencies/:id/events", electionsApiReadLimit, async (req, res) => {
   try {
     if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
     const { rows } = await pool.query(
