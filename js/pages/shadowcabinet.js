@@ -54,7 +54,9 @@ function canAccessShadowCabinet(data) {
 
 function isOppositionLeader(data) {
   if (isManager(data)) return true;
-  return String(getCharacterContext(data)?.shadowOffice || "") === "leader-opposition" || String(getCharacterContext(data)?.role || "") === "leader-opposition";
+  const c = getCharacterContext(data);
+  const shadowOffices = Array.isArray(c?.shadowOffices) ? c.shadowOffices : (c?.shadowOffice ? [c.shadowOffice] : []);
+  return shadowOffices.includes("leader-opposition") || String(c?.role || "") === "leader-opposition";
 }
 
 function discussUrlForDraft(draft) {

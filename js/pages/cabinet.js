@@ -54,7 +54,9 @@ function canAccessCabinet(data) {
 
 function isPrimeMinister(data) {
   if (isManager(data)) return true;
-  return String(getCharacterContext(data)?.office || "") === "prime-minister";
+  const c = getCharacterContext(data);
+  const offices = Array.isArray(c?.offices) ? c.offices : (c?.office ? [c.office] : []);
+  return offices.includes("prime-minister");
 }
 
 function discussUrlForDraft(data, draft) {

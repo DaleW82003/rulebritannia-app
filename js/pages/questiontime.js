@@ -98,6 +98,21 @@ function normaliseRole(role = "") {
   return "backbencher";
 }
 
+function effectiveRoleForQuestionTime(data) {
+  const char = getCurrentCharacter(data);
+  const explicit = normaliseRole(char?.role);
+  if (explicit !== "backbencher") return explicit;
+
+  const offices = Array.isArray(char?.offices) ? char.offices : (char?.office ? [char.office] : []);
+  const shadowOffices = Array.isArray(char?.shadowOffices) ? char.shadowOffices : (char?.shadowOffice ? [char.shadowOffice] : []);
+
+  if (shadowOffices.includes("leader-opposition")) return "leader-opposition";
+  if (char?.partyLeader) return "party-leader-3rd-4th";
+  if (shadowOffices.some((o) => String(o || "").startsWith("shadow-"))) return "shadow";
+  if (offices.length) return "minister";
+  return "backbencher";
+}
+
 function officeToShadowOfficeMap(officeId = "") {
   const map = {
     "chancellor": "shadow-chancellor",
@@ -124,7 +139,7 @@ function openQuestionsByAsker(data, askerName) {
 
 function canAskMainQuestion(data, officeId) {
   const char = getCurrentCharacter(data);
-  const role = normaliseRole(char?.role);
+  const role = effectiveRoleForQuestionTime(data);
   const asker = String(char?.name || "").trim();
   if (!asker) return { ok: false, reason: "Create/select a character before asking questions." };
 
@@ -161,7 +176,7 @@ function canAskMainQuestion(data, officeId) {
 
 function maxFollowUpsFor(data, officeId) {
   // Follow-up allowance is based on the CURRENT user's role, not the original asker's.
-  const role = normaliseRole(getCurrentCharacter(data)?.role);
+  const role = effectiveRoleForQuestionTime(data);
   if (officeId === "prime-minister") {
     if (role === "leader-opposition")    return 3;
     if (role === "party-leader-3rd-4th") return 2;
@@ -176,7 +191,7 @@ function renderQuestionLine(question, office, canAnswer, canArchive, canDeleteQ,
   const maxFollowUps = maxFollowUpsFor(data, question.office);
   // Shadow secretaries/ministers can only follow up in their own portfolio
   const char = getCurrentCharacter(data);
-  const viewerRole = normaliseRole(char?.role);
+  const viewerRole = effectiveRoleForQuestionTime(data);
   let portfolioOk = true;
   if (viewerRole === "shadow" || viewerRole === "minister") {
     const currentOffices       = Array.isArray(char?.offices)       ? char.offices       : (char?.office       ? [char.office]       : []);
