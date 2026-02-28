@@ -32,10 +32,44 @@ const CREDS = {
 
 const _cache = {};
 
+/** Statuses that indicate a transient upstream/edge error worth retrying. */
+const TRANSIENT_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
+
+/**
+ * Pause for `ms` milliseconds.
+ */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Fetch with automatic retry/backoff for transient server errors.
+ * Retries up to `maxRetries` times with exponential backoff (1s, 2s, 4s …).
+ * Only retries for statuses in TRANSIENT_STATUSES — definitive errors are
+ * returned immediately.
+ */
+async function fetchWithRetry(url, options = {}, maxRetries = 3) {
+  let attempt = 0;
+  while (true) {
+    const res = await fetch(url, options);
+    if (!TRANSIENT_STATUSES.has(res.status) || attempt >= maxRetries) {
+      return res;
+    }
+    const delayMs = 1000 * Math.pow(2, attempt);
+    console.warn(`⚠️  fetchWithRetry: transient ${res.status} for ${url} — retry ${attempt + 1}/${maxRetries} in ${delayMs}ms`);
+    await sleep(delayMs);
+    attempt++;
+  }
+}
+
 /**
  * Log in as the given role and return a session object { cookie, csrfToken }.
  * Returns null if the required env vars are not set.
  * Results are cached so each role only logs in once per process.
+ *
+ * Retries on transient upstream/edge errors (502/503/504/520-524) for both
+ * the login POST and the CSRF GET.  Only caches null for missing credentials
+ * or definitive auth failures (401/403).
  */
 export async function loginAs(role) {
   if (_cache[role] !== undefined) return _cache[role];
@@ -46,7 +80,7 @@ export async function loginAs(role) {
     return null;
   }
 
-  const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+  const loginRes = await fetchWithRetry(`${BASE_URL}/api/auth/login`, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
     body:    JSON.stringify({ email: creds.email, password: creds.password }),
@@ -54,6 +88,8 @@ export async function loginAs(role) {
 
   if (!loginRes.ok) {
     console.warn(`⚠️  loginAs("${role}") failed: HTTP ${loginRes.status}`);
+    // Only permanently cache null for definitive/auth failures, not transient ones.
+    // (TRANSIENT_STATUSES are exhausted by fetchWithRetry before reaching here.)
     _cache[role] = null;
     return null;
   }
@@ -67,7 +103,7 @@ export async function loginAs(role) {
     return null;
   }
 
-  const csrfRes = await fetch(`${BASE_URL}/api/csrf-token`, {
+  const csrfRes = await fetchWithRetry(`${BASE_URL}/api/csrf-token`, {
     headers: { Cookie: cookie },
   });
   const csrfData = await csrfRes.json().catch(() => ({}));
@@ -87,11 +123,26 @@ function authHeaders(session, extra = {}) {
   };
 }
 
+/**
+ * Log a non-2xx response to aid debugging in CI.
+ * Reads the raw text once and returns parsed JSON (or empty object).
+ */
+async function debugResponse(method, path, res) {
+  const text = await res.text().catch(() => "");
+  if (res.status < 200 || res.status >= 300) {
+    const snippet = text.slice(0, 500);
+    let extra = "";
+    try { extra = " — " + JSON.stringify(JSON.parse(text)).slice(0, 500); } catch {}
+    console.warn(`⚠️  ${method} ${path} → ${res.status}: ${snippet}${extra}`);
+  }
+  try { return JSON.parse(text); } catch { return {}; }
+}
+
 export async function apiGet(path, session) {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: authHeaders(session),
   });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
+  return { status: res.status, body: await debugResponse("GET", path, res) };
 }
 
 export async function apiPost(path, body, session) {
@@ -100,7 +151,7 @@ export async function apiPost(path, body, session) {
     headers: authHeaders(session, { "Content-Type": "application/json" }),
     body:    JSON.stringify(body),
   });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
+  return { status: res.status, body: await debugResponse("POST", path, res) };
 }
 
 export async function apiPut(path, body, session) {
@@ -109,7 +160,7 @@ export async function apiPut(path, body, session) {
     headers: authHeaders(session, { "Content-Type": "application/json" }),
     body:    JSON.stringify(body),
   });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
+  return { status: res.status, body: await debugResponse("PUT", path, res) };
 }
 
 export async function apiDelete(path, session) {
@@ -117,6 +168,10 @@ export async function apiDelete(path, session) {
     method:  "DELETE",
     headers: authHeaders(session),
   });
+  if (res.status < 200 || res.status >= 300) {
+    const text = await res.text().catch(() => "");
+    console.warn(`⚠️  DELETE ${path} → ${res.status}: ${text.slice(0, 500)}`);
+  }
   return { status: res.status };
 }
 
@@ -126,6 +181,10 @@ export async function apiPatch(path, body, session) {
     headers: authHeaders(session, { "Content-Type": "application/json" }),
     body:    JSON.stringify(body),
   });
+  if (res.status < 200 || res.status >= 300) {
+    const text = await res.text().catch(() => "");
+    console.warn(`⚠️  PATCH ${path} → ${res.status}: ${text.slice(0, 500)}`);
+  }
   return { status: res.status };
 }
 

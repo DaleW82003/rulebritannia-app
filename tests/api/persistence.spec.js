@@ -41,9 +41,10 @@ describe("R3 persistence: Red Lion posts survive a reload", () => {
   const testBody = `RB-test-post-${Date.now()}`;
 
   test("POST /api/redlion creates a post", async () => {
+    const id = `rl-test-${Date.now()}`;
     const { status, body } = await apiPost(
       "/api/redlion",
-      { displayName: "TestCharacter", body: testBody, asBarkeep: false, avatar: "" },
+      { id, displayName: "TestCharacter", body: testBody, asBarkeep: false, avatar: "" },
       playerSession
     );
     // Post to redlion requires authenticated user; mod or speaker creates posts on behalf
