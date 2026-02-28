@@ -14,6 +14,7 @@
  *  6. All server error responses use { error: <string> } shape
  *
  *  7. No fire-and-forget mutating API calls in any js/ file (repo-wide)
+ *  8. No double-release of pg-pool clients in server/index.js
  * Exit code 1 = at least one check failed.
  */
 
@@ -387,6 +388,49 @@ for (const filePath of allJsFiles) {
   }
 }
 if (!fireAndForgetIssues) pass("No fire-and-forget mutating API calls detected in js/**/*.js");
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 8. No double-release of pg-pool clients in server/index.js
+//
+// Each `const client = await pool.connect()` block must release in exactly one
+// place.  The only valid release site is `finally { client.release(); }`.
+// Any `client.release()` that appears OUTSIDE a `} finally {` block in the
+// same handler is a double-release bug that crashes the process.
+// ──────────────────────────────────────────────────────────────────────────────
+
+section("8. No double-release of pg-pool clients in server/index.js");
+
+let doubleReleaseIssues = 0;
+
+for (let i = 0; i < serverLines.length; i++) {
+  if (!serverLines[i].includes("client.release()")) continue;
+
+  // Determine if this release is inside a `} finally {` block by scanning
+  // up to 5 non-blank, non-comment lines above it.
+  let inFinally = false;
+  let scanned = 0;
+  for (let j = i - 1; j >= 0 && scanned < 5; j--) {
+    const trimmed = serverLines[j].trim();
+    if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("*")) continue;
+    scanned++;
+    // Match the actual code construct, not a comment containing the word "finally"
+    if (/^\}\s*finally\s*\{/.test(trimmed) || /^finally\s*\{/.test(trimmed)) {
+      inFinally = true;
+      break;
+    }
+    // If we hit a non-finally structural keyword, stop scanning
+    if (/^\}/.test(trimmed) || /^\s*(try|catch|if|for|while|return|const|let|var|await)\b/.test(trimmed)) break;
+  }
+
+  if (!inFinally) {
+    fail(
+      `server/index.js line ${i + 1}: client.release() outside a finally block — ` +
+      `potential double-release (use try/catch/finally and release only in finally)`
+    );
+    doubleReleaseIssues++;
+  }
+}
+if (!doubleReleaseIssues) pass("All pg-pool client.release() calls are inside finally blocks");
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Summary
