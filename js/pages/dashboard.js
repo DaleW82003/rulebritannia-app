@@ -5,7 +5,7 @@ import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
 import { apiGetBills } from "../api.js";
 import { apiGetMotions, apiGetStatements, apiGetRegulations, apiGetPressItems, apiGetEvents } from "../api.js";
-import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData } from "../api.js";
+import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData, apiGetQtLegacyQuestions } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 // js/pages/dashboard.js
@@ -91,6 +91,25 @@ function buildPlayerDocketItems(data) {
     (q.followUps || []).filter((f) => !f.answer && String(f.askedBy || "") === String(char?.name || "")).forEach((f) => {
       push({ type: "question", iconClass: "icon-question", title: "Open follow-up awaiting answer", detail: f.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "med" });
     });
+  });
+
+  // ── Press conference questions awaiting a response from this character's office ─
+  // Derived from DB-backed press conference data (replaces client-side push in press.js)
+  (data?.press?.conferences || []).reduce((acc, c) => {
+    if (!c.authorOffice || !char?.office) return acc;
+    if (String(c.authorOffice) !== String(char.office)) return acc;
+    if (c.archived) return acc;
+    const transcript = Array.isArray(c.transcript) ? c.transcript : [];
+    let questions = 0, answers = 0;
+    for (const t of transcript) {
+      if (t.isQuestion === true) questions++;
+      else if (!t.walkOff) answers++;
+    }
+    const pending = questions - answers;
+    if (pending > 0) acc.push({ c, pending });
+    return acc;
+  }, []).forEach(({ c, pending }) => {
+    push({ type: "question", iconClass: "icon-question", title: `Press conference question awaiting response`, detail: `${c.reference || ""} — ${pending} question${pending !== 1 ? "s" : ""} pending`, ctaLabel: "Open Press", href: "press.html?view=conferences", priority: "high" });
   });
 
   // ── Offline activity highlights ────────────────────────────────────────────
@@ -451,9 +470,6 @@ function renderDocketList(container, visible, data) {
           localStorage.setItem(lsKey, JSON.stringify(stored));
         } catch { /* ignore */ }
       }
-      if (item.generated !== true) {
-        data.liveDocket.items = data.liveDocket.items.filter((i) => i !== item);
-      }
     });
   });
 }
@@ -476,8 +492,8 @@ function renderLiveDocket(data) {
     if (stored === "staff" && isStaff) activeTab = "staff";
   } catch { /* ignore */ }
 
-  // Build item sets
-  const playerItems = [...data.liveDocket.items, ...buildPlayerDocketItems(data)];
+  // Build item sets — all items are DB-sourced via buildPlayerDocketItems
+  const playerItems = buildPlayerDocketItems(data);
   const actionsVisible = playerItems.filter((it) => canSeeAudienceItem(data, it?.audience));
   const staffItems = buildStaffDocketItems(data);
 
@@ -565,16 +581,7 @@ function renderOrderPaper(data) {
 }
 
 export async function initDashboardPage(data) {
-  // Helper: merge DB items into a state array (deduplicates by id)
-  function mergeInto(arr, dbItems) {
-    if (!Array.isArray(dbItems) || !dbItems.length) return;
-    const seen = new Set(arr.map((x) => String(x.id)));
-    for (const item of dbItems) {
-      if (!seen.has(String(item.id))) arr.push(item);
-    }
-  }
-
-  // Merge localStorage-persisted dismissed docket timestamps so non-staff dismissals survive refresh
+  // Restore localStorage-persisted dismissed docket timestamps
   data.liveDocket ??= { asOf: "Today", items: [] };
   data.liveDocket.seenActivityTs ??= {};
   try {
@@ -586,50 +593,49 @@ export async function initDashboardPage(data) {
   } catch { /* ignore localStorage errors */ }
 
   await Promise.allSettled([
-    // Bills → order paper + live docket (replace from DB — authoritative source)
+    // Bills → order paper + live docket (DB authoritative — replace entirely)
     apiGetBills().then((r) => {
-      if (Array.isArray(r?.bills)) {
-        data.orderPaperCommons = r.bills;
-      } else {
-        data.orderPaperCommons ??= [];
-      }
+      data.orderPaperCommons = Array.isArray(r?.bills) ? r.bills : [];
     }),
-    // Motions → live docket
+    // Motions → live docket (DB authoritative — replace entirely)
     apiGetMotions().then((r) => {
-      data.motions ??= { house: [], edm: [], nextHouseNumber: 1, nextEdmNumber: 1 };
-      data.motions.house ??= [];
-      data.motions.edm ??= [];
       const all = r?.motions ?? [];
-      mergeInto(data.motions.house, all.filter((m) => (m._motionType || m.motion_type) === "house"));
-      mergeInto(data.motions.edm,   all.filter((m) => (m._motionType || m.motion_type) === "edm"));
+      data.motions ??= { house: [], edm: [], nextHouseNumber: 1, nextEdmNumber: 1 };
+      data.motions.house = all.filter((m) => (m._motionType || m.motion_type) === "house");
+      data.motions.edm   = all.filter((m) => (m._motionType || m.motion_type) === "edm");
     }),
-    // Statements → live docket
+    // Statements → live docket (DB authoritative — replace entirely)
     apiGetStatements().then((r) => {
       data.statements ??= { items: [] };
-      data.statements.items ??= [];
-      mergeInto(data.statements.items, r?.statements);
+      data.statements.items = Array.isArray(r?.statements) ? r.statements : [];
     }),
-    // Regulations → live docket
+    // Regulations → live docket (DB authoritative — replace entirely)
     apiGetRegulations().then((r) => {
       data.regulations ??= { items: [] };
-      data.regulations.items ??= [];
-      mergeInto(data.regulations.items, r?.regulations);
+      data.regulations.items = Array.isArray(r?.regulations) ? r.regulations : [];
     }),
-    // Press items → live docket (conferences, comments, speeches, letters)
+    // Press items → live docket (DB authoritative — replace each category entirely)
     apiGetPressItems().then((r) => {
       data.press ??= { releases: [], conferences: [], comments: [], speeches: [], letters: [] };
       const byType = { release: "releases", conference: "conferences", comment: "comments", speech: "speeches", letter: "letters" };
+      // Reset all press categories so deleted/archived items are not stale
+      for (const key of Object.values(byType)) data.press[key] = [];
       for (const item of (r?.items ?? [])) {
         const key = byType[item._pressType] || "releases";
-        data.press[key] ??= [];
-        mergeInto(data.press[key], [item]);
+        data.press[key].push(item);
       }
     }),
-    // Events → live docket
+    // Events → live docket (DB authoritative — replace entirely)
     apiGetEvents().then((r) => {
       data.events ??= { items: [] };
-      data.events.items ??= [];
-      mergeInto(data.events.items, r?.events);
+      data.events.items = Array.isArray(r?.events) ? r.events : [];
+    }),
+    // Question Time → live docket (DB authoritative — replace entirely)
+    apiGetQtLegacyQuestions().then((r) => {
+      data.questionTime ??= { offices: [], questions: [] };
+      data.questionTime.questions = Array.isArray(r?.questions) ? r.questions : [];
+    }).catch((err) => {
+      console.error("[dashboard] questiontime DB load failed", err);
     }),
     // Polling → What's Going On tile
     apiGetPollingEntries().then((r) => {
