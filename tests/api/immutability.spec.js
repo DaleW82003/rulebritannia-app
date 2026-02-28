@@ -8,76 +8,28 @@
  *   node --test tests/api/immutability.spec.js
  *
  * Required environment variables:
- *   BASE_URL      - e.g. https://rulebritannia-app.onrender.com
- *   COOKIE_PLAYER - session cookie for an authenticated player (non-staff)
- *   COOKIE_MOD    - session cookie for a mod user
- *   COOKIE_ADMIN  - session cookie for an admin user
+ *   BASE_URL                                              - e.g. https://rulebritannia-app.onrender.com
+ *   TEST_EMAIL / TEST_PASSWORD                            - admin/mod credentials
+ *   TEST_BACKBENCHER_EMAIL / TEST_BACKBENCHER_PASSWORD    - player credentials
  */
 
 import { test, describe, before } from "node:test";
 import assert from "node:assert/strict";
+import { loginAs, apiGet, apiPost, apiPut, apiDelete, apiPatch } from "./helpers/session.js";
 
-const BASE_URL = process.env.BASE_URL;
-if (!BASE_URL) {
-  throw new Error("BASE_URL is required for immutability tests");
-}
-
-const COOKIES = {
-  player: process.env.COOKIE_PLAYER || "",
-  mod:    process.env.COOKIE_MOD    || "",
-  admin:  process.env.COOKIE_ADMIN  || "",
-};
-
-if (!COOKIES.player) {
-  console.warn("⚠️  COOKIE_PLAYER not set — skipping immutability tests");
-}
-
-let csrfToken = "";
+let adminSession = null;
+let playerSession = null;
+let modSession    = null;
 
 before(async () => {
-  const res = await fetch(`${BASE_URL}/api/csrf-token`, {
-    headers: { Cookie: COOKIES.admin || COOKIES.player },
-  });
-  const data = await res.json().catch(() => ({}));
-  csrfToken = data.csrfToken || data.token || "";
+  [adminSession, playerSession] = await Promise.all([
+    loginAs("admin"),
+    loginAs("player"),
+  ]);
+  // mod uses the same TEST_EMAIL credentials as admin
+  modSession = adminSession;
+  if (!playerSession) console.warn("⚠️  TEST_BACKBENCHER_EMAIL/PASSWORD not set — some tests will skip");
 });
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-async function apiPost(path, body, cookie) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken, Cookie: cookie },
-    body: JSON.stringify(body),
-  });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
-}
-
-async function apiPut(path, body, cookie) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken, Cookie: cookie },
-    body: JSON.stringify(body),
-  });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
-}
-
-async function apiDelete(path, cookie) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: "DELETE",
-    headers: { "x-csrf-token": csrfToken, Cookie: cookie },
-  });
-  return { status: res.status };
-}
-
-async function apiPatch(path, body, cookie) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken, Cookie: cookie },
-    body: JSON.stringify(body),
-  });
-  return { status: res.status };
-}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -94,27 +46,27 @@ describe("R2: Parliament items are immutable by players after submit", () => {
         title: `Immutability test motion ${Date.now()}`,
         body:  "Test motion body",
         sponsors: [],
-      }, COOKIES.player);
+      }, playerSession);
       motionId = body.id;
     });
 
     test("Player cannot PUT /api/motions/:id (should get 401 or 403)", async () => {
       if (!motionId) { console.warn("    (skipped — motion not created)"); return; }
-      const { status } = await apiPut(`/api/motions/${motionId}`, { title: "HACKED" }, COOKIES.player);
+      const { status } = await apiPut(`/api/motions/${motionId}`, { title: "HACKED" }, playerSession);
       assert.ok([401, 403].includes(status),
         `Player should not be able to edit a motion, got ${status} (R2 violation)`);
     });
 
     test("Player cannot DELETE /api/motions/:id (should get 401 or 403)", async () => {
       if (!motionId) { console.warn("    (skipped — motion not created)"); return; }
-      const { status } = await apiDelete(`/api/motions/${motionId}`, COOKIES.player);
+      const { status } = await apiDelete(`/api/motions/${motionId}`, playerSession);
       assert.ok([401, 403].includes(status),
         `Player should not be able to delete a motion, got ${status} (R2 violation)`);
     });
 
     test("Mod CAN PUT /api/motions/:id (staff override)", async () => {
-      if (!motionId || !COOKIES.mod) { console.warn("    (skipped)"); return; }
-      const { status } = await apiPut(`/api/motions/${motionId}`, { title: "Staff edit" }, COOKIES.mod);
+      if (!motionId || !modSession) { console.warn("    (skipped)"); return; }
+      const { status } = await apiPut(`/api/motions/${motionId}`, { title: "Staff edit" }, modSession);
       assert.ok([200, 201, 404].includes(status),
         `Mod should be able to edit a motion, got ${status}`);
     });
@@ -131,20 +83,20 @@ describe("R2: Parliament items are immutable by players after submit", () => {
         author: "Test",
         opensAtSim: "January 1997",
         closesAtSim: "March 1997",
-      }, COOKIES.player);
+      }, playerSession);
       statementId = body.id;
     });
 
     test("Player cannot PUT /api/statements/:id", async () => {
       if (!statementId) { console.warn("    (skipped — statement not created)"); return; }
-      const { status } = await apiPut(`/api/statements/${statementId}`, { title: "HACKED" }, COOKIES.player);
+      const { status } = await apiPut(`/api/statements/${statementId}`, { title: "HACKED" }, playerSession);
       assert.ok([401, 403].includes(status),
         `Player should not edit a statement, got ${status} (R2 violation)`);
     });
 
     test("Player cannot DELETE /api/statements/:id", async () => {
       if (!statementId) { console.warn("    (skipped — statement not created)"); return; }
-      const { status } = await apiDelete(`/api/statements/${statementId}`, COOKIES.player);
+      const { status } = await apiDelete(`/api/statements/${statementId}`, playerSession);
       assert.ok([401, 403].includes(status),
         `Player should not delete a statement, got ${status} (R2 violation)`);
     });
@@ -159,20 +111,20 @@ describe("R2: Parliament items are immutable by players after submit", () => {
         title: `Immutability test regulation ${Date.now()}`,
         body:  "Test regulation body",
         opensAtSim: "January 1997",
-      }, COOKIES.player);
+      }, playerSession);
       regId = body.id;
     });
 
     test("Player cannot PUT /api/regulations/:id", async () => {
       if (!regId) { console.warn("    (skipped — regulation not created)"); return; }
-      const { status } = await apiPut(`/api/regulations/${regId}`, { title: "HACKED" }, COOKIES.player);
+      const { status } = await apiPut(`/api/regulations/${regId}`, { title: "HACKED" }, playerSession);
       assert.ok([401, 403].includes(status),
         `Player should not edit a regulation, got ${status} (R2 violation)`);
     });
 
     test("Player cannot DELETE /api/regulations/:id", async () => {
       if (!regId) { console.warn("    (skipped — regulation not created)"); return; }
-      const { status } = await apiDelete(`/api/regulations/${regId}`, COOKIES.player);
+      const { status } = await apiDelete(`/api/regulations/${regId}`, playerSession);
       assert.ok([401, 403].includes(status),
         `Player should not delete a regulation, got ${status} (R2 violation)`);
     });
@@ -194,20 +146,20 @@ describe("R2: Parliament items are immutable by players after submit", () => {
         createdAtSim: "January 1997",
         score: null,
         impact: [],
-      }, COOKIES.player);
+      }, playerSession);
       pressId = body.id || (status === 201 ? id : null);
     });
 
     test("Player cannot PUT /api/press/:id (full replace)", async () => {
       if (!pressId) { console.warn("    (skipped — press item not created)"); return; }
-      const { status } = await apiPut(`/api/press/${pressId}`, { subject: "HACKED" }, COOKIES.player);
+      const { status } = await apiPut(`/api/press/${pressId}`, { subject: "HACKED" }, playerSession);
       assert.ok([401, 403].includes(status),
         `Player should not edit a press item, got ${status} (R2 violation)`);
     });
 
     test("Player cannot DELETE /api/press/:id", async () => {
       if (!pressId) { console.warn("    (skipped — press item not created)"); return; }
-      const { status } = await apiDelete(`/api/press/${pressId}`, COOKIES.player);
+      const { status } = await apiDelete(`/api/press/${pressId}`, playerSession);
       assert.ok([401, 403].includes(status),
         `Player should not delete a press item, got ${status} (R2 violation)`);
     });
@@ -226,15 +178,15 @@ describe("R2: Parliament items are immutable by players after submit", () => {
         submittedBy: "UnknownCharacter",
         status: "pending",
         speeches: [],
-      }, COOKIES.player);
+      }, playerSession);
       eventId = id;
     });
 
     test("Another player (different character name) cannot PUT /api/events/:id", async () => {
       if (!eventId) { console.warn("    (skipped — event not created)"); return; }
       // Attempt to update with a different player would require a different account.
-      // Without a second player cookie, we verify the endpoint requires auth at minimum.
-      const { status } = await apiPut(`/api/events/${eventId}`, { title: "HACKED" }, "");
+      // Without a second player session, we verify the endpoint requires auth at minimum.
+      const { status } = await apiPut(`/api/events/${eventId}`, { title: "HACKED" }, null);
       assert.ok([401, 403].includes(status),
         `Unauthenticated user should not edit an event, got ${status}`);
     });

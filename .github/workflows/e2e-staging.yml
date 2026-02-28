@@ -49,12 +49,13 @@ jobs:
       - name: Run API spec tests (requires env)
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
-          COOKIE_PLAYER: ${{ secrets.COOKIE_PLAYER }}
-          COOKIE_MOD: ${{ secrets.COOKIE_MOD }}
-          COOKIE_ADMIN: ${{ secrets.COOKIE_ADMIN }}
+          TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
+          TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
+          TEST_BACKBENCHER_EMAIL: ${{ secrets.TEST_BACKBENCHER_EMAIL }}
+          TEST_BACKBENCHER_PASSWORD: ${{ secrets.TEST_BACKBENCHER_PASSWORD }}
         run: |
-          if [ -z "$BASE_URL" ]; then
-            echo "BASE_URL not configured — skipping API spec tests"
+          if [ -z "$BASE_URL" ] || [ -z "$TEST_EMAIL" ]; then
+            echo "BASE_URL or TEST_EMAIL not configured — skipping API spec tests"
             exit 0
           fi
           node --test tests/api/*.spec.js
