@@ -63,6 +63,7 @@ function skipped(name,why){ console.log(`SKIP ${name}: ${why}`); skip++; }
   try {
     const adminCookie = await login(TEST_EMAIL, TEST_PASSWORD);
     const csrf = await getCsrf(adminCookie);
+          console.log("csrf length:", (csrf || "").length);
 
     // ── Persistence ────────────────────────────────────────────────────────
     const pressId = `press-staging-${Date.now()}`;
