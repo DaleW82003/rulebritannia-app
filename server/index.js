@@ -738,6 +738,7 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
   // ↑ Migration guards: press_items was created in an earlier schema version without these columns;
   //   ALTER TABLE ensures existing databases receive the new columns idempotently.
+  await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
 
   // ── Polling entries ───────────────────────────────────────────────────────
   await pool.query(`
@@ -1772,6 +1773,84 @@ async function ensureSchema() {
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_newspaper_articles_paper_key ON newspaper_articles(paper_key);
+  `);
+
+  // ── B) Whip status on characters ─────────────────────────────────────────
+  await pool.query(`
+    ALTER TABLE characters
+      ADD COLUMN IF NOT EXISTS whip_status TEXT NOT NULL DEFAULT 'normal'
+        CHECK (whip_status IN ('normal','withdrawn'));
+    ALTER TABLE characters
+      ADD COLUMN IF NOT EXISTS whip_withdrawn_at   TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS whip_withdrawn_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS whip_withdrawn_note TEXT;
+  `);
+
+  // ── C) Party expulsion requests ────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS party_expulsion_requests (
+      id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      party_slug         TEXT NOT NULL,
+      character_id       UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      requested_by_id    UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      reason             TEXT NOT NULL DEFAULT '',
+      status             TEXT NOT NULL DEFAULT 'pending'
+                         CHECK (status IN ('pending','approved','denied')),
+      decided_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      decided_at         TIMESTAMPTZ,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_party_expulsion_requests_party  ON party_expulsion_requests (party_slug);
+    CREATE INDEX IF NOT EXISTS idx_party_expulsion_requests_char   ON party_expulsion_requests (character_id);
+    CREATE INDEX IF NOT EXISTS idx_party_expulsion_requests_status ON party_expulsion_requests (status);
+  `);
+
+  // ── D) Party leader elections ──────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS party_leader_elections (
+      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      party_slug  TEXT NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'nominations'
+                  CHECK (status IN ('nominations','voting','runoff','closed')),
+      round       INT  NOT NULL DEFAULT 1,
+      created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+      closed_at   TIMESTAMPTZ,
+      winner_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_party_leader_elections_party  ON party_leader_elections (party_slug);
+    CREATE INDEX IF NOT EXISTS idx_party_leader_elections_status ON party_leader_elections (status);
+
+    CREATE TABLE IF NOT EXISTS party_leader_election_nominations (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      election_id  UUID NOT NULL REFERENCES party_leader_elections(id) ON DELETE CASCADE,
+      character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      nominated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (election_id, character_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS party_leader_election_votes (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      election_id  UUID NOT NULL REFERENCES party_leader_elections(id) ON DELETE CASCADE,
+      round        INT  NOT NULL DEFAULT 1,
+      voter_id     UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      nominee_id   UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      voted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (election_id, round, voter_id)
+    );
+  `);
+
+  // ── E) Privy Council members ───────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS privy_council_members (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      appointed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      appointed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      reason       TEXT NOT NULL DEFAULT '',
+      UNIQUE (character_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_privy_council_members_char ON privy_council_members (character_id);
   `);
 }
 
@@ -6423,6 +6502,9 @@ app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
  * PUT    /api/press/:id          — admin/mod: update a press item
  * DELETE /api/press/:id          — admin/mod: delete a press item
  */
+// Spec IDs for offices that automatically qualify a character for "The Right Honourable" prefix.
+const RH_QUALIFYING_SPEC_IDS = "'prime-minister','leader-opposition'";
+
 const pressReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
 const pressWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
 const MAX_TRANSCRIPT_FROM_LENGTH = 200;
@@ -6431,12 +6513,45 @@ const MAX_TRANSCRIPT_TEXT_LENGTH = 2000;
 app.get("/api/press", pressReadLimit, async (req, res) => {
   try {
     const { type } = req.query;
+    // Compute author_display_name on read: RH for privy councillors, PM, LoTO, or Third Party Leader
+    const baseQ = `
+      SELECT pi.id, pi.press_type, pi.data, pi.updated_at,
+             pi.author_character_id,
+             CASE
+               WHEN pi.author_character_id IS NULL THEN pi.data->>'author'
+               WHEN (pi.data->>'npcAuthor')::boolean IS TRUE THEN pi.data->>'author'
+               WHEN (
+                 pcm.character_id IS NOT NULL
+                 OR EXISTS (
+                   SELECT 1 FROM office_assignments oa2
+                     JOIN offices o2 ON o2.id = oa2.office_id
+                    WHERE oa2.character_id = pi.author_character_id
+                      AND o2.spec_id IN (${RH_QUALIFYING_SPEC_IDS})
+                 )
+                 OR EXISTS (
+                   SELECT 1 FROM parties
+                    WHERE leader_character_id = pi.author_character_id
+                      AND slug = '${LIBDEM_PARTY_SLUG}'
+                 )
+               ) THEN 'The Right Honourable ' || c.name
+               ELSE 'The Honourable ' || c.name
+             END AS author_display_name
+        FROM press_items pi
+        LEFT JOIN characters c ON c.id = pi.author_character_id
+        LEFT JOIN privy_council_members pcm ON pcm.character_id = pi.author_character_id
+    `;
     const q = type
-      ? "SELECT id, press_type, data, updated_at FROM press_items WHERE press_type = $1 ORDER BY updated_at DESC"
-      : "SELECT id, press_type, data, updated_at FROM press_items ORDER BY updated_at DESC";
+      ? baseQ + " WHERE pi.press_type = $1 ORDER BY pi.updated_at DESC"
+      : baseQ + " ORDER BY pi.updated_at DESC";
     const params = type ? [type] : [];
     const { rows } = await pool.query(q, params);
-    res.json({ items: rows.map((r) => normaliseDiscourseFields({ ...r.data, _pressType: r.press_type, _updatedAt: r.updated_at })) });
+    res.json({ items: rows.map((r) => normaliseDiscourseFields({
+      ...r.data,
+      _pressType: r.press_type,
+      _updatedAt: r.updated_at,
+      author_character_id: r.author_character_id,
+      author_display_name: r.author_display_name,
+    })) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6446,11 +6561,42 @@ app.get("/api/press", pressReadLimit, async (req, res) => {
 app.get("/api/press/:id", pressReadLimit, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      "SELECT id, press_type, data, updated_at FROM press_items WHERE id = $1",
+      `SELECT pi.id, pi.press_type, pi.data, pi.updated_at,
+              pi.author_character_id,
+              CASE
+                WHEN pi.author_character_id IS NULL THEN pi.data->>'author'
+                WHEN (pi.data->>'npcAuthor')::boolean IS TRUE THEN pi.data->>'author'
+                WHEN (
+                  pcm.character_id IS NOT NULL
+                  OR EXISTS (
+                    SELECT 1 FROM office_assignments oa2
+                      JOIN offices o2 ON o2.id = oa2.office_id
+                     WHERE oa2.character_id = pi.author_character_id
+                       AND o2.spec_id IN (${RH_QUALIFYING_SPEC_IDS})
+                  )
+                  OR EXISTS (
+                    SELECT 1 FROM parties
+                     WHERE leader_character_id = pi.author_character_id
+                       AND slug = '${LIBDEM_PARTY_SLUG}'
+                  )
+                ) THEN 'The Right Honourable ' || c.name
+                ELSE 'The Honourable ' || c.name
+              END AS author_display_name
+         FROM press_items pi
+         LEFT JOIN characters c ON c.id = pi.author_character_id
+         LEFT JOIN privy_council_members pcm ON pcm.character_id = pi.author_character_id
+        WHERE pi.id = $1`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Press item not found" });
-    res.json({ item: normaliseDiscourseFields({ ...rows[0].data, _pressType: rows[0].press_type, _updatedAt: rows[0].updated_at }) });
+    const r = rows[0];
+    res.json({ item: normaliseDiscourseFields({
+      ...r.data,
+      _pressType: r.press_type,
+      _updatedAt: r.updated_at,
+      author_character_id: r.author_character_id,
+      author_display_name: r.author_display_name,
+    }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6481,11 +6627,13 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
     const enriched = attachLifecycle({ ...item }, sm, sy);
+    // Store the authoring character ID (null for NPC-authored items)
+    const authorCharId = item.npcAuthor ? null : (req.session.characterId || null);
     const { rows } = await pool.query(
-      `INSERT INTO press_items (id, press_type, data) VALUES ($1, $2, $3::jsonb)
+      `INSERT INTO press_items (id, press_type, data, author_character_id) VALUES ($1, $2, $3::jsonb, $4)
        ON CONFLICT (id) DO UPDATE SET press_type = EXCLUDED.press_type, data = EXCLUDED.data, updated_at = NOW()
        RETURNING id, updated_at`,
-      [enriched.id, press_type, JSON.stringify(enriched)]
+      [enriched.id, press_type, JSON.stringify(enriched), authorCharId]
     );
     await writeAuditLog(req.session.userId, "press.create", "press_items", enriched.id, null, enriched);
     res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
@@ -8604,6 +8752,86 @@ app.post("/api/mod/property/set", propertyWriteLimit, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// WHIP DISCIPLINE
+// POST /api/characters/:id/whip/withdraw — party leader / chief whip / admin / mod
+// POST /api/characters/:id/whip/restore  — party leader / chief whip / admin / mod
+// ═══════════════════════════════════════════════════════════════════════════
+
+const whipWriteLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+
+async function canManageWhip(req, characterParty) {
+  const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  if (sessionRoles.includes("admin") || sessionRoles.includes("mod")) return true;
+  if (!req.session.characterId) return false;
+  const { rows } = await pool.query(
+    `SELECT p.leader_character_id, p.chief_whip_character_id
+       FROM parties p WHERE p.slug = $1`,
+    [characterParty]
+  );
+  if (!rows.length) return false;
+  const { leader_character_id, chief_whip_character_id } = rows[0];
+  return (
+    String(req.session.characterId) === String(leader_character_id) ||
+    String(req.session.characterId) === String(chief_whip_character_id)
+  );
+}
+
+app.post("/api/characters/:id/whip/withdraw", whipWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows: charRows } = await pool.query(
+      "SELECT id, name, party, whip_status FROM characters WHERE id = $1 AND is_active = TRUE",
+      [req.params.id]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "Character not found or inactive" });
+    const char = charRows[0];
+    if (!(await canManageWhip(req, char.party))) {
+      return res.status(403).json({ error: "Only party leader, chief whip, admin or mod may withdraw the whip" });
+    }
+    if (char.whip_status === "withdrawn") return res.status(409).json({ error: "Whip already withdrawn" });
+    const note = String(req.body?.note || "").slice(0, 500);
+    await pool.query(
+      `UPDATE characters SET whip_status = 'withdrawn', whip_withdrawn_at = NOW(),
+         whip_withdrawn_by = $1, whip_withdrawn_note = $2 WHERE id = $3`,
+      [req.session.userId, note, req.params.id]
+    );
+    await writeAuditLog(req.session.userId, "whip.withdraw", "character", req.params.id,
+      { whip_status: "normal" }, { whip_status: "withdrawn", note });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/characters/:id/whip/withdraw]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/characters/:id/whip/restore", whipWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows: charRows } = await pool.query(
+      "SELECT id, name, party, whip_status FROM characters WHERE id = $1 AND is_active = TRUE",
+      [req.params.id]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "Character not found or inactive" });
+    const char = charRows[0];
+    if (!(await canManageWhip(req, char.party))) {
+      return res.status(403).json({ error: "Only party leader, chief whip, admin or mod may restore the whip" });
+    }
+    if (char.whip_status === "normal") return res.status(409).json({ error: "Whip is not withdrawn" });
+    await pool.query(
+      `UPDATE characters SET whip_status = 'normal', whip_withdrawn_at = NULL,
+         whip_withdrawn_by = NULL, whip_withdrawn_note = NULL WHERE id = $1`,
+      [req.params.id]
+    );
+    await writeAuditLog(req.session.userId, "whip.restore", "character", req.params.id,
+      { whip_status: "withdrawn" }, { whip_status: "normal" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/characters/:id/whip/restore]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // PARTIES (DB-backed leadership)
 // GET  /api/parties/:partyId           — authenticated: get party info
 // POST /api/parties/:partyId/leadership — authenticated: set chairman/whip (leader or admin/mod)
@@ -10458,7 +10686,574 @@ app.post("/api/parties/:partyId/drafts", partyWriteLimit, async (req, res) => {
   }
 });
 
-// ── Cabinet & Shadow Cabinet drafts (DB-backed) ───────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// PARTY EXPULSION WORKFLOW (C)
+// POST /api/parties/:partyId/expulsions            — party leader initiates
+// GET  /api/mod/expulsions                         — admin/mod: list (filter by ?status=)
+// POST /api/mod/expulsions/:id/approve             — admin/mod
+// POST /api/mod/expulsions/:id/deny                — admin/mod
+// ═══════════════════════════════════════════════════════════════════════════
+
+const expulsionWriteLimit = rateLimit({ windowMs: 60_000, max: 10, standardHeaders: true, legacyHeaders: false });
+const expulsionReadLimit  = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/parties/:partyId/expulsions", expulsionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+
+    // Must be party leader or admin/mod
+    if (!isAdminOrMod) {
+      if (!req.session.characterId) return res.status(403).json({ error: "No active character" });
+      const { rows: partyRows } = await pool.query(
+        "SELECT leader_character_id FROM parties WHERE slug = $1", [req.params.partyId]
+      );
+      if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
+      if (String(partyRows[0].leader_character_id) !== String(req.session.characterId)) {
+        return res.status(403).json({ error: "Only the party leader or admin/mod can request expulsion" });
+      }
+    }
+
+    const { character_id, reason = "" } = req.body || {};
+    if (!character_id) return res.status(400).json({ error: "character_id is required" });
+
+    // Validate target character belongs to this party
+    const { rows: charRows } = await pool.query(
+      "SELECT id, name, party FROM characters WHERE id = $1 AND is_active = TRUE", [character_id]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "Character not found or inactive" });
+    if (charRows[0].party.toLowerCase() !== req.params.partyId.toLowerCase()) {
+      return res.status(409).json({ error: "Character does not belong to this party" });
+    }
+
+    // Prevent duplicate pending request
+    const { rows: existing } = await pool.query(
+      "SELECT id FROM party_expulsion_requests WHERE character_id = $1 AND status = 'pending'", [character_id]
+    );
+    if (existing.length) return res.status(409).json({ error: "A pending expulsion request already exists for this character" });
+
+    // Get requestor character id
+    let requestedById = req.session.characterId;
+    if (isAdminOrMod && !requestedById) {
+      // Use the party leader as the nominal requestor when staff act directly
+      const { rows: partyRows2 } = await pool.query(
+        "SELECT leader_character_id FROM parties WHERE slug = $1", [req.params.partyId]
+      );
+      requestedById = partyRows2[0]?.leader_character_id || null;
+    }
+    if (!requestedById) return res.status(400).json({ error: "Could not determine requesting character" });
+
+    const { rows: newRow } = await pool.query(
+      `INSERT INTO party_expulsion_requests (party_slug, character_id, requested_by_id, reason)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [req.params.partyId, character_id, requestedById, String(reason).slice(0, 1000)]
+    );
+    await writeAuditLog(req.session.userId, "expulsion.request", "character", character_id,
+      {}, { party_slug: req.params.partyId, reason });
+    res.status(201).json({ ok: true, request: newRow[0] });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/expulsions]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/mod/expulsions", expulsionReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const statusFilter = req.query.status || "pending";
+    const valid = ["pending", "approved", "denied", "all"];
+    const where = valid.includes(statusFilter) && statusFilter !== "all"
+      ? "WHERE r.status = $1" : "";
+    const params = where ? [statusFilter] : [];
+    const { rows } = await pool.query(
+      `SELECT r.*, c.name AS character_name, c.party AS character_party,
+              rb.name AS requested_by_name
+         FROM party_expulsion_requests r
+         JOIN characters c  ON c.id  = r.character_id
+         JOIN characters rb ON rb.id = r.requested_by_id
+         ${where}
+         ORDER BY r.created_at DESC`,
+      params
+    );
+    res.json({ requests: rows });
+  } catch (e) {
+    console.error("[GET /api/mod/expulsions]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/mod/expulsions/:id/approve", expulsionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT * FROM party_expulsion_requests WHERE id = $1", [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Expulsion request not found" });
+    const request = rows[0];
+    if (request.status !== "pending") return res.status(409).json({ error: "Request is not pending" });
+
+    // Move character to Independents and clear party roles
+    await pool.query(
+      `UPDATE characters SET party = 'Independents', roles = '[]'::jsonb, offices = '[]'::jsonb
+         WHERE id = $1`,
+      [request.character_id]
+    );
+    // Clear any party leadership role for this character
+    await pool.query(
+      `UPDATE parties SET
+         leader_character_id      = CASE WHEN leader_character_id      = $1 THEN NULL ELSE leader_character_id END,
+         chairman_character_id    = CASE WHEN chairman_character_id    = $1 THEN NULL ELSE chairman_character_id END,
+         whip_character_id        = CASE WHEN whip_character_id        = $1 THEN NULL ELSE whip_character_id END,
+         chief_whip_character_id  = CASE WHEN chief_whip_character_id  = $1 THEN NULL ELSE chief_whip_character_id END,
+         deputy_whip_character_id = CASE WHEN deputy_whip_character_id = $1 THEN NULL ELSE deputy_whip_character_id END
+       WHERE slug = $2`,
+      [request.character_id, request.party_slug]
+    );
+    await pool.query(
+      `UPDATE party_expulsion_requests SET status = 'approved', decided_by_user_id = $1, decided_at = NOW()
+         WHERE id = $2`,
+      [req.session.userId, req.params.id]
+    );
+    await writeAuditLog(req.session.userId, "expulsion.approve", "character", request.character_id,
+      { party: request.party_slug }, { party: "Independents" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/mod/expulsions/:id/approve]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/mod/expulsions/:id/deny", expulsionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT * FROM party_expulsion_requests WHERE id = $1", [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Expulsion request not found" });
+    if (rows[0].status !== "pending") return res.status(409).json({ error: "Request is not pending" });
+    await pool.query(
+      `UPDATE party_expulsion_requests SET status = 'denied', decided_by_user_id = $1, decided_at = NOW()
+         WHERE id = $2`,
+      [req.session.userId, req.params.id]
+    );
+    await writeAuditLog(req.session.userId, "expulsion.deny", "character", rows[0].character_id,
+      { status: "pending" }, { status: "denied" });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/mod/expulsions/:id/deny]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PARTY LEADER ELECTIONS (D)
+// GET  /api/parties/:partyId/elections             — authenticated
+// POST /api/parties/:partyId/elections             — admin/mod: start election
+// GET  /api/parties/:partyId/elections/:id         — authenticated
+// POST /api/parties/:partyId/elections/:id/nominate — authenticated party member
+// POST /api/parties/:partyId/elections/:id/vote    — authenticated party member
+// POST /api/parties/:partyId/elections/:id/close   — admin/mod
+// POST /api/parties/:partyId/elections/:id/runoff  — admin/mod: advance to runoff
+// ═══════════════════════════════════════════════════════════════════════════
+
+const electionReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const electionWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/parties/:partyId/elections", electionReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT e.*, w.name AS winner_name
+         FROM party_leader_elections e
+         LEFT JOIN characters w ON w.id = e.winner_character_id
+        WHERE e.party_slug = $1
+        ORDER BY e.created_at DESC`,
+      [req.params.partyId]
+    );
+    res.json({ elections: rows });
+  } catch (e) {
+    console.error("[GET /api/parties/:partyId/elections]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/parties/:partyId/elections", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows: partyRows } = await pool.query("SELECT id FROM parties WHERE slug = $1", [req.params.partyId]);
+    if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
+    // Close any existing open election first
+    await pool.query(
+      `UPDATE party_leader_elections SET status = 'closed', closed_at = NOW()
+         WHERE party_slug = $1 AND status NOT IN ('closed')`,
+      [req.params.partyId]
+    );
+    const { rows: newRows } = await pool.query(
+      `INSERT INTO party_leader_elections (party_slug, created_by) VALUES ($1, $2) RETURNING *`,
+      [req.params.partyId, req.session.userId]
+    );
+    res.status(201).json({ ok: true, election: newRows[0] });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/elections]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/parties/:partyId/elections/:id", electionReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows: eRows } = await pool.query(
+      "SELECT * FROM party_leader_elections WHERE id = $1 AND party_slug = $2",
+      [req.params.id, req.params.partyId]
+    );
+    if (!eRows.length) return res.status(404).json({ error: "Election not found" });
+    const election = eRows[0];
+
+    const [{ rows: nominations }, { rows: votes }] = await Promise.all([
+      pool.query(
+        `SELECT n.character_id, c.name AS character_name
+           FROM party_leader_election_nominations n
+           JOIN characters c ON c.id = n.character_id
+          WHERE n.election_id = $1`,
+        [election.id]
+      ),
+      pool.query(
+        `SELECT v.round, v.nominee_id, c.name AS nominee_name, COUNT(*) AS vote_count
+           FROM party_leader_election_votes v
+           JOIN characters c ON c.id = v.nominee_id
+          WHERE v.election_id = $1
+          GROUP BY v.round, v.nominee_id, c.name
+          ORDER BY v.round, vote_count DESC`,
+        [election.id]
+      ),
+    ]);
+
+    // Has current user voted in current round?
+    let myVote = null;
+    if (req.session.characterId) {
+      const { rows: myVoteRows } = await pool.query(
+        `SELECT nominee_id FROM party_leader_election_votes
+          WHERE election_id = $1 AND round = $2 AND voter_id = $3`,
+        [election.id, election.round, req.session.characterId]
+      );
+      myVote = myVoteRows[0]?.nominee_id || null;
+    }
+
+    res.json({ election, nominations, votes, myVote });
+  } catch (e) {
+    console.error("[GET /api/parties/:partyId/elections/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/parties/:partyId/elections/:id/nominate", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows: eRows } = await pool.query(
+      "SELECT * FROM party_leader_elections WHERE id = $1 AND party_slug = $2",
+      [req.params.id, req.params.partyId]
+    );
+    if (!eRows.length) return res.status(404).json({ error: "Election not found" });
+    if (eRows[0].status !== "nominations") return res.status(409).json({ error: "Election is not in nominations phase" });
+
+    const { character_id } = req.body || {};
+    if (!character_id) return res.status(400).json({ error: "character_id is required" });
+
+    // Verify character is a party member
+    const { rows: charRows } = await pool.query(
+      "SELECT id, party FROM characters WHERE id = $1 AND is_active = TRUE", [character_id]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "Character not found or inactive" });
+    if (charRows[0].party.toLowerCase() !== req.params.partyId.toLowerCase()) {
+      return res.status(409).json({ error: "Character must be a member of this party to be nominated" });
+    }
+
+    const { rows: nomRows } = await pool.query(
+      `INSERT INTO party_leader_election_nominations (election_id, character_id)
+       VALUES ($1, $2) ON CONFLICT (election_id, character_id) DO NOTHING RETURNING id`,
+      [req.params.id, character_id]
+    );
+    if (!nomRows.length) return res.status(409).json({ error: "Already nominated" });
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/elections/:id/nominate]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/parties/:partyId/elections/:id/vote", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows: eRows } = await pool.query(
+      "SELECT * FROM party_leader_elections WHERE id = $1 AND party_slug = $2",
+      [req.params.id, req.params.partyId]
+    );
+    if (!eRows.length) return res.status(404).json({ error: "Election not found" });
+    const election = eRows[0];
+    if (!["voting", "runoff"].includes(election.status)) {
+      return res.status(409).json({ error: "Election is not open for voting" });
+    }
+
+    if (!req.session.characterId) return res.status(403).json({ error: "No active character" });
+    // Voter must be a party MP
+    const { rows: voterRows } = await pool.query(
+      "SELECT id, party FROM characters WHERE id = $1 AND is_active = TRUE", [req.session.characterId]
+    );
+    if (!voterRows.length) return res.status(403).json({ error: "No active character" });
+    if (voterRows[0].party.toLowerCase() !== req.params.partyId.toLowerCase()) {
+      return res.status(403).json({ error: "Only party members may vote" });
+    }
+
+    const { nominee_id } = req.body || {};
+    if (!nominee_id) return res.status(400).json({ error: "nominee_id is required" });
+
+    // Nominee must be nominated (or a runoff finalist)
+    const { rows: nomCheck } = await pool.query(
+      "SELECT id FROM party_leader_election_nominations WHERE election_id = $1 AND character_id = $2",
+      [req.params.id, nominee_id]
+    );
+    if (!nomCheck.length) return res.status(409).json({ error: "Nominee is not in this election" });
+
+    const { rows: voteRows } = await pool.query(
+      `INSERT INTO party_leader_election_votes (election_id, round, voter_id, nominee_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (election_id, round, voter_id) DO UPDATE SET nominee_id = EXCLUDED.nominee_id, voted_at = NOW()
+       RETURNING id`,
+      [req.params.id, election.round, req.session.characterId, nominee_id]
+    );
+    res.json({ ok: true, voteId: voteRows[0].id });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/elections/:id/vote]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/parties/:partyId/elections/:id/close", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows: eRows } = await pool.query(
+      "SELECT * FROM party_leader_elections WHERE id = $1 AND party_slug = $2",
+      [req.params.id, req.params.partyId]
+    );
+    if (!eRows.length) return res.status(404).json({ error: "Election not found" });
+    const election = eRows[0];
+    if (election.status === "closed") return res.status(409).json({ error: "Election already closed" });
+
+    // Tally votes for current round
+    const { rows: tallyRows } = await pool.query(
+      `SELECT nominee_id, COUNT(*) AS vote_count
+         FROM party_leader_election_votes
+        WHERE election_id = $1 AND round = $2
+        GROUP BY nominee_id ORDER BY vote_count DESC`,
+      [election.id, election.round]
+    );
+    const totalVoters = tallyRows.reduce((s, r) => s + Number(r.vote_count), 0);
+    const winner = tallyRows[0] || null;
+    const winnerId = winner && (Number(winner.vote_count) * 2 > totalVoters) ? winner.nominee_id : null;
+
+    // Update election: mark closed with winner (may be null if runoff needed)
+    await pool.query(
+      `UPDATE party_leader_elections SET status = 'closed', closed_at = NOW(), winner_character_id = $1
+         WHERE id = $2`,
+      [winnerId || null, election.id]
+    );
+
+    // If there's a clear winner, update party leader
+    if (winnerId) {
+      await pool.query(
+        "UPDATE parties SET leader_character_id = $1, updated_at = NOW() WHERE slug = $2",
+        [winnerId, req.params.partyId]
+      );
+      await writeAuditLog(req.session.userId, "party.leader.election.winner", "party", req.params.partyId,
+        {}, { winner_character_id: winnerId });
+    }
+
+    res.json({ ok: true, winnerId, tally: tallyRows });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/elections/:id/close]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/parties/:partyId/elections/:id/runoff", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows: eRows } = await pool.query(
+      "SELECT * FROM party_leader_elections WHERE id = $1 AND party_slug = $2",
+      [req.params.id, req.params.partyId]
+    );
+    if (!eRows.length) return res.status(404).json({ error: "Election not found" });
+    const election = eRows[0];
+    if (!["nominations", "voting"].includes(election.status)) {
+      return res.status(409).json({ error: "Runoff can only be initiated from nominations or voting phase" });
+    }
+
+    // Identify top 2 nominees from last round (or all nominations if no votes yet)
+    const { rows: tallyRows } = await pool.query(
+      `SELECT nominee_id FROM party_leader_election_votes
+        WHERE election_id = $1 AND round = $2
+        GROUP BY nominee_id ORDER BY COUNT(*) DESC LIMIT 2`,
+      [election.id, election.round]
+    );
+    const top2 = tallyRows.map((r) => r.nominee_id);
+
+    // If no votes yet, use first 2 nominations
+    if (!top2.length) {
+      const { rows: nomRows } = await pool.query(
+        "SELECT character_id FROM party_leader_election_nominations WHERE election_id = $1 LIMIT 2",
+        [election.id]
+      );
+      top2.push(...nomRows.map((r) => r.character_id));
+    }
+
+    if (top2.length < 2) return res.status(409).json({ error: "Need at least 2 nominees for a runoff" });
+
+    // Remove non-top-2 nominations (use ANY with typed array parameter to avoid injection)
+    await pool.query(
+      `DELETE FROM party_leader_election_nominations
+         WHERE election_id = $1 AND character_id != ALL($2::uuid[])`,
+      [election.id, top2]
+    );
+    const newRound = election.round + 1;
+    await pool.query(
+      `UPDATE party_leader_elections SET status = 'runoff', round = $1 WHERE id = $2`,
+      [newRound, election.id]
+    );
+    res.json({ ok: true, round: newRound, runoffCandidates: top2 });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/elections/:id/runoff]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Start voting phase for an election (move from nominations → voting)
+app.post("/api/parties/:partyId/elections/:id/open-voting", electionWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows: eRows } = await pool.query(
+      "SELECT * FROM party_leader_elections WHERE id = $1 AND party_slug = $2",
+      [req.params.id, req.params.partyId]
+    );
+    if (!eRows.length) return res.status(404).json({ error: "Election not found" });
+    if (eRows[0].status !== "nominations") return res.status(409).json({ error: "Election is not in nominations phase" });
+    await pool.query(
+      "UPDATE party_leader_elections SET status = 'voting' WHERE id = $1",
+      [req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/elections/:id/open-voting]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRIVY COUNCIL (E)
+// GET  /api/privy-council              — privy councillors + staff (admin/mod/speaker)
+// POST /api/mod/privy-council/appoint  — admin/mod
+// POST /api/mod/privy-council/remove   — admin/mod (restricted to non-permanent members)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const privyReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const privyWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/privy-council", privyReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    // Access gated: only privy councillors and staff (admin/mod/speaker)
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+
+    if (!isStaff) {
+      // Check if current active character is a privy councillor
+      if (!req.session.characterId) return res.status(403).json({ error: "Access restricted to Privy Councillors and staff" });
+      const { rows: pcCheck } = await pool.query(
+        "SELECT id FROM privy_council_members WHERE character_id = $1", [req.session.characterId]
+      );
+      if (!pcCheck.length) return res.status(403).json({ error: "Access restricted to Privy Councillors and staff" });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT pcm.id, pcm.character_id, pcm.appointed_at, pcm.reason,
+              c.name AS character_name, c.party AS character_party, c.avatar AS character_avatar
+         FROM privy_council_members pcm
+         JOIN characters c ON c.id = pcm.character_id
+         ORDER BY pcm.appointed_at ASC`
+    );
+    res.json({ members: rows });
+  } catch (e) {
+    console.error("[GET /api/privy-council]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/mod/privy-council/appoint", privyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { character_id, reason = "" } = req.body || {};
+    if (!character_id) return res.status(400).json({ error: "character_id is required" });
+
+    const { rows: charRows } = await pool.query(
+      "SELECT id, name FROM characters WHERE id = $1 AND is_active = TRUE", [character_id]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "Character not found or inactive" });
+
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO privy_council_members (character_id, appointed_by, reason)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (character_id) DO NOTHING RETURNING id`,
+      [character_id, req.session.userId, String(reason).slice(0, 500)]
+    );
+    if (!inserted.length) return res.status(409).json({ error: "Character is already a Privy Councillor" });
+    await writeAuditLog(req.session.userId, "privy_council.appoint", "character", character_id,
+      {}, { reason });
+    res.status(201).json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/mod/privy-council/appoint]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/mod/privy-council/remove", privyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { character_id, force = false } = req.body || {};
+    if (!character_id) return res.status(400).json({ error: "character_id is required" });
+
+    // Guard: block removal of characters who currently hold a permanent qualifying office
+    // (PM, LoTO, Third Party Leader — these positions carry automatic lifetime PC membership).
+    // Pass force: true in the request body to override (e.g. to correct a mistaken appointment).
+    if (!force) {
+      const { rows: permCheck } = await pool.query(
+        `SELECT 1 FROM office_assignments oa
+           JOIN offices o ON o.id = oa.office_id
+          WHERE oa.character_id = $1 AND o.spec_id IN (${RH_QUALIFYING_SPEC_IDS})
+         UNION ALL
+         SELECT 1 FROM parties
+          WHERE leader_character_id = $1 AND slug = '${LIBDEM_PARTY_SLUG}'
+         LIMIT 1`,
+        [character_id]
+      );
+      if (permCheck.length) {
+        return res.status(409).json({
+          error: "Cannot remove a Privy Councillor who currently holds a permanent qualifying office (PM, LoTO, or Third Party Leader). Pass force: true to override for mistaken appointments."
+        });
+      }
+    }
+
+    const { rowCount } = await pool.query(
+      "DELETE FROM privy_council_members WHERE character_id = $1", [character_id]
+    );
+    if (!rowCount) return res.status(404).json({ error: "Character is not a Privy Councillor" });
+    await writeAuditLog(req.session.userId, "privy_council.remove", "character", character_id, {}, { forced: !!force });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/mod/privy-council/remove]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 const groupDraftReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
 const groupDraftWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
 
@@ -11139,25 +11934,30 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 
     // Get character name and party for weight computation and rebellion check
     const { rows: charRows } = await pool.query(
-      "SELECT name, party FROM characters WHERE id = $1", [charId]
+      "SELECT name, party, whip_status FROM characters WHERE id = $1", [charId]
     );
-    const charParty = charRows[0]?.party || null;
-    const charName  = charRows[0]?.name  || null;
+    const charParty      = charRows[0]?.party       || null;
+    const charName       = charRows[0]?.name        || null;
+    const whipWithdrawn  = charRows[0]?.whip_status === "withdrawn";
 
     // Compute effective weight server-side:
     //   seats from constituencies DB (authoritative source)
     //   player list from game state (for absence/delegation)
+    //   MPs with whip withdrawn vote as Independents with weight=1
     let effectiveWeight = 1;
     try {
-      const seatsByParty = await getPartySeatsFromConstituencies(pool);
-      const { rows: stateRows } = await pool.query(
-        `SELECT ss.data FROM state_snapshots ss
-           JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
-          WHERE asc2.id = 'main'`
-      );
-      const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-      const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
-      effectiveWeight = Number(effectiveWeights[charName] || 0);
+      if (!whipWithdrawn) {
+        const seatsByParty = await getPartySeatsFromConstituencies(pool);
+        const { rows: stateRows } = await pool.query(
+          `SELECT ss.data FROM state_snapshots ss
+             JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+            WHERE asc2.id = 'main'`
+        );
+        const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
+        const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
+        effectiveWeight = Number(effectiveWeights[charName] || 0);
+      }
+      // whipWithdrawn: effectiveWeight stays 1
     } catch (wErr) {
       console.error("[division.vote weight-calc]", wErr.message);
       // Fall back to weight=1 so the vote is still recorded
