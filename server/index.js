@@ -5086,11 +5086,12 @@ app.get("/api/bills", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT id, data, updated_at, author_character_id FROM bills ORDER BY updated_at DESC");
-    const bills = await Promise.all(rows.map(async (r) => {
-      const author_display_name = r.author_character_id
-        ? await getCharacterDisplayName(pool, r.author_character_id, r.data?.author || "")
-        : (r.data?.author || "");
-      return normaliseDiscourseFields({ ...r.data, author_display_name, _updatedAt: r.updated_at });
+    const entries = rows.map((r) => ({ id: r.author_character_id || null, fallback: r.data?.author || "" }));
+    const displayNames = await batchGetCharacterDisplayNames(pool, entries);
+    const bills = rows.map((r, i) => normaliseDiscourseFields({
+      ...r.data,
+      author_display_name: displayNames[i],
+      _updatedAt: r.updated_at,
     }));
     res.json({ bills });
   } catch (e) {
@@ -5738,12 +5739,12 @@ app.get("/api/bills/:id/amendments", crudReadLimit, async (req, res) => {
       [req.params.id]
     );
     // Enrich proposed_by_name with formatted parliamentary display name
-    const amendments = await Promise.all(rows.map(async (a) => ({
+    const entries = rows.map((a) => ({ id: a.proposed_by_id || null, fallback: a.proposed_by_name || "" }));
+    const displayNames = await batchGetCharacterDisplayNames(pool, entries);
+    const amendments = rows.map((a, i) => ({
       ...a,
-      proposed_by_display_name: a.proposed_by_id
-        ? await getCharacterDisplayName(pool, a.proposed_by_id, a.proposed_by_name || "")
-        : (a.proposed_by_name || ""),
-    })));
+      proposed_by_display_name: displayNames[i],
+    }));
     res.json({ amendments });
   } catch (e) {
     console.error(e);
@@ -5965,6 +5966,40 @@ async function getCharacterDisplayName(pool, characterId, fallbackName = "") {
   const bareName = rows[0]?.name || fallbackName || "";
   const meta = await getCharacterParliamentaryMeta(pool, characterId);
   return formatParliamentaryName({ bareName, isRH: meta.is_rh, isMP: meta.is_mp, isPC: meta.is_pc });
+}
+
+/**
+ * Efficiently compute display names for many characters in a single DB round-trip.
+ * Returns an array of display name strings in the same order as the input entries.
+ * Null/undefined IDs use the entry's fallback string directly.
+ * @param {Array<{ id: string|null|undefined, fallback: string }>} entries
+ * @returns {Promise<string[]>}
+ */
+async function batchGetCharacterDisplayNames(pool, entries) {
+  const ids = [...new Set(entries.map((e) => e.id).filter(Boolean))];
+  if (!ids.length) {
+    return entries.map((e) => e.fallback || "");
+  }
+
+  const thirdPartySlug = await getThirdPartySlug(pool);
+  const { rows } = await pool.query(
+    `SELECT c.id, c.name, c.rh_ever,
+            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
+            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc_ever,
+            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
+            EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
+            EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
+       FROM characters c WHERE c.id = ANY($1::uuid[])`,
+    [ids, thirdPartySlug]
+  );
+
+  const byId = Object.fromEntries(rows.map((r) => {
+    const is_rh = Boolean(r.rh_ever || r.is_privy_current || r.has_cabinet_office || r.is_third_party_leader);
+    const is_pc = Boolean(r.rh_ever || r.is_pc_ever);
+    return [r.id, formatParliamentaryName({ bareName: r.name || "", isRH: is_rh, isMP: Boolean(r.is_mp), isPC: is_pc })];
+  }));
+
+  return entries.map((e) => (e.id ? (byId[e.id] ?? (e.fallback || "")) : (e.fallback || "")));
 }
 
 
@@ -6446,11 +6481,12 @@ app.get("/api/regulations", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT id, data, updated_at, author_character_id FROM regulations ORDER BY updated_at DESC");
-    const regulations = await Promise.all(rows.map(async (r) => {
-      const author_display_name = r.author_character_id
-        ? await getCharacterDisplayName(pool, r.author_character_id, r.data?.author || "")
-        : (r.data?.author || "");
-      return normaliseDiscourseFields({ ...r.data, author_display_name, _updatedAt: r.updated_at });
+    const entries = rows.map((r) => ({ id: r.author_character_id || null, fallback: r.data?.author || "" }));
+    const displayNames = await batchGetCharacterDisplayNames(pool, entries);
+    const regulations = rows.map((r, i) => normaliseDiscourseFields({
+      ...r.data,
+      author_display_name: displayNames[i],
+      _updatedAt: r.updated_at,
     }));
     res.json({ regulations });
   } catch (e) {
@@ -6491,7 +6527,7 @@ app.post("/api/regulations", crudWriteLimit, async (req, res) => {
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
     const enriched = attachLifecycle({ ...reg }, sm, sy);
-    const authorCharId = await getActiveCharacterId(req) || null;
+    const authorCharId = reg.npc ? null : (await getActiveCharacterId(req) || null);
     const { rows } = await pool.query(
       `INSERT INTO regulations (id, data, author_character_id) VALUES ($1, $2::jsonb, $3)
        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
