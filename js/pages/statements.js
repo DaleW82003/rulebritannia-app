@@ -139,7 +139,8 @@ function render(data) {
 
     const number = Number(data.statements.nextNumber || (data.statements.items.length + 1));
     const close = plusSimMonths(sim.month, sim.year, 2);
-    const author = getCharacterContext(data)?.name || "Government Minister";
+    const currentChar = getCharacterContext(data);
+    const author = currentChar?.display_name || currentChar?.name || "Government Minister";
 
     const statement = {
       id: `ms-${String(number).padStart(3, "0")}`,
@@ -147,6 +148,8 @@ function render(data) {
       title,
       body,
       author,
+      author_display_name: author,
+      author_character_id: currentChar?.id || null,
       status: "open",
       openedAtSim: sim.label,
       closesAtSim: formatSimDate(close.month, close.year),

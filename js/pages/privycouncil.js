@@ -26,7 +26,7 @@ function render(members, data, state, manager) {
                 ${m.character_avatar ? `<img src="${esc(m.character_avatar)}" alt="${esc(m.character_name)}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;">` : `<div class="muted-block" style="width:40px;height:40px;display:grid;place-items:center;padding:0;">👤</div>`}
               </div>
               <div>
-                <div style="font-weight:700;">${esc(formatMPName(m.character_name, { isPrivy: true }))}</div>
+                <div style="font-weight:700;">${esc(m.character_display_name || formatMPName(m.character_name, { isPrivy: true }))}</div>
                 <div class="muted" style="font-size:0.85em;">${esc(m.character_party || "")}${m.reason ? ` — ${esc(m.reason)}` : ""}</div>
                 <div class="muted" style="font-size:0.8em;">Appointed: ${new Date(m.appointed_at).toLocaleDateString("en-GB", { year: "numeric", month: "long", day: "numeric" })}</div>
               </div>

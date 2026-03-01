@@ -280,7 +280,7 @@ export function initSubmitBillPage(data) {
     if (canPostAsNpc) {
       permission.innerHTML = `<div class="muted-block">Staff: select whether to post as your character or as an NPC using the controls below.</div>`;
     } else {
-      permission.innerHTML = `<div class="muted-block">Submitting as <b>${esc(currentCharacter(data).name || "MP")}</b>. PMBs are available to all MPs. Government bills are for PM / Leader of the House. Opposition bills are capped yearly (Leader of the Opposition: 3; Third Party Leader: 1).</div>`;
+      permission.innerHTML = `<div class="muted-block">Submitting as <b>${esc(currentCharacter(data).display_name || currentCharacter(data).name || "MP")}</b>. PMBs are available to all MPs. Government bills are for PM / Leader of the House. Opposition bills are capped yearly (Leader of the Opposition: 3; Third Party Leader: 1).</div>`;
     }
   }
 
@@ -337,7 +337,7 @@ export function initSubmitBillPage(data) {
     const department = form.querySelector("#billDepartmentInput").value || "Cabinet Office (General)";
     const now = Date.now();
 
-    const author = isNpcPost ? `${npcName} [NPC]` : (c.name || "Unknown MP");
+    const author = isNpcPost ? `${npcName} [NPC]` : (c.display_name || c.name || "Unknown MP");
 
     let billType = "pmb";
     let stage = "First Reading";
