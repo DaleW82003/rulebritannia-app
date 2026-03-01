@@ -1386,6 +1386,8 @@ async function ensureSchema() {
     );
     INSERT INTO parliament_status (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
   `);
+  // Migration: add opposition_parties column for explicit opposition alignment.
+  await pool.query(`ALTER TABLE parliament_status ADD COLUMN IF NOT EXISTS opposition_parties JSONB NOT NULL DEFAULT '[]'::jsonb`);
 
   // Migration: add new columns to elections and election_party_summary.
   await pool.query(`
@@ -15326,12 +15328,13 @@ app.get("/api/parliament/status", parlStatusReadLimit, async (req, res) => {
   try {
     if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
     const { rows } = await pool.query("SELECT * FROM parliament_status WHERE id = 'main'");
-    if (!rows.length) return res.json({ governmentType: "Majority", governingParties: [], confidenceSupplyParties: [] });
+    if (!rows.length) return res.json({ governmentType: "Majority", governingParties: [], confidenceSupplyParties: [], oppositionParties: [] });
     const r = rows[0];
     res.json({
       governmentType: r.government_type,
       governingParties: Array.isArray(r.governing_parties) ? r.governing_parties : [],
       confidenceSupplyParties: Array.isArray(r.confidence_supply_parties) ? r.confidence_supply_parties : [],
+      oppositionParties: Array.isArray(r.opposition_parties) ? r.opposition_parties : [],
       updatedAt: r.updated_at,
     });
   } catch (e) {
@@ -15343,22 +15346,23 @@ app.get("/api/parliament/status", parlStatusReadLimit, async (req, res) => {
 app.put("/api/parliament/status", parlStatusWriteLimit, async (req, res) => {
   try {
     if (!requireAdminModOrSpeaker(req, res)) return;
-    const { governmentType, governingParties = [], confidenceSupplyParties = [] } = req.body || {};
+    const { governmentType, governingParties = [], confidenceSupplyParties = [], oppositionParties = [] } = req.body || {};
     if (!VALID_GOV_TYPES.includes(governmentType)) {
       return res.status(400).json({ error: `governmentType must be one of: ${VALID_GOV_TYPES.join(", ")}` });
     }
-    if (!Array.isArray(governingParties) || !Array.isArray(confidenceSupplyParties)) {
-      return res.status(400).json({ error: "governingParties and confidenceSupplyParties must be arrays" });
+    if (!Array.isArray(governingParties) || !Array.isArray(confidenceSupplyParties) || !Array.isArray(oppositionParties)) {
+      return res.status(400).json({ error: "governingParties, confidenceSupplyParties and oppositionParties must be arrays" });
     }
     await pool.query(
-      `INSERT INTO parliament_status (id, government_type, governing_parties, confidence_supply_parties, updated_at)
-       VALUES ('main', $1, $2::jsonb, $3::jsonb, NOW())
+      `INSERT INTO parliament_status (id, government_type, governing_parties, confidence_supply_parties, opposition_parties, updated_at)
+       VALUES ('main', $1, $2::jsonb, $3::jsonb, $4::jsonb, NOW())
        ON CONFLICT (id) DO UPDATE
          SET government_type           = EXCLUDED.government_type,
              governing_parties         = EXCLUDED.governing_parties,
              confidence_supply_parties = EXCLUDED.confidence_supply_parties,
+             opposition_parties        = EXCLUDED.opposition_parties,
              updated_at                = NOW()`,
-      [governmentType, JSON.stringify(governingParties), JSON.stringify(confidenceSupplyParties)]
+      [governmentType, JSON.stringify(governingParties), JSON.stringify(confidenceSupplyParties), JSON.stringify(oppositionParties)]
     );
     await writeAuditLog(req.session.userId, "parliament_status.update", "parliament_status", "main", null, req.body);
     res.json({ ok: true });

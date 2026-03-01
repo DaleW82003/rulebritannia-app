@@ -1,6 +1,6 @@
-import { esc, formatMPName, partyBadge } from "../ui.js";
+import { esc, formatMPName, partyBadge, PARTY_COLOURS } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
-import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice } from "../api.js";
+import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice, apiGetParliamentStatus, apiUpdateParliamentStatus, apiGetCanonicalParties } from "../api.js";
 
 const SHADOW_OFFICE_SPECS = [
   { id: "leader-opposition", title: "Leader of the Opposition (who appoints all others)", short: "Leader of the Opposition" },
@@ -101,12 +101,16 @@ function avatarFromCharacterProfile(data, name) {
   return "";
 }
 
-function getOppositionParty(data) {
+function getOppositionParties(data) {
+  // Prefer explicit parliament_status opposition parties; fall back to leader's party.
+  const fromParl = Array.isArray(data._parlStatus?.oppositionParties) ? data._parlStatus.oppositionParties.filter(Boolean) : [];
+  if (fromParl.length) return fromParl;
   const leader = getOfficeMap(data).get("leader-opposition");
-  return String(leader?.holderParty || "").trim();
+  const leaderParty = String(leader?.holderParty || "").trim();
+  return leaderParty ? [leaderParty] : [];
 }
 
-function getChoices(data, partyFilter = "") {
+function getChoices(data, partyFilter = []) {
   // DB characters (fetched in initOppositionPage) are the live source of truth.
   // The state-based roster is belt-and-braces fallback only.
   const all = Array.isArray(data._dbCharacters) && data._dbCharacters.length
@@ -114,7 +118,8 @@ function getChoices(data, partyFilter = "") {
     : (Array.isArray(data.opposition?.activeCharacters)
         ? data.opposition.activeCharacters.filter((c) => c.name && c.active)
         : []);
-  const filtered = partyFilter ? all.filter((c) => String(c.party || "") === partyFilter) : all;
+  const parties = Array.isArray(partyFilter) ? partyFilter.filter(Boolean) : (partyFilter ? [partyFilter] : []);
+  const filtered = parties.length ? all.filter((c) => parties.includes(String(c.party || ""))) : all;
   return filtered.sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -160,20 +165,40 @@ function render(data, state) {
 
   normaliseOpposition(data);
   const officeMap = getOfficeMap(data);
-  const oppositionParty = getOppositionParty(data);
-  const choices = getChoices(data, oppositionParty);
+  const oppositionParties = getOppositionParties(data);
+  const choices = getChoices(data, oppositionParties);
   const manager = isManager(data);
   const leaderHolder = officeMap.get("leader-opposition")?.holderName || "";
   const isLeader = !!leaderHolder && leaderHolder === getCurrentName(data);
+  const canonicalParties = Array.isArray(data._canonicalParties) ? data._canonicalParties : [];
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Official Opposition of the United Kingdom</div></div>
+
+    ${manager ? `
+    <section class="tile" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Official Opposition Parties</h2>
+      <p class="muted" style="margin-bottom:10px;">Select which parties form the Official Opposition. The office assignment dropdowns will be filtered to members of these parties.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+        ${canonicalParties.filter((p) => p.name !== "Speaker").map((p) => {
+          const colours = PARTY_COLOURS[p.name] || { bg: "#888", fg: "#fff" };
+          const checked = oppositionParties.includes(p.name);
+          return `<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;padding:3px 8px;border-radius:4px;border:2px solid ${esc(colours.bg)};background:${checked ? esc(colours.bg) : "#fff"};color:${checked ? esc(colours.fg) : esc(colours.bg)};font-weight:600;font-size:.85em;white-space:nowrap;">
+            <input type="checkbox" name="opp-party" value="${esc(p.name)}" ${checked ? "checked" : ""} style="position:absolute;opacity:0;pointer-events:none;">
+            ${esc(p.short_name || p.name)}
+          </label>`;
+        }).join("")}
+      </div>
+      <button id="opp-parties-save" type="button" class="btn">Save Opposition Parties</button>
+      ${state.partiesMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.partiesMessage)}</p>` : ""}
+    </section>
+    ` : ""}
 
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">How appointments work</h2>
       <p class="muted" style="margin-bottom:8px;">Mods/Admins appoint the Leader of the Opposition from active characters. The Leader of the Opposition then appoints all other shadow offices from active characters.</p>
       <p class="muted" style="margin:0;">Editing rights: ${manager ? "You are a moderator/admin (full edit access)." : isLeader ? "You are the Leader of the Opposition (you can appoint all non-Leader offices)." : "View-only mode."}</p>
-      ${oppositionParty ? `<p class="muted" style="margin:4px 0 0;">Official opposition party: ${partyBadge(oppositionParty)}</p>` : ""}
+      ${oppositionParties.length ? `<p style="margin:8px 0 0;">Official Opposition: ${oppositionParties.map(partyBadge).join(" ")}</p>` : ""}
     </section>
 
     <section class="panel" style="margin-bottom:12px;">
@@ -218,6 +243,40 @@ function render(data, state) {
 
   `;
 
+  // Wire up party-badge toggle behaviour for opposition party checkboxes.
+  host.querySelectorAll('input[name="opp-party"]').forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const label = cb.closest("label");
+      if (!label) return;
+      const partyName = cb.value;
+      const colours = PARTY_COLOURS[partyName] || { bg: "#888", fg: "#fff" };
+      if (cb.checked) {
+        label.style.background = colours.bg;
+        label.style.color = colours.fg;
+      } else {
+        label.style.background = "#fff";
+        label.style.color = colours.bg;
+      }
+    });
+  });
+
+  host.querySelector("#opp-parties-save")?.addEventListener("click", async () => {
+    const btn = host.querySelector("#opp-parties-save");
+    if (btn) btn.disabled = true;
+    try {
+      const newOppParties = [...host.querySelectorAll('input[name="opp-party"]:checked')].map((el) => el.value);
+      const currentGovType = data._parlStatus?.governmentType || "Majority";
+      const currentGovParties = Array.isArray(data._parlStatus?.governingParties) ? data._parlStatus.governingParties : [];
+      const currentCsParties = Array.isArray(data._parlStatus?.confidenceSupplyParties) ? data._parlStatus.confidenceSupplyParties : [];
+      await apiUpdateParliamentStatus({ governmentType: currentGovType, governingParties: currentGovParties, confidenceSupplyParties: currentCsParties, oppositionParties: newOppParties });
+      await initOppositionPage(data, { message: state.message || "", partiesMessage: "Opposition parties saved." });
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      console.error("[opp-parties-save]", err);
+      alert(`Error saving opposition parties: ${err.message}`);
+    }
+  });
+
   host.querySelector("#opp-save")?.addEventListener("click", async () => {
     const btn = host.querySelector("#opp-save");
     if (btn) btn.disabled = true;
@@ -254,9 +313,11 @@ export async function initOppositionPage(data, renderState = { message: "" }) {
 
   // Merge live office assignments from the DB (single source of truth).
   try {
-    const [{ offices: dbOffices }, { characters: dbChars }] = await Promise.all([
+    const [{ offices: dbOffices }, { characters: dbChars }, parlStatus, { parties: canonicalParties }] = await Promise.all([
       apiGetOffices(),
       apiGetCharacters({ active: "true" }),
+      apiGetParliamentStatus().catch(() => null),
+      apiGetCanonicalParties().catch(() => ({ parties: [] })),
     ]);
     const charById = Object.fromEntries((dbChars || []).map((c) => [c.id, c]));
     const officeMap = getOfficeMap(data);
@@ -284,6 +345,8 @@ export async function initOppositionPage(data, renderState = { message: "" }) {
       }
     }
     data._dbCharacters = dbChars || [];
+    if (parlStatus) data._parlStatus = parlStatus;
+    data._canonicalParties = canonicalParties || [];
   } catch {
     // Non-critical: fall back to state-based opposition data
   }
