@@ -60,8 +60,10 @@ const DEFAULT_ECONOMY_PAGE = {
 
 export const STORAGE_KEY = "rb_data_v1";
 
+// Local simulation store is permanently disabled.
+// Demo mode is read-only; no simulation state is ever written to localStorage.
 function canUseLocalSimStore() {
-  return !isLoggedIn();
+  return false;
 }
 
 export function getData() {
@@ -75,11 +77,42 @@ export function getData() {
   }
 }
 
-export function saveData(data) {
-  if (!canUseLocalSimStore()) {
-    throw new Error("[RB_AUTH_STATE_VIOLATION] Attempted authenticated local simulation state write. Use API persistence only.");
-  }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+export function saveData(_data) {
+  // Local simulation state persistence is permanently disabled.
+  // saveData() is now a no-op; any callers should be migrated to saveState() or feature APIs.
+  console.warn("[RB_SIM_STORE_DISABLED] saveData() called but local simulation state persistence is disabled. Demo mode is read-only.");
+}
+
+/**
+ * Guards write actions behind a login check.
+ * Call this at the top of any submit/save handler that would mutate simulation state.
+ * Returns true if the user is logged in and may proceed; shows a toast and returns false otherwise.
+ * @param {string} [actionLabel] - Optional label for the action (used in log only; toast is generic).
+ * @returns {boolean}
+ */
+export function requireLoginForWrite(actionLabel = "write action") {
+  if (isLoggedIn()) return true;
+  import("./components/toast.js").then(({ toastError }) => {
+    toastError("Login required to perform this action.");
+  }).catch((err) => {
+    console.warn("[requireLoginForWrite] toast module unavailable:", err);
+  });
+  console.warn(`[requireLoginForWrite] blocked demo-mode ${actionLabel} — user is not logged in.`);
+  return false;
+}
+
+/**
+ * Recursively freezes an object so that accidental mutations in demo mode are
+ * caught immediately (TypeError in strict mode; silent no-op otherwise).
+ * @template T
+ * @param {T} obj
+ * @returns {T}
+ */
+export function deepFreeze(obj) {
+  if (obj === null || typeof obj !== "object") return obj;
+  Object.keys(obj).forEach((key) => deepFreeze(obj[key]));
+  Object.freeze(obj);
+  return obj;
 }
 
 /**
@@ -240,36 +273,23 @@ export async function bootData() {
   _bootstrapConfig = bootstrap?.config ?? {};
 
   if (!user) {
-    // If bootstrap failed (network/server error) and the local cache indicates a prior
-    // authenticated session, refuse to silently fall back to demo data.  Show a clear
-    // error so the user knows the server is unavailable rather than seeing stale demo state.
+    // If bootstrap failed (network/server error), show a warning but do NOT rehydrate
+    // any cached state or fall back to demo.json.  The user must refresh or try again.
     const bootstrapFailed = sources.some((s) => s.label === "/api/bootstrap" && !s.ok);
     if (bootstrapFailed) {
-      const cachedData = getData();
-      const cachedUser = cachedData?.currentUser;
-      if (cachedUser?.id || cachedUser?.username) {
-        console.warn("[bootData] Bootstrap failed with cached session — falling back to demo data.");
-        // Fall back to demo data rather than hard-failing so the UI still renders.
-        // The caller (main.js) will surface a non-blocking warning banner.
-        let demoData = {};
-        try {
-          const res = await fetch("/data/demo.json");
-          if (res.ok) demoData = await res.json();
-        } catch (e) {
-          console.warn("[bootData] Failed to load demo.json:", e.message);
-        }
-        const ensured = ensureDefaults(demoData);
-        return {
-          data: ensured,
-          user: null,
-          clock,
-          sources,
-          bootWarning: "Cannot reach the server. Your session may still be active — please refresh or try again shortly.",
-        };
-      }
+      console.warn("[bootData] Bootstrap failed — server may be unavailable.");
+      return {
+        data: ensureDefaults({}),
+        user: null,
+        clock,
+        sources,
+        bootWarning: "Cannot reach the server. Your session may still be active — please refresh or try again shortly.",
+      };
     }
 
     // Not logged in — load demo baseline from demo.json (read-only; no localStorage writes).
+    // Purge any stale simulation data that older builds may have written.
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
     let demoData = {};
     try {
       const res = await fetch("/data/demo.json");
@@ -278,6 +298,8 @@ export async function bootData() {
       console.warn("[bootData] Failed to load demo.json:", e.message);
     }
     const ensured = ensureDefaults(demoData);
+    // Deep-freeze the demo baseline so accidental mutations are caught at the call site.
+    deepFreeze(ensured);
     return { data: ensured, user: null, clock, sources };
   }
 
