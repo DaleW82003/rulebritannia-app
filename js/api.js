@@ -1269,8 +1269,9 @@ export async function apiSubmitQtQuestion(payload) {
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`apiSubmitQtQuestion failed (${res.status})`);
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSubmitQtQuestion failed (${res.status})`);
+  return body;
 }
 
 export async function apiPatchQtQuestion(id, updates) {
@@ -1280,8 +1281,9 @@ export async function apiPatchQtQuestion(id, updates) {
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify(updates),
   });
-  if (!res.ok) throw new Error(`apiPatchQtQuestion failed (${res.status})`);
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiPatchQtQuestion failed (${res.status})`);
+  return body;
 }
 
 export async function apiAnswerQtQuestion(id, payload) {
@@ -1291,8 +1293,9 @@ export async function apiAnswerQtQuestion(id, payload) {
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`apiAnswerQtQuestion failed (${res.status})`);
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAnswerQtQuestion failed (${res.status})`);
+  return body;
 }
 
 export async function apiFollowupQtQuestion(id, payload) {

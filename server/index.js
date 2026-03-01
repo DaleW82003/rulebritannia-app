@@ -220,6 +220,9 @@ app.use(verifyCsrfToken);
  * Boot-time schema
  */
 async function ensureSchema() {
+  // Ensure pgcrypto extension is available for gen_random_uuid() on Postgres < 13
+  await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+
   // Legacy single-row state (kept for migration)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS app_state (
@@ -702,6 +705,8 @@ async function ensureSchema() {
   `);
   await pool.query(`ALTER TABLE qt_followups ADD COLUMN IF NOT EXISTS asked_by_name TEXT`);
   await pool.query(`ALTER TABLE qt_followups ADD COLUMN IF NOT EXISTS asked_at_sim TEXT`);
+  await pool.query(`ALTER TABLE qt_followups ADD COLUMN IF NOT EXISTS answered_by_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE qt_followups ADD COLUMN IF NOT EXISTS answered_at_sim TEXT`);
 
   // ── Simulation State (authoritative clock) ────────────────────────────────
   await pool.query(`
@@ -12409,6 +12414,29 @@ app.post("/api/divisions/:divisionId/rebel-request/:requestId/decide", divWriteL
 const qtReadLimit  = rateLimit({ windowMs: 60_000, max: 300, standardHeaders: true, legacyHeaders: false });
 const qtWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
 
+/** Maps a cabinet office spec_id to the matching shadow-portfolio spec_id. */
+const QT_SHADOW_MAP = {
+  "chancellor": "shadow-chancellor", "home": "shadow-home", "foreign": "shadow-foreign",
+  "trade": "shadow-trade", "defence": "shadow-defence", "welfare": "shadow-welfare",
+  "education": "shadow-education", "env-agri": "shadow-env-agri", "health": "shadow-health",
+  "eti": "shadow-eti", "culture": "shadow-culture", "home-nations": "shadow-home-nations",
+  "leader-commons": "shadow-leader-commons", "prime-minister": "leader-opposition",
+};
+
+/**
+ * Resolve the effective QT role for a character given their office assignments.
+ * @param {{ spec_id: string, type: string }[]} assignments
+ * @returns {"leader-opposition"|"shadow"|"minister"|"backbencher"}
+ */
+function qtRoleFromAssignments(assignments) {
+  const specIds = assignments.map((a) => a.spec_id);
+  const types   = assignments.map((a) => a.type);
+  if (specIds.includes("leader-opposition"))  return "leader-opposition";
+  if (types.includes("shadow"))               return "shadow";
+  if (types.includes("cabinet"))              return "minister";
+  return "backbencher";
+}
+
 app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
@@ -12511,12 +12539,74 @@ app.get("/api/qt/questions/:id", qtReadLimit, async (req, res) => {
 app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { office_id, question_text, asked_by_name, asked_at_sim, due_at_sim, npc_party } = req.body || {};
+    const { office_id, question_text, asked_by_name, npc_party } = req.body || {};
     if (!office_id || !question_text) {
       return res.status(400).json({ error: "office_id and question_text are required" });
     }
+
     // Always derive character from session — never trust client-supplied asked_by_character_id
     const charId = await getActiveCharacterId(req);
+
+    // Get authoritative sim time for timestamps/deadlines — never trust client values
+    const { rows: simRows } = await pool.query("SELECT year, month FROM sim_state WHERE id = 'main' LIMIT 1");
+    const sim = simRows[0] || { year: 1997, month: 8 };
+    const dueAt         = simDeadline(sim.month, sim.year, 1);
+    const askedAtSimStr = JSON.stringify({ month: sim.month, year: sim.year });
+    const dueAtSimStr   = JSON.stringify({ month: dueAt.month, year: dueAt.year });
+
+    // ── Server-side QT rule enforcement ─────────────────────────────────────
+    // Staff (admin/mod/speaker) may post as NPCs without rule checks
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+
+    if (!isStaff && charId) {
+      // Look up character's office assignments (spec_ids)
+      const { rows: assignments } = await pool.query(
+        `SELECT o.spec_id, o.type
+           FROM office_assignments oa
+           JOIN offices o ON o.id = oa.office_id
+          WHERE oa.character_id = $1 AND o.spec_id IS NOT NULL`,
+        [charId]
+      );
+      const qtRole  = qtRoleFromAssignments(assignments);
+      const specIds = assignments.map((a) => a.spec_id);
+
+      // Shadow/cabinet office → portfolio check for non-PMQ questions
+      if (office_id !== "prime-minister" && (qtRole === "shadow" || qtRole === "minister")) {
+        const expectedShadow  = QT_SHADOW_MAP[office_id];
+        const matchesShadow   = expectedShadow && specIds.includes(expectedShadow);
+        const matchesMinister = specIds.includes(office_id);
+        if (!matchesShadow && !matchesMinister) {
+          return res.status(403).json({ error: "Shadow Secretaries/Ministers may only ask questions within their own portfolio." });
+        }
+      }
+
+      // Backbencher and PMQ question limits
+      if (qtRole === "backbencher" || office_id === "prime-minister") {
+        const { rows: outstanding } = await pool.query(
+          `SELECT office_id FROM qt_questions
+            WHERE asked_by_character_id = $1 AND status = 'open'`,
+          [charId]
+        );
+        const totalOpen = outstanding.length;
+        const pmqOpen   = outstanding.filter((q) => q.office_id === "prime-minister").length;
+
+        if (office_id === "prime-minister") {
+          if (qtRole === "backbencher" && pmqOpen >= 1) {
+            return res.status(400).json({ error: "Backbenchers may only hold 1 outstanding PMQ at a time." });
+          }
+          if (qtRole === "backbencher" && totalOpen >= 3) {
+            return res.status(400).json({ error: "Backbenchers may hold at most 3 outstanding questions across all ministers." });
+          }
+        } else {
+          if (qtRole === "backbencher" && totalOpen >= 3) {
+            return res.status(400).json({ error: "Backbenchers may hold at most 3 outstanding questions across all ministers." });
+          }
+        }
+      }
+    }
+
+
     // Server-side dedup: same character + office + text within 10 minutes → 409
     if (charId) {
       const { rows: dupeRows } = await pool.query(
@@ -12532,6 +12622,7 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
         return res.status(409).json({ error: "A question with the same text was already submitted recently. Please wait before resubmitting." });
       }
     }
+
     const { rows } = await pool.query(
       `INSERT INTO qt_questions
          (office_id, asked_by_character_id, asked_by_name, question_text, asked_at_sim, due_at_sim, npc_party)
@@ -12542,15 +12633,16 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
         charId || null,
         (asked_by_name || "").trim() || null,
         question_text.trim(),
-        (asked_at_sim || "").trim() || null,
-        (due_at_sim || "").trim() || null,
+        askedAtSimStr,
+        dueAtSimStr,
         (npc_party || "").trim() || null,
       ]
     );
-    await writeAuditLog(req.session.userId, "qt.question.submit", "qt_question", rows[0].id, null, { office_id, asked_by_name: rows[0].asked_by_name });
+    await writeAuditLog(req.session.userId, "qt.question.submit", "qt_question", rows[0].id, null,
+      { office_id, asked_by_name: rows[0].asked_by_name });
     res.status(201).json({ ok: true, question: rows[0] });
   } catch (e) {
-    console.error(e);
+    console.error("[POST /api/qt/questions]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -12558,9 +12650,14 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
 app.patch("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
   try {
     if (!requireAdminModOrSpeaker(req, res)) return;
-    const { status, action, demand_due_at_sim } = req.body || {};
+    const { status, action } = req.body || {};
 
     if (action === "speaker-demand") {
+      // Compute demand deadline server-side (1 sim month from now) — never trust client value
+      const { rows: simRows } = await pool.query("SELECT year, month FROM sim_state WHERE id = 'main' LIMIT 1");
+      const sim = simRows[0] || { year: 1997, month: 8 };
+      const dueAt = simDeadline(sim.month, sim.year, 1);
+      const demandDueAtSimStr = JSON.stringify({ month: dueAt.month, year: dueAt.year });
       // Speaker issues a demand for an answer — sets speaker_demanded_at + demand deadline
       const { rows } = await pool.query(
         `UPDATE qt_questions
@@ -12569,7 +12666,7 @@ app.patch("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
                 updated_at          = NOW()
           WHERE id = $2 AND status = 'open'
           RETURNING id, status, speaker_demanded_at, demand_due_at_sim`,
-        [(demand_due_at_sim || "").trim() || null, req.params.id]
+        [demandDueAtSimStr, req.params.id]
       );
       if (!rows.length) return res.status(404).json({ error: "Question not found or not open" });
       await writeAuditLog(req.session.userId, "qt.question.speaker-demand", "qt_question", req.params.id, null, rows[0]);
@@ -12590,18 +12687,55 @@ app.patch("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
     await writeAuditLog(req.session.userId, "qt.question.status", "qt_question", req.params.id, null, rows[0]);
     res.json({ ok: true, question: rows[0] });
   } catch (e) {
-    console.error(e);
+    console.error("[PATCH /api/qt/questions/:id]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
 
 app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminModOrSpeaker(req, res)) return;
-    const { answered_by_character_id, answer_text, answered_at_sim } = req.body || {};
+    if (!requireAuth(req, res)) return;
+    const { answer_text } = req.body || {};
     if (!answer_text || !answer_text.trim()) {
       return res.status(400).json({ error: "answer_text is required" });
     }
+
+    // Permission check: admin/mod/speaker always allowed; also allow the office holder,
+    // PM, or Leader of the House (they may step in for any department).
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+    let canAnswer = isStaff;
+    let answererCharId = null;
+
+    if (!canAnswer) {
+      // Fetch question office before DB transaction to check permissions
+      const { rows: qForAuth } = await pool.query(
+        "SELECT id, office_id FROM qt_questions WHERE id = $1", [req.params.id]
+      );
+      if (!qForAuth.length) return res.status(404).json({ error: "Question not found" });
+      const officeId = qForAuth[0].office_id;
+
+      answererCharId = await getActiveCharacterId(req);
+      if (answererCharId) {
+        // Office holder, PM, or Leader of the House may answer
+        const { rows: assignments } = await pool.query(
+          `SELECT o.spec_id FROM office_assignments oa
+             JOIN offices o ON o.id = oa.office_id
+            WHERE oa.character_id = $1 AND o.spec_id = ANY($2::text[])`,
+          [answererCharId, [officeId, "prime-minister", "leader-commons"]]
+        );
+        canAnswer = assignments.length > 0;
+      }
+    }
+    if (!canAnswer) {
+      return res.status(403).json({ error: "Only the assigned office holder, PM, Leader of the House, admin, mod, or speaker can answer" });
+    }
+
+    // Derive answered_at_sim server-side
+    const { rows: simRows } = await pool.query("SELECT year, month FROM sim_state WHERE id = 'main' LIMIT 1");
+    const sim = simRows[0] || { year: 1997, month: 8 };
+    const answeredAtSimStr = JSON.stringify({ month: sim.month, year: sim.year });
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -12613,14 +12747,15 @@ app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
       const { rows } = await client.query(
         `INSERT INTO qt_answers (question_id, answered_by_character_id, answer_text, answered_at_sim)
          VALUES ($1, $2, $3, $4) RETURNING id, question_id, answer_text, answered_at_sim, created_at`,
-        [req.params.id, answered_by_character_id || null, answer_text.trim(), (answered_at_sim || "").trim() || null]
+        [req.params.id, answererCharId || null, answer_text.trim(), answeredAtSimStr]
       );
       await client.query(
         "UPDATE qt_questions SET status = 'answered', updated_at = NOW() WHERE id = $1",
         [req.params.id]
       );
       await client.query("COMMIT");
-      await writeAuditLog(req.session.userId, "qt.question.answered", "qt_question", req.params.id, null, { answer_id: rows[0].id });
+      await writeAuditLog(req.session.userId, "qt.question.answered", "qt_question", req.params.id, null,
+        { answer_id: rows[0].id, answered_by_character_id: answererCharId });
       res.status(201).json({ ok: true, answer: rows[0] });
     } catch (err) {
       await client.query("ROLLBACK");
@@ -12629,7 +12764,7 @@ app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
       client.release();
     }
   } catch (e) {
-    console.error(e);
+    console.error("[POST /api/qt/questions/:id/answer]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -12637,42 +12772,141 @@ app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
 app.post("/api/qt/questions/:id/followup", qtWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { asked_by_character_id, followup_text, asked_by_name, asked_at_sim } = req.body || {};
+    const { followup_text, asked_by_name } = req.body || {};
     if (!followup_text || !followup_text.trim()) {
       return res.status(400).json({ error: "followup_text is required" });
     }
     const charId = await getActiveCharacterId(req);
-    const { rows: qRows } = await pool.query("SELECT id FROM qt_questions WHERE id = $1", [req.params.id]);
+
+    // Load question to validate it's answerable and enforce follow-up limits
+    const { rows: qRows } = await pool.query(
+      "SELECT id, office_id, status FROM qt_questions WHERE id = $1", [req.params.id]
+    );
     if (!qRows.length) return res.status(404).json({ error: "Question not found" });
+    const question = qRows[0];
+
+    // Staff bypass rule checks
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+
+    if (!isStaff && charId) {
+      // Determine role for limit computation
+      const { rows: assignments } = await pool.query(
+        `SELECT o.spec_id, o.type
+           FROM office_assignments oa
+           JOIN offices o ON o.id = oa.office_id
+          WHERE oa.character_id = $1 AND o.spec_id IS NOT NULL`,
+        [charId]
+      );
+      const qtRole  = qtRoleFromAssignments(assignments);
+      const specIds = assignments.map((a) => a.spec_id);
+
+      // Compute max follow-ups for this role and office
+      let maxFollowUps = 1;
+      if (question.office_id === "prime-minister") {
+        if (qtRole === "leader-opposition")    maxFollowUps = 3;
+        else if (qtRole === "shadow")          maxFollowUps = 2; // third party leader-like
+        else                                   maxFollowUps = 1;
+      } else {
+        if (qtRole === "shadow" || qtRole === "minister") maxFollowUps = 2;
+        else                                               maxFollowUps = 1;
+      }
+
+      // Shadow/minister portfolio check for non-PMQ follow-ups
+      if (question.office_id !== "prime-minister" && (qtRole === "shadow" || qtRole === "minister")) {
+        const expectedShadow  = QT_SHADOW_MAP[question.office_id];
+        const matchesShadow   = expectedShadow && specIds.includes(expectedShadow);
+        const matchesMinister = specIds.includes(question.office_id);
+        if (!matchesShadow && !matchesMinister) {
+          return res.status(403).json({ error: "Shadow Secretaries/Ministers may only follow up on questions within their own portfolio." });
+        }
+      }
+
+      // Enforce per-character follow-up count
+      const { rows: existingFollowups } = await pool.query(
+        "SELECT id FROM qt_followups WHERE question_id = $1 AND asked_by_character_id = $2",
+        [req.params.id, charId]
+      );
+      if (existingFollowups.length >= maxFollowUps) {
+        return res.status(400).json({ error: `You may only submit ${maxFollowUps} follow-up(s) on this question.` });
+      }
+    }
+
+    // Derive asked_at_sim server-side
+    const { rows: simRows } = await pool.query("SELECT year, month FROM sim_state WHERE id = 'main' LIMIT 1");
+    const sim = simRows[0] || { year: 1997, month: 8 };
+    const askedAtSimStr = JSON.stringify({ month: sim.month, year: sim.year });
 
     const { rows } = await pool.query(
       `INSERT INTO qt_followups (question_id, asked_by_character_id, asked_by_name, followup_text, asked_at_sim)
        VALUES ($1, $2, $3, $4, $5) RETURNING id, question_id, followup_text, answer_text, asked_at_sim, created_at`,
-      [req.params.id, charId || asked_by_character_id || null, (asked_by_name || "").trim() || null, followup_text.trim(), (asked_at_sim || "").trim() || null]
+      [req.params.id, charId || null, (asked_by_name || "").trim() || null, followup_text.trim(), askedAtSimStr]
     );
+    await writeAuditLog(req.session.userId, "qt.followup.submit", "qt_question", req.params.id, null,
+      { followup_id: rows[0].id, asked_by_character_id: charId });
     res.status(201).json({ ok: true, followup: rows[0] });
   } catch (e) {
-    console.error(e);
+    console.error("[POST /api/qt/questions/:id/followup]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
 
 app.patch("/api/qt/followups/:id", qtWriteLimit, async (req, res) => {
   try {
-    if (!requireAdminModOrSpeaker(req, res)) return;
+    if (!requireAuth(req, res)) return;
     const { answer_text } = req.body || {};
     if (!answer_text || !answer_text.trim()) {
       return res.status(400).json({ error: "answer_text is required" });
     }
+
+    // Permission check: admin/mod/speaker, or the office holder / PM / leader-commons
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+    let canAnswer = isStaff;
+    let answererCharId = null;
+
+    if (!canAnswer) {
+      // Get the parent question's office
+      const { rows: fRows } = await pool.query(
+        `SELECT q.office_id FROM qt_followups f
+           JOIN qt_questions q ON q.id = f.question_id
+          WHERE f.id = $1`, [req.params.id]
+      );
+      if (!fRows.length) return res.status(404).json({ error: "Follow-up not found" });
+      const officeId = fRows[0].office_id;
+      answererCharId = await getActiveCharacterId(req);
+      if (answererCharId) {
+        const { rows: aRows } = await pool.query(
+          `SELECT o.spec_id FROM office_assignments oa
+             JOIN offices o ON o.id = oa.office_id
+            WHERE oa.character_id = $1 AND o.spec_id = ANY($2::text[])`,
+          [answererCharId, [officeId, "prime-minister", "leader-commons"]]
+        );
+        canAnswer = aRows.length > 0;
+      }
+    }
+    if (!canAnswer) {
+      return res.status(403).json({ error: "Only the assigned office holder, PM, Leader of the House, admin, mod, or speaker can answer follow-ups" });
+    }
+
+    // Derive answered_at_sim server-side
+    const { rows: simRows } = await pool.query("SELECT year, month FROM sim_state WHERE id = 'main' LIMIT 1");
+    const sim = simRows[0] || { year: 1997, month: 8 };
+    const answeredAtSimStr = JSON.stringify({ month: sim.month, year: sim.year });
+
     const { rows } = await pool.query(
-      "UPDATE qt_followups SET answer_text = $1 WHERE id = $2 RETURNING id, question_id, followup_text, answer_text",
-      [answer_text.trim(), req.params.id]
+      `UPDATE qt_followups
+          SET answer_text = $1, answered_by_character_id = $2, answered_at_sim = $3
+        WHERE id = $4
+        RETURNING id, question_id, followup_text, answer_text, answered_at_sim`,
+      [answer_text.trim(), answererCharId || null, answeredAtSimStr, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Follow-up not found" });
-    await writeAuditLog(req.session.userId, "qt.followup.answered", "qt_followup", req.params.id, null, { answer_text: rows[0].answer_text });
+    await writeAuditLog(req.session.userId, "qt.followup.answered", "qt_followup", req.params.id, null,
+      { answer_text: rows[0].answer_text, answered_by_character_id: answererCharId });
     res.json({ ok: true, followup: rows[0] });
   } catch (e) {
-    console.error(e);
+    console.error("[PATCH /api/qt/followups/:id]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

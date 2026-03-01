@@ -298,9 +298,7 @@
       "method": "POST",
       "path": "/api/qt/questions/:id/answer",
       "roles": [
-        "admin",
-        "mod",
-        "speaker"
+        "authenticated"
       ],
       "immutable": true,
       "category": "parliament"
@@ -318,9 +316,7 @@
       "method": "PATCH",
       "path": "/api/qt/followups/:id",
       "roles": [
-        "admin",
-        "mod",
-        "speaker"
+        "authenticated"
       ],
       "immutable": true,
       "category": "parliament"
