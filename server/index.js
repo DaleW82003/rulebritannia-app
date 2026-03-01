@@ -10,7 +10,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import sgMail from "@sendgrid/mail";
 import { pool } from "./db.js";
-import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload } from "./discourse.js";
+import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse } from "./discourse.js";
 import {
   createTopic as dcCreateTopic,
   createPost as dcCreatePost,
@@ -3849,9 +3849,13 @@ app.post(["/auth/login", "/api/auth/login"], authLimit, async (req, res) => {
         ).catch((e) => console.error("audit-log login insert failed:", e));
       }
 
+      // If the user was redirected here mid-SSO flow, tell the client to resume
+      const pendingSso = req.session.pendingDiscourseSso;
+
       return res.json({
         ok: true,
         csrfToken: req.session.csrfToken,
+        ...(pendingSso ? { redirect: "/api/discourse/sso" } : {}),
         user: {
           id: user.id,
           username: user.username,
@@ -4644,20 +4648,27 @@ app.post("/api/discourse/test", discourseWriteLimit, async (req, res) => {
 });
 
 /**
- * DISCOURSECONNECT SSO
+ * DISCOURSECONNECT SSO  (consumer mode — this app is the identity source)
  *
  * Disabled unless the DISCOURSE_SSO_ENABLED=true environment variable is set.
  *
- * GET /api/discourse/sso           — Entry point; redirects browser to Discourse
- *                                    with a signed nonce. Must be called by the
- *                                    browser (not fetch) so the cookie is present.
- * GET /api/discourse/sso/callback  — Discourse redirects back here with the
- *                                    signed user payload. Verifies signature,
- *                                    finds or creates the local user, starts a
- *                                    session, then redirects to the UI.
+ * GET /api/discourse/sso  — DiscourseConnect URL.  Discourse calls this with
+ *                           ?sso=<payload>&sig=<hmac> when a user tries to log
+ *                           in to the forum.  We verify the request, look up
+ *                           the SIM user, build a signed response payload, and
+ *                           redirect the browser back to Discourse's
+ *                           return_sso_url (typically
+ *                           https://forum.rulebritannia.org/session/sso_login).
+ *                           If the SIM user is not logged in we store the
+ *                           pending Discourse request in the session and
+ *                           redirect to the SIM login page; after login the
+ *                           flow resumes automatically.
  *
- * GET /api/admin/sso-readiness     — Admin: check whether all SSO prerequisites
- *                                    are satisfied. Returns green/red check list.
+ * GET /api/discourse/sso/callback — Kept for backward compatibility but no
+ *                                   longer used in the primary SSO flow.
+ *
+ * GET /api/admin/sso-readiness    — Admin: check whether all SSO prerequisites
+ *                                   are satisfied. Returns green/red check list.
  *
  * Ref: https://meta.discourse.org/t/discourseconnect-official-single-sign-on-for-discourse/13045
  */
@@ -4679,24 +4690,6 @@ app.get("/api/discourse/sso", ssoRateLimit, async (req, res) => {
     return res.status(404).json({ error: "DiscourseConnect SSO is not enabled on this server" });
   }
 
-  // Reject requests that carry an inbound sso/sig payload.
-  // This endpoint initialises the SSO flow (app → Discourse); it must never
-  // accept or reuse a Discourse-generated payload.  If sso/sig are present it
-  // means Discourse has been misconfigured with discourse_connect_url pointing
-  // here (consumer mode) instead of using enable_discourse_connect_provider.
-  if (req.query.sso || req.query.sig) {
-    const truncate = (v) => (typeof v === "string" && v.length ? v.slice(0, 8) + "…" : "(present)");
-    console.warn(
-      "[discourse/sso] WARN: inbound sso/sig received on init endpoint " +
-      `(sso=${truncate(req.query.sso)}, sig=${truncate(req.query.sig)}). ` +
-      "Discourse is likely misconfigured with discourse_connect_url pointing to this endpoint. " +
-      "Rejecting with 400."
-    );
-    return res.status(400).json({
-      error: "Do not call /api/discourse/sso with sso/sig; this endpoint initializes SSO.",
-    });
-  }
-
   /**
    * Log the error and redirect the user back to the login page with an
    * actionable error banner instead of exposing raw JSON in the browser.
@@ -4714,33 +4707,98 @@ app.get("/api/discourse/sso", ssoRateLimit, async (req, res) => {
       return ssoError("SSO secret not configured. Ask an admin to set it in Admin Panel → Discourse Integration.");
     }
 
+    // Accept inbound sso/sig from Discourse, or resume a pending SSO from session.
+    let sso = req.query.sso;
+    let sig = req.query.sig;
+    if (!sso && !sig && req.session.pendingDiscourseSso) {
+      ({ sso, sig } = req.session.pendingDiscourseSso);
+    }
+
+    if (!sso || !sig) {
+      return ssoError("Missing SSO parameters. Please navigate to Discourse and log in from there.");
+    }
+
+    // Verify signature and decode nonce + return_sso_url
+    let nonce, returnSsoUrl;
+    try {
+      ({ nonce, returnSsoUrl } = verifyConsumerRequest({ ssoSecret, sso, sig }));
+    } catch {
+      return res.status(403).json({ error: "Invalid SSO signature." });
+    }
+
+    // Validate return_sso_url: must be on the configured Discourse forum
     const { rows: cfgRows } = await pool.query(
-      "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'ui_base_url')"
+      "SELECT key, value FROM app_config WHERE key = 'discourse_base_url'"
     );
     const cfg = Object.fromEntries(cfgRows.map((r) => [r.key, r.value]));
-    const baseUrl  = (cfg.discourse_base_url || "").trim().replace(/\/$/, "");
-    const uiBase   = (cfg.ui_base_url        || "").trim().replace(/\/$/, "");
+    const baseUrl = (cfg.discourse_base_url || "").trim().replace(/\/$/, "");
 
     if (!baseUrl) {
       return ssoError("Discourse base URL not configured. Ask an admin to set it in Admin Panel → Discourse Integration.");
     }
 
-    if (!uiBase) {
-      return ssoError("UI base URL not configured. Ask an admin to set it in Admin Panel → App Config.");
+    let parsedReturn;
+    try {
+      parsedReturn = new URL(returnSsoUrl);
+    } catch {
+      return res.status(400).json({ error: "Invalid return_sso_url." });
     }
 
-    // Generate a nonce, store in session so we can verify on callback
-    const nonce = randomBytes(16).toString("hex");
-    req.session.ssoNonce = nonce;
+    const parsedBase = new URL(baseUrl);
+    if (parsedReturn.hostname !== parsedBase.hostname) {
+      console.warn(`[discourse/sso] Rejected return_sso_url with unexpected host: ${parsedReturn.hostname}`);
+      return res.status(400).json({ error: "return_sso_url is not on the configured Discourse domain." });
+    }
 
-    const returnUrl = `${uiBase}/api/discourse/sso/callback`;
-    const { sso, sig } = buildSsoPayload({ ssoSecret, returnUrl, nonce });
+    // If the user is not logged in to the SIM, save the pending request and
+    // redirect to the login page; after login the flow will resume.
+    if (!req.session?.userId) {
+      req.session.pendingDiscourseSso = { sso, sig };
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
+      return res.redirect(302, `/login.html?sso_pending=1`);
+    }
 
-    const redirectUrl = `${baseUrl}/session/sso_provider?sso=${encodeURIComponent(sso)}&sig=${encodeURIComponent(sig)}`;
+    // User is logged in — fetch their details and build the SSO response.
+    const { rows: userRows } = await pool.query(
+      "SELECT id, username, email FROM users WHERE id = $1",
+      [req.session.userId]
+    );
+    if (!userRows.length) {
+      return ssoError("User account not found. Please log in again.");
+    }
+    const user = userRows[0];
+
+    const { rows: roleRows } = await pool.query(
+      "SELECT role FROM user_roles WHERE user_id = $1",
+      [user.id]
+    );
+    const roles  = roleRows.map((r) => r.role);
+    const groups = computeDiscourseGroups(roles);
+    const isAdmin = roles.includes("admin");
+    const isMod   = roles.includes("mod");
+
+    const { sso: outSso, sig: outSig } = buildConsumerResponse({
+      ssoSecret,
+      nonce,
+      externalId: user.id,
+      email:      user.email,
+      username:   user.username,
+      name:       user.username,
+      groups,
+      admin:      isAdmin,
+      moderator:  isMod,
+    });
+
+    // Clear any pending SSO now that we have completed the flow
+    delete req.session.pendingDiscourseSso;
+
+    const redirectUrl = `${returnSsoUrl}?sso=${encodeURIComponent(outSso)}&sig=${encodeURIComponent(outSig)}`;
     res.redirect(302, redirectUrl);
   } catch (e) {
     console.error("[discourse/sso]", e.message);
-    res.redirect(302, `/login.html?sso_error=${encodeURIComponent("SSO initiation failed. Please try email/password login or contact an admin.")}`);
+    res.redirect(302, `/login.html?sso_error=${encodeURIComponent("SSO failed. Please try email/password login or contact an admin.")}`);
   }
 });
 
@@ -4886,7 +4944,7 @@ app.get("/api/admin/sso-readiness", discourseReadLimit, async (req, res) => {
         id:      "sso_secret",
         label:   "DiscourseConnect SSO secret configured",
         ok:      Boolean(ssoSecretE),
-        detail:  ssoSecretE ? "Set (stored encrypted)" : "Not set — paste the secret from Discourse › Settings › Login › sso secret",
+        detail:  ssoSecretE ? "Set (stored encrypted)" : "Not set — paste the secret from Discourse › Admin › Settings › Login › discourse connect secret",
       },
       {
         id:      "discourse_reachable",

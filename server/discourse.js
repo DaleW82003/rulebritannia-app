@@ -217,16 +217,87 @@ export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupNa
 
 // ── DiscourseConnect SSO ──────────────────────────────────────────────────────
 // Reference: https://meta.discourse.org/t/discourseconnect-official-single-sign-on-for-discourse/13045
+//
+// This app uses DiscourseConnect in *consumer* mode: the SIM is the identity
+// source and Discourse is the consumer.  Discourse calls our DiscourseConnect
+// URL with ?sso=<payload>&sig=<hmac>; we verify, build a response payload
+// with the user's info, sign it, and redirect back to Discourse.
+
+/**
+ * Verify an inbound DiscourseConnect request sent by Discourse.
+ *
+ * In consumer mode Discourse calls our DiscourseConnect URL with
+ * ?sso=<base64_payload>&sig=<hmac_sha256>.  We verify the signature and
+ * decode the nonce + return_sso_url.
+ *
+ * @param {object} opts
+ * @param {string} opts.ssoSecret - Shared DiscourseConnect secret
+ * @param {string} opts.sso       - Base64 payload from Discourse
+ * @param {string} opts.sig       - HMAC-SHA256 hex signature from Discourse
+ * @returns {{ nonce: string, returnSsoUrl: string }}
+ * @throws {Error} if signature is invalid
+ */
+export function verifyConsumerRequest({ ssoSecret, sso, sig }) {
+  const expected    = createHmac("sha256", ssoSecret).update(sso).digest("hex");
+  const expectedBuf = Buffer.from(expected, "hex");
+  const receivedBuf = Buffer.from(sig,      "hex");
+
+  if (expectedBuf.length !== receivedBuf.length || !timingSafeEqual(expectedBuf, receivedBuf)) {
+    throw new Error("DiscourseConnect: signature mismatch");
+  }
+
+  const decoded = Buffer.from(sso, "base64").toString("utf8");
+  const params  = new URLSearchParams(decoded);
+
+  return {
+    nonce:        params.get("nonce")          || "",
+    returnSsoUrl: params.get("return_sso_url") || "",
+  };
+}
+
+/**
+ * Build the SSO response payload to redirect back to Discourse.
+ *
+ * After authenticating the user we redirect their browser to Discourse's
+ * return_sso_url with a signed payload containing the user's information.
+ *
+ * @param {object}   opts
+ * @param {string}   opts.ssoSecret   - Shared DiscourseConnect secret
+ * @param {string}   opts.nonce       - Nonce from the inbound Discourse request
+ * @param {string}   opts.externalId  - SIM user ID (external_id)
+ * @param {string}   opts.email       - User's email address
+ * @param {string}   opts.username    - User's username
+ * @param {string}   [opts.name]      - User's display name
+ * @param {string}   [opts.avatarUrl] - URL to the user's avatar image
+ * @param {string[]} [opts.groups]    - Complete list of Discourse group names the user belongs to
+ * @param {boolean}  [opts.admin]     - Whether the user should be a Discourse admin
+ * @param {boolean}  [opts.moderator] - Whether the user should be a Discourse moderator
+ * @returns {{ sso: string, sig: string }}
+ */
+export function buildConsumerResponse({ ssoSecret, nonce, externalId, email, username, name, avatarUrl, groups, admin, moderator }) {
+  const params = new URLSearchParams();
+  params.set("nonce",       nonce);
+  params.set("external_id", String(externalId));
+  params.set("email",       email);
+  params.set("username",    username);
+  if (name)                                    params.set("name",       name);
+  if (avatarUrl)                               params.set("avatar_url", avatarUrl);
+  if (Array.isArray(groups) && groups.length)  params.set("groups",     groups.join(","));
+  if (admin)                                   params.set("admin",      "true");
+  if (moderator)                               params.set("moderator",  "true");
+
+  const payload = Buffer.from(params.toString()).toString("base64");
+  const sig     = createHmac("sha256", ssoSecret).update(payload).digest("hex");
+  return { sso: payload, sig };
+}
 
 /**
  * Build the `sso` + `sig` query-string parameters to send to Discourse.
  *
- * DiscourseConnect flow (our side initiates):
- *   1. We generate a nonce and redirect to:
- *      {forum}/session/sso_provider?sso={payload}&sig={hmac}
- *   2. Discourse validates the signature and redirects back to our
- *      return_sso_url with the user's info embedded.
- *   3. We call verifySsoPayload() to validate the return payload.
+ * @deprecated Use verifyConsumerRequest / buildConsumerResponse for the
+ * standard DiscourseConnect consumer flow where this app is the identity
+ * source.  buildSsoPayload / verifySsoPayload remain for any provider-mode
+ * usage or tests that cover the outbound nonce/return_sso_url encoding.
  *
  * @param {object} opts
  * @param {string} opts.ssoSecret   - DiscourseConnect secret (from admin config)
@@ -244,8 +315,8 @@ export function buildSsoPayload({ ssoSecret, returnUrl, nonce }) {
 /**
  * Verify a DiscourseConnect return payload and extract the user fields.
  *
- * Called when Discourse redirects back to our callback URL with
- * ?sso={payload}&sig={sig} query params.
+ * @deprecated Use verifyConsumerRequest / buildConsumerResponse for the
+ * standard DiscourseConnect consumer flow.
  *
  * @param {object} opts
  * @param {string} opts.ssoSecret      - DiscourseConnect secret

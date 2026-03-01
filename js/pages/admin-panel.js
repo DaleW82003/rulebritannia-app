@@ -540,9 +540,9 @@ export async function initAdminPanelPage(data) {
     const urlHint = ssoEntryUrl ? `
       <div style="margin-top:12px;padding:10px 14px;background:#f5f8ff;border:1px solid #c5d5f0;border-radius:6px;font-size:13px;">
         <p style="margin:0 0 6px;font-weight:600;">Discourse DiscourseConnect URL to configure:</p>
-        <p style="margin:0 0 4px;">In Discourse → Admin → Settings → Login, set <b>DiscourseConnect URL</b> to:</p>
+        <p style="margin:0 0 4px;">In Discourse → Admin → Settings → Login, enable <b>DiscourseConnect</b> and set <b>DiscourseConnect URL</b> to:</p>
         <code style="display:block;padding:4px 8px;background:#fff;border:1px solid #dde;border-radius:4px;word-break:break-all;">${esc(ssoEntryUrl)}</code>
-        <p style="margin:6px 0 0;font-size:12px;color:#666;">Also enable the <em>DiscourseConnect Provider</em> checkbox (not to be confused with the consumer-side "DiscourseConnect" checkbox). The callback URL will be: <code>${esc(callbackUrl || "")}</code></p>
+        <p style="margin:6px 0 0;font-size:12px;color:#666;">No separate callback URL is required. Do <strong>not</strong> enable the <em>DiscourseConnect Provider</em> checkbox — that is for the reverse direction.</p>
       </div>` : "";
 
     return `
