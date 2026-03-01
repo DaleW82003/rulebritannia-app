@@ -1,6 +1,6 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
-import { formatSimMonthYear, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
+import { formatSimMonthYear, formatSimDate, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
 import { logAction } from "../audit.js";
 import { handleApiError } from "../errors.js";
 import {
@@ -137,6 +137,11 @@ function canAskMainQuestion(data, officeId) {
   const role = effectiveRoleForQuestionTime(data);
   const asker = String(char?.name || "").trim();
   if (!asker) return { ok: false, reason: "Create/select a character before asking questions." };
+
+  // Government ministers (cabinet office holders) may not ask QT questions
+  if (role === "minister") {
+    return { ok: false, reason: "Government ministers may not ask Question Time questions — they are expected to answer them." };
+  }
 
   const unansweredByAsker = openQuestionsByAsker(data, asker);
   const unansweredPmqs = unansweredByAsker.filter((q) => q.office === "prime-minister").length;
@@ -579,14 +584,6 @@ function render(data, state) {
  * Map a DB row from GET /api/qt/questions to the question shape used by render().
  */
 function dbRowToQuestion(row) {
-  const followUps = (row.followups || []).map((f) => ({
-    id:          f.id,
-    text:        f.followup_text,
-    answer:      f.answer_text || "",
-    askedBy:     f.asked_by_display_name || f.asked_by_name || "MP",
-    askedByRole: "backbencher",
-    askedAtSim:  f.asked_at_sim || "",
-  }));
   // due_at_sim is stored as a JSON string '{"month":9,"year":1997}'; parse it for deadline comparisons.
   const parseDueAtSim = (raw) => {
     if (!raw) return null;
@@ -598,11 +595,31 @@ function dbRowToQuestion(row) {
     } catch {}
     return null;
   };
+  // Parse and format asked_at_sim / answered_at_sim (stored as JSON strings like '{"month":9,"year":1997}')
+  const formatStoredSimDate = (raw) => {
+    if (!raw) return "";
+    if (typeof raw === "string") {
+      try {
+        const p = JSON.parse(raw);
+        if (p && Number.isInteger(p.month) && Number.isInteger(p.year)) return formatSimDate(p);
+      } catch {}
+    }
+    if (typeof raw === "object" && raw !== null && Number.isInteger(raw.month)) return formatSimDate(raw);
+    return String(raw);
+  };
+  const followUps = (row.followups || []).map((f) => ({
+    id:          f.id,
+    text:        f.followup_text,
+    answer:      f.answer_text || "",
+    askedBy:     f.asked_by_display_name || f.asked_by_name || "MP",
+    askedByRole: "backbencher",
+    askedAtSim:  formatStoredSimDate(f.asked_at_sim),
+  }));
   return {
     id:                  row.id,
     office:              row.office_id,
     askedBy:             row.asked_by_display_name || row.asked_by_name || "MP",
-    askedAtSim:          row.asked_at_sim || "",
+    askedAtSim:          formatStoredSimDate(row.asked_at_sim),
     createdAtTs:         row.created_at ? new Date(row.created_at).getTime() : 0,
     dueAtSim:            parseDueAtSim(row.due_at_sim),
     text:                row.question_text,

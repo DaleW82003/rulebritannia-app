@@ -2938,6 +2938,23 @@ export async function apiRestoreWhip(characterId) {
   if (!res.ok) throw new Error(body.error || `apiRestoreWhip failed (${res.status})`);
   return body;
 }
+export async function apiGetWhipRequests(partyId, status = "pending") {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/whip-requests?status=${encodeURIComponent(status)}`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiGetWhipRequests failed (${res.status})`); }
+  return res.json();
+}
+export async function apiApproveWhipRequest(partyId, requestId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/whip-requests/${encodeURIComponent(requestId)}/approve`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiApproveWhipRequest failed (${res.status})`);
+  return body;
+}
+export async function apiDenyWhipRequest(partyId, requestId) {
+  const res = await fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/whip-requests/${encodeURIComponent(requestId)}/deny`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiDenyWhipRequest failed (${res.status})`);
+  return body;
+}
 
 // ── Party expulsion workflow ──────────────────────────────────────────────────
 export async function apiRequestExpulsion(partyId, characterId, reason = "") {
@@ -3028,5 +3045,22 @@ export async function apiRemovePrivyCouncillor(characterId, { force = false } = 
   const res = await fetch(`${API_BASE}/api/mod/privy-council/remove`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId, force }) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiRemovePrivyCouncillor failed (${res.status})`);
+  return body;
+}
+export async function apiGetPrivyCouncilPosts() {
+  const res = await fetch(`${API_BASE}/api/privy-council/posts`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPrivyCouncilPosts failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreatePrivyCouncilPost(postData) {
+  const res = await fetch(`${API_BASE}/api/privy-council/posts`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify(postData) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreatePrivyCouncilPost failed (${res.status})`);
+  return body;
+}
+export async function apiDeletePrivyCouncilPost(postId) {
+  const res = await fetch(`${API_BASE}/api/privy-council/posts/${encodeURIComponent(postId)}`, { method: "DELETE", credentials: "include", headers: { ...csrfHeaders() } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiDeletePrivyCouncilPost failed (${res.status})`);
   return body;
 }

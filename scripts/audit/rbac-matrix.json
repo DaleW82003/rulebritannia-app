@@ -1565,6 +1565,43 @@
       ],
       "immutable": false,
       "category": "admin"
+    },
+    {
+      "method": "POST",
+      "path": "/api/privy-council/posts",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "privy-council"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/privy-council/posts/:id",
+      "roles": [
+        "admin",
+        "mod"
+      ],
+      "immutable": false,
+      "category": "privy-council"
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/whip-requests/:reqId/approve",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/parties/:partyId/whip-requests/:reqId/deny",
+      "roles": [
+        "authenticated"
+      ],
+      "immutable": false,
+      "category": "party"
     }
   ]
 }
