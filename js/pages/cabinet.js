@@ -1,4 +1,4 @@
-import { nowStamp } from "../core.js";
+import { nowStamp, isLoggedIn } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
@@ -269,37 +269,39 @@ function render(data, state) {
 export async function initCabinetPage(data) {
   normaliseCabinet(data);
 
-  // Load cabinet drafts from DB (authoritative source; accessible to cabinet members)
-  try {
-    const { drafts } = await apiGetCabinetDrafts();
-    if (Array.isArray(drafts)) {
-      data.cabinet.drafts = drafts;
-      // Keep nextDraftId ahead of all existing IDs
-      const maxId = drafts.reduce((m, d) => Math.max(m, Number(d.id || 0)), 0);
-      data.cabinet.nextDraftId = Math.max(Number(data.cabinet.nextDraftId || 1), maxId + 1);
-    }
-  } catch (err) {
-    // Non-critical: fall back to state-based drafts if API unavailable
-    console.warn("[initCabinetPage] could not load cabinet drafts from DB:", err.message);
-  }
-
-  // Augment government offices with characters from the DB
-  try {
-    const { characters } = await apiGetCharacters({ active: "true" });
-    if (characters && characters.length) {
-      // Merge DB characters into government offices where names match
-      const charByName = Object.fromEntries(characters.map((c) => [c.name.toLowerCase(), c]));
-      for (const office of data.government.offices) {
-        const holder = (office.holderName || "").toLowerCase();
-        if (holder && charByName[holder]) {
-          office._dbCharacter = charByName[holder];
-        }
+  if (isLoggedIn()) {
+    // Load cabinet drafts from DB (authoritative source; accessible to cabinet members)
+    try {
+      const { drafts } = await apiGetCabinetDrafts();
+      if (Array.isArray(drafts)) {
+        data.cabinet.drafts = drafts;
+        // Keep nextDraftId ahead of all existing IDs
+        const maxId = drafts.reduce((m, d) => Math.max(m, Number(d.id || 0)), 0);
+        data.cabinet.nextDraftId = Math.max(Number(data.cabinet.nextDraftId || 1), maxId + 1);
       }
-      // Attach characters list for access check
-      data._dbCharacters = characters;
+    } catch (err) {
+      // Non-critical: fall back to state-based drafts if API unavailable
+      console.warn("[initCabinetPage] could not load cabinet drafts from DB:", err.message);
     }
-  } catch {
-    // Non-critical: fall back to state-based cabinet data
+
+    // Augment government offices with characters from the DB
+    try {
+      const { characters } = await apiGetCharacters({ active: "true" });
+      if (characters && characters.length) {
+        // Merge DB characters into government offices where names match
+        const charByName = Object.fromEntries(characters.map((c) => [c.name.toLowerCase(), c]));
+        for (const office of data.government.offices) {
+          const holder = (office.holderName || "").toLowerCase();
+          if (holder && charByName[holder]) {
+            office._dbCharacter = charByName[holder];
+          }
+        }
+        // Attach characters list for access check
+        data._dbCharacters = characters;
+      }
+    } catch {
+      // Non-critical: fall back to state-based cabinet data
+    }
   }
 
   render(data, { openDraftId: null, editingDraftId: null, message: "" });

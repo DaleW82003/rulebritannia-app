@@ -1,6 +1,6 @@
 import { canSeeAudienceItem, isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
 import { esc } from "../ui.js";
-import { nowMs } from "../core.js";
+import { nowMs, isLoggedIn } from "../core.js";
 import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
 import { apiGetBills } from "../api.js";
@@ -592,7 +592,7 @@ export async function initDashboardPage(data) {
     }
   } catch { /* ignore localStorage errors */ }
 
-  await Promise.allSettled([
+  await Promise.allSettled(isLoggedIn() ? [
     // Bills → order paper + live docket (DB authoritative — replace entirely)
     apiGetBills().then((r) => {
       data.orderPaperCommons = Array.isArray(r?.bills) ? r.bills : [];
@@ -675,7 +675,7 @@ export async function initDashboardPage(data) {
     }).catch((err) => {
       console.error("[dashboard] economy DB load failed", err);
     }),
-  ]);
+  ] : []);
 
   const sections = [
     { id: "whats-going-on", fn: renderWhatsGoingOn, label: "What's Going On" },

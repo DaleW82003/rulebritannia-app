@@ -1,5 +1,5 @@
 import { esc } from "../ui.js";
-import { nowStamp } from "../core.js";
+import { nowStamp, isLoggedIn } from "../core.js";
 import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate } from "../clock.js";
 import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetOffices } from "../api.js";
@@ -2026,6 +2026,11 @@ function syncFinanceIntoProfile(profile, fin, data, profileName, state) {
 export async function initPersonalPage(data) {
   normalisePersonal(data);
   const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined, affiliationsMonthlyFees: undefined, affiliationsMonthlyFeesItems: undefined, enums: null };
+
+  if (!isLoggedIn()) {
+    render(data, state);
+    return;
+  }
 
   // Load all active characters for the moderator profile selector (non-blocking).
   if (canManage(data)) {

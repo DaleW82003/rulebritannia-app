@@ -5,7 +5,7 @@ import { handleApiError } from "../errors.js";
 import { toastSuccess, toastError } from "../components/toast.js";
 import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry, apiMarkPressItem, apiUpdatePressItem, apiDeletePressItem } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
-import { requireLoginForWrite } from "../core.js";
+import { requireLoginForWrite, isLoggedIn } from "../core.js";
 
 const PARTY_CODES = {
   Conservative: "CON",
@@ -1149,20 +1149,22 @@ function render(data, state) {
 export async function initPressPage(data) {
   ensurePress(data);
 
-  try {
-    const r = await apiGetPressItems();
-    const byType = { release: "releases", conference: "conferences", comment: "comments", speech: "speeches", letter: "letters" };
-    // Replace DB state as authoritative — prevents stale transcripts/marks after hard refresh
-    const fresh = { releases: [], conferences: [], comments: [], speeches: [], letters: [] };
-    for (const item of (r?.items ?? [])) {
-      const key = byType[item._pressType || item.press_type] || "releases";
-      if (fresh[key]) fresh[key].push(item);
+  if (isLoggedIn()) {
+    try {
+      const r = await apiGetPressItems();
+      const byType = { release: "releases", conference: "conferences", comment: "comments", speech: "speeches", letter: "letters" };
+      // Replace DB state as authoritative — prevents stale transcripts/marks after hard refresh
+      const fresh = { releases: [], conferences: [], comments: [], speeches: [], letters: [] };
+      for (const item of (r?.items ?? [])) {
+        const key = byType[item._pressType || item.press_type] || "releases";
+        if (fresh[key]) fresh[key].push(item);
+      }
+      for (const key of Object.keys(fresh)) {
+        if (fresh[key].length > 0) data.press[key] = fresh[key];
+      }
+    } catch (err) {
+      console.error("[press] DB load failed:", err);
     }
-    for (const key of Object.keys(fresh)) {
-      if (fresh[key].length > 0) data.press[key] = fresh[key];
-    }
-  } catch (err) {
-    console.error("[press] DB load failed:", err);
   }
 
   const params = new URLSearchParams(window.location.search);

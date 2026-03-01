@@ -1,6 +1,7 @@
 import { esc, formatMPName, partyBadge, PARTY_COLOURS } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
 import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice, apiGetParliamentStatus, apiUpdateParliamentStatus, apiGetCanonicalParties } from "../api.js";
+import { isLoggedIn } from "../core.js";
 
 const OFFICE_SPECS = [
   { id: "prime-minister", title: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service", short: "Prime Minister" },
@@ -353,9 +354,10 @@ function render(data, state) {
 export async function initGovernmentPage(data, renderState = { message: "" }) {
   normaliseGovernment(data);
 
-  // Merge live office assignments from the DB (single source of truth).
-  try {
-    const [{ offices: dbOffices }, { characters: dbChars }, parlStatus, { parties: canonicalParties }] = await Promise.all([
+  if (isLoggedIn()) {
+    // Merge live office assignments from the DB (single source of truth).
+    try {
+      const [{ offices: dbOffices }, { characters: dbChars }, parlStatus, { parties: canonicalParties }] = await Promise.all([
       apiGetOffices(),
       apiGetCharacters({ active: "true" }),
       apiGetParliamentStatus().catch(() => null),
@@ -389,8 +391,9 @@ export async function initGovernmentPage(data, renderState = { message: "" }) {
     data._dbCharacters = dbChars || [];
     if (parlStatus) data._parlStatus = parlStatus;
     data._canonicalParties = canonicalParties || [];
-  } catch {
-    // Non-critical: fall back to state-based government data
+    } catch {
+      // Non-critical: fall back to state-based government data
+    }
   }
 
   applyAssignmentEffects(data);

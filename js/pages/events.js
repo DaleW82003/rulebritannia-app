@@ -1,3 +1,4 @@
+import { isLoggedIn } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
@@ -341,14 +342,16 @@ function render(data, state) {
 
 export async function initEventsPage(data) {
   ensureEvents(data);
-  try {
-    const r = await apiGetEvents();
-    if (Array.isArray(r?.events)) {
-      // Replace with DB state — source of truth; prevents deleted items reappearing
-      data.events.items = r.events;
+  if (isLoggedIn()) {
+    try {
+      const r = await apiGetEvents();
+      if (Array.isArray(r?.events)) {
+        // Replace with DB state — source of truth; prevents deleted items reappearing
+        data.events.items = r.events;
+      }
+    } catch (err) {
+      console.error("[events] DB load failed:", err);
     }
-  } catch (err) {
-    console.error("[events] DB load failed:", err);
   }
   render(data, { showForm: false, formType: "event", openId: null });
 }

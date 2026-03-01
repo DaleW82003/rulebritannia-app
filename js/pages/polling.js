@@ -1,3 +1,4 @@
+import { isLoggedIn } from "../core.js";
 import { esc } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
 import { formatSimMonthYear } from "../clock.js";
@@ -216,14 +217,16 @@ function render(data) {
 
 export async function initPollingPage(data) {
   ensurePolling(data);
-  try {
-    const r = await apiGetPollingEntries();
-    if (Array.isArray(r?.entries)) {
-      data.polling.polls = r.entries;
-      data.polling.nextId = r.entries.reduce((max, p) => Math.max(max, Number(p.id || 0) + 1), 1);
+  if (isLoggedIn()) {
+    try {
+      const r = await apiGetPollingEntries();
+      if (Array.isArray(r?.entries)) {
+        data.polling.polls = r.entries;
+        data.polling.nextId = r.entries.reduce((max, p) => Math.max(max, Number(p.id || 0) + 1), 1);
+      }
+    } catch (err) {
+      console.error("[polling] DB load failed:", err);
     }
-  } catch (err) {
-    console.error("[polling] DB load failed:", err);
   }
   render(data);
 }

@@ -4,6 +4,7 @@ import { handleApiError } from "../errors.js";
 import { apiCreateOnlinePost, apiGetOnlinePosts, apiDeleteOnlinePost, apiUpdateOnlinePost, apiUpdateOnlineSettings } from "../api.js";
 import { formatSimMonthYear } from "../clock.js";
 import { getCharacterContext } from "../engines/core-engine.js";
+import { isLoggedIn } from "../core.js";
 
 const CHANNELS = {
   webPost: "Post to the Web",
@@ -442,21 +443,23 @@ function render(data, state) {
 
 export async function initOnlinePage(data) {
   ensureOnline(data);
-  try {
-    const r = await apiGetOnlinePosts();
-    if (r?.posts?.length) {
-      const seenWeb = new Set(data.online.webPosts.map((x) => String(x.id)));
-      const seenFb = new Set(data.online.facebookPosts.map((x) => String(x.id)));
-      const seenTw = new Set(data.online.twitterPosts.map((x) => String(x.id)));
-      for (const post of r.posts) {
-        const pt = post._post_type || post.post_type || "web";
-        if (pt === "web" && !seenWeb.has(String(post.id))) data.online.webPosts.push(post);
-        else if (pt === "facebook" && !seenFb.has(String(post.id))) data.online.facebookPosts.push(post);
-        else if (pt === "twitter" && !seenTw.has(String(post.id))) data.online.twitterPosts.push(post);
+  if (isLoggedIn()) {
+    try {
+      const r = await apiGetOnlinePosts();
+      if (r?.posts?.length) {
+        const seenWeb = new Set(data.online.webPosts.map((x) => String(x.id)));
+        const seenFb = new Set(data.online.facebookPosts.map((x) => String(x.id)));
+        const seenTw = new Set(data.online.twitterPosts.map((x) => String(x.id)));
+        for (const post of r.posts) {
+          const pt = post._post_type || post.post_type || "web";
+          if (pt === "web" && !seenWeb.has(String(post.id))) data.online.webPosts.push(post);
+          else if (pt === "facebook" && !seenFb.has(String(post.id))) data.online.facebookPosts.push(post);
+          else if (pt === "twitter" && !seenTw.has(String(post.id))) data.online.twitterPosts.push(post);
+        }
       }
+    } catch (err) {
+      console.error("[online] DB load failed:", err);
     }
-  } catch (err) {
-    console.error("[online] DB load failed:", err);
   }
   render(data, { view: null, editPostId: null });
 }

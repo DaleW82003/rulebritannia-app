@@ -4,6 +4,7 @@ import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from ".
 import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { logAction } from "../audit.js";
+import { isLoggedIn } from "../core.js";
 
 const DEFAULT_PARTIES = {
   Conservative: {
@@ -1805,7 +1806,7 @@ export async function initPartyPage(data) {
 
   // Load DB-backed party data
   const partyId = state.activeParty || Object.keys(data.party?.parties || {})[0] || "";
-  if (partyId) {
+  if (partyId && isLoggedIn()) {
     try {
       const [partyResult, charsResult, myCharsResult, priceResult, structureResult, ledgerResult] = await Promise.all([
         apiGetParty(partyId).catch(() => null),
