@@ -1,4 +1,4 @@
-import { esc } from "../ui.js";
+import { esc, formatMPName, partyBadge } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
 import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice } from "../api.js";
 
@@ -191,8 +191,8 @@ function render(data, state) {
                     ${choices.map((c) => `<option value="${esc(c.id)}" ${c.id === office.holderCharId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
                   </select>
                 ` : office.holderName ? `
-                  <div style="font-weight:700;text-align:center;">${esc(office.holderName)}</div>
-                  ${office.holderParty ? `<div class="muted" style="text-align:center;font-size:0.85em;">${esc(office.holderParty)}</div>` : ""}
+                  <div style="font-weight:700;text-align:center;">${esc(formatMPName(office.holderName, { appendMP: true }))}</div>
+                  ${office.holderParty ? `<div style="text-align:center;margin-top:2px;">${partyBadge(office.holderParty)}</div>` : ""}
                 ` : `
                   <div style="text-align:center;color:var(--muted,#888);font-style:italic;">Vacant</div>
                 `}

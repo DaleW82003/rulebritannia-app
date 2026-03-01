@@ -1,7 +1,7 @@
-import { esc } from "../ui.js";
+import { esc, formatMPName } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts } from "../api.js";
+import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { logAction } from "../audit.js";
 
@@ -466,6 +466,11 @@ function render(data, state) {
   const canAssignLeadership = manager || isPartyLeader;
   const canManageStructure  = manager || isPartyLeader || isChairman;
 
+  // Chief Whip role for whip discipline controls
+  const dbChiefWhipId = dbParty?.chief_whip_character_id;
+  const isChiefWhip   = !!dbChiefWhipId && !!sessionCharId && String(dbChiefWhipId) === String(sessionCharId);
+  const canManageWhip = manager || isPartyLeader || isChiefWhip;
+
   // Characters for party (for leadership dropdowns)
   const partyCharacters = (state.dbState?.partyCharacters || []);
 
@@ -564,6 +569,136 @@ function render(data, state) {
         ${state.leadershipMessage ? `<p class="muted" style="margin-top:8px;">${esc(state.leadershipMessage)}</p>` : ""}
       </section>
     ` : ""}
+
+    <section class="panel" style="margin-bottom:12px;" id="whip-section">
+      <h2 style="margin-top:0;">Parliamentary Whip Status</h2>
+      ${partyCharacters.length ? `
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:.9em;">
+            <thead>
+              <tr style="border-bottom:2px solid #ccc;">
+                <th style="text-align:left;padding:4px 8px;">MP</th>
+                <th style="text-align:left;padding:4px 8px;">Status</th>
+                ${canManageWhip ? `<th style="text-align:left;padding:4px 8px;">Action</th>` : ""}
+              </tr>
+            </thead>
+            <tbody>
+              ${partyCharacters.map((c) => {
+                const whipWithdrawn = c.whip_status === "withdrawn";
+                return `
+                  <tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:4px 8px;">${esc(formatMPName(c.name, { appendMP: true, isPrivy: !!(c.is_privy_councillor) }))}</td>
+                    <td style="padding:4px 8px;">${whipWithdrawn ? "⛔ Withdrawn" : "✅ Has Whip"}</td>
+                    ${canManageWhip ? `<td style="padding:4px 8px;">
+                      ${whipWithdrawn
+                        ? `<button type="button" class="btn" style="padding:2px 8px;font-size:.85em;" data-action="restore-whip" data-id="${esc(String(c.id))}">Restore Whip</button>`
+                        : `<button type="button" class="btn" style="padding:2px 8px;font-size:.85em;" data-action="withdraw-whip" data-id="${esc(String(c.id))}">Withdraw Whip</button>`
+                      }
+                    </td>` : ""}
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+        ${state.whipMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.whipMessage)}</p>` : ""}
+      ` : `<div class="muted-block">No party members found.</div>`}
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;" id="expulsion-section">
+      <h2 style="margin-top:0;">Expulsion Requests</h2>
+      ${(canAssignLeadership && partyCharacters.length) ? `
+        <details style="margin-bottom:12px;">
+          <summary style="cursor:pointer;font-weight:600;">Request Expulsion</summary>
+          <form id="expulsion-request-form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:8px;align-items:end;">
+            <div>
+              <label class="label" for="expulsion-member-select">Member</label>
+              <select id="expulsion-member-select" name="character_id" class="input" required>
+                <option value="">— Select member —</option>
+                ${partyCharacters.filter((c) => c.id !== sessionCharId).map((c) => `<option value="${esc(String(c.id))}">${esc(c.name)}</option>`).join("")}
+              </select>
+            </div>
+            <div>
+              <label class="label" for="expulsion-reason">Reason (optional)</label>
+              <input id="expulsion-reason" name="reason" class="input" placeholder="e.g. Breach of party whip">
+            </div>
+            <button type="submit" class="btn">Request Expulsion</button>
+          </form>
+        </details>
+      ` : ""}
+      ${manager ? `
+        <h3 style="margin:4px 0 8px;">Pending Expulsion Requests</h3>
+        ${(state.expulsions || []).length ? (state.expulsions || []).map((ex) => `
+          <article class="tile" style="margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
+            <div>
+              <b>${esc(ex.character_name || ex.characterName || "Unknown MP")}</b>
+              <span class="muted" style="font-size:.85em;"> — ${esc(ex.party || "")}</span>
+              ${ex.reason ? `<div class="muted" style="font-size:.85em;">Reason: ${esc(ex.reason)}</div>` : ""}
+              <div class="muted" style="font-size:.82em;">Requested by ${esc(ex.requested_by_name || ex.requestedByName || "—")}</div>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button type="button" class="btn" data-action="approve-expulsion" data-id="${esc(String(ex.id))}">Approve</button>
+              <button type="button" class="btn" data-action="deny-expulsion" data-id="${esc(String(ex.id))}">Deny</button>
+            </div>
+          </article>
+        `).join("") : `<div class="muted-block">No pending expulsion requests.</div>`}
+      ` : ""}
+      ${state.expulsionMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.expulsionMessage)}</p>` : ""}
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;" id="elections-section">
+      <h2 style="margin-top:0;">Party Leader Election</h2>
+      ${(() => {
+        const election = state.currentElection;
+        if (!election) {
+          return `
+            <div class="muted-block">No active leadership election.</div>
+            ${manager ? `<button type="button" class="btn" id="start-election-btn" style="margin-top:8px;">Start Election</button>` : ""}
+          `;
+        }
+        const phase = election.status || "nominations";
+        const nominations = election.nominations || [];
+        const votes = election.vote_counts || election.votes || {};
+        return `
+          <div class="muted" style="margin-bottom:8px;">Phase: <b>${esc(phase)}</b></div>
+          ${nominations.length ? `
+            <div style="margin-bottom:8px;">
+              <b>Candidates:</b>
+              <ul style="margin:4px 0 0 0;padding-left:1.2em;">
+                ${nominations.map((n) => `
+                  <li>${esc(formatMPName(n.character_name || n.name || "—", { appendMP: true, isPrivy: !!(n.is_privy_councillor) }))}
+                    ${votes[n.character_id || n.id] != null ? ` — <b>${votes[n.character_id || n.id]} vote(s)</b>` : ""}
+                    ${(phase === "voting" || phase === "runoff") ? `
+                      <button type="button" class="btn" style="margin-left:8px;padding:1px 7px;font-size:.82em;" data-action="vote-election" data-nominee-id="${esc(String(n.character_id || n.id))}" data-election-id="${esc(String(election.id))}">Vote</button>
+                    ` : ""}
+                  </li>
+                `).join("")}
+              </ul>
+            </div>
+          ` : `<div class="muted-block" style="margin-bottom:8px;">No nominations yet.</div>`}
+          ${phase === "nominations" ? `
+            <form id="nominate-form" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:8px;">
+              <div>
+                <label class="label" for="nominate-select">Nominate Candidate</label>
+                <select id="nominate-select" name="character_id" class="input">
+                  <option value="">— Select candidate —</option>
+                  ${partyCharacters.map((c) => `<option value="${esc(String(c.id))}">${esc(c.name)}</option>`).join("")}
+                </select>
+              </div>
+              <button type="submit" class="btn">Nominate</button>
+            </form>
+          ` : ""}
+          ${manager ? `
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+              ${phase === "nominations" ? `<button type="button" class="btn" id="open-voting-btn" data-election-id="${esc(String(election.id))}">Open Voting</button>` : ""}
+              ${(phase === "voting" || phase === "runoff") ? `<button type="button" class="btn" id="close-election-btn" data-election-id="${esc(String(election.id))}">Close Election</button>` : ""}
+              ${phase === "closed" ? `<button type="button" class="btn" id="runoff-btn" data-election-id="${esc(String(election.id))}">Initiate Runoff</button>` : ""}
+            </div>
+          ` : ""}
+        `;
+      })()}
+      ${state.electionMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.electionMessage)}</p>` : ""}
+    </section>
 
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Enter Headquarters</h2>
@@ -1380,6 +1515,203 @@ function render(data, state) {
     }
     render(data, state);
   });
+
+  // ── Whip discipline ─────────────────────────────────────────────────────────
+  root.querySelectorAll('[data-action="withdraw-whip"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!canManageWhip) return;
+      const charId = String(btn.dataset.id || "");
+      if (!charId) return;
+      btn.disabled = true;
+      try {
+        await apiWithdrawWhip(charId);
+        const c = state.dbState.partyCharacters.find((x) => String(x.id) === charId);
+        if (c) c.whip_status = "withdrawn";
+        state.whipMessage = "Whip withdrawn.";
+      } catch (err) {
+        state.whipMessage = `Error: ${err.message}`;
+        btn.disabled = false;
+      }
+      render(data, state);
+    });
+  });
+
+  root.querySelectorAll('[data-action="restore-whip"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!canManageWhip) return;
+      const charId = String(btn.dataset.id || "");
+      if (!charId) return;
+      btn.disabled = true;
+      try {
+        await apiRestoreWhip(charId);
+        const c = state.dbState.partyCharacters.find((x) => String(x.id) === charId);
+        if (c) c.whip_status = "active";
+        state.whipMessage = "Whip restored.";
+      } catch (err) {
+        state.whipMessage = `Error: ${err.message}`;
+        btn.disabled = false;
+      }
+      render(data, state);
+    });
+  });
+
+  // ── Expulsion workflow ───────────────────────────────────────────────────────
+  root.querySelector("#expulsion-request-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!canAssignLeadership) return;
+    const fd = new FormData(e.currentTarget);
+    const characterId = String(fd.get("character_id") || "").trim();
+    const reason      = String(fd.get("reason") || "").trim();
+    if (!characterId) {
+      state.expulsionMessage = "Please select a member.";
+      render(data, state);
+      return;
+    }
+    try {
+      await apiRequestExpulsion(state.activeParty, characterId, reason);
+      state.expulsionMessage = "Expulsion request submitted.";
+      e.currentTarget.reset();
+    } catch (err) {
+      state.expulsionMessage = `Error: ${err.message}`;
+    }
+    render(data, state);
+  });
+
+  root.querySelectorAll('[data-action="approve-expulsion"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!manager) return;
+      const id = String(btn.dataset.id || "");
+      if (!id) return;
+      btn.disabled = true;
+      try {
+        await apiApproveExpulsion(id);
+        state.expulsions = (state.expulsions || []).filter((ex) => String(ex.id) !== id);
+        state.expulsionMessage = "Expulsion approved.";
+      } catch (err) {
+        state.expulsionMessage = `Error: ${err.message}`;
+        btn.disabled = false;
+      }
+      render(data, state);
+    });
+  });
+
+  root.querySelectorAll('[data-action="deny-expulsion"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!manager) return;
+      const id = String(btn.dataset.id || "");
+      if (!id) return;
+      btn.disabled = true;
+      try {
+        await apiDenyExpulsion(id);
+        state.expulsions = (state.expulsions || []).filter((ex) => String(ex.id) !== id);
+        state.expulsionMessage = "Expulsion denied.";
+      } catch (err) {
+        state.expulsionMessage = `Error: ${err.message}`;
+        btn.disabled = false;
+      }
+      render(data, state);
+    });
+  });
+
+  // ── Party leader elections ───────────────────────────────────────────────────
+  root.querySelector("#start-election-btn")?.addEventListener("click", async () => {
+    if (!manager) return;
+    const btn = root.querySelector("#start-election-btn");
+    if (btn) btn.disabled = true;
+    try {
+      const result = await apiStartPartyElection(state.activeParty);
+      state.currentElection = result.election || result;
+      state.electionMessage = "Election started.";
+    } catch (err) {
+      state.electionMessage = `Error: ${err.message}`;
+      if (btn) btn.disabled = false;
+    }
+    render(data, state);
+  });
+
+  root.querySelector("#nominate-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const characterId = String(fd.get("character_id") || "").trim();
+    if (!characterId || !state.currentElection) return;
+    try {
+      await apiNominateForElection(state.activeParty, String(state.currentElection.id), characterId);
+      const updated = await apiGetPartyElections(state.activeParty).catch(() => ({ elections: [] }));
+      state.elections = updated.elections || [];
+      const openStatuses = ["nominations", "voting", "runoff"];
+      state.currentElection = state.elections.find((el) => openStatuses.includes(el.status)) || state.currentElection;
+      state.electionMessage = "Nomination submitted.";
+    } catch (err) {
+      state.electionMessage = `Error: ${err.message}`;
+    }
+    render(data, state);
+  });
+
+  root.querySelectorAll('[data-action="vote-election"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const nomineeId  = String(btn.dataset.nomineeId || "");
+      const electionId = String(btn.dataset.electionId || "");
+      if (!nomineeId || !electionId) return;
+      btn.disabled = true;
+      try {
+        await apiVoteInElection(state.activeParty, electionId, nomineeId);
+        const updated = await apiGetPartyElections(state.activeParty).catch(() => ({ elections: [] }));
+        state.elections = updated.elections || [];
+        const openStatuses = ["nominations", "voting", "runoff"];
+        state.currentElection = state.elections.find((el) => openStatuses.includes(el.status)) || state.currentElection;
+        state.electionMessage = "Vote cast.";
+      } catch (err) {
+        state.electionMessage = `Error: ${err.message}`;
+        btn.disabled = false;
+      }
+      render(data, state);
+    });
+  });
+
+  root.querySelector("#open-voting-btn")?.addEventListener("click", async () => {
+    if (!manager || !state.currentElection) return;
+    const btn = root.querySelector("#open-voting-btn");
+    if (btn) btn.disabled = true;
+    try {
+      await apiOpenElectionVoting(state.activeParty, String(state.currentElection.id));
+      if (state.currentElection) state.currentElection.status = "voting";
+      state.electionMessage = "Voting opened.";
+    } catch (err) {
+      state.electionMessage = `Error: ${err.message}`;
+      if (btn) btn.disabled = false;
+    }
+    render(data, state);
+  });
+
+  root.querySelector("#close-election-btn")?.addEventListener("click", async () => {
+    if (!manager || !state.currentElection) return;
+    const btn = root.querySelector("#close-election-btn");
+    if (btn) btn.disabled = true;
+    try {
+      await apiCloseElection(state.activeParty, String(state.currentElection.id));
+      if (state.currentElection) state.currentElection.status = "closed";
+      state.electionMessage = "Election closed.";
+    } catch (err) {
+      state.electionMessage = `Error: ${err.message}`;
+      if (btn) btn.disabled = false;
+    }
+    render(data, state);
+  });
+
+  root.querySelector("#runoff-btn")?.addEventListener("click", async () => {
+    if (!manager || !state.currentElection) return;
+    const btn = root.querySelector("#runoff-btn");
+    if (btn) btn.disabled = true;
+    try {
+      await apiRunoffElection(state.activeParty, String(state.currentElection.id));
+      if (state.currentElection) state.currentElection.status = "runoff";
+      state.electionMessage = "Runoff initiated.";
+    } catch (err) {
+      state.electionMessage = `Error: ${err.message}`;
+      if (btn) btn.disabled = false;
+    }
+    render(data, state);
+  });
 }
 
 export async function initPartyPage(data) {
@@ -1394,6 +1726,12 @@ export async function initPartyPage(data) {
     structureMessage: "",
     feeMessage: "",
     donationMessage: "",
+    whipMessage: "",
+    expulsionMessage: "",
+    electionMessage: "",
+    expulsions: [],
+    elections: [],
+    currentElection: null,
     ledger: [],
     priceIndex: 1.0,
     dbState: { party: null, partyCharacters: [], sessionCharId: "", partyStructure: null, treasuryOverspend: false }
@@ -1450,6 +1788,18 @@ export async function initPartyPage(data) {
       state.dbState.partyStructure = structureResult.structure || {};
       state.dbState.treasuryOverspend = !!structureResult.treasuryOverspend;
       state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
+
+      // Load governance data: elections and pending expulsions
+      const [electionsResult, expulsionsResult] = await Promise.all([
+        apiGetPartyElections(partyId).catch(() => ({ elections: [] })),
+        apiGetExpulsions("pending").catch(() => ({ expulsions: [] })),
+      ]);
+      state.elections = electionsResult.elections || [];
+      const openStatuses = ["nominations", "voting", "runoff"];
+      state.currentElection = state.elections.find((e) => openStatuses.includes(e.status)) || null;
+      state.expulsions = (expulsionsResult.expulsions || []).filter(
+        (ex) => (ex.party || "").toLowerCase() === partyId.toLowerCase()
+      );
     } catch (e) {
       console.warn("[initPartyPage] DB load failed:", e.message);
     }
