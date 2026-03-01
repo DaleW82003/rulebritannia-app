@@ -26,7 +26,7 @@ var index_default = {
     // DiscourseConnect handshake seamlessly.
     if (url.hostname === "rulebritannia.org") {
       url.hostname = "www.rulebritannia.org";
-      return Response.redirect(url.toString(), 301);
+      return Response.redirect(url.toString(), 308);
     }
 
     // API proxy: www.rulebritannia.org/api/* → backend
