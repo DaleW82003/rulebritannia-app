@@ -5756,7 +5756,7 @@ async function getCharacterParliamentaryMeta(pool, characterId) {
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows } = await pool.query(
     `SELECT c.id,
-            EXISTS (SELECT 1 FROM constituencies k WHERE k.mp_name = c.name AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
+            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (
@@ -11969,32 +11969,37 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
       // Compute the caller's current effective weight from constituencies DB, minus rebels for their party
       try {
         const { rows: charRows } = await pool.query(
-          "SELECT name, party FROM characters WHERE id = $1", [charId]
+          "SELECT name, party, whip_status FROM characters WHERE id = $1", [charId]
         );
         const charName = charRows[0]?.name || "";
         const charParty = charRows[0]?.party || "";
-        const seatsByPartyFresh = await getPartySeatsFromConstituencies(pool);
-        const { rows: stateRows } = await pool.query(
-          `SELECT ss.data FROM state_snapshots ss
-             JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
-            WHERE asc2.id = 'main'`
-        );
-        const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-        const { effectiveWeights } = computeAllPlayerWeights(seatsByPartyFresh, statePlayers);
-        const rawWeight = Number(effectiveWeights[charName] || 0);
-        // Deduct rebel fraction from myWeight display
-        const partyRebels = Number(division.rebels_by_party?.[charParty] ?? 0);
-        if (partyRebels > 0 && rawWeight > 0) {
-          const partyTotalWeight = Object.entries(effectiveWeights)
-            .filter(([n]) => {
-              const pl = statePlayers.find((p) => String(p.name || "") === n);
-              return pl && String(pl.party || "") === charParty;
-            })
-            .reduce((s, [, w]) => s + Number(w), 0);
-          const fraction = partyTotalWeight > 0 ? rawWeight / partyTotalWeight : 0;
-          myWeight = Math.max(0, rawWeight - Math.round(fraction * partyRebels));
+        const whipWithdrawn = charRows[0]?.whip_status === "withdrawn";
+        if (whipWithdrawn) {
+          myWeight = 1;
         } else {
-          myWeight = rawWeight;
+          const seatsByPartyFresh = await getPartySeatsFromConstituencies(pool);
+          const { rows: stateRows } = await pool.query(
+            `SELECT ss.data FROM state_snapshots ss
+               JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+              WHERE asc2.id = 'main'`
+          );
+          const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
+          const { effectiveWeights } = computeAllPlayerWeights(seatsByPartyFresh, statePlayers);
+          const rawWeight = Number(effectiveWeights[charName] || 0);
+          // Deduct rebel fraction from myWeight display
+          const partyRebels = Number(division.rebels_by_party?.[charParty] ?? 0);
+          if (partyRebels > 0 && rawWeight > 0) {
+            const partyTotalWeight = Object.entries(effectiveWeights)
+              .filter(([n]) => {
+                const pl = statePlayers.find((p) => String(p.name || "") === n);
+                return pl && String(pl.party || "") === charParty;
+              })
+              .reduce((s, [, w]) => s + Number(w), 0);
+            const fraction = partyTotalWeight > 0 ? rawWeight / partyTotalWeight : 0;
+            myWeight = Math.max(0, rawWeight - Math.round(fraction * partyRebels));
+          } else {
+            myWeight = rawWeight;
+          }
         }
       } catch (wErr) { console.error("[division.for-entity myWeight]", wErr.message); /* weight display is best-effort */ }
     }
