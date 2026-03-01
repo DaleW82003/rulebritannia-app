@@ -179,6 +179,10 @@ export function ensureDefaults(data) {
   } else if (!data.papers.papers.find((p) => p.key === "ft")) {
     data.papers.papers.push({ key: "ft", name: "Financial Times", cls: "paper-ft", issues: [] });
   }
+  data.liveDocket ??= { asOf: "Today", items: [] };
+  data.liveDocket.items ??= [];
+  data.liveDocket.seenActivityTs ??= {};
+
   data.questionTime ??= { offices: [], questions: [] };
   if (!Array.isArray(data.questionTime.offices)) data.questionTime.offices = [];
   if (!Array.isArray(data.questionTime.questions)) data.questionTime.questions = [];
