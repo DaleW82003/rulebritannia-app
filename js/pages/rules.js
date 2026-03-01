@@ -1,6 +1,7 @@
 import { esc } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
 import { apiGetRules, apiCreateRule, apiUpdateRule, apiDeleteRule } from "../api.js";
+import { isLoggedIn } from "../core.js";
 
 function normaliseRules(data) {
   data.rules ??= { items: [], nextId: 1 };
@@ -159,13 +160,17 @@ function render(data, state) {
 }
 
 export async function initRulesPage(data) {
-  try {
-    const r = await apiGetRules();
-    data.rules = data.rules || {};
-    data.rules.items = r.items || [];
-    data.rules.nextId = Math.max(0, ...(r.items || []).map(i => Number(i.id) || 0)) + 1;
-  } catch (err) {
-    console.error("[rules] load failed:", err);
+  if (isLoggedIn()) {
+    try {
+      const r = await apiGetRules();
+      data.rules = data.rules || {};
+      data.rules.items = r.items || [];
+      data.rules.nextId = Math.max(0, ...(r.items || []).map(i => Number(i.id) || 0)) + 1;
+    } catch (err) {
+      console.error("[rules] load failed:", err);
+      normaliseRules(data);
+    }
+  } else {
     normaliseRules(data);
   }
   render(data, { editingId: null, message: "" });

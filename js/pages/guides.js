@@ -1,6 +1,7 @@
 import { esc } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
 import { apiGetGuides, apiCreateGuide, apiUpdateGuide, apiDeleteGuide } from "../api.js";
+import { isLoggedIn } from "../core.js";
 
 function normaliseGuides(data) {
   data.guides ??= { items: [], nextId: 1 };
@@ -159,13 +160,17 @@ function render(data, state) {
 }
 
 export async function initGuidesPage(data) {
-  try {
-    const r = await apiGetGuides();
-    data.guides = data.guides || {};
-    data.guides.items = r.items || [];
-    data.guides.nextId = Math.max(0, ...(r.items || []).map(i => Number(i.id) || 0)) + 1;
-  } catch (err) {
-    console.error("[guides] load failed:", err);
+  if (isLoggedIn()) {
+    try {
+      const r = await apiGetGuides();
+      data.guides = data.guides || {};
+      data.guides.items = r.items || [];
+      data.guides.nextId = Math.max(0, ...(r.items || []).map(i => Number(i.id) || 0)) + 1;
+    } catch (err) {
+      console.error("[guides] load failed:", err);
+      normaliseGuides(data);
+    }
+  } else {
     normaliseGuides(data);
   }
   render(data, { editingId: null, message: "" });

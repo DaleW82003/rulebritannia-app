@@ -1,4 +1,4 @@
-import { nowStamp } from "../core.js";
+import { nowStamp, isLoggedIn } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canRaiseCivilServiceCase, canAdminOrMod } from "../permissions.js";
 import { getCharacterContext } from "../engines/core-engine.js";
@@ -870,12 +870,14 @@ function render(data, state) {
 
 export async function initCivilServicePage(data) {
   normaliseCivilService(data);
-  try {
-    const [br, cs] = await Promise.all([apiGetCsBriefings(), apiGetCsCases()]);
-    data.civilService.briefings = br.briefings || [];
-    data.civilService.cases = cs.cases || [];
-  } catch (err) {
-    console.error("[cs] load failed:", err);
+  if (isLoggedIn()) {
+    try {
+      const [br, cs] = await Promise.all([apiGetCsBriefings(), apiGetCsCases()]);
+      data.civilService.briefings = br.briefings || [];
+      data.civilService.cases = cs.cases || [];
+    } catch (err) {
+      console.error("[cs] load failed:", err);
+    }
   }
   render(data, { selectedDeptId: selectedDeptFromUrl(), openCaseId: null, openBriefingId: null, message: "" });
 }

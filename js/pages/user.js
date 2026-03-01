@@ -1,4 +1,5 @@
 import { apiUpdateMyAbsent } from "../api.js";
+import { isLoggedIn } from "../core.js";
 
 import { setAbsenceState, getCharacterContext } from "../engines/core-engine.js";
 import { esc } from "../ui.js";
@@ -732,6 +733,12 @@ export async function initUserPage(data) {
       viewingUsername = urlParam;
     }
   } catch { /* non-browser or URL parse error — ignore */ }
+
+  if (!isLoggedIn()) {
+    const state = { message: "", dbState: { myCharacters: [], myApplications: [], pendingApplications: [] }, viewingUsername, enums: null };
+    render(data, state);
+    return;
+  }
 
   // Load DB-backed character and application data
   let myCharacters = [];

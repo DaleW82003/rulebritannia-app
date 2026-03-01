@@ -1,3 +1,4 @@
+import { isLoggedIn } from "../core.js";
 import { esc, formatMPName, partyBadge } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, formatSimDate, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
@@ -676,15 +677,17 @@ export async function initQuestionTimePage(data) {
   normaliseQuestionTime(data);
 
   // Load all questions from DB (authoritative)
-  try {
-    const { questions: rows } = await apiGetQtQuestions();
-    data.questionTime.questions = rows.map(dbRowToQuestion);
-  } catch (err) {
-    console.error("[questiontime] DB load failed:", err);
-    data.questionTime.questions = [];
-  }
+  if (isLoggedIn()) {
+    try {
+      const { questions: rows } = await apiGetQtQuestions();
+      data.questionTime.questions = rows.map(dbRowToQuestion);
+    } catch (err) {
+      console.error("[questiontime] DB load failed:", err);
+      data.questionTime.questions = [];
+    }
 
-  normaliseQuestionTime(data);
+    normaliseQuestionTime(data);
+  }
 
   const state = { selectedOfficeId: data.questionTime.offices[0]?.id || null };
   render(data, state);

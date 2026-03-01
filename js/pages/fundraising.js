@@ -1,3 +1,4 @@
+import { isLoggedIn } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection } from "../components/tile.js";
@@ -476,42 +477,44 @@ function render(data, state) {
 
 export async function initFundraisingPage(data) {
   ensureFundraising(data);
-  try {
-    const r = await apiGetFundraisingItems();
-    if (Array.isArray(r?.items)) {
-      // Replace with DB state — source of truth so deleted/partial items don't persist from stale snapshot
-      data.fundraising.items = r.items;
+  if (isLoggedIn()) {
+    try {
+      const r = await apiGetFundraisingItems();
+      if (Array.isArray(r?.items)) {
+        // Replace with DB state — source of truth so deleted/partial items don't persist from stale snapshot
+        data.fundraising.items = r.items;
+      }
+    } catch (err) {
+      console.error("[fundraising] DB load failed:", err);
     }
-  } catch (err) {
-    console.error("[fundraising] DB load failed:", err);
-  }
 
-  // Remove any items without a valid id (stale/corrupted snapshot state)
-  data.fundraising.items = data.fundraising.items.filter(isValidFundraisingItem);
+    // Remove any items without a valid id (stale/corrupted snapshot state)
+    data.fundraising.items = data.fundraising.items.filter(isValidFundraisingItem);
 
-  // Load party shop purchases for parties with pending party fundraisers so the
-  // mod/admin sees the correct fundraisingCapacity bonus when approving revenue.
-  const pendingParties = [
-    ...new Set(
-      data.fundraising.items
-        .filter((i) => i.scope === "party" && i.party && i.status === "pending")
-        .map((i) => i.party)
-    ),
-  ];
-  if (pendingParties.length > 0) {
-    await Promise.all(
-      pendingParties.map(async (partyName) => {
-        try {
-          const result = await apiGetParty(partyName);
-          if (result?.party && Array.isArray(result.party.partyShopPurchases)) {
-            ensurePartyTreasury(data, partyName);
-            data.party.parties[partyName].partyShopPurchases = result.party.partyShopPurchases;
+    // Load party shop purchases for parties with pending party fundraisers so the
+    // mod/admin sees the correct fundraisingCapacity bonus when approving revenue.
+    const pendingParties = [
+      ...new Set(
+        data.fundraising.items
+          .filter((i) => i.scope === "party" && i.party && i.status === "pending")
+          .map((i) => i.party)
+      ),
+    ];
+    if (pendingParties.length > 0) {
+      await Promise.all(
+        pendingParties.map(async (partyName) => {
+          try {
+            const result = await apiGetParty(partyName);
+            if (result?.party && Array.isArray(result.party.partyShopPurchases)) {
+              ensurePartyTreasury(data, partyName);
+              data.party.parties[partyName].partyShopPurchases = result.party.partyShopPurchases;
+            }
+          } catch (err) {
+            console.warn(`[fundraising] failed to load party data for ${partyName}:`, err.message);
           }
-        } catch (err) {
-          console.warn(`[fundraising] failed to load party data for ${partyName}:`, err.message);
-        }
-      })
-    );
+        })
+      );
+    }
   }
 
   render(data, { showForm: false, formType: FUNDRAISERS[0].key, openId: null });

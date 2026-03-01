@@ -1,6 +1,7 @@
 import { esc, formatMPName, partyBadge, PARTY_COLOURS } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
 import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice, apiGetParliamentStatus, apiUpdateParliamentStatus, apiGetCanonicalParties } from "../api.js";
+import { isLoggedIn } from "../core.js";
 
 const SHADOW_OFFICE_SPECS = [
   { id: "leader-opposition", title: "Leader of the Opposition (who appoints all others)", short: "Leader of the Opposition" },
@@ -311,9 +312,10 @@ function render(data, state) {
 export async function initOppositionPage(data, renderState = { message: "" }) {
   normaliseOpposition(data);
 
-  // Merge live office assignments from the DB (single source of truth).
-  try {
-    const [{ offices: dbOffices }, { characters: dbChars }, parlStatus, { parties: canonicalParties }] = await Promise.all([
+  if (isLoggedIn()) {
+    // Merge live office assignments from the DB (single source of truth).
+    try {
+      const [{ offices: dbOffices }, { characters: dbChars }, parlStatus, { parties: canonicalParties }] = await Promise.all([
       apiGetOffices(),
       apiGetCharacters({ active: "true" }),
       apiGetParliamentStatus().catch(() => null),
@@ -347,8 +349,9 @@ export async function initOppositionPage(data, renderState = { message: "" }) {
     data._dbCharacters = dbChars || [];
     if (parlStatus) data._parlStatus = parlStatus;
     data._canonicalParties = canonicalParties || [];
-  } catch {
-    // Non-critical: fall back to state-based opposition data
+    } catch {
+      // Non-critical: fall back to state-based opposition data
+    }
   }
 
   applyAssignmentEffects(data);

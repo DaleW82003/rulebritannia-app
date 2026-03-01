@@ -1,4 +1,4 @@
-import { nowStamp } from "../core.js";
+import { nowStamp, isLoggedIn } from "../core.js";
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
@@ -265,18 +265,20 @@ function render(data, state) {
 export async function initShadowCabinetPage(data) {
   normaliseShadowCabinet(data);
 
-  // Load shadow cabinet drafts from DB (authoritative source; accessible to shadow cabinet members)
-  try {
-    const { drafts } = await apiGetShadowCabinetDrafts();
-    if (Array.isArray(drafts)) {
-      data.shadowCabinet.drafts = drafts;
-      // Keep nextDraftId ahead of all existing IDs
-      const maxId = drafts.reduce((m, d) => Math.max(m, Number(d.id || 0)), 0);
-      data.shadowCabinet.nextDraftId = Math.max(Number(data.shadowCabinet.nextDraftId || 1), maxId + 1);
+  if (isLoggedIn()) {
+    // Load shadow cabinet drafts from DB (authoritative source; accessible to shadow cabinet members)
+    try {
+      const { drafts } = await apiGetShadowCabinetDrafts();
+      if (Array.isArray(drafts)) {
+        data.shadowCabinet.drafts = drafts;
+        // Keep nextDraftId ahead of all existing IDs
+        const maxId = drafts.reduce((m, d) => Math.max(m, Number(d.id || 0)), 0);
+        data.shadowCabinet.nextDraftId = Math.max(Number(data.shadowCabinet.nextDraftId || 1), maxId + 1);
+      }
+    } catch (err) {
+      // Non-critical: fall back to state-based drafts if API unavailable
+      console.warn("[initShadowCabinetPage] could not load shadow cabinet drafts from DB:", err.message);
     }
-  } catch (err) {
-    // Non-critical: fall back to state-based drafts if API unavailable
-    console.warn("[initShadowCabinetPage] could not load shadow cabinet drafts from DB:", err.message);
   }
 
   render(data, { openDraftId: null, editingDraftId: null, message: "" });

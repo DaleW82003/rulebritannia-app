@@ -302,8 +302,6 @@ export async function bootData() {
       console.warn("[bootData] Failed to load demo.json:", e.message);
     }
     const ensured = ensureDefaults(demoData);
-    // Deep-freeze the demo baseline so accidental mutations are caught at the call site.
-    deepFreeze(ensured);
     return { data: ensured, user: null, clock, sources };
   }
 
