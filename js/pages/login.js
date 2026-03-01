@@ -48,7 +48,11 @@ export function initLoginPage(_data) {
   const cfg = getBootstrapConfig();
   const ssoEnabled = cfg?.sso_enabled === true;
 
-  render(host, "", ssoEnabled);
+  // Show any SSO error passed back via query string (e.g. after a failed SSO redirect)
+  const urlParams = new URLSearchParams(window.location.search);
+  const ssoError  = urlParams.get("sso_error") || "";
+
+  render(host, ssoError, ssoEnabled);
 
   const form = host.querySelector("#login-form");
   const errorEl = host.querySelector("#login-error");

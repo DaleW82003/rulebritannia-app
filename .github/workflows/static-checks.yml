@@ -25,6 +25,9 @@ jobs:
       - name: Run feature manifest (RBAC + write-path audit)
         run: node scripts/audit/feature-manifest.js
 
+      - name: Run discourse SSO unit tests
+        run: node --test server/discourse.test.js
+
       - name: Upload manifest as artefact
         if: always()
         uses: actions/upload-artifact@v4

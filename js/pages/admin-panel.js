@@ -303,6 +303,10 @@ export async function initAdminPanelPage(data) {
             Find the SSO secret in your Discourse admin under Settings → Login → sso secret.
             Leave blank to keep the current value.
           </p>
+          <p style="font-size:12px;color:#555;margin:4px 0 0;">
+            See <strong>SSO Readiness</strong> below for the exact DiscourseConnect URL to configure in Discourse,
+            and for a checklist of all prerequisites.
+          </p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn" type="submit">Save</button>
             <button class="btn" id="btn-discourse-test" type="button">Test Connection</button>
@@ -522,7 +526,7 @@ export async function initAdminPanelPage(data) {
         </section>`;
     }
 
-    const { allOk, checks = [] } = ssoReadiness;
+    const { allOk, checks = [], ssoEntryUrl, callbackUrl } = ssoReadiness;
     const rows = checks.map((c) => {
       const icon = c.ok ? "✅" : "❌";
       return `
@@ -532,6 +536,14 @@ export async function initAdminPanelPage(data) {
           <td style="padding:6px 10px;font-size:12px;color:#555;">${esc(c.detail || "")}</td>
         </tr>`;
     }).join("");
+
+    const urlHint = ssoEntryUrl ? `
+      <div style="margin-top:12px;padding:10px 14px;background:#f5f8ff;border:1px solid #c5d5f0;border-radius:6px;font-size:13px;">
+        <p style="margin:0 0 6px;font-weight:600;">Discourse DiscourseConnect URL to configure:</p>
+        <p style="margin:0 0 4px;">In Discourse → Admin → Settings → Login, set <b>DiscourseConnect URL</b> to:</p>
+        <code style="display:block;padding:4px 8px;background:#fff;border:1px solid #dde;border-radius:4px;word-break:break-all;">${esc(ssoEntryUrl)}</code>
+        <p style="margin:6px 0 0;font-size:12px;color:#666;">Also enable the <em>DiscourseConnect Provider</em> checkbox (not to be confused with the consumer-side "DiscourseConnect" checkbox). The callback URL will be: <code>${esc(callbackUrl || "")}</code></p>
+      </div>` : "";
 
     return `
       <section class="panel" style="max-width:750px;margin-top:12px;">
@@ -547,6 +559,7 @@ export async function initAdminPanelPage(data) {
         <table style="width:100%;border-collapse:collapse;">
           <tbody>${rows}</tbody>
         </table>
+        ${urlHint}
         <div style="margin-top:10px;">
           <button class="btn" id="btn-refresh-sso-readiness" type="button">Refresh</button>
         </div>
