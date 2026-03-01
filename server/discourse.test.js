@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { buildSsoPayload, verifySsoPayload } from "./discourse.js";
+import { buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse } from "./discourse.js";
 
 // ── buildSsoPayload ───────────────────────────────────────────────────────────
 
@@ -116,49 +116,129 @@ test("verifySsoPayload parses groups list", () => {
   assert.deepEqual(user.groups, ["moderators", "trust_level_3"]);
 });
 
-// ── SSO init / callback URL invariant ────────────────────────────────────────
-// The provider-init endpoint always builds a payload whose return_sso_url
-// points to the CALLBACK endpoint (/api/discourse/sso/callback), never back
-// to the init endpoint (/api/discourse/sso).  These tests validate that
-// buildSsoPayload correctly encodes whichever returnUrl is passed, and that
-// the server must pass the callback path (enforced by endpoint logic).
+// ── verifyConsumerRequest ─────────────────────────────────────────────────────
+// In consumer mode Discourse calls our DiscourseConnect URL with a signed
+// payload containing nonce + return_sso_url.
 
-test("buildSsoPayload return_sso_url ends with /api/discourse/sso/callback", () => {
-  const returnUrl = "https://example.com/api/discourse/sso/callback";
-  const { sso } = buildSsoPayload({ ssoSecret: "s", returnUrl, nonce: "n" });
+test("verifyConsumerRequest extracts nonce and returnSsoUrl from a valid request", () => {
+  const ssoSecret    = "consumer-secret";
+  const nonce        = "discourse-nonce-1";
+  const returnSsoUrl = "https://forum.rulebritannia.org/session/sso_login";
 
-  const decoded = Buffer.from(sso, "base64").toString("utf8");
-  const params  = new URLSearchParams(decoded);
+  // Simulate what Discourse sends: base64(nonce=...&return_sso_url=...) + HMAC
+  const raw     = `nonce=${nonce}&return_sso_url=${encodeURIComponent(returnSsoUrl)}`;
+  const sso     = Buffer.from(raw).toString("base64");
+  const sig     = createHmac("sha256", ssoSecret).update(sso).digest("hex");
 
-  assert.equal(params.get("return_sso_url"), returnUrl);
-  assert.ok(
-    params.get("return_sso_url").endsWith("/api/discourse/sso/callback"),
-    "return_sso_url must end with /api/discourse/sso/callback"
+  const result = verifyConsumerRequest({ ssoSecret, sso, sig });
+
+  assert.equal(result.nonce,        nonce);
+  assert.equal(result.returnSsoUrl, returnSsoUrl);
+});
+
+test("verifyConsumerRequest throws on invalid signature", () => {
+  const ssoSecret = "consumer-secret";
+  const raw       = "nonce=abc&return_sso_url=https%3A%2F%2Fforum.example.com%2Fsession%2Fsso_login";
+  const sso       = Buffer.from(raw).toString("base64");
+  const badSig    = createHmac("sha256", "wrong-secret").update(sso).digest("hex");
+
+  assert.throws(
+    () => verifyConsumerRequest({ ssoSecret, sso, sig: badSig }),
+    /signature mismatch/i
   );
 });
 
-test("buildSsoPayload return_sso_url does NOT point to the init endpoint", () => {
-  // The init endpoint path must never be used as return_sso_url.
-  // Passing it here is a programmer error that the server-side logic prevents;
-  // this test documents the distinction.
-  const baseUrl     = "https://example.com";
-  const initUrl      = `${baseUrl}/api/discourse/sso`;
-  const callbackUrl  = `${baseUrl}/api/discourse/sso/callback`;
+// ── buildConsumerResponse ─────────────────────────────────────────────────────
+// After authenticating the user we build a signed payload to redirect back.
 
-  const { sso: initSso } = buildSsoPayload({ ssoSecret: "s", returnUrl: initUrl,     nonce: "n1" });
-  const { sso: cbSso }   = buildSsoPayload({ ssoSecret: "s", returnUrl: callbackUrl, nonce: "n2" });
+test("buildConsumerResponse produces a verifiable payload", () => {
+  const ssoSecret  = "consumer-resp-secret";
+  const nonce      = "resp-nonce";
+  const externalId = "user-uuid-42";
+  const email      = "player@example.com";
+  const username   = "player42";
 
-  const initDecoded = new URLSearchParams(Buffer.from(initSso, "base64").toString("utf8"));
-  const cbDecoded   = new URLSearchParams(Buffer.from(cbSso,   "base64").toString("utf8"));
+  const { sso, sig } = buildConsumerResponse({ ssoSecret, nonce, externalId, email, username });
 
-  // Verify they differ — the callback URL is the only valid return_sso_url
-  assert.notEqual(initDecoded.get("return_sso_url"), cbDecoded.get("return_sso_url"));
-  assert.ok(
-    cbDecoded.get("return_sso_url").endsWith("/api/discourse/sso/callback"),
-    "callback payload must use the /callback path"
-  );
-  assert.ok(
-    !initDecoded.get("return_sso_url").endsWith("/api/discourse/sso/callback"),
-    "init URL must NOT match the callback pattern"
-  );
+  // Verify HMAC
+  const expected = createHmac("sha256", ssoSecret).update(sso).digest("hex");
+  assert.equal(sig, expected);
+
+  // Decode and check fields
+  const decoded = Buffer.from(sso, "base64").toString("utf8");
+  const params  = new URLSearchParams(decoded);
+  assert.equal(params.get("nonce"),       nonce);
+  assert.equal(params.get("external_id"), externalId);
+  assert.equal(params.get("email"),       email);
+  assert.equal(params.get("username"),    username);
+});
+
+test("buildConsumerResponse includes groups, admin, and moderator flags", () => {
+  const ssoSecret = "consumer-flags-secret";
+  const { sso }   = buildConsumerResponse({
+    ssoSecret,
+    nonce:      "n",
+    externalId: "1",
+    email:      "a@b.com",
+    username:   "ab",
+    groups:     ["Labour", "Backbenchers"],
+    admin:      true,
+    moderator:  false,
+  });
+
+  const params = new URLSearchParams(Buffer.from(sso, "base64").toString("utf8"));
+  assert.equal(params.get("groups"),    "Labour,Backbenchers");
+  assert.equal(params.get("admin"),     "true");
+  assert.equal(params.get("moderator"), null);  // omitted when false
+});
+
+test("buildConsumerResponse sets moderator flag when true", () => {
+  const ssoSecret = "consumer-mod-secret";
+  const { sso }   = buildConsumerResponse({
+    ssoSecret,
+    nonce:      "n",
+    externalId: "2",
+    email:      "mod@b.com",
+    username:   "moduser",
+    admin:      false,
+    moderator:  true,
+  });
+
+  const params = new URLSearchParams(Buffer.from(sso, "base64").toString("utf8"));
+  assert.equal(params.get("moderator"), "true");
+  assert.equal(params.get("admin"),     null);  // omitted when false
+});
+
+test("buildConsumerResponse / verifyConsumerRequest roundtrip: nonce preserved", () => {
+  const ssoSecret    = "roundtrip-consumer";
+  const nonce        = "rt-nonce-99";
+  const returnSsoUrl = "https://forum.rulebritannia.org/session/sso_login";
+
+  // Step 1: simulate Discourse's inbound request
+  const raw    = `nonce=${nonce}&return_sso_url=${encodeURIComponent(returnSsoUrl)}`;
+  const inSso  = Buffer.from(raw).toString("base64");
+  const inSig  = createHmac("sha256", ssoSecret).update(inSso).digest("hex");
+
+  // Step 2: verify inbound
+  const { nonce: extractedNonce, returnSsoUrl: extractedUrl } =
+    verifyConsumerRequest({ ssoSecret, sso: inSso, sig: inSig });
+  assert.equal(extractedNonce, nonce);
+  assert.equal(extractedUrl,   returnSsoUrl);
+
+  // Step 3: build outbound response using the extracted nonce
+  const { sso: outSso, sig: outSig } = buildConsumerResponse({
+    ssoSecret,
+    nonce:      extractedNonce,
+    externalId: "sim-user-1",
+    email:      "test@example.com",
+    username:   "testplayer",
+  });
+
+  // Verify outbound signature is valid
+  const expectedOutSig = createHmac("sha256", ssoSecret).update(outSso).digest("hex");
+  assert.equal(outSig, expectedOutSig);
+
+  // Nonce must round-trip correctly
+  const outParams = new URLSearchParams(Buffer.from(outSso, "base64").toString("utf8"));
+  assert.equal(outParams.get("nonce"), nonce);
 });

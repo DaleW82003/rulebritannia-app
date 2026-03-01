@@ -75,8 +75,13 @@ export function initLoginPage(_data) {
     if (btn) btn.disabled = true;
 
     apiLogin(email, password)
-      .then(() => {
-        window.location.href = "dashboard.html";
+      .then((result) => {
+        // Only follow server-provided redirects that are safe relative paths
+        const redirect = result?.redirect;
+        const dest = (typeof redirect === "string" && /^\/[a-zA-Z0-9/_-]/.test(redirect))
+          ? redirect
+          : "dashboard.html";
+        window.location.href = dest;
       })
       .catch((err) => {
         const status = err?.message?.match(/\((\d+)\)/)?.[1];
