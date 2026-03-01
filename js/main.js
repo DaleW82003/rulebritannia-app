@@ -77,6 +77,18 @@ window.addEventListener("unhandledrejection", (event) => {
   event.preventDefault(); // suppress duplicate browser console warning
 });
 
+/**
+ * Returns true when debug mode is enabled via URL (?debug=1) or localStorage (rb_debug=1).
+ * Used to gate developer-facing UI such as the API Sources panel.
+ */
+function isDebugEnabled() {
+  try {
+    if (new URLSearchParams(window.location.search).get("debug") === "1") return true;
+    if (localStorage.getItem("rb_debug") === "1") return true;
+  } catch { /* ignore */ }
+  return false;
+}
+
 function renderDataSourcePanel(sources) {
   const failCount = sources.filter((s) => !s.ok).length;
   const allOk = failCount === 0;
@@ -125,7 +137,7 @@ function renderDataSourcePanel(sources) {
       msg.innerHTML = `<b>Server notice:</b> ${esc(bootWarning)} Running in read-only demo mode.`;
       document.body.prepend(msg);
     }
-    renderDataSourcePanel(sources);
+    if (isDebugEnabled()) renderDataSourcePanel(sources);
 
     const page = document.body?.dataset?.page || "";
 

@@ -82,6 +82,22 @@ export default {
 
 With this in place the frontend only ever calls `/api/*` and Cloudflare transparently forwards those requests to Render. Both the registration UI and the admin panel hit the same backend and therefore the same database.
 
+### Debug mode
+
+The **API Sources** status panel (showing live data-source health) is hidden from normal users. To enable it during development or debugging, use either method:
+
+**URL flag** — append `?debug=1` to any page URL:
+```
+http://localhost:3000/dashboard.html?debug=1
+```
+
+**localStorage flag** — run this once in the browser console:
+```js
+localStorage.setItem('rb_debug', '1');
+```
+
+To disable, remove the query param or run `localStorage.removeItem('rb_debug')` in the console.
+
 ### Local development
 
 If you are running the backend on a different port (e.g. `http://localhost:4000`), add a `<script>` tag in the relevant HTML file **before** `js/main.js`:
