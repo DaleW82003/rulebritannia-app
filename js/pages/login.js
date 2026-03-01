@@ -1,22 +1,17 @@
 import { apiLogin } from "../api.js";
 import { esc } from "../ui.js";
-import { getBootstrapConfig } from "../core.js";
 
-function render(host, errorMsg, ssoEnabled) {
-  const ssoSection = ssoEnabled ? `
-    <div style="display:flex;align-items:center;gap:10px;margin:8px 0;">
-      <hr style="flex:1;border:none;border-top:1px solid var(--line);">
-      <span class="muted" style="font-size:13px;white-space:nowrap;">or</span>
-      <hr style="flex:1;border:none;border-top:1px solid var(--line);">
+function render(host, errorMsg, pendingMsg) {
+  const pendingBanner = pendingMsg ? `
+    <div style="padding:10px 14px;background:var(--blue-faint,#e8f0fe);border-radius:8px;font-size:13px;color:var(--blue);">
+      ${esc(pendingMsg)}
     </div>
-    <a class="btn" href="/api/discourse/sso" style="width:100%;justify-content:center;text-align:center;text-decoration:none;">
-      Login with Discourse
-    </a>
   ` : "";
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Login</div></div>
     <section class="panel" style="max-width:420px;">
+      ${pendingBanner}
       <form id="login-form" style="display:grid;gap:14px;">
         <label>
           <div class="muted" style="margin-bottom:4px;">Email</div>
@@ -33,7 +28,6 @@ function render(host, errorMsg, ssoEnabled) {
         <div id="login-error" style="${errorMsg ? "" : "display:none;"}color:var(--red);font-size:13px;">${esc(errorMsg)}</div>
         <button class="btn primary" type="submit" style="width:100%;justify-content:center;">Login</button>
       </form>
-      ${ssoSection}
     </section>
     <p style="margin-top:14px;font-size:13px;color:var(--muted);text-align:center;max-width:420px;">
       Don't have an account? <a href="register.html" style="color:var(--blue);">Apply to join</a> — applications are reviewed by our moderation team.
@@ -45,16 +39,15 @@ export function initLoginPage(_data) {
   const host = document.getElementById("login-root") || document.querySelector("main.wrap");
   if (!host) return;
 
-  const cfg = getBootstrapConfig();
-  const ssoEnabled = cfg?.sso_enabled === true;
+  // Show any SSO error or pending-SSO hint passed back via query string
+  const urlParams  = new URLSearchParams(window.location.search);
+  const ssoError   = urlParams.get("sso_error") || "";
+  const ssoPending = urlParams.get("sso_pending") === "1";
+  const pendingMsg = ssoPending ? "Please log in to continue to the Discourse Forum." : "";
 
-  // Show any SSO error passed back via query string (e.g. after a failed SSO redirect)
-  const urlParams = new URLSearchParams(window.location.search);
-  const ssoError  = urlParams.get("sso_error") || "";
+  render(host, ssoError, pendingMsg);
 
-  render(host, ssoError, ssoEnabled);
-
-  const form = host.querySelector("#login-form");
+  const form    = host.querySelector("#login-form");
   const errorEl = host.querySelector("#login-error");
 
   if (!form) return;
@@ -76,12 +69,25 @@ export function initLoginPage(_data) {
 
     apiLogin(email, password)
       .then((result) => {
-        // Only follow server-provided redirects that are safe relative paths
-        const redirect = result?.redirect;
-        const dest = (typeof redirect === "string" && /^\/[a-zA-Z0-9/_-]/.test(redirect))
-          ? redirect
-          : "dashboard.html";
-        window.location.href = dest;
+        // Safe relative-path check: only /api/* or known SIM pages (no query strings
+        // accepted, to prevent open-redirect via manipulated parameters).
+        const safeRelative = (s) => typeof s === "string" && /^\/[a-zA-Z0-9/_-]+$/.test(s);
+
+        // Priority 1: server-provided redirect (e.g. resume a pending Discourse SSO)
+        const serverRedirect = result?.redirect;
+        if (safeRelative(serverRedirect)) {
+          window.location.href = serverRedirect;
+          return;
+        }
+        // Priority 2: ?next= URL param (e.g. set by /api/discourse/go when user wasn't logged in)
+        // Validated against an allowlist of known SIM-internal destinations.
+        const SAFE_NEXT = new Set(["/api/discourse/go"]);
+        const next = urlParams.get("next") || "";
+        if (SAFE_NEXT.has(next)) {
+          window.location.href = next;
+          return;
+        }
+        window.location.href = "dashboard.html";
       })
       .catch((err) => {
         const status = err?.message?.match(/\((\d+)\)/)?.[1];

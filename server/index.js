@@ -4895,6 +4895,42 @@ app.get("/api/discourse/sso/callback", ssoRateLimit, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/discourse/go
+ *
+ * Navigation entry point used by the "Discourse Forum" nav link throughout the
+ * SIM.  Ensures users are authenticated in the SIM before they land on the
+ * forum so that DiscourseConnect can complete seamlessly:
+ *
+ * - If the user IS logged in to the SIM: redirect to the Discourse forum.
+ *   Discourse will initiate the DiscourseConnect handshake (redirecting back to
+ *   /api/discourse/sso) which will complete immediately because the user is
+ *   already logged in here.
+ * - If SSO is NOT enabled: redirect straight to the forum (no SSO needed).
+ * - If the user is NOT logged in: redirect to /login.html?next=/api/discourse/go
+ *   so that after login the browser is returned here to complete the journey.
+ */
+app.get("/api/discourse/go", ssoRateLimit, async (req, res) => {
+  try {
+    const { rows: cfgRows } = await pool.query(
+      "SELECT key, value FROM app_config WHERE key = 'discourse_base_url'"
+    );
+    const cfg = Object.fromEntries(cfgRows.map((r) => [r.key, r.value]));
+    const baseUrl = (cfg.discourse_base_url || "").trim().replace(/\/$/, "");
+    const forumUrl = baseUrl || "https://forum.rulebritannia.org";
+
+    // If SSO is enabled and user is not logged in, bounce to login first.
+    if (ssoEnabled && !req.session?.userId) {
+      return res.redirect(302, `/login.html?next=${encodeURIComponent("/api/discourse/go")}`);
+    }
+
+    return res.redirect(302, forumUrl);
+  } catch (e) {
+    console.error("[discourse/go]", e.message);
+    res.redirect(302, "https://forum.rulebritannia.org");
+  }
+});
+
 // ── SSO Readiness check ───────────────────────────────────────────────────────
 
 app.get("/api/admin/sso-readiness", discourseReadLimit, async (req, res) => {
@@ -4978,12 +5014,16 @@ app.get("/api/admin/sso-readiness", discourseReadLimit, async (req, res) => {
 
     const allOk = checks.every((c) => c.ok);
 
-    // Provide the exact URLs admins need to configure in Discourse
-    const cleanUiBase  = uiBase.replace(/\/$/, "");
-    const ssoEntryUrl  = cleanUiBase ? `${cleanUiBase}/api/discourse/sso` : null;
-    const callbackUrl  = cleanUiBase ? `${cleanUiBase}/api/discourse/sso/callback` : null;
+    // Provide the exact URL admins need to set as discourse_connect_url in Discourse.
+    // (The SIM is the DiscourseConnect provider; Discourse is the consumer.)
+    // Always use the www-prefixed hostname so the session cookie (scoped to
+    // www.rulebritannia.org by the Cloudflare Worker) is present when Discourse
+    // calls back with the sso/sig parameters.
+    const cleanUiBase = uiBase.replace(/\/$/, "");
+    const canonicalUiBase = cleanUiBase.replace(/^(https?:\/\/)rulebritannia\.org/, "$1www.rulebritannia.org");
+    const ssoEntryUrl = canonicalUiBase ? `${canonicalUiBase}/api/discourse/sso` : null;
 
-    res.json({ allOk, checks, ssoEntryUrl, callbackUrl });
+    res.json({ allOk, checks, ssoEntryUrl });
   } catch (e) {
     console.error("[sso-readiness]", e);
     res.status(500).json({ error: "Server error" });
