@@ -587,13 +587,24 @@ function dbRowToQuestion(row) {
     askedByRole: "backbencher",
     askedAtSim:  f.asked_at_sim || "",
   }));
+  // due_at_sim is stored as a JSON string '{"month":9,"year":1997}'; parse it for deadline comparisons.
+  const parseDueAtSim = (raw) => {
+    if (!raw) return null;
+    if (typeof raw === "object") return raw;
+    try {
+      const p = JSON.parse(raw);
+      if (p && Number.isInteger(p.month) && p.month >= 1 && p.month <= 12 &&
+          Number.isInteger(p.year)  && p.year  >= 1990) return p;
+    } catch {}
+    return null;
+  };
   return {
     id:                  row.id,
     office:              row.office_id,
     askedBy:             row.asked_by_display_name || row.asked_by_name || "MP",
     askedAtSim:          row.asked_at_sim || "",
     createdAtTs:         row.created_at ? new Date(row.created_at).getTime() : 0,
-    dueAtSim:            row.due_at_sim || "",
+    dueAtSim:            parseDueAtSim(row.due_at_sim),
     text:                row.question_text,
     answer:              row.answer_text || "",
     answeredAtSim:       row.answered_at_sim || "",
@@ -601,7 +612,7 @@ function dbRowToQuestion(row) {
     archived:            row.status === "archived",
     followUps,
     speakerDemandedAtTs: row.speaker_demanded_at ? new Date(row.speaker_demanded_at).getTime() : 0,
-    demandDueAtSim:      row.demand_due_at_sim || "",
+    demandDueAtSim:      parseDueAtSim(row.demand_due_at_sim),
     speakerDemandAvailable: false, // computed later in render
     answerSeenByAsker:   false,
     npc:                 !!row.npc_party,
