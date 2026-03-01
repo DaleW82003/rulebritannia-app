@@ -17,7 +17,7 @@ var index_default = {
       const init = {
         method: request.method,
         headers: request.headers,
-        redirect: "follow",
+        redirect: "manual",
       };
       // GET and HEAD requests must not carry a body per the HTTP spec.
       if (!["GET", "HEAD"].includes(request.method)) {

@@ -135,16 +135,41 @@ node index.js
 
 ### Discourse integration (DiscourseConnect SSO)
 
-The backend supports DiscourseConnect, where the Rule Britannia app acts as the **identity provider** for your Discourse forum. When enabled, users who visit your Discourse forum are redirected to `GET /api/discourse/sso`, authenticate there, and are returned to Discourse with a signed identity payload.
+The backend supports DiscourseConnect, where **Discourse acts as the SSO provider** and the Rule Britannia app is the **identity consumer**. When enabled, users on the sim click **"Login with Discourse"**, are redirected to Discourse to authenticate, and then returned to the sim with a verified identity.
+
+> ⚠️ **Common misconfiguration**: Do **not** set Discourse's `discourse_connect_url` to our endpoint. That setting enables *Discourse-as-consumer* mode and will cause Discourse to send `sso`/`sig` parameters to `/api/discourse/sso`, which the server rejects with HTTP 400. The correct Discourse setting is `enable_discourse_connect_provider` (see below).
+
+**SSO flow:**
+
+```
+1. User clicks "Login with Discourse" on the sim
+2. Browser → GET https://www.rulebritannia.org/api/discourse/sso   (no params)
+3. Server generates nonce + signed payload, redirects browser to:
+      https://forum.rulebritannia.org/session/sso_provider?sso=…&sig=…
+4. Discourse authenticates the user (login if needed), then redirects browser to:
+      https://www.rulebritannia.org/api/discourse/sso/callback?sso=…&sig=…
+5. Server verifies signature + nonce, finds/creates local account, sets session,
+   redirects to the sim dashboard.
+```
 
 Discourse credentials (base URL, API key, API username, SSO secret) are stored **encrypted** in the `app_config` database table and managed through the **Admin Panel → Discourse Integration** section — never in environment variables.
 
 **To enable SSO:**
 
 1. In the Admin Panel, fill in *Discourse Base URL*, *API Key*, *API Username*, and *SSO Secret*.
-2. In your Discourse admin settings, enable DiscourseConnect and set the SSO URL to `https://<your-backend>/api/discourse/sso`.
+2. In your Discourse admin settings (**Admin → Settings → Login**):
+   - Enable **DiscourseConnect Provider** (`enable_discourse_connect_provider = true`).
+   - Add the shared secret under `discourse_connect_provider_secrets`.
+   - **Do NOT** set `discourse_connect_url` — that enables the opposite (Discourse-as-consumer) direction and will break this integration.
 3. Set `DISCOURSE_SSO_ENABLED=true` in your server's environment variables and restart.
 4. Use **Admin Panel → SSO Readiness** to verify all prerequisites are satisfied.
+
+**URL reference:**
+
+| URL | Purpose |
+|---|---|
+| `https://www.rulebritannia.org/api/discourse/sso` | Provider-init — sim calls this to start login. **No params.** Calling with `sso`/`sig` returns 400. |
+| `https://www.rulebritannia.org/api/discourse/sso/callback` | Callback — Discourse redirects here after auth. Contains `sso`/`sig`. Never call this directly. |
 
 When `DISCOURSE_SSO_ENABLED=true`, the login page automatically shows a **"Login with Discourse"** button alongside the email/password form.
 

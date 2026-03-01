@@ -115,3 +115,50 @@ test("verifySsoPayload parses groups list", () => {
   const user = verifySsoPayload({ ssoSecret, sso, sig, expectedNonce: nonce });
   assert.deepEqual(user.groups, ["moderators", "trust_level_3"]);
 });
+
+// ── SSO init / callback URL invariant ────────────────────────────────────────
+// The provider-init endpoint always builds a payload whose return_sso_url
+// points to the CALLBACK endpoint (/api/discourse/sso/callback), never back
+// to the init endpoint (/api/discourse/sso).  These tests validate that
+// buildSsoPayload correctly encodes whichever returnUrl is passed, and that
+// the server must pass the callback path (enforced by endpoint logic).
+
+test("buildSsoPayload return_sso_url ends with /api/discourse/sso/callback", () => {
+  const returnUrl = "https://example.com/api/discourse/sso/callback";
+  const { sso } = buildSsoPayload({ ssoSecret: "s", returnUrl, nonce: "n" });
+
+  const decoded = Buffer.from(sso, "base64").toString("utf8");
+  const params  = new URLSearchParams(decoded);
+
+  assert.equal(params.get("return_sso_url"), returnUrl);
+  assert.ok(
+    params.get("return_sso_url").endsWith("/api/discourse/sso/callback"),
+    "return_sso_url must end with /api/discourse/sso/callback"
+  );
+});
+
+test("buildSsoPayload return_sso_url does NOT point to the init endpoint", () => {
+  // The init endpoint path must never be used as return_sso_url.
+  // Passing it here is a programmer error that the server-side logic prevents;
+  // this test documents the distinction.
+  const baseUrl     = "https://example.com";
+  const initUrl      = `${baseUrl}/api/discourse/sso`;
+  const callbackUrl  = `${baseUrl}/api/discourse/sso/callback`;
+
+  const { sso: initSso } = buildSsoPayload({ ssoSecret: "s", returnUrl: initUrl,     nonce: "n1" });
+  const { sso: cbSso }   = buildSsoPayload({ ssoSecret: "s", returnUrl: callbackUrl, nonce: "n2" });
+
+  const initDecoded = new URLSearchParams(Buffer.from(initSso, "base64").toString("utf8"));
+  const cbDecoded   = new URLSearchParams(Buffer.from(cbSso,   "base64").toString("utf8"));
+
+  // Verify they differ — the callback URL is the only valid return_sso_url
+  assert.notEqual(initDecoded.get("return_sso_url"), cbDecoded.get("return_sso_url"));
+  assert.ok(
+    cbDecoded.get("return_sso_url").endsWith("/api/discourse/sso/callback"),
+    "callback payload must use the /callback path"
+  );
+  assert.ok(
+    !initDecoded.get("return_sso_url").endsWith("/api/discourse/sso/callback"),
+    "init URL must NOT match the callback pattern"
+  );
+});
