@@ -131,7 +131,7 @@ export async function initRegulationsPage(data) {
       <h2 style="margin-top:0;">Current Regulations</h2>
       ${openItems.length ? openItems.map((r) => `
         <article class="tile tile-form" style="margin-bottom:10px;">
-          <div><b>${esc(r.department)} Regulation ${esc(r.regulationNumber)}</b>: ${esc(r.shortTitle)} <span class="muted">by ${esc(r.author)}</span></div>
+          <div><b>${esc(r.department)} Regulation ${esc(r.regulationNumber)}</b>: ${esc(r.shortTitle)} <span class="muted">by ${esc(r.author_display_name || r.author)}</span></div>
           <div class="muted" style="margin-top:6px;">Laid: ${esc(r.laidAtSim || "—")} • In force: ${esc(r.comesIntoForce || "—")} • Debate closes: ${esc(r.debateClosesAtSim || "—")}${r.debateClosesAtSimObj && r.status !== "closed" ? ` (${countdownToSimMonth(r.debateClosesAtSimObj.month, r.debateClosesAtSimObj.year, data.gameState)})` : ""}</div>
           <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
             <a class="btn" href="regulation.html?id=${encodeURIComponent(r.id)}">Open</a>
@@ -181,7 +181,7 @@ export async function initRegulationsPage(data) {
       yearNumber,
       simYear: simCurrent.year,
       shortTitle: title,
-      author: char?.name || "Minister",
+      author: char?.display_name || char?.name || "Minister",
       body,
       laidAtSim: simCurrent.label,
       comesIntoForce: `${MONTHS[(forceMonth - 1 + 12) % 12]} ${forceYear}`,

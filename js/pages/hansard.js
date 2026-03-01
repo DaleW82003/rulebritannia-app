@@ -35,7 +35,7 @@ function renderTile(item, kind, data) {
     <article class="tile" style="margin-bottom:10px;">
       <div class="wgo-kicker">${kind === "passed" ? "Passed" : "Defeated"} ${kind === "passed" ? `• ${esc(item.legislationKind || "Bill")}` : ""}</div>
       <div><b>${esc(item.title)}</b></div>
-      <div class="muted">${esc(item.author || "Unknown author")} • ${esc(item.department || "Unknown department")}</div>
+      <div class="muted">${esc(item.author_display_name || item.author || "Unknown author")} • ${esc(item.department || "Unknown department")}</div>
       <div class="muted">Final stage: ${esc(item.finalStage || "Division")}</div>
       <div class="tile-bottom">
         <button class="btn" type="button" data-action="open" data-kind="${esc(kind)}" data-id="${esc(item.id)}">Open</button>
@@ -64,7 +64,7 @@ function detailPanel(item, kind, data) {
   return `
     <h3 style="margin-top:0;">${esc(item.title)}</h3>
     <p class="muted">Status: <b>${kind === "passed" ? (needsAssent(item) ? "Passed - Awaiting Assent" : "Passed") : "Defeated"}</b> • Archived on ${esc(item.archivedAtSim || "—")}</p>
-    <p class="muted">Author: ${esc(item.author || "Unknown")} • Department: ${esc(item.department || "—")}</p>
+    <p class="muted">Author: ${esc(item.author_display_name || item.author || "Unknown")} • Department: ${esc(item.department || "—")}</p>
 
     <div class="tile" style="margin:10px 0;">
       <h4 style="margin-top:0;">Bill text</h4>

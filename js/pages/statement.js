@@ -51,7 +51,7 @@ export async function initStatementPage(data) {
   root.innerHTML = `
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">MS${esc(statement.number)}: ${esc(statement.title)}</h2>
-      <p class="muted">Author: ${esc(statement.author || "Government Minister")} • Status: ${esc(statement.status || "open")}</p>
+      <p class="muted">Author: ${esc(statement.author_display_name || statement.author || "Government Minister")} • Status: ${esc(statement.status || "open")}</p>
       <p class="muted">Debate window: ${esc(statement.openedAtSim || "—")} → ${esc(statement.closesAtSim || "—")}${statement.closesAtSimObj && statement.status !== "archived" ? ` (${countdownToSimMonth(statement.closesAtSimObj.month, statement.closesAtSimObj.year, data.gameState)})` : ""}</p>
       ${statement.archivedAtSim ? `<p class="muted">Archived: ${esc(statement.archivedAtSim)}</p>` : ""}
     </section>

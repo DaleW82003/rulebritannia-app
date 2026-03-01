@@ -167,7 +167,7 @@ export async function initMotionsPage(data) {
       body: openHouse.length ? openHouse.map((m) => tileCard({
         extraClass: "tile-stack",
         body: `
-          <div><b>Motion ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author)}</span></div>
+          <div><b>Motion ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author_display_name || m.author)}</span></div>
           <div class="muted" style="margin-top:6px;">Debate: ${esc(m.debateStartSim || "—")} → ${esc(m.debateEndSim || "—")}${m.debateEndSimObj ? ` (${countdownToSimMonth(m.debateEndSimObj.month, m.debateEndSimObj.year, data.gameState)})` : ""}</div>
         `,
         actions: `
@@ -183,7 +183,7 @@ export async function initMotionsPage(data) {
       body: openEdm.length ? openEdm.map((m) => tileCard({
         extraClass: "tile-stack",
         body: `
-          <div><b>EDM ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author)}</span></div>
+          <div><b>EDM ${esc(m.number)}</b>: ${esc(m.title)} <span class="muted">by ${esc(m.author_display_name || m.author)}</span></div>
           <div class="muted" style="margin-top:6px;">Open: ${esc(m.openedAtSim || "—")} → ${esc(m.closesAtSim || "—")}${m.closesAtSimObj ? ` (${countdownToSimMonth(m.closesAtSimObj.month, m.closesAtSimObj.year, data.gameState)})` : ""}</div>
         `,
         actions: `

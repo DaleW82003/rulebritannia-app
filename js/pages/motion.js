@@ -185,7 +185,7 @@ async function renderHouseDb(root, data, motion) {
   root.innerHTML = `
     <section class="tile tile-form" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Motion ${esc(motion.number)}: ${esc(motion.title)}</h2>
-      <p class="muted">By ${esc(motion.author || motion.proposedBy || "")} • Status: ${esc(motion.status || "open")}</p>
+      <p class="muted">By ${esc(motion.author_display_name || motion.author || motion.proposedBy || "")} • Status: ${esc(motion.status || "open")}</p>
       <p class="muted">Debate: ${esc(motion.debateStartSim || "—")} → ${esc(motion.debateEndSim || "—")}${debateCountdown ? ` (${debateCountdown})` : ""}</p>
       <p style="white-space:pre-wrap;"><b>That this House</b> ${esc(motion.body || "")}</p>
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -494,7 +494,7 @@ function renderEdm(root, data, edm) {
   root.innerHTML = `
     <section class="tile tile-form" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">EDM ${esc(edm.number)}: ${esc(edm.title)}</h2>
-      <p class="muted">By ${esc(edm.author)} • Status: ${esc(edm.status || "open")}</p>
+      <p class="muted">By ${esc(edm.author_display_name || edm.author)} • Status: ${esc(edm.status || "open")}</p>
       <p class="muted">Open: ${esc(edm.openedAtSim || "—")} → ${esc(edm.closesAtSim || "—")}${edmCountdown ? ` (${edmCountdown})` : ""}</p>
       <p style="white-space:pre-wrap;"><b>That this House</b> ${esc(edm.body || "")}</p>
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">
