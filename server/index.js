@@ -6018,6 +6018,51 @@ async function enrichCharacterRowWithDisplay(row) {
 }
 
 /**
+ * Batch-enrich an array of character rows with display_name, is_mp, is_pc, is_privy, and is_rh
+ * using a single DB round-trip instead of one query per row.
+ * @param {Pool} pool — database connection pool
+ * @param {Array<Object>} rows — character rows, each must have at least { id, name }
+ * @returns {Promise<Array<Object>>} — same rows with display_name/is_mp/is_pc/is_privy/is_rh merged in
+ */
+async function batchEnrichCharacterRows(pool, rows) {
+  if (!rows.length) return rows;
+  const ids = rows.map((r) => r.id).filter(Boolean);
+  if (!ids.length) return rows.map((r) => ({ ...r, display_name: r.name || "", is_mp: false, is_pc: false, is_privy: false, is_rh: false }));
+
+  const thirdPartySlug = await getThirdPartySlug(pool);
+  const { rows: metaRows } = await pool.query(
+    `SELECT c.id, c.rh_ever,
+            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
+            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc_ever,
+            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
+            EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
+            EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
+       FROM characters c WHERE c.id = ANY($1::uuid[])`,
+    [ids, thirdPartySlug]
+  );
+
+  // Store only the boolean flags; the display name is computed per-row using the original row.name.
+  const byId = Object.fromEntries(metaRows.map((r) => {
+    const is_rh = Boolean(r.rh_ever || r.is_privy_current || r.has_cabinet_office || r.is_third_party_leader);
+    const is_pc = Boolean(r.rh_ever || r.is_pc_ever);
+    return [r.id, { is_mp: Boolean(r.is_mp), is_pc, is_privy: Boolean(r.is_privy_current), is_rh }];
+  }));
+
+  return rows.map((row) => {
+    const meta = byId[row.id];
+    if (!meta) return { ...row, display_name: row.name || "", is_mp: false, is_pc: false, is_privy: false, is_rh: false };
+    return {
+      ...row,
+      display_name: formatParliamentaryName({ bareName: row.name || "", isRH: meta.is_rh, isMP: meta.is_mp, isPC: meta.is_pc }),
+      is_mp: meta.is_mp,
+      is_pc: meta.is_pc,
+      is_privy: meta.is_privy,
+      is_rh: meta.is_rh,
+    };
+  });
+}
+
+/**
  * Compute weighted vote weights for all active players.
  *
  * Formula: each party's constituency seat total is distributed evenly among its
@@ -6244,12 +6289,12 @@ app.get("/api/motions", crudReadLimit, async (req, res) => {
     }
     query += " ORDER BY updated_at DESC";
     const { rows } = await pool.query(query, params);
-    const motions = await Promise.all(rows.map(async (r) => {
-      const author_display_name = r.data?.author_character_id
-        ? await getCharacterDisplayName(pool, r.data.author_character_id, r.data?.author || "")
-        : (r.data?.author || "");
+    const entries = rows.map((r) => ({ id: r.data?.author_character_id || null, fallback: r.data?.author || "" }));
+    const displayNames = await batchGetCharacterDisplayNames(pool, entries);
+    const motions = rows.map((r, i) => {
+      const author_display_name = r.data?.author_character_id ? displayNames[i] : (r.data?.author || "");
       return normaliseDiscourseFields({ ...r.data, author_display_name, _motionType: r.motion_type, _updatedAt: r.updated_at });
-    }));
+    });
     res.json({ motions });
   } catch (e) {
     console.error(e);
@@ -6383,12 +6428,12 @@ app.get("/api/statements", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT id, data, updated_at FROM statements ORDER BY updated_at DESC");
-    const statements = await Promise.all(rows.map(async (r) => {
-      const author_display_name = r.data?.author_character_id
-        ? await getCharacterDisplayName(pool, r.data.author_character_id, r.data?.author || "")
-        : (r.data?.author || "");
+    const entries = rows.map((r) => ({ id: r.data?.author_character_id || null, fallback: r.data?.author || "" }));
+    const displayNames = await batchGetCharacterDisplayNames(pool, entries);
+    const statements = rows.map((r, i) => {
+      const author_display_name = r.data?.author_character_id ? displayNames[i] : (r.data?.author || "");
       return normaliseDiscourseFields({ ...r.data, author_display_name, _updatedAt: r.updated_at });
-    }));
+    });
     res.json({ statements });
   } catch (e) {
     console.error(e);
@@ -6841,11 +6886,15 @@ app.get("/api/press", pressReadLimit, async (req, res) => {
     const params = type ? [type] : [];
     const { rows } = await pool.query(q, params);
 
-    const items = await Promise.all(rows.map(async (r) => {
+    // NPC-authored items use stored author string; only real characters need display-name lookup.
+    const entries = rows.map((r) => ({
+      id: (!r.author_character_id || r.data?.npcAuthor) ? null : r.author_character_id,
+      fallback: r.data?.author || "",
+    }));
+    const displayNames = await batchGetCharacterDisplayNames(pool, entries);
+    const items = rows.map((r, i) => {
       const isNpc = Boolean(r.data?.npcAuthor);
-      const author_display_name = (!r.author_character_id || isNpc)
-        ? (r.data?.author || "")
-        : await getCharacterDisplayName(pool, r.author_character_id, r.data?.author || "");
+      const author_display_name = (!r.author_character_id || isNpc) ? (r.data?.author || "") : displayNames[i];
       return normaliseDiscourseFields({
         ...r.data,
         _pressType: r.press_type,
@@ -6853,7 +6902,7 @@ app.get("/api/press", pressReadLimit, async (req, res) => {
         author_character_id: r.author_character_id,
         author_display_name,
       });
-    }));
+    });
 
     res.json({ items });
   } catch (e) {
@@ -8004,7 +8053,7 @@ app.get("/api/characters", charReadLimit, async (req, res) => {
     else if (active === "false") { q += " WHERE is_active = FALSE"; }
     q += " ORDER BY name";
     const { rows } = await pool.query(q, params);
-    let characters = await Promise.all(rows.map(enrichCharacterRowWithDisplay));
+    let characters = await batchEnrichCharacterRows(pool, rows);
     // For privileged users, attach current office assignments so personal page can show them
     if (isPrivileged && characters.length) {
       const charIds = characters.map((c) => c.id).filter(Boolean);
@@ -11647,10 +11696,9 @@ app.get("/api/privy-council", privyReadLimit, async (req, res) => {
         WHERE pcm.removed_at IS NULL
          ORDER BY pcm.appointed_at ASC`
     );
-    const members = await Promise.all(rows.map(async (m) => ({
-      ...m,
-      character_display_name: await getCharacterDisplayName(pool, m.character_id, m.character_name || "")
-    })));
+    const entries = rows.map((m) => ({ id: m.character_id, fallback: m.character_name || "" }));
+    const displayNames = await batchGetCharacterDisplayNames(pool, entries);
+    const members = rows.map((m, i) => ({ ...m, character_display_name: displayNames[i] }));
     res.json({ members });
   } catch (e) {
     console.error("[GET /api/privy-council]", e);
@@ -12984,29 +13032,33 @@ app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
     if (where.length) q += " WHERE " + where.join(" AND ");
     q += " ORDER BY q.created_at DESC";
     const { rows } = await pool.query(q, params);
-    const questions = await Promise.all(rows.map(async (qrow) => {
-      // For NPC posts (npc_party set), always use the stored asked_by_name (the NPC name),
-      // not the posting character's display name.
+
+    // Collect all unique character IDs across questions and followups for a single batch lookup.
+    const allCharIds = new Set();
+    for (const qrow of rows) {
+      if (!qrow.npc_party && qrow.asked_by_character_id) allCharIds.add(qrow.asked_by_character_id);
+      if (qrow.answered_by_character_id) allCharIds.add(qrow.answered_by_character_id);
+      for (const f of (Array.isArray(qrow.followups) ? qrow.followups : [])) {
+        if (f.asked_by_character_id) allCharIds.add(f.asked_by_character_id);
+        if (f.answered_by_character_id) allCharIds.add(f.answered_by_character_id);
+      }
+    }
+    const idArray = [...allCharIds];
+    const nameArray = await batchGetCharacterDisplayNames(pool, idArray.map((id) => ({ id, fallback: "" })));
+    const nameMap = Object.fromEntries(idArray.map((id, i) => [id, nameArray[i]]));
+
+    const questions = rows.map((qrow) => {
       const askedByDisplay = qrow.npc_party
         ? (qrow.asked_by_name || "")
-        : (qrow.asked_by_character_id
-          ? await getCharacterDisplayName(pool, qrow.asked_by_character_id, qrow.asked_by_name || "")
-          : (qrow.asked_by_name || ""));
-      const answeredByDisplay = qrow.answered_by_character_id
-        ? await getCharacterDisplayName(pool, qrow.answered_by_character_id, "")
-        : "";
-      const followups = Array.isArray(qrow.followups) ? qrow.followups : [];
-      const followupsWithDisplay = await Promise.all(followups.map(async (f) => ({
+        : (qrow.asked_by_character_id ? (nameMap[qrow.asked_by_character_id] || qrow.asked_by_name || "") : (qrow.asked_by_name || ""));
+      const answeredByDisplay = qrow.answered_by_character_id ? (nameMap[qrow.answered_by_character_id] || "") : "";
+      const followups = (Array.isArray(qrow.followups) ? qrow.followups : []).map((f) => ({
         ...f,
-        asked_by_display_name: f.asked_by_character_id
-          ? await getCharacterDisplayName(pool, f.asked_by_character_id, f.asked_by_name || "")
-          : (f.asked_by_name || ""),
-        answered_by_display_name: f.answered_by_character_id
-          ? await getCharacterDisplayName(pool, f.answered_by_character_id, "")
-          : "",
-      })));
-      return { ...qrow, asked_by_display_name: askedByDisplay, answered_by_display_name: answeredByDisplay, followups: followupsWithDisplay };
-    }));
+        asked_by_display_name: f.asked_by_character_id ? (nameMap[f.asked_by_character_id] || f.asked_by_name || "") : (f.asked_by_name || ""),
+        answered_by_display_name: f.answered_by_character_id ? (nameMap[f.answered_by_character_id] || "") : "",
+      }));
+      return { ...qrow, asked_by_display_name: askedByDisplay, answered_by_display_name: answeredByDisplay, followups };
+    });
     res.json({ questions });
   } catch (e) {
     console.error(e);
@@ -13042,15 +13094,25 @@ app.get("/api/qt/questions/:id", qtReadLimit, async (req, res) => {
     ]);
 
     const question = qRows[0];
+    // Batch display-name lookup for the question asker and all followup askers.
+    const charIdsToLookup = new Set();
+    if (question.asked_by_character_id) charIdsToLookup.add(question.asked_by_character_id);
+    for (const f of (followups || [])) {
+      if (f.asked_by_character_id) charIdsToLookup.add(f.asked_by_character_id);
+    }
+    const idArr = [...charIdsToLookup];
+    const nameArr = await batchGetCharacterDisplayNames(pool, idArr.map((id) => ({ id, fallback: "" })));
+    const nameMap = Object.fromEntries(idArr.map((id, i) => [id, nameArr[i]]));
+
     question.asked_by_display_name = question.asked_by_character_id
-      ? await getCharacterDisplayName(pool, question.asked_by_character_id, question.asked_by_name || "")
+      ? (nameMap[question.asked_by_character_id] || question.asked_by_name || "")
       : (question.asked_by_name || "");
-    const followupsWithDisplay = await Promise.all((followups || []).map(async (f) => ({
+    const followupsWithDisplay = (followups || []).map((f) => ({
       ...f,
       asked_by_display_name: f.asked_by_character_id
-        ? await getCharacterDisplayName(pool, f.asked_by_character_id, f.asked_by_name || "")
+        ? (nameMap[f.asked_by_character_id] || f.asked_by_name || "")
         : (f.asked_by_name || "")
-    })));
+    }));
     res.json({ question, answers, followups: followupsWithDisplay });
   } catch (e) {
     console.error(e);
