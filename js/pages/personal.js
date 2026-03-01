@@ -2,7 +2,7 @@ import { esc } from "../ui.js";
 import { nowStamp } from "../core.js";
 import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate } from "../clock.js";
-import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums } from "../api.js";
+import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetOffices } from "../api.js";
 import { logAction } from "../audit.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
@@ -1145,7 +1145,7 @@ function render(data, state) {
         ` : ""}
       </article>
 
-      ${publicOffices.length ? `
+      ${publicOffices.length || (profile.offices_held && profile.offices_held.length) ? `
         <article class="tile" style="grid-column:1/-1;">
           <h2 style="margin-top:0;">Offices Held</h2>
           <div style="display:grid;gap:8px;">
@@ -1155,6 +1155,18 @@ function render(data, state) {
                 <span class="muted">${esc(o.scope)}</span>
               </div>
             `).join("")}
+            ${(() => {
+              const publicTitles = new Set(publicOffices.map((p) => p.title));
+              return (profile.offices_held || []).filter((o) => !publicTitles.has(o.office_name)).map((o) => {
+                const typeLabel = { cabinet: "Government", shadow: "Opposition", parliamentary: "Parliamentary", other: "Other" }[o.office_type] || o.office_type || "";
+                return `
+                  <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <b>${esc(o.office_name)}</b>
+                    <span class="muted">${esc(typeLabel)}</span>
+                  </div>
+                `;
+              }).join("");
+            })()}
           </div>
         </article>
       ` : ""}
@@ -2061,6 +2073,8 @@ export async function initPersonalPage(data) {
         if (c.year_first_elected) prof.profile.yearFirstElected = String(c.year_first_elected);
         if (c.bio || c.personal_background) prof.bio = String(c.bio || c.personal_background || "");
         if (c.financial_background_level) prof.financialBackgroundLevel = String(c.financial_background_level);
+        // Store offices_held from the API (admin/mod only — server populates this field)
+        if (Array.isArray(c.offices_held)) prof.offices_held = c.offices_held;
       }
       render(data, state);
     }).catch(() => {});
@@ -2091,6 +2105,28 @@ export async function initPersonalPage(data) {
     state.enums = enums;
     render(data, state);
   }).catch(() => { /* fall back to built-in arrays */ });
+
+  // Load live office assignments from DB so "Offices Held" tile reflects the
+  // Government AND Opposition pages' authoritative data (non-blocking).
+  apiGetOffices().then(({ offices }) => {
+    const govEntries = [];
+    const oppEntries = [];
+    for (const office of (offices || [])) {
+      const specId = String(office.spec_id || "").trim();
+      if (!specId) continue;
+      for (const a of (office.assignments || [])) {
+        const holderName = String(a.character_name || "").trim();
+        if (!holderName) continue;
+        if (office.type === "cabinet") govEntries.push({ id: specId, holderName });
+        else if (office.type === "shadow") oppEntries.push({ id: specId, holderName });
+      }
+    }
+    data.government ??= {};
+    data.opposition ??= {};
+    data.government.offices = govEntries;
+    data.opposition.offices = oppEntries;
+    render(data, state);
+  }).catch(() => {});
 
   render(data, state);
 }

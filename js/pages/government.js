@@ -1,6 +1,6 @@
-import { esc, formatMPName, partyBadge } from "../ui.js";
+import { esc, formatMPName, partyBadge, PARTY_COLOURS } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
-import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice } from "../api.js";
+import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice, apiGetParliamentStatus, apiUpdateParliamentStatus, apiGetCanonicalParties } from "../api.js";
 
 const OFFICE_SPECS = [
   { id: "prime-minister", title: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service", short: "Prime Minister" },
@@ -32,9 +32,10 @@ function normaliseGovernment(data) {
     const existing = byId.get(spec.id) || {};
     return {
       id: spec.id,
-      holderName:   String(existing.holderName   || "").trim(),
-      holderAvatar: String(existing.holderAvatar || "").trim(),
-      holderParty:  String(existing.holderParty  || "").trim(),
+      holderName:        String(existing.holderName        || "").trim(),
+      holderDisplayName: String(existing.holderDisplayName || "").trim(),
+      holderAvatar:      String(existing.holderAvatar      || "").trim(),
+      holderParty:       String(existing.holderParty       || "").trim(),
       // Preserve DB-backed fields set by initGovernmentPage so save handler works
       dbOfficeId:   existing.dbOfficeId   || null,
       holderCharId: existing.holderCharId || null,
@@ -102,18 +103,26 @@ function avatarFromCharacterProfile(data, name) {
   return "";
 }
 
-function getActiveCharacterChoices(data) {
+function getGoverningParties(data) {
+  // Prefer explicit parliament_status governing parties; fall back to PM's party.
+  const fromParl = Array.isArray(data._parlStatus?.governingParties) ? data._parlStatus.governingParties.filter(Boolean) : [];
+  if (fromParl.length) return fromParl;
+  const pm = getOfficeMap(data).get("prime-minister");
+  const pmParty = String(pm?.holderParty || "").trim();
+  return pmParty ? [pmParty] : [];
+}
+
+function getActiveCharacterChoices(data, partyFilter = []) {
   // DB characters (fetched in initGovernmentPage) are the live source of truth.
   // The state-based roster is belt-and-braces fallback only.
-  if (Array.isArray(data._dbCharacters) && data._dbCharacters.length) {
-    return data._dbCharacters
-      .filter((c) => c.name)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }
-  const fromGov = Array.isArray(data.government?.activeCharacters)
-    ? data.government.activeCharacters.filter((c) => c.name && c.active)
-    : [];
-  return fromGov.sort((a, b) => a.name.localeCompare(b.name));
+  const all = Array.isArray(data._dbCharacters) && data._dbCharacters.length
+    ? data._dbCharacters.filter((c) => c.name)
+    : (Array.isArray(data.government?.activeCharacters)
+        ? data.government.activeCharacters.filter((c) => c.name && c.active)
+        : []);
+  const parties = Array.isArray(partyFilter) ? partyFilter.filter(Boolean) : (partyFilter ? [partyFilter] : []);
+  const filtered = parties.length ? all.filter((c) => parties.includes(String(c.party || ""))) : all;
+  return filtered.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function canEditOffice(data, officeId) {
@@ -169,18 +178,69 @@ function render(data, state) {
 
   normaliseGovernment(data);
   const officeMap = getOfficeMap(data);
-  const choices = getActiveCharacterChoices(data);
+  const governingParties = getGoverningParties(data);
+  const csParties = Array.isArray(data._parlStatus?.confidenceSupplyParties) ? data._parlStatus.confidenceSupplyParties.filter(Boolean) : [];
+  const govType = data._parlStatus?.governmentType || "Majority";
+  const choices = getActiveCharacterChoices(data, governingParties);
   const manager = isManager(data);
   const pmHolder = officeMap.get("prime-minister")?.holderName || "";
   const isPM = !!pmHolder && pmHolder === getCurrentName(data);
+  const canonicalParties = Array.isArray(data._canonicalParties) ? data._canonicalParties : [];
+
+  const GOV_TYPES = ["Majority", "Minority", "Coalition", "Confidence and Supply"];
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Government of the United Kingdom</div></div>
+
+    ${manager ? `
+    <section class="tile" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Government Formation</h2>
+      <p class="muted" style="margin-bottom:10px;">Select the type of government and which parties form it. The office assignment dropdowns will be filtered to members of the governing parties.</p>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-bottom:10px;">
+        <div>
+          <label class="label" for="gov-type-select">Government type</label>
+          <select id="gov-type-select" class="input" style="min-width:200px;">
+            ${GOV_TYPES.map((t) => `<option value="${esc(t)}" ${t === govType ? "selected" : ""}>${esc(t)}</option>`).join("")}
+          </select>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:6px;">Governing parties</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${canonicalParties.filter((p) => p.name !== "Speaker").map((p) => {
+              const colours = PARTY_COLOURS[p.name] || { bg: "#888", fg: "#fff" };
+              const checked = governingParties.includes(p.name);
+              return `<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;padding:3px 8px;border-radius:4px;border:2px solid ${esc(colours.bg)};background:${checked ? esc(colours.bg) : "#fff"};color:${checked ? esc(colours.fg) : esc(colours.bg)};font-weight:600;font-size:.85em;white-space:nowrap;">
+                <input type="checkbox" name="gov-party" value="${esc(p.name)}" ${checked ? "checked" : ""} style="position:absolute;opacity:0;pointer-events:none;">
+                ${esc(p.short_name || p.name)}
+              </label>`;
+            }).join("")}
+          </div>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:6px;">Confidence &amp; Supply parties</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${canonicalParties.filter((p) => p.name !== "Speaker").map((p) => {
+              const colours = PARTY_COLOURS[p.name] || { bg: "#888", fg: "#fff" };
+              const checked = csParties.includes(p.name);
+              return `<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;padding:3px 8px;border-radius:4px;border:2px solid ${esc(colours.bg)};background:${checked ? esc(colours.bg) : "#fff"};color:${checked ? esc(colours.fg) : esc(colours.bg)};font-weight:600;font-size:.85em;white-space:nowrap;">
+                <input type="checkbox" name="cs-party" value="${esc(p.name)}" ${checked ? "checked" : ""} style="position:absolute;opacity:0;pointer-events:none;">
+                ${esc(p.short_name || p.name)}
+              </label>`;
+            }).join("")}
+          </div>
+        </div>
+      </div>
+      <button id="gov-formation-save" type="button" class="btn">Save Formation</button>
+      ${state.formationMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.formationMessage)}</p>` : ""}
+    </section>
+    ` : ""}
 
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">How appointments work</h2>
       <p class="muted" style="margin-bottom:8px;">Mods/Admins appoint the Prime Minister from active characters. The Prime Minister then appoints all other offices from active characters.</p>
       <p class="muted" style="margin:0;">Editing rights: ${manager ? "You are a moderator/admin (full edit access)." : isPM ? "You are the Prime Minister (you can appoint all non-PM offices)." : "View-only mode."}</p>
+      ${governingParties.length ? `<p style="margin:8px 0 0;">Government (${esc(govType)}): ${governingParties.map(partyBadge).join(" ")}</p>` : ""}
+      ${csParties.length ? `<p style="margin:4px 0 0;">Confidence &amp; Supply: ${csParties.map(partyBadge).join(" ")}</p>` : ""}
     </section>
 
     <section class="panel" style="margin-bottom:12px;">
@@ -191,6 +251,7 @@ function render(data, state) {
           const name = office.holderName || "Vacant";
           const avatar = avatarFromCharacterProfile(data, office.holderName) || office.holderAvatar || "";
           const editable = canEditOffice(data, spec.id);
+          const displayName = office.holderDisplayName || (office.holderName ? formatMPName(office.holderName, { appendMP: true }) : "");
           return `
             <article class="tile" style="display:grid;grid-template-columns:minmax(260px,2fr) minmax(220px,2fr) 84px;gap:10px;align-items:center;">
               <div>
@@ -201,10 +262,10 @@ function render(data, state) {
                   <label class="label" for="assign-${esc(spec.id)}">Character</label>
                   <select class="input" id="assign-${esc(spec.id)}" data-role="office-select" data-office-id="${esc(spec.id)}">
                     <option value="">Vacant</option>
-                    ${choices.map((c) => `<option value="${esc(c.id)}" ${c.id === office.holderCharId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+                    ${choices.map((c) => `<option value="${esc(c.id)}" ${c.id === office.holderCharId ? "selected" : ""}>${esc(c.name)}${c.party ? ` (${esc(c.party)})` : ""}</option>`).join("")}
                   </select>
-                ` : office.holderName ? `
-                  <div style="font-weight:700;text-align:center;">${esc(formatMPName(office.holderName, { appendMP: true }))}</div>
+                ` : displayName ? `
+                  <div style="font-weight:700;text-align:center;">${esc(displayName)}</div>
                   ${office.holderParty ? `<div style="text-align:center;margin-top:2px;">${partyBadge(office.holderParty)}</div>` : ""}
                 ` : `
                   <div style="text-align:center;color:var(--muted,#888);font-style:italic;">Vacant</div>
@@ -223,6 +284,40 @@ function render(data, state) {
     </section>
 
   `;
+
+  // Wire up party-badge toggle behaviour for formation checkboxes (visual toggle).
+  host.querySelectorAll('input[name="gov-party"], input[name="cs-party"]').forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const label = cb.closest("label");
+      if (!label) return;
+      const partyName = cb.value;
+      const colours = PARTY_COLOURS[partyName] || { bg: "#888", fg: "#fff" };
+      if (cb.checked) {
+        label.style.background = colours.bg;
+        label.style.color = colours.fg;
+      } else {
+        label.style.background = "#fff";
+        label.style.color = colours.bg;
+      }
+    });
+  });
+
+  host.querySelector("#gov-formation-save")?.addEventListener("click", async () => {
+    const btn = host.querySelector("#gov-formation-save");
+    if (btn) btn.disabled = true;
+    try {
+      const govTypeVal = host.querySelector("#gov-type-select")?.value || "Majority";
+      const newGovParties = [...host.querySelectorAll('input[name="gov-party"]:checked')].map((el) => el.value);
+      const newCsParties = [...host.querySelectorAll('input[name="cs-party"]:checked')].map((el) => el.value);
+      const currentOppParties = Array.isArray(data._parlStatus?.oppositionParties) ? data._parlStatus.oppositionParties : [];
+      await apiUpdateParliamentStatus({ governmentType: govTypeVal, governingParties: newGovParties, confidenceSupplyParties: newCsParties, oppositionParties: currentOppParties });
+      await initGovernmentPage(data, { message: state.message || "", formationMessage: "Government formation saved." });
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      console.error("[gov-formation-save]", err);
+      alert(`Error saving formation: ${err.message}`);
+    }
+  });
 
   host.querySelector("#gov-save")?.addEventListener("click", async () => {
     const btn = host.querySelector("#gov-save");
@@ -260,9 +355,11 @@ export async function initGovernmentPage(data, renderState = { message: "" }) {
 
   // Merge live office assignments from the DB (single source of truth).
   try {
-    const [{ offices: dbOffices }, { characters: dbChars }] = await Promise.all([
+    const [{ offices: dbOffices }, { characters: dbChars }, parlStatus, { parties: canonicalParties }] = await Promise.all([
       apiGetOffices(),
       apiGetCharacters({ active: "true" }),
+      apiGetParliamentStatus().catch(() => null),
+      apiGetCanonicalParties().catch(() => ({ parties: [] })),
     ]);
     const charById = Object.fromEntries((dbChars || []).map((c) => [c.id, c]));
     const officeMap = getOfficeMap(data);
@@ -275,19 +372,23 @@ export async function initGovernmentPage(data, renderState = { message: "" }) {
       if (firstAssignment) {
         const char = charById[firstAssignment.character_id];
         if (char) {
-          stateOffice.holderName   = char.name;
-          stateOffice.holderCharId = char.id;
-          stateOffice.holderParty  = char.party || "";
-          stateOffice.holderAvatar = char.avatar || "";
+          stateOffice.holderName        = char.name;
+          stateOffice.holderDisplayName = char.display_name || char.name;
+          stateOffice.holderCharId      = char.id;
+          stateOffice.holderParty       = char.party || "";
+          stateOffice.holderAvatar      = char.avatar || "";
         }
       } else {
-        stateOffice.holderName   = "";
-        stateOffice.holderCharId = null;
-        stateOffice.holderParty  = "";
-        stateOffice.holderAvatar = "";
+        stateOffice.holderName        = "";
+        stateOffice.holderDisplayName = "";
+        stateOffice.holderCharId      = null;
+        stateOffice.holderParty       = "";
+        stateOffice.holderAvatar      = "";
       }
     }
     data._dbCharacters = dbChars || [];
+    if (parlStatus) data._parlStatus = parlStatus;
+    data._canonicalParties = canonicalParties || [];
   } catch {
     // Non-critical: fall back to state-based government data
   }

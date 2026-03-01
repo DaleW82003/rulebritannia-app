@@ -179,7 +179,7 @@ function renderBillMeta(bill, data) {
     <div class="spaced">
       <div>
         <div class="bill-title">${esc(bill.title)}</div>
-        <div class="bill-sub">${esc(bill.author || "—")} • ${esc(bill.department || "—")}</div>
+        <div class="bill-sub">${esc(bill.author_display_name || bill.author || "—")} • ${esc(bill.department || "—")}</div>
       </div>
       <div class="badges">
         <span class="bill-badge">${esc(billTypeLabel(bill.billType))}</span>
@@ -496,7 +496,7 @@ function amendmentRow(a, supporters = []) {
         <div class="docket-icon">✍️</div>
         <div>
           <div class="docket-title">${esc(a.id || a.amendment_id || "")} · Article ${esc(String(a.articleNumber ?? a.article_number ?? "—"))}: ${esc(a.title || "Untitled amendment")}</div>
-          <div class="docket-detail">${esc(a.amendment_type || a.type || "change")} • By ${esc(a.proposedByName || a.proposed_by_name || "Unknown")} (${esc(a.proposedBy || a.proposed_by_party || "—")}) • ${esc(statusLabels[a.status] || a.status || "proposed")}</div>
+          <div class="docket-detail">${esc(a.amendment_type || a.type || "change")} • By ${esc(a.proposed_by_display_name || a.proposedByName || a.proposed_by_name || "Unknown")} (${esc(a.proposedBy || a.proposed_by_party || "—")}) • ${esc(statusLabels[a.status] || a.status || "proposed")}</div>
           <div class="small" style="margin-top:6px;">${esc(a.text || "")}</div>
           ${supporters.length ? `<div class="small muted">Leader support: ${supporters.map((s) => esc(s)).join(", ")}</div>` : ""}
         </div>

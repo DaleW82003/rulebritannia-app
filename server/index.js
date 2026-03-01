@@ -429,6 +429,7 @@ async function ensureSchema() {
   // Add columns to existing bills table if missing (migration)
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
+  await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
 
   // Bill amendments — server-authoritative tracking of amendments per bill
   await pool.query(`
@@ -527,6 +528,7 @@ async function ensureSchema() {
   `);
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
+  await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS regulations_updated_idx ON regulations (updated_at DESC)`);
 
   await pool.query(`
@@ -847,6 +849,10 @@ async function ensureSchema() {
 
   // Migration: ensure created_at exists on characters (may be absent if table predates this column)
   await pool.query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+
+  // Migration: rh_ever — permanent flag for characters who have held PM or Leader of the Opposition.
+  // Once TRUE, it is never reverted. Controls "The Right Honourable" prefix and "PC" post-nominal for life.
+  await pool.query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS rh_ever BOOLEAN NOT NULL DEFAULT FALSE`);
 
   // Migration: add active_character_id to users (DB-canonical pointer to the user's active character)
   await pool.query(`
@@ -1380,6 +1386,8 @@ async function ensureSchema() {
     );
     INSERT INTO parliament_status (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
   `);
+  // Migration: add opposition_parties column for explicit opposition alignment.
+  await pool.query(`ALTER TABLE parliament_status ADD COLUMN IF NOT EXISTS opposition_parties JSONB NOT NULL DEFAULT '[]'::jsonb`);
 
   // Migration: add new columns to elections and election_party_summary.
   await pool.query(`
@@ -5079,8 +5087,15 @@ const crudWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: 
 app.get("/api/bills", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { rows } = await pool.query("SELECT id, data, updated_at FROM bills ORDER BY updated_at DESC");
-    res.json({ bills: rows.map((r) => normaliseDiscourseFields({ ...r.data, _updatedAt: r.updated_at })) });
+    const { rows } = await pool.query("SELECT id, data, updated_at, author_character_id FROM bills ORDER BY updated_at DESC");
+    const entries = rows.map((r) => ({ id: r.author_character_id || null, fallback: r.data?.author || "" }));
+    const displayNames = await batchGetCharacterDisplayNames(pool, entries);
+    const bills = rows.map((r, i) => normaliseDiscourseFields({
+      ...r.data,
+      author_display_name: displayNames[i],
+      _updatedAt: r.updated_at,
+    }));
+    res.json({ bills });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -5090,9 +5105,13 @@ app.get("/api/bills", crudReadLimit, async (req, res) => {
 app.get("/api/bills/:id", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { rows } = await pool.query("SELECT id, data, updated_at FROM bills WHERE id = $1", [req.params.id]);
+    const { rows } = await pool.query("SELECT id, data, updated_at, author_character_id FROM bills WHERE id = $1", [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: "Bill not found" });
-    res.json({ bill: normaliseDiscourseFields({ ...rows[0].data, _updatedAt: rows[0].updated_at }) });
+    const r = rows[0];
+    const author_display_name = r.author_character_id
+      ? await getCharacterDisplayName(pool, r.author_character_id, r.data?.author || "")
+      : (r.data?.author || "");
+    res.json({ bill: normaliseDiscourseFields({ ...r.data, author_display_name, _updatedAt: r.updated_at }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -5112,11 +5131,13 @@ app.post("/api/bills", crudWriteLimit, async (req, res) => {
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
     const enriched = attachLifecycle({ ...bill }, sm, sy);
+    // Capture the submitting character ID so the author name can be re-computed dynamically
+    const authorCharId = bill.npc ? null : (await getActiveCharacterId(req) || null);
     const { rows } = await pool.query(
-      `INSERT INTO bills (id, data) VALUES ($1, $2::jsonb)
+      `INSERT INTO bills (id, data, author_character_id) VALUES ($1, $2::jsonb, $3)
        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
        RETURNING id, updated_at`,
-      [enriched.id, JSON.stringify(enriched)]
+      [enriched.id, JSON.stringify(enriched), authorCharId]
     );
     res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
   } catch (e) {
@@ -5719,7 +5740,14 @@ app.get("/api/bills/:id/amendments", crudReadLimit, async (req, res) => {
         ORDER BY ba.created_at ASC`,
       [req.params.id]
     );
-    res.json({ amendments: rows });
+    // Enrich proposed_by_name with formatted parliamentary display name
+    const entries = rows.map((a) => ({ id: a.proposed_by_id || null, fallback: a.proposed_by_name || "" }));
+    const displayNames = await batchGetCharacterDisplayNames(pool, entries);
+    const amendments = rows.map((a, i) => ({
+      ...a,
+      proposed_by_display_name: displayNames[i],
+    }));
+    res.json({ amendments });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -5889,32 +5917,37 @@ async function getCharacterParliamentaryMeta(pool, characterId) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows } = await pool.query(
-    `SELECT c.id,
+    `SELECT c.id, c.rh_ever,
             EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
-            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc,
+            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc_ever,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (
               SELECT 1 FROM office_assignments oa
                 JOIN offices o ON o.id = oa.office_id
                WHERE oa.character_id = c.id
-                 AND o.spec_id = ANY($2::text[])
-            ) AS has_rh_office,
+                 AND o.type = 'cabinet'
+            ) AS has_cabinet_office,
             EXISTS (
               SELECT 1 FROM parties p
                WHERE p.leader_character_id = c.id
-                 AND $3::text IS NOT NULL
-                 AND p.slug = $3
+                 AND $2::text IS NOT NULL
+                 AND p.slug = $2
             ) AS is_third_party_leader
        FROM characters c
       WHERE c.id = $1
       LIMIT 1`,
-    [characterId, RH_QUALIFYING_SPEC_IDS, thirdPartySlug]
+    [characterId, thirdPartySlug]
   );
   const m = rows[0] || {};
-  const is_rh = Boolean(m.is_privy_current || m.has_rh_office || m.is_third_party_leader);
+  // rh_ever: set permanently when a character is first appointed PM or LoTO. Never reverts.
+  // has_cabinet_office: any current cabinet office gives RH while in post.
+  // is_privy_current: current PC membership also qualifies for RH.
+  const is_rh = Boolean(m.rh_ever || m.is_privy_current || m.has_cabinet_office || m.is_third_party_leader);
+  // PC post-nominal: ever been a PC member, OR permanently qualifies via rh_ever (former PM/LoTO)
+  const is_pc = Boolean(m.rh_ever || m.is_pc_ever);
   return {
     is_mp: Boolean(m.is_mp),
-    is_pc: Boolean(m.is_pc),
+    is_pc,
     is_privy_current: Boolean(m.is_privy_current),
     is_rh,
     is_third_party_leader: Boolean(m.is_third_party_leader),
@@ -5935,6 +5968,40 @@ async function getCharacterDisplayName(pool, characterId, fallbackName = "") {
   const bareName = rows[0]?.name || fallbackName || "";
   const meta = await getCharacterParliamentaryMeta(pool, characterId);
   return formatParliamentaryName({ bareName, isRH: meta.is_rh, isMP: meta.is_mp, isPC: meta.is_pc });
+}
+
+/**
+ * Efficiently compute display names for many characters in a single DB round-trip.
+ * Returns an array of display name strings in the same order as the input entries.
+ * Null/undefined IDs use the entry's fallback string directly.
+ * @param {Array<{ id: string|null|undefined, fallback: string }>} entries
+ * @returns {Promise<string[]>}
+ */
+async function batchGetCharacterDisplayNames(pool, entries) {
+  const ids = [...new Set(entries.map((e) => e.id).filter(Boolean))];
+  if (!ids.length) {
+    return entries.map((e) => e.fallback || "");
+  }
+
+  const thirdPartySlug = await getThirdPartySlug(pool);
+  const { rows } = await pool.query(
+    `SELECT c.id, c.name, c.rh_ever,
+            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
+            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc_ever,
+            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
+            EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
+            EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
+       FROM characters c WHERE c.id = ANY($1::uuid[])`,
+    [ids, thirdPartySlug]
+  );
+
+  const byId = Object.fromEntries(rows.map((r) => {
+    const is_rh = Boolean(r.rh_ever || r.is_privy_current || r.has_cabinet_office || r.is_third_party_leader);
+    const is_pc = Boolean(r.rh_ever || r.is_pc_ever);
+    return [r.id, formatParliamentaryName({ bareName: r.name || "", isRH: is_rh, isMP: Boolean(r.is_mp), isPC: is_pc })];
+  }));
+
+  return entries.map((e) => (e.id ? (byId[e.id] ?? (e.fallback || "")) : (e.fallback || "")));
 }
 
 
@@ -6415,8 +6482,15 @@ app.delete("/api/statements/:id", crudWriteLimit, async (req, res) => {
 app.get("/api/regulations", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { rows } = await pool.query("SELECT id, data, updated_at FROM regulations ORDER BY updated_at DESC");
-    res.json({ regulations: rows.map((r) => normaliseDiscourseFields({ ...r.data, _updatedAt: r.updated_at })) });
+    const { rows } = await pool.query("SELECT id, data, updated_at, author_character_id FROM regulations ORDER BY updated_at DESC");
+    const entries = rows.map((r) => ({ id: r.author_character_id || null, fallback: r.data?.author || "" }));
+    const displayNames = await batchGetCharacterDisplayNames(pool, entries);
+    const regulations = rows.map((r, i) => normaliseDiscourseFields({
+      ...r.data,
+      author_display_name: displayNames[i],
+      _updatedAt: r.updated_at,
+    }));
+    res.json({ regulations });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6427,11 +6501,15 @@ app.get("/api/regulations/:id", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query(
-      "SELECT id, data, updated_at FROM regulations WHERE id = $1",
+      "SELECT id, data, updated_at, author_character_id FROM regulations WHERE id = $1",
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Regulation not found" });
-    res.json({ regulation: normaliseDiscourseFields({ ...rows[0].data, _updatedAt: rows[0].updated_at }) });
+    const r = rows[0];
+    const author_display_name = r.author_character_id
+      ? await getCharacterDisplayName(pool, r.author_character_id, r.data?.author || "")
+      : (r.data?.author || "");
+    res.json({ regulation: normaliseDiscourseFields({ ...r.data, author_display_name, _updatedAt: r.updated_at }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6451,11 +6529,12 @@ app.post("/api/regulations", crudWriteLimit, async (req, res) => {
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
     const enriched = attachLifecycle({ ...reg }, sm, sy);
+    const authorCharId = reg.npc ? null : (await getActiveCharacterId(req) || null);
     const { rows } = await pool.query(
-      `INSERT INTO regulations (id, data) VALUES ($1, $2::jsonb)
+      `INSERT INTO regulations (id, data, author_character_id) VALUES ($1, $2::jsonb, $3)
        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
        RETURNING id, updated_at`,
-      [enriched.id, JSON.stringify(enriched)]
+      [enriched.id, JSON.stringify(enriched), authorCharId]
     );
     res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
   } catch (e) {
@@ -7925,7 +8004,24 @@ app.get("/api/characters", charReadLimit, async (req, res) => {
     else if (active === "false") { q += " WHERE is_active = FALSE"; }
     q += " ORDER BY name";
     const { rows } = await pool.query(q, params);
-    const characters = await Promise.all(rows.map(enrichCharacterRowWithDisplay));
+    let characters = await Promise.all(rows.map(enrichCharacterRowWithDisplay));
+    // For privileged users, attach current office assignments so personal page can show them
+    if (isPrivileged && characters.length) {
+      const charIds = characters.map((c) => c.id).filter(Boolean);
+      const { rows: offRows } = await pool.query(
+        `SELECT oa.character_id, o.name AS office_name, o.type AS office_type
+           FROM office_assignments oa
+           JOIN offices o ON o.id = oa.office_id
+          WHERE oa.character_id = ANY($1::uuid[])
+          ORDER BY o.type, o.name`,
+        [charIds]
+      );
+      const officesByChar = {};
+      for (const r of offRows) {
+        (officesByChar[r.character_id] ??= []).push({ office_name: r.office_name, office_type: r.office_type });
+      }
+      characters = characters.map((c) => ({ ...c, offices_held: officesByChar[c.id] || [] }));
+    }
     res.json({ characters });
   } catch (e) {
     console.error(e);
@@ -12053,6 +12149,12 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
       [req.params.id, character_id]
     );
 
+    // Permanently mark characters who hold PM or LoTO as "Right Honourable" for life.
+    // rh_ever is set to TRUE the first time they are assigned to these offices and never reverted.
+    if (RH_QUALIFYING_SPEC_IDS.includes(office.spec_id)) {
+      await pool.query("UPDATE characters SET rh_ever = TRUE WHERE id = $1", [character_id]);
+    }
+
     // Recompute salary positions for old and new holder
     const toRecompute = new Set([oldCharId, character_id].filter(Boolean));
     for (const charId of toRecompute) {
@@ -12818,6 +12920,32 @@ function qtRoleFromAssignments(assignments) {
   return "backbencher";
 }
 
+/**
+ * Resolve the effective QT role for a character, also detecting third-party leaders
+ * who have no office assignments but should get 2 PMQ follow-ups (not 1).
+ */
+async function qtRoleForCharacter(pool, charId, preloadedAssignments = null) {
+  if (!charId) return "backbencher";
+  const assignments = preloadedAssignments ?? (await pool.query(
+    `SELECT o.spec_id, o.type FROM office_assignments oa
+       JOIN offices o ON o.id = oa.office_id
+      WHERE oa.character_id = $1 AND o.spec_id IS NOT NULL`,
+    [charId]
+  )).rows;
+  const role = qtRoleFromAssignments(assignments);
+  if (role !== "backbencher") return role;
+  // Check if this character is the current third-party leader
+  const thirdPartySlug = await getThirdPartySlug(pool);
+  if (thirdPartySlug) {
+    const { rows: tpRows } = await pool.query(
+      `SELECT 1 FROM parties WHERE leader_character_id = $1 AND slug = $2 LIMIT 1`,
+      [charId, thirdPartySlug]
+    );
+    if (tpRows.length) return "party-leader-3rd-4th";
+  }
+  return "backbencher";
+}
+
 app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
@@ -12829,6 +12957,7 @@ app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
              COALESCE(c.name, q.asked_by_name) AS asked_by_name,
              (SELECT a.answer_text FROM qt_answers a WHERE a.question_id = q.id ORDER BY a.created_at LIMIT 1) AS answer_text,
              (SELECT a.answered_at_sim FROM qt_answers a WHERE a.question_id = q.id ORDER BY a.created_at LIMIT 1) AS answered_at_sim,
+             (SELECT a.answered_by_character_id FROM qt_answers a WHERE a.question_id = q.id ORDER BY a.created_at LIMIT 1) AS answered_by_character_id,
              COALESCE((
                SELECT json_agg(json_build_object(
                  'id',           f.id,
@@ -12837,6 +12966,8 @@ app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
                  'asked_by_character_id', f.asked_by_character_id,
                  'asked_by_name', COALESCE(fc.name, f.asked_by_name),
                  'asked_at_sim', f.asked_at_sim,
+                 'answered_by_character_id', f.answered_by_character_id,
+                 'answered_at_sim', f.answered_at_sim,
                  'created_at',  f.created_at
                ) ORDER BY f.created_at)
                FROM qt_followups f
@@ -12861,14 +12992,20 @@ app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
         : (qrow.asked_by_character_id
           ? await getCharacterDisplayName(pool, qrow.asked_by_character_id, qrow.asked_by_name || "")
           : (qrow.asked_by_name || ""));
+      const answeredByDisplay = qrow.answered_by_character_id
+        ? await getCharacterDisplayName(pool, qrow.answered_by_character_id, "")
+        : "";
       const followups = Array.isArray(qrow.followups) ? qrow.followups : [];
       const followupsWithDisplay = await Promise.all(followups.map(async (f) => ({
         ...f,
         asked_by_display_name: f.asked_by_character_id
           ? await getCharacterDisplayName(pool, f.asked_by_character_id, f.asked_by_name || "")
-          : (f.asked_by_name || "")
+          : (f.asked_by_name || ""),
+        answered_by_display_name: f.answered_by_character_id
+          ? await getCharacterDisplayName(pool, f.answered_by_character_id, "")
+          : "",
       })));
-      return { ...qrow, asked_by_display_name: askedByDisplay, followups: followupsWithDisplay };
+      return { ...qrow, asked_by_display_name: askedByDisplay, answered_by_display_name: answeredByDisplay, followups: followupsWithDisplay };
     }));
     res.json({ questions });
   } catch (e) {
@@ -12927,6 +13064,10 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
     const { office_id, question_text, asked_by_name, npc_party } = req.body || {};
     if (!office_id || !question_text) {
       return res.status(400).json({ error: "office_id and question_text are required" });
+    }
+    // NPC posts require both a name and a party
+    if (npc_party && !(asked_by_name || "").trim()) {
+      return res.status(400).json({ error: "NPC posts require an NPC name." });
     }
 
     // Always derive character from session — never trust client-supplied asked_by_character_id
@@ -13018,7 +13159,8 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
        RETURNING id, office_id, asked_by_character_id, asked_by_name, question_text, status, asked_at_sim, due_at_sim, npc_party, created_at`,
       [
         office_id,
-        charId || null,
+        // NPC posts must not store the staff member's character ID — the NPC has no character account
+        (npc_party || "").trim() ? null : (charId || null),
         (asked_by_name || "").trim() || null,
         question_text.trim(),
         askedAtSimStr,
@@ -13178,7 +13320,7 @@ app.post("/api/qt/questions/:id/followup", qtWriteLimit, async (req, res) => {
     const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
 
     if (!isStaff && charId) {
-      // Determine role for limit computation
+      // Determine role for limit computation — include third-party leader check
       const { rows: assignments } = await pool.query(
         `SELECT o.spec_id, o.type
            FROM office_assignments oa
@@ -13186,15 +13328,15 @@ app.post("/api/qt/questions/:id/followup", qtWriteLimit, async (req, res) => {
           WHERE oa.character_id = $1 AND o.spec_id IS NOT NULL`,
         [charId]
       );
-      const qtRole  = qtRoleFromAssignments(assignments);
+      const qtRole  = await qtRoleForCharacter(pool, charId, assignments);
       const specIds = assignments.map((a) => a.spec_id);
 
       // Compute max follow-ups for this role and office
       let maxFollowUps = 1;
       if (question.office_id === "prime-minister") {
-        if (qtRole === "leader-opposition")    maxFollowUps = 3;
-        else if (qtRole === "shadow")          maxFollowUps = 2; // third party leader-like
-        else                                   maxFollowUps = 1;
+        if (qtRole === "leader-opposition")         maxFollowUps = 3;
+        else if (qtRole === "party-leader-3rd-4th") maxFollowUps = 2;
+        else                                        maxFollowUps = 1;
       } else {
         if (qtRole === "shadow" || qtRole === "minister") maxFollowUps = 2;
         else                                               maxFollowUps = 1;
@@ -15186,12 +15328,13 @@ app.get("/api/parliament/status", parlStatusReadLimit, async (req, res) => {
   try {
     if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
     const { rows } = await pool.query("SELECT * FROM parliament_status WHERE id = 'main'");
-    if (!rows.length) return res.json({ governmentType: "Majority", governingParties: [], confidenceSupplyParties: [] });
+    if (!rows.length) return res.json({ governmentType: "Majority", governingParties: [], confidenceSupplyParties: [], oppositionParties: [] });
     const r = rows[0];
     res.json({
       governmentType: r.government_type,
       governingParties: Array.isArray(r.governing_parties) ? r.governing_parties : [],
       confidenceSupplyParties: Array.isArray(r.confidence_supply_parties) ? r.confidence_supply_parties : [],
+      oppositionParties: Array.isArray(r.opposition_parties) ? r.opposition_parties : [],
       updatedAt: r.updated_at,
     });
   } catch (e) {
@@ -15203,22 +15346,23 @@ app.get("/api/parliament/status", parlStatusReadLimit, async (req, res) => {
 app.put("/api/parliament/status", parlStatusWriteLimit, async (req, res) => {
   try {
     if (!requireAdminModOrSpeaker(req, res)) return;
-    const { governmentType, governingParties = [], confidenceSupplyParties = [] } = req.body || {};
+    const { governmentType, governingParties = [], confidenceSupplyParties = [], oppositionParties = [] } = req.body || {};
     if (!VALID_GOV_TYPES.includes(governmentType)) {
       return res.status(400).json({ error: `governmentType must be one of: ${VALID_GOV_TYPES.join(", ")}` });
     }
-    if (!Array.isArray(governingParties) || !Array.isArray(confidenceSupplyParties)) {
-      return res.status(400).json({ error: "governingParties and confidenceSupplyParties must be arrays" });
+    if (!Array.isArray(governingParties) || !Array.isArray(confidenceSupplyParties) || !Array.isArray(oppositionParties)) {
+      return res.status(400).json({ error: "governingParties, confidenceSupplyParties and oppositionParties must be arrays" });
     }
     await pool.query(
-      `INSERT INTO parliament_status (id, government_type, governing_parties, confidence_supply_parties, updated_at)
-       VALUES ('main', $1, $2::jsonb, $3::jsonb, NOW())
+      `INSERT INTO parliament_status (id, government_type, governing_parties, confidence_supply_parties, opposition_parties, updated_at)
+       VALUES ('main', $1, $2::jsonb, $3::jsonb, $4::jsonb, NOW())
        ON CONFLICT (id) DO UPDATE
          SET government_type           = EXCLUDED.government_type,
              governing_parties         = EXCLUDED.governing_parties,
              confidence_supply_parties = EXCLUDED.confidence_supply_parties,
+             opposition_parties        = EXCLUDED.opposition_parties,
              updated_at                = NOW()`,
-      [governmentType, JSON.stringify(governingParties), JSON.stringify(confidenceSupplyParties)]
+      [governmentType, JSON.stringify(governingParties), JSON.stringify(confidenceSupplyParties), JSON.stringify(oppositionParties)]
     );
     await writeAuditLog(req.session.userId, "parliament_status.update", "parliament_status", "main", null, req.body);
     res.json({ ok: true });
@@ -15445,7 +15589,9 @@ app.get("/api/profile", profileReadLimit, async (req, res) => {
     res.json({
       username:  r.username,
       character: r.char_name ? {
+        id:                      r.char_id,
         name:                    r.char_name,
+        display_name:            await getCharacterDisplayName(pool, r.char_id, r.char_name),
         party:                   r.party                || "",
         constituency:            r.constituency         || "",
         avatar:                  r.avatar               || "",

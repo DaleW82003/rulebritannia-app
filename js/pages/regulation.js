@@ -52,7 +52,7 @@ export async function initRegulationPage(data) {
   root.innerHTML = `
     <section class="tile tile-form" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">${esc(item.department)} Regulation ${esc(item.regulationNumber)}: ${esc(item.shortTitle)}</h2>
-      <p class="muted">By ${esc(item.author)} • Status: ${esc(isEffectivelyClosed ? "Debate Closed" : "Debate Open")}</p>
+      <p class="muted">By ${esc(item.author_display_name || item.author)} • Status: ${esc(isEffectivelyClosed ? "Debate Closed" : "Debate Open")}</p>
       <p class="muted">Laid: ${esc(item.laidAtSim || "—")} • In force: ${esc(item.comesIntoForce || "—")} • Debate closes: ${esc(item.debateClosesAtSim || "—")}${item.debateClosesAtSimObj && !isEffectivelyClosed ? ` (${countdownToSimMonth(item.debateClosesAtSimObj.month, item.debateClosesAtSimObj.year, data.gameState)})` : ""}</p>
       ${closedAtSim ? `<p class="muted">Closed at: ${esc(closedAtSim)}</p>` : ""}
       <div class="tile-bottom" style="display:flex;gap:8px;flex-wrap:wrap;">

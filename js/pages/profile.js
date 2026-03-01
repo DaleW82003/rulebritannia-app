@@ -71,7 +71,7 @@ export async function initProfilePage() {
                   ? `<img src="${esc(char.avatar)}" alt="${esc(char.name)}" style="width:80px;height:80px;object-fit:cover;border-radius:10px;border:1px solid #ddd;">`
                   : `<div class="muted-block" style="width:80px;height:80px;padding:0;display:grid;place-items:center;">👤</div>`}
                 <div>
-                  <div><b>${esc(char.name)}</b></div>
+                  <div><b>${esc(char.display_name || char.name)}</b></div>
                   <div class="muted">${esc(char.party || "")}</div>
                   <div class="muted">${esc(char.constituency || "")}</div>
                 </div>

@@ -55,7 +55,7 @@ function statementCard(s, speaker, canDelete, gameState) {
   `;
   const body = `
     <div class="spaced">
-      <div><b>MS${esc(s.number)}</b>: ${esc(s.title)} <span class="muted">by ${esc(s.author)}</span></div>
+      <div><b>MS${esc(s.number)}</b>: ${esc(s.title)} <span class="muted">by ${esc(s.author_display_name || s.author)}</span></div>
       <div>${esc(badge(s))}</div>
     </div>
     <div class="muted" style="margin-top:6px;">Debate window: ${esc(s.openedAtSim || "—")} → ${esc(s.closesAtSim || "—")}${countdown ? ` (${countdown})` : ""}</div>
