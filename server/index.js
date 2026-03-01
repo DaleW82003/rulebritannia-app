@@ -1810,6 +1810,25 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS idx_party_expulsion_requests_status ON party_expulsion_requests (status);
   `);
 
+  // ── C2) Whip withdrawal requests (chief-whip-initiated, needs party leader approval) ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS whip_withdrawal_requests (
+      id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      party_slug         TEXT NOT NULL,
+      character_id       UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      requested_by_id    UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      note               TEXT NOT NULL DEFAULT '',
+      status             TEXT NOT NULL DEFAULT 'pending'
+                         CHECK (status IN ('pending','approved','denied')),
+      decided_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      decided_at         TIMESTAMPTZ,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_whip_withdrawal_requests_party  ON whip_withdrawal_requests (party_slug);
+    CREATE INDEX IF NOT EXISTS idx_whip_withdrawal_requests_char   ON whip_withdrawal_requests (character_id);
+    CREATE INDEX IF NOT EXISTS idx_whip_withdrawal_requests_status ON whip_withdrawal_requests (status);
+  `);
+
   // ── D) Party leader elections ──────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS party_leader_elections (
@@ -1862,6 +1881,18 @@ async function ensureSchema() {
     ALTER TABLE privy_council_members ADD COLUMN IF NOT EXISTS removed_by UUID REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE privy_council_members ADD COLUMN IF NOT EXISTS removal_reason TEXT NOT NULL DEFAULT '';
     CREATE INDEX IF NOT EXISTS idx_privy_council_members_char ON privy_council_members (character_id);
+    CREATE TABLE IF NOT EXISTS privy_council_posts (
+      id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      posted_as     TEXT NOT NULL,
+      posted_as_type TEXT NOT NULL DEFAULT 'character',
+      character_id  UUID REFERENCES characters(id) ON DELETE SET NULL,
+      avatar_url    TEXT NOT NULL DEFAULT '',
+      body          TEXT NOT NULL,
+      sim_month     SMALLINT,
+      sim_year      SMALLINT,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_pc_posts_created ON privy_council_posts (created_at DESC);
   `);
 }
 
@@ -8861,27 +8892,42 @@ app.post("/api/mod/property/set", propertyWriteLimit, async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // WHIP DISCIPLINE
-// POST /api/characters/:id/whip/withdraw — party leader / chief whip / admin / mod
+// POST /api/characters/:id/whip/withdraw — party leader / admin / mod: immediate
+//                                          chief whip: creates pending request
 // POST /api/characters/:id/whip/restore  — party leader / chief whip / admin / mod
+// GET  /api/parties/:partyId/whip-requests         — party leader / admin / mod
+// POST /api/parties/:partyId/whip-requests/:reqId/approve — party leader / admin / mod
+// POST /api/parties/:partyId/whip-requests/:reqId/deny    — party leader / admin / mod
 // ═══════════════════════════════════════════════════════════════════════════
 
 const whipWriteLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
 
-async function canManageWhip(req, characterParty) {
+/**
+ * Returns { canManage, isDirectAuthority } for whip actions.
+ * isDirectAuthority = true when caller is admin/mod/party leader (immediate effect).
+ * isDirectAuthority = false when caller is only chief whip (routes through leader).
+ */
+async function getWhipAuthority(req, characterParty) {
   const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-  if (sessionRoles.includes("admin") || sessionRoles.includes("mod")) return true;
-  if (!req.session.characterId) return false;
+  if (sessionRoles.includes("admin") || sessionRoles.includes("mod")) {
+    return { canManage: true, isDirectAuthority: true };
+  }
+  if (!req.session.characterId) return { canManage: false, isDirectAuthority: false };
   const { rows } = await pool.query(
     `SELECT p.leader_character_id, p.chief_whip_character_id
        FROM parties p WHERE p.slug = $1`,
     [characterParty]
   );
-  if (!rows.length) return false;
+  if (!rows.length) return { canManage: false, isDirectAuthority: false };
   const { leader_character_id, chief_whip_character_id } = rows[0];
-  return (
-    String(req.session.characterId) === String(leader_character_id) ||
-    String(req.session.characterId) === String(chief_whip_character_id)
-  );
+  const isLeader    = String(req.session.characterId) === String(leader_character_id);
+  const isChiefWhip = String(req.session.characterId) === String(chief_whip_character_id);
+  return { canManage: isLeader || isChiefWhip, isDirectAuthority: isLeader };
+}
+
+async function canManageWhip(req, characterParty) {
+  const { canManage } = await getWhipAuthority(req, characterParty);
+  return canManage;
 }
 
 app.post("/api/characters/:id/whip/withdraw", whipWriteLimit, async (req, res) => {
@@ -8893,19 +8939,42 @@ app.post("/api/characters/:id/whip/withdraw", whipWriteLimit, async (req, res) =
     );
     if (!charRows.length) return res.status(404).json({ error: "Character not found or inactive" });
     const char = charRows[0];
-    if (!(await canManageWhip(req, char.party))) {
+    const { canManage, isDirectAuthority } = await getWhipAuthority(req, char.party);
+    if (!canManage) {
       return res.status(403).json({ error: "Only party leader, chief whip, admin or mod may withdraw the whip" });
     }
     if (char.whip_status === "withdrawn") return res.status(409).json({ error: "Whip already withdrawn" });
     const note = String(req.body?.note || "").slice(0, 500);
+
+    if (isDirectAuthority) {
+      // Party leader / admin / mod: immediate effect
+      await pool.query(
+        `UPDATE characters SET whip_status = 'withdrawn', whip_withdrawn_at = NOW(),
+           whip_withdrawn_by = $1, whip_withdrawn_note = $2 WHERE id = $3`,
+        [req.session.userId, note, req.params.id]
+      );
+      await writeAuditLog(req.session.userId, "whip.withdraw", "character", req.params.id,
+        { whip_status: "normal" }, { whip_status: "withdrawn", note });
+      return res.json({ ok: true, pending: false });
+    }
+
+    // Chief whip: create a pending request for party leader sign-off
+    // Cancel any existing pending request for the same character/party first
     await pool.query(
-      `UPDATE characters SET whip_status = 'withdrawn', whip_withdrawn_at = NOW(),
-         whip_withdrawn_by = $1, whip_withdrawn_note = $2 WHERE id = $3`,
-      [req.session.userId, note, req.params.id]
+      `UPDATE whip_withdrawal_requests SET status = 'denied', decided_at = NOW()
+        WHERE character_id = $1 AND party_slug = $2 AND status = 'pending'`,
+      [req.params.id, char.party]
     );
-    await writeAuditLog(req.session.userId, "whip.withdraw", "character", req.params.id,
-      { whip_status: "normal" }, { whip_status: "withdrawn", note });
-    res.json({ ok: true });
+    const requestingCharId = req.session.characterId;
+    const { rows: reqRows } = await pool.query(
+      `INSERT INTO whip_withdrawal_requests (party_slug, character_id, requested_by_id, note)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [char.party, req.params.id, requestingCharId, note]
+    );
+    await writeAuditLog(req.session.userId, "whip.withdraw.request", "character", req.params.id,
+      {}, { note, request_id: reqRows[0].id });
+    return res.json({ ok: true, pending: true, requestId: reqRows[0].id,
+      message: "Whip withdrawal request submitted to the Party Leader for approval." });
   } catch (e) {
     console.error("[POST /api/characters/:id/whip/withdraw]", e);
     res.status(500).json({ error: "Server error" });
@@ -8935,6 +9004,112 @@ app.post("/api/characters/:id/whip/restore", whipWriteLimit, async (req, res) =>
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/characters/:id/whip/restore]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET  /api/parties/:partyId/whip-requests          — list pending requests (party leader / admin / mod)
+// POST /api/parties/:partyId/whip-requests/:reqId/approve — approve (immediate withdrawal)
+// POST /api/parties/:partyId/whip-requests/:reqId/deny    — deny (no action)
+
+app.get("/api/parties/:partyId/whip-requests", whipWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const partySlug = req.params.partyId;
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isStaff) {
+      const { rows: partyRows } = await pool.query(
+        "SELECT leader_character_id FROM parties WHERE slug = $1", [partySlug]
+      );
+      if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
+      if (String(req.session.characterId) !== String(partyRows[0].leader_character_id)) {
+        return res.status(403).json({ error: "Only party leader or staff may view whip requests" });
+      }
+    }
+    const { status = "pending" } = req.query;
+    const { rows } = await pool.query(
+      `SELECT w.id, w.character_id, w.note, w.status, w.created_at,
+              c.name AS character_name, rc.name AS requested_by_name
+         FROM whip_withdrawal_requests w
+         JOIN characters c  ON c.id  = w.character_id
+         JOIN characters rc ON rc.id = w.requested_by_id
+        WHERE w.party_slug = $1 AND w.status = $2
+        ORDER BY w.created_at DESC`,
+      [partySlug, status]
+    );
+    res.json({ requests: rows });
+  } catch (e) {
+    console.error("[GET /api/parties/:partyId/whip-requests]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/parties/:partyId/whip-requests/:reqId/approve", whipWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const partySlug = req.params.partyId;
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isStaff) {
+      const { rows: partyRows } = await pool.query(
+        "SELECT leader_character_id FROM parties WHERE slug = $1", [partySlug]
+      );
+      if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
+      if (String(req.session.characterId) !== String(partyRows[0].leader_character_id)) {
+        return res.status(403).json({ error: "Only party leader or staff may approve whip requests" });
+      }
+    }
+    const { rows: reqRows } = await pool.query(
+      `UPDATE whip_withdrawal_requests
+          SET status = 'approved', decided_by_user_id = $1, decided_at = NOW()
+        WHERE id = $2 AND party_slug = $3 AND status = 'pending'
+        RETURNING character_id`,
+      [req.session.userId, req.params.reqId, partySlug]
+    );
+    if (!reqRows.length) return res.status(404).json({ error: "Request not found or already decided" });
+    const charId = reqRows[0].character_id;
+    await pool.query(
+      `UPDATE characters SET whip_status = 'withdrawn', whip_withdrawn_at = NOW(),
+         whip_withdrawn_by = $1, whip_withdrawn_note = 'Approved via Chief Whip request'
+       WHERE id = $2 AND whip_status = 'normal'`,
+      [req.session.userId, charId]
+    );
+    await writeAuditLog(req.session.userId, "whip.withdraw.approve", "character", charId,
+      { whip_status: "normal" }, { whip_status: "withdrawn", request_id: req.params.reqId });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/whip-requests/:reqId/approve]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/parties/:partyId/whip-requests/:reqId/deny", whipWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const partySlug = req.params.partyId;
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isStaff) {
+      const { rows: partyRows } = await pool.query(
+        "SELECT leader_character_id FROM parties WHERE slug = $1", [partySlug]
+      );
+      if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
+      if (String(req.session.characterId) !== String(partyRows[0].leader_character_id)) {
+        return res.status(403).json({ error: "Only party leader or staff may deny whip requests" });
+      }
+    }
+    const { rowCount } = await pool.query(
+      `UPDATE whip_withdrawal_requests
+          SET status = 'denied', decided_by_user_id = $1, decided_at = NOW()
+        WHERE id = $2 AND party_slug = $3 AND status = 'pending'`,
+      [req.session.userId, req.params.reqId, partySlug]
+    );
+    if (!rowCount) return res.status(404).json({ error: "Request not found or already decided" });
+    await writeAuditLog(req.session.userId, "whip.withdraw.deny", "whip_withdrawal_requests", req.params.reqId, {}, {});
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/parties/:partyId/whip-requests/:reqId/deny]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -11380,6 +11555,107 @@ app.post("/api/mod/privy-council/remove", privyWriteLimit, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+// ── Privy Council Posts (like Red Lion but PC-access-gated) ──────────────────
+// GET  /api/privy-council/posts       — privy councillors + staff
+// POST /api/privy-council/posts       — privy councillors + staff
+// DELETE /api/privy-council/posts/:id — admin/mod only
+
+/** Check if the request has Privy Council access (current PC member or staff). */
+async function hasPrivyCouncilAccess(req) {
+  const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  if (sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker")) return true;
+  if (!req.session.characterId) return false;
+  const { rows } = await pool.query(
+    "SELECT id FROM privy_council_members WHERE character_id = $1 AND removed_at IS NULL",
+    [req.session.characterId]
+  );
+  return rows.length > 0;
+}
+
+app.get("/api/privy-council/posts", privyReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    if (!(await hasPrivyCouncilAccess(req))) {
+      return res.status(403).json({ error: "Access restricted to Privy Councillors and staff" });
+    }
+    const { rows } = await pool.query(
+      `SELECT p.id, p.posted_as, p.posted_as_type, p.character_id, p.avatar_url,
+              p.body, p.sim_month, p.sim_year, p.created_at,
+              c.name AS character_name
+         FROM privy_council_posts p
+         LEFT JOIN characters c ON c.id = p.character_id
+         ORDER BY p.created_at ASC`
+    );
+    res.json({ posts: rows });
+  } catch (e) {
+    console.error("[GET /api/privy-council/posts]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/privy-council/posts", privyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    if (!(await hasPrivyCouncilAccess(req))) {
+      return res.status(403).json({ error: "Access restricted to Privy Councillors and staff" });
+    }
+    const { body, posted_as_type = "character" } = req.body || {};
+    if (!body || !String(body).trim()) return res.status(400).json({ error: "Post body is required" });
+
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+
+    // Only staff may post as the Monarch
+    if (posted_as_type === "monarch" && !isStaff) {
+      return res.status(403).json({ error: "Only admin/mod/speaker may post as the Monarch" });
+    }
+
+    const { rows: simRows } = await pool.query("SELECT month, year FROM sim_state WHERE id = 'main' LIMIT 1");
+    const sim = simRows[0] || { month: 8, year: 1997 };
+
+    let postedAs = "The Monarch";
+    let avatarUrl = "";
+    let charId = null;
+
+    if (posted_as_type === "character") {
+      const aid = req.session.characterId;
+      if (!aid) return res.status(400).json({ error: "No active character to post as" });
+      const { rows: charRows } = await pool.query(
+        "SELECT id, name, avatar FROM characters WHERE id = $1 AND is_active = TRUE", [aid]
+      );
+      if (!charRows.length) return res.status(400).json({ error: "Active character not found" });
+      charId = charRows[0].id;
+      postedAs = await getCharacterDisplayName(pool, charId, charRows[0].name || "");
+      avatarUrl = charRows[0].avatar || "";
+    }
+
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO privy_council_posts (posted_as, posted_as_type, character_id, avatar_url, body, sim_month, sim_year)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, created_at`,
+      [postedAs, posted_as_type, charId, avatarUrl, String(body).trim().slice(0, 4000), sim.month, sim.year]
+    );
+    await writeAuditLog(req.session.userId, "privy_council.post", "privy_council_posts", inserted[0].id, null,
+      { posted_as: postedAs, posted_as_type });
+    res.status(201).json({ ok: true, post: inserted[0] });
+  } catch (e) {
+    console.error("[POST /api/privy-council/posts]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/privy-council/posts/:id", privyWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rowCount } = await pool.query("DELETE FROM privy_council_posts WHERE id = $1", [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: "Post not found" });
+    await writeAuditLog(req.session.userId, "privy_council.post.delete", "privy_council_posts", req.params.id, null, {});
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[DELETE /api/privy-council/posts/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 const groupDraftReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
 const groupDraftWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
 
@@ -12493,9 +12769,13 @@ app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
     q += " ORDER BY q.created_at DESC";
     const { rows } = await pool.query(q, params);
     const questions = await Promise.all(rows.map(async (qrow) => {
-      const askedByDisplay = qrow.asked_by_character_id
-        ? await getCharacterDisplayName(pool, qrow.asked_by_character_id, qrow.asked_by_name || "")
-        : (qrow.asked_by_name || "");
+      // For NPC posts (npc_party set), always use the stored asked_by_name (the NPC name),
+      // not the posting character's display name.
+      const askedByDisplay = qrow.npc_party
+        ? (qrow.asked_by_name || "")
+        : (qrow.asked_by_character_id
+          ? await getCharacterDisplayName(pool, qrow.asked_by_character_id, qrow.asked_by_name || "")
+          : (qrow.asked_by_name || ""));
       const followups = Array.isArray(qrow.followups) ? qrow.followups : [];
       const followupsWithDisplay = await Promise.all(followups.map(async (f) => ({
         ...f,
@@ -12591,6 +12871,12 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
       const qtRole  = qtRoleFromAssignments(assignments);
       const specIds = assignments.map((a) => a.spec_id);
 
+      // Government ministers (cabinet office holders) may not ask QT questions —
+      // they answer them. Only shadow/backbench MPs may ask.
+      if (assignments.some((a) => a.type === "cabinet")) {
+        return res.status(403).json({ error: "Government ministers may not ask Question Time questions — they are expected to answer them." });
+      }
+
       // Shadow/cabinet office → portfolio check for non-PMQ questions
       if (office_id !== "prime-minister" && (qtRole === "shadow" || qtRole === "minister")) {
         const expectedShadow  = QT_SHADOW_MAP[office_id];
@@ -12625,9 +12911,6 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
         }
       }
     }
-
-
-    // Server-side dedup: same character + office + text within 10 minutes → 409
     if (charId) {
       const { rows: dupeRows } = await pool.query(
         `SELECT id FROM qt_questions

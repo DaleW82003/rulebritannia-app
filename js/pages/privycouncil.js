@@ -1,11 +1,27 @@
 // js/pages/privycouncil.js
 import { esc, formatMPName } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
-import { apiGetPrivyCouncil, apiAppointPrivyCouncillor, apiRemovePrivyCouncillor, apiGetCharacters } from "../api.js";
+import { apiGetPrivyCouncil, apiAppointPrivyCouncillor, apiRemovePrivyCouncillor, apiGetCharacters, apiGetPrivyCouncilPosts, apiCreatePrivyCouncilPost, apiDeletePrivyCouncilPost } from "../api.js";
 
-function render(members, data, state, manager) {
+function formatSimLabel(month, year) {
+  if (!month || !year) return "";
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  return `${MONTHS[(month - 1) % 12]} ${year}`;
+}
+
+function avatarFor(name, avatar) {
+  if (avatar) return avatar;
+  const initial = (name || "?").trim().slice(0, 1).toUpperCase() || "?";
+  return `https://dummyimage.com/48x48/112233/ffffff&text=${encodeURIComponent(initial)}`;
+}
+
+function render(members, posts, data, state, manager) {
   const host = document.getElementById("privy-council-root") || document.querySelector("main.wrap");
   if (!host) return;
+
+  const char = data?.currentCharacter || data?.currentPlayer || {};
+  const hasActiveChar = !!char?.name;
+  const canPostMonarch = manager;
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">His Majesty's Most Honourable Privy Council</div></div>
@@ -14,6 +30,41 @@ function render(members, data, state, manager) {
       <h2 style="margin-top:0;">About the Privy Council</h2>
       <p class="muted" style="margin-bottom:8px;">The Privy Council is a permanent advisory body to the Sovereign. Membership is for life. Privy Councillors are addressed as <em>The Right Honourable</em>.</p>
       <p class="muted" style="margin:0;">Access to this page is restricted to Privy Councillors and staff (admin/mod/speaker).</p>
+    </section>
+
+    <section class="tile" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Post to the Council</h2>
+      ${!hasActiveChar && !canPostMonarch
+        ? `<div class="muted-block">You must have an active character to post here. <a href="user.html">Create or activate a character</a> first.</div>`
+        : `<form id="pc-post-form">
+        <label class="label" for="pc-body">Message</label>
+        <textarea id="pc-body" name="body" class="input" rows="4" required placeholder="Speak as your character or, if staff, as His Majesty…"></textarea>
+        <div style="display:flex;gap:12px;margin:8px 0;flex-wrap:wrap;align-items:center;">
+          <label><input type="radio" name="pcPosterChoice" value="character" checked> My Character</label>
+          ${canPostMonarch ? `<label><input type="radio" name="pcPosterChoice" value="monarch"> His Majesty the Monarch</label>` : ""}
+        </div>
+        <button type="submit" class="btn">Post</button>
+        ${state.postMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.postMessage)}</p>` : ""}
+      </form>`}
+    </section>
+
+    <section class="tile" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Council Chamber</h2>
+      ${posts.length ? posts.map((p) => `
+        <article class="tile" style="margin-bottom:10px;">
+          <div style="display:flex;gap:10px;align-items:flex-start;">
+            <img src="${esc(avatarFor(p.posted_as, p.avatar_url))}" alt="${esc(p.posted_as)}" width="44" height="44" style="border-radius:${p.posted_as_type === "monarch" ? "4px" : "999px"};object-fit:cover;flex-shrink:0;">
+            <div style="flex:1;">
+              <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                <div><b>${esc(p.posted_as)}</b>${p.posted_as_type === "monarch" ? ` <span class="muted">(Monarch)</span>` : ""}</div>
+                <div class="muted">${esc(formatSimLabel(p.sim_month, p.sim_year))}</div>
+              </div>
+              <p style="margin:8px 0;white-space:pre-wrap;">${esc(p.body)}</p>
+              ${manager ? `<button class="btn danger" type="button" data-action="delete-pc-post" data-post-id="${esc(p.id)}" style="font-size:.8em;padding:4px 10px;">Delete</button>` : ""}
+            </div>
+          </div>
+        </article>
+      `).join("") : `<p class="muted">No posts yet. The chamber awaits.</p>`}
     </section>
 
     <section class="panel" style="margin-bottom:12px;">
@@ -57,6 +108,40 @@ function render(members, data, state, manager) {
     ` : (state.message ? `<p class="muted">${esc(state.message)}</p>` : "")}
   `;
 
+  // ── Posting form ─────────────────────────────────────────────────────────────
+  const postForm = host.querySelector("#pc-post-form");
+  postForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(postForm);
+    const body = String(fd.get("body") || "").trim();
+    if (!body) return;
+    const posterChoice = (postForm.querySelector('input[name="pcPosterChoice"]:checked') || {}).value || "character";
+    const submitBtn = postForm.querySelector("button[type='submit']");
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      await apiCreatePrivyCouncilPost({ body, posted_as_type: posterChoice });
+      postForm.reset();
+      await initPrivyCouncilPage(data, { message: state.message || "", postMessage: "Posted successfully." });
+    } catch (err) {
+      await initPrivyCouncilPage(data, { message: state.message || "", postMessage: `Error: ${err.message}` });
+    }
+  });
+
+  // ── Delete post ──────────────────────────────────────────────────────────────
+  host.querySelectorAll("[data-action='delete-pc-post']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const postId = btn.dataset.postId;
+      if (!postId || !confirm("Delete this Privy Council post?")) return;
+      btn.disabled = true;
+      try {
+        await apiDeletePrivyCouncilPost(postId);
+        await initPrivyCouncilPage(data, { message: state.message || "", postMessage: "Post deleted." });
+      } catch (err) {
+        await initPrivyCouncilPage(data, { message: state.message || "", postMessage: `Error: ${err.message}` });
+      }
+    });
+  });
+
   // Populate character select
   if (manager) {
     const select = host.querySelector("#pc-char-select");
@@ -76,9 +161,9 @@ function render(members, data, state, manager) {
       if (!charId) return;
       try {
         await apiAppointPrivyCouncillor(charId, reason);
-        await initPrivyCouncilPage(data, { message: "Appointed successfully." });
+        await initPrivyCouncilPage(data, { message: "Appointed successfully.", postMessage: "" });
       } catch (err) {
-        await initPrivyCouncilPage(data, { message: `Error: ${err.message}` });
+        await initPrivyCouncilPage(data, { message: `Error: ${err.message}`, postMessage: "" });
       }
     });
 
@@ -89,20 +174,19 @@ function render(members, data, state, manager) {
         if (!confirm(`Remove ${charName} from the Privy Council?`)) return;
         try {
           await apiRemovePrivyCouncillor(charId);
-          await initPrivyCouncilPage(data, { message: "Removed from Privy Council." });
+          await initPrivyCouncilPage(data, { message: "Removed from Privy Council.", postMessage: "" });
         } catch (err) {
-          // If blocked due to permanent qualifying office, offer a force-remove option
           if (err.message?.includes("permanent qualifying office")) {
             if (confirm(`${err.message}\n\nDo you want to force-remove this member (use only for mistaken appointments)?`)) {
               try {
                 await apiRemovePrivyCouncillor(charId, { force: true });
-                await initPrivyCouncilPage(data, { message: "Force-removed from Privy Council." });
+                await initPrivyCouncilPage(data, { message: "Force-removed from Privy Council.", postMessage: "" });
               } catch (err2) {
-                await initPrivyCouncilPage(data, { message: `Error: ${err2.message}` });
+                await initPrivyCouncilPage(data, { message: `Error: ${err2.message}`, postMessage: "" });
               }
             }
           } else {
-            await initPrivyCouncilPage(data, { message: `Error: ${err.message}` });
+            await initPrivyCouncilPage(data, { message: `Error: ${err.message}`, postMessage: "" });
           }
         }
       });
@@ -110,18 +194,20 @@ function render(members, data, state, manager) {
   }
 }
 
-export async function initPrivyCouncilPage(data, renderState = { message: "" }) {
+export async function initPrivyCouncilPage(data, renderState = { message: "", postMessage: "" }) {
   const host = document.getElementById("privy-council-root") || document.querySelector("main.wrap");
   const manager = canAdminOrMod(data);
 
   try {
-    const [pcResult, charsResult] = await Promise.all([
+    const [pcResult, postsResult, charsResult] = await Promise.all([
       apiGetPrivyCouncil(),
+      apiGetPrivyCouncilPosts(),
       manager ? apiGetCharacters({ active: "true" }) : Promise.resolve({ characters: [] }),
     ]);
     const members = pcResult.members || [];
+    const posts   = postsResult.posts || [];
     if (manager) data._dbCharacters = charsResult.characters || [];
-    render(members, data, renderState, manager);
+    render(members, posts, data, renderState, manager);
   } catch (err) {
     if (host) {
       host.innerHTML = `<section class="tile"><p class="muted">${err.message?.includes("Access restricted") || err.message?.includes("403") ? "This page is restricted to Privy Councillors and staff." : `Error loading Privy Council: ${esc(err.message)}`}</p></section>`;

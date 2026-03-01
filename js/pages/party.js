@@ -1,7 +1,7 @@
 import { esc, formatMPName } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection } from "../api.js";
+import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { logAction } from "../audit.js";
 
@@ -602,6 +602,23 @@ function render(data, state) {
           </table>
         </div>
         ${state.whipMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.whipMessage)}</p>` : ""}
+        ${(isPartyLeader || manager) && (state.dbState?.whipRequests || []).length ? `
+        <div style="margin-top:12px;padding-top:10px;border-top:1px solid #ddd;">
+          <h4 style="margin:0 0 8px;">Pending Whip Withdrawal Requests</h4>
+          ${(state.dbState.whipRequests).map((r) => `
+            <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+              <div>
+                <b>${esc(r.character_name)}</b>
+                <span class="muted"> — requested by ${esc(r.requested_by_name)}</span>
+                ${r.note ? `<span class="muted"> — "${esc(r.note)}"</span>` : ""}
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button type="button" class="btn" data-action="approve-whip-request" data-request-id="${esc(r.id)}" data-party-slug="${esc(state.dbState.party?.slug || "")}">Approve</button>
+                <button type="button" class="btn danger" data-action="deny-whip-request" data-request-id="${esc(r.id)}" data-party-slug="${esc(state.dbState.party?.slug || "")}">Deny</button>
+              </div>
+            </div>
+          `).join("")}
+        </div>` : ""}
       ` : `<div class="muted-block">No party members found.</div>`}
     </section>
 
@@ -1051,11 +1068,12 @@ function render(data, state) {
     state.donationMessage = "";
     // Reload DB party data for the newly selected party
     try {
-      const [partyResult, charsResult, structureResult, ledgerResult] = await Promise.all([
+      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult] = await Promise.all([
         apiGetParty(next).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
         apiGetPartyStructure(next).catch(() => ({ structure: {}, treasuryOverspend: false })),
         apiGetPartyLedger(next).catch(() => ({ donations: [] })),
+        apiGetWhipRequests(next, "pending").catch(() => ({ requests: [] })),
       ]);
       if (partyResult?.party) state.dbState = { ...state.dbState, party: partyResult.party };
       const partyNameLower = next.toLowerCase();
@@ -1065,6 +1083,7 @@ function render(data, state) {
       state.dbState.partyStructure = structureResult.structure || {};
       state.dbState.treasuryOverspend = !!structureResult.treasuryOverspend;
       state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
+      state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
     } catch (e) {
       console.warn("[party-switch] DB reload failed:", e.message);
     }
@@ -1524,10 +1543,57 @@ function render(data, state) {
       if (!charId) return;
       btn.disabled = true;
       try {
-        await apiWithdrawWhip(charId);
-        const c = state.dbState.partyCharacters.find((x) => String(x.id) === charId);
-        if (c) c.whip_status = "withdrawn";
-        state.whipMessage = "Whip withdrawn.";
+        const result = await apiWithdrawWhip(charId);
+        if (result.pending) {
+          // Chief Whip's request is pending party leader approval — do not update local state yet
+          state.whipMessage = result.message || "Whip withdrawal request submitted to the Party Leader for approval.";
+        } else {
+          const c = state.dbState.partyCharacters.find((x) => String(x.id) === charId);
+          if (c) c.whip_status = "withdrawn";
+          state.whipMessage = "Whip withdrawn.";
+        }
+      } catch (err) {
+        state.whipMessage = `Error: ${err.message}`;
+        btn.disabled = false;
+      }
+      render(data, state);
+    });
+  });
+
+  root.querySelectorAll('[data-action="approve-whip-request"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const reqId = String(btn.dataset.requestId || "");
+      const partySlug = String(btn.dataset.partySlug || "");
+      if (!reqId || !partySlug) return;
+      btn.disabled = true;
+      try {
+        await apiApproveWhipRequest(partySlug, reqId);
+        state.whipMessage = "Whip withdrawal approved.";
+        // Refresh characters to reflect the withdrawn status
+        const charsResult = await apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] }));
+        const partyNameLower = partySlug.toLowerCase();
+        state.dbState.partyCharacters = (charsResult.characters || []).filter(
+          (c) => (c.party || "").toLowerCase() === partyNameLower
+        );
+        state.dbState.whipRequests = [];
+      } catch (err) {
+        state.whipMessage = `Error: ${err.message}`;
+        btn.disabled = false;
+      }
+      render(data, state);
+    });
+  });
+
+  root.querySelectorAll('[data-action="deny-whip-request"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const reqId = String(btn.dataset.requestId || "");
+      const partySlug = String(btn.dataset.partySlug || "");
+      if (!reqId || !partySlug) return;
+      btn.disabled = true;
+      try {
+        await apiDenyWhipRequest(partySlug, reqId);
+        state.whipMessage = "Whip withdrawal request denied.";
+        state.dbState.whipRequests = (state.dbState.whipRequests || []).filter((r) => r.id !== reqId);
       } catch (err) {
         state.whipMessage = `Error: ${err.message}`;
         btn.disabled = false;
@@ -1789,10 +1855,11 @@ export async function initPartyPage(data) {
       state.dbState.treasuryOverspend = !!structureResult.treasuryOverspend;
       state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
 
-      // Load governance data: elections and pending expulsions
-      const [electionsResult, expulsionsResult] = await Promise.all([
+      // Load governance data: elections, pending expulsions, and pending whip requests
+      const [electionsResult, expulsionsResult, whipReqResult] = await Promise.all([
         apiGetPartyElections(partyId).catch(() => ({ elections: [] })),
         apiGetExpulsions("pending").catch(() => ({ expulsions: [] })),
+        apiGetWhipRequests(partyId, "pending").catch(() => ({ requests: [] })),
       ]);
       state.elections = electionsResult.elections || [];
       const openStatuses = ["nominations", "voting", "runoff"];
@@ -1800,6 +1867,7 @@ export async function initPartyPage(data) {
       state.expulsions = (expulsionsResult.expulsions || []).filter(
         (ex) => (ex.party || "").toLowerCase() === partyId.toLowerCase()
       );
+      state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
     } catch (e) {
       console.warn("[initPartyPage] DB load failed:", e.message);
     }
