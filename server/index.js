@@ -4648,10 +4648,21 @@ app.get("/api/discourse/sso", ssoRateLimit, async (req, res) => {
     return res.status(404).json({ error: "DiscourseConnect SSO is not enabled on this server" });
   }
 
+  /**
+   * Log the error and redirect the user back to the login page with an
+   * actionable error banner instead of exposing raw JSON in the browser.
+   * @param {string} msg - Human-readable error to display and log.
+   * @returns {void}
+   */
+  function ssoError(msg) {
+    console.error("[discourse/sso]", msg);
+    return res.redirect(302, `/login.html?sso_error=${encodeURIComponent(msg)}`);
+  }
+
   try {
     const ssoSecret = await getSsoSecret();
     if (!ssoSecret) {
-      return res.status(503).json({ error: "SSO secret not configured. Set it in the Discourse Integration admin panel." });
+      return ssoError("SSO secret not configured. Ask an admin to set it in Admin Panel → Discourse Integration.");
     }
 
     const { rows: cfgRows } = await pool.query(
@@ -4662,21 +4673,25 @@ app.get("/api/discourse/sso", ssoRateLimit, async (req, res) => {
     const uiBase   = (cfg.ui_base_url        || "").trim().replace(/\/$/, "");
 
     if (!baseUrl) {
-      return res.status(503).json({ error: "Discourse base URL not configured" });
+      return ssoError("Discourse base URL not configured. Ask an admin to set it in Admin Panel → Discourse Integration.");
+    }
+
+    if (!uiBase) {
+      return ssoError("UI base URL not configured. Ask an admin to set it in Admin Panel → App Config.");
     }
 
     // Generate a nonce, store in session so we can verify on callback
     const nonce = randomBytes(16).toString("hex");
     req.session.ssoNonce = nonce;
 
-    const returnUrl = `${uiBase || ""}/api/discourse/sso/callback`;
+    const returnUrl = `${uiBase}/api/discourse/sso/callback`;
     const { sso, sig } = buildSsoPayload({ ssoSecret, returnUrl, nonce });
 
     const redirectUrl = `${baseUrl}/session/sso_provider?sso=${encodeURIComponent(sso)}&sig=${encodeURIComponent(sig)}`;
     res.redirect(302, redirectUrl);
   } catch (e) {
     console.error("[discourse/sso]", e.message);
-    res.status(500).json({ error: "SSO initiation failed. Check server logs." });
+    res.redirect(302, `/login.html?sso_error=${encodeURIComponent("SSO initiation failed. Please try email/password login or contact an admin.")}`);
   }
 });
 
@@ -4688,17 +4703,17 @@ app.get("/api/discourse/sso/callback", ssoRateLimit, async (req, res) => {
   try {
     const { sso, sig } = req.query;
     if (!sso || !sig) {
-      return res.status(400).json({ error: "Missing sso or sig query parameters" });
+      return res.redirect(302, `/login.html?sso_error=${encodeURIComponent("SSO callback is missing required parameters. Please try again.")}`);
     }
 
     const ssoSecret = await getSsoSecret();
     if (!ssoSecret) {
-      return res.status(503).json({ error: "SSO secret not configured" });
+      return res.redirect(302, `/login.html?sso_error=${encodeURIComponent("SSO secret not configured. Contact an admin.")}`);
     }
 
     const expectedNonce = req.session.ssoNonce;
     if (!expectedNonce) {
-      return res.status(400).json({ error: "No SSO nonce in session. Please restart the login flow." });
+      return res.redirect(302, `/login.html?sso_error=${encodeURIComponent("SSO session expired. Please click 'Login with Discourse' again.")}`);
     }
 
     // Validate signature and extract user info
@@ -4708,7 +4723,7 @@ app.get("/api/discourse/sso/callback", ssoRateLimit, async (req, res) => {
     delete req.session.ssoNonce;
 
     if (!user.email) {
-      return res.status(400).json({ error: "Discourse did not return an email address" });
+      return res.redirect(302, `/login.html?sso_error=${encodeURIComponent("Discourse did not return an email address. Ensure your Discourse account has a verified email.")}`);
     }
 
     // Look up or create the local user account by email
@@ -4761,8 +4776,7 @@ app.get("/api/discourse/sso/callback", ssoRateLimit, async (req, res) => {
     res.redirect(302, uiBase ? `${uiBase}/` : "/");
   } catch (e) {
     console.error("[discourse/sso/callback]", e.message);
-    // Don't expose internal error detail to the browser
-    res.status(400).json({ error: "SSO login failed. Please try again." });
+    res.redirect(302, `/login.html?sso_error=${encodeURIComponent("SSO login failed. Please use email/password login or contact an admin.")}`);
   }
 });
 
@@ -4848,7 +4862,13 @@ app.get("/api/admin/sso-readiness", discourseReadLimit, async (req, res) => {
     ];
 
     const allOk = checks.every((c) => c.ok);
-    res.json({ allOk, checks });
+
+    // Provide the exact URLs admins need to configure in Discourse
+    const cleanUiBase  = uiBase.replace(/\/$/, "");
+    const ssoEntryUrl  = cleanUiBase ? `${cleanUiBase}/api/discourse/sso` : null;
+    const callbackUrl  = cleanUiBase ? `${cleanUiBase}/api/discourse/sso/callback` : null;
+
+    res.json({ allOk, checks, ssoEntryUrl, callbackUrl });
   } catch (e) {
     console.error("[sso-readiness]", e);
     res.status(500).json({ error: "Server error" });
