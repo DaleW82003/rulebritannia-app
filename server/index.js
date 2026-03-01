@@ -5756,7 +5756,7 @@ async function getCharacterParliamentaryMeta(pool, characterId) {
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows } = await pool.query(
     `SELECT c.id,
-            EXISTS (SELECT 1 FROM constituencies k WHERE k.mp_userid = c.user_id) AS is_mp,
+            EXISTS (SELECT 1 FROM constituencies k WHERE k.mp_name = c.name AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (
