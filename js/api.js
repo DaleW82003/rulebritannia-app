@@ -47,6 +47,11 @@ export async function apiBootstrap() {
   const res = await fetch(`${API_BASE}/api/bootstrap`, {
     credentials: "include",
   });
+  // 401/403 means unauthenticated — treat as a successful logged-out response
+  // rather than throwing, since the server may return these before sessions initialise.
+  if (res.status === 401 || res.status === 403) {
+    return { user: null, clock: null, config: {}, is_demo: true };
+  }
   if (!res.ok) throw new Error(`apiBootstrap failed (${res.status})`);
   return res.json();
 }

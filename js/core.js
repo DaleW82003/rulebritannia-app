@@ -248,11 +248,24 @@ export async function bootData() {
       const cachedData = getData();
       const cachedUser = cachedData?.currentUser;
       if (cachedUser?.id || cachedUser?.username) {
-        const err = new Error(
-          "Cannot reach the server. Your session may still be active — please refresh or try again shortly."
-        );
-        err.code = "BOOTSTRAP_FAILED_AUTHENTICATED";
-        throw err;
+        console.warn("[bootData] Bootstrap failed with cached session — falling back to demo data.");
+        // Fall back to demo data rather than hard-failing so the UI still renders.
+        // The caller (main.js) will surface a non-blocking warning banner.
+        let demoData = {};
+        try {
+          const res = await fetch("/data/demo.json");
+          if (res.ok) demoData = await res.json();
+        } catch (e) {
+          console.warn("[bootData] Failed to load demo.json:", e.message);
+        }
+        const ensured = ensureDefaults(demoData);
+        return {
+          data: ensured,
+          user: null,
+          clock,
+          sources,
+          bootWarning: "Cannot reach the server. Your session may still be active — please refresh or try again shortly.",
+        };
       }
     }
 
