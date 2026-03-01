@@ -406,6 +406,36 @@ export function esc(s) {
 }
 
 /**
+ * Party colour map for badge rendering.
+ * Keys are canonical party names; values are { bg, fg } colour pairs.
+ */
+export const PARTY_COLOURS = {
+  "Conservative":      { bg: "#003e7e", fg: "#ffffff" },
+  "Labour":            { bg: "#cc0000", fg: "#ffffff" },
+  "Liberal Democrat":  { bg: "#fdbb30", fg: "#000000" },
+  "Liberal Democrats": { bg: "#fdbb30", fg: "#000000" },
+  "Green":             { bg: "#00843d", fg: "#ffffff" },
+  "SNP":               { bg: "#fff200", fg: "#000000" },
+  "Plaid Cymru":       { bg: "#3f8428", fg: "#ffffff" },
+  "DUP":               { bg: "#d46a00", fg: "#ffffff" },
+  "Sinn Féin":         { bg: "#326760", fg: "#ffffff" },
+  "SDLP":              { bg: "#2aa82c", fg: "#ffffff" },
+  "UUP":               { bg: "#48a5ee", fg: "#ffffff" },
+  "Independent":       { bg: "#888888", fg: "#ffffff" },
+};
+
+/**
+ * Render a small coloured party badge.
+ * @param {string} partyName
+ * @returns {string} HTML string
+ */
+export function partyBadge(partyName) {
+  if (!partyName) return "";
+  const colours = PARTY_COLOURS[partyName] || { bg: "#888888", fg: "#ffffff" };
+  return `<span style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:.8em;font-weight:600;background:${colours.bg};color:${colours.fg};">${esc(partyName)}</span>`;
+}
+
+/**
  * Format an MP name with the correct parliamentary honorific and post-nominals.
  *
  * Rules (render-time only — never store the formatted name in DB):
