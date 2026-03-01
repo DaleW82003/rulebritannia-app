@@ -259,10 +259,15 @@ export function initNavUI(user, clock, gameState) {
   // that changes to sim_start_date are reflected immediately. Fall back to the
   // legacy clock object if gameState is not yet available.
   const topbarInner = document.querySelector(".topbar-inner");
-  if (topbarInner && (gameState || clock)) {
-    const clockText = gameState
-      ? formatSimMonthYear(gameState)
-      : `${MONTH_NAMES[(clock.sim_current_month - 1)]} ${clock.sim_current_year}`;
+  if (topbarInner) {
+    let clockText;
+    if (gameState) {
+      clockText = formatSimMonthYear(gameState);
+    } else if (clock) {
+      clockText = `${MONTH_NAMES[(clock.sim_current_month - 1)]} ${clock.sim_current_year}`;
+    } else {
+      clockText = "–";
+    }
     const clockEl = document.createElement("span");
     clockEl.id = "topbar-clock";
     clockEl.className = "topbar-clock";

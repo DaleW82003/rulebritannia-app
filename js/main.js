@@ -117,8 +117,14 @@ function renderDataSourcePanel(sources) {
 (async function () {
   document.body.dataset.bootState = "booting";
   try {
-    const { data, user, clock, sources } = await bootData();
+    const { data, user, clock, sources, bootWarning } = await bootData();
     initNavUI(user, clock, data.gameState);
+    if (bootWarning) {
+      const msg = document.createElement("div");
+      msg.style.cssText = "padding:16px;border:2px solid #f90;background:#fffbf0;color:#111;border-radius:12px;margin-bottom:8px";
+      msg.innerHTML = `<b>Server notice:</b> ${esc(bootWarning)} Running in read-only demo mode.`;
+      document.body.prepend(msg);
+    }
     renderDataSourcePanel(sources);
 
     const page = document.body?.dataset?.page || "";
