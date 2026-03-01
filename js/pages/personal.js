@@ -2,7 +2,7 @@ import { esc } from "../ui.js";
 import { nowStamp } from "../core.js";
 import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate } from "../clock.js";
-import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums } from "../api.js";
+import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetOffices } from "../api.js";
 import { logAction } from "../audit.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
@@ -2105,6 +2105,28 @@ export async function initPersonalPage(data) {
     state.enums = enums;
     render(data, state);
   }).catch(() => { /* fall back to built-in arrays */ });
+
+  // Load live office assignments from DB so "Offices Held" tile reflects the
+  // Government AND Opposition pages' authoritative data (non-blocking).
+  apiGetOffices().then(({ offices }) => {
+    const govEntries = [];
+    const oppEntries = [];
+    for (const office of (offices || [])) {
+      const specId = String(office.spec_id || "").trim();
+      if (!specId) continue;
+      for (const a of (office.assignments || [])) {
+        const holderName = String(a.character_name || "").trim();
+        if (!holderName) continue;
+        if (office.type === "cabinet") govEntries.push({ id: specId, holderName });
+        else if (office.type === "shadow") oppEntries.push({ id: specId, holderName });
+      }
+    }
+    data.government ??= {};
+    data.opposition ??= {};
+    data.government.offices = govEntries;
+    data.opposition.offices = oppEntries;
+    render(data, state);
+  }).catch(() => {});
 
   render(data, state);
 }
