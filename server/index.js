@@ -5736,9 +5736,11 @@ async function getPartySeatsFromConstituencies(pool) {
  */
 async function getPartiesRankedBySeats(pool) {
   const { rows } = await pool.query(
-    `SELECT slug, COALESCE(seat_count, 0) AS seats
-       FROM parties
-      ORDER BY COALESCE(seat_count, 0) DESC, slug ASC`
+    `SELECT p.slug, COUNT(c.id) AS seats
+       FROM parties p
+       LEFT JOIN constituencies c ON c.party = p.name
+      GROUP BY p.slug
+      ORDER BY COUNT(c.id) DESC, p.slug ASC`
   );
   return rows.map((r) => ({ slug: String(r.slug), seats: Number(r.seats || 0) }));
 }
