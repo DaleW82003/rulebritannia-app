@@ -79,25 +79,25 @@ The Admin Panel includes a **Danger Zone** section (red-bordered, clearly labell
 
 ## Discourse integration during the trial
 
-- **DiscourseConnect SSO** is functional and can be used for forum login if `DISCOURSE_SSO_ENABLED=true` is set.
+- **DiscourseConnect SSO** is functional and can be used for seamless forum login if `DISCOURSE_SSO_ENABLED=true` is set.  The **SIM is the identity source** — users log in to the SIM with their email/password and are automatically authenticated into Discourse via DiscourseConnect.
 - **Discourse group syncing** is **off by default**. The "Sync Discourse Groups Now" button in Admin Panel → Preview Discourse Group Sync should **not** be used during the trial unless Discourse group mappings and the Discourse forum UI/UX have been confirmed as ready.
 - An advisory note is shown next to the sync button in the Admin Panel as a reminder.
-- **Email/password login always works** regardless of whether SSO is configured — users are never forced to use Discourse login.
+- **Email/password login always works** regardless of whether SSO is configured.
 
 ---
 
 ## Setting up DiscourseConnect SSO (hosted Discourse / Communiteq)
 
-The app acts as the **SSO consumer**: users click "Login with Discourse" and are redirected to Discourse to authenticate, then returned to the app.
+The **SIM is the DiscourseConnect provider** (identity source); Discourse is the consumer. Users log in to the SIM and are automatically signed in to Discourse when they visit the forum.
 
 ### Prerequisites
 
 1. **Set environment variable** `DISCOURSE_SSO_ENABLED=true` on the server (Render: Environment tab → Add variable).
 2. **Set a strong `SESSION_SECRET`** environment variable (required for secure session cookies).
 3. **Configure in Admin Panel → App Config:**
-   - `UI Base URL` — the public HTTPS URL of this app (e.g. `https://rulebritannia.onrender.com`). No trailing slash.
+   - `UI Base URL` — the public HTTPS URL of this app's **backend** (e.g. `https://rulebritannia-app-backend.onrender.com`). No trailing slash. This determines the `discourse_connect_url` Discourse must call.
 4. **Configure in Admin Panel → Discourse Integration:**
-   - `Discourse Base URL` — your Discourse forum URL (e.g. `https://forum.rulebritannia.communiteq.com`). No trailing slash.
+   - `Discourse Base URL` — your Discourse forum URL (e.g. `https://forum.rulebritannia.org`). No trailing slash.
    - `API Key` — a Discourse API key with global scope (Discourse Admin → API → New API Key).
    - `API Username` — the Discourse system user for API calls (usually `system`).
    - `DiscourseConnect SSO Secret` — a long random string shared between the app and Discourse. Generate one with `openssl rand -hex 32`.
@@ -106,30 +106,35 @@ The app acts as the **SSO consumer**: users click "Login with Discourse" and are
 
 In your Discourse admin panel (`/admin/site_settings/category/login`):
 
-1. **Enable `enable_discourse_connect_provider`** — this is the **provider** setting, enabling Discourse to redirect users back to external apps. **Note:** This is different from `enable_discourse_connect` (which makes Discourse a consumer). You need the *provider* enabled.
-2. Set **`discourse_connect_url`** to: `https://<your-app>/api/discourse/sso`  
+1. **Enable `enable_discourse_connect`** — this makes Discourse a DiscourseConnect **consumer**, redirecting unauthenticated users to the SIM for login.  **Do NOT enable `enable_discourse_connect_provider`** (that is the outbound-SSO direction and is not used here).
+2. Set **`discourse_connect_url`** to: `https://<your-backend>/api/discourse/sso`
    (The exact URL is shown in Admin Panel → SSO Readiness once `UI Base URL` is configured.)
-3. Set **`discourse_connect_secret`** (under Settings → Login → sso secret) to the same value you pasted as the SSO Secret in the app Admin Panel.
+3. Set **`discourse_connect_secret`** (under Settings → Login → discourse connect secret) to the same value you pasted as the SSO Secret in the app Admin Panel.
 
-> **Warning:** On Communiteq-hosted Discourse, SSO provider settings are available under Admin → Settings → Login. Search for "connect" to find all relevant settings. Contact Communiteq support if you cannot see `enable_discourse_connect_provider`.
+> **Note:** The "Discourse Forum" link in the SIM navigation bar now points to `/api/discourse/go`.  If the user is logged in to the SIM, they are redirected to the forum and DiscourseConnect signs them in automatically.  If not yet logged in, they are taken to the SIM login page first.
 
 ### Verifying the setup
 
 1. Navigate to **Admin Panel → SSO Readiness** (requires admin login).
-2. All checks should show ✅. The panel also displays the exact URL to paste into Discourse.
-3. Test by opening an incognito window, navigating to `/login.html`, and clicking **Login with Discourse**.
+2. All checks should show ✅. The panel also displays the exact URL to paste into Discourse (`discourse_connect_url`).
+3. Test by opening an incognito window, logging in to the SIM, then clicking **Discourse Forum** in the top navigation.
 
 ### What the SSO flow looks like
 
 ```
-User clicks "Login with Discourse"
-  → browser GET /api/discourse/sso
-  → server builds signed payload, redirects to:
-     https://forum.example.com/session/sso_provider?sso=…&sig=…
-  → user authenticates on Discourse (or is already logged in)
-  → Discourse redirects to /api/discourse/sso/callback?sso=…&sig=…
-  → server verifies signature + nonce, creates/finds local user account, sets session
-  → user is redirected to the app dashboard
+Logged-in SIM user clicks "Discourse Forum"
+  → browser GET /api/discourse/go
+  → server sees user is authenticated, redirects to forum
+  → forum redirects to /api/discourse/sso?sso=…&sig=… (DiscourseConnect handshake)
+  → server verifies signature, builds signed user-info payload, redirects back to return_sso_url
+  → Discourse logs the user in and returns them to the forum
+
+Unauthenticated user clicks "Discourse Forum"
+  → browser GET /api/discourse/go
+  → server redirects to /login.html?next=/api/discourse/go
+  → user logs in to the SIM
+  → browser returns to /api/discourse/go, which redirects to the forum
+  → same DiscourseConnect handshake as above completes seamlessly
 ```
 
 ---
@@ -142,10 +147,9 @@ User clicks "Login with Discourse"
 | Wipe button is greyed out or shows an error | Ensure you are logged in as an `admin` role user. |
 | Seed data is missing after Wipe + Seed | Check the server logs for errors from the `/api/admin/seed-demo` endpoint. |
 | Sim clock is stuck | Use Admin Panel → App Config to adjust the clock rate, or contact the hosting admin to check the Render service logs. |
-| Discourse SSO login fails | Verify that `DISCOURSE_SSO_ENABLED=true` is set in the Render environment and that the SSO secret is correct in Admin Panel → Discourse Integration. |
-| "That page doesn't exist or is private" on Discourse | The `enable_discourse_connect_provider` setting is not enabled in Discourse. Enable it under Discourse Admin → Settings → Login. |
+| Discourse SSO fails / user sent to login page | Verify that `DISCOURSE_SSO_ENABLED=true` is set in the Render environment and that the SSO secret in Admin Panel → Discourse Integration matches `discourse_connect_secret` in Discourse. |
+| "That page doesn't exist or is private" on Discourse | `enable_discourse_connect` is not enabled in Discourse, or `discourse_connect_url` is not set. Enable it under Discourse Admin → Settings → Login and point it to `<backend>/api/discourse/sso`. |
 | "Authentication failed due to missing secret" on Discourse | The SSO secret in Discourse does not match the one saved in Admin Panel → Discourse Integration. Re-copy the secret to both places. |
-| SSO login redirects back to login page with an error | Read the error message displayed on the login page. Common causes: SSO secret not set, UI base URL not configured, or session expired (click "Login with Discourse" again). |
-| Login page shows "SSO session expired" | The user's browser session cookie was cleared between starting and completing the SSO flow. Try again in the same browser tab. |
-| SSO callback fails with "email not returned" | Ensure the Discourse account has a verified email address. |
-| `UI base URL not configured` error | Set `ui_base_url` in Admin Panel → App Config to the app's public HTTPS URL. |
+| SSO login redirects back to login page with an error | Read the error message. Common causes: SSO secret not set, UI base URL not configured, or the `return_sso_url` doesn't match the configured Discourse domain. |
+| Login page shows "SSO session expired" | The user's browser session cookie was cleared between starting and completing the SSO flow. Return to the Discourse forum and try logging in again. |
+| `UI base URL not configured` error | Set `ui_base_url` in Admin Panel → App Config to the app's public backend HTTPS URL. |
