@@ -208,13 +208,15 @@ function renderQuestionLine(question, office, canAnswer, canArchive, canDeleteQ,
         <span>${esc(questionStatus(question))}</span>
       </div>
       <p style="margin:8px 0;"><b>Q:</b> ${esc(question.text || "")}</p>
-      ${question.answer ? `<p style="margin:8px 0;"><b>A:</b> ${esc(question.answer)}</p>` : `<p class="muted" style="margin:8px 0;">Awaiting response from ${esc(office.holder || office.title)}.</p>`}
+      ${question.answer ? `<p style="margin:8px 0;"><b>A:</b> ${esc(question.answer)}</p>
+      <p class="muted" style="margin:4px 0;font-size:.9em;">Answered by <b>${esc(question.answeredBy || office.holder || "The Minister")}</b>${question.answeredAtSim ? ` • ${esc(question.answeredAtSim)}` : ""}</p>` : `<p class="muted" style="margin:8px 0;">Awaiting response from ${esc(office.holder || office.title)}.</p>`}
 
       ${followUps.map((f) => `
         <div style="border-top:1px solid #ddd;padding-top:8px;margin-top:8px;">
           <p style="margin:6px 0;"><b>Follow-up:</b> ${esc(f.text || "")}</p>
           <p class="muted" style="margin:6px 0;">Asked by ${esc(f.askedBy || "MP")} • ${esc(f.askedAtSim || simLabel)}</p>
-          ${f.answer ? `<p style="margin:6px 0;"><b>Answer:</b> ${esc(f.answer)}</p>` : `
+          ${f.answer ? `<p style="margin:6px 0;"><b>Answer:</b> ${esc(f.answer)}</p>
+            <p class="muted" style="margin:4px 0;font-size:.9em;">Answered by <b>${esc(f.answeredBy || office.holder || "The Minister")}</b>${f.answeredAtSim ? ` • ${esc(f.answeredAtSim)}` : ""}</p>` : `
             <p class="muted" style="margin:6px 0;">Awaiting clarification response.</p>
             ${canAnswer ? `
               <form class="qt-answer-followup-form" data-followup-id="${esc(f.id)}" style="margin-top:6px;">
@@ -639,6 +641,8 @@ function dbRowToQuestion(row) {
     askedBy:     f.asked_by_display_name || f.asked_by_name || "MP",
     askedByRole: "backbencher",
     askedAtSim:  formatStoredSimDate(f.asked_at_sim),
+    answeredBy:  f.answered_by_display_name || "",
+    answeredAtSim: formatStoredSimDate(f.answered_at_sim),
   }));
   return {
     id:                  row.id,
@@ -649,7 +653,8 @@ function dbRowToQuestion(row) {
     dueAtSim:            parseDueAtSim(row.due_at_sim),
     text:                row.question_text,
     answer:              row.answer_text || "",
-    answeredAtSim:       row.answered_at_sim || "",
+    answeredBy:          row.answered_by_display_name || "",
+    answeredAtSim:       formatStoredSimDate(row.answered_at_sim),
     status:              row.status,
     archived:            row.status === "archived",
     followUps,

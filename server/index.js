@@ -12918,6 +12918,32 @@ function qtRoleFromAssignments(assignments) {
   return "backbencher";
 }
 
+/**
+ * Resolve the effective QT role for a character, also detecting third-party leaders
+ * who have no office assignments but should get 2 PMQ follow-ups (not 1).
+ */
+async function qtRoleForCharacter(pool, charId, preloadedAssignments = null) {
+  if (!charId) return "backbencher";
+  const assignments = preloadedAssignments ?? (await pool.query(
+    `SELECT o.spec_id, o.type FROM office_assignments oa
+       JOIN offices o ON o.id = oa.office_id
+      WHERE oa.character_id = $1 AND o.spec_id IS NOT NULL`,
+    [charId]
+  )).rows;
+  const role = qtRoleFromAssignments(assignments);
+  if (role !== "backbencher") return role;
+  // Check if this character is the current third-party leader
+  const thirdPartySlug = await getThirdPartySlug(pool);
+  if (thirdPartySlug) {
+    const { rows: tpRows } = await pool.query(
+      `SELECT 1 FROM parties WHERE leader_character_id = $1 AND slug = $2 LIMIT 1`,
+      [charId, thirdPartySlug]
+    );
+    if (tpRows.length) return "party-leader-3rd-4th";
+  }
+  return "backbencher";
+}
+
 app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
@@ -12929,6 +12955,7 @@ app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
              COALESCE(c.name, q.asked_by_name) AS asked_by_name,
              (SELECT a.answer_text FROM qt_answers a WHERE a.question_id = q.id ORDER BY a.created_at LIMIT 1) AS answer_text,
              (SELECT a.answered_at_sim FROM qt_answers a WHERE a.question_id = q.id ORDER BY a.created_at LIMIT 1) AS answered_at_sim,
+             (SELECT a.answered_by_character_id FROM qt_answers a WHERE a.question_id = q.id ORDER BY a.created_at LIMIT 1) AS answered_by_character_id,
              COALESCE((
                SELECT json_agg(json_build_object(
                  'id',           f.id,
@@ -12937,6 +12964,8 @@ app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
                  'asked_by_character_id', f.asked_by_character_id,
                  'asked_by_name', COALESCE(fc.name, f.asked_by_name),
                  'asked_at_sim', f.asked_at_sim,
+                 'answered_by_character_id', f.answered_by_character_id,
+                 'answered_at_sim', f.answered_at_sim,
                  'created_at',  f.created_at
                ) ORDER BY f.created_at)
                FROM qt_followups f
@@ -12961,14 +12990,20 @@ app.get("/api/qt/questions", qtReadLimit, async (req, res) => {
         : (qrow.asked_by_character_id
           ? await getCharacterDisplayName(pool, qrow.asked_by_character_id, qrow.asked_by_name || "")
           : (qrow.asked_by_name || ""));
+      const answeredByDisplay = qrow.answered_by_character_id
+        ? await getCharacterDisplayName(pool, qrow.answered_by_character_id, "")
+        : "";
       const followups = Array.isArray(qrow.followups) ? qrow.followups : [];
       const followupsWithDisplay = await Promise.all(followups.map(async (f) => ({
         ...f,
         asked_by_display_name: f.asked_by_character_id
           ? await getCharacterDisplayName(pool, f.asked_by_character_id, f.asked_by_name || "")
-          : (f.asked_by_name || "")
+          : (f.asked_by_name || ""),
+        answered_by_display_name: f.answered_by_character_id
+          ? await getCharacterDisplayName(pool, f.answered_by_character_id, "")
+          : "",
       })));
-      return { ...qrow, asked_by_display_name: askedByDisplay, followups: followupsWithDisplay };
+      return { ...qrow, asked_by_display_name: askedByDisplay, answered_by_display_name: answeredByDisplay, followups: followupsWithDisplay };
     }));
     res.json({ questions });
   } catch (e) {
@@ -13283,7 +13318,7 @@ app.post("/api/qt/questions/:id/followup", qtWriteLimit, async (req, res) => {
     const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
 
     if (!isStaff && charId) {
-      // Determine role for limit computation
+      // Determine role for limit computation — include third-party leader check
       const { rows: assignments } = await pool.query(
         `SELECT o.spec_id, o.type
            FROM office_assignments oa
@@ -13291,15 +13326,15 @@ app.post("/api/qt/questions/:id/followup", qtWriteLimit, async (req, res) => {
           WHERE oa.character_id = $1 AND o.spec_id IS NOT NULL`,
         [charId]
       );
-      const qtRole  = qtRoleFromAssignments(assignments);
+      const qtRole  = await qtRoleForCharacter(pool, charId, assignments);
       const specIds = assignments.map((a) => a.spec_id);
 
       // Compute max follow-ups for this role and office
       let maxFollowUps = 1;
       if (question.office_id === "prime-minister") {
-        if (qtRole === "leader-opposition")    maxFollowUps = 3;
-        else if (qtRole === "shadow")          maxFollowUps = 2; // third party leader-like
-        else                                   maxFollowUps = 1;
+        if (qtRole === "leader-opposition")         maxFollowUps = 3;
+        else if (qtRole === "party-leader-3rd-4th") maxFollowUps = 2;
+        else                                        maxFollowUps = 1;
       } else {
         if (qtRole === "shadow" || qtRole === "minister") maxFollowUps = 2;
         else                                               maxFollowUps = 1;
