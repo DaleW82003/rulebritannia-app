@@ -5,6 +5,7 @@ import { handleApiError } from "../errors.js";
 import { toastSuccess, toastError } from "../components/toast.js";
 import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry, apiMarkPressItem, apiUpdatePressItem, apiDeletePressItem } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
+import { requireLoginForWrite } from "../core.js";
 
 const PARTY_CODES = {
   Conservative: "CON",
@@ -638,6 +639,7 @@ function render(data, state) {
 
   section.querySelector("#release-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!requireLoginForWrite("submit press release")) return;
     const fd = new FormData(e.currentTarget);
     const subject = String(fd.get("subject") || "").trim();
     const body = String(fd.get("body") || "").trim();
@@ -698,6 +700,7 @@ function render(data, state) {
 
   section.querySelector("#conference-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!requireLoginForWrite("submit press conference")) return;
     const fd = new FormData(e.currentTarget);
     const subject = String(fd.get("subject") || "").trim();
     const body = String(fd.get("body") || "").trim();
@@ -742,6 +745,7 @@ function render(data, state) {
   section.querySelectorAll("form[data-action='ask']").forEach((f) => f.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!asker) return;
+    if (!requireLoginForWrite("ask conference question")) return;
     const id = e.currentTarget.getAttribute("data-id");
     const conf = data.press.conferences.find((c) => c.id === id);
     if (!conf || conf.status === "closed") return;
@@ -777,6 +781,7 @@ function render(data, state) {
 
   section.querySelectorAll("form[data-action='answer']").forEach((f) => f.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!requireLoginForWrite("answer conference question")) return;
     const id = e.currentTarget.getAttribute("data-id");
     const conf = data.press.conferences.find((c) => c.id === id);
     if (!conf || conf.status === "closed" || conf.author !== char?.name) return;
@@ -803,6 +808,7 @@ function render(data, state) {
   }));
 
   section.querySelectorAll("[data-action='walk-off']").forEach((btn) => btn.addEventListener("click", async () => {
+    if (!requireLoginForWrite("conference walk-off")) return;
     const id = btn.getAttribute("data-id");
     const conf = data.press.conferences.find((c) => c.id === id);
     if (!conf || conf.author !== char?.name || conf.status === "closed") return;
@@ -845,6 +851,7 @@ function render(data, state) {
 
   section.querySelector("#comment-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!requireLoginForWrite("submit comment")) return;
     const fd = new FormData(e.currentTarget);
     const body = String(fd.get("body") || "").trim();
     if (!body) return;
@@ -966,6 +973,7 @@ function render(data, state) {
 
   section.querySelector("#speech-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!requireLoginForWrite("submit speech")) return;
     const fd = new FormData(e.currentTarget);
     const title = String(fd.get("title") || "").trim();
     const audience = String(fd.get("audience") || "").trim();
@@ -1045,6 +1053,7 @@ function render(data, state) {
 
   section.querySelector("#letter-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (!requireLoginForWrite("submit official letter")) return;
     const fd = new FormData(e.currentTarget);
     const officeKey = String(fd.get("officeKey") || "").trim();
     const recipient = String(fd.get("recipient") || "").trim();
