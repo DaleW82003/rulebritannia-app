@@ -33,9 +33,10 @@ function normaliseOpposition(data) {
     const existing = byId.get(spec.id) || {};
     return {
       id: spec.id,
-      holderName:   String(existing.holderName   || "").trim(),
-      holderAvatar: String(existing.holderAvatar || "").trim(),
-      holderParty:  String(existing.holderParty  || "").trim(),
+      holderName:        String(existing.holderName        || "").trim(),
+      holderDisplayName: String(existing.holderDisplayName || "").trim(),
+      holderAvatar:      String(existing.holderAvatar      || "").trim(),
+      holderParty:       String(existing.holderParty       || "").trim(),
       // Preserve DB-backed fields set by initOppositionPage so save handler works
       dbOfficeId:   existing.dbOfficeId   || null,
       holderCharId: existing.holderCharId || null,
@@ -100,18 +101,21 @@ function avatarFromCharacterProfile(data, name) {
   return "";
 }
 
-function getChoices(data) {
+function getOppositionParty(data) {
+  const leader = getOfficeMap(data).get("leader-opposition");
+  return String(leader?.holderParty || "").trim();
+}
+
+function getChoices(data, partyFilter = "") {
   // DB characters (fetched in initOppositionPage) are the live source of truth.
   // The state-based roster is belt-and-braces fallback only.
-  if (Array.isArray(data._dbCharacters) && data._dbCharacters.length) {
-    return data._dbCharacters
-      .filter((c) => c.name)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }
-  const list = Array.isArray(data.opposition?.activeCharacters)
-    ? data.opposition.activeCharacters.filter((c) => c.name && c.active)
-    : [];
-  return list.sort((a, b) => a.name.localeCompare(b.name));
+  const all = Array.isArray(data._dbCharacters) && data._dbCharacters.length
+    ? data._dbCharacters.filter((c) => c.name)
+    : (Array.isArray(data.opposition?.activeCharacters)
+        ? data.opposition.activeCharacters.filter((c) => c.name && c.active)
+        : []);
+  const filtered = partyFilter ? all.filter((c) => String(c.party || "") === partyFilter) : all;
+  return filtered.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function canEditOffice(data, officeId) {
@@ -156,7 +160,8 @@ function render(data, state) {
 
   normaliseOpposition(data);
   const officeMap = getOfficeMap(data);
-  const choices = getChoices(data);
+  const oppositionParty = getOppositionParty(data);
+  const choices = getChoices(data, oppositionParty);
   const manager = isManager(data);
   const leaderHolder = officeMap.get("leader-opposition")?.holderName || "";
   const isLeader = !!leaderHolder && leaderHolder === getCurrentName(data);
@@ -168,6 +173,7 @@ function render(data, state) {
       <h2 style="margin-top:0;">How appointments work</h2>
       <p class="muted" style="margin-bottom:8px;">Mods/Admins appoint the Leader of the Opposition from active characters. The Leader of the Opposition then appoints all other shadow offices from active characters.</p>
       <p class="muted" style="margin:0;">Editing rights: ${manager ? "You are a moderator/admin (full edit access)." : isLeader ? "You are the Leader of the Opposition (you can appoint all non-Leader offices)." : "View-only mode."}</p>
+      ${oppositionParty ? `<p class="muted" style="margin:4px 0 0;">Official opposition party: ${partyBadge(oppositionParty)}</p>` : ""}
     </section>
 
     <section class="panel" style="margin-bottom:12px;">
@@ -178,6 +184,7 @@ function render(data, state) {
           const name = office.holderName || "Vacant";
           const avatar = avatarFromCharacterProfile(data, office.holderName) || office.holderAvatar || "";
           const editable = canEditOffice(data, spec.id);
+          const displayName = office.holderDisplayName || (office.holderName ? formatMPName(office.holderName, { appendMP: true }) : "");
           return `
             <article class="tile" style="display:grid;grid-template-columns:minmax(260px,2fr) minmax(220px,2fr) 84px;gap:10px;align-items:center;">
               <div>
@@ -188,10 +195,10 @@ function render(data, state) {
                   <label class="label" for="opp-assign-${esc(spec.id)}">Character</label>
                   <select class="input" id="opp-assign-${esc(spec.id)}" data-role="office-select" data-office-id="${esc(spec.id)}">
                     <option value="">Vacant</option>
-                    ${choices.map((c) => `<option value="${esc(c.id)}" ${c.id === office.holderCharId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+                    ${choices.map((c) => `<option value="${esc(c.id)}" ${c.id === office.holderCharId ? "selected" : ""}>${esc(c.name)}${c.party ? ` (${esc(c.party)})` : ""}</option>`).join("")}
                   </select>
-                ` : office.holderName ? `
-                  <div style="font-weight:700;text-align:center;">${esc(formatMPName(office.holderName, { appendMP: true }))}</div>
+                ` : displayName ? `
+                  <div style="font-weight:700;text-align:center;">${esc(displayName)}</div>
                   ${office.holderParty ? `<div style="text-align:center;margin-top:2px;">${partyBadge(office.holderParty)}</div>` : ""}
                 ` : `
                   <div style="text-align:center;color:var(--muted,#888);font-style:italic;">Vacant</div>
@@ -262,16 +269,18 @@ export async function initOppositionPage(data, renderState = { message: "" }) {
       if (firstAssignment) {
         const char = charById[firstAssignment.character_id];
         if (char) {
-          stateOffice.holderName   = char.name;
-          stateOffice.holderCharId = char.id;
-          stateOffice.holderParty  = char.party || "";
-          stateOffice.holderAvatar = char.avatar || "";
+          stateOffice.holderName        = char.name;
+          stateOffice.holderDisplayName = char.display_name || char.name;
+          stateOffice.holderCharId      = char.id;
+          stateOffice.holderParty       = char.party || "";
+          stateOffice.holderAvatar      = char.avatar || "";
         }
       } else {
-        stateOffice.holderName   = "";
-        stateOffice.holderCharId = null;
-        stateOffice.holderParty  = "";
-        stateOffice.holderAvatar = "";
+        stateOffice.holderName        = "";
+        stateOffice.holderDisplayName = "";
+        stateOffice.holderCharId      = null;
+        stateOffice.holderParty       = "";
+        stateOffice.holderAvatar      = "";
       }
     }
     data._dbCharacters = dbChars || [];

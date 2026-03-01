@@ -7925,7 +7925,24 @@ app.get("/api/characters", charReadLimit, async (req, res) => {
     else if (active === "false") { q += " WHERE is_active = FALSE"; }
     q += " ORDER BY name";
     const { rows } = await pool.query(q, params);
-    const characters = await Promise.all(rows.map(enrichCharacterRowWithDisplay));
+    let characters = await Promise.all(rows.map(enrichCharacterRowWithDisplay));
+    // For privileged users, attach current office assignments so personal page can show them
+    if (isPrivileged && characters.length) {
+      const charIds = characters.map((c) => c.id).filter(Boolean);
+      const { rows: offRows } = await pool.query(
+        `SELECT oa.character_id, o.name AS office_name, o.type AS office_type
+           FROM office_assignments oa
+           JOIN offices o ON o.id = oa.office_id
+          WHERE oa.character_id = ANY($1::uuid[])
+          ORDER BY o.type, o.name`,
+        [charIds]
+      );
+      const officesByChar = {};
+      for (const r of offRows) {
+        (officesByChar[r.character_id] ??= []).push({ office_name: r.office_name, office_type: r.office_type });
+      }
+      characters = characters.map((c) => ({ ...c, offices_held: officesByChar[c.id] || [] }));
+    }
     res.json({ characters });
   } catch (e) {
     console.error(e);
@@ -12928,6 +12945,10 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
     if (!office_id || !question_text) {
       return res.status(400).json({ error: "office_id and question_text are required" });
     }
+    // NPC posts require both a name and a party
+    if (npc_party && !(asked_by_name || "").trim()) {
+      return res.status(400).json({ error: "NPC posts require an NPC name." });
+    }
 
     // Always derive character from session — never trust client-supplied asked_by_character_id
     const charId = await getActiveCharacterId(req);
@@ -13018,7 +13039,8 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
        RETURNING id, office_id, asked_by_character_id, asked_by_name, question_text, status, asked_at_sim, due_at_sim, npc_party, created_at`,
       [
         office_id,
-        charId || null,
+        // NPC posts must not store the staff member's character ID — the NPC has no character account
+        (npc_party || "").trim() ? null : (charId || null),
         (asked_by_name || "").trim() || null,
         question_text.trim(),
         askedAtSimStr,

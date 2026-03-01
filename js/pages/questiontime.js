@@ -1,4 +1,4 @@
-import { esc } from "../ui.js";
+import { esc, formatMPName, partyBadge } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, formatSimDate, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
 import { logAction } from "../audit.js";
@@ -204,7 +204,7 @@ function renderQuestionLine(question, office, canAnswer, canArchive, canDeleteQ,
   return `
     <article class="tile" style="margin-bottom:10px;">
       <div class="meta" style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-        <span><b>${esc(question.askedBy || "MP")}</b> • ${esc(question.askedAtSim || simLabel)}</span>
+        <span><b>${esc(question.askedBy || "MP")}</b>${question.npcParty ? ` ${partyBadge(question.npcParty)}` : ""} • ${esc(question.askedAtSim || simLabel)}</span>
         <span>${esc(questionStatus(question))}</span>
       </div>
       <p style="margin:8px 0;"><b>Q:</b> ${esc(question.text || "")}</p>
@@ -341,13 +341,14 @@ function render(data, state) {
               <label><input type="radio" name="qtPosterChoice" value="npc"> NPC</label>
             </div>
             <div id="qt-npc-fields" style="display:none;">
-              <input class="input" name="npcName" placeholder="NPC MP name" style="margin-bottom:4px;">
+              <input class="input" name="npcName" placeholder="NPC MP name (required)" style="margin-bottom:4px;">
               <select class="input" name="npcParty">
                 <option value="">— NPC party —</option>
                 ${partyOptions}
               </select>
             </div>
           </div>` : ""}
+          <div id="qt-submit-error" role="alert" style="display:none;color:#c00;margin-top:6px;font-size:.9em;"></div>
           <button class="btn" type="submit" ${askGate.ok || canPostAsNpc ? "" : "disabled"}>Submit Question</button>
           ${!askGate.ok && !canPostAsNpc ? `<p class="muted" style="margin-top:8px;">${esc(askGate.reason)}</p>` : ""}
         </form>
@@ -389,9 +390,21 @@ function render(data, state) {
   submitForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const submitBtn = submitForm.querySelector("[type='submit']");
+    const errorEl = submitForm.querySelector("#qt-submit-error");
+    const showError = (msg) => {
+      if (errorEl) { errorEl.textContent = msg; errorEl.style.display = ""; }
+    };
+    const clearError = () => {
+      if (errorEl) { errorEl.textContent = ""; errorEl.style.display = "none"; }
+    };
+    clearError();
+
     const fd = new FormData(submitForm);
     const text = String(fd.get("text") || "").trim();
-    if (!text) return;
+    if (!text) {
+      showError("Please enter your question text before submitting.");
+      return;
+    }
 
     const posterChoice = canPostAsNpc
       ? ((submitForm.querySelector('input[name="qtPosterChoice"]:checked') || {}).value || "character")
@@ -401,14 +414,25 @@ function render(data, state) {
     const npcParty = isNpcPost ? String(fd.get("npcParty") || "").trim() : "";
 
     if (!isNpcPost && !askGate.ok) {
-      render(data, state);
+      showError(askGate.reason || "You are not permitted to submit a question at this time.");
       return;
+    }
+
+    if (isNpcPost) {
+      if (!npcName) {
+        showError("Please enter the NPC MP name.");
+        return;
+      }
+      if (!npcParty) {
+        showError("Please select the NPC party.");
+        return;
+      }
     }
 
     if (submitBtn) submitBtn.disabled = true;
 
     const char = getCurrentCharacter(data);
-    const askedBy = npcName || char?.display_name || char?.name || "Backbench MP";
+    const askedBy = isNpcPost ? npcName : (char?.display_name || char?.name || "Backbench MP");
 
     try {
       await apiSubmitQtQuestion({
@@ -417,11 +441,12 @@ function render(data, state) {
         asked_by_name: askedBy,
         asked_at_sim:  simLabel,
         due_at_sim:    createDeadline(data.gameState, 1),
-        ...(npcParty ? { npc_party: npcParty } : {}),
+        ...(isNpcPost ? { npc_party: npcParty } : {}),
       });
       submitForm.reset();
       await reloadAndRender(data, state);
     } catch (err) {
+      showError(err.message || "Failed to submit question. Please try again.");
       handleApiError(err, "Submit question");
       if (submitBtn) submitBtn.disabled = false;
     }
