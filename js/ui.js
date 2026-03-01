@@ -406,23 +406,33 @@ export function esc(s) {
 }
 
 /**
- * Format an MP name with the correct parliamentary honorific.
+ * Format an MP name with the correct parliamentary honorific and post-nominals.
  *
  * Rules (render-time only — never store the formatted name in DB):
  *   - Privy Councillors → "The Right Honourable [name]"
  *   - PM, LoTO, or Third Party Leader → "The Right Honourable [name]" (auto-qualify)
  *   - All other MPs     → "The Honourable [name]"
  *
+ * Post-nominals appended after the bare name:
+ *   - " MP" when the character is an MP (appendMP=true)
+ *   - " PC" when the character is a Privy Councillor (isPrivy=true)
+ *
  * @param {string}  name          — The MP's bare name (from DB characters.name)
  * @param {object}  [opts]
- * @param {boolean} [opts.isPrivy=false]  — explicit Privy Council membership
- * @param {boolean} [opts.isRH=false]     — high-office qualification (PM/LoTO/Third Leader)
+ * @param {boolean} [opts.isPrivy=false]   — explicit Privy Council membership
+ * @param {boolean} [opts.isRH=false]      — high-office qualification (PM/LoTO/Third Leader)
+ * @param {boolean} [opts.appendMP=false]  — append " MP" post-nominal
  * @returns {string}
  */
-export function formatMPName(name, { isPrivy = false, isRH = false } = {}) {
+export function formatMPName(name, { isPrivy = false, isRH = false, appendMP = false } = {}) {
   const n = String(name ?? "").trim();
   if (!n) return n;
-  return (isPrivy || isRH) ? `The Right Honourable ${n}` : `The Honourable ${n}`;
+  const prefix = (isPrivy || isRH) ? "The Right Honourable" : "The Honourable";
+  const postNominals = [
+    appendMP ? "MP" : "",
+    isPrivy  ? "PC" : "",
+  ].filter(Boolean).join(" ");
+  return postNominals ? `${prefix} ${n} ${postNominals}` : `${prefix} ${n}`;
 }
 
 
