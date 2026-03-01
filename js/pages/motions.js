@@ -131,7 +131,7 @@ export async function initMotionsPage(data) {
                 ${partyOptions}
               </select>
             </div>` : ""}
-            <p class="muted" style="margin-top:8px;margin-bottom:4px;">Submitting as <b>${esc(char?.name || "MP")}</b>.</p>
+            <p class="muted" style="margin-top:8px;margin-bottom:4px;">Submitting as <b>${esc(char?.display_name || char?.name || "MP")}</b>.</p>
             <div class="tile-bottom"><button class="btn primary" type="submit">Submit House Motion</button></div>
           </form>
 
@@ -155,7 +155,7 @@ export async function initMotionsPage(data) {
                 ${partyOptions}
               </select>
             </div>` : ""}
-            <p class="muted" style="margin-top:8px;margin-bottom:4px;">Submitting as <b>${esc(char?.name || "MP")}</b>.</p>
+            <p class="muted" style="margin-top:8px;margin-bottom:4px;">Submitting as <b>${esc(char?.display_name || char?.name || "MP")}</b>.</p>
             <div class="tile-bottom"><button class="btn primary" type="submit">Submit EDM</button></div>
           </form>
         </div>
@@ -218,7 +218,8 @@ export async function initMotionsPage(data) {
 
     const npcName = canPostAsNpc ? String(fd.get("npcName") || "").trim() : "";
     const npcParty = canPostAsNpc ? String(fd.get("npcParty") || "").trim() : "";
-    const author = npcName || char?.name || "MP";
+    const author = npcName || char?.display_name || char?.name || "MP";
+    const authorCharacterId = npcName ? null : (char?.id || null);
 
     const number = Number(data.motions.nextHouseNumber || (data.motions.house.length + 1));
     const debateEndObj = plusSimMonths(sim.month, sim.year, 2);
@@ -230,6 +231,8 @@ export async function initMotionsPage(data) {
       number,
       title,
       author,
+      author_display_name: author,
+      author_character_id: authorCharacterId,
       ...(npcName ? { npc: true, npcParty } : {}),
       body,
       status: "open",
@@ -282,7 +285,8 @@ export async function initMotionsPage(data) {
 
     const npcName = canPostAsNpc ? String(fd.get("npcName") || "").trim() : "";
     const npcParty = canPostAsNpc ? String(fd.get("npcParty") || "").trim() : "";
-    const author = npcName || char?.name || "MP";
+    const author = npcName || char?.display_name || char?.name || "MP";
+    const authorCharacterId = npcName ? null : (char?.id || null);
 
     const number = Number(data.motions.nextEdmNumber || (data.motions.edm.length + 1));
     const closesAtObj = plusSimMonths(sim.month, sim.year, 2);
@@ -293,6 +297,8 @@ export async function initMotionsPage(data) {
       number,
       title,
       author,
+      author_display_name: author,
+      author_character_id: authorCharacterId,
       ...(npcName ? { npc: true, npcParty } : {}),
       body,
       status: "open",

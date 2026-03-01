@@ -280,7 +280,7 @@ function render(data, state) {
     .sort((a, b) => (a.archived === b.archived ? 0 : a.archived ? 1 : -1));
 
   officeQuestions.forEach((q) => {
-    if (q.id === urlQuestionId && q.answer && !q.answerSeenByAsker && String(q.askedBy || "") === String(getCurrentCharacter(data)?.name || "")) {
+    if (q.id === urlQuestionId && q.answer && !q.answerSeenByAsker && String(q.askedBy || "") === String(getCurrentCharacter(data)?.display_name || getCurrentCharacter(data)?.name || "")) {
       q.answerSeenByAsker = true;
     }
     if (!q.answer && !q.speakerDemandedAtTs) {
@@ -403,7 +403,7 @@ function render(data, state) {
     if (submitBtn) submitBtn.disabled = true;
 
     const char = getCurrentCharacter(data);
-    const askedBy = npcName || char?.name || "Backbench MP";
+    const askedBy = npcName || char?.display_name || char?.name || "Backbench MP";
 
     try {
       await apiSubmitQtQuestion({
@@ -483,7 +483,7 @@ function render(data, state) {
       try {
         await apiFollowupQtQuestion(qid, {
           followup_text: text,
-          asked_by_name: char?.name || "Backbench MP",
+          asked_by_name: char?.display_name || char?.name || "Backbench MP",
           asked_at_sim:  simLabel,
         });
         await reloadAndRender(data, state);
@@ -583,14 +583,14 @@ function dbRowToQuestion(row) {
     id:          f.id,
     text:        f.followup_text,
     answer:      f.answer_text || "",
-    askedBy:     f.asked_by_name || "MP",
+    askedBy:     f.asked_by_display_name || f.asked_by_name || "MP",
     askedByRole: "backbencher",
     askedAtSim:  f.asked_at_sim || "",
   }));
   return {
     id:                  row.id,
     office:              row.office_id,
-    askedBy:             row.asked_by_name || "MP",
+    askedBy:             row.asked_by_display_name || row.asked_by_name || "MP",
     askedAtSim:          row.asked_at_sim || "",
     createdAtTs:         row.created_at ? new Date(row.created_at).getTime() : 0,
     dueAtSim:            row.due_at_sim || "",

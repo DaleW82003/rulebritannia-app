@@ -173,7 +173,7 @@ function makePrefix(char, kind) {
     return PARTY_CODES[char?.party] || (char?.party || "PARTY").slice(0, 3).toUpperCase();
   }
   if (isGovernment(char)) return "GOV";
-  return surname(char?.name || "MP");
+  return surname(char?.display_name || char?.name || "MP");
 }
 
 function nextSerial(data, kind, prefix) {
@@ -487,7 +487,7 @@ function render(data, state) {
           <label class="label">Post as</label>
           <div style="margin-bottom:8px;">
             <label style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;">
-              <input type="radio" name="commentIdentity" value="character" checked> Active character (${esc(char?.name || "MP")})
+              <input type="radio" name="commentIdentity" value="character" checked> Active character (${esc(char?.display_name || char?.name || "MP")})
             </label>
             <label style="display:inline-flex;align-items:center;gap:6px;">
               <input type="radio" name="commentIdentity" value="npc"> NPC (custom name)
@@ -649,7 +649,7 @@ function render(data, state) {
       reference: `${prefix} PR ${serial}`,
       subject,
       body,
-      author: char?.name || "MP",
+      author: char?.display_name || char?.name || "MP",
       party: char?.party || "",
       createdAtSim: now,
       score: null,
@@ -710,7 +710,7 @@ function render(data, state) {
       reference: `${prefix} PC ${serial}`,
       subject,
       body,
-      author: char?.name || "MP",
+      author: char?.display_name || char?.name || "MP",
       party: char?.party || "",
       authorOffice: char?.office || "",
       createdAtSim: now,
@@ -849,8 +849,8 @@ function render(data, state) {
     const body = String(fd.get("body") || "").trim();
     if (!body) return;
 
-    let author = char?.name || "MP";
-    let avatar = findCharacterAvatar(data, char?.name || "MP", char?.avatar || "");
+    let author = char?.display_name || char?.name || "MP";
+    let avatar = findCharacterAvatar(data, char?.display_name || char?.name || "MP", char?.avatar || "");
     let npcAuthor = false;
 
     if (privileged) {
@@ -983,7 +983,7 @@ function render(data, state) {
       topOfSpeech,
       body,
       picture,
-      author: char?.name || "MP",
+      author: char?.display_name || char?.name || "MP",
       party: char?.party || "",
       authorOffice: char?.office || char?.role || "",
       createdAtSim: now,
@@ -1077,7 +1077,7 @@ function render(data, state) {
       recipient,
       subject,
       body,
-      author: privileged && isNpc ? (npcSignatory(officeKey, data) || office?.displayName || officeKey) : (char?.name || "MP"),
+      author: privileged && isNpc ? (npcSignatory(officeKey, data) || office?.displayName || officeKey) : (char?.display_name || char?.name || "MP"),
       party: (privileged && isNpc) ? "" : (char?.party || ""),
       createdAtSim: now,
       score: null,
