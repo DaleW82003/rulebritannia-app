@@ -4679,6 +4679,24 @@ app.get("/api/discourse/sso", ssoRateLimit, async (req, res) => {
     return res.status(404).json({ error: "DiscourseConnect SSO is not enabled on this server" });
   }
 
+  // Reject requests that carry an inbound sso/sig payload.
+  // This endpoint initialises the SSO flow (app → Discourse); it must never
+  // accept or reuse a Discourse-generated payload.  If sso/sig are present it
+  // means Discourse has been misconfigured with discourse_connect_url pointing
+  // here (consumer mode) instead of using enable_discourse_connect_provider.
+  if (req.query.sso || req.query.sig) {
+    const truncate = (v) => (typeof v === "string" && v.length ? v.slice(0, 8) + "…" : "(present)");
+    console.warn(
+      "[discourse/sso] WARN: inbound sso/sig received on init endpoint " +
+      `(sso=${truncate(req.query.sso)}, sig=${truncate(req.query.sig)}). ` +
+      "Discourse is likely misconfigured with discourse_connect_url pointing to this endpoint. " +
+      "Rejecting with 400."
+    );
+    return res.status(400).json({
+      error: "Do not call /api/discourse/sso with sso/sig; this endpoint initializes SSO.",
+    });
+  }
+
   /**
    * Log the error and redirect the user back to the login page with an
    * actionable error banner instead of exposing raw JSON in the browser.
