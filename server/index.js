@@ -8959,12 +8959,17 @@ app.post("/api/characters/:id/whip/withdraw", whipWriteLimit, async (req, res) =
     }
 
     // Chief whip: create a pending request for party leader sign-off
-    // Cancel any existing pending request for the same character/party first
-    await pool.query(
+    // Cancel any existing pending request for the same character/party first, with audit logging
+    const { rows: existingReqs } = await pool.query(
       `UPDATE whip_withdrawal_requests SET status = 'denied', decided_at = NOW()
-        WHERE character_id = $1 AND party_slug = $2 AND status = 'pending'`,
+        WHERE character_id = $1 AND party_slug = $2 AND status = 'pending'
+        RETURNING id`,
       [req.params.id, char.party]
     );
+    for (const old of existingReqs) {
+      await writeAuditLog(req.session.userId, "whip.withdraw.request.superseded", "whip_withdrawal_requests",
+        old.id, { status: "pending" }, { status: "denied", reason: "superseded by new request" });
+    }
     const requestingCharId = req.session.characterId;
     const { rows: reqRows } = await pool.query(
       `INSERT INTO whip_withdrawal_requests (party_slug, character_id, requested_by_id, note)
@@ -9064,19 +9069,23 @@ app.post("/api/parties/:partyId/whip-requests/:reqId/approve", whipWriteLimit, a
       `UPDATE whip_withdrawal_requests
           SET status = 'approved', decided_by_user_id = $1, decided_at = NOW()
         WHERE id = $2 AND party_slug = $3 AND status = 'pending'
-        RETURNING character_id`,
+        RETURNING character_id, note`,
       [req.session.userId, req.params.reqId, partySlug]
     );
     if (!reqRows.length) return res.status(404).json({ error: "Request not found or already decided" });
     const charId = reqRows[0].character_id;
+    const originalNote = String(reqRows[0].note || "").trim();
+    const withdrawNote = originalNote
+      ? `Approved via Chief Whip request: ${originalNote}`
+      : "Approved via Chief Whip request";
     await pool.query(
       `UPDATE characters SET whip_status = 'withdrawn', whip_withdrawn_at = NOW(),
-         whip_withdrawn_by = $1, whip_withdrawn_note = 'Approved via Chief Whip request'
-       WHERE id = $2 AND whip_status = 'normal'`,
-      [req.session.userId, charId]
+         whip_withdrawn_by = $1, whip_withdrawn_note = $2
+       WHERE id = $3 AND whip_status = 'normal'`,
+      [req.session.userId, withdrawNote, charId]
     );
     await writeAuditLog(req.session.userId, "whip.withdraw.approve", "character", charId,
-      { whip_status: "normal" }, { whip_status: "withdrawn", request_id: req.params.reqId });
+      { whip_status: "normal" }, { whip_status: "withdrawn", request_id: req.params.reqId, note: originalNote });
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/parties/:partyId/whip-requests/:reqId/approve]", e);

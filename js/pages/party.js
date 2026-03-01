@@ -1569,13 +1569,13 @@ function render(data, state) {
       try {
         await apiApproveWhipRequest(partySlug, reqId);
         state.whipMessage = "Whip withdrawal approved.";
-        // Refresh characters to reflect the withdrawn status
+        // Refresh characters to reflect the withdrawn status, and remove only this request
         const charsResult = await apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] }));
         const partyNameLower = partySlug.toLowerCase();
         state.dbState.partyCharacters = (charsResult.characters || []).filter(
           (c) => (c.party || "").toLowerCase() === partyNameLower
         );
-        state.dbState.whipRequests = [];
+        state.dbState.whipRequests = (state.dbState.whipRequests || []).filter((r) => r.id !== reqId);
       } catch (err) {
         state.whipMessage = `Error: ${err.message}`;
         btn.disabled = false;
