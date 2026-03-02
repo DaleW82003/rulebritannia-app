@@ -163,6 +163,18 @@ async function discourseApiRequest(url, init, {
 
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, init);
+
+    // With redirect:"manual", redirect responses have no useful body — the only
+    // diagnostic value is the Location header.  Throw immediately so callers
+    // don't silently consume an empty body or spin into a rate-limit loop
+    // caused by bouncing to a login page or http→https redirect.
+    if (res.status === 301 || res.status === 302 || res.status === 307 || res.status === 308) {
+      const location = res.headers.get("location") ?? "(no Location header)";
+      throw new Error(
+        `Discourse API redirect: HTTP ${res.status} on ${url} → Location: ${location}`
+      );
+    }
+
     if (res.status !== 429) return res;
 
     let waitMs;
