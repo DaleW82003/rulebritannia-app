@@ -9,6 +9,15 @@ let _csrfToken = null;
 export function setCsrfToken(token) { _csrfToken = token; }
 function csrfHeaders() { return _csrfToken ? { "X-CSRF-Token": _csrfToken } : {}; }
 
+/** Fetch (or lazily create) the CSRF token for the current session. */
+export async function apiGetCsrfToken() {
+  const res = await fetch(`${API_BASE}/api/csrf-token`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetCsrfToken failed (${res.status})`);
+  const { csrfToken } = await res.json();
+  if (csrfToken) setCsrfToken(csrfToken);
+  return csrfToken;
+}
+
 /**
  * Fetch the backend permission map.
  *
@@ -1176,6 +1185,15 @@ export async function apiUnassignOffice(officeId, characterId) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `apiUnassignOffice failed (${res.status})`);
   }
+  return res.json();
+}
+
+export async function apiGetCharacterOfficesHeld(characterId) {
+  const res = await fetch(
+    `${API_BASE}/api/characters/${encodeURIComponent(characterId)}/offices-held`,
+    { credentials: "include" }
+  );
+  if (!res.ok) throw new Error(`apiGetCharacterOfficesHeld failed (${res.status})`);
   return res.json();
 }
 

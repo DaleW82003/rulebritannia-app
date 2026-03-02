@@ -1,4 +1,4 @@
-import { apiLogin } from "../api.js";
+import { apiLogin, setCsrfToken } from "../api.js";
 import { esc } from "../ui.js";
 
 function render(host, errorMsg, pendingMsg) {
@@ -69,6 +69,9 @@ export function initLoginPage(_data) {
 
     apiLogin(email, password)
       .then((result) => {
+        // Set CSRF token immediately so any same-page POST requests use it before redirect
+        if (result?.csrfToken) setCsrfToken(result.csrfToken);
+
         // Safe relative-path check: only /api/* or known SIM pages (no query strings
         // accepted, to prevent open-redirect via manipulated parameters).
         const safeRelative = (s) => typeof s === "string" && /^\/[a-zA-Z0-9/_-]+$/.test(s);

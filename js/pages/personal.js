@@ -2,7 +2,7 @@ import { esc } from "../ui.js";
 import { nowStamp, isLoggedIn } from "../core.js";
 import { canAdminModOrSpeaker } from "../permissions.js";
 import { getSimDate } from "../clock.js";
-import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetOffices } from "../api.js";
+import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetCharacterOfficesHeld } from "../api.js";
 import { logAction } from "../audit.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
@@ -994,7 +994,6 @@ function render(data, state) {
   const biMonthlyCredit = biMonthlyCreditAmount(profile, mods);
   const isOwnProfile = activeName === name;
   const canShop = isOwnProfile || manager;
-  const publicOffices = getPublicOfficesForCharacter(data, activeName, profile?.profile?.party || "");
 
   // Monthly upkeep: prefer server-side total (totalMonthlyUpkeep = shop + property) for the
   // viewed character; fall back to computing from shopPurchases for other profiles
@@ -1145,28 +1144,20 @@ function render(data, state) {
         ` : ""}
       </article>
 
-      ${publicOffices.length || (profile.offices_held && profile.offices_held.length) ? `
+      ${(state.officeHistory && state.officeHistory.length) ? `
         <article class="tile" style="grid-column:1/-1;">
           <h2 style="margin-top:0;">Offices Held</h2>
           <div style="display:grid;gap:8px;">
-            ${publicOffices.map((o) => `
-              <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-                <b>${esc(o.title)}</b>
-                <span class="muted">${esc(o.scope)}</span>
-              </div>
-            `).join("")}
-            ${(() => {
-              const publicTitles = new Set(publicOffices.map((p) => p.title));
-              return (profile.offices_held || []).filter((o) => !publicTitles.has(o.office_name)).map((o) => {
-                const typeLabel = { cabinet: "Government", shadow: "Opposition", parliamentary: "Parliamentary", other: "Other" }[o.office_type] || o.office_type || "";
-                return `
-                  <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-                    <b>${esc(o.office_name)}</b>
-                    <span class="muted">${esc(typeLabel)}</span>
-                  </div>
-                `;
-              }).join("");
-            })()}
+            ${state.officeHistory.map((o) => {
+              const typeLabel = { cabinet: "Government", shadow: "Opposition", parliamentary: "Parliamentary", other: "Other" }[o.office_type] || o.office_type || "";
+              const dateRange = `${esc(o.start_sim)} → ${o.end_sim ? esc(o.end_sim) : "Present"}`;
+              return `
+                <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                  <b>${esc(o.title)}</b>
+                  <span class="muted">${esc(typeLabel)} — ${dateRange}</span>
+                </div>
+              `;
+            }).join("")}
           </div>
         </article>
       ` : ""}
@@ -1465,7 +1456,7 @@ function render(data, state) {
     const newName = String(e.currentTarget.value || "");
     state.selectedName = newName;
     state.message = "";
-    // Clear stale finance state before fetching new data so breakdown doesn't show wrong values
+    // Clear stale finance + office history state before fetching new data
     state.shopMonthlyUpkeep = undefined;
     state.propertyMonthlyUpkeep = undefined;
     state.affiliationsMonthlyFees = undefined;
@@ -1473,6 +1464,7 @@ function render(data, state) {
     state.rentalIncomeMonthly = undefined;
     state.totalMonthlyUpkeep = undefined;
     state.financeOverspend = false;
+    state.officeHistory = null;
     render(data, state);
     // Load finance data for the selected character (mod view of other profiles)
     const myName = getCharacterName(data);
@@ -1492,6 +1484,11 @@ function render(data, state) {
           } catch (err) {
             state.message = `Failed to load finance data: ${err.message}`;
           }
+          // Load office history for the selected character
+          apiGetCharacterOfficesHeld(charId).then(({ officesHeld }) => {
+            state.officeHistory = officesHeld || [];
+            render(data, state);
+          }).catch(() => {});
           render(data, state);
         }
       }
@@ -2025,7 +2022,7 @@ function syncFinanceIntoProfile(profile, fin, data, profileName, state) {
 
 export async function initPersonalPage(data) {
   normalisePersonal(data);
-  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined, affiliationsMonthlyFees: undefined, affiliationsMonthlyFeesItems: undefined, enums: null };
+  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined, affiliationsMonthlyFees: undefined, affiliationsMonthlyFeesItems: undefined, enums: null, officeHistory: null };
 
   if (!isLoggedIn()) {
     render(data, state);
@@ -2111,27 +2108,14 @@ export async function initPersonalPage(data) {
     render(data, state);
   }).catch(() => { /* fall back to built-in arrays */ });
 
-  // Load live office assignments from DB so "Offices Held" tile reflects the
-  // Government AND Opposition pages' authoritative data (non-blocking).
-  apiGetOffices().then(({ offices }) => {
-    const govEntries = [];
-    const oppEntries = [];
-    for (const office of (offices || [])) {
-      const specId = String(office.spec_id || "").trim();
-      if (!specId) continue;
-      for (const a of (office.assignments || [])) {
-        const holderName = String(a.character_name || "").trim();
-        if (!holderName) continue;
-        if (office.type === "cabinet") govEntries.push({ id: specId, holderName });
-        else if (office.type === "shadow") oppEntries.push({ id: specId, holderName });
-      }
-    }
-    data.government ??= {};
-    data.opposition ??= {};
-    data.government.offices = govEntries;
-    data.opposition.offices = oppEntries;
-    render(data, state);
-  }).catch(() => {});
+  // Load office assignment history from DB (DB source of truth for "Offices Held" tile).
+  const currentCharId = data?.currentCharacter?.id;
+  if (currentCharId) {
+    apiGetCharacterOfficesHeld(currentCharId).then(({ officesHeld }) => {
+      state.officeHistory = officesHeld || [];
+      render(data, state);
+    }).catch(() => {});
+  }
 
   render(data, state);
 }

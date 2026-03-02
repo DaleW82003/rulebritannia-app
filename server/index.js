@@ -616,6 +616,22 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS office_assign_char_idx   ON office_assignments (character_id);
   `);
 
+  // ── Office Assignment History (DB source-of-truth for Personal page) ────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS office_assignment_history (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      office_id       UUID NOT NULL REFERENCES offices(id) ON DELETE CASCADE,
+      character_id    UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      start_sim_month SMALLINT NOT NULL,
+      start_sim_year  SMALLINT NOT NULL,
+      end_sim_month   SMALLINT,
+      end_sim_year    SMALLINT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS oah_char_idx   ON office_assignment_history (character_id);
+    CREATE INDEX IF NOT EXISTS oah_office_idx ON office_assignment_history (office_id);
+  `);
+
   // ── Divisions (generic voting engine) ────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS divisions (
@@ -3551,8 +3567,9 @@ function normaliseDiscourseFields(obj) {
  * Write an entry to the audit_log table.
  * Includes before/after JSON snapshots where provided.
  * Non-fatal: errors are logged but do not abort the request.
+ * @param {object} [extraDetails] - optional extra fields merged into the details JSONB (e.g. headline)
  */
-async function writeAuditLog(actorId, action, entityType, entityId, beforeJson, afterJson) {
+async function writeAuditLog(actorId, action, entityType, entityId, beforeJson, afterJson, extraDetails = {}) {
   try {
     await pool.query(
       `INSERT INTO audit_log (actor_id, action, target, details)
@@ -3561,7 +3578,7 @@ async function writeAuditLog(actorId, action, entityType, entityId, beforeJson, 
         actorId,
         action,
         `${entityType}:${entityId}`,
-        JSON.stringify({ entityType, entityId, before: beforeJson ?? null, after: afterJson ?? null }),
+        JSON.stringify({ entityType, entityId, before: beforeJson ?? null, after: afterJson ?? null, ...extraDetails }),
       ]
     );
   } catch (err) {
@@ -12154,7 +12171,50 @@ app.post("/api/me/work-plan", cwpWriteLimit, async (req, res) => {
 // POST   /api/offices              — admin: create office
 // POST   /api/offices/:id/assign   — admin: assign character to office
 // DELETE /api/offices/:id/assign/:characterId — admin: remove assignment
+// GET    /api/characters/:id/offices-held — office assignment history
 // ═══════════════════════════════════════════════════════════════════════════
+
+const SIM_MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+// Canonical spec_id → full title map (mirrors government.js and opposition.js OFFICE_SPECS arrays)
+const OFFICE_SPEC_TITLES = {
+  "prime-minister":        "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service",
+  "chancellor":            "Chancellor of the Exchequer, and Second Lord of the Treasury",
+  "home":                  "Secretary of State for the Home Department",
+  "foreign":               "Secretary of State for Foreign and Commonwealth Affairs",
+  "trade":                 "Secretary of State for Business and Trade, and President of the Board of Trade",
+  "defence":               "Secretary of State for Defence",
+  "welfare":               "Secretary of State for Work and Pensions",
+  "education":             "Secretary of State for Education",
+  "env-agri":              "Secretary of State for the Environment and Agriculture",
+  "health":                "Secretary of State for Health and Social Care",
+  "eti":                   "Secretary of State for Transport and Infrastructure",
+  "culture":               "Secretary of State for Culture, Media and Sport",
+  "home-nations":          "Secretary of State for the Home Nations",
+  "leader-commons":        "Leader of the House of Commons",
+  "leader-opposition":     "Leader of the Opposition",
+  "shadow-chancellor":     "Shadow Chancellor of the Exchequer",
+  "shadow-home":           "Shadow Secretary of State for the Home Department",
+  "shadow-foreign":        "Shadow Secretary of State for Foreign and Commonwealth Affairs",
+  "shadow-trade":          "Shadow Secretary of State for Business and Trade, and President of the Board of Trade",
+  "shadow-defence":        "Shadow Secretary of State for Defence",
+  "shadow-welfare":        "Shadow Secretary of State for Work and Pensions",
+  "shadow-education":      "Shadow Secretary of State for Education",
+  "shadow-env-agri":       "Shadow Secretary of State for the Environment and Agriculture",
+  "shadow-health":         "Shadow Secretary of State for Health and Social Care",
+  "shadow-eti":            "Shadow Secretary of State for Transport and Infrastructure",
+  "shadow-culture":        "Shadow Secretary of State for Culture, Media and Sport",
+  "shadow-home-nations":   "Shadow Secretary of State for the Home Nations",
+  "shadow-leader-commons": "Shadow Leader of the House of Commons",
+};
+
+/** Returns { simMonth, simYear } for the current sim clock (1-indexed month). */
+async function getCurrentSimMonthYear() {
+  const { rows } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+  return rows[0]
+    ? { simMonth: rows[0].sim_current_month, simYear: rows[0].sim_current_year }
+    : { simMonth: 8, simYear: 1997 };
+}
 
 const officeReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
 const officeWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
@@ -12250,6 +12310,19 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
     );
     const oldCharId = oldRows[0]?.character_id ?? null;
 
+    // Fetch current sim date for history records
+    const { simMonth, simYear } = await getCurrentSimMonthYear();
+
+    // Close any open history records for previous holder of this office
+    if (oldCharId && oldCharId !== character_id) {
+      await pool.query(
+        `UPDATE office_assignment_history
+            SET end_sim_month = $1, end_sim_year = $2
+          WHERE office_id = $3 AND character_id = $4 AND end_sim_month IS NULL`,
+        [simMonth, simYear, req.params.id, oldCharId]
+      );
+    }
+
     // Exclusive assignment: clear any existing holders then insert new
     const { rows } = await pool.query(
       `INSERT INTO office_assignments (office_id, character_id)
@@ -12261,6 +12334,17 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
     await pool.query(
       "DELETE FROM office_assignments WHERE office_id = $1 AND character_id != $2",
       [req.params.id, character_id]
+    );
+
+    // Insert a new history record for this assignment (skip if already has an open record)
+    await pool.query(
+      `INSERT INTO office_assignment_history (office_id, character_id, start_sim_month, start_sim_year)
+       SELECT $1, $2, $3, $4
+        WHERE NOT EXISTS (
+          SELECT 1 FROM office_assignment_history
+           WHERE office_id = $1 AND character_id = $2 AND end_sim_month IS NULL
+        )`,
+      [req.params.id, character_id, simMonth, simYear]
     );
 
     // Permanently mark characters who hold PM or LoTO as "Right Honourable" for life.
@@ -12276,7 +12360,14 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
     }
 
     await writeAuditLog(req.session.userId, "office.assign", "office_assignment", rows[0].id,
-      { old_character_id: oldCharId }, { office_id: req.params.id, character_id });
+      { old_character_id: oldCharId }, { office_id: req.params.id, character_id }, {
+        headline: `${charRows[0].name} appointed as ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`,
+        characterName: charRows[0].name,
+        officeName: OFFICE_SPEC_TITLES[office.spec_id] || office.name,
+        officeType: office.type,
+        simMonth,
+        simYear,
+      });
     res.status(201).json({ ok: true, assignment: rows[0] });
   } catch (e) {
     console.error(e);
@@ -12289,9 +12380,10 @@ app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req,
     if (!requireAuth(req, res)) return;
 
     // Permission check (same logic as assign)
-    const { rows: offRows } = await pool.query(
-      "SELECT type, spec_id FROM offices WHERE id = $1", [req.params.id]
-    );
+    const [{ rows: offRows }, { rows: unCharRows }] = await Promise.all([
+      pool.query("SELECT type, spec_id, name FROM offices WHERE id = $1", [req.params.id]),
+      pool.query("SELECT name FROM characters WHERE id = $1", [req.params.characterId]),
+    ]);
     if (!offRows.length) return res.status(404).json({ error: "Office not found" });
     const office = offRows[0];
 
@@ -12323,14 +12415,76 @@ app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req,
     );
     if (!rowCount) return res.status(404).json({ error: "Assignment not found" });
 
+    // Close the open history record for this character/office
+    const { simMonth: unSimMonth, simYear: unSimYear } = await getCurrentSimMonthYear();
+    await pool.query(
+      `UPDATE office_assignment_history
+          SET end_sim_month = $1, end_sim_year = $2
+        WHERE office_id = $3 AND character_id = $4 AND end_sim_month IS NULL`,
+      [unSimMonth, unSimYear, req.params.id, req.params.characterId]
+    );
+
     // Recompute salary for removed character
     await recomputeSalaryPositions(req.params.characterId).catch((e) => console.error("[salary positions]", e.message));
 
     await writeAuditLog(req.session.userId, "office.unassign", "office_assignment",
-      `${req.params.id}:${req.params.characterId}`, { office_id: req.params.id, character_id: req.params.characterId }, null);
+      `${req.params.id}:${req.params.characterId}`, { office_id: req.params.id, character_id: req.params.characterId }, null, {
+        headline: `${unCharRows[0]?.name || "Unknown Character"} removed from ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`,
+        characterName: unCharRows[0]?.name || null,
+        officeName: OFFICE_SPEC_TITLES[office.spec_id] || office.name,
+        officeType: office.type,
+        simMonth: unSimMonth,
+        simYear: unSimYear,
+      });
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/characters/:id/offices-held — DB-backed office assignment history for Personal page
+app.get("/api/characters/:id/offices-held", officeReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { rows: charRows } = await pool.query(
+      "SELECT id FROM characters WHERE id = $1", [req.params.id]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+
+    // Fetch full history from office_assignment_history joined to offices for spec_id + type
+    const { rows: histRows } = await pool.query(
+      `SELECT oah.start_sim_month, oah.start_sim_year,
+              oah.end_sim_month,   oah.end_sim_year,
+              o.spec_id,           o.type AS office_type,
+              o.name               AS office_name
+         FROM office_assignment_history oah
+         JOIN offices o ON o.id = oah.office_id
+        WHERE oah.character_id = $1
+        ORDER BY oah.start_sim_year, oah.start_sim_month`,
+      [req.params.id]
+    );
+
+    const officesHeld = histRows.map((r) => {
+      const specId = r.spec_id || "";
+      const canonicalTitle = OFFICE_SPEC_TITLES[specId] || r.office_name;
+      const startLabel = `${SIM_MONTH_NAMES[(r.start_sim_month || 1) - 1]} ${r.start_sim_year}`;
+      const endLabel   = r.end_sim_month
+        ? `${SIM_MONTH_NAMES[(r.end_sim_month || 1) - 1]} ${r.end_sim_year}`
+        : null;
+      return {
+        spec_id:     specId,
+        title:       canonicalTitle,
+        office_type: r.office_type,
+        start_sim:   startLabel,
+        end_sim:     endLabel,
+      };
+    });
+
+    res.json({ officesHeld });
+  } catch (e) {
+    console.error("[GET /api/characters/:id/offices-held]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
