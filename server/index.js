@@ -15249,7 +15249,14 @@ app.post("/api/admin/discourse-sync-bills", discourseBillSyncLimit, async (req, 
 // Wipes gameplay/content tables and resets the sim clock + state to the
 // August 1997 baseline.  User accounts and pending registrations are
 // NOT touched.  Requires a typed confirmation body: { confirm: "WIPE CONTENT" }
-// ═══════════════════════════════════════════════════════════════════════════
+//
+// ── demo.json safety ────────────────────────────────────────────────────────
+// data/demo.json is a static read-only file on disk served directly to
+// logged-out browsers.  This endpoint only issues SQL TRUNCATE statements
+// against the live PostgreSQL database and never reads from, writes to, or
+// deletes any filesystem files.  demo.json is therefore completely unaffected
+// by any wipe operation.
+// ════════════════════════════════════════════════════════════════════════════
 
 const wipeContentLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
 
@@ -15390,7 +15397,14 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
 // Wipes all gameplay/content tables AND character-related tables, then resets
 // the sim clock.  User accounts and pending registrations are NOT touched.
 // Requires: { confirm: "WIPE WITH CHARACTERS" }
-// ═══════════════════════════════════════════════════════════════════════════
+//
+// ── demo.json safety ────────────────────────────────────────────────────────
+// data/demo.json is a static read-only file on disk served directly to
+// logged-out browsers.  This endpoint only issues SQL TRUNCATE statements
+// against the live PostgreSQL database and never reads from, writes to, or
+// deletes any filesystem files.  demo.json is therefore completely unaffected
+// by any wipe operation.
+// ════════════════════════════════════════════════════════════════════════════
 
 app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) => {
   try {
