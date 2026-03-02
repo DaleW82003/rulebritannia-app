@@ -1,4 +1,4 @@
-import { esc } from "../ui.js";
+import { esc, getIdFromUrl } from "../ui.js";
 import { countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 import { canAdminModOrSpeaker } from "../permissions.js";
 import { apiGetStatement, apiUpdateStatement } from "../api.js";
@@ -10,10 +10,6 @@ function ensureStatements(data) {
 
 function getDebateUrl(statement) {
   return statement?.debate?.topicUrl || statement?.discourse_topic_url || statement?.discourseTopicUrl || statement?.debateUrl || null;
-}
-
-function getIdFromUrl() {
-  return new URL(window.location.href).searchParams.get("id");
 }
 
 export async function initStatementPage(data) {

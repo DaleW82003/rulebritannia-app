@@ -1,21 +1,17 @@
 import { saveState } from "../core.js";
-import { esc } from "../ui.js";
+import { esc, getIdFromUrl } from "../ui.js";
 import { canAdminModOrSpeaker } from "../permissions.js";
 import { ensureRegulations } from "./regulations.js";
 import { formatSimMonthYear, isDeadlinePassed, countdownToSimMonth } from "../clock.js";
 import { apiGetRegulation, apiUpdateRegulation } from "../api.js";
 import { toastSuccess, toastError } from "../components/toast.js";
 
-function getId() {
-  return new URL(window.location.href).searchParams.get("id");
-}
-
 export async function initRegulationPage(data) {
   const root = document.getElementById("regulation-root");
   if (!root) return;
 
   ensureRegulations(data);
-  const id = getId();
+  const id = getIdFromUrl();
   let item = data.regulations.items.find((r) => r.id === id) || null;
 
   if (!item && id) {

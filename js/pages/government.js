@@ -20,10 +20,6 @@ const OFFICE_SPECS = [
   { id: "leader-commons", title: "Leader of the House of Commons", short: "Leader of the House" }
 ];
 
-function isManager(data) {
-  return canAdminOrMod(data);
-}
-
 function normaliseGovernment(data) {
   data.government ??= {};
   data.government.offices ??= OFFICE_SPECS.map((o) => ({ id: o.id, holderName: "", holderAvatar: "" }));
@@ -127,7 +123,7 @@ function getActiveCharacterChoices(data, partyFilter = []) {
 }
 
 function canEditOffice(data, officeId) {
-  if (isManager(data)) return true;
+  if (canAdminOrMod(data)) return true;
   if (officeId === "prime-minister") return false;
   const pm = getOfficeMap(data).get("prime-minister");
   return !!pm?.holderName && pm.holderName === getCurrentName(data);
@@ -183,7 +179,7 @@ function render(data, state) {
   const csParties = Array.isArray(data._parlStatus?.confidenceSupplyParties) ? data._parlStatus.confidenceSupplyParties.filter(Boolean) : [];
   const govType = data._parlStatus?.governmentType || "Majority";
   const choices = getActiveCharacterChoices(data, governingParties);
-  const manager = isManager(data);
+  const manager = canAdminOrMod(data);
   const pmHolder = officeMap.get("prime-minister")?.holderName || "";
   const isPM = !!pmHolder && pmHolder === getCurrentName(data);
   const canonicalParties = Array.isArray(data._canonicalParties) ? data._canonicalParties : [];

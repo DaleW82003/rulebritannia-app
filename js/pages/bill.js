@@ -1,7 +1,7 @@
 import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolveDivisionResult, setNpcVotes, setRebellions } from "../engines/division-engine.js";
 import { buildDivisionWeights } from "../divisions.js";
 import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
-import { esc } from "../ui.js";
+import { esc, $, getIdFromUrl } from "../ui.js";
 import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
 import {
@@ -15,10 +15,6 @@ import {
 import { handleApiError } from "../errors.js";
 import { toastSuccess, toastError } from "../components/toast.js";
 
-function $(id) {
-  return document.getElementById(id);
-}
-
 const DIVISION_STAGES = new Set(["Final Division"]);
 const AMENDMENT_LOCK_STAGES = new Set(["Final Division", "Royal Assent"]);
 
@@ -28,11 +24,6 @@ const STAGE_DURATION_MONTHS = {
   "Report Debate": 2,
   "Final Division": 1
 };
-
-function getBillIdFromUrl() {
-  const u = new URL(window.location.href);
-  return u.searchParams.get("id");
-}
 
 function getCurrentCharacter(data) {
   return data?.currentCharacter || data?.currentPlayer || null;
@@ -1109,7 +1100,7 @@ function autoAdvanceStage(bill, data) {
 }
 
 export async function initBillPage(data) {
-  const billId = getBillIdFromUrl();
+  const billId = getIdFromUrl();
   // Always fetch from DB first (authoritative source)
   let bill = null;
   if (billId) {

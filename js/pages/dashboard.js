@@ -1,5 +1,5 @@
 import { canSeeAudienceItem, isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
-import { esc } from "../ui.js";
+import { esc, $ } from "../ui.js";
 import { nowMs, isLoggedIn } from "../core.js";
 import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
@@ -10,10 +10,6 @@ import { getCharacterContext } from "../engines/core-engine.js";
 
 // js/pages/dashboard.js
 // Dashboard (Your Office) — Chunk 1 implementation
-
-function $(id) {
-  return document.getElementById(id);
-}
 
 function fmtPct(n) {
   if (n === null || n === undefined || Number.isNaN(Number(n))) return "—";
