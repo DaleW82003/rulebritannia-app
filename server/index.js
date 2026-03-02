@@ -7771,6 +7771,8 @@ const SYNC_ERROR_MAX_LENGTH = 200;
 
 const SYNC_LOG_RING_SIZE = 200;
 let _syncJob = null; // at most one job at a time
+let _syncDebounceTimer = null; // debounce timer handle for auto-triggered syncs
+const SYNC_DEBOUNCE_MS = 3000; // coalesce triggers within this window (ms)
 
 function _newSyncJob() {
   return {
@@ -7894,23 +7896,45 @@ async function _runSyncJob(job) {
 }
 
 /**
- * Enqueue a Discourse group sync job (single-flight safe).
- * If a job is already queued or running, reuses it and returns its id.
- * Logs the reason so Render logs show why a sync was triggered.
+ * Enqueue a Discourse group sync job (single-flight + debounced).
  *
- * @param {string} reason - short description logged alongside the job id
+ * - If a job is already *running*, the running job covers all outstanding
+ *   role changes, so we skip and return its id.
+ * - If a job is already *queued* (debounce timer pending), we reset the
+ *   timer so rapid bursts (e.g. cabinet reshuffles) coalesce into one sync.
+ * - Otherwise a new job is created and scheduled SYNC_DEBOUNCE_MS out so
+ *   any further triggers within that window join the same job.
+ *
+ * @param {string} reason - logged to Render so operators know why sync fired
  * @returns {string} jobId
  */
 function enqueueDiscourseGroupSync(reason) {
-  if (_syncJob && (_syncJob.status === "queued" || _syncJob.status === "running")) {
-    console.log("[discourse-sync-groups] sync already in progress (%s); skipping new trigger. reason=%s", _syncJob.id, reason);
+  if (_syncJob && _syncJob.status === "running") {
+    console.log("[discourse-sync-groups] sync already running (%s); skipping trigger. reason=%s", _syncJob.id, reason);
     return _syncJob.id;
   }
+
+  if (_syncJob && _syncJob.status === "queued" && _syncDebounceTimer) {
+    // Another trigger arrived while we are still in the debounce window — reset timer.
+    clearTimeout(_syncDebounceTimer);
+    console.log("[discourse-sync-groups] debounce reset for job %s reason=%s", _syncJob.id, reason);
+    _scheduleSync(_syncJob);
+    return _syncJob.id;
+  }
+
   const job = _newSyncJob();
   _syncJob = job;
   console.log("[discourse-sync-groups] enqueuing sync job %s reason=%s", job.id, reason);
-  setImmediate(() => _runSyncJob(job).catch(() => {}));
+  _scheduleSync(job);
   return job.id;
+}
+
+/** Start a sync job after the debounce delay. */
+function _scheduleSync(job) {
+  _syncDebounceTimer = setTimeout(() => {
+    _syncDebounceTimer = null;
+    _runSyncJob(job).catch(() => {});
+  }, SYNC_DEBOUNCE_MS);
 }
 
 /**
@@ -7926,6 +7950,7 @@ function enqueueDiscourseGroupSync(reason) {
  *
  * @param {string} charId     - character UUID
  * @param {string} actingUserId - user performing the change (for assigned_by)
+ * @returns {Promise<boolean>} true if any roles were added or removed
  */
 async function recomputeUserOfficeRoles(charId, actingUserId) {
   const MANAGED = [
@@ -7938,7 +7963,7 @@ async function recomputeUserOfficeRoles(charId, actingUserId) {
   const { rows: charRows } = await pool.query(
     "SELECT user_id FROM characters WHERE id = $1", [charId]
   );
-  if (!charRows.length || !charRows[0].user_id) return;
+  if (!charRows.length || !charRows[0].user_id) return false;
   const userId = charRows[0].user_id;
 
   // Determine which MANAGED roles this character's office assignments entail
@@ -7961,6 +7986,8 @@ async function recomputeUserOfficeRoles(charId, actingUserId) {
   );
   const currentRoles = new Set(currentRows.map((r) => r.role));
 
+  let changed = false;
+
   // Add missing desired roles
   for (const role of desiredRoles) {
     if (!currentRoles.has(role)) {
@@ -7968,6 +7995,7 @@ async function recomputeUserOfficeRoles(charId, actingUserId) {
         "INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (user_id, role) DO NOTHING",
         [userId, role, actingUserId]
       );
+      changed = true;
     }
   }
   // Remove MANAGED roles that are no longer warranted
@@ -7977,8 +8005,11 @@ async function recomputeUserOfficeRoles(charId, actingUserId) {
         "DELETE FROM user_roles WHERE user_id = $1 AND role = $2",
         [userId, role]
       );
+      changed = true;
     }
   }
+
+  return changed;
 }
 
 /**
@@ -7989,10 +8020,13 @@ async function recomputeUserOfficeRoles(charId, actingUserId) {
  * @param {string|null} oldCharId - previous leader character id (or null)
  * @param {string|null} newCharId - new leader character id (or null)
  * @param {string} actingUserId
+ * @returns {Promise<boolean>} true if any roles were added or removed
  */
 async function recomputeLeaderOfThirdPartyRole(partySlug, oldCharId, newCharId, actingUserId) {
   const thirdSlug = await getThirdPartySlug(pool).catch(() => null);
-  if (!thirdSlug || thirdSlug !== partySlug) return; // not the third party — nothing to do
+  if (!thirdSlug || thirdSlug !== partySlug) return false; // not the third party — nothing to do
+
+  let changed = false;
 
   // Remove role from old leader's user (if any)
   if (oldCharId) {
@@ -8000,10 +8034,11 @@ async function recomputeLeaderOfThirdPartyRole(partySlug, oldCharId, newCharId, 
       "SELECT user_id FROM characters WHERE id = $1", [oldCharId]
     );
     if (oldCharRows.length && oldCharRows[0].user_id) {
-      await pool.query(
+      const { rowCount } = await pool.query(
         "DELETE FROM user_roles WHERE user_id = $1 AND role = 'office:leader_of_third_party'",
         [oldCharRows[0].user_id]
       );
+      if (rowCount) changed = true;
     }
   }
 
@@ -8013,12 +8048,16 @@ async function recomputeLeaderOfThirdPartyRole(partySlug, oldCharId, newCharId, 
       "SELECT user_id FROM characters WHERE id = $1", [newCharId]
     );
     if (newCharRows.length && newCharRows[0].user_id) {
-      await pool.query(
+      // rowCount=0 when role already present (ON CONFLICT DO NOTHING) — no sync needed in that case.
+      const { rowCount } = await pool.query(
         "INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, 'office:leader_of_third_party', $2) ON CONFLICT (user_id, role) DO NOTHING",
         [newCharRows[0].user_id, actingUserId]
       );
+      if (rowCount) changed = true;
     }
   }
+
+  return changed;
 }
 
 const discourseSyncLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
@@ -9882,10 +9921,12 @@ app.post("/api/parties/:partyId/set-leader", partyWriteLimit, async (req, res) =
       { leader_character_id: oldLeaderId }, { leader_character_id: character_id || null });
 
     // Update office:leader_of_third_party role if this party is/was the third party
-    await recomputeLeaderOfThirdPartyRole(
+    const leaderRoleChanged = await recomputeLeaderOfThirdPartyRole(
       req.params.partyId, oldLeaderId || null, character_id || null, req.session.userId
-    ).catch((e) => console.warn("[party.leader.set] recomputeLeaderOfThirdPartyRole failed:", e.message));
-    enqueueDiscourseGroupSync(`party leader set: ${req.params.partyId}`);
+    ).catch((e) => { console.warn("[party.leader.set] recomputeLeaderOfThirdPartyRole failed:", e.message); return false; });
+    if (leaderRoleChanged) {
+      enqueueDiscourseGroupSync(`party leader set: ${req.params.partyId}`);
+    }
 
     res.json({ ok: true, party: updated[0] });
   } catch (e) {
@@ -12030,10 +12071,12 @@ app.post("/api/parties/:partyId/elections/:id/close", electionWriteLimit, async 
       await writeAuditLog(req.session.userId, "party.leader.election.winner", "party", req.params.partyId,
         {}, { winner_character_id: winnerId });
       // Update office:leader_of_third_party role if this party is/was the third party
-      await recomputeLeaderOfThirdPartyRole(
+      const elLeaderRoleChanged = await recomputeLeaderOfThirdPartyRole(
         req.params.partyId, elOldLeaderId, winnerId, req.session.userId
-      ).catch((e) => console.warn("[election.close] recomputeLeaderOfThirdPartyRole failed:", e.message));
-      enqueueDiscourseGroupSync(`election winner: party=${req.params.partyId}`);
+      ).catch((e) => { console.warn("[election.close] recomputeLeaderOfThirdPartyRole failed:", e.message); return false; });
+      if (elLeaderRoleChanged) {
+        enqueueDiscourseGroupSync(`election winner: party=${req.params.partyId}`);
+      }
     }
 
     res.json({ ok: true, winnerId, tally: tallyRows });
@@ -12755,15 +12798,20 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
         simYear,
       });
 
-    // Recompute office:* user roles for old and new holder, then trigger sync
+    // Recompute office:* user roles for old and new holder; only sync when a Discourse-relevant role changed
     const officeRoleChanges = [character_id];
     if (oldCharId && oldCharId !== character_id) officeRoleChanges.push(oldCharId);
+    let officeRolesChanged = false;
     for (const cid of officeRoleChanges) {
-      await recomputeUserOfficeRoles(cid, req.session.userId).catch((e) =>
-        console.warn("[office.assign] recomputeUserOfficeRoles failed for char=%s: %s", cid, e.message)
-      );
+      const changed = await recomputeUserOfficeRoles(cid, req.session.userId).catch((e) => {
+        console.warn("[office.assign] recomputeUserOfficeRoles failed for char=%s: %s", cid, e.message);
+        return false;
+      });
+      if (changed) officeRolesChanged = true;
     }
-    enqueueDiscourseGroupSync(`office assign: ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`);
+    if (officeRolesChanged) {
+      enqueueDiscourseGroupSync(`office assign: ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`);
+    }
 
     res.status(201).json({ ok: true, assignment: rows[0] });
   } catch (e) {
@@ -12834,11 +12882,14 @@ app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req,
         simYear: unSimYear,
       });
 
-    // Recompute office:* user roles for the unassigned character, then trigger sync
-    await recomputeUserOfficeRoles(req.params.characterId, req.session.userId).catch((e) =>
-      console.warn("[office.unassign] recomputeUserOfficeRoles failed: %s", e.message)
-    );
-    enqueueDiscourseGroupSync(`office unassign: ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`);
+    // Recompute office:* user roles for the unassigned character; only sync when a Discourse-relevant role changed
+    const unassignRolesChanged = await recomputeUserOfficeRoles(req.params.characterId, req.session.userId).catch((e) => {
+      console.warn("[office.unassign] recomputeUserOfficeRoles failed: %s", e.message);
+      return false;
+    });
+    if (unassignRolesChanged) {
+      enqueueDiscourseGroupSync(`office unassign: ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`);
+    }
 
     res.json({ ok: true });
   } catch (e) {
