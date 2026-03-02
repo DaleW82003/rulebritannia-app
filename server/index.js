@@ -2184,12 +2184,12 @@ async function seedSalaryScale1997() {
     ["1997 Baseline", SALARY_1997_SIM_INDEX]
   );
   const scaleId = rows[0].id;
-  for (const [roleKey, salary] of Object.entries(SALARY_1997_ROLES)) {
-    await pool.query(
-      "INSERT INTO salary_scale_roles (scale_id, role_key, annual_salary) VALUES ($1, $2, $3)",
-      [scaleId, roleKey, salary]
-    );
-  }
+  const roleEntries = Object.entries(SALARY_1997_ROLES);
+  const placeholders = roleEntries.map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`).join(", ");
+  await pool.query(
+    `INSERT INTO salary_scale_roles (scale_id, role_key, annual_salary) VALUES ${placeholders}`,
+    [scaleId, ...roleEntries.flatMap(([k, v]) => [k, v])]
+  );
   console.log("[seed] 1997 salary scale seeded, id =", scaleId);
 }
 
@@ -2260,13 +2260,14 @@ async function backfillSalaryPositions() {
          SELECT 1 FROM character_positions cp WHERE cp.character_id = c.id
        )
   `);
-  for (const { id } of rows) {
+  if (rows.length > 0) {
+    const placeholders = rows.map((_, i) => `($${i + 1}, 'backbencher')`).join(", ");
     await pool.query(
-      "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
-      [id]
+      `INSERT INTO character_positions (character_id, position_key) VALUES ${placeholders} ON CONFLICT DO NOTHING`,
+      rows.map((r) => r.id)
     );
+    console.log(`[backfill] seeded backbencher for ${rows.length} character(s)`);
   }
-  if (rows.length) console.log(`[backfill] seeded backbencher for ${rows.length} character(s)`);
 }
 
 /**
@@ -2321,10 +2322,12 @@ async function recomputeSalaryPositions(characterId) {
   try {
     await client.query("BEGIN");
     await client.query("DELETE FROM character_positions WHERE character_id = $1", [characterId]);
-    for (const pos of positions) {
+    const posArray = [...positions];
+    if (posArray.length > 0) {
+      const placeholders = posArray.map((_, i) => `($1, $${i + 2})`).join(", ");
       await client.query(
-        "INSERT INTO character_positions (character_id, position_key) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        [characterId, pos]
+        `INSERT INTO character_positions (character_id, position_key) VALUES ${placeholders} ON CONFLICT DO NOTHING`,
+        [characterId, ...posArray]
       );
     }
     await client.query("COMMIT");
@@ -2399,69 +2402,131 @@ async function resolvedAnnualSalary(characterId, simIndex) {
 /**
  * Automatically credit salary for all player characters that have missed periods.
  * Called on every clock tick. simIndex = year*12 + (month-1).
+ *
+ * Batched implementation: resolves the salary scale once, then performs all
+ * character lookups and the final credit update in a small fixed set of queries
+ * rather than 3–5 queries per character (N+1).
  */
 async function runSalaryCrediting(month, year) {
   const simIndex = year * 12 + (month - 1);
   try {
-    // Get all characters with a user_id (player characters)
-    const { rows: chars } = await pool.query(
-      "SELECT id, user_id FROM characters WHERE user_id IS NOT NULL"
+    // 1. Resolve the active salary scale once (shared for all characters)
+    const scale = await resolveActiveSalaryScale(simIndex);
+    const rolesMap = scale?.roles ?? {};
+
+    // 2. Ensure every player character has a character_finance row.
+    //    New rows are initialised with last_paid_sim_index = simIndex so they
+    //    are skipped for back-pay on their first tick.
+    await pool.query(`
+      INSERT INTO character_finance (character_id, bank_balance, last_paid_sim_index)
+      SELECT id, 0, $1 FROM characters WHERE user_id IS NOT NULL
+      ON CONFLICT (character_id) DO NOTHING
+    `, [simIndex]);
+
+    // 3. Fetch finance data for all player characters in one round-trip.
+    const { rows: finRows } = await pool.query(`
+      SELECT cf.character_id,
+             cf.last_paid_sim_index,
+             cf.annual_salary_override
+        FROM character_finance cf
+        JOIN characters c ON c.id = cf.character_id
+       WHERE c.user_id IS NOT NULL
+    `);
+
+    // 4. Initialise last_paid_sim_index for legacy rows where it is still NULL
+    //    (these are existing finance rows that pre-date the first salary tick).
+    const nullPaidIds = finRows
+      .filter((f) => f.last_paid_sim_index == null)
+      .map((f) => f.character_id);
+    if (nullPaidIds.length > 0) {
+      await pool.query(
+        `UPDATE character_finance
+            SET last_paid_sim_index = $1, updated_at = NOW()
+          WHERE character_id = ANY($2::uuid[])
+            AND last_paid_sim_index IS NULL`,
+        [simIndex, nullPaidIds]
+      );
+    }
+
+    // 5. Identify characters that have missed at least one pay period.
+    //    Skip chars with last_paid_sim_index = simIndex (just initialised) or NULL.
+    const eligible = finRows.filter((f) => {
+      if (f.last_paid_sim_index == null) return false;
+      if (Number(f.last_paid_sim_index) === simIndex) return false;
+      return Math.floor((simIndex - Number(f.last_paid_sim_index)) / 2) > 0;
+    });
+    if (eligible.length === 0) return;
+
+    const eligibleIds = eligible.map((f) => f.character_id);
+
+    // 6. Fetch all character positions in a single query.
+    const { rows: posRows } = await pool.query(
+      `SELECT character_id, position_key
+         FROM character_positions
+        WHERE character_id = ANY($1::uuid[])`,
+      [eligibleIds]
     );
+    const positionsByChar = {};
+    for (const { character_id, position_key } of posRows) {
+      if (!positionsByChar[character_id]) positionsByChar[character_id] = [];
+      positionsByChar[character_id].push(position_key);
+    }
 
-    for (const char of chars) {
-      try {
-        // Ensure character_finance row exists
-        await pool.query(`
-          INSERT INTO character_finance (character_id, bank_balance, last_paid_sim_index)
-          VALUES ($1, 0, $2)
-          ON CONFLICT (character_id) DO NOTHING
-        `, [char.id, simIndex]);
+    // 7. Fetch summed additional revenues in a single query.
+    const { rows: revRows } = await pool.query(
+      `SELECT character_id, COALESCE(SUM(annual_amount), 0)::numeric AS total
+         FROM character_additional_revenue
+        WHERE character_id = ANY($1::uuid[])
+        GROUP BY character_id`,
+      [eligibleIds]
+    );
+    const additionalByChar = {};
+    for (const { character_id, total } of revRows) {
+      additionalByChar[character_id] = Number(total);
+    }
 
-        const { rows: fin } = await pool.query(
-          "SELECT bank_balance, last_paid_sim_index FROM character_finance WHERE character_id = $1",
-          [char.id]
-        );
-        if (!fin.length) continue;
+    // 8. Compute per-character credits in JavaScript, then bulk-update the DB.
+    const updates = [];
 
-        const lastPaid = fin[0].last_paid_sim_index;
+    for (const f of eligible) {
+      const lastPaid     = Number(f.last_paid_sim_index);
+      const periodsMissed = Math.floor((simIndex - lastPaid) / 2);
+      if (periodsMissed <= 0) continue;
 
-        // On first seen (just inserted), start payments going forward — no back-pay
-        if (lastPaid === simIndex) continue;
-        if (lastPaid == null) {
-          await pool.query(
-            "UPDATE character_finance SET last_paid_sim_index = $1, updated_at = NOW() WHERE character_id = $2",
-            [simIndex, char.id]
-          );
-          continue;
-        }
-
-        const periodsMissed = Math.floor((simIndex - lastPaid) / 2);
-        if (periodsMissed <= 0) continue;
-
-        const { annualSalary } = await resolvedAnnualSalary(char.id, simIndex);
-
-        // Sum additional revenue
-        const { rows: rev } = await pool.query(
-          "SELECT COALESCE(SUM(annual_amount), 0) AS total FROM character_additional_revenue WHERE character_id = $1",
-          [char.id]
-        );
-        const additional = Number(rev[0]?.total ?? 0);
-
-        const periodCredit = (annualSalary + additional) / 6;
-        const totalCredit = periodsMissed * periodCredit;
-        const newLastPaid = lastPaid + periodsMissed * 2;
-
-        await pool.query(
-          `UPDATE character_finance
-              SET bank_balance = bank_balance + $1,
-                  last_paid_sim_index = $2,
-                  updated_at = NOW()
-            WHERE character_id = $3`,
-          [totalCredit, newLastPaid, char.id]
-        );
-      } catch (charErr) {
-        console.error(`[salary] error crediting character ${char.id}:`, charErr.message);
+      // Resolve annual salary: explicit override takes precedence over computed.
+      let annualSalary;
+      if (f.annual_salary_override != null) {
+        annualSalary = Number(f.annual_salary_override);
+      } else {
+        const posKeys = positionsByChar[f.character_id] ?? [];
+        annualSalary = posKeys.length > 0
+          ? Math.max(...posKeys.map((k) => Number(rolesMap[k] ?? 0)))
+          : 0;
       }
+
+      const additional  = additionalByChar[f.character_id] ?? 0;
+      const periodCredit = (annualSalary + additional) / 6;
+      updates.push({
+        id:          f.character_id,
+        credit:      periodsMissed * periodCredit,
+        newLastPaid: lastPaid + periodsMissed * 2,
+      });
+    }
+
+    if (updates.length > 0) {
+      await pool.query(
+        `UPDATE character_finance AS cf
+            SET bank_balance        = cf.bank_balance + v.credit,
+                last_paid_sim_index = v.new_last_paid,
+                updated_at          = NOW()
+           FROM (
+             SELECT unnest($1::uuid[])    AS character_id,
+                    unnest($2::numeric[]) AS credit,
+                    unnest($3::int[])     AS new_last_paid
+           ) v
+          WHERE cf.character_id = v.character_id`,
+        [updates.map((u) => u.id), updates.map((u) => u.credit), updates.map((u) => u.newLastPaid)]
+      );
     }
   } catch (e) {
     console.error("[salary] runSalaryCrediting error:", e.message);
