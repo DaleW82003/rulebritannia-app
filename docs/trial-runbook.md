@@ -111,7 +111,7 @@ In your Discourse admin panel (`/admin/site_settings/category/login`):
    (The exact URL is shown in Admin Panel → SSO Readiness once `UI Base URL` is configured.)
 3. Set **`discourse_connect_secret`** (under Settings → Login → discourse connect secret) to the same value you pasted as the SSO Secret in the app Admin Panel.
 
-> **Note:** The "Discourse Forum" link in the SIM navigation bar now points to `/api/discourse/go`.  If the user is logged in to the SIM, they are redirected to the forum and DiscourseConnect signs them in automatically.  If not yet logged in, they are taken to the SIM login page first.
+> **Note:** The "Discourse Forum" link in the SIM navigation bar now points to `/api/discourse/go`.  If the user is logged in to the SIM, they are redirected to `{forum}/session/sso?return_path=/latest`, which triggers the DiscourseConnect handshake immediately so the user lands on the forum already signed in.  If not yet logged in, they are taken to the SIM login page first.
 
 ### Verifying the setup
 
@@ -124,16 +124,16 @@ In your Discourse admin panel (`/admin/site_settings/category/login`):
 ```
 Logged-in SIM user clicks "Discourse Forum"
   → browser GET /api/discourse/go
-  → server sees user is authenticated, redirects to forum
-  → forum redirects to /api/discourse/sso?sso=…&sig=… (DiscourseConnect handshake)
+  → server sees user is authenticated, redirects to {forum}/session/sso?return_path=/latest
+  → Discourse processes the DiscourseConnect handshake (redirects to /api/discourse/sso)
   → server verifies signature, builds signed user-info payload, redirects back to return_sso_url
-  → Discourse logs the user in and returns them to the forum
+  → Discourse logs the user in and returns them to /latest
 
 Unauthenticated user clicks "Discourse Forum"
   → browser GET /api/discourse/go
   → server redirects to /login.html?next=/api/discourse/go
   → user logs in to the SIM
-  → browser returns to /api/discourse/go, which redirects to the forum
+  → browser returns to /api/discourse/go, which redirects to {forum}/session/sso?return_path=/latest
   → same DiscourseConnect handshake as above completes seamlessly
 ```
 
