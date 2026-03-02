@@ -82,6 +82,40 @@ export default {
 
 With this in place the frontend only ever calls `/api/*` and Cloudflare transparently forwards those requests to Render. Both the registration UI and the admin panel hit the same backend and therefore the same database.
 
+### Render Static Site — asset versioning (cache-busting)
+
+The frontend is served from a **Render Static Site** (Publish Directory: `.`). To prevent browsers and CDNs from serving stale JS/CSS after a deploy, a build script rewrites every `*.html` file to append a `?v=<sha>` query parameter to `styles.css` and `js/main.js` references.
+
+**Render Static Site settings:**
+
+| Setting | Value |
+|---|---|
+| **Build Command** | `node scripts/render-version-assets.mjs` |
+| **Publish Directory** | `.` |
+
+After the build, pages reference assets like:
+
+```html
+<link rel="stylesheet" href="styles.css?v=a1b2c3d4">
+<script type="module" src="./js/main.js?v=a1b2c3d4"></script>
+```
+
+The version value is derived from (in priority order):
+
+1. `RENDER_GIT_COMMIT` — the commit SHA set automatically by Render
+2. `GITHUB_SHA` — set automatically in GitHub Actions
+3. A timestamp string — fallback for local runs
+
+Only the first 8 characters of the SHA are used to keep URLs tidy. Re-running the script replaces any existing `?v=` parameter rather than duplicating it (idempotent).
+
+**Local dry-run** (prints changes without writing files):
+
+```bash
+node scripts/render-version-assets.mjs --dry-run
+```
+
+Cache rules on the CDN/Render edge can remain in place; asset versioning is the primary fix for stale-cache issues.
+
 ### Debug mode
 
 The **API Sources** status panel (showing live data-source health) is hidden from normal users. To enable it during development or debugging, use either method:
