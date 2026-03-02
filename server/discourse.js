@@ -130,24 +130,115 @@ function groupUrlPath(groupName, groupId) {
 }
 
 /**
+ * Perform a fetch with automatic retry on HTTP 429 (rate-limit) responses.
+ *
+ * On 429 the helper attempts to read the JSON body to extract
+ * `extras.wait_seconds` and waits that duration (+250 ms buffer) before
+ * retrying.  Falls back to exponential backoff when the body is not JSON or
+ * the field is absent.  Throws once `maxRetries` or `maxTotalWaitMs` is
+ * exceeded.
+ *
+ * @param {string}   url
+ * @param {object}   init                         - fetch init options
+ * @param {object}   [opts]
+ * @param {number}   [opts.maxRetries=10]
+ * @param {number}   [opts.fallbackDelayMs=2000]  - initial backoff when wait_seconds is absent
+ * @param {number}   [opts.maxTotalWaitMs=300000] - 5 minutes; accommodates a single ~58 s Discourse window
+ * @param {number}   [opts.maxBackoffMs=30000]    - cap on per-attempt backoff delay
+ * @param {number}   [opts.jitterMs=250]          - buffer added to wait_seconds delays
+ * @param {Function} [opts.sleep]                 - injectable sleep(ms)→Promise; defaults to setTimeout
+ * @param {Function} [opts.warn]                  - injectable warn(msg) for 429 log lines; defaults to console.warn
+ * @returns {Promise<Response>}
+ */
+async function discourseApiRequest(url, init, {
+  maxRetries = 10,
+  fallbackDelayMs = 2000,
+  maxTotalWaitMs = 300_000,
+  maxBackoffMs = 30_000,
+  jitterMs = 250,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  warn = (msg) => console.warn(msg),
+} = {}) {
+  let totalWait = 0;
+
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, init);
+
+    // With redirect:"manual", redirect responses have no useful body — the only
+    // diagnostic value is the Location header.  Throw immediately so callers
+    // don't silently consume an empty body or spin into a rate-limit loop
+    // caused by bouncing to a login page or http→https redirect.
+    if (res.status === 301 || res.status === 302 || res.status === 307 || res.status === 308) {
+      const location = res.headers.get("location") ?? "(no Location header)";
+      throw new Error(
+        `Discourse API redirect: HTTP ${res.status} on ${url} → Location: ${location}`
+      );
+    }
+
+    if (res.status !== 429) return res;
+
+    let waitMs;
+    let waitSeconds;
+    const ct = res.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
+      try {
+        const data = await res.json();
+        const secs = data?.extras?.wait_seconds;
+        if (typeof secs === "number" && secs > 0) {
+          waitSeconds = secs;
+          waitMs = Math.round(secs * 1000) + jitterMs;
+        }
+      } catch {
+        // fall through to backoff
+      }
+    }
+    if (waitMs === undefined) {
+      waitMs = Math.min(fallbackDelayMs * Math.pow(2, attempt), maxBackoffMs);
+    }
+
+    totalWait += waitMs;
+    if (attempt >= maxRetries || totalWait > maxTotalWaitMs) {
+      const waitInfo = waitSeconds != null
+        ? `wait_seconds=${waitSeconds}, `
+        : "";
+      throw new Error(
+        `Discourse API rate-limited: HTTP 429 on ${url} after ${attempt + 1} attempt(s); ` +
+        `${waitInfo}totalWaitMs=${totalWait}, maxTotalWaitMs=${maxTotalWaitMs}`
+      );
+    }
+
+    warn(`[Discourse] 429 rate-limit on ${url} — attempt ${attempt + 1}, waiting ${waitMs}ms`);
+    await sleep(waitMs);
+  }
+}
+
+/**
  * Fetch the numeric Discourse group ID for every group returned by /groups.json.
  *
  * Follows `load_more_groups` pagination until all groups have been retrieved.
+ * A small delay (`_pageDelayMs`, default 500 ms) is inserted between pages to
+ * avoid bursting the Discourse rate-limiter when many pages are fetched.
  * Returns a Map<groupName, groupId> that callers can use to build correct URLs.
  *
  * @param {object} opts
  * @param {string} opts.baseUrl
  * @param {string} opts.apiKey
  * @param {string} opts.apiUsername
+ * @param {number} [opts._pageDelayMs=500] - inter-page delay to avoid rate-limit bursts
  * @returns {Promise<Map<string, number>>}
  */
-export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
+export async function resolveGroupIds({ baseUrl, apiKey, apiUsername, _sleep, _warn, _pageDelayMs = 500 }) {
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
+  const sleepFn = _sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   const map = new Map();
   let pageUrl = `${cleanBase}/groups.json`;
+  let firstPage = true;
 
   while (pageUrl) {
-    const res = await fetch(pageUrl, {
+    if (!firstPage) await sleepFn(_pageDelayMs);
+    firstPage = false;
+
+    const res = await discourseApiRequest(pageUrl, {
       method:   "GET",
       redirect: "manual",
       headers: {
@@ -155,7 +246,7 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
         "Api-Username": apiUsername,
         "Accept":       "application/json",
       },
-    });
+    }, { sleep: sleepFn, warn: _warn });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`resolveGroupIds failed: HTTP ${res.status} ${text}`);
@@ -196,7 +287,7 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
  *                                    when provided (required by some Discourse versions)
  * @returns {Promise<Array<{ id: number, username: string }>>}
  */
-export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId }) {
+export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, _sleep, _warn }) {
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
   const members = [];
@@ -205,7 +296,7 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
 
   while (true) {
     const url = `${cleanBase}/groups/${groupPath}/members.json?limit=${limit}&offset=${offset}`;
-    const res = await fetch(url, {
+    const res = await discourseApiRequest(url, {
       method:   "GET",
       redirect: "manual",
       headers: {
@@ -213,7 +304,7 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
         "Api-Username": apiUsername,
         "Accept":       "application/json",
       },
-    });
+    }, { sleep: _sleep, warn: _warn });
 
     if (res.status === 404) return [];         // group doesn't exist yet — treat as empty
     if (!res.ok) {
@@ -245,11 +336,11 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
  * @param {string[]} opts.usernames
  * @returns {Promise<void>}
  */
-export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames }) {
+export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames, _sleep, _warn }) {
   if (!usernames.length) return;
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
-  const res = await fetch(`${cleanBase}/groups/${groupPath}/members.json`, {
+  const res = await discourseApiRequest(`${cleanBase}/groups/${groupPath}/members.json`, {
     method:   "PUT",
     redirect: "manual",
     headers: {
@@ -259,7 +350,7 @@ export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
       "Accept":       "application/json",
     },
     body: JSON.stringify({ usernames: usernames.join(",") }),
-  });
+  }, { sleep: _sleep, warn: _warn });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`addGroupMembers(${groupName}) failed: HTTP ${res.status} ${text}`);
@@ -279,11 +370,11 @@ export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
  * @param {string[]} opts.usernames
  * @returns {Promise<void>}
  */
-export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames }) {
+export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames, _sleep, _warn }) {
   if (!usernames.length) return;
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
-  const res = await fetch(`${cleanBase}/groups/${groupPath}/members.json`, {
+  const res = await discourseApiRequest(`${cleanBase}/groups/${groupPath}/members.json`, {
     method:   "DELETE",
     redirect: "manual",
     headers: {
@@ -293,7 +384,7 @@ export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupNa
       "Accept":       "application/json",
     },
     body: JSON.stringify({ usernames: usernames.join(",") }),
-  });
+  }, { sleep: _sleep, warn: _warn });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`removeGroupMembers(${groupName}) failed: HTTP ${res.status} ${text}`);

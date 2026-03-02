@@ -298,7 +298,7 @@ test("resolveGroupIds follows load_more_groups pagination", async () => {
     };
   };
   try {
-    const map = await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" });
+    const map = await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", _pageDelayMs: 0 });
     assert.equal(calls, 2);
     assert.equal(map.get("admins"),     1);
     assert.equal(map.get("moderators"), 2);
@@ -613,4 +613,416 @@ test("DISCOURSE_GROUP_MAP does not contain the Discourse automatic groups admins
   const values = Object.values(DISCOURSE_GROUP_MAP);
   assert.ok(!values.includes("admins"),     "admins must not appear in DISCOURSE_GROUP_MAP");
   assert.ok(!values.includes("moderators"), "moderators must not appear in DISCOURSE_GROUP_MAP");
+});
+
+// ── 429 retry behaviour ───────────────────────────────────────────────────────
+
+test("resolveGroupIds retries on 429 with wait_seconds and eventually succeeds", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: jsonHeaders,
+        json: async () => ({ errors: ["Too many requests"], error_type: "rate_limit", extras: { wait_seconds: 1 } }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: jsonHeaders,
+      json: async () => ({ groups: [{ id: 10, name: "staff" }], load_more_groups: null }),
+    };
+  };
+  const sleepCalls = [];
+  const noopSleep = async (ms) => { sleepCalls.push(ms); };
+  try {
+    const map = await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", _sleep: noopSleep });
+    assert.equal(calls, 2, "fetch should be called twice (1 retry)");
+    assert.equal(map.get("staff"), 10);
+    assert.equal(sleepCalls.length, 1, "sleep should be called once");
+    assert.equal(sleepCalls[0], 1250, "sleep duration should be wait_seconds*1000 + 250ms");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds does not retry on non-429 errors (e.g. 401)", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return { ok: false, status: 401, text: async () => "Unauthorized" };
+  };
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" }),
+      /resolveGroupIds failed: HTTP 401/
+    );
+    assert.equal(calls, 1, "fetch should only be called once — no retry on 401");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds uses exponential fallback when 429 body is not JSON", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: { get: () => "text/plain" },
+        text: async () => "rate limited",
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (h) => h === "content-type" ? "application/json" : null },
+      json: async () => ({ groups: [], load_more_groups: null }),
+    };
+  };
+  const sleepCalls = [];
+  const noopSleep = async (ms) => { sleepCalls.push(ms); };
+  try {
+    await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", _sleep: noopSleep });
+    assert.equal(calls, 2);
+    assert.equal(sleepCalls.length, 1);
+    assert.equal(sleepCalls[0], 2000, "fallback delay for attempt 0 should be 2000ms");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds throws after exhausting max retries on persistent 429", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 429,
+    headers: { get: (h) => h === "content-type" ? "application/json" : null },
+    json: async () => ({ extras: { wait_seconds: 1 } }),
+  });
+  const noopSleep = async () => {};
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", _sleep: noopSleep }),
+      /Discourse API rate-limited: HTTP 429/
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("getGroupMembers retries on 429 and eventually succeeds", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: jsonHeaders,
+        json: async () => ({ extras: { wait_seconds: 2 } }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({ members: [{ id: 5, username: "bob" }] }) };
+  };
+  const sleepCalls = [];
+  const noopSleep = async (ms) => { sleepCalls.push(ms); };
+  try {
+    const members = await getGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "staff", groupId: 9, _sleep: noopSleep,
+    });
+    assert.equal(calls, 2);
+    assert.equal(members.length, 1);
+    assert.equal(members[0].username, "bob");
+    assert.equal(sleepCalls[0], 2250, "wait 2s + 250ms buffer");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("addGroupMembers retries on 429 and eventually succeeds", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: { get: (h) => h === "content-type" ? "application/json" : null },
+        json: async () => ({ extras: { wait_seconds: 1 } }),
+      };
+    }
+    return { ok: true, status: 200 };
+  };
+  const noopSleep = async () => {};
+  try {
+    await addGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "staff", groupId: 9, usernames: ["alice"], _sleep: noopSleep,
+    });
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("removeGroupMembers retries on 429 and eventually succeeds", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: { get: (h) => h === "content-type" ? "application/json" : null },
+        json: async () => ({ extras: { wait_seconds: 1 } }),
+      };
+    }
+    return { ok: true, status: 200 };
+  };
+  const noopSleep = async () => {};
+  try {
+    await removeGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "staff", groupId: 9, usernames: ["carol"], _sleep: noopSleep,
+    });
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("addGroupMembers does not retry on non-429 errors (e.g. 403)", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return { ok: false, status: 403, text: async () => "Forbidden" };
+  };
+  try {
+    await assert.rejects(
+      () => addGroupMembers({
+        baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+        groupName: "staff", groupId: 9, usernames: ["alice"],
+      }),
+      /addGroupMembers\(staff\) failed: HTTP 403/
+    );
+    assert.equal(calls, 1, "no retry on 403");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── Actionable 429 logging ────────────────────────────────────────────────────
+
+test("resolveGroupIds logs URL + attempt + wait on each 429 retry", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: jsonHeaders,
+        json: async () => ({ extras: { wait_seconds: 3 } }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: jsonHeaders,
+      json: async () => ({ groups: [], load_more_groups: null }),
+    };
+  };
+  const warnMessages = [];
+  const noopSleep = async () => {};
+  try {
+    await resolveGroupIds({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      _sleep: noopSleep, _warn: (msg) => warnMessages.push(msg), _pageDelayMs: 0,
+    });
+    assert.equal(warnMessages.length, 1, "one warn per 429 retry");
+    assert.ok(/forum\.example\.com/.test(warnMessages[0]), `URL missing from warn: ${warnMessages[0]}`);
+    assert.ok(warnMessages[0].includes("attempt 1"),       `attempt missing from warn: ${warnMessages[0]}`);
+    assert.ok(warnMessages[0].includes("3250ms"),          `wait duration missing from warn: ${warnMessages[0]}`);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds exhausted error message includes URL, wait_seconds, totalWaitMs and maxTotalWaitMs", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 429,
+    headers: { get: (h) => h === "content-type" ? "application/json" : null },
+    json: async () => ({ extras: { wait_seconds: 1 } }),
+  });
+  const noopSleep = async () => {};
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({
+        baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+        _sleep: noopSleep, _warn: () => {},
+      }),
+      (err) => {
+        assert.ok(/Discourse API rate-limited: HTTP 429/.test(err.message), `wrong prefix: ${err.message}`);
+        assert.ok(/forum\.example\.com/.test(err.message),    `URL missing: ${err.message}`);
+        assert.ok(/wait_seconds=1/.test(err.message),         `wait_seconds missing: ${err.message}`);
+        assert.ok(/totalWaitMs=/.test(err.message),           `totalWaitMs missing: ${err.message}`);
+        assert.ok(/maxTotalWaitMs=/.test(err.message),        `maxTotalWaitMs missing: ${err.message}`);
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── Burst avoidance: inter-page delay in resolveGroupIds ──────────────────────
+
+test("resolveGroupIds inserts inter-page delay between paginated requests", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: true,
+        status: 200,
+        headers: jsonHeaders,
+        json: async () => ({ groups: [{ id: 1, name: "alpha" }], load_more_groups: "/groups.json?page=1" }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: jsonHeaders,
+      json: async () => ({ groups: [{ id: 2, name: "beta" }], load_more_groups: null }),
+    };
+  };
+  const sleepCalls = [];
+  const noopSleep = async (ms) => { sleepCalls.push(ms); };
+  try {
+    const map = await resolveGroupIds({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      _sleep: noopSleep, _pageDelayMs: 300,
+    });
+    assert.equal(map.size, 2);
+    // One inter-page sleep: none before page 0, one before page 1
+    assert.equal(sleepCalls.length, 1, "exactly one inter-page sleep");
+    assert.equal(sleepCalls[0], 300, "inter-page delay uses _pageDelayMs");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds does not insert inter-page delay for a single-page response", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: (h) => h === "content-type" ? "application/json" : null },
+    json: async () => ({ groups: [{ id: 5, name: "gamma" }], load_more_groups: null }),
+  });
+  const sleepCalls = [];
+  const noopSleep = async (ms) => { sleepCalls.push(ms); };
+  try {
+    await resolveGroupIds({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      _sleep: noopSleep, _pageDelayMs: 300,
+    });
+    assert.equal(sleepCalls.length, 0, "no inter-page sleep for single page");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── Redirect handling ─────────────────────────────────────────────────────────
+
+test("resolveGroupIds throws with Location header on 302 redirect", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 302,
+    headers: { get: (h) => h === "location" ? "https://forum.example.com/login" : null },
+  });
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" }),
+      (err) => {
+        assert.ok(/Discourse API redirect: HTTP 302/.test(err.message), `wrong prefix: ${err.message}`);
+        assert.ok(err.message.includes("forum.example.com/login"), `Location missing: ${err.message}`);
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("discourseApiRequest throws with Location header on 301 redirect", async () => {
+  // Test via getGroupMembers which proxies to discourseApiRequest
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 301,
+    headers: { get: (h) => h === "location" ? "https://www.example.com/groups/staff/members.json" : null },
+  });
+  try {
+    await assert.rejects(
+      () => getGroupMembers({
+        baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+        groupName: "staff", groupId: 9,
+      }),
+      (err) => {
+        assert.ok(/Discourse API redirect: HTTP 301/.test(err.message), `wrong prefix: ${err.message}`);
+        assert.ok(/www\.example\.com/.test(err.message), `Location missing: ${err.message}`);
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("discourseApiRequest throws with '(no Location header)' when Location is absent on redirect", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 307,
+    headers: { get: () => null },
+  });
+  try {
+    await assert.rejects(
+      () => getGroupMembers({
+        baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+        groupName: "staff", groupId: 9,
+      }),
+      (err) => {
+        assert.ok(/Discourse API redirect: HTTP 307/.test(err.message), `wrong prefix: ${err.message}`);
+        assert.ok(err.message.includes("(no Location header)"), `fallback text missing: ${err.message}`);
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
 });
