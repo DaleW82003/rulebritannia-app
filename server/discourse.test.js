@@ -1026,3 +1026,74 @@ test("discourseApiRequest throws with '(no Location header)' when Location is ab
     globalThis.fetch = saved;
   }
 });
+
+// ── resolveGroupIds — non-JSON pagination URL validation ──────────────────────
+
+test("resolveGroupIds throws when load_more_groups is a non-JSON path like /groups?page=1", async () => {
+  const saved = globalThis.fetch;
+  const baseUrl = "https://forum.example.com";
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    url: `${baseUrl}/groups.json`,
+    headers: { get: (h) => h === "content-type" ? "application/json" : null },
+    json: async () => ({
+      groups: [{ id: 1, name: "admins" }],
+      load_more_groups: "/groups?page=1",
+    }),
+  });
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({ baseUrl, apiKey: "k", apiUsername: "u" }),
+      (err) => {
+        assert.ok(err.message.includes("non-API pagination URL"), `missing phrase: ${err.message}`);
+        assert.ok(err.message.includes("baseUrl=https://forum.example.com"), `baseUrl missing: ${err.message}`);
+        assert.ok(err.message.includes("load_more_groups=/groups?page=1"), `load_more_groups missing: ${err.message}`);
+        assert.ok(err.message.includes(".json"), `guidance missing: ${err.message}`);
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds allows load_more_groups with .json in path", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
+  const baseUrl = "https://forum.example.com";
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: true,
+        status: 200,
+        url: `${baseUrl}/groups.json`,
+        headers: jsonHeaders,
+        json: async () => ({
+          groups: [{ id: 1, name: "admins" }],
+          load_more_groups: "/groups.json?page=1",
+        }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      url: `${baseUrl}/groups.json?page=1`,
+      headers: jsonHeaders,
+      json: async () => ({
+        groups: [{ id: 2, name: "moderators" }],
+        load_more_groups: null,
+      }),
+    };
+  };
+  try {
+    const map = await resolveGroupIds({ baseUrl, apiKey: "k", apiUsername: "u", _pageDelayMs: 0 });
+    assert.equal(calls, 2);
+    assert.equal(map.get("admins"), 1);
+    assert.equal(map.get("moderators"), 2);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
