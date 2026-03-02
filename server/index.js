@@ -202,6 +202,7 @@ app.use(
     secret: process.env.SESSION_SECRET || "dev-secret-change-me",
     resave: false,
     saveUninitialized: false,
+    rolling: true,   // extend session TTL on every response (active users never expire)
     cookie: {
       httpOnly: true,
       sameSite: "none", // cross-site cookie (frontend on separate origin)
