@@ -142,12 +142,18 @@ function groupUrlPath(groupName, groupId) {
  * @returns {Promise<Map<string, number>>}
  */
 export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
+  const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const map = new Map();
-  let pageUrl = `${baseUrl}/groups.json`;
+  let pageUrl = `${cleanBase}/groups.json`;
 
   while (pageUrl) {
     const res = await fetch(pageUrl, {
-      headers: { "Api-Key": apiKey, "Api-Username": apiUsername },
+      method: "GET",
+      headers: {
+        "Api-Key":      apiKey,
+        "Api-Username": apiUsername,
+        "Accept":       "application/json",
+      },
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -167,7 +173,7 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
     }
     // load_more_groups is a relative path, e.g. "/groups.json?page=1"
     const more = data?.load_more_groups;
-    pageUrl = more ? `${baseUrl}${more}` : null;
+    pageUrl = more ? `${cleanBase}${more}` : null;
   }
 
   return map;
@@ -190,15 +196,21 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
  * @returns {Promise<Array<{ id: number, username: string }>>}
  */
 export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId }) {
+  const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
   const members = [];
   let offset = 0;
   const limit = 50;
 
   while (true) {
-    const url = `${baseUrl}/groups/${groupPath}/members.json?limit=${limit}&offset=${offset}`;
+    const url = `${cleanBase}/groups/${groupPath}/members.json?limit=${limit}&offset=${offset}`;
     const res = await fetch(url, {
-      headers: { "Api-Key": apiKey, "Api-Username": apiUsername },
+      method: "GET",
+      headers: {
+        "Api-Key":      apiKey,
+        "Api-Username": apiUsername,
+        "Accept":       "application/json",
+      },
     });
 
     if (res.status === 404) return [];         // group doesn't exist yet — treat as empty
@@ -233,13 +245,15 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
  */
 export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames }) {
   if (!usernames.length) return;
+  const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
-  const res = await fetch(`${baseUrl}/groups/${groupPath}/members.json`, {
+  const res = await fetch(`${cleanBase}/groups/${groupPath}/members.json`, {
     method: "PUT",
     headers: {
       "Api-Key":      apiKey,
       "Api-Username": apiUsername,
       "Content-Type": "application/json",
+      "Accept":       "application/json",
     },
     body: JSON.stringify({ usernames: usernames.join(",") }),
   });
@@ -264,13 +278,15 @@ export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
  */
 export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames }) {
   if (!usernames.length) return;
+  const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
-  const res = await fetch(`${baseUrl}/groups/${groupPath}/members.json`, {
+  const res = await fetch(`${cleanBase}/groups/${groupPath}/members.json`, {
     method: "DELETE",
     headers: {
       "Api-Key":      apiKey,
       "Api-Username": apiUsername,
       "Content-Type": "application/json",
+      "Accept":       "application/json",
     },
     body: JSON.stringify({ usernames: usernames.join(",") }),
   });

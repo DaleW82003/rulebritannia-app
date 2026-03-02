@@ -108,8 +108,8 @@ export const DISCOURSE_GROUP_MAP = Object.freeze({
   "office:shadow_secretary_of_state": "opposition",
   "office:leader_of_third_party":   "tpleader",
   "office:backbencher":             "backbencher",
-  "office:permanent_secretary":     "Civil_Service",
-  "office:civil_servant":           "Civil_Service",
+  "office:permanent_secretary":     "civil_service",
+  "office:civil_servant":           "civil_service",
 });
 
 /**
