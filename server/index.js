@@ -5279,8 +5279,9 @@ app.get("/api/audit-log", auditReadLimit, async (req, res) => {
     if (!req.session?.userId) {
       return res.status(401).json({ error: "Not logged in" });
     }
-    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
-      return res.status(403).json({ error: "Forbidden: admin role required" });
+    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    if (!roles.includes("admin") && !roles.includes("mod")) {
+      return res.status(403).json({ error: "Forbidden: admin or mod role required" });
     }
 
     const { action, target, actor, limit = "50", offset = "0" } = req.query;
