@@ -22,9 +22,11 @@ function render(members, posts, data, state, manager) {
   const char = data?.currentCharacter || data?.currentPlayer || {};
   const hasActiveChar = !!char?.name;
   const canPostMonarch = manager;
+  const monarchGender = String(data?.adminSettings?.monarchGender || "Queen").toLowerCase() === "king" ? "King" : "Queen";
+  const monarchTitle = monarchGender === "King" ? "His Majesty" : "Her Majesty";
 
   host.innerHTML = `
-    <div class="bbc-masthead"><div class="bbc-title">His Majesty's Most Honourable Privy Council</div></div>
+    <div class="bbc-masthead"><div class="bbc-title">${monarchTitle}'s Most Honourable Privy Council</div></div>
 
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">About the Privy Council</h2>
@@ -38,10 +40,10 @@ function render(members, posts, data, state, manager) {
         ? `<div class="muted-block">You must have an active character to post here. <a href="user.html">Create or activate a character</a> first.</div>`
         : `<form id="pc-post-form">
         <label class="label" for="pc-body">Message</label>
-        <textarea id="pc-body" name="body" class="input" rows="4" required placeholder="Speak as your character or, if staff, as His Majesty…"></textarea>
+        <textarea id="pc-body" name="body" class="input" rows="4" required placeholder="Speak as your character or, if staff, as ${monarchTitle}…"></textarea>
         <div style="display:flex;gap:12px;margin:8px 0;flex-wrap:wrap;align-items:center;">
           <label><input type="radio" name="pcPosterChoice" value="character" checked> My Character</label>
-          ${canPostMonarch ? `<label><input type="radio" name="pcPosterChoice" value="monarch"> His Majesty the Monarch</label>` : ""}
+          ${canPostMonarch ? `<label><input type="radio" name="pcPosterChoice" value="monarch"> ${monarchTitle} the Monarch</label>` : ""}
         </div>
         <button type="submit" class="btn">Post</button>
         ${state.postMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.postMessage)}</p>` : ""}
@@ -53,10 +55,12 @@ function render(members, posts, data, state, manager) {
       ${posts.length ? posts.map((p) => `
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;gap:10px;align-items:flex-start;">
-            <img src="${esc(avatarFor(p.posted_as, p.avatar_url))}" alt="${esc(p.posted_as)}" width="44" height="44" style="border-radius:${p.posted_as_type === "monarch" ? "4px" : "999px"};object-fit:cover;flex-shrink:0;">
+            ${p.posted_as_type === "monarch" && !p.avatar_url
+              ? `<div style="width:44px;height:44px;display:grid;place-items:center;font-size:24px;flex-shrink:0;border-radius:4px;background:#b8a000;">👑</div>`
+              : `<img src="${esc(avatarFor(p.posted_as, p.avatar_url))}" alt="${esc(p.posted_as)}" width="44" height="44" style="border-radius:${p.posted_as_type === "monarch" ? "4px" : "999px"};object-fit:cover;flex-shrink:0;">`}
             <div style="flex:1;">
               <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                <div><b>${esc(p.posted_as)}</b>${p.posted_as_type === "monarch" ? ` <span class="muted">(Monarch)</span>` : ""}</div>
+                <div><b>${p.posted_as_type === "monarch" ? esc(monarchTitle + " the Monarch") : esc(p.posted_as)}</b>${p.posted_as_type === "monarch" ? ` <span class="muted">(Monarch)</span>` : ""}</div>
                 <div class="muted">${esc(formatSimLabel(p.sim_month, p.sim_year))}</div>
               </div>
               <p style="margin:8px 0;white-space:pre-wrap;">${esc(p.body)}</p>
