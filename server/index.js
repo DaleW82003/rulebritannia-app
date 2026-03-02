@@ -873,6 +873,10 @@ async function ensureSchema() {
   // Once TRUE, it is never reverted. Controls "The Right Honourable" prefix and "PC" post-nominal for life.
   await pool.query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS rh_ever BOOLEAN NOT NULL DEFAULT FALSE`);
 
+  // Migration: tpl_ever — permanent flag for characters who have held the third-party leader (party-leader-3rd-4th) office.
+  // Once TRUE, it is never reverted. Controls "PC" post-nominal for life (alongside rh_ever for PM/LoTO).
+  await pool.query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS tpl_ever BOOLEAN NOT NULL DEFAULT FALSE`);
+
   // Migration: add active_character_id to users (DB-canonical pointer to the user's active character)
   await pool.query(`
     ALTER TABLE users
@@ -6207,9 +6211,8 @@ async function getCharacterParliamentaryMeta(pool, characterId) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows } = await pool.query(
-    `SELECT c.id, c.rh_ever,
+    `SELECT c.id, c.rh_ever, c.tpl_ever,
             EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
-            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc_ever,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (
               SELECT 1 FROM office_assignments oa
@@ -6233,8 +6236,8 @@ async function getCharacterParliamentaryMeta(pool, characterId) {
   // has_cabinet_office: any current cabinet office gives RH while in post.
   // is_privy_current: current PC membership also qualifies for RH.
   const is_rh = Boolean(m.rh_ever || m.is_privy_current || m.has_cabinet_office || m.is_third_party_leader);
-  // PC post-nominal: ever been a PC member, OR permanently qualifies via rh_ever (former PM/LoTO)
-  const is_pc = Boolean(m.rh_ever || m.is_pc_ever);
+  // PC post-nominal: only for PM/LoTO (rh_ever) and third-party leaders (tpl_ever) — permanently once held.
+  const is_pc = Boolean(m.rh_ever || m.tpl_ever);
   return {
     is_mp: Boolean(m.is_mp),
     is_pc,
@@ -6248,7 +6251,8 @@ function formatParliamentaryName({ bareName, isRH = false, isMP = false, isPC = 
   const n = String(bareName || "").trim();
   if (!n) return "";
   const title = isRH ? "The Right Honourable" : "The Honourable";
-  const suffix = [isMP ? "MP" : "", isPC ? "PC" : ""].filter(Boolean).join(" ");
+  // MP is universal — every character is an MP so it always appears.
+  const suffix = ["MP", isPC ? "PC" : ""].filter(Boolean).join(" ");
   return [title, n, suffix].filter(Boolean).join(" ").trim();
 }
 
@@ -6275,9 +6279,8 @@ async function batchGetCharacterDisplayNames(pool, entries) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows } = await pool.query(
-    `SELECT c.id, c.name, c.rh_ever,
+    `SELECT c.id, c.name, c.rh_ever, c.tpl_ever,
             EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
-            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc_ever,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
             EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
@@ -6287,7 +6290,7 @@ async function batchGetCharacterDisplayNames(pool, entries) {
 
   const byId = Object.fromEntries(rows.map((r) => {
     const is_rh = Boolean(r.rh_ever || r.is_privy_current || r.has_cabinet_office || r.is_third_party_leader);
-    const is_pc = Boolean(r.rh_ever || r.is_pc_ever);
+    const is_pc = Boolean(r.rh_ever || r.tpl_ever);
     return [r.id, formatParliamentaryName({ bareName: r.name || "", isRH: is_rh, isMP: Boolean(r.is_mp), isPC: is_pc })];
   }));
 
@@ -6321,9 +6324,8 @@ async function batchEnrichCharacterRows(pool, rows) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows: metaRows } = await pool.query(
-    `SELECT c.id, c.rh_ever,
+    `SELECT c.id, c.rh_ever, c.tpl_ever,
             EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
-            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc_ever,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
             EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
@@ -6334,7 +6336,7 @@ async function batchEnrichCharacterRows(pool, rows) {
   // Store only the boolean flags; the display name is computed per-row using the original row.name.
   const byId = Object.fromEntries(metaRows.map((r) => {
     const is_rh = Boolean(r.rh_ever || r.is_privy_current || r.has_cabinet_office || r.is_third_party_leader);
-    const is_pc = Boolean(r.rh_ever || r.is_pc_ever);
+    const is_pc = Boolean(r.rh_ever || r.tpl_ever);
     return [r.id, { is_mp: Boolean(r.is_mp), is_pc, is_privy: Boolean(r.is_privy_current), is_rh }];
   }));
 
@@ -12976,6 +12978,11 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
     // rh_ever is set to TRUE the first time they are assigned to these offices and never reverted.
     if (RH_QUALIFYING_SPEC_IDS.includes(office.spec_id)) {
       await pool.query("UPDATE characters SET rh_ever = TRUE WHERE id = $1", [character_id]);
+    }
+
+    // tpl_ever is set to TRUE the first time they are assigned as third-party leader and never reverted.
+    if (office.spec_id === "party-leader-3rd-4th") {
+      await pool.query("UPDATE characters SET tpl_ever = TRUE WHERE id = $1", [character_id]);
     }
 
     // Auto-grant permanent Privy Council membership for PM / LoTO / Third-Party Leader.
