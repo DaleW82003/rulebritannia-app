@@ -16,7 +16,7 @@ import {
   createPost as dcCreatePost,
   withRetry as dcWithRetry,
 } from "./discourseClient.js";
-import { ALL_VALID_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP } from "./roles.js";
+import { ALL_VALID_ROLES, PARTY_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP, partyRoleForPartyName, computeApprovalRolesToAdd, officeRoleFromSpecId } from "./roles.js";
 
 const __serverDir = dirname(fileURLToPath(import.meta.url));
 
@@ -7771,6 +7771,8 @@ const SYNC_ERROR_MAX_LENGTH = 200;
 
 const SYNC_LOG_RING_SIZE = 200;
 let _syncJob = null; // at most one job at a time
+let _syncDebounceTimer = null; // debounce timer handle for auto-triggered syncs
+const SYNC_DEBOUNCE_MS = 3000; // coalesce triggers within this window (ms)
 
 function _newSyncJob() {
   return {
@@ -7891,6 +7893,171 @@ async function _runSyncJob(job) {
     job.finishedAt = new Date().toISOString();
     console.error("[discourse-sync-groups] job failed:", e.message);
   }
+}
+
+/**
+ * Enqueue a Discourse group sync job (single-flight + debounced).
+ *
+ * - If a job is already *running*, the running job covers all outstanding
+ *   role changes, so we skip and return its id.
+ * - If a job is already *queued* (debounce timer pending), we reset the
+ *   timer so rapid bursts (e.g. cabinet reshuffles) coalesce into one sync.
+ * - Otherwise a new job is created and scheduled SYNC_DEBOUNCE_MS out so
+ *   any further triggers within that window join the same job.
+ *
+ * @param {string} reason - logged to Render so operators know why sync fired
+ * @returns {string} jobId
+ */
+function enqueueDiscourseGroupSync(reason) {
+  if (_syncJob && _syncJob.status === "running") {
+    console.log("[discourse-sync-groups] sync already running (%s); skipping trigger. reason=%s", _syncJob.id, reason);
+    return _syncJob.id;
+  }
+
+  if (_syncJob && _syncJob.status === "queued" && _syncDebounceTimer) {
+    // Another trigger arrived while we are still in the debounce window — reset timer.
+    clearTimeout(_syncDebounceTimer);
+    console.log("[discourse-sync-groups] debounce reset for job %s reason=%s", _syncJob.id, reason);
+    _scheduleSync(_syncJob);
+    return _syncJob.id;
+  }
+
+  const job = _newSyncJob();
+  _syncJob = job;
+  console.log("[discourse-sync-groups] enqueuing sync job %s reason=%s", job.id, reason);
+  _scheduleSync(job);
+  return job.id;
+}
+
+/** Start a sync job after the debounce delay. */
+function _scheduleSync(job) {
+  _syncDebounceTimer = setTimeout(() => {
+    _syncDebounceTimer = null;
+    _runSyncJob(job).catch(() => {});
+  }, SYNC_DEBOUNCE_MS);
+}
+
+/**
+ * Recompute the canonical office:* user roles for the owner of a character,
+ * based on that character's current office_assignments rows.
+ *
+ * Managed roles (may be added or removed):
+ *   office:prime_minister, office:leader_of_opposition,
+ *   office:secretary_of_state, office:shadow_secretary_of_state
+ *
+ * office:backbencher and office:leader_of_third_party are intentionally
+ * NOT touched here — they are managed separately.
+ *
+ * @param {string} charId     - character UUID
+ * @param {string} actingUserId - user performing the change (for assigned_by)
+ * @returns {Promise<boolean>} true if any roles were added or removed
+ */
+async function recomputeUserOfficeRoles(charId, actingUserId) {
+  const MANAGED = [
+    "office:prime_minister",
+    "office:leader_of_opposition",
+    "office:secretary_of_state",
+    "office:shadow_secretary_of_state",
+  ];
+
+  const { rows: charRows } = await pool.query(
+    "SELECT user_id FROM characters WHERE id = $1", [charId]
+  );
+  if (!charRows.length || !charRows[0].user_id) return false;
+  const userId = charRows[0].user_id;
+
+  // Determine which MANAGED roles this character's office assignments entail
+  const { rows: assignments } = await pool.query(
+    `SELECT o.spec_id, o.type
+       FROM office_assignments oa
+       JOIN offices o ON o.id = oa.office_id
+      WHERE oa.character_id = $1`,
+    [charId]
+  );
+  const desiredRoles = new Set();
+  for (const { spec_id, type } of assignments) {
+    const role = officeRoleFromSpecId(spec_id, type);
+    if (role) desiredRoles.add(role);
+  }
+
+  // Fetch current user roles
+  const { rows: currentRows } = await pool.query(
+    "SELECT role FROM user_roles WHERE user_id = $1", [userId]
+  );
+  const currentRoles = new Set(currentRows.map((r) => r.role));
+
+  let changed = false;
+
+  // Add missing desired roles
+  for (const role of desiredRoles) {
+    if (!currentRoles.has(role)) {
+      await pool.query(
+        "INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (user_id, role) DO NOTHING",
+        [userId, role, actingUserId]
+      );
+      changed = true;
+    }
+  }
+  // Remove MANAGED roles that are no longer warranted
+  for (const role of MANAGED) {
+    if (currentRoles.has(role) && !desiredRoles.has(role)) {
+      await pool.query(
+        "DELETE FROM user_roles WHERE user_id = $1 AND role = $2",
+        [userId, role]
+      );
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+/**
+ * Update the office:leader_of_third_party user role when a party's leader changes.
+ * Only acts if the party is (or was) the current third party by seat count.
+ *
+ * @param {string} partySlug    - the party whose leader changed
+ * @param {string|null} oldCharId - previous leader character id (or null)
+ * @param {string|null} newCharId - new leader character id (or null)
+ * @param {string} actingUserId
+ * @returns {Promise<boolean>} true if any roles were added or removed
+ */
+async function recomputeLeaderOfThirdPartyRole(partySlug, oldCharId, newCharId, actingUserId) {
+  const thirdSlug = await getThirdPartySlug(pool).catch(() => null);
+  if (!thirdSlug || thirdSlug !== partySlug) return false; // not the third party — nothing to do
+
+  let changed = false;
+
+  // Remove role from old leader's user (if any)
+  if (oldCharId) {
+    const { rows: oldCharRows } = await pool.query(
+      "SELECT user_id FROM characters WHERE id = $1", [oldCharId]
+    );
+    if (oldCharRows.length && oldCharRows[0].user_id) {
+      const { rowCount } = await pool.query(
+        "DELETE FROM user_roles WHERE user_id = $1 AND role = 'office:leader_of_third_party'",
+        [oldCharRows[0].user_id]
+      );
+      if (rowCount) changed = true;
+    }
+  }
+
+  // Add role to new leader's user (if any)
+  if (newCharId) {
+    const { rows: newCharRows } = await pool.query(
+      "SELECT user_id FROM characters WHERE id = $1", [newCharId]
+    );
+    if (newCharRows.length && newCharRows[0].user_id) {
+      // rowCount=0 when role already present (ON CONFLICT DO NOTHING) — no sync needed in that case.
+      const { rowCount } = await pool.query(
+        "INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, 'office:leader_of_third_party', $2) ON CONFLICT (user_id, role) DO NOTHING",
+        [newCharRows[0].user_id, actingUserId]
+      );
+      if (rowCount) changed = true;
+    }
+  }
+
+  return changed;
 }
 
 const discourseSyncLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
@@ -8804,6 +8971,24 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
       "pending_character_application", req.params.id,
       app_, { ...app_, status: "approved", character_id: character.id }
     );
+
+    // Auto-assign party role (only if missing) and ensure office:backbencher
+    const partyRole = partyRoleForPartyName(app_.party);
+    const { rows: existingRoleRows } = await pool.query(
+      "SELECT role FROM user_roles WHERE user_id = $1", [app_.applicant_user_id]
+    );
+    const existingRoles = existingRoleRows.map((r) => r.role);
+    const rolesToAdd = computeApprovalRolesToAdd(existingRoles, partyRole);
+    for (const role of rolesToAdd) {
+      await pool.query(
+        "INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (user_id, role) DO NOTHING",
+        [app_.applicant_user_id, role, req.session.userId]
+      ).catch((e) => console.warn("[approve] role insert failed:", e.message));
+    }
+    if (rolesToAdd.length) {
+      enqueueDiscourseGroupSync(`character approval: ${app_.name}`);
+    }
+
     res.json({ ok: true, character });
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
@@ -9436,6 +9621,17 @@ app.post("/api/characters/:id/whip/withdraw", whipWriteLimit, async (req, res) =
       );
       await writeAuditLog(req.session.userId, "whip.withdraw", "character", req.params.id,
         { whip_status: "normal" }, { whip_status: "withdrawn", note });
+      // Remove party:* role from the user — character is now independent
+      const { rows: wcRows } = await pool.query(
+        "SELECT user_id FROM characters WHERE id = $1", [req.params.id]
+      );
+      if (wcRows.length && wcRows[0].user_id) {
+        await pool.query(
+          "DELETE FROM user_roles WHERE user_id = $1 AND role = ANY($2::text[])",
+          [wcRows[0].user_id, PARTY_ROLES]
+        );
+        enqueueDiscourseGroupSync(`whip withdrawal: char=${req.params.id}`);
+      }
       return res.json({ ok: true, pending: false });
     }
 
@@ -9567,6 +9763,17 @@ app.post("/api/parties/:partyId/whip-requests/:reqId/approve", whipWriteLimit, a
     );
     await writeAuditLog(req.session.userId, "whip.withdraw.approve", "character", charId,
       { whip_status: "normal" }, { whip_status: "withdrawn", request_id: req.params.reqId, note: originalNote });
+    // Remove party:* role from the user — character is now independent
+    const { rows: wrCharRows } = await pool.query(
+      "SELECT user_id FROM characters WHERE id = $1", [charId]
+    );
+    if (wrCharRows.length && wrCharRows[0].user_id) {
+      await pool.query(
+        "DELETE FROM user_roles WHERE user_id = $1 AND role = ANY($2::text[])",
+        [wrCharRows[0].user_id, PARTY_ROLES]
+      );
+      enqueueDiscourseGroupSync(`whip withdrawal approval: char=${charId}`);
+    }
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/parties/:partyId/whip-requests/:reqId/approve]", e);
@@ -9712,6 +9919,15 @@ app.post("/api/parties/:partyId/set-leader", partyWriteLimit, async (req, res) =
 
     await writeAuditLog(req.session.userId, "party.leader.set", "party", partyData.id,
       { leader_character_id: oldLeaderId }, { leader_character_id: character_id || null });
+
+    // Update office:leader_of_third_party role if this party is/was the third party
+    const leaderRoleChanged = await recomputeLeaderOfThirdPartyRole(
+      req.params.partyId, oldLeaderId || null, character_id || null, req.session.userId
+    ).catch((e) => { console.warn("[party.leader.set] recomputeLeaderOfThirdPartyRole failed:", e.message); return false; });
+    if (leaderRoleChanged) {
+      enqueueDiscourseGroupSync(`party leader set: ${req.params.partyId}`);
+    }
+
     res.json({ ok: true, party: updated[0] });
   } catch (e) {
     console.error(e);
@@ -11844,12 +12060,23 @@ app.post("/api/parties/:partyId/elections/:id/close", electionWriteLimit, async 
 
     // If there's a clear winner, update party leader
     if (winnerId) {
+      const { rows: elPartyRows } = await pool.query(
+        "SELECT leader_character_id FROM parties WHERE slug = $1", [req.params.partyId]
+      );
+      const elOldLeaderId = elPartyRows[0]?.leader_character_id ?? null;
       await pool.query(
         "UPDATE parties SET leader_character_id = $1, updated_at = NOW() WHERE slug = $2",
         [winnerId, req.params.partyId]
       );
       await writeAuditLog(req.session.userId, "party.leader.election.winner", "party", req.params.partyId,
         {}, { winner_character_id: winnerId });
+      // Update office:leader_of_third_party role if this party is/was the third party
+      const elLeaderRoleChanged = await recomputeLeaderOfThirdPartyRole(
+        req.params.partyId, elOldLeaderId, winnerId, req.session.userId
+      ).catch((e) => { console.warn("[election.close] recomputeLeaderOfThirdPartyRole failed:", e.message); return false; });
+      if (elLeaderRoleChanged) {
+        enqueueDiscourseGroupSync(`election winner: party=${req.params.partyId}`);
+      }
     }
 
     res.json({ ok: true, winnerId, tally: tallyRows });
@@ -12570,6 +12797,22 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
         simMonth,
         simYear,
       });
+
+    // Recompute office:* user roles for old and new holder; only sync when a Discourse-relevant role changed
+    const officeRoleChanges = [character_id];
+    if (oldCharId && oldCharId !== character_id) officeRoleChanges.push(oldCharId);
+    let officeRolesChanged = false;
+    for (const cid of officeRoleChanges) {
+      const changed = await recomputeUserOfficeRoles(cid, req.session.userId).catch((e) => {
+        console.warn("[office.assign] recomputeUserOfficeRoles failed for char=%s: %s", cid, e.message);
+        return false;
+      });
+      if (changed) officeRolesChanged = true;
+    }
+    if (officeRolesChanged) {
+      enqueueDiscourseGroupSync(`office assign: ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`);
+    }
+
     res.status(201).json({ ok: true, assignment: rows[0] });
   } catch (e) {
     console.error(e);
@@ -12638,6 +12881,16 @@ app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req,
         simMonth: unSimMonth,
         simYear: unSimYear,
       });
+
+    // Recompute office:* user roles for the unassigned character; only sync when a Discourse-relevant role changed
+    const unassignRolesChanged = await recomputeUserOfficeRoles(req.params.characterId, req.session.userId).catch((e) => {
+      console.warn("[office.unassign] recomputeUserOfficeRoles failed: %s", e.message);
+      return false;
+    });
+    if (unassignRolesChanged) {
+      enqueueDiscourseGroupSync(`office unassign: ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
