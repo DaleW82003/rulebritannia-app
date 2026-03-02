@@ -15276,9 +15276,25 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
         news_stories, newspaper_articles,
         divisions, division_votes, division_party_instructions, division_rebellion_log, division_rebel_requests,
         game_events,
-        scandal_situations, scandals, scandal_player_choices, scandal_mod_decisions
+        scandal_situations, scandals, scandal_player_choices, scandal_mod_decisions,
+        red_lion_posts, online_posts, fundraising_items,
+        privy_council_posts,
+        cs_briefings, cs_cases,
+        frontbench_reshuffles
       CASCADE
     `);
+
+    // Vacate all office assignments (clear government and opposition to vacant)
+    await pool.query(`TRUNCATE office_assignments, office_assignment_history CASCADE`);
+
+    // Reset group_drafts (clear cabinet and shadow cabinet drafts)
+    await pool.query(`UPDATE group_drafts SET drafts = '[]'::jsonb, updated_at = NOW()`);
+
+    // Reset budget_data to 1997 baseline
+    await seedBudgetBaseline(true);
+
+    // Re-seed 1997 base election (idempotent)
+    await seedElection1997();
 
     // Reset sim clock to August 1997
     await pool.query(`
@@ -15327,6 +15343,9 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
         "news_stories", "newspaper_articles",
         "divisions", "division_votes", "division_party_instructions", "division_rebellion_log", "division_rebel_requests",
         "game_events", "scandal_situations", "scandals", "scandal_player_choices", "scandal_mod_decisions",
+        "red_lion_posts", "online_posts", "fundraising_items",
+        "privy_council_posts", "cs_briefings", "cs_cases", "frontbench_reshuffles",
+        "office_assignments (vacated)", "group_drafts (reset)", "budget_data (reset to 1997)",
       ],
       simResetTo: "August 1997",
       newSnapshotId,
@@ -15337,12 +15356,15 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
 
     res.json({
       ok: true,
-      message: "Content wiped and sim reset to August 1997. User accounts are intact.",
+      message: "Content wiped and sim reset to August 1997. All offices vacated, drafts cleared, budget reset. User accounts and characters are intact.",
       wiped: [
         "bills", "bill_amendments", "motions", "statements", "regulations",
         "questiontime_questions", "qt_questions", "press_items", "polling_entries",
-        "elections", "news_stories", "newspaper_articles",
+        "elections (re-seeded 1997 base)", "news_stories", "newspaper_articles",
         "divisions", "division_votes", "game_events", "scandals",
+        "red_lion_posts", "online_posts", "fundraising_items",
+        "privy_council_posts", "cs_briefings", "cs_cases",
+        "office_assignments (vacated)", "group_drafts (reset)", "budget_data (reset)",
       ],
       simResetTo: "August 1997",
     });
@@ -15398,9 +15420,20 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
         elections, election_party_summary, election_constituency_changes, constituency_events,
         news_stories, newspaper_articles,
         divisions, division_votes, division_party_instructions, division_rebellion_log, division_rebel_requests,
-        game_events
+        game_events,
+        red_lion_posts, online_posts, fundraising_items,
+        cs_briefings, cs_cases
       CASCADE
     `);
+
+    // Reset group_drafts (clear cabinet and shadow cabinet drafts)
+    await pool.query(`UPDATE group_drafts SET drafts = '[]'::jsonb, updated_at = NOW()`);
+
+    // Reset budget_data to 1997 baseline
+    await seedBudgetBaseline(true);
+
+    // Re-seed 1997 base election (idempotent)
+    await seedElection1997();
 
     // Reset sim clock to August 1997
     await pool.query(`
@@ -15452,7 +15485,8 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
         "elections", "election_party_summary", "election_constituency_changes", "constituency_events",
         "news_stories", "newspaper_articles",
         "divisions", "division_votes", "division_party_instructions", "division_rebellion_log", "division_rebel_requests",
-        "game_events",
+        "game_events", "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
+        "group_drafts (reset)", "budget_data (reset to 1997)",
       ],
       simResetTo: "August 1997",
       newSnapshotId,
@@ -15468,8 +15502,10 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
         "characters", "office_assignments", "office_assignment_history",
         "bills", "bill_amendments", "motions", "statements", "regulations",
         "questiontime_questions", "qt_questions", "press_items", "polling_entries",
-        "elections", "news_stories", "newspaper_articles",
+        "elections (re-seeded 1997 base)", "news_stories", "newspaper_articles",
         "divisions", "division_votes", "scandals", "game_events",
+        "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
+        "group_drafts (reset)", "budget_data (reset)",
       ],
       simResetTo: "August 1997",
     });
@@ -15523,7 +15559,9 @@ async function handleSeedDemo(req, res) {
         elections, election_party_summary, election_constituency_changes, constituency_events,
         news_stories, newspaper_articles,
         divisions, division_votes, division_party_instructions, division_rebellion_log, division_rebel_requests,
-        game_events, scandal_situations, scandals, scandal_player_choices, scandal_mod_decisions
+        game_events, scandal_situations, scandals, scandal_player_choices, scandal_mod_decisions,
+        red_lion_posts, online_posts, fundraising_items,
+        privy_council_posts, cs_briefings, cs_cases, frontbench_reshuffles
       CASCADE`
     );
 

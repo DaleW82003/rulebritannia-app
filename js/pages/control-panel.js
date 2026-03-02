@@ -801,12 +801,19 @@ export async function initControlPanelPage(data) {
       const d = entry.details || {};
       const ts = entry.created_at ? new Date(entry.created_at).toLocaleString("en-GB") : "—";
       const headline = esc(d.headline || entry.action || "");
-      const actor = esc(d.actorName || entry.actor_name || entry.actor_id || "");
+      const actor = esc(d.characterName || d.actorName || entry.actor_name || entry.actor_id || "");
+      const officeName = d.officeName || d.officeKey || "";
+      const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const monthIdx = Number(d.simMonth) - 1;
+      const simDate = (d.simMonth && d.simYear)
+        ? `${MONTH_NAMES[monthIdx >= 0 && monthIdx <= 11 ? monthIdx : 0] || d.simMonth} ${d.simYear}`
+        : "";
       return `
         <article style="border-bottom:1px solid var(--line,#eee);padding:8px 0;">
-          <div style="font-size:.82em;color:#888;">${esc(ts)}</div>
-          <div style="margin:2px 0;">${headline}</div>
-          ${actor ? `<div class="muted" style="font-size:.85em;">Actor: ${actor}</div>` : ""}
+          <div style="font-size:.82em;color:#888;">${esc(ts)}${simDate ? ` &bull; Sim: ${esc(simDate)}` : ""}</div>
+          <div style="margin:2px 0;font-weight:500;">${headline}</div>
+          ${actor ? `<div class="muted" style="font-size:.85em;">Character: ${actor}</div>` : ""}
+          ${officeName ? `<div class="muted" style="font-size:.85em;">Office: ${esc(officeName)}</div>` : ""}
           <div class="muted" style="font-size:.8em;font-family:monospace;">${esc(entry.action)}</div>
         </article>
       `;

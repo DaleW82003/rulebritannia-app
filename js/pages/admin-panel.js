@@ -753,8 +753,12 @@ export async function initAdminPanelPage(data) {
           <div style="padding:12px;background:#fff;border:1px solid #e0a0a0;border-radius:6px;">
             <b>Wipe Content</b>
             <p style="margin:4px 0 8px;font-size:13px;color:#555;">
-              Wipes all gameplay content and resets the sim clock to August 1997.
-              No demo seed data is inserted — the sim starts blank.
+              ⚠️ Deletes <strong>all in-character sim content</strong>: bills, motions, statements, regulations, questions,
+              polling, news, papers, press, Red Lion posts, online posts, fundraisers, events, scandals, elections (1997 base
+              re-seeded), CS briefings/cases, Privy Council posts. Also vacates all government &amp; opposition offices,
+              clears cabinet/shadow-cabinet drafts, and resets the budget to the 1997 baseline.
+              <br>Characters and user accounts are <strong>preserved</strong>.
+              <br><strong>This cannot be undone.</strong>
             </p>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <input id="wipe-confirm-input" type="text" placeholder="Type WIPE CONTENT to confirm"
@@ -768,9 +772,10 @@ export async function initAdminPanelPage(data) {
           <div style="padding:12px;background:#fff;border:1px solid #e0a0a0;border-radius:6px;">
             <b>Wipe Content with Characters</b>
             <p style="margin:4px 0 8px;font-size:13px;color:#555;">
-              ⚠️ <strong>Danger:</strong> Wipes all gameplay content <em>and</em> all character data
-              (characters, office assignments, scandals, etc.), resets the sim clock to August 1997.
-              User accounts and pending registrations are preserved.
+              ⚠️ <strong>Danger:</strong> Does everything "Wipe Content" does, <em>and additionally</em> deletes
+              <strong>all characters</strong> — their histories, office assignments, Privy Council memberships, shop
+              purchases, work plans, scandal records, and personal affiliations. All users will have no characters.
+              <br>User accounts (including mod/admin/speaker roles) are <strong>preserved</strong>.
               <br><strong>This cannot be undone.</strong>
             </p>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -918,12 +923,6 @@ export async function initAdminPanelPage(data) {
   function render(status) {
     host.innerHTML = `
       <div class="bbc-masthead"><div class="bbc-title">Admin Panel</div></div>
-
-      <section class="panel" style="max-width:600px;">
-        <h2 style="margin-top:0;">Logged-in User</h2>
-        <div class="kv"><span>Email</span><b>${esc(user.email || "—")}</b></div>
-        <div class="kv"><span>Roles</span><b>${esc((user.roles || []).join(", ") || "—")}</b></div>
-      </section>
 
       ${renderSimControl()}
 
