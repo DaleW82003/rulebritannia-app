@@ -647,10 +647,11 @@ function maintPost(path) {
   };
 }
 
-export const apiAdminClearCache     = maintPost("/api/admin/clear-cache");
-export const apiAdminRebuildCache   = maintPost("/api/admin/rebuild-cache");
-export const apiAdminRotateSessions = maintPost("/api/admin/rotate-sessions");
-export const apiAdminForceLogoutAll = maintPost("/api/admin/force-logout-all");
+export const apiAdminClearCache          = maintPost("/api/admin/clear-cache");
+export const apiAdminRebuildCache        = maintPost("/api/admin/rebuild-cache");
+export const apiAdminRotateSessions      = maintPost("/api/admin/rotate-sessions");
+export const apiAdminForceLogoutAll      = maintPost("/api/admin/force-logout-all");
+export const apiAdminCloseStaleDiv       = maintPost("/api/admin/close-stale-divisions");
 
 export async function apiAdminExportSnapshot() {
   const res = await fetch(`${API_BASE}/api/admin/export-snapshot`, {
@@ -2801,11 +2802,11 @@ export async function apiRemoveAdditionalRevenue(id) {
 }
 
 /**
- * GET /health — liveness probe (no auth required).
+ * GET /api/health — liveness probe (no auth required).
  * @returns {Promise<{ ok: boolean }>}
  */
 export async function apiGetHealth() {
-  const res = await fetch(`${API_BASE}/health`);
+  const res = await fetch(`${API_BASE}/api/health`);
   if (!res.ok) throw new Error(`Health check failed (${res.status})`);
   return res.json();
 }

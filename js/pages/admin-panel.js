@@ -9,11 +9,11 @@ import {
   apiGetDiscourseConfig, apiSaveDiscourseConfig, apiTestDiscourse,
   apiGetDiscourseSyncPreview, apiAdminSyncDiscourseGroups, apiAdminSyncDiscourseGroupsStatus, apiSetUserRoles,
   apiAdminClearCache, apiAdminRebuildCache, apiAdminRotateSessions,
-  apiAdminForceLogoutAll,
+  apiAdminForceLogoutAll, apiAdminCloseStaleDiv,
   apiGetSsoReadiness,
   apiGetAdminDashboard, apiAdminDiscourseSyncBills,
   apiGetPendingRegistrations, apiApproveRegistration, apiRejectRegistration,
-  apiSeedDemo, apiWipeContent, apiWipeWithCharacters,
+  apiWipeContent, apiWipeWithCharacters,
   apiAdminRepairCharacterOwners,
   apiAdminGetUsers, apiAdminGetCharacters,
   apiAdminAssignCharacterOwner, apiAdminSetUserActiveCharacter,
@@ -648,6 +648,18 @@ export async function initAdminPanelPage(data) {
 
           <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
             <div>
+              <b>Close Stale Divisions</b>
+              <p style="margin:4px 0 0;font-size:13px;color:#555;">
+                Closes all divisions whose status is still <code>open</code> (marks them as abandoned).
+                Use this to clear stale divisions that were never properly closed.
+              </p>
+              <div id="close-stale-div-status" style="font-size:13px;margin-top:4px;"></div>
+            </div>
+            <button class="btn" id="btn-close-stale-div" type="button">Close Stale</button>
+          </div>
+
+          <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
               <b>Force Logout All Users</b>
               <p style="margin:4px 0 0;font-size:13px;color:#555;">
                 Terminates every active session except yours. All other users will be logged out immediately.
@@ -794,21 +806,6 @@ export async function initAdminPanelPage(data) {
                       style="background:#7b0000;color:#fff;border-color:#7b0000;">Wipe + Characters</button>
             </div>
             <div id="wipe-chars-status" style="margin-top:8px;font-size:13px;"></div>
-          </div>
-
-          <div style="padding:12px;background:#fff;border:1px solid #e0a0a0;border-radius:6px;">
-            <b>Wipe + Seed Demo Baseline</b>
-            <p style="margin:4px 0 8px;font-size:13px;color:#555;">
-              Same as Wipe Content, then immediately seeds the August 1997 demo baseline
-              (bills, motions, statements, press items, polling entries).
-            </p>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <input id="wipe-seed-confirm-input" type="text" placeholder="Type WIPE CONTENT to confirm"
-                     style="flex:1;min-width:220px;padding:4px 8px;border:1px solid #c00;border-radius:4px;font-size:13px;" />
-              <button class="btn" id="btn-wipe-seed" type="button"
-                      style="background:#c00;color:#fff;border-color:#c00;">Wipe + Seed</button>
-            </div>
-            <div id="wipe-seed-status" style="margin-top:8px;font-size:13px;"></div>
           </div>
 
         </div>
@@ -1435,6 +1432,28 @@ export async function initAdminPanelPage(data) {
       }
     });
 
+    // ── Close Stale Divisions handler ────────────────────────────────────────────
+    host.querySelector("#btn-close-stale-div")?.addEventListener("click", async () => {
+      const btn = host.querySelector("#btn-close-stale-div");
+      const statusEl = host.querySelector("#close-stale-div-status");
+      if (!confirm("Close all currently open divisions? This will mark them as abandoned. Only do this to clear stale data.")) return;
+      if (btn) { btn.disabled = true; btn.textContent = "Closing…"; }
+      if (statusEl) statusEl.textContent = "";
+      try {
+        const result = await apiAdminCloseStaleDiv();
+        toastSuccess(result.message || "Done.");
+        if (statusEl) { statusEl.style.color = "#1a7a1a"; statusEl.textContent = `✓ ${result.message}`; }
+        logAction({ action: "admin.close-stale-divisions", details: { closed: result.closed } });
+        await loadDashboard();
+        render();
+      } catch (err) {
+        toastError(`Close stale divisions: ${err.message}`);
+        if (statusEl) { statusEl.style.color = "#c00"; statusEl.textContent = `Error: ${err.message}`; }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "Close Stale"; }
+      }
+    });
+
     // ── System Health Check handler ──────────────────────────────────────────
     host.querySelector("#btn-system-health-check")?.addEventListener("click", async () => {
       const btn = host.querySelector("#btn-system-health-check");
@@ -1444,9 +1463,9 @@ export async function initAdminPanelPage(data) {
       const checks = [];
       try {
         const health = await apiGetHealth();
-        checks.push({ label: "GET /health (liveness)", ok: Boolean(health?.ok), detail: health?.ok ? "Server is alive" : "Unexpected response" });
+        checks.push({ label: "GET /api/health (liveness)", ok: Boolean(health?.ok), detail: health?.ok ? "Server is alive" : "Unexpected response" });
       } catch (err) {
-        checks.push({ label: "GET /health (liveness)", ok: false, detail: err.message });
+        checks.push({ label: "GET /api/health (liveness)", ok: false, detail: err.message });
       }
       try {
         const state = await apiGetState();
@@ -1615,33 +1634,6 @@ export async function initAdminPanelPage(data) {
         if (statusEl) statusEl.textContent = `Error: ${err.message}`;
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = "Wipe Content"; }
-      }
-    });
-
-    host.querySelector("#btn-wipe-seed")?.addEventListener("click", async () => {
-      const confirmInput = host.querySelector("#wipe-seed-confirm-input");
-      const statusEl     = host.querySelector("#wipe-seed-status");
-      if (confirmInput?.value !== "WIPE CONTENT") {
-        if (statusEl) statusEl.textContent = "Type WIPE CONTENT in the box above to confirm.";
-        return;
-      }
-      const btn = host.querySelector("#btn-wipe-seed");
-      if (btn) { btn.disabled = true; btn.textContent = "Wiping & Seeding…"; }
-      if (statusEl) statusEl.textContent = "";
-      try {
-        const wipeResult = await apiWipeContent();
-        logAction({ action: "admin.wipe-content", details: { wiped: wipeResult.wiped } });
-        const seedResult = await apiSeedDemo();
-        logAction({ action: "admin.seed-demo", details: seedResult.counts });
-        const msg = `Content wiped and demo baseline seeded. Sim reset to August 1997.`;
-        toastSuccess(msg);
-        if (statusEl) statusEl.textContent = `✓ ${msg}`;
-        if (confirmInput) confirmInput.value = "";
-      } catch (err) {
-        toastError(`Wipe + Seed failed: ${err.message}`);
-        if (statusEl) statusEl.textContent = `Error: ${err.message}`;
-      } finally {
-        if (btn) { btn.disabled = false; btn.textContent = "Wipe + Seed"; }
       }
     });
 

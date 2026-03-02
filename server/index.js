@@ -3937,7 +3937,7 @@ async function syncObjectTables(data) {
 /**
  * Health
  */
-app.get("/health", (req, res) => res.json({ ok: true }));
+app.get(["/health", "/api/health"], (req, res) => res.json({ ok: true }));
 
 /**
  * Permission map
@@ -8561,6 +8561,21 @@ app.post("/api/admin/force-logout-all", maintLimit, async (req, res) => {
     res.json({ ok: true, sessionsDeleted: rowCount, message: `${rowCount} session(s) terminated.` });
   } catch (e) {
     console.error("[admin/force-logout-all]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Close all stale divisions (status = 'open' → 'closed' with outcome 'abandoned')
+app.post("/api/admin/close-stale-divisions", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rowCount } = await pool.query(
+      `UPDATE divisions SET status = 'closed', outcome = 'abandoned' WHERE status = 'open'`
+    );
+    console.log(`[admin] close-stale-divisions: closed ${rowCount} open division(s) by user ${req.session.userId}`);
+    res.json({ ok: true, closed: rowCount, message: `Closed ${rowCount} stale open division(s).` });
+  } catch (e) {
+    console.error("[admin/close-stale-divisions]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
