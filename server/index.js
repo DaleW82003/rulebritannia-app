@@ -1919,6 +1919,20 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_pc_posts_created ON privy_council_posts (created_at DESC);
   `);
+
+  // Frontbench reshuffle tracking
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS frontbench_reshuffles (
+      id           SERIAL      PRIMARY KEY,
+      type         TEXT        NOT NULL CHECK (type IN ('government', 'opposition')),
+      sim_month    INTEGER     NOT NULL,
+      sim_year     INTEGER     NOT NULL,
+      is_active    BOOLEAN     NOT NULL DEFAULT TRUE,
+      declared_by  UUID        REFERENCES characters(id) ON DELETE SET NULL,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_reshuffles_type_active ON frontbench_reshuffles (type, is_active, created_at DESC);
+  `);
 }
 
 // ── Property / Finance model constants ────────────────────────────────────────
@@ -12485,6 +12499,643 @@ app.get("/api/characters/:id/offices-held", officeReadLimit, async (req, res) =>
     res.json({ officesHeld });
   } catch (e) {
     console.error("[GET /api/characters/:id/offices-held]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Helper: create a breaking news story server-side (used by fire/resign/reset)
+// ───────────────────────────────────────────────────────────────────────────
+async function createBreakingNewsStory(actorId, headline, text) {
+  try {
+    const { simMonth, simYear } = await getCurrentSimMonthYear();
+    const simDate = `${simMonth}/${simYear}`;
+    const id = `breaking-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await pool.query(
+      `INSERT INTO news_stories (id, headline, text, category, image_url, is_breaking, flavour, sim_date, created_by)
+       VALUES ($1,$2,$3,'Politics','',TRUE,FALSE,$4,$5)`,
+      [id, headline, text, simDate, actorId || null]
+    );
+  } catch (err) {
+    console.error("[createBreakingNewsStory]", err.message);
+  }
+}
+
+// POST /api/offices/:id/fire — fire the current holder of the office (vacate first)
+app.post("/api/offices/:id/fire", officeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const [{ rows: offRows }] = await Promise.all([
+      pool.query("SELECT id, name, type, spec_id FROM offices WHERE id = $1", [req.params.id]),
+    ]);
+    if (!offRows.length) return res.status(404).json({ error: "Office not found" });
+    const office = offRows[0];
+
+    // Find current holder
+    const { rows: assignRows } = await pool.query(
+      `SELECT oa.character_id, c.name AS character_name
+         FROM office_assignments oa JOIN characters c ON c.id = oa.character_id
+        WHERE oa.office_id = $1 LIMIT 1`,
+      [req.params.id]
+    );
+    if (!assignRows.length) return res.status(400).json({ error: "Office is already vacant" });
+    const { character_id: firedCharId, character_name: firedCharName } = assignRows[0];
+
+    // Permission: admin/mod, PM can fire cabinet (non-PM), LOTO can fire shadow (non-LOTO)
+    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      const callerCharId = await getActiveCharacterId(req);
+      if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
+      if (office.type === "cabinet" && office.spec_id !== "prime-minister") {
+        const { rows: pmCheck } = await pool.query(
+          `SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+            WHERE o.spec_id = 'prime-minister' AND oa.character_id = $1`, [callerCharId]
+        );
+        if (!pmCheck.length) return res.status(403).json({ error: "Only the Prime Minister or admin/mod can fire ministers" });
+      } else if (office.type === "shadow" && office.spec_id !== "leader-opposition") {
+        const { rows: lotoCheck } = await pool.query(
+          `SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+            WHERE o.spec_id = 'leader-opposition' AND oa.character_id = $1`, [callerCharId]
+        );
+        if (!lotoCheck.length) return res.status(403).json({ error: "Only the Leader of the Opposition or admin/mod can fire shadow ministers" });
+      } else {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+    }
+
+    // Determine PM/LOTO name for news template
+    const officeTitle = OFFICE_SPEC_TITLES[office.spec_id] || office.name;
+    let leaderName = "";
+    if (office.type === "cabinet") {
+      const { rows: pmRows } = await pool.query(
+        `SELECT c.name FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+           JOIN characters c ON c.id = oa.character_id
+          WHERE o.spec_id = 'prime-minister' LIMIT 1`
+      );
+      leaderName = pmRows[0]?.name || "Prime Minister";
+    } else {
+      const { rows: lotoRows } = await pool.query(
+        `SELECT c.name FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+           JOIN characters c ON c.id = oa.character_id
+          WHERE o.spec_id = 'leader-opposition' LIMIT 1`
+      );
+      leaderName = lotoRows[0]?.name || "Leader of the Opposition";
+    }
+
+    const { simMonth, simYear } = await getCurrentSimMonthYear();
+
+    // Vacate the office
+    await pool.query("DELETE FROM office_assignments WHERE office_id = $1 AND character_id = $2", [req.params.id, firedCharId]);
+    await pool.query(
+      `UPDATE office_assignment_history SET end_sim_month = $1, end_sim_year = $2
+        WHERE office_id = $3 AND character_id = $4 AND end_sim_month IS NULL`,
+      [simMonth, simYear, req.params.id, firedCharId]
+    );
+    await recomputeSalaryPositions(firedCharId).catch((e) => console.error("[salary positions]", e.message));
+
+    // Breaking news
+    const isShadow = office.type === "shadow";
+    const newsHeadline = isShadow
+      ? `Breaking: ${firedCharName} fired from the ${officeTitle}`
+      : `Breaking: ${firedCharName} fired from the Government`;
+    const newsText = isShadow
+      ? `Breaking: The Leader of the Opposition, ${leaderName}, has fired the ${officeTitle}, ${firedCharName}. More as this story develops…`
+      : `Breaking: Prime Minister ${leaderName} has fired the ${officeTitle}, ${firedCharName}. More as this story develops…`;
+    await createBreakingNewsStory(req.session.userId, newsHeadline, newsText);
+
+    await writeAuditLog(req.session.userId, "office.fire", "office_assignment",
+      `${req.params.id}:${firedCharId}`,
+      { office_id: req.params.id, character_id: firedCharId },
+      null,
+      {
+        headline: `${firedCharName} fired from ${officeTitle}`,
+        characterName: firedCharName,
+        officeName: officeTitle,
+        officeType: office.type,
+        simMonth,
+        simYear,
+      }
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/offices/:id/fire]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/offices/:id/resign — current holder resigns (vacate first)
+app.post("/api/offices/:id/resign", officeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const { rows: offRows } = await pool.query(
+      "SELECT id, name, type, spec_id FROM offices WHERE id = $1", [req.params.id]
+    );
+    if (!offRows.length) return res.status(404).json({ error: "Office not found" });
+    const office = offRows[0];
+
+    // Find current holder
+    const { rows: assignRows } = await pool.query(
+      `SELECT oa.character_id, c.name AS character_name
+         FROM office_assignments oa JOIN characters c ON c.id = oa.character_id
+        WHERE oa.office_id = $1 LIMIT 1`,
+      [req.params.id]
+    );
+    if (!assignRows.length) return res.status(400).json({ error: "Office is already vacant" });
+    const { character_id: resignCharId, character_name: resignCharName } = assignRows[0];
+
+    // Permission: current holder or admin/mod
+    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      const callerCharId = await getActiveCharacterId(req);
+      if (!callerCharId || callerCharId !== resignCharId) {
+        return res.status(403).json({ error: "Only the current office holder or admin/mod can resign from this office" });
+      }
+    }
+
+    const officeTitle = OFFICE_SPEC_TITLES[office.spec_id] || office.name;
+    const { simMonth, simYear } = await getCurrentSimMonthYear();
+
+    // Vacate the office
+    await pool.query("DELETE FROM office_assignments WHERE office_id = $1 AND character_id = $2", [req.params.id, resignCharId]);
+    await pool.query(
+      `UPDATE office_assignment_history SET end_sim_month = $1, end_sim_year = $2
+        WHERE office_id = $3 AND character_id = $4 AND end_sim_month IS NULL`,
+      [simMonth, simYear, req.params.id, resignCharId]
+    );
+    await recomputeSalaryPositions(resignCharId).catch((e) => console.error("[salary positions]", e.message));
+
+    // Breaking news
+    const isShadow = office.type === "shadow";
+    const newsHeadline = isShadow
+      ? `Breaking: ${resignCharName} resigns from ${officeTitle}`
+      : `Breaking: ${resignCharName} resigns from the Government`;
+    const newsText = isShadow
+      ? `Breaking: The ${officeTitle}, ${resignCharName}, has resigned from the Official Opposition. More as this story develops…`
+      : `Breaking: The ${officeTitle}, ${resignCharName}, has resigned from the Government. More as this story develops…`;
+    await createBreakingNewsStory(req.session.userId, newsHeadline, newsText);
+
+    await writeAuditLog(req.session.userId, "office.resign", "office_assignment",
+      `${req.params.id}:${resignCharId}`,
+      { office_id: req.params.id, character_id: resignCharId },
+      null,
+      {
+        headline: `${resignCharName} resigned from ${officeTitle}`,
+        characterName: resignCharName,
+        officeName: officeTitle,
+        officeType: office.type,
+        simMonth,
+        simYear,
+      }
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/offices/:id/resign]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/government/reset — admin/mod: vacate all cabinet offices, assign new PM
+app.post("/api/government/reset", officeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { newPmCharId } = req.body || {};
+    if (!newPmCharId) return res.status(400).json({ error: "newPmCharId is required" });
+
+    const { rows: charRows } = await pool.query("SELECT id, name FROM characters WHERE id = $1", [newPmCharId]);
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+    const newPmName = charRows[0].name;
+
+    const { simMonth, simYear } = await getCurrentSimMonthYear();
+
+    // Vacate all cabinet offices
+    const { rows: cabinetRows } = await pool.query(
+      `SELECT oa.office_id, oa.character_id FROM office_assignments oa
+         JOIN offices o ON o.id = oa.office_id
+        WHERE o.type = 'cabinet'`
+    );
+    for (const row of cabinetRows) {
+      await pool.query("DELETE FROM office_assignments WHERE office_id = $1 AND character_id = $2", [row.office_id, row.character_id]);
+      await pool.query(
+        `UPDATE office_assignment_history SET end_sim_month = $1, end_sim_year = $2
+          WHERE office_id = $3 AND character_id = $4 AND end_sim_month IS NULL`,
+        [simMonth, simYear, row.office_id, row.character_id]
+      );
+      await recomputeSalaryPositions(row.character_id).catch((e) => console.error("[salary positions]", e.message));
+    }
+
+    // Assign new PM
+    const { rows: pmOfficeRows } = await pool.query("SELECT id FROM offices WHERE spec_id = 'prime-minister' LIMIT 1");
+    if (pmOfficeRows.length) {
+      const pmOfficeId = pmOfficeRows[0].id;
+      await pool.query(
+        `INSERT INTO office_assignments (office_id, character_id) VALUES ($1, $2)
+         ON CONFLICT (office_id, character_id) DO UPDATE SET assigned_at = NOW()`,
+        [pmOfficeId, newPmCharId]
+      );
+      await pool.query(
+        `INSERT INTO office_assignment_history (office_id, character_id, start_sim_month, start_sim_year)
+         SELECT $1, $2, $3, $4 WHERE NOT EXISTS (
+           SELECT 1 FROM office_assignment_history WHERE office_id = $1 AND character_id = $2 AND end_sim_month IS NULL
+         )`,
+        [pmOfficeId, newPmCharId, simMonth, simYear]
+      );
+      await pool.query("UPDATE characters SET rh_ever = TRUE WHERE id = $1", [newPmCharId]);
+      await recomputeSalaryPositions(newPmCharId).catch((e) => console.error("[salary positions]", e.message));
+    }
+
+    // Breaking news
+    const newsHeadline = `Breaking: New Government — ${newPmName} becomes Prime Minister`;
+    const newsText = `Breaking: A new Government has been formed. ${newPmName} has become Prime Minister. More as this story develops…`;
+    await createBreakingNewsStory(req.session.userId, newsHeadline, newsText);
+
+    await writeAuditLog(req.session.userId, "government.reset", "government", "reset", null,
+      { newPmCharId, newPmName, vacatedCount: cabinetRows.length },
+      {
+        headline: `Government reset — ${newPmName} appointed as Prime Minister`,
+        simMonth,
+        simYear,
+      }
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/government/reset]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/opposition/reset — admin/mod: vacate all shadow offices, assign new LOTO
+app.post("/api/opposition/reset", officeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { newLotoCharId } = req.body || {};
+    if (!newLotoCharId) return res.status(400).json({ error: "newLotoCharId is required" });
+
+    const { rows: charRows } = await pool.query("SELECT id, name FROM characters WHERE id = $1", [newLotoCharId]);
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+    const newLotoName = charRows[0].name;
+
+    const { simMonth, simYear } = await getCurrentSimMonthYear();
+
+    // Vacate all shadow offices
+    const { rows: shadowRows } = await pool.query(
+      `SELECT oa.office_id, oa.character_id FROM office_assignments oa
+         JOIN offices o ON o.id = oa.office_id
+        WHERE o.type = 'shadow'`
+    );
+    for (const row of shadowRows) {
+      await pool.query("DELETE FROM office_assignments WHERE office_id = $1 AND character_id = $2", [row.office_id, row.character_id]);
+      await pool.query(
+        `UPDATE office_assignment_history SET end_sim_month = $1, end_sim_year = $2
+          WHERE office_id = $3 AND character_id = $4 AND end_sim_month IS NULL`,
+        [simMonth, simYear, row.office_id, row.character_id]
+      );
+      await recomputeSalaryPositions(row.character_id).catch((e) => console.error("[salary positions]", e.message));
+    }
+
+    // Assign new LOTO
+    const { rows: lotoOfficeRows } = await pool.query("SELECT id FROM offices WHERE spec_id = 'leader-opposition' LIMIT 1");
+    if (lotoOfficeRows.length) {
+      const lotoOfficeId = lotoOfficeRows[0].id;
+      await pool.query(
+        `INSERT INTO office_assignments (office_id, character_id) VALUES ($1, $2)
+         ON CONFLICT (office_id, character_id) DO UPDATE SET assigned_at = NOW()`,
+        [lotoOfficeId, newLotoCharId]
+      );
+      await pool.query(
+        `INSERT INTO office_assignment_history (office_id, character_id, start_sim_month, start_sim_year)
+         SELECT $1, $2, $3, $4 WHERE NOT EXISTS (
+           SELECT 1 FROM office_assignment_history WHERE office_id = $1 AND character_id = $2 AND end_sim_month IS NULL
+         )`,
+        [lotoOfficeId, newLotoCharId, simMonth, simYear]
+      );
+      await pool.query("UPDATE characters SET rh_ever = TRUE WHERE id = $1", [newLotoCharId]);
+      await recomputeSalaryPositions(newLotoCharId).catch((e) => console.error("[salary positions]", e.message));
+    }
+
+    // Breaking news
+    const newsHeadline = `Breaking: New Opposition — ${newLotoName} becomes Leader of the Opposition`;
+    const newsText = `Breaking: ${newLotoName} has become the new Leader of the Opposition. More as this story develops…`;
+    await createBreakingNewsStory(req.session.userId, newsHeadline, newsText);
+
+    await writeAuditLog(req.session.userId, "opposition.reset", "opposition", "reset", null,
+      { newLotoCharId, newLotoName, vacatedCount: shadowRows.length },
+      {
+        headline: `Opposition reset — ${newLotoName} appointed as Leader of the Opposition`,
+        simMonth,
+        simYear,
+      }
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/opposition/reset]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: compute sim-month distance between two (year, month) pairs
+// ─────────────────────────────────────────────────────────────────────────────
+function simMonthsBetween(fromYear, fromMonth, toYear, toMonth) {
+  return (toYear - fromYear) * 12 + (toMonth - fromMonth);
+}
+
+const RESHUFFLE_COOLDOWN_SIM_MONTHS = 18;
+
+// GET /api/government/events — recent fire/resign/reshuffle events for the live docket
+app.get("/api/government/events", officeReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT action, details, created_at
+         FROM audit_log
+        WHERE action IN ('office.fire','office.resign','government.reshuffle','opposition.reshuffle')
+        ORDER BY created_at DESC
+        LIMIT 50`
+    );
+    const events = rows.map((r) => {
+      const d = r.details || {};
+      const after = d.after || {};
+      return {
+        action: r.action,
+        createdAt: r.created_at,
+        characterName: d.characterName || null,
+        officeName: d.officeName || null,
+        officeType: d.officeType || null,
+        pmName: d.pmName || after.pmName || null,
+        lotoName: d.lotoName || after.lotoName || null,
+      };
+    });
+    res.json({ events });
+  } catch (e) {
+    console.error("[GET /api/government/events]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/government/reshuffle — reshuffle status for government
+app.get("/api/government/reshuffle", officeReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT id, sim_month, sim_year, is_active, created_at
+         FROM frontbench_reshuffles WHERE type = 'government'
+        ORDER BY created_at DESC LIMIT 1`
+    );
+    const { simMonth: curMonth, simYear: curYear } = await getCurrentSimMonthYear();
+    const last = rows[0] || null;
+    const monthsSinceLast = last
+      ? simMonthsBetween(last.sim_year, last.sim_month, curYear, curMonth)
+      : RESHUFFLE_COOLDOWN_SIM_MONTHS; // treat as cooldown elapsed if never reshuffled
+    const canReshuffle = monthsSinceLast >= RESHUFFLE_COOLDOWN_SIM_MONTHS;
+    res.json({
+      isActive: last?.is_active ?? false,
+      reshuffleId: last?.id ?? null,
+      lastSimMonth: last?.sim_month ?? null,
+      lastSimYear: last?.sim_year ?? null,
+      canReshuffle,
+      monthsSinceLast,
+      cooldown: RESHUFFLE_COOLDOWN_SIM_MONTHS,
+    });
+  } catch (e) {
+    console.error("[GET /api/government/reshuffle]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/opposition/reshuffle — reshuffle status for opposition
+app.get("/api/opposition/reshuffle", officeReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT id, sim_month, sim_year, is_active, created_at
+         FROM frontbench_reshuffles WHERE type = 'opposition'
+        ORDER BY created_at DESC LIMIT 1`
+    );
+    const { simMonth: curMonth, simYear: curYear } = await getCurrentSimMonthYear();
+    const last = rows[0] || null;
+    const monthsSinceLast = last
+      ? simMonthsBetween(last.sim_year, last.sim_month, curYear, curMonth)
+      : RESHUFFLE_COOLDOWN_SIM_MONTHS;
+    const canReshuffle = monthsSinceLast >= RESHUFFLE_COOLDOWN_SIM_MONTHS;
+    res.json({
+      isActive: last?.is_active ?? false,
+      reshuffleId: last?.id ?? null,
+      lastSimMonth: last?.sim_month ?? null,
+      lastSimYear: last?.sim_year ?? null,
+      canReshuffle,
+      monthsSinceLast,
+      cooldown: RESHUFFLE_COOLDOWN_SIM_MONTHS,
+    });
+  } catch (e) {
+    console.error("[GET /api/opposition/reshuffle]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/government/reshuffle — PM or admin/mod declares a government reshuffle
+app.post("/api/government/reshuffle", officeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    // Permission: admin/mod or current PM
+    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    let callerCharId = null;
+    if (!isAdminOrMod) {
+      callerCharId = await getActiveCharacterId(req);
+      if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
+      const { rows: pmCheck } = await pool.query(
+        `SELECT c.name FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+           JOIN characters c ON c.id = oa.character_id
+          WHERE o.spec_id = 'prime-minister' AND oa.character_id = $1`, [callerCharId]
+      );
+      if (!pmCheck.length) return res.status(403).json({ error: "Only the Prime Minister or admin/mod can declare a reshuffle" });
+    }
+
+    const { simMonth: curMonth, simYear: curYear } = await getCurrentSimMonthYear();
+
+    // Enforce 18 sim-month cooldown (admin/mod bypasses)
+    if (!isAdminOrMod) {
+      const { rows: lastRows } = await pool.query(
+        `SELECT sim_month, sim_year FROM frontbench_reshuffles WHERE type = 'government'
+          ORDER BY created_at DESC LIMIT 1`
+      );
+      if (lastRows.length) {
+        const months = simMonthsBetween(lastRows[0].sim_year, lastRows[0].sim_month, curYear, curMonth);
+        if (months < RESHUFFLE_COOLDOWN_SIM_MONTHS) {
+          return res.status(400).json({
+            error: `A reshuffle was declared ${months} sim month(s) ago. The cooldown is ${RESHUFFLE_COOLDOWN_SIM_MONTHS} sim months.`,
+            monthsRemaining: RESHUFFLE_COOLDOWN_SIM_MONTHS - months,
+          });
+        }
+      }
+    }
+
+    // Close any existing active reshuffle for government
+    await pool.query(
+      `UPDATE frontbench_reshuffles SET is_active = FALSE WHERE type = 'government' AND is_active = TRUE`
+    );
+
+    // Resolve PM name for news
+    const { rows: pmRows } = await pool.query(
+      `SELECT c.name FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+         JOIN characters c ON c.id = oa.character_id
+        WHERE o.spec_id = 'prime-minister' LIMIT 1`
+    );
+    const pmName = pmRows[0]?.name || "The Prime Minister";
+
+    // Insert new reshuffle record
+    const { rows: newRows } = await pool.query(
+      `INSERT INTO frontbench_reshuffles (type, sim_month, sim_year, is_active, declared_by)
+       VALUES ('government', $1, $2, TRUE, $3) RETURNING id`,
+      [curMonth, curYear, callerCharId || null]
+    );
+
+    // Breaking news
+    const newsHeadline = `Breaking: Prime Minister ${pmName} announces a Cabinet reshuffle`;
+    const newsText = `Breaking: Prime Minister ${pmName} has decided to reshuffle their Frontbench. More as we have it…`;
+    await createBreakingNewsStory(req.session.userId, newsHeadline, newsText);
+
+    await writeAuditLog(req.session.userId, "government.reshuffle", "government", "reshuffle", null,
+      { reshuffleId: newRows[0].id, pmName, simMonth: curMonth, simYear: curYear },
+      { headline: `Government reshuffle declared by ${pmName}`, simMonth: curMonth, simYear: curYear }
+    );
+
+    res.json({ ok: true, reshuffleId: newRows[0].id });
+  } catch (e) {
+    console.error("[POST /api/government/reshuffle]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/government/reshuffle/end — PM or admin/mod ends the active reshuffle
+app.post("/api/government/reshuffle/end", officeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      const callerCharId = await getActiveCharacterId(req);
+      if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
+      const { rows: pmCheck } = await pool.query(
+        `SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+          WHERE o.spec_id = 'prime-minister' AND oa.character_id = $1`, [callerCharId]
+      );
+      if (!pmCheck.length) return res.status(403).json({ error: "Only the Prime Minister or admin/mod can end a reshuffle" });
+    }
+
+    await pool.query(
+      `UPDATE frontbench_reshuffles SET is_active = FALSE WHERE type = 'government' AND is_active = TRUE`
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/government/reshuffle/end]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/opposition/reshuffle — LOTO or admin/mod declares an opposition reshuffle
+app.post("/api/opposition/reshuffle", officeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    let callerCharId = null;
+    if (!isAdminOrMod) {
+      callerCharId = await getActiveCharacterId(req);
+      if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
+      const { rows: lotoCheck } = await pool.query(
+        `SELECT c.name FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+           JOIN characters c ON c.id = oa.character_id
+          WHERE o.spec_id = 'leader-opposition' AND oa.character_id = $1`, [callerCharId]
+      );
+      if (!lotoCheck.length) return res.status(403).json({ error: "Only the Leader of the Opposition or admin/mod can declare a reshuffle" });
+    }
+
+    const { simMonth: curMonth, simYear: curYear } = await getCurrentSimMonthYear();
+
+    if (!isAdminOrMod) {
+      const { rows: lastRows } = await pool.query(
+        `SELECT sim_month, sim_year FROM frontbench_reshuffles WHERE type = 'opposition'
+          ORDER BY created_at DESC LIMIT 1`
+      );
+      if (lastRows.length) {
+        const months = simMonthsBetween(lastRows[0].sim_year, lastRows[0].sim_month, curYear, curMonth);
+        if (months < RESHUFFLE_COOLDOWN_SIM_MONTHS) {
+          return res.status(400).json({
+            error: `A reshuffle was declared ${months} sim month(s) ago. The cooldown is ${RESHUFFLE_COOLDOWN_SIM_MONTHS} sim months.`,
+            monthsRemaining: RESHUFFLE_COOLDOWN_SIM_MONTHS - months,
+          });
+        }
+      }
+    }
+
+    await pool.query(
+      `UPDATE frontbench_reshuffles SET is_active = FALSE WHERE type = 'opposition' AND is_active = TRUE`
+    );
+
+    const { rows: lotoRows } = await pool.query(
+      `SELECT c.name FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+         JOIN characters c ON c.id = oa.character_id
+        WHERE o.spec_id = 'leader-opposition' LIMIT 1`
+    );
+    const lotoName = lotoRows[0]?.name || "The Leader of the Opposition";
+
+    const { rows: newRows } = await pool.query(
+      `INSERT INTO frontbench_reshuffles (type, sim_month, sim_year, is_active, declared_by)
+       VALUES ('opposition', $1, $2, TRUE, $3) RETURNING id`,
+      [curMonth, curYear, callerCharId || null]
+    );
+
+    const newsHeadline = `Breaking: Leader of the Opposition ${lotoName} announces a Shadow Cabinet reshuffle`;
+    const newsText = `Breaking: Leader of the Opposition ${lotoName} has decided to reshuffle their Frontbench. More as we have it…`;
+    await createBreakingNewsStory(req.session.userId, newsHeadline, newsText);
+
+    await writeAuditLog(req.session.userId, "opposition.reshuffle", "opposition", "reshuffle", null,
+      { reshuffleId: newRows[0].id, lotoName, simMonth: curMonth, simYear: curYear },
+      { headline: `Opposition reshuffle declared by ${lotoName}`, simMonth: curMonth, simYear: curYear }
+    );
+
+    res.json({ ok: true, reshuffleId: newRows[0].id });
+  } catch (e) {
+    console.error("[POST /api/opposition/reshuffle]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/opposition/reshuffle/end — LOTO or admin/mod ends the active opposition reshuffle
+app.post("/api/opposition/reshuffle/end", officeWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      const callerCharId = await getActiveCharacterId(req);
+      if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
+      const { rows: lotoCheck } = await pool.query(
+        `SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+          WHERE o.spec_id = 'leader-opposition' AND oa.character_id = $1`, [callerCharId]
+      );
+      if (!lotoCheck.length) return res.status(403).json({ error: "Only the Leader of the Opposition or admin/mod can end a reshuffle" });
+    }
+
+    await pool.query(
+      `UPDATE frontbench_reshuffles SET is_active = FALSE WHERE type = 'opposition' AND is_active = TRUE`
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/opposition/reshuffle/end]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

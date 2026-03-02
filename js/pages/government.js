@@ -1,6 +1,6 @@
 import { esc, formatMPName, partyBadge, PARTY_COLOURS } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
-import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice, apiGetParliamentStatus, apiUpdateParliamentStatus, apiGetCanonicalParties } from "../api.js";
+import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice, apiGetParliamentStatus, apiUpdateParliamentStatus, apiGetCanonicalParties, apiFireOffice, apiResignOffice, apiResetGovernment, apiGetReshuffleStatus, apiDeclareReshuffle, apiEndReshuffle } from "../api.js";
 import { isLoggedIn } from "../core.js";
 
 const OFFICE_SPECS = [
@@ -182,7 +182,12 @@ function render(data, state) {
   const manager = canAdminOrMod(data);
   const pmHolder = officeMap.get("prime-minister")?.holderName || "";
   const isPM = !!pmHolder && pmHolder === getCurrentName(data);
+  const currentName = getCurrentName(data);
   const canonicalParties = Array.isArray(data._canonicalParties) ? data._canonicalParties : [];
+  const reshuffleStatus = data._reshuffleStatus || {};
+  const reshuffleActive = !!reshuffleStatus.isActive;
+  const canReshuffle = !reshuffleActive && !!(reshuffleStatus.canReshuffle);
+  const canManageReshuffle = manager || isPM;
 
   const GOV_TYPES = ["Majority", "Minority", "Coalition", "Confidence and Supply"];
 
@@ -230,15 +235,48 @@ function render(data, state) {
       <button id="gov-formation-save" type="button" class="btn">Save Formation</button>
       ${state.formationMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.formationMessage)}</p>` : ""}
     </section>
+
+    <section class="tile" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">New Government</h2>
+      <p class="muted" style="margin-bottom:8px;">Vacates <strong>all</strong> cabinet offices and assigns the selected character as Prime Minister. Use this when there is a change of government.</p>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <div>
+          <label class="label" for="new-gov-pm-select">New Prime Minister</label>
+          <select id="new-gov-pm-select" class="input" style="min-width:220px;">
+            <option value="">— select character —</option>
+            ${choices.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.party ? ` (${esc(c.party)})` : ""}</option>`).join("")}
+          </select>
+        </div>
+        <button id="new-gov-btn" type="button" class="btn btn-danger">New Government</button>
+      </div>
+      ${state.resetMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.resetMessage)}</p>` : ""}
+    </section>
     ` : ""}
 
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">How appointments work</h2>
-      <p class="muted" style="margin-bottom:8px;">Mods/Admins appoint the Prime Minister from active characters. The Prime Minister then appoints all other offices from active characters.</p>
-      <p class="muted" style="margin:0;">Editing rights: ${manager ? "You are a moderator/admin (full edit access)." : isPM ? "You are the Prime Minister (you can appoint all non-PM offices)." : "View-only mode."}</p>
+      <p class="muted" style="margin-bottom:8px;">Mods/Admins appoint the Prime Minister from active characters. The Prime Minister then appoints all other offices from active characters. To change a filled office, the current holder must first <strong>Resign</strong> or be <strong>Fired</strong> — or the PM can declare a <strong>Reshuffle</strong> to reassign offices freely.</p>
+      <p class="muted" style="margin:0;">Editing rights: ${manager ? "You are a moderator/admin (full edit access)." : isPM ? "You are the Prime Minister (you can appoint vacant non-PM offices and fire ministers)." : "View-only mode."}</p>
       ${governingParties.length ? `<p style="margin:8px 0 0;">Government (${esc(govType)}): ${governingParties.map(partyBadge).join(" ")}</p>` : ""}
       ${csParties.length ? `<p style="margin:4px 0 0;">Confidence &amp; Supply: ${csParties.map(partyBadge).join(" ")}</p>` : ""}
     </section>
+
+    ${canManageReshuffle ? `
+    <section class="tile" style="margin-bottom:12px;${reshuffleActive ? "border-left:4px solid #e67e22;" : ""}">
+      <h2 style="margin-top:0;">${reshuffleActive ? "⚡ Reshuffle in Progress" : "Cabinet Reshuffle"}</h2>
+      ${reshuffleActive ? `
+        <p class="muted" style="margin-bottom:8px;">A reshuffle is currently active. All cabinet offices can be freely reassigned via the dropdowns below. Click <strong>End Reshuffle</strong> when you are done.</p>
+        <button id="gov-end-reshuffle" type="button" class="btn">End Reshuffle</button>
+      ` : `
+        <p class="muted" style="margin-bottom:8px;">${canReshuffle
+          ? "You can declare a Reshuffle to freely reassign all cabinet offices. This generates breaking news and can only be done once every 18 sim months."
+          : `Next reshuffle available in ${Math.max(0, (reshuffleStatus.cooldown || 18) - (reshuffleStatus.monthsSinceLast || 0))} sim month(s).`
+        }</p>
+        <button id="gov-declare-reshuffle" type="button" class="btn" ${canReshuffle ? "" : "disabled"}>Declare Reshuffle</button>
+      `}
+      ${state.reshuffleMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.reshuffleMessage)}</p>` : ""}
+    </section>
+    ` : ""}
 
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Current Government</h2>
@@ -247,23 +285,37 @@ function render(data, state) {
           const office = officeMap.get(spec.id) || {};
           const name = office.holderName || "Vacant";
           const avatar = avatarFromCharacterProfile(data, office.holderName) || office.holderAvatar || "";
-          const editable = canEditOffice(data, spec.id);
+          const isFilled = !!office.holderName;
           const displayName = office.holderDisplayName || (office.holderName ? formatMPName(office.holderName, { appendMP: true }) : "");
+          // During reshuffle: all offices with edit permission show dropdowns
+          // PM self-held non-PM office: always show dropdown
+          const isPmSelfInNonPmOffice = isPM && isFilled && spec.id !== "prime-minister" && office.holderName === currentName;
+          const canEdit = canEditOffice(data, spec.id);
+          const showDropdown = (!isFilled && canEdit) || isPmSelfInNonPmOffice || (reshuffleActive && canEdit);
+          // Fire: PM (for non-PM offices) or admin/mod; only when NOT in reshuffle mode (reshuffle provides dropdown)
+          const canFire = !reshuffleActive && isFilled && (manager || (isPM && spec.id !== "prime-minister"));
+          // Resign: current holder only (or admin/mod), not when dropdown is shown
+          const canResignOffice = !reshuffleActive && !isPmSelfInNonPmOffice && isFilled && (manager || office.holderName === currentName);
           return `
             <article class="tile" style="display:grid;grid-template-columns:minmax(260px,2fr) minmax(220px,2fr) 84px;gap:10px;align-items:center;">
               <div>
                 <div><b>${esc(spec.title)}</b></div>
               </div>
               <div>
-                ${editable ? `
+                ${showDropdown ? `
                   <label class="label" for="assign-${esc(spec.id)}">Character</label>
                   <select class="input" id="assign-${esc(spec.id)}" data-role="office-select" data-office-id="${esc(spec.id)}">
                     <option value="">Vacant</option>
                     ${choices.map((c) => `<option value="${esc(c.id)}" ${c.id === office.holderCharId ? "selected" : ""}>${esc(c.name)}${c.party ? ` (${esc(c.party)})` : ""}</option>`).join("")}
                   </select>
-                ` : displayName ? `
+                  ${isPmSelfInNonPmOffice && !reshuffleActive ? `<div style="margin-top:4px;font-size:.8em;color:var(--muted,#888);">You hold this office — select Vacant to step down, or choose a replacement.</div>` : ""}
+                ` : isFilled ? `
                   <div style="font-weight:700;text-align:center;">${esc(displayName)}</div>
                   ${office.holderParty ? `<div style="text-align:center;margin-top:2px;">${partyBadge(office.holderParty)}</div>` : ""}
+                  <div style="display:flex;gap:6px;justify-content:center;margin-top:8px;flex-wrap:wrap;">
+                    ${canFire ? `<button class="btn btn-sm btn-danger" data-action="fire" data-office-id="${esc(spec.id)}" data-office-title="${esc(spec.short)}" data-holder-name="${esc(office.holderName)}">Fire</button>` : ""}
+                    ${canResignOffice ? `<button class="btn btn-sm btn-warning" data-action="resign" data-office-id="${esc(spec.id)}" data-office-title="${esc(spec.short)}" data-holder-name="${esc(office.holderName)}">Resign</button>` : ""}
+                  </div>
                 ` : `
                   <div style="text-align:center;color:var(--muted,#888);font-style:italic;">Vacant</div>
                 `}
@@ -316,6 +368,81 @@ function render(data, state) {
     }
   });
 
+  host.querySelector("#new-gov-btn")?.addEventListener("click", async () => {
+    const btn = host.querySelector("#new-gov-btn");
+    const select = host.querySelector("#new-gov-pm-select");
+    const newPmCharId = select?.value || "";
+    if (!newPmCharId) { alert("Please select the new Prime Minister."); return; }
+    const newPmName = select.options[select.selectedIndex]?.text || newPmCharId;
+    if (!confirm(`This will vacate ALL government offices and appoint ${newPmName} as Prime Minister. Are you sure?`)) return;
+    if (btn) btn.disabled = true;
+    try {
+      await apiResetGovernment(newPmCharId);
+      await initGovernmentPage(data, { message: "", resetMessage: `Government reset. ${newPmName} is now Prime Minister.` });
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      console.error("[new-gov-btn]", err);
+      alert(`Error resetting government: ${err.message}`);
+    }
+  });
+
+  host.querySelector("#gov-declare-reshuffle")?.addEventListener("click", async () => {
+    const btn = host.querySelector("#gov-declare-reshuffle");
+    if (!confirm("Declare a Cabinet Reshuffle? This will generate breaking news and allow you to reassign all cabinet offices. You can only do this once every 18 sim months.")) return;
+    if (btn) btn.disabled = true;
+    try {
+      await apiDeclareReshuffle("government");
+      await initGovernmentPage(data, { message: "", reshuffleMessage: "Reshuffle declared! You can now reassign cabinet offices freely." });
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      console.error("[gov-declare-reshuffle]", err);
+      alert(`Error: ${err.message}`);
+    }
+  });
+
+  host.querySelector("#gov-end-reshuffle")?.addEventListener("click", async () => {
+    const btn = host.querySelector("#gov-end-reshuffle");
+    if (btn) btn.disabled = true;
+    try {
+      await apiEndReshuffle("government");
+      await initGovernmentPage(data, { message: "", reshuffleMessage: "Reshuffle ended." });
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      console.error("[gov-end-reshuffle]", err);
+      alert(`Error: ${err.message}`);
+    }
+  });
+
+  // Fire / Resign buttons
+  host.querySelectorAll('[data-action="fire"], [data-action="resign"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const action = btn.dataset.action;
+      const officeId = btn.dataset.officeId;
+      const officeTitle = btn.dataset.officeTitle;
+      const holderName = btn.dataset.holderName;
+      const office = officeMap.get(officeId);
+      if (!office?.dbOfficeId) { alert("Office not found in DB."); return; }
+
+      const confirmMsg = action === "fire"
+        ? `Fire ${holderName} from the office of ${officeTitle}?`
+        : `Resign ${holderName} from the office of ${officeTitle}?`;
+      if (!confirm(confirmMsg)) return;
+      btn.disabled = true;
+      try {
+        if (action === "fire") {
+          await apiFireOffice(office.dbOfficeId);
+        } else {
+          await apiResignOffice(office.dbOfficeId);
+        }
+        await initGovernmentPage(data, { message: action === "fire" ? `${holderName} has been fired from ${officeTitle}.` : `${holderName} has resigned from ${officeTitle}.` });
+      } catch (err) {
+        btn.disabled = false;
+        console.error(`[gov-${action}]`, err);
+        alert(`Error: ${err.message}`);
+      }
+    });
+  });
+
   host.querySelector("#gov-save")?.addEventListener("click", async () => {
     const btn = host.querySelector("#gov-save");
     if (btn) btn.disabled = true;
@@ -323,10 +450,10 @@ function render(data, state) {
     try {
       for (const el of host.querySelectorAll('[data-role="office-select"]')) {
         const officeId = String(el.dataset.officeId || "");
-        if (!canEditOffice(data, officeId)) continue;
-        const selectedCharId = el.value || null;
         const office = officeMap.get(officeId);
+        // Only process offices where the dropdown is shown (vacant+canEdit or PM self-held)
         if (!office?.dbOfficeId) continue;
+        const selectedCharId = el.value || null;
         const currentCharId = office.holderCharId || null;
         if (currentCharId === selectedCharId) continue;
         if (selectedCharId) {
@@ -353,11 +480,12 @@ export async function initGovernmentPage(data, renderState = { message: "" }) {
   if (isLoggedIn()) {
     // Merge live office assignments from the DB (single source of truth).
     try {
-      const [{ offices: dbOffices }, { characters: dbChars }, parlStatus, { parties: canonicalParties }] = await Promise.all([
+      const [{ offices: dbOffices }, { characters: dbChars }, parlStatus, { parties: canonicalParties }, reshuffleStatus] = await Promise.all([
       apiGetOffices(),
       apiGetCharacters({ active: "true" }),
       apiGetParliamentStatus().catch(() => null),
       apiGetCanonicalParties().catch(() => ({ parties: [] })),
+      apiGetReshuffleStatus("government").catch(() => ({ isActive: false, canReshuffle: true, monthsSinceLast: 18, cooldown: 18 })),
     ]);
     const charById = Object.fromEntries((dbChars || []).map((c) => [c.id, c]));
     const officeMap = getOfficeMap(data);
@@ -387,6 +515,7 @@ export async function initGovernmentPage(data, renderState = { message: "" }) {
     data._dbCharacters = dbChars || [];
     if (parlStatus) data._parlStatus = parlStatus;
     data._canonicalParties = canonicalParties || [];
+    data._reshuffleStatus = reshuffleStatus || {};
     } catch {
       // Non-critical: fall back to state-based government data
     }

@@ -1197,6 +1197,88 @@ export async function apiGetCharacterOfficesHeld(characterId) {
   return res.json();
 }
 
+export async function apiFireOffice(officeId) {
+  const res = await fetch(`${API_BASE}/api/offices/${encodeURIComponent(officeId)}/fire`, {
+    method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiFireOffice failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiResignOffice(officeId) {
+  const res = await fetch(`${API_BASE}/api/offices/${encodeURIComponent(officeId)}/resign`, {
+    method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiResignOffice failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiResetGovernment(newPmCharId) {
+  const res = await fetch(`${API_BASE}/api/government/reset`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ newPmCharId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiResetGovernment failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiResetOpposition(newLotoCharId) {
+  const res = await fetch(`${API_BASE}/api/opposition/reset`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ newLotoCharId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiResetOpposition failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiGetReshuffleStatus(type) {
+  const res = await fetch(`${API_BASE}/api/${encodeURIComponent(type)}/reshuffle`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetReshuffleStatus failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiGetGovernmentEvents() {
+  const res = await fetch(`${API_BASE}/api/government/events`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetGovernmentEvents failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiDeclareReshuffle(type) {
+  const res = await fetch(`${API_BASE}/api/${encodeURIComponent(type)}/reshuffle`, {
+    method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiDeclareReshuffle failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiEndReshuffle(type) {
+  const res = await fetch(`${API_BASE}/api/${encodeURIComponent(type)}/reshuffle/end`, {
+    method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiEndReshuffle failed (${res.status})`);
+  }
+  return res.json();
+}
+
 // ── Divisions ──────────────────────────────────────────────────────────────
 
 export async function apiGetDivisions(params = {}) {

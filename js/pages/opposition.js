@@ -1,6 +1,6 @@
 import { esc, formatMPName, partyBadge, PARTY_COLOURS } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
-import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice, apiGetParliamentStatus, apiUpdateParliamentStatus, apiGetCanonicalParties } from "../api.js";
+import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice, apiGetParliamentStatus, apiUpdateParliamentStatus, apiGetCanonicalParties, apiFireOffice, apiResignOffice, apiResetOpposition, apiGetReshuffleStatus, apiDeclareReshuffle, apiEndReshuffle } from "../api.js";
 import { isLoggedIn } from "../core.js";
 
 const SHADOW_OFFICE_SPECS = [
@@ -167,7 +167,12 @@ function render(data, state) {
   const manager = canAdminOrMod(data);
   const leaderHolder = officeMap.get("leader-opposition")?.holderName || "";
   const isLeader = !!leaderHolder && leaderHolder === getCurrentName(data);
+  const currentName = getCurrentName(data);
   const canonicalParties = Array.isArray(data._canonicalParties) ? data._canonicalParties : [];
+  const reshuffleStatus = data._reshuffleStatus || {};
+  const reshuffleActive = !!reshuffleStatus.isActive;
+  const canReshuffle = !reshuffleActive && !!(reshuffleStatus.canReshuffle);
+  const canManageReshuffle = manager || isLeader;
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Official Opposition of the United Kingdom</div></div>
@@ -189,14 +194,47 @@ function render(data, state) {
       <button id="opp-parties-save" type="button" class="btn">Save Opposition Parties</button>
       ${state.partiesMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.partiesMessage)}</p>` : ""}
     </section>
+
+    <section class="tile" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">New Opposition</h2>
+      <p class="muted" style="margin-bottom:8px;">Vacates <strong>all</strong> shadow offices and assigns the selected character as Leader of the Opposition. Use this when the opposition changes leadership.</p>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <div>
+          <label class="label" for="new-opp-loto-select">New Leader of the Opposition</label>
+          <select id="new-opp-loto-select" class="input" style="min-width:220px;">
+            <option value="">— select character —</option>
+            ${choices.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.party ? ` (${esc(c.party)})` : ""}</option>`).join("")}
+          </select>
+        </div>
+        <button id="new-opp-btn" type="button" class="btn btn-danger">New Opposition</button>
+      </div>
+      ${state.resetMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.resetMessage)}</p>` : ""}
+    </section>
     ` : ""}
 
     <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">How appointments work</h2>
-      <p class="muted" style="margin-bottom:8px;">Mods/Admins appoint the Leader of the Opposition from active characters. The Leader of the Opposition then appoints all other shadow offices from active characters.</p>
-      <p class="muted" style="margin:0;">Editing rights: ${manager ? "You are a moderator/admin (full edit access)." : isLeader ? "You are the Leader of the Opposition (you can appoint all non-Leader offices)." : "View-only mode."}</p>
+      <p class="muted" style="margin-bottom:8px;">Mods/Admins appoint the Leader of the Opposition from active characters. The Leader of the Opposition then appoints all other shadow offices from active characters. To change a filled office, the current holder must first <strong>Resign</strong> or be <strong>Fired</strong> — or the Leader can declare a <strong>Reshuffle</strong> to reassign offices freely.</p>
+      <p class="muted" style="margin:0;">Editing rights: ${manager ? "You are a moderator/admin (full edit access)." : isLeader ? "You are the Leader of the Opposition (you can appoint vacant non-Leader offices and fire shadow ministers)." : "View-only mode."}</p>
       ${oppositionParties.length ? `<p style="margin:8px 0 0;">Official Opposition: ${oppositionParties.map(partyBadge).join(" ")}</p>` : ""}
     </section>
+
+    ${canManageReshuffle ? `
+    <section class="tile" style="margin-bottom:12px;${reshuffleActive ? "border-left:4px solid #e67e22;" : ""}">
+      <h2 style="margin-top:0;">${reshuffleActive ? "⚡ Reshuffle in Progress" : "Shadow Cabinet Reshuffle"}</h2>
+      ${reshuffleActive ? `
+        <p class="muted" style="margin-bottom:8px;">A reshuffle is currently active. All shadow offices can be freely reassigned via the dropdowns below. Click <strong>End Reshuffle</strong> when you are done.</p>
+        <button id="opp-end-reshuffle" type="button" class="btn">End Reshuffle</button>
+      ` : `
+        <p class="muted" style="margin-bottom:8px;">${canReshuffle
+          ? "You can declare a Reshuffle to freely reassign all shadow offices. This generates breaking news and can only be done once every 18 sim months."
+          : `Next reshuffle available in ${Math.max(0, (reshuffleStatus.cooldown || 18) - (reshuffleStatus.monthsSinceLast || 0))} sim month(s).`
+        }</p>
+        <button id="opp-declare-reshuffle" type="button" class="btn" ${canReshuffle ? "" : "disabled"}>Declare Reshuffle</button>
+      `}
+      ${state.reshuffleMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.reshuffleMessage)}</p>` : ""}
+    </section>
+    ` : ""}
 
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Current Official Opposition</h2>
@@ -205,23 +243,36 @@ function render(data, state) {
           const office = officeMap.get(spec.id) || {};
           const name = office.holderName || "Vacant";
           const avatar = avatarFromCharacterProfile(data, office.holderName) || office.holderAvatar || "";
-          const editable = canEditOffice(data, spec.id);
+          const isFilled = !!office.holderName;
           const displayName = office.holderDisplayName || (office.holderName ? formatMPName(office.holderName, { appendMP: true }) : "");
+          // LOTO can freely replace themselves in non-LOTO shadow offices (dual-role special case)
+          const isLotoSelfInNonLotoOffice = isLeader && isFilled && spec.id !== "leader-opposition" && office.holderName === currentName;
+          const canEdit = canEditOffice(data, spec.id);
+          const showDropdown = (!isFilled && canEdit) || isLotoSelfInNonLotoOffice || (reshuffleActive && canEdit);
+          // Fire: LOTO (for non-LOTO offices) or admin/mod; only when NOT in reshuffle mode
+          const canFire = !reshuffleActive && isFilled && (manager || (isLeader && spec.id !== "leader-opposition"));
+          // Resign: current holder only (or admin/mod), not when dropdown is shown
+          const canResignOffice = !reshuffleActive && !isLotoSelfInNonLotoOffice && isFilled && (manager || office.holderName === currentName);
           return `
             <article class="tile" style="display:grid;grid-template-columns:minmax(260px,2fr) minmax(220px,2fr) 84px;gap:10px;align-items:center;">
               <div>
                 <div><b>${esc(spec.title)}</b></div>
               </div>
               <div>
-                ${editable ? `
+                ${showDropdown ? `
                   <label class="label" for="opp-assign-${esc(spec.id)}">Character</label>
                   <select class="input" id="opp-assign-${esc(spec.id)}" data-role="office-select" data-office-id="${esc(spec.id)}">
                     <option value="">Vacant</option>
                     ${choices.map((c) => `<option value="${esc(c.id)}" ${c.id === office.holderCharId ? "selected" : ""}>${esc(c.name)}${c.party ? ` (${esc(c.party)})` : ""}</option>`).join("")}
                   </select>
-                ` : displayName ? `
+                  ${isLotoSelfInNonLotoOffice && !reshuffleActive ? `<div style="margin-top:4px;font-size:.8em;color:var(--muted,#888);">You hold this office — select Vacant to step down, or choose a replacement.</div>` : ""}
+                ` : isFilled ? `
                   <div style="font-weight:700;text-align:center;">${esc(displayName)}</div>
                   ${office.holderParty ? `<div style="text-align:center;margin-top:2px;">${partyBadge(office.holderParty)}</div>` : ""}
+                  <div style="display:flex;gap:6px;justify-content:center;margin-top:8px;flex-wrap:wrap;">
+                    ${canFire ? `<button class="btn btn-sm btn-danger" data-action="fire" data-office-id="${esc(spec.id)}" data-office-title="${esc(spec.short)}" data-holder-name="${esc(office.holderName)}">Fire</button>` : ""}
+                    ${canResignOffice ? `<button class="btn btn-sm btn-warning" data-action="resign" data-office-id="${esc(spec.id)}" data-office-title="${esc(spec.short)}" data-holder-name="${esc(office.holderName)}">Resign</button>` : ""}
+                  </div>
                 ` : `
                   <div style="text-align:center;color:var(--muted,#888);font-style:italic;">Vacant</div>
                 `}
@@ -274,6 +325,81 @@ function render(data, state) {
     }
   });
 
+  host.querySelector("#new-opp-btn")?.addEventListener("click", async () => {
+    const btn = host.querySelector("#new-opp-btn");
+    const select = host.querySelector("#new-opp-loto-select");
+    const newLotoCharId = select?.value || "";
+    if (!newLotoCharId) { alert("Please select the new Leader of the Opposition."); return; }
+    const newLotoName = select.options[select.selectedIndex]?.text || newLotoCharId;
+    if (!confirm(`This will vacate ALL shadow offices and appoint ${newLotoName} as Leader of the Opposition. Are you sure?`)) return;
+    if (btn) btn.disabled = true;
+    try {
+      await apiResetOpposition(newLotoCharId);
+      await initOppositionPage(data, { message: "", resetMessage: `Opposition reset. ${newLotoName} is now Leader of the Opposition.` });
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      console.error("[new-opp-btn]", err);
+      alert(`Error resetting opposition: ${err.message}`);
+    }
+  });
+
+  // Fire / Resign buttons
+  host.querySelectorAll('[data-action="fire"], [data-action="resign"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const action = btn.dataset.action;
+      const officeId = btn.dataset.officeId;
+      const officeTitle = btn.dataset.officeTitle;
+      const holderName = btn.dataset.holderName;
+      const office = officeMap.get(officeId);
+      if (!office?.dbOfficeId) { alert("Office not found in DB."); return; }
+
+      const confirmMsg = action === "fire"
+        ? `Fire ${holderName} from the office of ${officeTitle}?`
+        : `Resign ${holderName} from the office of ${officeTitle}?`;
+      if (!confirm(confirmMsg)) return;
+      btn.disabled = true;
+      try {
+        if (action === "fire") {
+          await apiFireOffice(office.dbOfficeId);
+        } else {
+          await apiResignOffice(office.dbOfficeId);
+        }
+        await initOppositionPage(data, { message: action === "fire" ? `${holderName} has been fired from ${officeTitle}.` : `${holderName} has resigned from ${officeTitle}.` });
+      } catch (err) {
+        btn.disabled = false;
+        console.error(`[opp-${action}]`, err);
+        alert(`Error: ${err.message}`);
+      }
+    });
+  });
+
+  host.querySelector("#opp-declare-reshuffle")?.addEventListener("click", async () => {
+    const btn = host.querySelector("#opp-declare-reshuffle");
+    if (!confirm("Declare a Shadow Cabinet Reshuffle? This will generate breaking news and allow you to reassign all shadow offices. You can only do this once every 18 sim months.")) return;
+    if (btn) btn.disabled = true;
+    try {
+      await apiDeclareReshuffle("opposition");
+      await initOppositionPage(data, { message: "", reshuffleMessage: "Reshuffle declared! You can now reassign shadow offices freely." });
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      console.error("[opp-declare-reshuffle]", err);
+      alert(`Error: ${err.message}`);
+    }
+  });
+
+  host.querySelector("#opp-end-reshuffle")?.addEventListener("click", async () => {
+    const btn = host.querySelector("#opp-end-reshuffle");
+    if (btn) btn.disabled = true;
+    try {
+      await apiEndReshuffle("opposition");
+      await initOppositionPage(data, { message: "", reshuffleMessage: "Reshuffle ended." });
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      console.error("[opp-end-reshuffle]", err);
+      alert(`Error: ${err.message}`);
+    }
+  });
+
   host.querySelector("#opp-save")?.addEventListener("click", async () => {
     const btn = host.querySelector("#opp-save");
     if (btn) btn.disabled = true;
@@ -281,10 +407,10 @@ function render(data, state) {
     try {
       for (const el of host.querySelectorAll('[data-role="office-select"]')) {
         const officeId = String(el.dataset.officeId || "");
-        if (!canEditOffice(data, officeId)) continue;
-        const selectedCharId = el.value || null;
         const office = officeMap.get(officeId);
+        // Only process offices where the dropdown is shown (vacant+canEdit or LOTO self-held)
         if (!office?.dbOfficeId) continue;
+        const selectedCharId = el.value || null;
         const currentCharId = office.holderCharId || null;
         if (currentCharId === selectedCharId) continue;
         if (selectedCharId) {
@@ -311,11 +437,12 @@ export async function initOppositionPage(data, renderState = { message: "" }) {
   if (isLoggedIn()) {
     // Merge live office assignments from the DB (single source of truth).
     try {
-      const [{ offices: dbOffices }, { characters: dbChars }, parlStatus, { parties: canonicalParties }] = await Promise.all([
+      const [{ offices: dbOffices }, { characters: dbChars }, parlStatus, { parties: canonicalParties }, reshuffleStatus] = await Promise.all([
       apiGetOffices(),
       apiGetCharacters({ active: "true" }),
       apiGetParliamentStatus().catch(() => null),
       apiGetCanonicalParties().catch(() => ({ parties: [] })),
+      apiGetReshuffleStatus("opposition").catch(() => ({ isActive: false, canReshuffle: true, monthsSinceLast: 18, cooldown: 18 })),
     ]);
     const charById = Object.fromEntries((dbChars || []).map((c) => [c.id, c]));
     const officeMap = getOfficeMap(data);
@@ -345,6 +472,7 @@ export async function initOppositionPage(data, renderState = { message: "" }) {
     data._dbCharacters = dbChars || [];
     if (parlStatus) data._parlStatus = parlStatus;
     data._canonicalParties = canonicalParties || [];
+    data._reshuffleStatus = reshuffleStatus || {};
     } catch {
       // Non-critical: fall back to state-based opposition data
     }

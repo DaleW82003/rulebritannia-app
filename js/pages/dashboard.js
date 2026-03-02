@@ -5,7 +5,7 @@ import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
 import { apiGetBills } from "../api.js";
 import { apiGetMotions, apiGetStatements, apiGetRegulations, apiGetPressItems, apiGetEvents } from "../api.js";
-import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData, apiGetQtLegacyQuestions } from "../api.js";
+import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData, apiGetQtLegacyQuestions, apiGetGovernmentEvents } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 // js/pages/dashboard.js
@@ -181,6 +181,54 @@ function buildPlayerDocketItems(data) {
     push({ type: "event", iconClass: "icon-event", title: label, detail: newEvents.length === 1 ? (latest.location || "") : "New activity whilst you were away.", ctaLabel: "Open Events", href: "events.html", priority: "med", dismissOnClick: true, seenActivityKey: "event" });
   }
 
+  // ── Government / Opposition fire, resign, reshuffle alerts ────────────────
+  const govEvents = Array.isArray(data?.governmentEvents) ? data.governmentEvents : [];
+  const seenGovTs = seenTs.governmentEvent || 0;
+  const newGovEvents = govEvents.filter((ev) => new Date(ev.createdAt).getTime() > seenGovTs);
+
+  // Fired events
+  const firedEvents = newGovEvents.filter((ev) => ev.action === "office.fire");
+  if (firedEvents.length) {
+    const latest = firedEvents[0];
+    const isShadow = latest.officeType === "shadow";
+    const href = isShadow ? "opposition.html" : "government.html";
+    const title = firedEvents.length === 1
+      ? `${latest.characterName || "A minister"} has been Fired`
+      : `${firedEvents.length} ministers have been Fired`;
+    const detail = firedEvents.length === 1
+      ? `${latest.officeName || ""} — ${isShadow ? "Opposition" : "Government"}`
+      : `Recent frontbench changes`;
+    push({ type: "fire", iconClass: "icon-fire", title, detail, ctaLabel: isShadow ? "Open Opposition" : "Open Government", href, priority: "high", dismissOnClick: true, seenActivityKey: "governmentEvent" });
+  }
+
+  // Resigned events
+  const resignedEvents = newGovEvents.filter((ev) => ev.action === "office.resign");
+  if (resignedEvents.length) {
+    const latest = resignedEvents[0];
+    const isShadow = latest.officeType === "shadow";
+    const href = isShadow ? "opposition.html" : "government.html";
+    const title = resignedEvents.length === 1
+      ? `${latest.characterName || "A minister"} has Resigned`
+      : `${resignedEvents.length} ministers have Resigned`;
+    const detail = resignedEvents.length === 1
+      ? `${latest.officeName || ""} — ${isShadow ? "Opposition" : "Government"}`
+      : `Recent frontbench changes`;
+    push({ type: "resign", iconClass: "icon-resign", title, detail, ctaLabel: isShadow ? "Open Opposition" : "Open Government", href, priority: "high", dismissOnClick: true, seenActivityKey: "governmentEvent" });
+  }
+
+  // Reshuffle events
+  const reshuffleGovEvent = newGovEvents.find((ev) => ev.action === "government.reshuffle");
+  if (reshuffleGovEvent) {
+    const pmLabel = reshuffleGovEvent.pmName || "The Prime Minister";
+    push({ type: "reshuffle", iconClass: "icon-reshuffle", title: `${pmLabel} is doing a Frontbench Reshuffle`, detail: "Government Cabinet reshuffle in progress.", ctaLabel: "Open Government", href: "government.html", priority: "high", dismissOnClick: true, seenActivityKey: "governmentEvent" });
+  }
+
+  const reshuffleOppEvent = newGovEvents.find((ev) => ev.action === "opposition.reshuffle");
+  if (reshuffleOppEvent) {
+    const lotoLabel = reshuffleOppEvent.lotoName || "The Leader of the Opposition";
+    push({ type: "reshuffle", iconClass: "icon-reshuffle", title: `${lotoLabel} is doing a Frontbench Reshuffle`, detail: "Opposition Shadow Cabinet reshuffle in progress.", ctaLabel: "Open Opposition", href: "opposition.html", priority: "high", dismissOnClick: true, seenActivityKey: "governmentEvent" });
+  }
+
   return items;
 }
 
@@ -283,6 +331,9 @@ function iconFor(type) {
     economy:             ["📊", "icon-economy"],
     poll:                ["📈", "icon-poll"],
     news:                ["📰", "icon-news"],
+    fire:                ["🔥", "icon-fire"],
+    resign:              ["🚪", "icon-resign"],
+    reshuffle:           ["🔄", "icon-reshuffle"],
   };
   const entry = map[type];
   if (!entry) return { emoji: "•", cls: "icon-default" };
@@ -670,6 +721,12 @@ export async function initDashboardPage(data) {
       }
     }).catch((err) => {
       console.error("[dashboard] economy DB load failed", err);
+    }),
+    // Government events (fire/resign/reshuffle) → live docket
+    apiGetGovernmentEvents().then((r) => {
+      data.governmentEvents = Array.isArray(r?.events) ? r.events : [];
+    }).catch((err) => {
+      console.error("[dashboard] government events load failed", err);
     }),
   ] : []);
 
