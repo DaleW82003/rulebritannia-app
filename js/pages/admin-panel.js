@@ -13,7 +13,7 @@ import {
   apiGetSsoReadiness,
   apiGetAdminDashboard, apiAdminDiscourseSyncBills,
   apiGetPendingRegistrations, apiApproveRegistration, apiRejectRegistration,
-  apiSeedDemo, apiWipeContent,
+  apiSeedDemo, apiWipeContent, apiWipeWithCharacters,
   apiAdminRepairCharacterOwners,
   apiAdminGetUsers, apiAdminGetCharacters,
   apiAdminAssignCharacterOwner, apiAdminSetUserActiveCharacter,
@@ -119,14 +119,17 @@ export async function initAdminPanelPage(data) {
       </section>`;
     }
     const { pendingQtQuestions, openDivisions, billsAwaitingDebate, recentAuditLog, pendingRegistrations: pendingRegsCount } = dashboardData;
-    const auditRows = (recentAuditLog || []).map((e) =>
-      `<tr>
+    const auditRows = (recentAuditLog || []).map((e) => {
+      const details = typeof e.details === "object" && e.details ? e.details : {};
+      const headline = details.headline || "";
+      return `<tr>
         <td>${esc(e.created_at ? new Date(e.created_at).toLocaleString("en-GB") : "")}</td>
         <td>${esc(e.actor_id || "")}</td>
         <td>${esc(e.action || "")}</td>
         <td>${esc(e.target || "")}</td>
-      </tr>`
-    ).join("");
+        <td style="color:#555;font-size:12px;">${esc(headline)}</td>
+      </tr>`;
+    }).join("");
 
     const syncMsg = billSyncResults
       ? (billSyncResults.ok
@@ -169,9 +172,10 @@ export async function initAdminPanelPage(data) {
               <th style="text-align:left;padding:4px 8px;">Actor</th>
               <th style="text-align:left;padding:4px 8px;">Action</th>
               <th style="text-align:left;padding:4px 8px;">Target</th>
+              <th style="text-align:left;padding:4px 8px;">Details</th>
             </tr>
           </thead>
-          <tbody>${auditRows || `<tr><td colspan="4" class="muted" style="padding:8px;">No recent audit entries.</td></tr>`}</tbody>
+          <tbody>${auditRows || `<tr><td colspan="5" class="muted" style="padding:8px;">No recent audit entries.</td></tr>`}</tbody>
         </table>
       </div>
       <a href="#audit-log-section" style="font-size:13px;display:block;margin-top:8px;">View full audit log ↓</a>
@@ -478,10 +482,6 @@ export async function initAdminPanelPage(data) {
           Shows what Discourse groups each user would be assigned to based on their current roles.
           Use "Sync Now" to apply these groups via the Discourse API.
         </p>
-        <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:8px 12px;font-size:13px;margin-bottom:10px;">
-          <b>Note:</b> Discourse group syncing is <b>off by default</b> during the trial period.
-          Only enable and use "Sync Now" once the UI/UX is ready and Discourse group roles have been confirmed.
-        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
           <button class="btn" id="btn-refresh-sync-preview" type="button">Refresh Preview</button>
           <button class="btn" id="btn-sync-discourse-groups" type="button">Sync Discourse Groups Now</button>
@@ -593,7 +593,8 @@ export async function initAdminPanelPage(data) {
             <div>
               <b>Clear Object Cache</b>
               <p style="margin:4px 0 0;font-size:13px;color:#555;">
-                Truncates the bills, motions, statements, regulations, and question-time tables.
+                Truncates the object-cache tables (bills, motions, statements, regulations, question-time).
+                Does not affect user accounts, characters, or gameplay history.
                 Use before a rebuild or to free space.
               </p>
             </div>
@@ -762,6 +763,23 @@ export async function initAdminPanelPage(data) {
                       style="background:#c00;color:#fff;border-color:#c00;">Wipe Content</button>
             </div>
             <div id="wipe-status" style="margin-top:8px;font-size:13px;"></div>
+          </div>
+
+          <div style="padding:12px;background:#fff;border:1px solid #e0a0a0;border-radius:6px;">
+            <b>Wipe Content with Characters</b>
+            <p style="margin:4px 0 8px;font-size:13px;color:#555;">
+              ⚠️ <strong>Danger:</strong> Wipes all gameplay content <em>and</em> all character data
+              (characters, office assignments, scandals, etc.), resets the sim clock to August 1997.
+              User accounts and pending registrations are preserved.
+              <br><strong>This cannot be undone.</strong>
+            </p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input id="wipe-chars-confirm-input" type="text" placeholder="Type WIPE WITH CHARACTERS to confirm"
+                     style="flex:1;min-width:260px;padding:4px 8px;border:1px solid #c00;border-radius:4px;font-size:13px;" />
+              <button class="btn" id="btn-wipe-with-chars" type="button"
+                      style="background:#7b0000;color:#fff;border-color:#7b0000;">Wipe + Characters</button>
+            </div>
+            <div id="wipe-chars-status" style="margin-top:8px;font-size:13px;"></div>
           </div>
 
           <div style="padding:12px;background:#fff;border:1px solid #e0a0a0;border-radius:6px;">
@@ -1616,6 +1634,32 @@ export async function initAdminPanelPage(data) {
         if (statusEl) statusEl.textContent = `Error: ${err.message}`;
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = "Wipe + Seed"; }
+      }
+    });
+
+    // ── Wipe with Characters button ─────────────────────────────────────────────
+    host.querySelector("#btn-wipe-with-chars")?.addEventListener("click", async () => {
+      const confirmInput = host.querySelector("#wipe-chars-confirm-input");
+      const statusEl     = host.querySelector("#wipe-chars-status");
+      if (confirmInput?.value !== "WIPE WITH CHARACTERS") {
+        if (statusEl) statusEl.textContent = "Type WIPE WITH CHARACTERS in the box above to confirm.";
+        return;
+      }
+      if (!confirm("⚠️ This will wipe all content AND all character data. User accounts are preserved. This cannot be undone. Continue?")) return;
+      const btn = host.querySelector("#btn-wipe-with-chars");
+      if (btn) { btn.disabled = true; btn.textContent = "Wiping…"; }
+      if (statusEl) statusEl.textContent = "";
+      try {
+        const result = await apiWipeWithCharacters();
+        logAction({ action: "admin.wipe-with-characters", details: { wiped: result.wiped } });
+        toastSuccess(result.message);
+        if (statusEl) statusEl.textContent = `✓ ${result.message}`;
+        if (confirmInput) confirmInput.value = "";
+      } catch (err) {
+        toastError(`Wipe failed: ${err.message}`);
+        if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "Wipe + Characters"; }
       }
     });
 
