@@ -614,3 +614,215 @@ test("DISCOURSE_GROUP_MAP does not contain the Discourse automatic groups admins
   assert.ok(!values.includes("admins"),     "admins must not appear in DISCOURSE_GROUP_MAP");
   assert.ok(!values.includes("moderators"), "moderators must not appear in DISCOURSE_GROUP_MAP");
 });
+
+// ── 429 retry behaviour ───────────────────────────────────────────────────────
+
+test("resolveGroupIds retries on 429 with wait_seconds and eventually succeeds", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: jsonHeaders,
+        json: async () => ({ errors: ["Too many requests"], error_type: "rate_limit", extras: { wait_seconds: 1 } }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: jsonHeaders,
+      json: async () => ({ groups: [{ id: 10, name: "staff" }], load_more_groups: null }),
+    };
+  };
+  const sleepCalls = [];
+  const noopSleep = async (ms) => { sleepCalls.push(ms); };
+  try {
+    const map = await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", _sleep: noopSleep });
+    assert.equal(calls, 2, "fetch should be called twice (1 retry)");
+    assert.equal(map.get("staff"), 10);
+    assert.equal(sleepCalls.length, 1, "sleep should be called once");
+    assert.equal(sleepCalls[0], 1250, "sleep duration should be wait_seconds*1000 + 250ms");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds does not retry on non-429 errors (e.g. 401)", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return { ok: false, status: 401, text: async () => "Unauthorized" };
+  };
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" }),
+      /resolveGroupIds failed: HTTP 401/
+    );
+    assert.equal(calls, 1, "fetch should only be called once — no retry on 401");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds uses exponential fallback when 429 body is not JSON", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: { get: () => "text/plain" },
+        text: async () => "rate limited",
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (h) => h === "content-type" ? "application/json" : null },
+      json: async () => ({ groups: [], load_more_groups: null }),
+    };
+  };
+  const sleepCalls = [];
+  const noopSleep = async (ms) => { sleepCalls.push(ms); };
+  try {
+    await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", _sleep: noopSleep });
+    assert.equal(calls, 2);
+    assert.equal(sleepCalls.length, 1);
+    assert.equal(sleepCalls[0], 2000, "fallback delay for attempt 0 should be 2000ms");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds throws after exhausting max retries on persistent 429", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 429,
+    headers: { get: (h) => h === "content-type" ? "application/json" : null },
+    json: async () => ({ extras: { wait_seconds: 1 } }),
+  });
+  const noopSleep = async () => {};
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", _sleep: noopSleep }),
+      /Discourse API rate-limited: HTTP 429/
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("getGroupMembers retries on 429 and eventually succeeds", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: jsonHeaders,
+        json: async () => ({ extras: { wait_seconds: 2 } }),
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({ members: [{ id: 5, username: "bob" }] }) };
+  };
+  const sleepCalls = [];
+  const noopSleep = async (ms) => { sleepCalls.push(ms); };
+  try {
+    const members = await getGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "staff", groupId: 9, _sleep: noopSleep,
+    });
+    assert.equal(calls, 2);
+    assert.equal(members.length, 1);
+    assert.equal(members[0].username, "bob");
+    assert.equal(sleepCalls[0], 2250, "wait 2s + 250ms buffer");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("addGroupMembers retries on 429 and eventually succeeds", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: { get: (h) => h === "content-type" ? "application/json" : null },
+        json: async () => ({ extras: { wait_seconds: 1 } }),
+      };
+    }
+    return { ok: true, status: 200 };
+  };
+  const noopSleep = async () => {};
+  try {
+    await addGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "staff", groupId: 9, usernames: ["alice"], _sleep: noopSleep,
+    });
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("removeGroupMembers retries on 429 and eventually succeeds", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: { get: (h) => h === "content-type" ? "application/json" : null },
+        json: async () => ({ extras: { wait_seconds: 1 } }),
+      };
+    }
+    return { ok: true, status: 200 };
+  };
+  const noopSleep = async () => {};
+  try {
+    await removeGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "staff", groupId: 9, usernames: ["carol"], _sleep: noopSleep,
+    });
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("addGroupMembers does not retry on non-429 errors (e.g. 403)", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return { ok: false, status: 403, text: async () => "Forbidden" };
+  };
+  try {
+    await assert.rejects(
+      () => addGroupMembers({
+        baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+        groupName: "staff", groupId: 9, usernames: ["alice"],
+      }),
+      /addGroupMembers\(staff\) failed: HTTP 403/
+    );
+    assert.equal(calls, 1, "no retry on 403");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});

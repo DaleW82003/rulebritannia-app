@@ -130,6 +130,68 @@ function groupUrlPath(groupName, groupId) {
 }
 
 /**
+ * Perform a fetch with automatic retry on HTTP 429 (rate-limit) responses.
+ *
+ * On 429 the helper attempts to read the JSON body to extract
+ * `extras.wait_seconds` and waits that duration (+250 ms buffer) before
+ * retrying.  Falls back to exponential backoff when the body is not JSON or
+ * the field is absent.  Throws once `maxRetries` or `maxTotalWaitMs` is
+ * exceeded.
+ *
+ * @param {string}   url
+ * @param {object}   init                         - fetch init options
+ * @param {object}   [opts]
+ * @param {number}   [opts.maxRetries=5]
+ * @param {number}   [opts.fallbackDelayMs=2000]  - initial backoff when wait_seconds is absent
+ * @param {number}   [opts.maxTotalWaitMs=60000]
+ * @param {number}   [opts.maxBackoffMs=30000]    - cap on per-attempt backoff delay
+ * @param {number}   [opts.jitterMs=250]          - buffer added to wait_seconds delays
+ * @param {Function} [opts.sleep]                 - injectable sleep(ms)→Promise; defaults to setTimeout
+ * @returns {Promise<Response>}
+ */
+async function discourseApiRequest(url, init, {
+  maxRetries = 5,
+  fallbackDelayMs = 2000,
+  maxTotalWaitMs = 60_000,
+  maxBackoffMs = 30_000,
+  jitterMs = 250,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+} = {}) {
+  let totalWait = 0;
+
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, init);
+    if (res.status !== 429) return res;
+
+    let waitMs;
+    const ct = res.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
+      try {
+        const data = await res.json();
+        const secs = data?.extras?.wait_seconds;
+        if (typeof secs === "number" && secs > 0) {
+          waitMs = Math.round(secs * 1000) + jitterMs;
+        }
+      } catch {
+        // fall through to backoff
+      }
+    }
+    if (waitMs === undefined) {
+      waitMs = Math.min(fallbackDelayMs * Math.pow(2, attempt), maxBackoffMs);
+    }
+
+    totalWait += waitMs;
+    if (attempt >= maxRetries || totalWait > maxTotalWaitMs) {
+      throw new Error(
+        `Discourse API rate-limited: HTTP 429 after ${attempt + 1} attempt(s); waited ${totalWait}ms total`
+      );
+    }
+
+    await sleep(waitMs);
+  }
+}
+
+/**
  * Fetch the numeric Discourse group ID for every group returned by /groups.json.
  *
  * Follows `load_more_groups` pagination until all groups have been retrieved.
@@ -141,13 +203,13 @@ function groupUrlPath(groupName, groupId) {
  * @param {string} opts.apiUsername
  * @returns {Promise<Map<string, number>>}
  */
-export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
+export async function resolveGroupIds({ baseUrl, apiKey, apiUsername, _sleep }) {
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const map = new Map();
   let pageUrl = `${cleanBase}/groups.json`;
 
   while (pageUrl) {
-    const res = await fetch(pageUrl, {
+    const res = await discourseApiRequest(pageUrl, {
       method:   "GET",
       redirect: "manual",
       headers: {
@@ -155,7 +217,7 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
         "Api-Username": apiUsername,
         "Accept":       "application/json",
       },
-    });
+    }, { sleep: _sleep });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`resolveGroupIds failed: HTTP ${res.status} ${text}`);
@@ -196,7 +258,7 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
  *                                    when provided (required by some Discourse versions)
  * @returns {Promise<Array<{ id: number, username: string }>>}
  */
-export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId }) {
+export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, _sleep }) {
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
   const members = [];
@@ -205,7 +267,7 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
 
   while (true) {
     const url = `${cleanBase}/groups/${groupPath}/members.json?limit=${limit}&offset=${offset}`;
-    const res = await fetch(url, {
+    const res = await discourseApiRequest(url, {
       method:   "GET",
       redirect: "manual",
       headers: {
@@ -213,7 +275,7 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
         "Api-Username": apiUsername,
         "Accept":       "application/json",
       },
-    });
+    }, { sleep: _sleep });
 
     if (res.status === 404) return [];         // group doesn't exist yet — treat as empty
     if (!res.ok) {
@@ -245,11 +307,11 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
  * @param {string[]} opts.usernames
  * @returns {Promise<void>}
  */
-export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames }) {
+export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames, _sleep }) {
   if (!usernames.length) return;
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
-  const res = await fetch(`${cleanBase}/groups/${groupPath}/members.json`, {
+  const res = await discourseApiRequest(`${cleanBase}/groups/${groupPath}/members.json`, {
     method:   "PUT",
     redirect: "manual",
     headers: {
@@ -259,7 +321,7 @@ export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
       "Accept":       "application/json",
     },
     body: JSON.stringify({ usernames: usernames.join(",") }),
-  });
+  }, { sleep: _sleep });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`addGroupMembers(${groupName}) failed: HTTP ${res.status} ${text}`);
@@ -279,11 +341,11 @@ export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
  * @param {string[]} opts.usernames
  * @returns {Promise<void>}
  */
-export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames }) {
+export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames, _sleep }) {
   if (!usernames.length) return;
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
-  const res = await fetch(`${cleanBase}/groups/${groupPath}/members.json`, {
+  const res = await discourseApiRequest(`${cleanBase}/groups/${groupPath}/members.json`, {
     method:   "DELETE",
     redirect: "manual",
     headers: {
@@ -293,7 +355,7 @@ export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupNa
       "Accept":       "application/json",
     },
     body: JSON.stringify({ usernames: usernames.join(",") }),
-  });
+  }, { sleep: _sleep });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`removeGroupMembers(${groupName}) failed: HTTP ${res.status} ${text}`);
