@@ -20,10 +20,6 @@ const SHADOW_OFFICE_SPECS = [
   { id: "shadow-leader-commons", title: "Shadow Leader of the House of Commons", short: "Shadow Leader of the House" }
 ];
 
-function isManager(data) {
-  return canAdminOrMod(data);
-}
-
 function normaliseOpposition(data) {
   data.opposition ??= {};
   data.opposition.offices ??= SHADOW_OFFICE_SPECS.map((o) => ({ id: o.id, holderName: "", holderAvatar: "" }));
@@ -125,7 +121,7 @@ function getChoices(data, partyFilter = []) {
 }
 
 function canEditOffice(data, officeId) {
-  if (isManager(data)) return true;
+  if (canAdminOrMod(data)) return true;
   if (officeId === "leader-opposition") return false;
   const leader = getOfficeMap(data).get("leader-opposition");
   return !!leader?.holderName && leader.holderName === getCurrentName(data);
@@ -168,7 +164,7 @@ function render(data, state) {
   const officeMap = getOfficeMap(data);
   const oppositionParties = getOppositionParties(data);
   const choices = getChoices(data, oppositionParties);
-  const manager = isManager(data);
+  const manager = canAdminOrMod(data);
   const leaderHolder = officeMap.get("leader-opposition")?.holderName || "";
   const isLeader = !!leaderHolder && leaderHolder === getCurrentName(data);
   const canonicalParties = Array.isArray(data._canonicalParties) ? data._canonicalParties : [];

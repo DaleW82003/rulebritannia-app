@@ -1,13 +1,9 @@
 import { nowStamp, isLoggedIn } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import { canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
 import { apiGetShadowCabinetDrafts, apiSaveShadowCabinetDrafts, apiSaveShadowCabinetHeadline } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
-
-function isManager(data) {
-  return canAdminOrMod(data);
-}
 
 function normaliseShadowCabinet(data) {
   data.shadowCabinet ??= {};
@@ -46,14 +42,14 @@ function getShadowCabinetMemberNames(data) {
 }
 
 function canAccessShadowCabinet(data) {
-  if (isManager(data)) return true;
+  if (canAdminOrMod(data)) return true;
   const charName = String(getCharacterContext(data)?.name || "").trim();
   if (!charName) return false;
   return getShadowCabinetMemberNames(data).has(charName);
 }
 
 function isOppositionLeader(data) {
-  if (isManager(data)) return true;
+  if (canAdminOrMod(data)) return true;
   const c = getCharacterContext(data);
   const shadowOffices = Array.isArray(c?.shadowOffices) ? c.shadowOffices : (c?.shadowOffice ? [c.shadowOffice] : []);
   return shadowOffices.includes("leader-opposition") || String(c?.role || "") === "leader-opposition";
@@ -69,7 +65,7 @@ function render(data, state) {
 
   normaliseShadowCabinet(data);
   const char = getCharacterContext(data);
-  const manager = isManager(data);
+  const manager = canAdminOrMod(data);
   const canAccess = canAccessShadowCabinet(data);
   const canPostHeadline = isOppositionLeader(data);
   const drafts = [...(data.shadowCabinet.drafts || [])].sort((a, b) => b.id - a.id);

@@ -465,4 +465,11 @@ export function formatMPName(name, { isPrivy = false, isRH = false, appendMP = f
   return postNominals ? `${prefix} ${n} ${postNominals}` : `${prefix} ${n}`;
 }
 
+export function $(id) {
+  return document.getElementById(id);
+}
+
+export function getIdFromUrl() {
+  return new URL(window.location.href).searchParams.get("id");
+}
 

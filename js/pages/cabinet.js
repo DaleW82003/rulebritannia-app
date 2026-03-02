@@ -1,13 +1,9 @@
 import { nowStamp, isLoggedIn } from "../core.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
+import { canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
 import { apiGetCharacters, apiGetCabinetDrafts, apiSaveCabinetDrafts, apiSaveCabinetHeadline } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
-
-function isManager(data) {
-  return canAdminOrMod(data);
-}
 
 function normaliseCabinet(data) {
   data.cabinet ??= {};
@@ -46,14 +42,14 @@ function getCabinetMemberNames(data) {
 }
 
 function canAccessCabinet(data) {
-  if (isManager(data)) return true;
+  if (canAdminOrMod(data)) return true;
   const charName = String(getCharacterContext(data)?.name || "").trim();
   if (!charName) return false;
   return getCabinetMemberNames(data).has(charName);
 }
 
 function isPrimeMinister(data) {
-  if (isManager(data)) return true;
+  if (canAdminOrMod(data)) return true;
   const c = getCharacterContext(data);
   const offices = Array.isArray(c?.offices) ? c.offices : (c?.office ? [c.office] : []);
   return offices.includes("prime-minister");
@@ -69,7 +65,7 @@ function render(data, state) {
 
   normaliseCabinet(data);
   const char = getCharacterContext(data);
-  const manager = isManager(data);
+  const manager = canAdminOrMod(data);
   const canAccess = canAccessCabinet(data);
   const canPostHeadline = isPrimeMinister(data);
   const drafts = [...(data.cabinet.drafts || [])].sort((a, b) => b.id - a.id);
