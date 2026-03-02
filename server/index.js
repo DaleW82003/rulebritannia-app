@@ -7763,13 +7763,6 @@ app.get("/api/admin/discourse-sync-preview", rolesReadLimit, async (req, res) =>
 /** Maximum characters of a Discourse error message to retain in sync results. */
 const SYNC_ERROR_MAX_LENGTH = 200;
 
-/**
- * Discourse automatic groups managed internally by Discourse.
- * Membership in these groups cannot be changed via the groups API;
- * admin/moderator status is set through the SSO admin/moderator flags instead.
- */
-const DISCOURSE_AUTOMATIC_GROUPS = new Set(["admins", "moderators"]);
-
 const discourseSyncLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
 
 app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res) => {
@@ -7827,14 +7820,6 @@ app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res
     // Sync each group
     const groupResults = [];
     for (const [group, desiredSet] of desiredByGroup) {
-      // Skip Discourse automatic groups — membership is managed by Discourse
-      // internally and cannot be changed via the groups API.
-      if (DISCOURSE_AUTOMATIC_GROUPS.has(group)) {
-        console.log("[discourse-sync-groups] group=%s skipped=automatic", group);
-        groupResults.push({ group, added: [], removed: [], skipped: "automatic group — membership managed by Discourse" });
-        continue;
-      }
-
       const groupId = groupIdMap.get(group);
       if (groupId == null) {
         const msg = `Unknown group name: ${group}`;

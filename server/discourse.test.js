@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers } from "./discourse.js";
+import { DISCOURSE_GROUP_MAP } from "./roles.js";
 
 // ── buildSsoPayload ───────────────────────────────────────────────────────────
 
@@ -524,4 +525,12 @@ test("removeGroupMembers sends Api-Key, Api-Username and Accept: application/jso
   } finally {
     globalThis.fetch = saved;
   }
+});
+
+// ── DISCOURSE_GROUP_MAP — no automatic groups ─────────────────────────────────
+
+test("DISCOURSE_GROUP_MAP does not contain the Discourse automatic groups admins or moderators", () => {
+  const values = Object.values(DISCOURSE_GROUP_MAP);
+  assert.ok(!values.includes("admins"),     "admins must not appear in DISCOURSE_GROUP_MAP");
+  assert.ok(!values.includes("moderators"), "moderators must not appear in DISCOURSE_GROUP_MAP");
 });
