@@ -35,6 +35,12 @@ function render(members, posts, data, state, manager) {
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Enter Council Chamber</h2>
+      <p class="muted">Private Privy Council discussion space on the forum.</p>
+      <a class="btn" href="https://forum.rulebritannia.org/c/privy-council/15" target="_blank" rel="noopener">Enter Council Chamber</a>
+    </section>
+
+    <section class="tile" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Post to the Council</h2>
       ${!hasActiveChar && !canPostMonarch
         ? `<div class="muted-block">You must have an active character to post here. <a href="user.html">Create or activate a character</a> first.</div>`

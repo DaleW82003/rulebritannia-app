@@ -10,7 +10,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import sgMail from "@sendgrid/mail";
 import { pool } from "./db.js";
-import { createTopic, createPost, createTopicWithRetry, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse } from "./discourse.js";
+import { createTopic, createPost, createTopicWithRetry, closeTopic as closeDiscTopic, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse } from "./discourse.js";
 import {
   createTopic as dcCreateTopic,
   createPost as dcCreatePost,
@@ -2768,6 +2768,91 @@ async function runMembershipIntake(month, year) {
     }
   } catch (e) {
     console.error("[runMembershipIntake] error:", e.message);
+  }
+}
+
+/**
+ * Auto-close Discourse debate topics whose sim debate window has just ended.
+ * Called on every clock tick. Checks motions, statements, and regulations
+ * for entities whose debate close date matches or has passed the new sim date.
+ * Attempts to close/lock the Discourse topic; falls back to posting a
+ * "Debate closed" message if the close API is not permitted.
+ *
+ * @param {number} month  - New sim month (1-12)
+ * @param {number} year   - New sim year
+ */
+async function runDebateAutoClose(month, year) {
+  let baseUrl, apiKey, apiUsername;
+  try {
+    ({ baseUrl, apiKey, apiUsername } = await loadDiscourseCredentials());
+  } catch {
+    return; // Discourse not configured — skip silently
+  }
+
+  // Entities to check: table, JSON path to month, JSON path to year, status field
+  const ALLOWED_TABLES = new Set(["motions", "statements", "regulations"]);
+
+  const CHECKS = [
+    {
+      table: "motions",
+      monthPath: "data->'closesAtSimObj'->>'month'",
+      yearPath:  "data->'closesAtSimObj'->>'year'",
+    },
+    {
+      table: "statements",
+      monthPath: "data->'closesAtSimObj'->>'month'",
+      yearPath:  "data->'closesAtSimObj'->>'year'",
+    },
+    {
+      table: "regulations",
+      monthPath: "data->'debateClosesAtSimObj'->>'month'",
+      yearPath:  "data->'debateClosesAtSimObj'->>'year'",
+    },
+  ];
+
+  for (const { table, monthPath, yearPath } of CHECKS) {
+    if (!ALLOWED_TABLES.has(table)) continue; // safety whitelist guard
+    let rows;
+    try {
+      // Find open entities with a Discourse topic whose debate window closes this sim month (or earlier)
+      const { rows: found } = await pool.query(
+        `SELECT id, discourse_topic_id
+           FROM ${table}
+          WHERE discourse_topic_id IS NOT NULL
+            AND (data->>'status') NOT IN ('archived','closed')
+            AND ${monthPath} IS NOT NULL
+            AND ${yearPath} IS NOT NULL
+            AND (
+              (${yearPath})::int < $1
+              OR (
+                (${yearPath})::int = $1
+                AND (${monthPath})::int <= $2
+              )
+            )`,
+        [year, month]
+      );
+      rows = found;
+    } catch (err) {
+      console.error(`[debate/auto-close] query failed for ${table}:`, err.message);
+      continue;
+    }
+
+    for (const row of rows) {
+      const topicId = Number(row.discourse_topic_id);
+      if (!topicId) continue;
+      try {
+        await closeDiscTopic({ baseUrl, apiKey, apiUsername, topicId });
+        console.log(`[debate/auto-close] closed Discourse topic ${topicId} for ${table} ${row.id}`);
+      } catch (closeErr) {
+        // Fall back: post a "Debate closed" message if close is not permitted
+        console.warn(`[debate/auto-close] closeTopic failed for ${table} ${row.id} (topic ${topicId}): ${closeErr.message} — falling back to closure post`);
+        try {
+          await createPost({ baseUrl, apiKey, apiUsername, topicId, raw: "**Debate closed.** The debate window for this item has ended." });
+        } catch (postErr) {
+          console.error(`[debate/auto-close] fallback post also failed for ${table} ${row.id}:`, postErr.message);
+        }
+      }
+    }
   }
 }
 
@@ -5961,6 +6046,36 @@ app.post("/api/bills/:id/final-division", crudWriteLimit, async (req, res) => {
 
     await writeAuditLog(req.session.userId, "bill.final-division.opened", "bill", req.params.id, bill, divRows[0]);
     res.status(201).json({ ok: true, division: divRows[0] });
+
+    // Close/lock the bill's Discourse debate topic now that debate has ended and voting begins.
+    // Non-fatal: a failure here must not roll back the division.
+    const { rows: billDiscourse } = await pool.query(
+      "SELECT discourse_topic_id FROM bills WHERE id = $1",
+      [req.params.id]
+    );
+    const discourseTopicId = Number(billDiscourse[0]?.discourse_topic_id || 0);
+    if (discourseTopicId) {
+      let dBaseUrl, dApiKey, dApiUsername;
+      try {
+        ({ baseUrl: dBaseUrl, apiKey: dApiKey, apiUsername: dApiUsername } = await loadDiscourseCredentials());
+      } catch {
+        // Discourse not configured — skip silently
+      }
+      if (dBaseUrl) {
+        try {
+          await closeDiscTopic({ baseUrl: dBaseUrl, apiKey: dApiKey, apiUsername: dApiUsername, topicId: discourseTopicId });
+          console.log(`[final-division] closed Discourse topic ${discourseTopicId} for bill ${req.params.id}`);
+        } catch (discErr) {
+          console.warn(`[final-division] closeTopic failed for bill ${req.params.id} (topic ${discourseTopicId}): ${discErr.message}`);
+          // Attempt fallback: post a "Debate closed" reply
+          try {
+            await createPost({ baseUrl: dBaseUrl, apiKey: dApiKey, apiUsername: dApiUsername, topicId: discourseTopicId, raw: "**Debate closed.** The Final Division has been opened. Voting is now in progress." });
+          } catch (postErr) {
+            console.warn(`[final-division] fallback post also failed for bill ${req.params.id}:`, postErr.message);
+          }
+        }
+      }
+    }
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6960,6 +7075,7 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
     runShopUpkeep(newMonth, newYear).catch((e) => console.error("[clock/tick] shop upkeep failed:", e.message));
     runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
     runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
+    runDebateAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] debate auto-close failed:", e.message));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -14964,13 +15080,13 @@ app.patch("/api/bills/:id", crudWriteLimit, async (req, res) => {
         const title = `[Bill] ${updated.title || req.params.id} — Second Reading Debate`;
         const raw   = updated.summary || updated.body || `Debate on **${updated.title || req.params.id}** at Second Reading.`;
         const { topicId, topicUrl: url } = await dcWithRetry(
-          () => dcCreateTopic(baseUrl, apiKey, apiUsername, title, raw),
+          () => dcCreateTopic(baseUrl, apiKey, apiUsername, title, raw, 9),
           3, 500
         );
         topicUrl = url;
         await pool.query(
-          `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
-          [JSON.stringify({ discourseTopicId: topicId, discourseTopicUrl: url }), req.params.id]
+          `UPDATE bills SET data = data || $1::jsonb, discourse_topic_id = $3, discourse_topic_url = $4, updated_at = NOW() WHERE id = $2`,
+          [JSON.stringify({ discourseTopicId: topicId, discourseTopicUrl: url }), req.params.id, String(topicId), url]
         );
         rows[0].data = { ...rows[0].data, discourseTopicId: topicId, discourseTopicUrl: url };
       } catch (discErr) {
@@ -15020,12 +15136,12 @@ app.post("/api/admin/discourse-sync-bills", discourseBillSyncLimit, async (req, 
         const title = `[Bill] ${bill.data.title || bill.id} — Second Reading Debate`;
         const raw   = bill.data.summary || bill.data.body || `Debate on **${bill.data.title || bill.id}** at Second Reading.`;
         const { topicId, topicUrl } = await dcWithRetry(
-          () => dcCreateTopic(baseUrl, apiKey, apiUsername, title, raw),
+          () => dcCreateTopic(baseUrl, apiKey, apiUsername, title, raw, 9),
           3, 500
         );
         await pool.query(
-          `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
-          [JSON.stringify({ discourseTopicId: topicId, discourseTopicUrl: topicUrl }), bill.id]
+          `UPDATE bills SET data = data || $1::jsonb, discourse_topic_id = $3, discourse_topic_url = $4, updated_at = NOW() WHERE id = $2`,
+          [JSON.stringify({ discourseTopicId: topicId, discourseTopicUrl: topicUrl }), bill.id, String(topicId), topicUrl]
         );
         results.push({ id: bill.id, ok: true, topicId, topicUrl });
       } catch (err) {

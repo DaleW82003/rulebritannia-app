@@ -134,7 +134,7 @@ function setDebateLink(bill) {
 function ensureBillDebateTopic(bill, data) {
   if (bill.discourseTopicId || bill.discourse_topic_id || bill.debate?.topicId) return;
   const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${bill.department ? ` (${bill.department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
-  apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw })
+  apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw, categoryId: 9 })
     .then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write; fires after bill creation, outer .catch() handles failures
       bill.debate = { ...(bill.debate || {}), topicId, topicUrl };
       bill.discourseTopicId = topicId;

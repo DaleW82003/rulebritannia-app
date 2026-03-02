@@ -33,7 +33,23 @@ const DEFAULT_PARTIES = {
   }
 };
 
-// ── Party Shop catalogue ──────────────────────────────────────────────────────
+// Static Discourse HQ URLs per party (category 9 = House of Commons; party categories are separate)
+const PARTY_HQ_URLS = {
+  "Labour":          "https://forum.rulebritannia.org/c/labour/11",
+  "Conservative":    "https://forum.rulebritannia.org/c/conservative/10",
+  "Liberal Democrat":"https://forum.rulebritannia.org/c/liberal-democrat/12",
+};
+
+/**
+ * Returns the static Discourse HQ URL for a party by name, or null for unknown parties.
+ * @param {string} partyName
+ * @returns {string|null}
+ */
+function partyHqUrl(partyName) {
+  return PARTY_HQ_URLS[partyName] || null;
+}
+
+
 // Schema matches personal shop: id, name, category, basePrice1997,
 // baseMonthlyUpkeep1997, caps, effects[], riskModifier?, flavour
 
@@ -721,7 +737,7 @@ function render(data, state) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Enter Headquarters</h2>
       <p>Open your private party Discourse headquarters for internal strategy and debate.</p>
-      ${party.hqUrl ? `<a class="btn" href="${esc(party.hqUrl)}" target="_blank" rel="noopener">Enter Headquarters</a>` : `<span class="muted">Forum link not configured.</span>`}
+      ${partyHqUrl(party.name) ? `<a class="btn" href="${esc(partyHqUrl(party.name))}" target="_blank" rel="noopener">Enter Headquarters</a>` : `<span class="muted">Forum link not configured.</span>`}
     </section>
 
     <section class="panel" style="margin-bottom:12px;">
@@ -786,10 +802,6 @@ function render(data, state) {
             <div>
               <label class="label" for="party-members">Members</label>
               <input id="party-members" name="members" type="number" class="input" value="${esc(String(Number(party.treasury?.members || 0)))}">
-            </div>
-            <div>
-              <label class="label" for="party-hq-url">Headquarters URL</label>
-              <input id="party-hq-url" name="hqUrl" class="input" value="${esc(party.hqUrl || "")}">
             </div>
           </div>
           <button type="submit" class="btn">Save Party Settings</button>
@@ -1186,7 +1198,6 @@ function render(data, state) {
     const newCash    = Number(fd.get("cash")    || 0);
     const newDebt    = Number(fd.get("debt")    || 0);
     const newMembers = Number(fd.get("members") || 0);
-    const newHqUrl   = String(fd.get("hqUrl")   || "").trim();
 
     const partyId = state.activeParty;
 
@@ -1197,9 +1208,9 @@ function render(data, state) {
       console.warn("[party-control-form] leader save failed:", err.message);
     }
 
-    // Persist treasury + hqUrl to DB (authoritative source)
+    // Persist treasury to DB (authoritative source)
     try {
-      await apiSetPartyTreasury(partyId, { cash: newCash, debt: newDebt, members: newMembers, hqUrl: newHqUrl || null });
+      await apiSetPartyTreasury(partyId, { cash: newCash, debt: newDebt, members: newMembers });
     } catch (err) {
       console.warn("[party-control-form] treasury save failed:", err.message);
     }
@@ -1218,7 +1229,6 @@ function render(data, state) {
     party.treasury.cash    = newCash;
     party.treasury.debt    = newDebt;
     party.treasury.members = newMembers;
-    party.hqUrl = newHqUrl || party.hqUrl;
     render(data, state);
   });
 

@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers } from "./discourse.js";
+import { buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse, closeTopic, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers } from "./discourse.js";
 import { DISCOURSE_GROUP_MAP } from "./roles.js";
 
 // ── buildSsoPayload ───────────────────────────────────────────────────────────
@@ -1139,6 +1139,41 @@ test("resolveGroupIds allows load_more_groups with .json in path", async () => {
     assert.equal(calls, 2);
     assert.equal(map.get("admins"), 1);
     assert.equal(map.get("moderators"), 2);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── closeTopic ────────────────────────────────────────────────────────────────
+
+test("closeTopic sends PUT to /t/:topicId/status with closed=true", async () => {
+  const saved = globalThis.fetch;
+  let capturedUrl, capturedBody, capturedMethod;
+  globalThis.fetch = async (url, opts) => {
+    capturedUrl    = url;
+    capturedMethod = opts.method;
+    capturedBody   = JSON.parse(opts.body);
+    return { ok: true };
+  };
+  try {
+    await closeTopic({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", topicId: 42 });
+    assert.equal(capturedMethod, "PUT");
+    assert.ok(capturedUrl.endsWith("/t/42/status"), `Expected URL ending in /t/42/status, got: ${capturedUrl}`);
+    assert.equal(capturedBody.status, "closed");
+    assert.equal(capturedBody.enabled, true);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("closeTopic throws on non-ok response", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 403, text: async () => "Forbidden" });
+  try {
+    await assert.rejects(
+      () => closeTopic({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", topicId: 7 }),
+      /closeTopic failed.*403/
+    );
   } finally {
     globalThis.fetch = saved;
   }

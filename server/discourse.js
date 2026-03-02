@@ -115,6 +115,33 @@ export async function createPost({ baseUrl, apiKey, apiUsername, topicId, raw })
   return { postId: data.id, topicId: data.topic_id };
 }
 
+/**
+ * Close (lock) a Discourse topic via the topic status API.
+ *
+ * @param {object} opts
+ * @param {string} opts.baseUrl       - Discourse base URL, no trailing slash
+ * @param {string} opts.apiKey        - Discourse API key
+ * @param {string} opts.apiUsername   - Discourse API username
+ * @param {number} opts.topicId       - ID of the topic to close
+ * @returns {Promise<void>}
+ */
+export async function closeTopic({ baseUrl, apiKey, apiUsername, topicId }) {
+  const res = await fetch(`${baseUrl}/t/${topicId}/status`, {
+    method: "PUT",
+    headers: {
+      "Api-Key":      apiKey,
+      "Api-Username": apiUsername,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ status: "closed", enabled: true }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Discourse closeTopic failed: HTTP ${res.status} ${text}`);
+  }
+}
+
 // ── Group management ──────────────────────────────────────────────────────────
 
 /**
