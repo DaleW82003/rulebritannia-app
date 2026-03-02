@@ -4899,35 +4899,41 @@ app.get("/api/discourse/sso/callback", ssoRateLimit, async (req, res) => {
  * GET /api/discourse/go
  *
  * Navigation entry point used by the "Discourse Forum" nav link throughout the
- * SIM.  Ensures users are authenticated in the SIM before they land on the
- * forum so that DiscourseConnect can complete seamlessly:
+ * SIM.  Forces the DiscourseConnect handshake so users arrive on the forum
+ * already authenticated:
  *
- * - If the user IS logged in to the SIM: redirect to the Discourse forum.
- *   Discourse will initiate the DiscourseConnect handshake (redirecting back to
- *   /api/discourse/sso) which will complete immediately because the user is
- *   already logged in here.
- * - If SSO is NOT enabled: redirect straight to the forum (no SSO needed).
+ * - If the user IS logged in to the SIM and SSO is enabled: redirect to
+ *   /session/sso?return_path=/latest on the forum.  This triggers the
+ *   DiscourseConnect handshake immediately (Discourse redirects back to
+ *   /api/discourse/sso, which completes instantly because the user is already
+ *   logged in here), so the user lands on /latest already signed in.
+ * - If SSO is NOT enabled: redirect straight to the forum home (no SSO needed).
  * - If the user is NOT logged in: redirect to /login.html?next=/api/discourse/go
- *   so that after login the browser is returned here to complete the journey.
+ *   so that after SIM login the browser is returned here to complete the journey.
  */
 app.get("/api/discourse/go", ssoRateLimit, async (req, res) => {
+  const fallbackForumUrl = "https://forum.rulebritannia.org";
   try {
     const { rows: cfgRows } = await pool.query(
       "SELECT key, value FROM app_config WHERE key = 'discourse_base_url'"
     );
     const cfg = Object.fromEntries(cfgRows.map((r) => [r.key, r.value]));
     const baseUrl = (cfg.discourse_base_url || "").trim().replace(/\/$/, "");
-    const forumUrl = baseUrl || "https://forum.rulebritannia.org";
+    const forumUrl = baseUrl || fallbackForumUrl;
 
-    // If SSO is enabled and user is not logged in, bounce to login first.
-    if (ssoEnabled && !req.session?.userId) {
-      return res.redirect(302, `/login.html?next=${encodeURIComponent("/api/discourse/go")}`);
+    if (ssoEnabled) {
+      // If user is not logged in, bounce to SIM login first.
+      if (!req.session?.userId) {
+        return res.redirect(302, `/login.html?next=${encodeURIComponent("/api/discourse/go")}`);
+      }
+      // Trigger DiscourseConnect so the user lands on the forum already signed in.
+      return res.redirect(302, `${forumUrl}/session/sso?return_path=${encodeURIComponent("/latest")}`);
     }
 
     return res.redirect(302, forumUrl);
   } catch (e) {
     console.error("[discourse/go]", e.message);
-    res.redirect(302, "https://forum.rulebritannia.org");
+    res.redirect(302, `${fallbackForumUrl}/session/sso?return_path=${encodeURIComponent("/latest")}`);
   }
 });
 
