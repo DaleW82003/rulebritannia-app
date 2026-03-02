@@ -620,6 +620,19 @@ export async function apiAdminSyncDiscourseGroups() {
   return res.json();
 }
 
+export async function apiAdminSyncDiscourseGroupsStatus(jobId) {
+  const url = jobId
+    ? `${API_BASE}/api/admin/discourse-sync-groups/status?jobId=${encodeURIComponent(jobId)}`
+    : `${API_BASE}/api/admin/discourse-sync-groups/status`;
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) {
+    const err = new Error(`apiAdminSyncDiscourseGroupsStatus failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
 // ── ADMIN MAINTENANCE ─────────────────────────────────────────────────────────
 
 function maintPost(path) {

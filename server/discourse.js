@@ -265,6 +265,16 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername, _sleep, _w
     }
     // load_more_groups is a relative path, e.g. "/groups.json?page=1"
     const more = data?.load_more_groups;
+    if (more != null) {
+      const morePath = more.split("?")[0];
+      if (!morePath.includes(".json")) {
+        throw new Error(
+          `resolveGroupIds: Discourse returned a non-API pagination URL; cannot safely crawl HTML. ` +
+          `Please ensure /groups.json returns load_more_groups with .json. ` +
+          `baseUrl=${cleanBase} load_more_groups=${more} pageUrl=${res.url}`
+        );
+      }
+    }
     pageUrl = more ? `${cleanBase}${more}` : null;
   }
 

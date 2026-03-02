@@ -7767,12 +7767,35 @@ app.get("/api/admin/discourse-sync-preview", rolesReadLimit, async (req, res) =>
 /** Maximum characters of a Discourse error message to retain in sync results. */
 const SYNC_ERROR_MAX_LENGTH = 200;
 
-const discourseSyncLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
+// ── Discourse sync async job runner ──────────────────────────────────────────
 
-app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res) => {
+const SYNC_LOG_RING_SIZE = 200;
+let _syncJob = null; // at most one job at a time
+
+function _newSyncJob() {
+  return {
+    id: randomUUID(),
+    status: "queued",   // queued | running | succeeded | failed
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    totalAdded: 0,
+    totalRemoved: 0,
+    totalSkipped: 0,
+    groups: [],
+    logs: [],
+    lastError: null,
+  };
+}
+
+function _syncJobLog(job, msg) {
+  console.log("[discourse-sync-groups]", msg);
+  job.logs.push(msg);
+  if (job.logs.length > SYNC_LOG_RING_SIZE) job.logs.shift();
+}
+
+async function _runSyncJob(job) {
+  job.status = "running";
   try {
-    if (!requireAdmin(req, res)) return;
-
     // Load credentials
     const { rows: cfgRows } = await pool.query(
       "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url', 'discourse_api_key', 'discourse_api_username')"
@@ -7784,7 +7807,7 @@ app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res
     const apiUsername = cfg.discourse_api_username ? discourseDecrypt(cfg.discourse_api_username) : "";
 
     if (!baseUrl || !apiKey || !apiUsername) {
-      return res.status(400).json({ ok: false, error: "Discourse credentials not fully configured" });
+      throw new Error("Discourse credentials not fully configured");
     }
 
     // Load all users with their roles
@@ -7810,15 +7833,14 @@ app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res
     }
 
     // Resolve group name → numeric Discourse ID for all groups in one request.
-    // Discourse expects a numeric :id in GroupsController routes; using the
-    // group name causes ActiveRecord::RecordNotFound (HTTP 404).
+    _syncJobLog(job, "Fetching Discourse group list…");
     let groupIdMap;
     try {
       groupIdMap = await resolveGroupIds({ baseUrl, apiKey, apiUsername });
     } catch (e) {
       const msg = `Failed to fetch Discourse group list: ${String(e.message || e).slice(0, SYNC_ERROR_MAX_LENGTH)}`;
-      console.error("[discourse-sync-groups]", msg);
-      return res.status(502).json({ ok: false, error: msg });
+      _syncJobLog(job, `ERROR: ${msg}`);
+      throw new Error(msg);
     }
 
     // Sync each group
@@ -7828,6 +7850,7 @@ app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res
       if (groupId == null) {
         const msg = `Unknown group name: ${group}`;
         console.error("[discourse-sync-groups] group=%s error=%s", group, msg);
+        _syncJobLog(job, `group=${group} skipped: ${msg}`);
         groupResults.push({ group, added: [], removed: [], skipped: msg });
         continue;
       }
@@ -7838,7 +7861,7 @@ app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res
         const toAdd    = [...desiredSet].filter((u) => !currentSet.has(u));
         const toRemove = [...currentSet].filter((u) => !desiredSet.has(u));
 
-        console.log("[discourse-sync-groups] group=%s id=%d adding=%d removing=%d", group, groupId, toAdd.length, toRemove.length);
+        _syncJobLog(job, `group=${group} id=${groupId} adding=${toAdd.length} removing=${toRemove.length}`);
         if (toAdd.length)    await addGroupMembers(   { baseUrl, apiKey, apiUsername, groupName: group, groupId, usernames: toAdd    });
         if (toRemove.length) await removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName: group, groupId, usernames: toRemove });
 
@@ -7846,6 +7869,7 @@ app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res
       } catch (grpErr) {
         const safeMsg = `API error: ${String(grpErr.message || grpErr).slice(0, SYNC_ERROR_MAX_LENGTH)}`;
         console.error("[discourse-sync-groups] group=%s error=%s", group, safeMsg);
+        _syncJobLog(job, `group=${group} error: ${safeMsg}`);
         groupResults.push({ group, added: [], removed: [], skipped: safeMsg });
       }
     }
@@ -7854,12 +7878,81 @@ app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res
     const totalRemoved = groupResults.reduce((n, g) => n + g.removed.length, 0);
     const totalSkipped = groupResults.filter((g) => g.skipped).length;
 
-    console.log("[discourse-sync-groups] added=%d removed=%d groupErrors=%d", totalAdded, totalRemoved, totalSkipped);
+    job.groups       = groupResults;
+    job.totalAdded   = totalAdded;
+    job.totalRemoved = totalRemoved;
+    job.totalSkipped = totalSkipped;
+    _syncJobLog(job, `Done: added=${totalAdded} removed=${totalRemoved} groupErrors=${totalSkipped}`);
+    job.status     = "succeeded";
+    job.finishedAt = new Date().toISOString();
+  } catch (e) {
+    job.status     = "failed";
+    job.lastError  = String(e.message || e).slice(0, SYNC_ERROR_MAX_LENGTH);
+    job.finishedAt = new Date().toISOString();
+    console.error("[discourse-sync-groups] job failed:", e.message);
+  }
+}
 
-    res.json({ ok: true, groups: groupResults, totalAdded, totalRemoved, totalSkipped });
+const discourseSyncLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
+
+// POST /api/admin/discourse-sync-groups — start async sync job
+app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    // Single-flight: if a job is already running/queued, return its status
+    if (_syncJob && (_syncJob.status === "queued" || _syncJob.status === "running")) {
+      return res.json({ ok: true, jobId: _syncJob.id, status: _syncJob.status, alreadyRunning: true });
+    }
+
+    const job = _newSyncJob();
+    _syncJob = job;
+
+    // Defer execution so this response always goes out with status "queued"
+    // (without setImmediate, _runSyncJob synchronously sets status="running"
+    // before its first await, making "queued" unobservable to callers).
+    setImmediate(() => _runSyncJob(job).catch(() => {}));
+
+    return res.json({ ok: true, jobId: job.id, status: job.status });
   } catch (e) {
     console.error("[discourse-sync-groups]", e.message);
     res.status(500).json({ ok: false, error: "Discourse group sync failed. Check server logs." });
+  }
+});
+
+// GET /api/admin/discourse-sync-groups/status — poll job state
+// If ?jobId= is omitted, returns the current/last job regardless of id.
+// If ?jobId= is provided but doesn't match the current job, returns 404.
+// NOTE: _syncJob is in-memory only. If the server restarts mid-job,
+//       _syncJob resets to null; a polling client will receive 404 and
+//       should stop polling and show an appropriate message.
+app.get("/api/admin/discourse-sync-groups/status", discourseSyncLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { jobId } = req.query;
+    const job = _syncJob;
+
+    if (!job || (jobId && job.id !== jobId)) {
+      return res.status(404).json({ ok: false, error: "No matching sync job found (server may have restarted or no job has been started yet)" });
+    }
+
+    return res.json({
+      ok: true,
+      jobId:        job.id,
+      status:       job.status,
+      startedAt:    job.startedAt,
+      finishedAt:   job.finishedAt,
+      totalAdded:   job.totalAdded,
+      totalRemoved: job.totalRemoved,
+      totalSkipped: job.totalSkipped,
+      groups:       job.groups,
+      logs:         job.logs,
+      lastError:    job.lastError,
+    });
+  } catch (e) {
+    console.error("[discourse-sync-groups/status]", e.message);
+    res.status(500).json({ ok: false, error: "Failed to fetch sync job status." });
   }
 });
 

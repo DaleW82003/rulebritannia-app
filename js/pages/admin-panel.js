@@ -6,7 +6,7 @@ import {
   apiGetSnapshots, apiSaveSnapshot, apiRestoreSnapshot,
   apiGetAuditLog,
   apiGetDiscourseConfig, apiSaveDiscourseConfig, apiTestDiscourse,
-  apiGetDiscourseSyncPreview, apiAdminSyncDiscourseGroups, apiSetUserRoles,
+  apiGetDiscourseSyncPreview, apiAdminSyncDiscourseGroups, apiAdminSyncDiscourseGroupsStatus, apiSetUserRoles,
   apiAdminClearCache, apiAdminRebuildCache, apiAdminRotateSessions,
   apiAdminForceLogoutAll,
   apiGetSsoReadiness,
@@ -31,6 +31,8 @@ function nextSundayIso() {
   return d.toISOString();
 }
 
+const SYNC_POLL_INTERVAL_MS = 2000;
+
 export async function initAdminPanelPage(data) {
   const user = await requireAdmin();
   if (!user) return;
@@ -47,6 +49,7 @@ export async function initAdminPanelPage(data) {
   let discourseConfig = { base_url: "", has_api_key: false, has_api_username: false, has_sso_secret: false };
   let syncPreview = [];
   let syncResults = null;  // null = never run; object = last sync results
+  let _syncPollTimer = null;  // active polling interval; hoisted so re-renders don't orphan it
   let ssoReadiness = null; // null = not yet loaded; object = readiness check results
   let dashboardData = null; // moderator dashboard summary
   let billSyncResults = null; // results of last Discourse bill sync
@@ -1100,18 +1103,87 @@ export async function initAdminPanelPage(data) {
     host.querySelector("#btn-sync-discourse-groups")?.addEventListener("click", async () => {
       const btn = host.querySelector("#btn-sync-discourse-groups");
       if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
+
+      let jobId = null;
+
+      // Clear any timer left over from a previous click or re-render
+      if (_syncPollTimer) { clearInterval(_syncPollTimer); _syncPollTimer = null; }
+
+      function stopPolling() {
+        if (_syncPollTimer) { clearInterval(_syncPollTimer); _syncPollTimer = null; }
+      }
+
+      async function pollStatus() {
+        // Stop polling if the host element is no longer in the document (page navigated away)
+        if (!document.contains(host)) { stopPolling(); return; }
+        try {
+          const jobState = await apiAdminSyncDiscourseGroupsStatus(jobId);
+          // Show progress log in the sync results area
+          const logLines = (jobState.logs || []).join("\n");
+          const logsDiv = host.querySelector("#sync-progress-log");
+          if (logsDiv) logsDiv.textContent = logLines;
+
+          if (jobState.status === "succeeded" || jobState.status === "failed") {
+            stopPolling();
+            if (jobState.status === "succeeded") {
+              syncResults = jobState;
+              logAction({ action: "discourse-groups-synced", details: {
+                totalAdded: jobState.totalAdded, totalRemoved: jobState.totalRemoved, totalSkipped: jobState.totalSkipped
+              }});
+              toastSuccess(`Discourse sync complete — ${jobState.totalAdded} added, ${jobState.totalRemoved} removed.`);
+              await loadSyncPreview();
+            } else {
+              toastError(`Discourse sync failed: ${jobState.lastError || "unknown error"}`);
+            }
+            render(status);
+            const b = host.querySelector("#btn-sync-discourse-groups");
+            if (b) { b.disabled = false; b.textContent = "Sync Discourse Groups Now"; }
+          }
+        } catch (pollErr) {
+          stopPolling();
+          // 404 means the server restarted and the job was lost
+          const isRestart = pollErr.status === 404;
+          toastError(isRestart
+            ? "Sync job lost — the server may have restarted. Please try again."
+            : `Failed to poll sync status: ${String(pollErr.message || pollErr)}`);
+          const b = host.querySelector("#btn-sync-discourse-groups");
+          if (b) { b.disabled = false; b.textContent = "Sync Discourse Groups Now"; }
+        }
+      }
+
       try {
-        const result = await apiAdminSyncDiscourseGroups();
-        syncResults = result;
-        logAction({ action: "discourse-groups-synced", details: {
-          totalAdded: result.totalAdded, totalRemoved: result.totalRemoved, totalSkipped: result.totalSkipped
-        }});
-        toastSuccess(`Discourse sync complete — ${result.totalAdded} added, ${result.totalRemoved} removed.`);
-        await loadSyncPreview();
-        render(status);
+        const startResult = await apiAdminSyncDiscourseGroups();
+        jobId = startResult.jobId;
+
+        if (startResult.alreadyRunning) {
+          toastSuccess("A sync job is already running — monitoring progress…");
+        }
+
+        // Show a live progress log container
+        const progressContainer = host.querySelector("#sync-results");
+        if (progressContainer) {
+          progressContainer.innerHTML = `<b>Sync in progress…</b><pre id="sync-progress-log" style="font-size:12px;max-height:200px;overflow-y:auto;background:#f5f5f5;padding:8px;margin-top:8px;border-radius:4px;"></pre>`;
+        } else {
+          // Append a temporary progress block after the button row
+          const btnRow = host.querySelector("#btn-sync-discourse-groups")?.closest("div");
+          if (btnRow) {
+            let prog = host.querySelector("#sync-progress-wrap");
+            if (!prog) {
+              prog = document.createElement("div");
+              prog.id = "sync-progress-wrap";
+              prog.style.marginTop = "12px";
+              btnRow.insertAdjacentElement("afterend", prog);
+            }
+            prog.innerHTML = `<b>Sync in progress…</b><pre id="sync-progress-log" style="font-size:12px;max-height:200px;overflow-y:auto;background:#f5f5f5;padding:8px;margin-top:8px;border-radius:4px;"></pre>`;
+          }
+        }
+
+        // Poll every SYNC_POLL_INTERVAL_MS
+        _syncPollTimer = setInterval(pollStatus, SYNC_POLL_INTERVAL_MS);
+        // Also poll immediately
+        await pollStatus();
       } catch (err) {
         toastError(`Discourse sync failed: ${err.message}`);
-      } finally {
         const b = host.querySelector("#btn-sync-discourse-groups");
         if (b) { b.disabled = false; b.textContent = "Sync Discourse Groups Now"; }
       }
