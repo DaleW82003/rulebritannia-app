@@ -7834,6 +7834,7 @@ app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res
         const toAdd    = [...desiredSet].filter((u) => !currentSet.has(u));
         const toRemove = [...currentSet].filter((u) => !desiredSet.has(u));
 
+        console.log("[discourse-sync-groups] group=%s id=%d adding=%d removing=%d", group, groupId, toAdd.length, toRemove.length);
         if (toAdd.length)    await addGroupMembers(   { baseUrl, apiKey, apiUsername, groupName: group, groupId, usernames: toAdd    });
         if (toRemove.length) await removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName: group, groupId, usernames: toRemove });
 

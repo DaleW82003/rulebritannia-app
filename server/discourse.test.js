@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers } from "./discourse.js";
+import { DISCOURSE_GROUP_MAP } from "./roles.js";
 
 // ── buildSsoPayload ───────────────────────────────────────────────────────────
 
@@ -432,4 +433,184 @@ test("removeGroupMembers uses groupId in URL when provided", async () => {
   } finally {
     globalThis.fetch = saved;
   }
+});
+
+// ── redirect: "manual" assertions ────────────────────────────────────────────
+
+test("resolveGroupIds sets redirect: manual", async () => {
+  const saved = globalThis.fetch;
+  let capturedInit = null;
+  globalThis.fetch = async (_url, init) => {
+    capturedInit = init;
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (h) => h === "content-type" ? "application/json" : null },
+      json: async () => ({ groups: [], load_more_groups: null }),
+    };
+  };
+  try {
+    await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" });
+    assert.equal(capturedInit?.redirect, "manual");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("getGroupMembers sets redirect: manual", async () => {
+  const saved = globalThis.fetch;
+  let capturedInit = null;
+  globalThis.fetch = async (_url, init) => { capturedInit = init; return { ok: true, json: async () => ({ members: [] }) }; };
+  try {
+    await getGroupMembers({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", groupName: "staff", groupId: 5 });
+    assert.equal(capturedInit?.redirect, "manual");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("addGroupMembers sets redirect: manual", async () => {
+  const saved = globalThis.fetch;
+  let capturedInit = null;
+  globalThis.fetch = async (_url, init) => { capturedInit = init; return { ok: true }; };
+  try {
+    await addGroupMembers({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", groupName: "staff", groupId: 5, usernames: ["alice"] });
+    assert.equal(capturedInit?.redirect, "manual");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("removeGroupMembers sets redirect: manual", async () => {
+  const saved = globalThis.fetch;
+  let capturedInit = null;
+  globalThis.fetch = async (_url, init) => { capturedInit = init; return { ok: true }; };
+  try {
+    await removeGroupMembers({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", groupName: "staff", groupId: 5, usernames: ["alice"] });
+    assert.equal(capturedInit?.redirect, "manual");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds non-JSON error includes res.url", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async (_url, _init) => ({
+    ok:      true,
+    status:  200,
+    url:     "https://forum.example.com/login",
+    headers: { get: () => "text/html" },
+    text:    async () => "<html>Login</html>",
+  });
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" }),
+      (err) => {
+        assert.ok(err.message.includes("https://forum.example.com/login"), `Expected res.url in error: ${err.message}`);
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── Header assertions ─────────────────────────────────────────────────────────
+
+test("resolveGroupIds sends Api-Key, Api-Username and Accept: application/json headers", async () => {
+  const saved = globalThis.fetch;
+  let capturedInit = null;
+  globalThis.fetch = async (_url, init) => {
+    capturedInit = init;
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (h) => h === "content-type" ? "application/json" : null },
+      json: async () => ({ groups: [], load_more_groups: null }),
+    };
+  };
+  try {
+    await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "mykey", apiUsername: "myuser" });
+    assert.equal(capturedInit?.headers?.["Api-Key"],      "mykey");
+    assert.equal(capturedInit?.headers?.["Api-Username"], "myuser");
+    assert.equal(capturedInit?.headers?.["Accept"],       "application/json");
+    assert.equal(capturedInit?.method, "GET");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds strips trailing slash from baseUrl", async () => {
+  const saved = globalThis.fetch;
+  let capturedUrl = null;
+  globalThis.fetch = async (url, _init) => {
+    capturedUrl = url;
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (h) => h === "content-type" ? "application/json" : null },
+      json: async () => ({ groups: [], load_more_groups: null }),
+    };
+  };
+  try {
+    await resolveGroupIds({ baseUrl: "https://forum.example.com/", apiKey: "k", apiUsername: "u" });
+    assert.ok(!capturedUrl.includes("//groups"), `Double slash in URL: ${capturedUrl}`);
+    assert.ok(capturedUrl.endsWith("/groups.json"), `Expected /groups.json, got: ${capturedUrl}`);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("getGroupMembers sends Api-Key, Api-Username and Accept: application/json headers", async () => {
+  const saved = globalThis.fetch;
+  let capturedInit = null;
+  globalThis.fetch = async (_url, init) => {
+    capturedInit = init;
+    return { ok: true, json: async () => ({ members: [] }) };
+  };
+  try {
+    await getGroupMembers({ baseUrl: "https://forum.example.com", apiKey: "mykey", apiUsername: "myuser", groupName: "staff", groupId: 5 });
+    assert.equal(capturedInit?.headers?.["Api-Key"],      "mykey");
+    assert.equal(capturedInit?.headers?.["Api-Username"], "myuser");
+    assert.equal(capturedInit?.headers?.["Accept"],       "application/json");
+    assert.equal(capturedInit?.method, "GET");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("addGroupMembers sends Api-Key, Api-Username and Accept: application/json headers", async () => {
+  const saved = globalThis.fetch;
+  let capturedInit = null;
+  globalThis.fetch = async (_url, init) => { capturedInit = init; return { ok: true }; };
+  try {
+    await addGroupMembers({ baseUrl: "https://forum.example.com", apiKey: "mykey", apiUsername: "myuser", groupName: "staff", groupId: 5, usernames: ["alice"] });
+    assert.equal(capturedInit?.headers?.["Api-Key"],      "mykey");
+    assert.equal(capturedInit?.headers?.["Api-Username"], "myuser");
+    assert.equal(capturedInit?.headers?.["Accept"],       "application/json");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("removeGroupMembers sends Api-Key, Api-Username and Accept: application/json headers", async () => {
+  const saved = globalThis.fetch;
+  let capturedInit = null;
+  globalThis.fetch = async (_url, init) => { capturedInit = init; return { ok: true }; };
+  try {
+    await removeGroupMembers({ baseUrl: "https://forum.example.com", apiKey: "mykey", apiUsername: "myuser", groupName: "staff", groupId: 5, usernames: ["alice"] });
+    assert.equal(capturedInit?.headers?.["Api-Key"],      "mykey");
+    assert.equal(capturedInit?.headers?.["Api-Username"], "myuser");
+    assert.equal(capturedInit?.headers?.["Accept"],       "application/json");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── DISCOURSE_GROUP_MAP — no automatic groups ─────────────────────────────────
+
+test("DISCOURSE_GROUP_MAP does not contain the Discourse automatic groups admins or moderators", () => {
+  const values = Object.values(DISCOURSE_GROUP_MAP);
+  assert.ok(!values.includes("admins"),     "admins must not appear in DISCOURSE_GROUP_MAP");
+  assert.ok(!values.includes("moderators"), "moderators must not appear in DISCOURSE_GROUP_MAP");
 });

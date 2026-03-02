@@ -91,13 +91,16 @@ export const ALL_VALID_ROLES = Object.freeze([
 /**
  * Maps each canonical role to its Discourse group name.
  *
+ * Only custom groups are listed here.  The Discourse automatic groups
+ * "admins" and "moderators" are intentionally absent — admin/moderator
+ * status is conveyed via the dedicated SSO admin/moderator flags and must
+ * never be written through the groups API.
+ *
  * SSO sync is NOT enabled yet — this mapping layer is defined here so that
  * the "Preview Discourse Group Sync" admin tool can show what would happen
  * before the feature is turned on.
  */
 export const DISCOURSE_GROUP_MAP = Object.freeze({
-  "admin":                          "admins",
-  "mod":                            "moderators",
   "speaker":                        "speaker",
   "party:labour":                   "labour",
   "party:conservative":             "conservative",
@@ -108,8 +111,8 @@ export const DISCOURSE_GROUP_MAP = Object.freeze({
   "office:shadow_secretary_of_state": "opposition",
   "office:leader_of_third_party":   "tpleader",
   "office:backbencher":             "backbencher",
-  "office:permanent_secretary":     "Civil_Service",
-  "office:civil_servant":           "Civil_Service",
+  "office:permanent_secretary":     "civil_service",
+  "office:civil_servant":           "civil_service",
 });
 
 /**
