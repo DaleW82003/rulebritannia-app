@@ -298,7 +298,7 @@ test("resolveGroupIds follows load_more_groups pagination", async () => {
     };
   };
   try {
-    const map = await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" });
+    const map = await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u", _pageDelayMs: 0 });
     assert.equal(calls, 2);
     assert.equal(map.get("admins"),     1);
     assert.equal(map.get("moderators"), 2);
@@ -822,6 +822,131 @@ test("addGroupMembers does not retry on non-429 errors (e.g. 403)", async () => 
       /addGroupMembers\(staff\) failed: HTTP 403/
     );
     assert.equal(calls, 1, "no retry on 403");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── Actionable 429 logging ────────────────────────────────────────────────────
+
+test("resolveGroupIds logs URL + attempt + wait on each 429 retry", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: false,
+        status: 429,
+        headers: jsonHeaders,
+        json: async () => ({ extras: { wait_seconds: 3 } }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: jsonHeaders,
+      json: async () => ({ groups: [], load_more_groups: null }),
+    };
+  };
+  const warnMessages = [];
+  const noopSleep = async () => {};
+  try {
+    await resolveGroupIds({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      _sleep: noopSleep, _warn: (msg) => warnMessages.push(msg), _pageDelayMs: 0,
+    });
+    assert.equal(warnMessages.length, 1, "one warn per 429 retry");
+    assert.ok(/forum\.example\.com/.test(warnMessages[0]), `URL missing from warn: ${warnMessages[0]}`);
+    assert.ok(warnMessages[0].includes("attempt 1"),       `attempt missing from warn: ${warnMessages[0]}`);
+    assert.ok(warnMessages[0].includes("3250ms"),          `wait duration missing from warn: ${warnMessages[0]}`);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds exhausted error message includes URL", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 429,
+    headers: { get: (h) => h === "content-type" ? "application/json" : null },
+    json: async () => ({ extras: { wait_seconds: 1 } }),
+  });
+  const noopSleep = async () => {};
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({
+        baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+        _sleep: noopSleep, _warn: () => {},
+      }),
+      (err) => {
+        assert.ok(/Discourse API rate-limited: HTTP 429/.test(err.message), `wrong prefix: ${err.message}`);
+        assert.ok(/forum\.example\.com/.test(err.message), `URL missing from error: ${err.message}`);
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── Burst avoidance: inter-page delay in resolveGroupIds ──────────────────────
+
+test("resolveGroupIds inserts inter-page delay between paginated requests", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: true,
+        status: 200,
+        headers: jsonHeaders,
+        json: async () => ({ groups: [{ id: 1, name: "alpha" }], load_more_groups: "/groups.json?page=1" }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: jsonHeaders,
+      json: async () => ({ groups: [{ id: 2, name: "beta" }], load_more_groups: null }),
+    };
+  };
+  const sleepCalls = [];
+  const noopSleep = async (ms) => { sleepCalls.push(ms); };
+  try {
+    const map = await resolveGroupIds({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      _sleep: noopSleep, _pageDelayMs: 300,
+    });
+    assert.equal(map.size, 2);
+    // One inter-page sleep: none before page 0, one before page 1
+    assert.equal(sleepCalls.length, 1, "exactly one inter-page sleep");
+    assert.equal(sleepCalls[0], 300, "inter-page delay uses _pageDelayMs");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds does not insert inter-page delay for a single-page response", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: (h) => h === "content-type" ? "application/json" : null },
+    json: async () => ({ groups: [{ id: 5, name: "gamma" }], load_more_groups: null }),
+  });
+  const sleepCalls = [];
+  const noopSleep = async (ms) => { sleepCalls.push(ms); };
+  try {
+    await resolveGroupIds({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      _sleep: noopSleep, _pageDelayMs: 300,
+    });
+    assert.equal(sleepCalls.length, 0, "no inter-page sleep for single page");
   } finally {
     globalThis.fetch = saved;
   }

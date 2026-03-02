@@ -147,6 +147,7 @@ function groupUrlPath(groupName, groupId) {
  * @param {number}   [opts.maxBackoffMs=30000]    - cap on per-attempt backoff delay
  * @param {number}   [opts.jitterMs=250]          - buffer added to wait_seconds delays
  * @param {Function} [opts.sleep]                 - injectable sleep(ms)→Promise; defaults to setTimeout
+ * @param {Function} [opts.warn]                  - injectable warn(msg) for 429 log lines; defaults to console.warn
  * @returns {Promise<Response>}
  */
 async function discourseApiRequest(url, init, {
@@ -156,6 +157,7 @@ async function discourseApiRequest(url, init, {
   maxBackoffMs = 30_000,
   jitterMs = 250,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  warn = (msg) => console.warn(msg),
 } = {}) {
   let totalWait = 0;
 
@@ -183,10 +185,11 @@ async function discourseApiRequest(url, init, {
     totalWait += waitMs;
     if (attempt >= maxRetries || totalWait > maxTotalWaitMs) {
       throw new Error(
-        `Discourse API rate-limited: HTTP 429 after ${attempt + 1} attempt(s); waited ${totalWait}ms total`
+        `Discourse API rate-limited: HTTP 429 on ${url} after ${attempt + 1} attempt(s); waited ${totalWait}ms total`
       );
     }
 
+    warn(`[Discourse] 429 rate-limit on ${url} — attempt ${attempt + 1}, waiting ${waitMs}ms`);
     await sleep(waitMs);
   }
 }
@@ -195,20 +198,28 @@ async function discourseApiRequest(url, init, {
  * Fetch the numeric Discourse group ID for every group returned by /groups.json.
  *
  * Follows `load_more_groups` pagination until all groups have been retrieved.
+ * A small delay (`_pageDelayMs`, default 500 ms) is inserted between pages to
+ * avoid bursting the Discourse rate-limiter when many pages are fetched.
  * Returns a Map<groupName, groupId> that callers can use to build correct URLs.
  *
  * @param {object} opts
  * @param {string} opts.baseUrl
  * @param {string} opts.apiKey
  * @param {string} opts.apiUsername
+ * @param {number} [opts._pageDelayMs=500] - inter-page delay to avoid rate-limit bursts
  * @returns {Promise<Map<string, number>>}
  */
-export async function resolveGroupIds({ baseUrl, apiKey, apiUsername, _sleep }) {
+export async function resolveGroupIds({ baseUrl, apiKey, apiUsername, _sleep, _warn, _pageDelayMs = 500 }) {
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
+  const sleepFn = _sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   const map = new Map();
   let pageUrl = `${cleanBase}/groups.json`;
+  let firstPage = true;
 
   while (pageUrl) {
+    if (!firstPage) await sleepFn(_pageDelayMs);
+    firstPage = false;
+
     const res = await discourseApiRequest(pageUrl, {
       method:   "GET",
       redirect: "manual",
@@ -217,7 +228,7 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername, _sleep }) 
         "Api-Username": apiUsername,
         "Accept":       "application/json",
       },
-    }, { sleep: _sleep });
+    }, { sleep: sleepFn, warn: _warn });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`resolveGroupIds failed: HTTP ${res.status} ${text}`);
@@ -258,7 +269,7 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername, _sleep }) 
  *                                    when provided (required by some Discourse versions)
  * @returns {Promise<Array<{ id: number, username: string }>>}
  */
-export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, _sleep }) {
+export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, _sleep, _warn }) {
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
   const members = [];
@@ -275,7 +286,7 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
         "Api-Username": apiUsername,
         "Accept":       "application/json",
       },
-    }, { sleep: _sleep });
+    }, { sleep: _sleep, warn: _warn });
 
     if (res.status === 404) return [];         // group doesn't exist yet — treat as empty
     if (!res.ok) {
@@ -307,7 +318,7 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
  * @param {string[]} opts.usernames
  * @returns {Promise<void>}
  */
-export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames, _sleep }) {
+export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames, _sleep, _warn }) {
   if (!usernames.length) return;
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
@@ -321,7 +332,7 @@ export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
       "Accept":       "application/json",
     },
     body: JSON.stringify({ usernames: usernames.join(",") }),
-  }, { sleep: _sleep });
+  }, { sleep: _sleep, warn: _warn });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`addGroupMembers(${groupName}) failed: HTTP ${res.status} ${text}`);
@@ -341,7 +352,7 @@ export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
  * @param {string[]} opts.usernames
  * @returns {Promise<void>}
  */
-export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames, _sleep }) {
+export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames, _sleep, _warn }) {
   if (!usernames.length) return;
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
@@ -355,7 +366,7 @@ export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupNa
       "Accept":       "application/json",
     },
     body: JSON.stringify({ usernames: usernames.join(",") }),
-  }, { sleep: _sleep });
+  }, { sleep: _sleep, warn: _warn });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`removeGroupMembers(${groupName}) failed: HTTP ${res.status} ${text}`);
