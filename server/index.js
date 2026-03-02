@@ -3710,7 +3710,7 @@ function normaliseDiscourseFields(obj) {
   const topicId  = obj.discourse_topic_id  ?? obj.discourseTopicId  ?? obj.debate?.topicId  ?? null;
   const topicUrl = obj.discourse_topic_url ?? obj.discourseTopicUrl ?? obj.debate?.topicUrl ?? obj.debateUrl ?? null;
   const existingDebate = obj.debate && typeof obj.debate === "object" ? obj.debate : {};
-  return {
+  const base = {
     ...obj,
     // snake_case (canonical API format)
     discourse_topic_id:  topicId,
@@ -3726,6 +3726,11 @@ function normaliseDiscourseFields(obj) {
       closesAtSim: existingDebate.closesAtSim ?? null,
     },
   };
+  // For EDMs, compute and include totalSignatureWeight
+  if (Array.isArray(base.signatures)) {
+    base.totalSignatureWeight = base.signatures.reduce((sum, s) => sum + (Number(s.weight) || 0), 0);
+  }
+  return base;
 }
 
 /**
@@ -6647,17 +6652,69 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
     if (!charRows.length) return res.status(404).json({ error: "Character not found" });
     const char = charRows[0];
 
+    // Government lockout: cabinet members may not sign EDMs
+    const isGovMember = await isOfficeHolder(charId, "cabinet");
+    if (isGovMember) {
+      return res.status(403).json({ error: "Government ministers may not sign Early Day Motions." });
+    }
+
     const edm = motionRows[0].data || {};
     edm.signatures = Array.isArray(edm.signatures) ? edm.signatures : [];
     const already = edm.signatures.some((sig) => String(sig.name || "") === String(char.name || ""));
     if (already) return res.status(409).json({ error: "Already signed" });
 
-    const weight = 1;
+    // Compute signature weight using the same model as division votes
+    let weight = 1;
+    try {
+      const seatsByParty = await getPartySeatsFromConstituencies(pool);
+      const { rows: stateRows } = await pool.query(
+        `SELECT ss.data FROM state_snapshots ss
+           JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+          WHERE asc2.id = 'main'`
+      );
+      const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
+      const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
+      const computed = Number(effectiveWeights[char.name] || 0);
+      if (computed > 0) weight = computed;
+    } catch (wErr) {
+      console.error("[edm.sign weight-calc]", wErr.message);
+      // Fall back to weight=1
+    }
 
     edm.signatures.push({ name: char.name, party: char.party || "Independent", weight });
 
     await pool.query("UPDATE motions SET data = $1::jsonb, updated_at = NOW() WHERE id = $2", [JSON.stringify(edm), req.params.id]);
-    await writeAuditLog(req.session.userId, "motion.edm.sign", "motion", req.params.id, null, { signer: char.name, party: char.party || "Independent" });
+    await writeAuditLog(req.session.userId, "motion.edm.sign", "motion", req.params.id, null, { signer: char.name, party: char.party || "Independent", weight, actor: req.session.userId });
+    res.status(201).json({ ok: true, motion: normaliseDiscourseFields(edm) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/motions/:id/npc-sign — admin/mod: add an NPC signatory to an EDM
+app.post("/api/motions/:id/npc-sign", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const { rows: motionRows } = await pool.query("SELECT motion_type, data FROM motions WHERE id = $1", [req.params.id]);
+    if (!motionRows.length) return res.status(404).json({ error: "Motion not found" });
+    if (motionRows[0].motion_type !== "edm") return res.status(400).json({ error: "Only EDMs can be signed" });
+
+    const { name, party } = req.body || {};
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ error: "name is required" });
+    }
+
+    const edm = motionRows[0].data || {};
+    edm.signatures = Array.isArray(edm.signatures) ? edm.signatures : [];
+    const already = edm.signatures.some((sig) => String(sig.name || "") === String(name.trim()));
+    if (already) return res.status(409).json({ error: "Already signed" });
+
+    edm.signatures.push({ name: name.trim(), party: (party || "NPC").trim(), weight: 1, npc: true });
+
+    await pool.query("UPDATE motions SET data = $1::jsonb, updated_at = NOW() WHERE id = $2", [JSON.stringify(edm), req.params.id]);
+    await writeAuditLog(req.session.userId, "motion.edm.npc-sign", "motion", req.params.id, null, { npcName: name.trim(), party: (party || "NPC").trim(), addedBy: req.session.userId });
     res.status(201).json({ ok: true, motion: normaliseDiscourseFields(edm) });
   } catch (e) {
     console.error(e);
@@ -14978,9 +15035,15 @@ const simWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: t
 app.get("/api/sim", simReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { rows } = await pool.query("SELECT id, year, month, is_paused, last_tick_at FROM sim_state WHERE id = 'main'");
-    if (!rows.length) return res.status(404).json({ error: "Sim state not found" });
-    res.json({ sim: rows[0] });
+    const [stateResult, clockResult] = await Promise.all([
+      pool.query("SELECT id, year, month, is_paused, last_tick_at FROM sim_state WHERE id = 'main'"),
+      pool.query("SELECT rate FROM sim_clock WHERE id = 'main'"),
+    ]);
+    if (!stateResult.rows.length) return res.status(404).json({ error: "Sim state not found" });
+    if (!clockResult.rows.length) {
+      console.warn("[GET /api/sim] sim_clock row 'main' not found — rate defaulting to 1");
+    }
+    res.json({ sim: { ...stateResult.rows[0], rate: clockResult.rows[0]?.rate ?? 1 } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -15186,7 +15249,14 @@ app.post("/api/admin/discourse-sync-bills", discourseBillSyncLimit, async (req, 
 // Wipes gameplay/content tables and resets the sim clock + state to the
 // August 1997 baseline.  User accounts and pending registrations are
 // NOT touched.  Requires a typed confirmation body: { confirm: "WIPE CONTENT" }
-// ═══════════════════════════════════════════════════════════════════════════
+//
+// ── demo.json safety ────────────────────────────────────────────────────────
+// data/demo.json is a static read-only file on disk served directly to
+// logged-out browsers.  This endpoint only issues SQL TRUNCATE statements
+// against the live PostgreSQL database and never reads from, writes to, or
+// deletes any filesystem files.  demo.json is therefore completely unaffected
+// by any wipe operation.
+// ════════════════════════════════════════════════════════════════════════════
 
 const wipeContentLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
 
@@ -15203,10 +15273,41 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
       });
     }
 
-    // Wipe all gameplay/content tables
-    await pool.query(
-      "TRUNCATE bills, motions, statements, regulations, questiontime_questions, press_items, polling_entries"
-    );
+    // Wipe all gameplay/content tables (expanded to include all content categories)
+    // Note: questiontime_questions = legacy JSON-blob QT; qt_questions = new structured QT table
+    await pool.query(`
+      TRUNCATE
+        bills, bill_amendments, bill_amendment_supporters, bill_stage_reports, bill_opposition_quota,
+        motions,
+        statements,
+        regulations,
+        questiontime_questions,
+        qt_questions, qt_answers, qt_followups,
+        press_items,
+        polling_entries,
+        elections, election_party_summary, election_constituency_changes, constituency_events,
+        news_stories, newspaper_articles,
+        divisions, division_votes, division_party_instructions, division_rebellion_log, division_rebel_requests,
+        game_events,
+        scandal_situations, scandals, scandal_player_choices, scandal_mod_decisions,
+        red_lion_posts, online_posts, fundraising_items,
+        privy_council_posts,
+        cs_briefings, cs_cases,
+        frontbench_reshuffles
+      CASCADE
+    `);
+
+    // Vacate all office assignments (clear government and opposition to vacant)
+    await pool.query(`TRUNCATE office_assignments, office_assignment_history CASCADE`);
+
+    // Reset group_drafts (clear cabinet and shadow cabinet drafts)
+    await pool.query(`UPDATE group_drafts SET drafts = '[]'::jsonb, updated_at = NOW()`);
+
+    // Reset budget_data to 1997 baseline
+    await seedBudgetBaseline(true);
+
+    // Re-seed 1997 base election (idempotent)
+    await seedElection1997();
 
     // Reset sim clock to August 1997
     await pool.query(`
@@ -15245,7 +15346,23 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
     );
 
     await writeAuditLog(req.session.userId, "admin.wipe-content", "all", "*", null, {
-      tables: ["bills", "motions", "statements", "regulations", "questiontime_questions", "press_items", "polling_entries"],
+      headline: "Wipe Content: all IC simulation content cleared, sim reset to August 1997",
+      simMonth: 8,
+      simYear: 1997,
+      // questiontime_questions = legacy JSON-blob QT table; qt_questions = new structured QT table
+      tables: [
+        "bills", "bill_amendments", "bill_amendment_supporters", "bill_stage_reports", "bill_opposition_quota",
+        "motions", "statements", "regulations",
+        "questiontime_questions", "qt_questions", "qt_answers", "qt_followups",
+        "press_items", "polling_entries",
+        "elections", "election_party_summary", "election_constituency_changes", "constituency_events",
+        "news_stories", "newspaper_articles",
+        "divisions", "division_votes", "division_party_instructions", "division_rebellion_log", "division_rebel_requests",
+        "game_events", "scandal_situations", "scandals", "scandal_player_choices", "scandal_mod_decisions",
+        "red_lion_posts", "online_posts", "fundraising_items",
+        "privy_council_posts", "cs_briefings", "cs_cases", "frontbench_reshuffles",
+        "office_assignments (vacated)", "group_drafts (reset)", "budget_data (reset to 1997)",
+      ],
       simResetTo: "August 1997",
       newSnapshotId,
     });
@@ -15255,12 +15372,171 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
 
     res.json({
       ok: true,
-      message: "Content wiped and sim reset to August 1997. User accounts are intact.",
-      wiped: ["bills", "motions", "statements", "regulations", "questiontime_questions", "press_items", "polling_entries"],
+      message: "Content wiped and sim reset to August 1997. All offices vacated, drafts cleared, budget reset. User accounts and characters are intact.",
+      wiped: [
+        "bills", "bill_amendments", "motions", "statements", "regulations",
+        "questiontime_questions", "qt_questions", "press_items", "polling_entries",
+        "elections (re-seeded 1997 base)", "news_stories", "newspaper_articles",
+        "divisions", "division_votes", "game_events", "scandals",
+        "red_lion_posts", "online_posts", "fundraising_items",
+        "privy_council_posts", "cs_briefings", "cs_cases",
+        "office_assignments (vacated)", "group_drafts (reset)", "budget_data (reset)",
+      ],
       simResetTo: "August 1997",
     });
   } catch (e) {
     console.error("[wipe-content]", e);
+    res.status(500).json({ ok: false, error: "Server error during wipe" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMIN: wipe-with-characters — full wipe including character data
+// POST /api/admin/wipe-with-characters
+//
+// Wipes all gameplay/content tables AND character-related tables, then resets
+// the sim clock.  User accounts and pending registrations are NOT touched.
+// Requires: { confirm: "WIPE WITH CHARACTERS" }
+//
+// ── demo.json safety ────────────────────────────────────────────────────────
+// data/demo.json is a static read-only file on disk served directly to
+// logged-out browsers.  This endpoint only issues SQL TRUNCATE statements
+// against the live PostgreSQL database and never reads from, writes to, or
+// deletes any filesystem files.  demo.json is therefore completely unaffected
+// by any wipe operation.
+// ════════════════════════════════════════════════════════════════════════════
+
+app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) => {
+  try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
+    if (!requireAdmin(req, res)) return;
+
+    const { confirm: confirmText } = req.body || {};
+    if (confirmText !== "WIPE WITH CHARACTERS") {
+      return res.status(400).json({
+        ok: false,
+        error: "Confirmation text mismatch. Type WIPE WITH CHARACTERS exactly to proceed.",
+      });
+    }
+
+    // Clear users.active_character_id before deleting characters to avoid FK constraint violations
+    await pool.query(`UPDATE users SET active_character_id = NULL`);
+
+    // Wipe all gameplay/content tables AND character-related tables
+    await pool.query(`
+      TRUNCATE
+        characters,
+        office_assignments, office_assignment_history,
+        character_affiliations,
+        character_shop_purchases, character_shop_revenue_payouts, character_additional_revenue, character_work_plans,
+        scandal_opt_in, scandal_situations, scandals, scandal_player_choices, scandal_mod_decisions,
+        privy_council_members, privy_council_posts,
+        frontbench_reshuffles,
+        bills, bill_amendments, bill_amendment_supporters, bill_stage_reports, bill_opposition_quota,
+        motions,
+        statements,
+        regulations,
+        questiontime_questions,
+        qt_questions, qt_answers, qt_followups,
+        press_items,
+        polling_entries,
+        elections, election_party_summary, election_constituency_changes, constituency_events,
+        news_stories, newspaper_articles,
+        divisions, division_votes, division_party_instructions, division_rebellion_log, division_rebel_requests,
+        game_events,
+        red_lion_posts, online_posts, fundraising_items,
+        cs_briefings, cs_cases
+      CASCADE
+    `);
+
+    // Reset group_drafts (clear cabinet and shadow cabinet drafts)
+    await pool.query(`UPDATE group_drafts SET drafts = '[]'::jsonb, updated_at = NOW()`);
+
+    // Reset budget_data to 1997 baseline
+    await seedBudgetBaseline(true);
+
+    // Re-seed 1997 base election (idempotent)
+    await seedElection1997();
+
+    // Reset sim clock to August 1997
+    await pool.query(`
+      INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+      VALUES ('main', 8, 1997, 1)
+      ON CONFLICT (id) DO UPDATE SET
+        sim_current_month = 8,
+        sim_current_year  = 1997,
+        rate              = 1,
+        real_last_tick    = NOW()
+    `);
+
+    // Reset sim_state to August 1997
+    await pool.query(`
+      INSERT INTO sim_state (id, year, month, is_paused)
+      VALUES ('main', 1997, 8, true)
+      ON CONFLICT (id) DO UPDATE SET
+        year        = 1997,
+        month       = 8,
+        is_paused   = true,
+        last_tick_at = NULL
+    `);
+
+    // Reset app_state_current — create a fresh empty snapshot and point to it
+    const { rows: snapRows } = await pool.query(
+      `INSERT INTO state_snapshots (label, data)
+         VALUES ('Post-wipe-with-characters baseline (August 1997)', '{}'::jsonb)
+       RETURNING id`
+    );
+    const newSnapshotId = snapRows[0].id;
+    await pool.query(
+      `INSERT INTO app_state_current (id, snapshot_id)
+         VALUES ('main', $1)
+       ON CONFLICT (id) DO UPDATE SET snapshot_id = $1`,
+      [newSnapshotId]
+    );
+
+    await writeAuditLog(req.session.userId, "admin.wipe-with-characters", "all", "*", null, {
+      headline: "Wipe With Characters: all IC simulation content + character data cleared, sim reset to August 1997",
+      simMonth: 8,
+      simYear: 1997,
+      tables: [
+        "characters", "office_assignments", "office_assignment_history",
+        "character_affiliations", "character_shop_purchases", "character_shop_revenue_payouts",
+        "character_additional_revenue", "character_work_plans",
+        "scandal_opt_in", "scandal_situations", "scandals", "scandal_player_choices", "scandal_mod_decisions",
+        "privy_council_members", "privy_council_posts", "frontbench_reshuffles",
+        "bills", "bill_amendments", "bill_amendment_supporters", "bill_stage_reports", "bill_opposition_quota",
+        "motions", "statements", "regulations",
+        "questiontime_questions", "qt_questions", "qt_answers", "qt_followups",
+        "press_items", "polling_entries",
+        "elections", "election_party_summary", "election_constituency_changes", "constituency_events",
+        "news_stories", "newspaper_articles",
+        "divisions", "division_votes", "division_party_instructions", "division_rebellion_log", "division_rebel_requests",
+        "game_events", "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
+        "group_drafts (reset)", "budget_data (reset to 1997)",
+      ],
+      simResetTo: "August 1997",
+      newSnapshotId,
+    });
+
+    // Ensure baseline constituencies are present after reset
+    await seedConstituencies1997();
+
+    res.json({
+      ok: true,
+      message: "Content and character data wiped. Sim reset to August 1997. User accounts are intact.",
+      wiped: [
+        "characters", "office_assignments", "office_assignment_history",
+        "bills", "bill_amendments", "motions", "statements", "regulations",
+        "questiontime_questions", "qt_questions", "press_items", "polling_entries",
+        "elections (re-seeded 1997 base)", "news_stories", "newspaper_articles",
+        "divisions", "division_votes", "scandals", "game_events",
+        "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
+        "group_drafts (reset)", "budget_data (reset)",
+      ],
+      simResetTo: "August 1997",
+    });
+  } catch (e) {
+    console.error("[wipe-with-characters]", e);
     res.status(500).json({ ok: false, error: "Server error during wipe" });
   }
 });
@@ -15302,7 +15578,17 @@ async function handleSeedDemo(req, res) {
 
     // ── Clear existing content ─────────────────────────────────────────────
     await pool.query(
-      "TRUNCATE bills, motions, statements, regulations, questiontime_questions, press_items, polling_entries"
+      `TRUNCATE bills, bill_amendments, bill_amendment_supporters, bill_stage_reports, bill_opposition_quota,
+        motions, statements, regulations,
+        questiontime_questions, qt_questions, qt_answers, qt_followups,
+        press_items, polling_entries,
+        elections, election_party_summary, election_constituency_changes, constituency_events,
+        news_stories, newspaper_articles,
+        divisions, division_votes, division_party_instructions, division_rebellion_log, division_rebel_requests,
+        game_events, scandal_situations, scandals, scandal_player_choices, scandal_mod_decisions,
+        red_lion_posts, online_posts, fundraising_items,
+        privy_council_posts, cs_briefings, cs_cases, frontbench_reshuffles
+      CASCADE`
     );
 
     const SIM_MONTH = 8;
@@ -15463,8 +15749,11 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
             AND data->>'discourseTopicId' IS NULL`
       ),
       pool.query(
-        `SELECT id, actor_id, action, target, created_at
-           FROM audit_log ORDER BY created_at DESC LIMIT 10`
+        `SELECT al.id, al.actor_id, COALESCE(u.email, al.actor_id) AS actor_name,
+                al.action, al.target, al.details, al.created_at
+           FROM audit_log al
+           LEFT JOIN users u ON u.id::text = al.actor_id
+          ORDER BY al.created_at DESC LIMIT 10`
       ),
       pool.query(
         "SELECT COUNT(*) AS count FROM pending_registrations WHERE status = 'pending'"
@@ -15478,6 +15767,14 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
       recentAuditLog:       recentAudit.rows,
       pendingRegistrations: Number(pendingRegs.rows[0].count),
     });
+    // Sanity: log if openDivisions looks unexpectedly high (defensive check for regression).
+    // In normal gameplay there should never be more than a handful of concurrent open divisions;
+    // values significantly above that indicate a stale or incorrect status field.
+    const MAX_EXPECTED_OPEN_DIVISIONS = 20;
+    const odCount = Number(openDivisions.rows[0].count);
+    if (odCount > MAX_EXPECTED_OPEN_DIVISIONS) {
+      console.warn(`[admin/dashboard] openDivisions=${odCount} exceeds ${MAX_EXPECTED_OPEN_DIVISIONS} — verify divisions table status field`);
+    }
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

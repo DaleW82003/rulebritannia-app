@@ -5,7 +5,7 @@ import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
 import { apiGetBills } from "../api.js";
 import { apiGetMotions, apiGetStatements, apiGetRegulations, apiGetPressItems, apiGetEvents } from "../api.js";
-import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData, apiGetQtLegacyQuestions, apiGetGovernmentEvents } from "../api.js";
+import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData, apiGetQtLegacyQuestions, apiGetGovernmentEvents, apiGetElections } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 // js/pages/dashboard.js
@@ -32,7 +32,7 @@ function isGovernmentOffice(office = "") {
 }
 
 /** Item types that the Speaker is allowed to see in the Staff docket. */
-const SPEAKER_STAFF_TYPES = new Set(["bill", "debate", "division", "motion", "edm", "statement", "regulation", "question"]);
+const SPEAKER_STAFF_TYPES = new Set(["bill", "debate", "division", "motion", "edm", "statement", "regulation", "question", "qt-question", "press-question"]);
 
 /**
  * Build docket items for the "Your Actions" tab (personalised to active character).
@@ -75,7 +75,7 @@ function buildPlayerDocketItems(data) {
   const qAll = data?.questionTime?.questions || [];
   qAll.filter((q) => !q.archived && !q.answer && String(q.askedBy || "") !== String(char?.name || "")).forEach((q) => {
     if (canAdminModOrSpeaker(data) || ["prime-minister","leader-commons", q.office].includes(String(char?.office || ""))) {
-      push({ type: "question", iconClass: "icon-question", title: "Question awaiting ministerial answer", detail: q.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "high" });
+      push({ type: "qt-question", iconClass: "icon-qt-question", title: "Question awaiting ministerial answer", detail: q.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "high" });
     }
   });
 
@@ -85,7 +85,7 @@ function buildPlayerDocketItems(data) {
 
   qAll.filter((q) => !q.archived && q.answer && String(q.askedBy || "") === String(char?.name || "")).forEach((q) => {
     (q.followUps || []).filter((f) => !f.answer && String(f.askedBy || "") === String(char?.name || "")).forEach((f) => {
-      push({ type: "question", iconClass: "icon-question", title: "Open follow-up awaiting answer", detail: f.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "med" });
+      push({ type: "qt-question", iconClass: "icon-qt-question", title: "Open follow-up awaiting answer", detail: f.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "med" });
     });
   });
 
@@ -105,7 +105,7 @@ function buildPlayerDocketItems(data) {
     if (pending > 0) acc.push({ c, pending });
     return acc;
   }, []).forEach(({ c, pending }) => {
-    push({ type: "question", iconClass: "icon-question", title: `Press conference question awaiting response`, detail: `${c.reference || ""} — ${pending} question${pending !== 1 ? "s" : ""} pending`, ctaLabel: "Open Press", href: "press.html?view=conferences", priority: "high" });
+    push({ type: "press-question", iconClass: "icon-press-question", title: `Press conference question awaiting response`, detail: `${c.reference || ""} — ${pending} question${pending !== 1 ? "s" : ""} pending`, ctaLabel: "Open Press", href: "press.html?view=conferences", priority: "high" });
   });
 
   // ── Offline activity highlights ────────────────────────────────────────────
@@ -229,6 +229,46 @@ function buildPlayerDocketItems(data) {
     push({ type: "reshuffle", iconClass: "icon-reshuffle", title: `${lotoLabel} is doing a Frontbench Reshuffle`, detail: "Opposition Shadow Cabinet reshuffle in progress.", ctaLabel: "Open Opposition", href: "opposition.html", priority: "high", dismissOnClick: true, seenActivityKey: "governmentEvent" });
   }
 
+  // ── Breaking news / papers / polls / election results visible to all players ─
+  const newStories = (data?.news?.stories || []).filter(
+    (s) => Number(s.createdAt || 0) > (seenTs.news || 0)
+  );
+  if (newStories.length) {
+    const latest = newStories.slice().sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))[0];
+    push({ type: "news", iconClass: "icon-news", title: latest.headline || "Breaking News", detail: (latest.text || "").slice(0, 100), ctaLabel: "Open News", href: "news.html", priority: "med", dismissOnClick: true, seenActivityKey: "news" });
+  }
+
+  const newPaperIssues = (data?.papers?.papers || []).flatMap((p) =>
+    (Array.isArray(p.issues) ? p.issues : []).filter((a) => Number(a.createdAt || 0) > (seenTs.papers || 0))
+  );
+  if (newPaperIssues.length) {
+    const latest = newPaperIssues.slice().sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))[0];
+    push({ type: "news", iconClass: "icon-news", title: latest.headline || "New Paper Article", detail: (latest.text || "").slice(0, 100), ctaLabel: "Open Papers", href: "papers.html", priority: "low", dismissOnClick: true, seenActivityKey: "papers" });
+  }
+
+  const polls = data?.polling?.polls || [];
+  if (polls.length) {
+    const latestPoll = polls.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0))[0];
+    if (Number(latestPoll?.createdTs || 0) > (seenTs.poll || 0)) {
+      const top3 = (latestPoll.results || []).filter((r) => Number(r.value) >= 2).sort((a, b) => Number(b.value) - Number(a.value)).slice(0, 3);
+      push({ type: "poll", iconClass: "icon-poll", title: "New Polling Results", detail: top3.length ? top3.map((r) => `${r.party} ${Number(r.value).toFixed(1)}%`).join(" · ") : "", ctaLabel: "Open Polling", href: "polling.html", priority: "low", dismissOnClick: true, seenActivityKey: "poll" });
+    }
+  }
+
+  // ── Election results (finalized) visible to all players ───────────────────
+  const allElections = data?.elections?.elections || [];
+  const finalizedElections = allElections.filter((e) => e.status === "finalized" && e.finalized_at);
+  const newElections = finalizedElections.filter(
+    (e) => new Date(e.finalized_at).getTime() > (seenTs.election || 0)
+  );
+  if (newElections.length) {
+    const latest = newElections.sort((a, b) => new Date(b.finalized_at) - new Date(a.finalized_at))[0];
+    const title = newElections.length === 1
+      ? `${latest.label || latest.type || "Election"} Results Published`
+      : `${newElections.length} Election Results Published`;
+    push({ type: "election", iconClass: "icon-election", title, detail: latest.label || latest.polling_day || "", ctaLabel: "Open Elections", href: "elections.html", priority: "high", dismissOnClick: true, seenActivityKey: "election" });
+  }
+
   return items;
 }
 
@@ -277,7 +317,7 @@ function buildStaffDocketItems(data) {
   // Question Time — all unanswered questions (staff oversight)
   const qAll = data?.questionTime?.questions || [];
   qAll.filter((q) => !q.archived && !q.answer).forEach((q) => {
-    push({ type: "question", iconClass: "icon-question", title: "Question awaiting ministerial answer", detail: q.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "high" });
+    push({ type: "qt-question", iconClass: "icon-qt-question", title: "Question awaiting ministerial answer", detail: q.text || "", ctaLabel: "Open Question Time", href: "questiontime.html", priority: "high" });
   });
 
   // Non-procedural items — Admin/Mod only (Speaker excluded)
@@ -313,6 +353,8 @@ function iconFor(type) {
   // Each entry is [emoji, css-icon-class] so callers can use either
   const map = {
     question:            ["❓", "icon-question"],
+    "qt-question":       ["❓", "icon-qt-question"],
+    "press-question":    ["🎙️", "icon-press-question"],
     motion:              ["📜", "icon-motion"],
     edm:                 ["✍️", "icon-edm"],
     statement:           ["🗣️", "icon-statement"],
@@ -331,6 +373,7 @@ function iconFor(type) {
     economy:             ["📊", "icon-economy"],
     poll:                ["📈", "icon-poll"],
     news:                ["📰", "icon-news"],
+    election:            ["🗳️", "icon-election"],
     fire:                ["🔥", "icon-fire"],
     resign:              ["🚪", "icon-resign"],
     reshuffle:           ["🔄", "icon-reshuffle"],
@@ -682,7 +725,9 @@ export async function initDashboardPage(data) {
       data.questionTime ??= { offices: [], questions: [] };
       data.questionTime.questions = Array.isArray(r?.questions) ? r.questions : [];
     }).catch((err) => {
-      console.error("[dashboard] questiontime DB load failed", err);
+      console.error("[dashboard] questiontime DB load failed — clearing QT questions to prevent stale data", err);
+      data.questionTime ??= { offices: [], questions: [] };
+      data.questionTime.questions = [];
     }),
     // Polling → What's Going On tile
     apiGetPollingEntries().then((r) => {
@@ -727,6 +772,13 @@ export async function initDashboardPage(data) {
       data.governmentEvents = Array.isArray(r?.events) ? r.events : [];
     }).catch((err) => {
       console.error("[dashboard] government events load failed", err);
+    }),
+    // Elections → player docket (finalized results visible to all)
+    apiGetElections().then((r) => {
+      data.elections ??= { elections: [] };
+      data.elections.elections = Array.isArray(r?.elections) ? r.elections : [];
+    }).catch((err) => {
+      console.error("[dashboard] elections load failed", err);
     }),
   ] : []);
 

@@ -1667,6 +1667,17 @@ export async function apiWipeContent() {
   return res.json();
 }
 
+export async function apiWipeWithCharacters() {
+  const res = await fetch(`${API_BASE}/api/admin/wipe-with-characters`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ confirm: "WIPE WITH CHARACTERS" }),
+  });
+  if (!res.ok) throw new Error(`apiWipeWithCharacters failed (${res.status})`);
+  return res.json();
+}
+
 
 // ── Pending Registrations (admin) ─────────────────────────────────────────
 

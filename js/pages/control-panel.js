@@ -12,6 +12,7 @@ import {
   apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange,
   apiGetFinanceConfig, apiUpdateFinanceSalaryBands, apiUpdateFinanceStartingBalances, apiApplyFinanceInflation,
   apiGetAuditLog,
+  apiGetSim,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -52,9 +53,7 @@ export async function initControlPanelPage(data) {
     return;
   }
 
-  const login = document.getElementById("rbLoginBlock");
   const simBlock = document.getElementById("rbSimBlock");
-  const charBlock = document.getElementById("rbCharBlock");
   const rolePanels = document.getElementById("rbRolePanels");
 
   const canEdit = canAdminOrMod(data);
@@ -63,21 +62,25 @@ export async function initControlPanelPage(data) {
   const manager = canAdminModOrSpeaker(data);
   const char = data?.currentCharacter || data?.currentPlayer || {};
 
-  if (login) login.innerHTML = `
-    <div class="kv"><span>User</span><b>${esc(user?.username || "—")}</b></div>
-    <div class="kv"><span>Roles</span><b>${esc((user?.roles || []).join(", ") || "player")}</b></div>
-    ${admin
-      ? `<div style="margin-top:8px;"><span class="admin-badge">🔒 Admin Mode Active</span></div>`
-      : mod
-        ? `<div style="margin-top:8px;"><span class="mod-badge">🔧 Mod Mode Active</span></div>`
-        : isSpeaker(data)
-          ? `<div style="margin-top:8px;"><span class="speaker-badge">🔔 Speaker Mode Active</span></div>`
-          : ""
+  if (simBlock) {
+    simBlock.innerHTML = `<div class="muted-block">Fetching live sim status…</div>`;
+    try {
+      const simResult = await apiGetSim();
+      const s = simResult?.sim || {};
+      const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const monthLabel = (s.month >= 1 && s.month <= 12) ? MONTH_NAMES[s.month - 1] : `Month ${s.month ?? "?"}`;
+      const lastTick = s.last_tick_at ? new Date(s.last_tick_at).toLocaleString("en-GB") : "Never";
+      simBlock.innerHTML = `
+        <div class="kv"><span>Sim Date</span><b>${esc(monthLabel)} ${esc(String(s.year ?? "—"))}</b></div>
+        <div class="kv"><span>Paused</span><b>${s.is_paused ? "Yes — clock stopped" : "No — running"}</b></div>
+        <div class="kv"><span>Tick Rate</span><b>${esc(String(s.rate ?? 1))}× (real days per sim month)</b></div>
+        <div class="kv"><span>Last Tick</span><b>${esc(lastTick)}</b></div>
+      `;
+    } catch (err) {
+      console.error("[control-panel] failed to load sim status", err);
+      simBlock.innerHTML = `<div class="muted-block">Could not load sim status: ${esc(err.message)}</div>`;
     }
-  `;
-  if (simBlock) simBlock.innerHTML = `<div class="kv"><span>Simulation Started</span><b>${data?.gameState?.started ? "Yes" : "No"}</b></div><div class="kv"><span>Start Real Date</span><b>${esc(data?.gameState?.startRealDate || "Not set")}</b></div>`;
-
-  if (charBlock) charBlock.innerHTML = `<div class="kv"><span>Character</span><b>${esc(char?.display_name || char?.name || "None")}</b></div><div class="kv"><span>Office</span><b>${esc(char?.office || "None")}</b></div>`;
+  }
 
   if (!rolePanels) return;
 
@@ -817,12 +820,19 @@ export async function initControlPanelPage(data) {
       const d = entry.details || {};
       const ts = entry.created_at ? new Date(entry.created_at).toLocaleString("en-GB") : "—";
       const headline = esc(d.headline || entry.action || "");
-      const actor = esc(d.actorName || entry.actor_name || entry.actor_id || "");
+      const actor = esc(d.characterName || d.actorName || entry.actor_name || entry.actor_id || "");
+      const officeName = d.officeName || d.officeKey || "";
+      const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const monthIdx = Number(d.simMonth) - 1;
+      const simDate = (d.simMonth && d.simYear)
+        ? `${MONTH_NAMES[monthIdx >= 0 && monthIdx <= 11 ? monthIdx : 0] || d.simMonth} ${d.simYear}`
+        : "";
       return `
         <article style="border-bottom:1px solid var(--line,#eee);padding:8px 0;">
-          <div style="font-size:.82em;color:#888;">${esc(ts)}</div>
-          <div style="margin:2px 0;">${headline}</div>
-          ${actor ? `<div class="muted" style="font-size:.85em;">Actor: ${actor}</div>` : ""}
+          <div style="font-size:.82em;color:#888;">${esc(ts)}${simDate ? ` &bull; Sim: ${esc(simDate)}` : ""}</div>
+          <div style="margin:2px 0;font-weight:500;">${headline}</div>
+          ${actor ? `<div class="muted" style="font-size:.85em;">Character: ${actor}</div>` : ""}
+          ${officeName ? `<div class="muted" style="font-size:.85em;">Office: ${esc(officeName)}</div>` : ""}
           <div class="muted" style="font-size:.8em;font-family:monospace;">${esc(entry.action)}</div>
         </article>
       `;
