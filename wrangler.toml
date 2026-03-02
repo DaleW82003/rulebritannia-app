@@ -1,11 +1,12 @@
 name = "rb-api-proxy"
 main = "worker/index.js"
 compatibility_date = "2026-02-24"
+workers_dev = false
 
-[[routes]]
-pattern = "www.rulebritannia.org/api/*"
-zone_name = "rulebritannia.org"
-
+# Only the bare domain is routed through this Worker.
+# www.rulebritannia.org/api/* is served by the Cloudflare Pages Function
+# (functions/api/[[path]].js), which avoids a route-registration conflict
+# between the Worker and the Pages project on the www subdomain.
 [[routes]]
 pattern = "rulebritannia.org/api/*"
 zone_name = "rulebritannia.org"

@@ -11,23 +11,15 @@ var index_default = {
       });
     }
 
-    // Redirect bare domain → www for browser navigation requests (GET/HEAD only).
+    // API proxy — MUST come before the bare-domain redirect below.
     //
-    // Session cookies are set with domain=".rulebritannia.org" so they are sent
-    // on both rulebritannia.org and www.rulebritannia.org.  The redirect here
-    // is kept for GET/HEAD so DiscourseConnect SSO callbacks from Discourse
-    // (which may target the bare domain) land on the canonical www origin.
-    //
-    // POST/PUT/DELETE/PATCH requests must NOT be redirected: a cross-origin
-    // redirect for a credentialed fetch() causes a CORS block in the browser
-    // because the 308 response lacks Access-Control-Allow-Origin.  Those
-    // requests fall through to the API proxy below and are forwarded directly.
-    if (url.hostname === "rulebritannia.org" && ["GET", "HEAD"].includes(request.method)) {
-      url.hostname = "www.rulebritannia.org";
-      return Response.redirect(url.toString(), 308);
-    }
-
-    // API proxy: www.rulebritannia.org/api/* → backend
+    // All /api/* requests (GET and POST alike) are forwarded directly to the
+    // backend, regardless of whether they arrive on rulebritannia.org or
+    // www.rulebritannia.org.  Placing this check first prevents GET /api/*
+    // requests (bootstrap, csrf-token, etc.) from being 308-redirected to
+    // www.rulebritannia.org before they reach the backend.  That cross-origin
+    // redirect caused the browser to send credentials to a different origin,
+    // breaking session-cookie forwarding and making every CSRF check fail.
     if (url.pathname.startsWith("/api/")) {
       const backendUrl = new URL(url.pathname + url.search, BACKEND_ORIGIN).toString();
       const init = {
@@ -40,6 +32,18 @@ var index_default = {
         init.body = request.body;
       }
       return await fetch(new Request(backendUrl, init));
+    }
+
+    // Redirect bare domain → www for non-API browser navigation (GET/HEAD only).
+    //
+    // Session cookies are set with domain=".rulebritannia.org" so they are sent
+    // on both rulebritannia.org and www.rulebritannia.org.  The redirect here
+    // is kept for non-API GET/HEAD so DiscourseConnect SSO callbacks from
+    // Discourse (which may target the bare domain) land on the canonical www
+    // origin.
+    if (url.hostname === "rulebritannia.org" && ["GET", "HEAD"].includes(request.method)) {
+      url.hostname = "www.rulebritannia.org";
+      return Response.redirect(url.toString(), 308);
     }
 
     // Fallback (shouldn't reach here)
