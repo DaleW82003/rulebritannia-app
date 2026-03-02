@@ -1,5 +1,6 @@
 import { saveState } from "../core.js";
 import { esc } from "../ui.js";
+import { formatSimMonthYear } from "../clock.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { logAction } from "../audit.js";
 import {
@@ -67,13 +68,16 @@ export async function initControlPanelPage(data) {
     try {
       const simResult = await apiGetSim();
       const s = simResult?.sim || {};
-      const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-      const monthLabel = (s.month >= 1 && s.month <= 12) ? MONTH_NAMES[s.month - 1] : `Month ${s.month ?? "?"}`;
+      // Sim date and paused state come from gameState — the same source of truth
+      // used by the nav bar clock — so both displays always agree.
+      const gs = data?.gameState || {};
+      const simDateLabel = formatSimMonthYear(gs);
+      const isPaused = gs.isPaused ?? s.is_paused;
       const lastTick = s.last_tick_at ? new Date(s.last_tick_at).toLocaleString("en-GB") : "Never";
       simBlock.innerHTML = `
-        <div class="kv"><span>Sim Date</span><b>${esc(monthLabel)} ${esc(String(s.year ?? "—"))}</b></div>
-        <div class="kv"><span>Paused</span><b>${s.is_paused ? "Yes — clock stopped" : "No — running"}</b></div>
-        <div class="kv"><span>Tick Rate</span><b>${esc(String(s.rate ?? 1))}× (real days per sim month)</b></div>
+        <div class="kv"><span>Sim Date</span><b>${esc(simDateLabel)}</b></div>
+        <div class="kv"><span>Paused</span><b>${isPaused ? "Yes — clock stopped" : "No — running"}</b></div>
+        <div class="kv"><span>Tick Rate</span><b>2 sim months per real week (Mon–Wed: 1 month, Thu–Sat: 1 month, Sun: frozen)</b></div>
         <div class="kv"><span>Last Tick</span><b>${esc(lastTick)}</b></div>
       `;
     } catch (err) {
