@@ -219,6 +219,15 @@ app.use(
 // at that point. See verifyCsrfToken() below for the full implementation.
 app.use(verifyCsrfToken);
 
+// Prevent CDN/proxy caches (Cloudflare, etc.) from caching API responses.
+// Without this a CDN edge node may serve a cached response — including a
+// stale csrfToken — to a different user whose session has a different token,
+// causing every subsequent mutation to fail the CSRF check with 403.
+app.use((req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, private");
+  next();
+});
+
 /**
  * Boot-time schema
  */
