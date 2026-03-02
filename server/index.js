@@ -17,6 +17,7 @@ import {
   withRetry as dcWithRetry,
 } from "./discourseClient.js";
 import { ALL_VALID_ROLES, PARTY_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP, partyRoleForPartyName, computeApprovalRolesToAdd, officeRoleFromSpecId } from "./roles.js";
+import { computeSimDateFromGameState } from "./clock.js";
 
 const __serverDir = dirname(fileURLToPath(import.meta.url));
 
@@ -4517,6 +4518,26 @@ app.post("/api/state", async (req, res) => {
 
     // Keep the object tables in sync with the new state
     try { await syncObjectTables(data); } catch (syncErr) { console.error("[syncObjectTables]", syncErr); }
+
+    // Sync sim_clock and sim_state with the gameState from the snapshot so that
+    // all server-side content creation uses the same sim date as the navbar.
+    if (data.gameState && typeof data.gameState === "object") {
+      try {
+        const sd = computeSimDateFromGameState(data.gameState);
+        await pool.query(
+          `UPDATE sim_clock
+              SET sim_current_month = $1, sim_current_year = $2
+            WHERE id = 'main'`,
+          [sd.month, sd.year]
+        );
+        await pool.query(
+          `UPDATE sim_state SET month = $1, year = $2 WHERE id = 'main'`,
+          [sd.month, sd.year]
+        );
+      } catch (clockSyncErr) {
+        console.error("[POST /api/state] sim clock sync failed:", clockSyncErr);
+      }
+    }
 
     res.json({ ok: true, snapshotId });
   } catch (e) {
@@ -12453,7 +12474,7 @@ app.post("/api/privy-council/posts", privyWriteLimit, async (req, res) => {
       return res.status(403).json({ error: "Only admin/mod/speaker may post as the Monarch" });
     }
 
-    const { rows: simRows } = await pool.query("SELECT month, year FROM sim_state WHERE id = 'main' LIMIT 1");
+    const { rows: simRows } = await pool.query("SELECT sim_current_month AS month, sim_current_year AS year FROM sim_clock WHERE id = 'main' LIMIT 1");
     const sim = simRows[0] || { month: 8, year: 1997 };
 
     let postedAs = "The Monarch";
@@ -14564,8 +14585,8 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
     const charId = await getActiveCharacterId(req);
 
     // Get authoritative sim time for timestamps/deadlines — never trust client values
-    const { rows: simRows } = await pool.query("SELECT year, month FROM sim_state WHERE id = 'main' LIMIT 1");
-    const sim = simRows[0] || { year: 1997, month: 8 };
+    const { rows: simRows } = await pool.query("SELECT sim_current_month AS month, sim_current_year AS year FROM sim_clock WHERE id = 'main' LIMIT 1");
+    const sim = simRows[0] || { month: 8, year: 1997 };
     const dueAt         = simDeadline(sim.month, sim.year, 1);
     const askedAtSimStr = JSON.stringify({ month: sim.month, year: sim.year });
     const dueAtSimStr   = JSON.stringify({ month: dueAt.month, year: dueAt.year });
@@ -14674,8 +14695,8 @@ app.patch("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
 
     if (action === "speaker-demand") {
       // Compute demand deadline server-side (1 sim month from now) — never trust client value
-      const { rows: simRows } = await pool.query("SELECT year, month FROM sim_state WHERE id = 'main' LIMIT 1");
-      const sim = simRows[0] || { year: 1997, month: 8 };
+      const { rows: simRows } = await pool.query("SELECT sim_current_month AS month, sim_current_year AS year FROM sim_clock WHERE id = 'main' LIMIT 1");
+      const sim = simRows[0] || { month: 8, year: 1997 };
       const dueAt = simDeadline(sim.month, sim.year, 1);
       const demandDueAtSimStr = JSON.stringify({ month: dueAt.month, year: dueAt.year });
       // Speaker issues a demand for an answer — sets speaker_demanded_at + demand deadline
@@ -14752,8 +14773,8 @@ app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
     }
 
     // Derive answered_at_sim server-side
-    const { rows: simRows } = await pool.query("SELECT year, month FROM sim_state WHERE id = 'main' LIMIT 1");
-    const sim = simRows[0] || { year: 1997, month: 8 };
+    const { rows: simRows } = await pool.query("SELECT sim_current_month AS month, sim_current_year AS year FROM sim_clock WHERE id = 'main' LIMIT 1");
+    const sim = simRows[0] || { month: 8, year: 1997 };
     const answeredAtSimStr = JSON.stringify({ month: sim.month, year: sim.year });
 
     const client = await pool.connect();
@@ -14853,8 +14874,8 @@ app.post("/api/qt/questions/:id/followup", qtWriteLimit, async (req, res) => {
     }
 
     // Derive asked_at_sim server-side
-    const { rows: simRows } = await pool.query("SELECT year, month FROM sim_state WHERE id = 'main' LIMIT 1");
-    const sim = simRows[0] || { year: 1997, month: 8 };
+    const { rows: simRows } = await pool.query("SELECT sim_current_month AS month, sim_current_year AS year FROM sim_clock WHERE id = 'main' LIMIT 1");
+    const sim = simRows[0] || { month: 8, year: 1997 };
     const askedAtSimStr = JSON.stringify({ month: sim.month, year: sim.year });
 
     const { rows } = await pool.query(
@@ -14910,8 +14931,8 @@ app.patch("/api/qt/followups/:id", qtWriteLimit, async (req, res) => {
     }
 
     // Derive answered_at_sim server-side
-    const { rows: simRows } = await pool.query("SELECT year, month FROM sim_state WHERE id = 'main' LIMIT 1");
-    const sim = simRows[0] || { year: 1997, month: 8 };
+    const { rows: simRows } = await pool.query("SELECT sim_current_month AS month, sim_current_year AS year FROM sim_clock WHERE id = 'main' LIMIT 1");
+    const sim = simRows[0] || { month: 8, year: 1997 };
     const answeredAtSimStr = JSON.stringify({ month: sim.month, year: sim.year });
 
     const { rows } = await pool.query(

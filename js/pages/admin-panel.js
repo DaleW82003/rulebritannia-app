@@ -1,6 +1,7 @@
 import { requireAdmin } from "../auth.js";
 import { esc } from "../ui.js";
 import { runSundayRoll } from "../engines/core-engine.js";
+import { saveState } from "../core.js";
 import {
   apiLogout, apiGetState, apiGetConfig, apiSaveConfig,
   apiGetSnapshots, apiSaveSnapshot, apiRestoreSnapshot,
@@ -982,6 +983,9 @@ export async function initAdminPanelPage(data) {
             data.gameState ??= {};
             data.gameState.startSimMonth = parsed.getMonth() + 1; // 1-12
             data.gameState.startSimYear  = parsed.getFullYear();
+            // Persist the updated gameState so sim_clock is synced server-side
+            // and all content creation endpoints use the same sim date as the navbar.
+            saveState(data).catch((err) => console.error("[admin-panel] saveState after sim_start_date update failed:", err));
           }
         }
 
@@ -1258,6 +1262,8 @@ export async function initAdminPanelPage(data) {
           data.gameState.pausedAtRealDate = "";
         }
         if (statusEl) statusEl.textContent = `Game clock ${data.gameState.isPaused ? "paused" : "unpaused"}.`;
+        // Persist so sim_clock is synced server-side and all content creation uses the correct sim date.
+        saveState(data).catch((err) => console.error("[admin-panel] saveState after pause/unpause failed:", err));
         render();
       }
     });
@@ -1276,6 +1282,8 @@ export async function initAdminPanelPage(data) {
       data.gameState.started = true;
       data.gameState.startRealDate = now.toISOString();
       data.gameState.isPaused = false;
+      // Persist so sim_clock is synced server-side and all content creation uses the correct sim date.
+      saveState(data).catch((err) => console.error("[admin-panel] saveState after sim start failed:", err));
       render();
     });
 
