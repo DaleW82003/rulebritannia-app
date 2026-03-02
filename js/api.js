@@ -625,7 +625,11 @@ export async function apiAdminSyncDiscourseGroupsStatus(jobId) {
     ? `${API_BASE}/api/admin/discourse-sync-groups/status?jobId=${encodeURIComponent(jobId)}`
     : `${API_BASE}/api/admin/discourse-sync-groups/status`;
   const res = await fetch(url, { credentials: "include" });
-  if (!res.ok) throw new Error(`apiAdminSyncDiscourseGroupsStatus failed (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(`apiAdminSyncDiscourseGroupsStatus failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 

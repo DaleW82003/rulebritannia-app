@@ -49,6 +49,7 @@ export async function initAdminPanelPage(data) {
   let discourseConfig = { base_url: "", has_api_key: false, has_api_username: false, has_sso_secret: false };
   let syncPreview = [];
   let syncResults = null;  // null = never run; object = last sync results
+  let _syncPollTimer = null;  // active polling interval; hoisted so re-renders don't orphan it
   let ssoReadiness = null; // null = not yet loaded; object = readiness check results
   let dashboardData = null; // moderator dashboard summary
   let billSyncResults = null; // results of last Discourse bill sync
@@ -1104,10 +1105,12 @@ export async function initAdminPanelPage(data) {
       if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
 
       let jobId = null;
-      let pollTimer = null;
+
+      // Clear any timer left over from a previous click or re-render
+      if (_syncPollTimer) { clearInterval(_syncPollTimer); _syncPollTimer = null; }
 
       function stopPolling() {
-        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        if (_syncPollTimer) { clearInterval(_syncPollTimer); _syncPollTimer = null; }
       }
 
       async function pollStatus() {
@@ -1138,7 +1141,11 @@ export async function initAdminPanelPage(data) {
           }
         } catch (pollErr) {
           stopPolling();
-          toastError(`Failed to poll sync status: ${pollErr.message}`);
+          // 404 means the server restarted and the job was lost
+          const isRestart = pollErr.status === 404;
+          toastError(isRestart
+            ? "Sync job lost — the server may have restarted. Please try again."
+            : `Failed to poll sync status: ${String(pollErr.message || pollErr)}`);
           const b = host.querySelector("#btn-sync-discourse-groups");
           if (b) { b.disabled = false; b.textContent = "Sync Discourse Groups Now"; }
         }
@@ -1172,7 +1179,7 @@ export async function initAdminPanelPage(data) {
         }
 
         // Poll every SYNC_POLL_INTERVAL_MS
-        pollTimer = setInterval(pollStatus, SYNC_POLL_INTERVAL_MS);
+        _syncPollTimer = setInterval(pollStatus, SYNC_POLL_INTERVAL_MS);
         // Also poll immediately
         await pollStatus();
       } catch (err) {

@@ -7839,7 +7839,7 @@ async function _runSyncJob(job) {
       groupIdMap = await resolveGroupIds({ baseUrl, apiKey, apiUsername });
     } catch (e) {
       const msg = `Failed to fetch Discourse group list: ${String(e.message || e).slice(0, SYNC_ERROR_MAX_LENGTH)}`;
-      console.error("[discourse-sync-groups]", msg);
+      _syncJobLog(job, `ERROR: ${msg}`);
       throw new Error(msg);
     }
 
@@ -7908,8 +7908,10 @@ app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res
     const job = _newSyncJob();
     _syncJob = job;
 
-    // Start async — do not await
-    _runSyncJob(job).catch(() => {});
+    // Defer execution so this response always goes out with status "queued"
+    // (without setImmediate, _runSyncJob synchronously sets status="running"
+    // before its first await, making "queued" unobservable to callers).
+    setImmediate(() => _runSyncJob(job).catch(() => {}));
 
     return res.json({ ok: true, jobId: job.id, status: job.status });
   } catch (e) {
@@ -7919,6 +7921,11 @@ app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res
 });
 
 // GET /api/admin/discourse-sync-groups/status — poll job state
+// If ?jobId= is omitted, returns the current/last job regardless of id.
+// If ?jobId= is provided but doesn't match the current job, returns 404.
+// NOTE: _syncJob is in-memory only. If the server restarts mid-job,
+//       _syncJob resets to null; a polling client will receive 404 and
+//       should stop polling and show an appropriate message.
 app.get("/api/admin/discourse-sync-groups/status", discourseSyncLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
@@ -7927,7 +7934,7 @@ app.get("/api/admin/discourse-sync-groups/status", discourseSyncLimit, async (re
     const job = _syncJob;
 
     if (!job || (jobId && job.id !== jobId)) {
-      return res.status(404).json({ ok: false, error: "No matching sync job found" });
+      return res.status(404).json({ ok: false, error: "No matching sync job found (server may have restarted or no job has been started yet)" });
     }
 
     return res.json({
