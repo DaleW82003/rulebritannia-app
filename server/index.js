@@ -6054,6 +6054,10 @@ async function getThirdPartySlug(pool) {
 }
 
 const RH_QUALIFYING_SPEC_IDS = ["prime-minister", "leader-opposition"];
+// Offices that confer permanent Privy Council membership on appointment.
+// Includes the third-party leader (who is RH while in post but earns PC for life via this grant).
+// Note: rh_ever covers PM and LoTO; third-party leader is RH via is_third_party_leader but not rh_ever.
+const PC_QUALIFYING_SPEC_IDS = ["prime-minister", "leader-opposition", "party-leader-3rd-4th"];
 
 async function getCharacterParliamentaryMeta(pool, characterId) {
   if (!characterId) return { is_mp: false, is_pc: false, is_privy_current: false, is_rh: false, is_third_party_leader: false };
@@ -11605,6 +11609,16 @@ app.get("/api/parties/:partyId/elections/:id", electionReadLimit, async (req, re
       ),
     ]);
 
+    // Enrich nominations with canonical display_name (includes PC/RH/MP post-nominals)
+    if (nominations.length) {
+      const nomCharRows = nominations.map((n) => ({ id: n.character_id, name: n.character_name }));
+      const enriched = await batchEnrichCharacterRows(pool, nomCharRows);
+      const displayMap = Object.fromEntries(enriched.map((r) => [r.id, r.display_name]));
+      for (const n of nominations) {
+        n.display_name = displayMap[n.character_id] || n.character_name;
+      }
+    }
+
     // Has current user voted in current round?
     let myVote = null;
     if (req.session.characterId) {
@@ -12431,6 +12445,21 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
     // rh_ever is set to TRUE the first time they are assigned to these offices and never reverted.
     if (RH_QUALIFYING_SPEC_IDS.includes(office.spec_id)) {
       await pool.query("UPDATE characters SET rh_ever = TRUE WHERE id = $1", [character_id]);
+    }
+
+    // Auto-grant permanent Privy Council membership for PM / LoTO / Third-Party Leader.
+    // PC status is never auto-removed when leaving these roles.
+    // On re-appointment, only reactivate (clear removal fields) — preserve original appointed_at.
+    if (PC_QUALIFYING_SPEC_IDS.includes(office.spec_id)) {
+      await pool.query(
+        `INSERT INTO privy_council_members (character_id, appointed_by, reason, removed_at, removed_by, removal_reason)
+         VALUES ($1, $2, $3, NULL, NULL, '')
+         ON CONFLICT (character_id)
+         DO UPDATE SET removed_at = NULL, removed_by = NULL, removal_reason = '',
+                       appointed_by = EXCLUDED.appointed_by, reason = EXCLUDED.reason`,
+        [character_id, req.session.userId,
+          `Auto-granted on appointment as ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`]
+      );
     }
 
     // Recompute salary positions for old and new holder

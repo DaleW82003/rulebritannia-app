@@ -1144,23 +1144,28 @@ function render(data, state) {
         ` : ""}
       </article>
 
-      ${(state.officeHistory && state.officeHistory.length) ? `
-        <article class="tile" style="grid-column:1/-1;">
-          <h2 style="margin-top:0;">Offices Held</h2>
-          <div style="display:grid;gap:8px;">
-            ${state.officeHistory.map((o) => {
-              const typeLabel = { cabinet: "Government", shadow: "Opposition", parliamentary: "Parliamentary", other: "Other" }[o.office_type] || o.office_type || "";
-              const dateRange = `${esc(o.start_sim)} → ${o.end_sim ? esc(o.end_sim) : "Present"}`;
-              return `
-                <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-                  <b>${esc(o.title)}</b>
-                  <span class="muted">${esc(typeLabel)} — ${dateRange}</span>
-                </div>
-              `;
-            }).join("")}
+      <article class="tile" style="grid-column:1/-1;">
+        <h2 style="margin-top:0;">Service &amp; Offices</h2>
+        <div style="display:grid;gap:8px;">
+          <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+            ${profile.profile.constituency
+              ? `<b>Member of Parliament for ${esc(profile.profile.constituency)}</b><span class="muted">MP Service — ${esc(profile.profile.yearFirstElected || "?")} → Present</span>`
+              : `<span class="muted">Not currently an MP.</span>`}
           </div>
-        </article>
-      ` : ""}
+          ${(state.officeHistory && state.officeHistory.length)
+            ? state.officeHistory.map((o) => {
+                const typeLabel = { cabinet: "Government", shadow: "Opposition", parliamentary: "Parliamentary", other: "Other" }[o.office_type] || o.office_type || "";
+                const dateRange = `${esc(o.start_sim)} → ${o.end_sim ? esc(o.end_sim) : "Present"}`;
+                return `
+                  <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <b>${esc(o.title)}</b>
+                    <span class="muted">${esc(typeLabel)} — ${dateRange}</span>
+                  </div>
+                `;
+              }).join("")
+            : `<div class="muted" style="font-size:.9em;padding:4px 0;">No frontbench offices held yet.</div>`}
+        </div>
+      </article>
 
       <article class="tile" style="min-height:240px;">
         <h2 style="margin-top:0;">Income &amp; Upkeep Summary</h2>
