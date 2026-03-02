@@ -12,6 +12,7 @@ import {
   apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange,
   apiGetFinanceConfig, apiUpdateFinanceSalaryBands, apiUpdateFinanceStartingBalances, apiApplyFinanceInflation,
   apiGetAuditLog,
+  apiGetSim,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -61,7 +62,24 @@ export async function initControlPanelPage(data) {
   const manager = canAdminModOrSpeaker(data);
   const char = data?.currentCharacter || data?.currentPlayer || {};
 
-  if (simBlock) simBlock.innerHTML = `<div class="kv"><span>Simulation Started</span><b>${data?.gameState?.started ? "Yes" : "No"}</b></div><div class="kv"><span>Start Real Date</span><b>${esc(data?.gameState?.startRealDate || "Not set")}</b></div>`;
+  if (simBlock) {
+    simBlock.innerHTML = `<div class="muted-block">Fetching live sim status…</div>`;
+    try {
+      const simResult = await apiGetSim();
+      const s = simResult?.sim || {};
+      const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const monthLabel = (s.month >= 1 && s.month <= 12) ? MONTH_NAMES[s.month - 1] : `Month ${s.month ?? "?"}`;
+      const lastTick = s.last_tick_at ? new Date(s.last_tick_at).toLocaleString("en-GB") : "Never";
+      simBlock.innerHTML = `
+        <div class="kv"><span>Sim Date</span><b>${esc(monthLabel)} ${esc(String(s.year ?? "—"))}</b></div>
+        <div class="kv"><span>Paused</span><b>${s.is_paused ? "Yes — clock stopped" : "No — running"}</b></div>
+        <div class="kv"><span>Last Tick</span><b>${esc(lastTick)}</b></div>
+      `;
+    } catch (err) {
+      console.error("[control-panel] failed to load sim status", err);
+      simBlock.innerHTML = `<div class="muted-block">Could not load sim status: ${esc(err.message)}</div>`;
+    }
+  }
 
   if (!rolePanels) return;
 

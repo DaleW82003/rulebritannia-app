@@ -5,7 +5,7 @@ import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
 import { apiGetBills } from "../api.js";
 import { apiGetMotions, apiGetStatements, apiGetRegulations, apiGetPressItems, apiGetEvents } from "../api.js";
-import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData, apiGetQtLegacyQuestions, apiGetGovernmentEvents } from "../api.js";
+import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData, apiGetQtLegacyQuestions, apiGetGovernmentEvents, apiGetElections } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 // js/pages/dashboard.js
@@ -255,6 +255,20 @@ function buildPlayerDocketItems(data) {
     }
   }
 
+  // ── Election results (finalized) visible to all players ───────────────────
+  const allElections = data?.elections?.elections || [];
+  const finalizedElections = allElections.filter((e) => e.status === "finalized" && e.finalized_at);
+  const newElections = finalizedElections.filter(
+    (e) => new Date(e.finalized_at).getTime() > (seenTs.election || 0)
+  );
+  if (newElections.length) {
+    const latest = newElections.sort((a, b) => new Date(b.finalized_at) - new Date(a.finalized_at))[0];
+    const title = newElections.length === 1
+      ? `${latest.label || latest.type || "Election"} Results Published`
+      : `${newElections.length} Election Results Published`;
+    push({ type: "election", iconClass: "icon-election", title, detail: latest.label || latest.polling_day || "", ctaLabel: "Open Elections", href: "elections.html", priority: "high", dismissOnClick: true, seenActivityKey: "election" });
+  }
+
   return items;
 }
 
@@ -359,6 +373,7 @@ function iconFor(type) {
     economy:             ["📊", "icon-economy"],
     poll:                ["📈", "icon-poll"],
     news:                ["📰", "icon-news"],
+    election:            ["🗳️", "icon-election"],
     fire:                ["🔥", "icon-fire"],
     resign:              ["🚪", "icon-resign"],
     reshuffle:           ["🔄", "icon-reshuffle"],
@@ -757,6 +772,13 @@ export async function initDashboardPage(data) {
       data.governmentEvents = Array.isArray(r?.events) ? r.events : [];
     }).catch((err) => {
       console.error("[dashboard] government events load failed", err);
+    }),
+    // Elections → player docket (finalized results visible to all)
+    apiGetElections().then((r) => {
+      data.elections ??= { elections: [] };
+      data.elections.elections = Array.isArray(r?.elections) ? r.elections : [];
+    }).catch((err) => {
+      console.error("[dashboard] elections load failed", err);
     }),
   ] : []);
 

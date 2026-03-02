@@ -122,12 +122,21 @@ export async function initAdminPanelPage(data) {
     const auditRows = (recentAuditLog || []).map((e) => {
       const details = typeof e.details === "object" && e.details ? e.details : {};
       const headline = details.headline || "";
+      const simDate = (details.simMonth && details.simYear)
+        ? `${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(details.simMonth) - 1] || details.simMonth} ${details.simYear}`
+        : "";
+      const characterName = details.characterName || "";
+      const officeName = details.officeName || "";
+      const detailHint = [characterName && `👤 ${characterName}`, officeName && `🏛 ${officeName}`, simDate && `📅 ${simDate}`].filter(Boolean).join(" · ");
       return `<tr>
         <td>${esc(e.created_at ? new Date(e.created_at).toLocaleString("en-GB") : "")}</td>
-        <td>${esc(e.actor_id || "")}</td>
+        <td style="font-size:12px;" title="${esc(e.actor_id || "")}">${esc(e.actor_name || "")}</td>
         <td>${esc(e.action || "")}</td>
         <td>${esc(e.target || "")}</td>
-        <td style="color:#555;font-size:12px;">${esc(headline)}</td>
+        <td style="font-size:12px;">
+          ${headline ? `<div style="font-weight:500;">${esc(headline)}</div>` : ""}
+          ${detailHint ? `<div style="color:#666;margin-top:2px;">${esc(detailHint)}</div>` : ""}
+        </td>
       </tr>`;
     }).join("");
 

@@ -15723,8 +15723,11 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
             AND data->>'discourseTopicId' IS NULL`
       ),
       pool.query(
-        `SELECT id, actor_id, action, target, details, created_at
-           FROM audit_log ORDER BY created_at DESC LIMIT 10`
+        `SELECT al.id, al.actor_id, COALESCE(u.email, al.actor_id) AS actor_name,
+                al.action, al.target, al.details, al.created_at
+           FROM audit_log al
+           LEFT JOIN users u ON u.id::text = al.actor_id
+          ORDER BY al.created_at DESC LIMIT 10`
       ),
       pool.query(
         "SELECT COUNT(*) AS count FROM pending_registrations WHERE status = 'pending'"
