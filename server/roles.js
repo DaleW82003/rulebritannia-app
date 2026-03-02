@@ -128,6 +128,10 @@ export function computeDiscourseGroups(roles) {
     const group = DISCOURSE_GROUP_MAP[role];
     if (group) groups.add(group);
   }
+  // Auto-assign backbencher for any MP (party role holder) who is not admin/mod.
+  const hasParty = roles.some((r) => PARTY_ROLES.includes(r));
+  const isPrivileged = roles.includes("admin") || roles.includes("mod");
+  if (hasParty && !isPrivileged) groups.add("backbencher");
   return [...groups].sort();
 }
 
