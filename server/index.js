@@ -12849,6 +12849,37 @@ function simMonthsBetween(fromYear, fromMonth, toYear, toMonth) {
 
 const RESHUFFLE_COOLDOWN_SIM_MONTHS = 18;
 
+// GET /api/government/events — recent fire/resign/reshuffle events for the live docket
+app.get("/api/government/events", officeReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT action, details, created_at
+         FROM audit_log
+        WHERE action IN ('office.fire','office.resign','government.reshuffle','opposition.reshuffle')
+        ORDER BY created_at DESC
+        LIMIT 50`
+    );
+    const events = rows.map((r) => {
+      const d = r.details || {};
+      const after = d.after || {};
+      return {
+        action: r.action,
+        createdAt: r.created_at,
+        characterName: d.characterName || null,
+        officeName: d.officeName || null,
+        officeType: d.officeType || null,
+        pmName: d.pmName || after.pmName || null,
+        lotoName: d.lotoName || after.lotoName || null,
+      };
+    });
+    res.json({ events });
+  } catch (e) {
+    console.error("[GET /api/government/events]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // GET /api/government/reshuffle — reshuffle status for government
 app.get("/api/government/reshuffle", officeReadLimit, async (req, res) => {
   try {

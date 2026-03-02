@@ -1251,6 +1251,12 @@ export async function apiGetReshuffleStatus(type) {
   return res.json();
 }
 
+export async function apiGetGovernmentEvents() {
+  const res = await fetch(`${API_BASE}/api/government/events`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetGovernmentEvents failed (${res.status})`);
+  return res.json();
+}
+
 export async function apiDeclareReshuffle(type) {
   const res = await fetch(`${API_BASE}/api/${encodeURIComponent(type)}/reshuffle`, {
     method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() },
