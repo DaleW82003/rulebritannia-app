@@ -6641,7 +6641,23 @@ app.get("/api/motions/:id", crudReadLimit, async (req, res) => {
     const author_display_name = rows[0].data?.author_character_id
       ? await getCharacterDisplayName(pool, rows[0].data.author_character_id, rows[0].data?.author || "")
       : (rows[0].data?.author || "");
-    res.json({ motion: normaliseDiscourseFields({ ...rows[0].data, author_display_name, _motionType: rows[0].motion_type, _updatedAt: rows[0].updated_at }) });
+    const motion = normaliseDiscourseFields({ ...rows[0].data, author_display_name, _motionType: rows[0].motion_type, _updatedAt: rows[0].updated_at });
+
+    // For EDMs: attach canSignEdm / cannotSignReason so the frontend can
+    // reliably gate the Sign button without trusting stale client-side state.
+    if (rows[0].motion_type === "edm") {
+      motion.canSignEdm = true;
+      const charId = await getActiveCharacterId(req).catch(() => null);
+      if (charId) {
+        const isCabinetMember = await isOfficeHolder(charId, "cabinet");
+        if (isCabinetMember) {
+          motion.canSignEdm = false;
+          motion.cannotSignReason = "Government members may not sign Early Day Motions.";
+        }
+      }
+    }
+
+    res.json({ motion });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -8493,6 +8509,28 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
         financialBackgroundLevel: c.financial_background_level != null ? String(c.financial_background_level) : "",
         twitterHandle:            c.twitter_handle || "",
       };
+      // Attach current office assignments (spec_id + type) so the frontend can
+      // reliably detect government/shadow membership (e.g. for EDM signing rules).
+      const { rows: offRows } = await pool.query(
+        `SELECT o.spec_id, o.type AS office_type
+           FROM office_assignments oa
+           JOIN offices o ON o.id = oa.office_id
+          WHERE oa.character_id = $1
+          ORDER BY o.type, o.spec_id`,
+        [c.id]
+      );
+      if (offRows.length) {
+        // Prefer a cabinet office for the legacy scalar `office` / `office_type` fields so that
+        // government-membership checks (e.g. EDM signing) work correctly even for characters
+        // who simultaneously hold a parliamentary or other non-cabinet role.  The full `offices`
+        // array exposes all assignments for callers that need the complete picture.
+        const cabinetRow = offRows.find((r) => r.office_type === "cabinet");
+        const primaryRow = cabinetRow || offRows[0];
+        currentCharacter.office        = primaryRow.spec_id || null;
+        currentCharacter.office_type   = primaryRow.office_type || null;
+        currentCharacter.offices       = offRows.map((r) => r.spec_id).filter(Boolean);
+        currentCharacter.office_types  = offRows.map((r) => r.office_type).filter(Boolean);
+      }
     }
 
     res.json({ clock, config, user, csrfToken: req.session.csrfToken, state, currentCharacter, seatTotals, canonicalParties, is_demo: false });
@@ -12872,11 +12910,27 @@ const OFFICE_SPEC_TITLES = {
   "shadow-leader-commons": "Shadow Leader of the House of Commons",
 };
 
-/** Returns { simMonth, simYear } for the current sim clock (1-indexed month). */
+/** Returns { simMonth, simYear } for the current sim date (1-indexed month).
+ *  Computes the real-time sim date from the live gameState (same algorithm as
+ *  the navbar clock) so all server-side content stamps match what the UI shows.
+ *  Falls back to the sim_clock DB cache if gameState is unavailable.
+ */
 async function getCurrentSimMonthYear() {
-  const { rows } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
-  return rows[0]
-    ? { simMonth: rows[0].sim_current_month, simYear: rows[0].sim_current_year }
+  try {
+    const { rows } = await pool.query(
+      `SELECT ss.data->'gameState' AS game_state
+         FROM state_snapshots ss
+         JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+        WHERE asc2.id = 'main'`
+    );
+    if (rows[0]?.game_state && typeof rows[0].game_state === "object") {
+      const sd = computeSimDateFromGameState(rows[0].game_state);
+      return { simMonth: sd.month, simYear: sd.year };
+    }
+  } catch (_) { /* fall through to sim_clock */ }
+  const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+  return clk[0]
+    ? { simMonth: clk[0].sim_current_month, simYear: clk[0].sim_current_year }
     : { simMonth: 8, simYear: 1997 };
 }
 
@@ -13183,10 +13237,17 @@ app.get("/api/characters/:id/offices-held", officeReadLimit, async (req, res) =>
       const endLabel   = r.end_sim_month
         ? `${SIM_MONTH_NAMES[(r.end_sim_month || 1) - 1]} ${r.end_sim_year}`
         : null;
+      // Derive office_type from spec_id if the stored type is missing or generic,
+      // so shadow offices always surface as 'shadow' regardless of DB quirks.
+      let officeType = r.office_type || "other";
+      if (!officeType || officeType === "other" || officeType === "parliamentary") {
+        if (specId === "leader-opposition" || specId.startsWith("shadow-")) officeType = "shadow";
+        else if (OFFICE_SPEC_TITLES[specId] && !specId.startsWith("shadow-")) officeType = "cabinet";
+      }
       return {
         spec_id:     specId,
         title:       canonicalTitle,
-        office_type: r.office_type,
+        office_type: officeType,
         start_sim:   startLabel,
         end_sim:     endLabel,
       };

@@ -479,7 +479,10 @@ function renderEdm(root, data, edm) {
   const speaker = isSpeaker(data);
   const canStaff = canAdminModOrSpeaker(data);
   const isAdminOrMod = canAdminOrMod(data);
-  const disallowed = isGovernmentMember(data);
+  // Prefer server-driven canSignEdm flag (set by GET /api/motions/:id based on the
+  // requester's current office assignments) with fallback to client-side detection.
+  const disallowed = edm.canSignEdm === false || isGovernmentMember(data);
+  const disallowedReason = edm.cannotSignReason || "Government members cannot sign EDMs.";
   const w = currentWeight(data);
   edm.signatures ??= [];
   edm.npcSignatures ??= {};
@@ -515,7 +518,11 @@ function renderEdm(root, data, edm) {
       <p><b>Signed by:</b> ${edm.signatures.length ? edm.signatures.map((s) => `${esc(s.name)} <span class="muted">(weight: ${Math.round(Number(s.weight || 0))})</span>`).join(", ") : "No signatories yet."}</p>
       ${(() => { const npcSigned = Object.entries(edm.npcSignatures).filter(([,v])=>v); return npcSigned.length ? `<p><b>NPC signatures:</b> ${npcSigned.map(([p]) => `${esc(p)} (${Number(seats[p] || 0)} seats)`).join(", ")}</p>` : ""; })()}
       ${(() => { const rebelSigned = Object.entries(edm.rebelSignatures).filter(([,n])=>Number(n)>0); return rebelSigned.length ? `<p><b>Rebel signatures:</b> ${rebelSigned.map(([p,n]) => `${esc(p)} (${Number(n)} seats)`).join(", ")}</p>` : ""; })()}
-      ${expired ? `<p class="muted"><b>Signature period has closed.</b></p>` : disallowed ? `<p class="muted"><b>Government members cannot sign EDMs.</b></p>` : signed ? `<p class="muted"><b>You have already signed.</b></p>` : `<button class="btn" data-action="sign-edm" ${w > 0 ? "" : "disabled"}>Sign EDM</button>`}
+      ${expired ? `<p class="muted"><b>Signature period has closed.</b></p>`
+        : disallowed ? `<button class="btn" disabled>Sign EDM</button>
+                        <p class="muted" style="margin-top:4px;"><b>${esc(disallowedReason)}</b></p>`
+        : signed ? `<p class="muted"><b>You have already signed.</b></p>`
+        : `<button class="btn" data-action="sign-edm" ${w > 0 ? "" : "disabled"}>Sign EDM</button>`}
 
       ${isAdminOrMod && !expired ? `
         <div style="margin-top:12px;">
