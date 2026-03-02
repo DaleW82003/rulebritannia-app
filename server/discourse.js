@@ -141,9 +141,9 @@ function groupUrlPath(groupName, groupId) {
  * @param {string}   url
  * @param {object}   init                         - fetch init options
  * @param {object}   [opts]
- * @param {number}   [opts.maxRetries=5]
+ * @param {number}   [opts.maxRetries=10]
  * @param {number}   [opts.fallbackDelayMs=2000]  - initial backoff when wait_seconds is absent
- * @param {number}   [opts.maxTotalWaitMs=60000]
+ * @param {number}   [opts.maxTotalWaitMs=300000] - 5 minutes; accommodates a single ~58 s Discourse window
  * @param {number}   [opts.maxBackoffMs=30000]    - cap on per-attempt backoff delay
  * @param {number}   [opts.jitterMs=250]          - buffer added to wait_seconds delays
  * @param {Function} [opts.sleep]                 - injectable sleep(ms)→Promise; defaults to setTimeout
@@ -151,9 +151,9 @@ function groupUrlPath(groupName, groupId) {
  * @returns {Promise<Response>}
  */
 async function discourseApiRequest(url, init, {
-  maxRetries = 5,
+  maxRetries = 10,
   fallbackDelayMs = 2000,
-  maxTotalWaitMs = 60_000,
+  maxTotalWaitMs = 300_000,
   maxBackoffMs = 30_000,
   jitterMs = 250,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -178,12 +178,14 @@ async function discourseApiRequest(url, init, {
     if (res.status !== 429) return res;
 
     let waitMs;
+    let waitSeconds;
     const ct = res.headers.get("content-type") ?? "";
     if (ct.includes("application/json")) {
       try {
         const data = await res.json();
         const secs = data?.extras?.wait_seconds;
         if (typeof secs === "number" && secs > 0) {
+          waitSeconds = secs;
           waitMs = Math.round(secs * 1000) + jitterMs;
         }
       } catch {
@@ -196,8 +198,12 @@ async function discourseApiRequest(url, init, {
 
     totalWait += waitMs;
     if (attempt >= maxRetries || totalWait > maxTotalWaitMs) {
+      const waitInfo = waitSeconds != null
+        ? `wait_seconds=${waitSeconds}, `
+        : "";
       throw new Error(
-        `Discourse API rate-limited: HTTP 429 on ${url} after ${attempt + 1} attempt(s); waited ${totalWait}ms total`
+        `Discourse API rate-limited: HTTP 429 on ${url} after ${attempt + 1} attempt(s); ` +
+        `${waitInfo}totalWaitMs=${totalWait}, maxTotalWaitMs=${maxTotalWaitMs}`
       );
     }
 

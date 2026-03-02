@@ -866,7 +866,7 @@ test("resolveGroupIds logs URL + attempt + wait on each 429 retry", async () => 
   }
 });
 
-test("resolveGroupIds exhausted error message includes URL", async () => {
+test("resolveGroupIds exhausted error message includes URL, wait_seconds, totalWaitMs and maxTotalWaitMs", async () => {
   const saved = globalThis.fetch;
   globalThis.fetch = async () => ({
     ok: false,
@@ -883,7 +883,10 @@ test("resolveGroupIds exhausted error message includes URL", async () => {
       }),
       (err) => {
         assert.ok(/Discourse API rate-limited: HTTP 429/.test(err.message), `wrong prefix: ${err.message}`);
-        assert.ok(/forum\.example\.com/.test(err.message), `URL missing from error: ${err.message}`);
+        assert.ok(/forum\.example\.com/.test(err.message),    `URL missing: ${err.message}`);
+        assert.ok(/wait_seconds=1/.test(err.message),         `wait_seconds missing: ${err.message}`);
+        assert.ok(/totalWaitMs=/.test(err.message),           `totalWaitMs missing: ${err.message}`);
+        assert.ok(/maxTotalWaitMs=/.test(err.message),        `maxTotalWaitMs missing: ${err.message}`);
         return true;
       }
     );
@@ -947,6 +950,78 @@ test("resolveGroupIds does not insert inter-page delay for a single-page respons
       _sleep: noopSleep, _pageDelayMs: 300,
     });
     assert.equal(sleepCalls.length, 0, "no inter-page sleep for single page");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── Redirect handling ─────────────────────────────────────────────────────────
+
+test("resolveGroupIds throws with Location header on 302 redirect", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 302,
+    headers: { get: (h) => h === "location" ? "https://forum.example.com/login" : null },
+  });
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" }),
+      (err) => {
+        assert.ok(/Discourse API redirect: HTTP 302/.test(err.message), `wrong prefix: ${err.message}`);
+        assert.ok(err.message.includes("forum.example.com/login"), `Location missing: ${err.message}`);
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("discourseApiRequest throws with Location header on 301 redirect", async () => {
+  // Test via getGroupMembers which proxies to discourseApiRequest
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 301,
+    headers: { get: (h) => h === "location" ? "https://www.example.com/groups/staff/members.json" : null },
+  });
+  try {
+    await assert.rejects(
+      () => getGroupMembers({
+        baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+        groupName: "staff", groupId: 9,
+      }),
+      (err) => {
+        assert.ok(/Discourse API redirect: HTTP 301/.test(err.message), `wrong prefix: ${err.message}`);
+        assert.ok(/www\.example\.com/.test(err.message), `Location missing: ${err.message}`);
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("discourseApiRequest throws with '(no Location header)' when Location is absent on redirect", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 307,
+    headers: { get: () => null },
+  });
+  try {
+    await assert.rejects(
+      () => getGroupMembers({
+        baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+        groupName: "staff", groupId: 9,
+      }),
+      (err) => {
+        assert.ok(/Discourse API redirect: HTTP 307/.test(err.message), `wrong prefix: ${err.message}`);
+        assert.ok(err.message.includes("(no Location header)"), `fallback text missing: ${err.message}`);
+        return true;
+      }
+    );
   } finally {
     globalThis.fetch = saved;
   }
