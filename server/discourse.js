@@ -148,7 +148,8 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
 
   while (pageUrl) {
     const res = await fetch(pageUrl, {
-      method: "GET",
+      method:   "GET",
+      redirect: "manual",
       headers: {
         "Api-Key":      apiKey,
         "Api-Username": apiUsername,
@@ -164,7 +165,7 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
       const body = await res.text().catch(() => "");
       const snippet = body.replace(/\r?\n/g, " ").slice(0, 200);
       throw new Error(
-        `resolveGroupIds failed: HTTP ${res.status} content-type=${contentType} body=${snippet}`
+        `resolveGroupIds failed: HTTP ${res.status} url=${res.url} content-type=${contentType} body=${snippet}`
       );
     }
     const data = await res.json();
@@ -205,7 +206,8 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
   while (true) {
     const url = `${cleanBase}/groups/${groupPath}/members.json?limit=${limit}&offset=${offset}`;
     const res = await fetch(url, {
-      method: "GET",
+      method:   "GET",
+      redirect: "manual",
       headers: {
         "Api-Key":      apiKey,
         "Api-Username": apiUsername,
@@ -248,7 +250,8 @@ export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
   const res = await fetch(`${cleanBase}/groups/${groupPath}/members.json`, {
-    method: "PUT",
+    method:   "PUT",
+    redirect: "manual",
     headers: {
       "Api-Key":      apiKey,
       "Api-Username": apiUsername,
@@ -281,7 +284,8 @@ export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupNa
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
   const res = await fetch(`${cleanBase}/groups/${groupPath}/members.json`, {
-    method: "DELETE",
+    method:   "DELETE",
+    redirect: "manual",
     headers: {
       "Api-Key":      apiKey,
       "Api-Username": apiUsername,
