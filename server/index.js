@@ -205,6 +205,7 @@ app.use(
       httpOnly: true,
       sameSite: "none", // cross-site cookie (frontend on separate origin)
       secure: true, // must be true on https
+      domain: ".rulebritannia.org", // covers both rulebritannia.org and www.rulebritannia.org
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     },
   })
