@@ -101,7 +101,7 @@ function render(data, state) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Enter the Shadow Cabinet Office</h2>
       <p class="muted">Private Opposition discussion space for the shadow cabinet and moderators.</p>
-      ${data.shadowCabinet.hqUrl ? `<a class="btn" href="${esc(data.shadowCabinet.hqUrl)}" target="_blank" rel="noopener">Enter Shadow Cabinet Office</a>` : `<span class="muted">Forum link not configured.</span>`}
+      <a class="btn" href="https://forum.rulebritannia.org/c/shadow-cabinet/14" target="_blank" rel="noopener">Enter Shadow Cabinet Office</a>
     </section>
 
     <section class="panel" style="margin-bottom:12px;">

@@ -397,7 +397,7 @@ export function initSubmitBillPage(data) {
 
     if (stage === "Second Reading") {
       const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${department ? ` (${department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
-      apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw })
+      apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw, categoryId: 9 })
         .then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after bill submit; outer .catch() handles failures
           bill.debate = { ...bill.debate, topicId, topicUrl };
           bill.discourseTopicId = topicId;

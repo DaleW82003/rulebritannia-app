@@ -105,6 +105,10 @@ export async function initControlPanelPage(data) {
 
   rolePanels.innerHTML = `
     <section class="panel" style="margin-bottom:12px;">
+      <a class="btn" href="https://forum.rulebritannia.org/c/mod-mountain/5" target="_blank" rel="noopener">Ascend the Mountain</a>
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Control Panels ${controlPanelBadgesHTML(admin, data)}</h2>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;margin-bottom:10px;">
         ${CONTROL_LINKS.map((c) => {

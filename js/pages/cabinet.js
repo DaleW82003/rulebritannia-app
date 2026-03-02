@@ -101,7 +101,7 @@ function render(data, state) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Enter Cabinet Office</h2>
       <p class="muted">Private government discussion space for cabinet members and moderators.</p>
-      ${data.cabinet.hqUrl ? `<a class="btn" href="${esc(data.cabinet.hqUrl)}" target="_blank" rel="noopener">Enter Cabinet Office</a>` : `<span class="muted">Forum link not configured.</span>`}
+      <a class="btn" href="https://forum.rulebritannia.org/c/cabinet/13" target="_blank" rel="noopener">Enter Cabinet Office</a>
     </section>
 
     <section class="panel" style="margin-bottom:12px;">

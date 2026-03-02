@@ -87,6 +87,34 @@ export async function createPost(baseUrl, apiKey, apiUsername, topicId, raw) {
 }
 
 /**
+ * Close (lock) a Discourse topic via the topic status API.
+ *
+ * @param {string} baseUrl     - Discourse base URL (no trailing slash)
+ * @param {string} apiKey      - Discourse API key
+ * @param {string} apiUsername - Discourse API username
+ * @param {number} topicId     - ID of the topic to close
+ * @returns {Promise<void>}
+ */
+export async function closeTopic(baseUrl, apiKey, apiUsername, topicId) {
+  const res = await fetch(`${baseUrl}/t/${topicId}/status`, {
+    method: "PUT",
+    headers: {
+      "Api-Key":      apiKey,
+      "Api-Username": apiUsername,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ status: "closed", enabled: true }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    const err = new Error(`Discourse closeTopic failed: HTTP ${res.status} ${text.slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
+  }
+}
+
+/**
  * Retry wrapper — retries on transient errors (network / 429 / 5xx).
  * Does NOT retry on definitive 4xx errors (except 429).
  *

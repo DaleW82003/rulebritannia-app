@@ -208,7 +208,8 @@ export async function initRegulationsPage(data) {
     apiCreateDebateTopic({
       entityType: "regulation", entityId: regulation.id,
       title: `${regulation.department} Regulation ${regNo}: ${title}`,
-      raw: `**${regulation.department} Regulation ${regNo}: ${title}**\nLaid by ${regulation.author}. Comes into force: ${regulation.comesIntoForce}.\n\n${body}`
+      raw: `**${regulation.department} Regulation ${regNo}: ${title}**\nLaid by ${regulation.author}. Comes into force: ${regulation.comesIntoForce}.\n\n${body}`,
+      categoryId: 9
     }).then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after regulation submit; outer .catch() handles failures
       regulation.debate = { ...regulation.debate, topicId, topicUrl };
       regulation.discourseTopicId = topicId;

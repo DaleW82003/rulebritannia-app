@@ -175,7 +175,8 @@ function render(data) {
     apiCreateDebateTopic({
       entityType: "statement", entityId: statement.id,
       title: `Ministerial Statement MS${number}: ${title}`,
-      raw: `**Ministerial Statement by ${author}**\n\n${body}`
+      raw: `**Ministerial Statement by ${author}**\n\n${body}`,
+      categoryId: 9
     }).then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after statement submit; outer .catch() handles failures
       statement.debate = { ...statement.debate, topicId, topicUrl };
       statement.discourseTopicId = topicId;
