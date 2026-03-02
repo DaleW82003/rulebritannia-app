@@ -2862,6 +2862,33 @@ async function runDebateAutoClose(month, year) {
   }
 }
 
+/**
+ * Called on every clock tick. Closes any open divisions whose closes_at_sim
+ * deadline has been reached or passed. Sets outcome = 'expired'.
+ * closes_at_sim is stored as TEXT in "YYYY-MM" format.
+ *
+ * @param {number} month - New sim month (1-12)
+ * @param {number} year  - New sim year
+ */
+async function runDivisionAutoClose(month, year) {
+  const deadline = simDeadlineToText(month, year); // "YYYY-MM"
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE divisions
+          SET status = 'closed', outcome = 'expired'
+        WHERE status = 'open'
+          AND closes_at_sim IS NOT NULL
+          AND closes_at_sim <= $1`,
+      [deadline]
+    );
+    if (rowCount) {
+      console.log(`[division/auto-close] closed ${rowCount} expired division(s) at sim ${deadline}`);
+    }
+  } catch (err) {
+    console.error("[division/auto-close] failed:", err.message);
+  }
+}
+
 // Server-side party name normaliser — mirrors scripts/convert-1997-csv.js.
 // Handles ASCII variants, Latin-1 mojibake and legacy CSV typos.
 const SERVER_PARTY_MAP = {
@@ -7158,6 +7185,7 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
     runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
     runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
     runDebateAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] debate auto-close failed:", e.message));
+    runDivisionAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] division auto-close failed:", e.message));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
