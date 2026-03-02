@@ -1,4 +1,4 @@
-import { esc, formatMPName, partyBadge, PARTY_COLOURS } from "../ui.js";
+import { esc, partyBadge, PARTY_COLOURS } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
 import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice, apiGetParliamentStatus, apiUpdateParliamentStatus, apiGetCanonicalParties, apiFireOffice, apiResignOffice, apiResetGovernment, apiGetReshuffleStatus, apiDeclareReshuffle, apiEndReshuffle } from "../api.js";
 import { isLoggedIn } from "../core.js";
@@ -286,7 +286,7 @@ function render(data, state) {
           const name = office.holderName || "Vacant";
           const avatar = avatarFromCharacterProfile(data, office.holderName) || office.holderAvatar || "";
           const isFilled = !!office.holderName;
-          const displayName = office.holderDisplayName || (office.holderName ? formatMPName(office.holderName, { appendMP: true }) : "");
+          const displayName = office.holderDisplayName || office.holderName || "";
           // During reshuffle: all offices with edit permission show dropdowns
           // PM self-held non-PM office: always show dropdown
           const isPmSelfInNonPmOffice = isPM && isFilled && spec.id !== "prime-minister" && office.holderName === currentName;

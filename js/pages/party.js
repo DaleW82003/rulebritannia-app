@@ -1,4 +1,4 @@
-import { esc, formatMPName } from "../ui.js";
+import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
 import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection } from "../api.js";
@@ -588,7 +588,7 @@ function render(data, state) {
                 const whipWithdrawn = c.whip_status === "withdrawn";
                 return `
                   <tr style="border-bottom:1px solid #eee;">
-                    <td style="padding:4px 8px;">${esc(formatMPName(c.name, { appendMP: true, isPrivy: !!(c.is_privy_councillor) }))}</td>
+                    <td style="padding:4px 8px;">${esc(c.display_name ?? c.name)}</td>
                     <td style="padding:4px 8px;">${whipWithdrawn ? "⛔ Withdrawn" : "✅ Has Whip"}</td>
                     ${canManageWhip ? `<td style="padding:4px 8px;">
                       ${whipWithdrawn
@@ -684,7 +684,7 @@ function render(data, state) {
               <b>Candidates:</b>
               <ul style="margin:4px 0 0 0;padding-left:1.2em;">
                 ${nominations.map((n) => `
-                  <li>${esc(formatMPName(n.character_name || n.name || "—", { appendMP: true, isPrivy: !!(n.is_privy_councillor) }))}
+                  <li>${esc(n.display_name ?? n.character_name ?? n.name ?? "—")}
                     ${votes[n.character_id || n.id] != null ? ` — <b>${votes[n.character_id || n.id]} vote(s)</b>` : ""}
                     ${(phase === "voting" || phase === "runoff") ? `
                       <button type="button" class="btn" style="margin-left:8px;padding:1px 7px;font-size:.82em;" data-action="vote-election" data-nominee-id="${esc(String(n.character_id || n.id))}" data-election-id="${esc(String(election.id))}">Vote</button>

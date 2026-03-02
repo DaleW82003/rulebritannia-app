@@ -1,5 +1,5 @@
 import { esc } from "../ui.js";
-import { apiGetPublicProfile } from "../api.js";
+import { apiGetPublicProfile, apiGetCharacterOfficesHeld } from "../api.js";
 
 const FINANCIAL_BACKGROUND_LABELS = {
   1:  "1 – Poverty",
@@ -31,6 +31,15 @@ export async function initProfilePage() {
   try {
     const data = await apiGetPublicProfile(username);
     const char = data.character;
+
+    // Fetch office assignment history from DB endpoint (authoritative source)
+    let officeHistory = [];
+    if (char?.id) {
+      try {
+        const { officesHeld } = await apiGetCharacterOfficesHeld(char.id);
+        officeHistory = officesHeld || [];
+      } catch (_) {}
+    }
 
     const finBgLabel = char?.financial_background_level != null
       ? (FINANCIAL_BACKGROUND_LABELS[char.financial_background_level] || "Unknown")
@@ -94,17 +103,23 @@ export async function initProfilePage() {
               </article>
             ` : ""}
 
-            ${char.offices_held?.length ? `
-              <article class="tile" style="grid-column:1/-1;">
-                <h3 style="margin-top:0;">🏛️ Offices Held</h3>
-                <ul style="margin:0;padding-left:16px;column-count:2;column-gap:24px;">
-                  ${char.offices_held.map((o) => {
-                    const typeLabel = { cabinet: "Government", shadow: "Opposition", parliamentary: "Parliamentary", other: "Other" }[o.office_type] || o.office_type;
-                    return `<li style="font-size:.93em;margin-bottom:4px;">${esc(o.office_name)} <span class="muted">(${esc(typeLabel)})</span></li>`;
-                  }).join("")}
-                </ul>
-              </article>
-            ` : ""}
+            <article class="tile" style="grid-column:1/-1;">
+              <h3 style="margin-top:0;">🏛️ Service &amp; Offices</h3>
+              <div style="display:grid;gap:8px;">
+                <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                  ${char.constituency
+                    ? `<b>Member of Parliament for ${esc(char.constituency)}</b><span class="muted">MP Service — ${esc(char.year_first_elected || "?")} → Present</span>`
+                    : `<span class="muted">Not currently an MP.</span>`}
+                </div>
+                ${officeHistory.length
+                  ? officeHistory.map((o) => {
+                      const typeLabel = { cabinet: "Government", shadow: "Opposition", parliamentary: "Parliamentary", other: "Other" }[o.office_type] || o.office_type || "";
+                      const dateRange = `${esc(o.start_sim)} → ${o.end_sim ? esc(o.end_sim) : "Present"}`;
+                      return `<div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;"><b>${esc(o.title)}</b><span class="muted">${esc(typeLabel)} — ${dateRange}</span></div>`;
+                    }).join("")
+                  : `<div class="muted" style="font-size:.9em;padding:4px 0;">No frontbench offices held yet.</div>`}
+              </div>
+            </article>
 
             <article class="tile">
               <h3 style="margin-top:0;">Financial Background</h3>

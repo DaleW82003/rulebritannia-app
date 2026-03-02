@@ -1,5 +1,5 @@
 import { isLoggedIn } from "../core.js";
-import { esc, formatMPName, partyBadge } from "../ui.js";
+import { esc, partyBadge } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAnswerQuestionTime, canAdminModOrSpeaker } from "../permissions.js";
 import { formatSimMonthYear, formatSimDate, createDeadline, isDeadlinePassed, simDateToObj, getSimDate, countdownToSimMonth } from "../clock.js";
 import { logAction } from "../audit.js";
@@ -63,7 +63,7 @@ function normaliseQuestionTime(data) {
   const govOffices = new Map((data.government?.offices || []).map((o) => [o.id, o]));
   for (const qt of data.questionTime.offices) {
     const gov = govOffices.get(qt.id);
-    if (gov) qt.holder = gov.holderName || "";
+    if (gov) qt.holder = gov.holderDisplayName || gov.holderName || "";
     // Ensure Discourse fields are always present, even if null
     qt.discourse_topic_id  ??= null;
     qt.discourse_topic_url ??= null;

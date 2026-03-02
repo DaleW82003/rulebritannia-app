@@ -112,7 +112,7 @@ function render(data, state) {
           <input id="www-title" name="title" class="input" required>
 
           ${mod ? `<label class="label" for="www-author">Author</label>
-          <input id="www-author" name="author" class="input" value="${esc(char?.name || "Character")}">` : `<input type="hidden" name="author" value="${esc(char?.name || "Character")}">`}
+          <input id="www-author" name="author" class="input" value="${esc(char?.display_name || char?.name || "Character")}">` : `<input type="hidden" name="author" value="${esc(char?.display_name || char?.name || "Character")}">`}
 
           <label class="label" for="www-image">Image URL (optional)</label>
           <input id="www-image" name="imageUrl" class="input" placeholder="https://...">
@@ -154,7 +154,7 @@ function render(data, state) {
           ? `<div class="muted-block">You must have an active character to post on Facebook. <a href="user.html">Create or activate a character</a> first.</div>`
           : `<form id="online-facebook-form" style="margin-bottom:10px;">
           ${mod ? `<label class="label" for="fb-name">Display Name</label>
-          <input id="fb-name" name="displayName" class="input" value="${esc(char?.name || "Character")}">` : `<input type="hidden" name="displayName" value="${esc(char?.name || "Character")}">`}
+          <input id="fb-name" name="displayName" class="input" value="${esc(char?.display_name || char?.name || "Character")}">` : `<input type="hidden" name="displayName" value="${esc(char?.display_name || char?.name || "Character")}">`}
           <label class="label" for="fb-avatar">Avatar URL (optional)</label>
           <input id="fb-avatar" name="avatar" class="input" placeholder="https://..." value="${esc(char?.avatar || "")}">
           <label class="label" for="fb-body">Post</label>
@@ -246,7 +246,7 @@ function render(data, state) {
     const title = String(fd.get("title") || "").trim();
     const body = String(fd.get("body") || "").trim();
     const imageUrl = String(fd.get("imageUrl") || "").trim();
-    const author = String(fd.get("author") || "").trim() || (char?.name || "Character");
+    const author = String(fd.get("author") || "").trim() || (char?.display_name || char?.name || "Character");
     if (!title || !body) return;
 
     const post = {
@@ -254,7 +254,7 @@ function render(data, state) {
       title,
       body,
       imageUrl,
-      author: mod ? author : (char?.name || author),
+      author: mod ? author : (char?.display_name || char?.name || author),
       createdAt: formatSimMonthYear(data.gameState),
       createdTs: Date.now()
     };
@@ -277,11 +277,11 @@ function render(data, state) {
     const fd = new FormData(e.currentTarget);
     const body = String(fd.get("body") || "").trim();
     if (!body) return;
-    const displayName = String(fd.get("displayName") || "").trim() || (char?.name || "Character");
+    const displayName = String(fd.get("displayName") || "").trim() || (char?.display_name || char?.name || "Character");
 
     const post = {
       id: `fb-${Date.now()}`,
-      displayName: mod ? displayName : (char?.name || displayName),
+      displayName: mod ? displayName : (char?.display_name || char?.name || displayName),
       avatar: String(fd.get("avatar") || "").trim() || String(char?.avatar || "").trim(),
       body,
       createdAt: formatSimMonthYear(data.gameState),

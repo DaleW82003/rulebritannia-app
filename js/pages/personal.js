@@ -949,6 +949,8 @@ function normalisePersonal(data) {
         p.financialBackgroundLevel = String(dbChar.financialBackgroundLevel);
       }
       if (dbChar.twitterHandle != null) p.twitterHandle = dbChar.twitterHandle;
+      // Sync canonical display_name from the server-authoritative current character.
+      if (dbChar.display_name) p.display_name = dbChar.display_name;
     }
   }
 
@@ -1048,7 +1050,7 @@ function render(data, state) {
               + `<div class="muted-block" style="display:none;width:88px;height:88px;padding:0;grid-template-columns:1fr;place-items:center;flex-shrink:0;border-radius:10px;">👤</div>`
             : '<div class="muted-block" style="width:88px;height:88px;padding:0;display:grid;place-items:center;flex-shrink:0;border-radius:10px;">👤</div>'}
           <div>
-            <div><b>${esc(profile.name)}</b></div>
+            <div><b>${esc(profile.display_name || profile.name)}</b></div>
             <div class="muted">${esc(profile.profile.party || "")}</div>
             ${profile.avatarAttribution ? `<div class="muted" style="font-size:.85em;">Avatar: ${esc(profile.avatarAttribution)}</div>` : ""}
           </div>
@@ -1144,23 +1146,28 @@ function render(data, state) {
         ` : ""}
       </article>
 
-      ${(state.officeHistory && state.officeHistory.length) ? `
-        <article class="tile" style="grid-column:1/-1;">
-          <h2 style="margin-top:0;">Offices Held</h2>
-          <div style="display:grid;gap:8px;">
-            ${state.officeHistory.map((o) => {
-              const typeLabel = { cabinet: "Government", shadow: "Opposition", parliamentary: "Parliamentary", other: "Other" }[o.office_type] || o.office_type || "";
-              const dateRange = `${esc(o.start_sim)} → ${o.end_sim ? esc(o.end_sim) : "Present"}`;
-              return `
-                <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-                  <b>${esc(o.title)}</b>
-                  <span class="muted">${esc(typeLabel)} — ${dateRange}</span>
-                </div>
-              `;
-            }).join("")}
+      <article class="tile" style="grid-column:1/-1;">
+        <h2 style="margin-top:0;">Service &amp; Offices</h2>
+        <div style="display:grid;gap:8px;">
+          <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+            ${profile.profile.constituency
+              ? `<b>Member of Parliament for ${esc(profile.profile.constituency)}</b><span class="muted">MP Service — ${esc(profile.profile.yearFirstElected || "?")} → Present</span>`
+              : `<span class="muted">Not currently an MP.</span>`}
           </div>
-        </article>
-      ` : ""}
+          ${(state.officeHistory && state.officeHistory.length)
+            ? state.officeHistory.map((o) => {
+                const typeLabel = { cabinet: "Government", shadow: "Opposition", parliamentary: "Parliamentary", other: "Other" }[o.office_type] || o.office_type || "";
+                const dateRange = `${esc(o.start_sim)} → ${o.end_sim ? esc(o.end_sim) : "Present"}`;
+                return `
+                  <div class="muted-block" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <b>${esc(o.title)}</b>
+                    <span class="muted">${esc(typeLabel)} — ${dateRange}</span>
+                  </div>
+                `;
+              }).join("")
+            : `<div class="muted" style="font-size:.9em;padding:4px 0;">No frontbench offices held yet.</div>`}
+        </div>
+      </article>
 
       <article class="tile" style="min-height:240px;">
         <h2 style="margin-top:0;">Income &amp; Upkeep Summary</h2>
@@ -2075,6 +2082,8 @@ export async function initPersonalPage(data) {
         if (c.year_first_elected) prof.profile.yearFirstElected = String(c.year_first_elected);
         if (c.bio || c.personal_background) prof.bio = String(c.bio || c.personal_background || "");
         if (c.financial_background_level) prof.financialBackgroundLevel = String(c.financial_background_level);
+        // Store canonical display_name from the server (includes PC/RH/MP post-nominals)
+        if (c.display_name) prof.display_name = c.display_name;
         // Store offices_held from the API (admin/mod only — server populates this field)
         if (Array.isArray(c.offices_held)) prof.offices_held = c.offices_held;
       }
