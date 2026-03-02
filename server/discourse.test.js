@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse } from "./discourse.js";
+import { buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers } from "./discourse.js";
 
 // ── buildSsoPayload ───────────────────────────────────────────────────────────
 
@@ -241,4 +241,147 @@ test("buildConsumerResponse / verifyConsumerRequest roundtrip: nonce preserved",
   // Nonce must round-trip correctly
   const outParams = new URLSearchParams(Buffer.from(outSso, "base64").toString("utf8"));
   assert.equal(outParams.get("nonce"), nonce);
+});
+
+// ── resolveGroupIds ───────────────────────────────────────────────────────────
+
+test("resolveGroupIds returns name→id map from a single page", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      groups: [
+        { id: 1, name: "admins" },
+        { id: 2, name: "moderators" },
+      ],
+      load_more_groups: null,
+    }),
+  });
+  try {
+    const map = await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" });
+    assert.equal(map.get("admins"),     1);
+    assert.equal(map.get("moderators"), 2);
+    assert.equal(map.size, 2);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds follows load_more_groups pagination", async () => {
+  const saved = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: true,
+        json: async () => ({
+          groups: [{ id: 1, name: "admins" }],
+          load_more_groups: "/groups.json?page=1",
+        }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        groups: [{ id: 2, name: "moderators" }],
+        load_more_groups: null,
+      }),
+    };
+  };
+  try {
+    const map = await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" });
+    assert.equal(calls, 2);
+    assert.equal(map.get("admins"),     1);
+    assert.equal(map.get("moderators"), 2);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds throws on HTTP error", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 403, text: async () => "Forbidden" });
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" }),
+      /resolveGroupIds failed: HTTP 403/
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── getGroupMembers — groupId in URL ──────────────────────────────────────────
+
+test("getGroupMembers uses groupId (not groupName) in URL when provided", async () => {
+  const saved = globalThis.fetch;
+  let capturedUrl = null;
+  globalThis.fetch = async (url) => {
+    capturedUrl = url;
+    return { ok: true, json: async () => ({ members: [{ id: 10, username: "alice" }] }) };
+  };
+  try {
+    const members = await getGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "admins", groupId: 42,
+    });
+    assert.ok(capturedUrl.includes("/groups/42/"), `Expected /groups/42/ in URL, got: ${capturedUrl}`);
+    assert.equal(members.length, 1);
+    assert.equal(members[0].username, "alice");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("getGroupMembers falls back to groupName in URL when groupId is absent", async () => {
+  const saved = globalThis.fetch;
+  let capturedUrl = null;
+  globalThis.fetch = async (url) => {
+    capturedUrl = url;
+    return { ok: true, json: async () => ({ members: [] }) };
+  };
+  try {
+    await getGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "admins",
+    });
+    assert.ok(capturedUrl.includes("/groups/admins/"), `Expected /groups/admins/ in URL, got: ${capturedUrl}`);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── addGroupMembers — groupId in URL ──────────────────────────────────────────
+
+test("addGroupMembers uses groupId in URL when provided", async () => {
+  const saved = globalThis.fetch;
+  let capturedUrl = null;
+  globalThis.fetch = async (url) => { capturedUrl = url; return { ok: true }; };
+  try {
+    await addGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "admins", groupId: 7, usernames: ["bob"],
+    });
+    assert.ok(capturedUrl.includes("/groups/7/"), `Expected /groups/7/ in URL, got: ${capturedUrl}`);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+// ── removeGroupMembers — groupId in URL ───────────────────────────────────────
+
+test("removeGroupMembers uses groupId in URL when provided", async () => {
+  const saved = globalThis.fetch;
+  let capturedUrl = null;
+  globalThis.fetch = async (url) => { capturedUrl = url; return { ok: true }; };
+  try {
+    await removeGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "moderators", groupId: 3, usernames: ["carol"],
+    });
+    assert.ok(capturedUrl.includes("/groups/3/"), `Expected /groups/3/ in URL, got: ${capturedUrl}`);
+  } finally {
+    globalThis.fetch = saved;
+  }
 });

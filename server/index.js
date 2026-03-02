@@ -10,7 +10,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import sgMail from "@sendgrid/mail";
 import { pool } from "./db.js";
-import { createTopic, createPost, createTopicWithRetry, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse } from "./discourse.js";
+import { createTopic, createPost, createTopicWithRetry, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse } from "./discourse.js";
 import {
   createTopic as dcCreateTopic,
   createPost as dcCreatePost,
@@ -7708,22 +7708,41 @@ app.post("/api/admin/discourse-sync-groups", discourseSyncLimit, async (req, res
       }
     }
 
+    // Resolve group name → numeric Discourse ID for all groups in one request.
+    // Discourse expects a numeric :id in GroupsController routes; using the
+    // group name causes ActiveRecord::RecordNotFound (HTTP 404).
+    let groupIdMap;
+    try {
+      groupIdMap = await resolveGroupIds({ baseUrl, apiKey, apiUsername });
+    } catch (e) {
+      const msg = `Failed to fetch Discourse group list: ${String(e.message || e).slice(0, SYNC_ERROR_MAX_LENGTH)}`;
+      console.error("[discourse-sync-groups]", msg);
+      return res.status(502).json({ ok: false, error: msg });
+    }
+
     // Sync each group
     const groupResults = [];
     for (const [group, desiredSet] of desiredByGroup) {
+      const groupId = groupIdMap.get(group);
+      if (groupId == null) {
+        const msg = `Unknown group name: ${group}`;
+        console.error("[discourse-sync-groups] group=%s error=%s", group, msg);
+        groupResults.push({ group, added: [], removed: [], skipped: msg });
+        continue;
+      }
       try {
-        const currentMembers = await getGroupMembers({ baseUrl, apiKey, apiUsername, groupName: group });
+        const currentMembers = await getGroupMembers({ baseUrl, apiKey, apiUsername, groupName: group, groupId });
         const currentSet = new Set(currentMembers.map((m) => m.username));
 
         const toAdd    = [...desiredSet].filter((u) => !currentSet.has(u));
         const toRemove = [...currentSet].filter((u) => !desiredSet.has(u));
 
-        if (toAdd.length)    await addGroupMembers(   { baseUrl, apiKey, apiUsername, groupName: group, usernames: toAdd    });
-        if (toRemove.length) await removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName: group, usernames: toRemove });
+        if (toAdd.length)    await addGroupMembers(   { baseUrl, apiKey, apiUsername, groupName: group, groupId, usernames: toAdd    });
+        if (toRemove.length) await removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName: group, groupId, usernames: toRemove });
 
         groupResults.push({ group, added: toAdd, removed: toRemove, skipped: null });
       } catch (grpErr) {
-        const safeMsg = String(grpErr.message || grpErr).slice(0, SYNC_ERROR_MAX_LENGTH);
+        const safeMsg = `API error: ${String(grpErr.message || grpErr).slice(0, SYNC_ERROR_MAX_LENGTH)}`;
         console.error("[discourse-sync-groups] group=%s error=%s", group, safeMsg);
         groupResults.push({ group, added: [], removed: [], skipped: safeMsg });
       }

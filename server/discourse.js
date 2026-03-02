@@ -118,6 +118,54 @@ export async function createPost({ baseUrl, apiKey, apiUsername, topicId, raw })
 // ── Group management ──────────────────────────────────────────────────────────
 
 /**
+ * Return the URL path segment for a group: the numeric ID when available,
+ * otherwise the percent-encoded group name (legacy fallback).
+ *
+ * @param {string} groupName
+ * @param {number|undefined} groupId
+ * @returns {string}
+ */
+function groupUrlPath(groupName, groupId) {
+  return groupId != null ? String(groupId) : encodeURIComponent(groupName);
+}
+
+/**
+ * Fetch the numeric Discourse group ID for every group returned by /groups.json.
+ *
+ * Follows `load_more_groups` pagination until all groups have been retrieved.
+ * Returns a Map<groupName, groupId> that callers can use to build correct URLs.
+ *
+ * @param {object} opts
+ * @param {string} opts.baseUrl
+ * @param {string} opts.apiKey
+ * @param {string} opts.apiUsername
+ * @returns {Promise<Map<string, number>>}
+ */
+export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
+  const map = new Map();
+  let pageUrl = `${baseUrl}/groups.json`;
+
+  while (pageUrl) {
+    const res = await fetch(pageUrl, {
+      headers: { "Api-Key": apiKey, "Api-Username": apiUsername },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`resolveGroupIds failed: HTTP ${res.status} ${text}`);
+    }
+    const data = await res.json();
+    for (const g of data?.groups ?? []) {
+      map.set(g.name, g.id);
+    }
+    // load_more_groups is a relative path, e.g. "/groups.json?page=1"
+    const more = data?.load_more_groups;
+    pageUrl = more ? `${baseUrl}${more}` : null;
+  }
+
+  return map;
+}
+
+/**
  * Fetch the current members of a Discourse group (all pages).
  *
  * Returns the full list of members across all pages.  Discourse paginates at
@@ -128,16 +176,19 @@ export async function createPost({ baseUrl, apiKey, apiUsername, topicId, raw })
  * @param {string} opts.baseUrl
  * @param {string} opts.apiKey
  * @param {string} opts.apiUsername
- * @param {string} opts.groupName
+ * @param {string} opts.groupName   - Group name (used in error messages)
+ * @param {number} [opts.groupId]   - Numeric Discourse group ID; used in the URL
+ *                                    when provided (required by some Discourse versions)
  * @returns {Promise<Array<{ id: number, username: string }>>}
  */
-export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName }) {
+export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId }) {
+  const groupPath = groupUrlPath(groupName, groupId);
   const members = [];
   let offset = 0;
   const limit = 50;
 
   while (true) {
-    const url = `${baseUrl}/groups/${encodeURIComponent(groupName)}/members.json?limit=${limit}&offset=${offset}`;
+    const url = `${baseUrl}/groups/${groupPath}/members.json?limit=${limit}&offset=${offset}`;
     const res = await fetch(url, {
       headers: { "Api-Key": apiKey, "Api-Username": apiUsername },
     });
@@ -166,13 +217,16 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName 
  * @param {string}   opts.baseUrl
  * @param {string}   opts.apiKey
  * @param {string}   opts.apiUsername
- * @param {string}   opts.groupName
+ * @param {string}   opts.groupName   - Group name (used in error messages)
+ * @param {number}   [opts.groupId]   - Numeric Discourse group ID; used in the URL
+ *                                      when provided (required by some Discourse versions)
  * @param {string[]} opts.usernames
  * @returns {Promise<void>}
  */
-export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName, usernames }) {
+export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames }) {
   if (!usernames.length) return;
-  const res = await fetch(`${baseUrl}/groups/${encodeURIComponent(groupName)}/members.json`, {
+  const groupPath = groupUrlPath(groupName, groupId);
+  const res = await fetch(`${baseUrl}/groups/${groupPath}/members.json`, {
     method: "PUT",
     headers: {
       "Api-Key":      apiKey,
@@ -194,13 +248,16 @@ export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
  * @param {string}   opts.baseUrl
  * @param {string}   opts.apiKey
  * @param {string}   opts.apiUsername
- * @param {string}   opts.groupName
+ * @param {string}   opts.groupName   - Group name (used in error messages)
+ * @param {number}   [opts.groupId]   - Numeric Discourse group ID; used in the URL
+ *                                      when provided (required by some Discourse versions)
  * @param {string[]} opts.usernames
  * @returns {Promise<void>}
  */
-export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName, usernames }) {
+export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames }) {
   if (!usernames.length) return;
-  const res = await fetch(`${baseUrl}/groups/${encodeURIComponent(groupName)}/members.json`, {
+  const groupPath = groupUrlPath(groupName, groupId);
+  const res = await fetch(`${baseUrl}/groups/${groupPath}/members.json`, {
     method: "DELETE",
     headers: {
       "Api-Key":      apiKey,
