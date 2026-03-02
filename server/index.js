@@ -6046,6 +6046,36 @@ app.post("/api/bills/:id/final-division", crudWriteLimit, async (req, res) => {
 
     await writeAuditLog(req.session.userId, "bill.final-division.opened", "bill", req.params.id, bill, divRows[0]);
     res.status(201).json({ ok: true, division: divRows[0] });
+
+    // Close/lock the bill's Discourse debate topic now that debate has ended and voting begins.
+    // Non-fatal: a failure here must not roll back the division.
+    const { rows: billDiscourse } = await pool.query(
+      "SELECT discourse_topic_id FROM bills WHERE id = $1",
+      [req.params.id]
+    );
+    const discourseTopicId = Number(billDiscourse[0]?.discourse_topic_id || 0);
+    if (discourseTopicId) {
+      let dBaseUrl, dApiKey, dApiUsername;
+      try {
+        ({ baseUrl: dBaseUrl, apiKey: dApiKey, apiUsername: dApiUsername } = await loadDiscourseCredentials());
+      } catch {
+        // Discourse not configured — skip silently
+      }
+      if (dBaseUrl) {
+        try {
+          await closeDiscTopic({ baseUrl: dBaseUrl, apiKey: dApiKey, apiUsername: dApiUsername, topicId: discourseTopicId });
+          console.log(`[final-division] closed Discourse topic ${discourseTopicId} for bill ${req.params.id}`);
+        } catch (discErr) {
+          console.warn(`[final-division] closeTopic failed for bill ${req.params.id} (topic ${discourseTopicId}): ${discErr.message}`);
+          // Attempt fallback: post a "Debate closed" reply
+          try {
+            await createPost({ baseUrl: dBaseUrl, apiKey: dApiKey, apiUsername: dApiUsername, topicId: discourseTopicId, raw: "**Debate closed.** The Final Division has been opened. Voting is now in progress." });
+          } catch (postErr) {
+            console.warn(`[final-division] fallback post also failed for bill ${req.params.id}:`, postErr.message);
+          }
+        }
+      }
+    }
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
