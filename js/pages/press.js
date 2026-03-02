@@ -761,7 +761,7 @@ function render(data, state) {
     data.liveDocket ??= { items: [] };
     data.liveDocket.items ??= [];
     data.liveDocket.items.push({
-      type: "question",
+      type: "press-question",
       title: `Press conference question awaiting response`,
       detail: `${conf.reference} — ${paper}`,
       ctaLabel: "Open Press",

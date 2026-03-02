@@ -73,6 +73,7 @@ export async function initControlPanelPage(data) {
       simBlock.innerHTML = `
         <div class="kv"><span>Sim Date</span><b>${esc(monthLabel)} ${esc(String(s.year ?? "—"))}</b></div>
         <div class="kv"><span>Paused</span><b>${s.is_paused ? "Yes — clock stopped" : "No — running"}</b></div>
+        <div class="kv"><span>Tick Rate</span><b>${esc(String(s.rate ?? 1))}× (real days per sim month)</b></div>
         <div class="kv"><span>Last Tick</span><b>${esc(lastTick)}</b></div>
       `;
     } catch (err) {

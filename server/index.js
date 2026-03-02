@@ -15035,9 +15035,15 @@ const simWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: t
 app.get("/api/sim", simReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { rows } = await pool.query("SELECT id, year, month, is_paused, last_tick_at FROM sim_state WHERE id = 'main'");
-    if (!rows.length) return res.status(404).json({ error: "Sim state not found" });
-    res.json({ sim: rows[0] });
+    const [stateResult, clockResult] = await Promise.all([
+      pool.query("SELECT id, year, month, is_paused, last_tick_at FROM sim_state WHERE id = 'main'"),
+      pool.query("SELECT rate FROM sim_clock WHERE id = 'main'"),
+    ]);
+    if (!stateResult.rows.length) return res.status(404).json({ error: "Sim state not found" });
+    if (!clockResult.rows.length) {
+      console.warn("[GET /api/sim] sim_clock row 'main' not found — rate defaulting to 1");
+    }
+    res.json({ sim: { ...stateResult.rows[0], rate: clockResult.rows[0]?.rate ?? 1 } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -15333,6 +15339,9 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
     );
 
     await writeAuditLog(req.session.userId, "admin.wipe-content", "all", "*", null, {
+      headline: "Wipe Content: all IC simulation content cleared, sim reset to August 1997",
+      simMonth: 8,
+      simYear: 1997,
       // questiontime_questions = legacy JSON-blob QT table; qt_questions = new structured QT table
       tables: [
         "bills", "bill_amendments", "bill_amendment_supporters", "bill_stage_reports", "bill_opposition_quota",
@@ -15472,6 +15481,9 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
     );
 
     await writeAuditLog(req.session.userId, "admin.wipe-with-characters", "all", "*", null, {
+      headline: "Wipe With Characters: all IC simulation content + character data cleared, sim reset to August 1997",
+      simMonth: 8,
+      simYear: 1997,
       tables: [
         "characters", "office_assignments", "office_assignment_history",
         "character_affiliations", "character_shop_purchases", "character_shop_revenue_payouts",
@@ -15741,6 +15753,14 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
       recentAuditLog:       recentAudit.rows,
       pendingRegistrations: Number(pendingRegs.rows[0].count),
     });
+    // Sanity: log if openDivisions looks unexpectedly high (defensive check for regression).
+    // In normal gameplay there should never be more than a handful of concurrent open divisions;
+    // values significantly above that indicate a stale or incorrect status field.
+    const MAX_EXPECTED_OPEN_DIVISIONS = 20;
+    const odCount = Number(openDivisions.rows[0].count);
+    if (odCount > MAX_EXPECTED_OPEN_DIVISIONS) {
+      console.warn(`[admin/dashboard] openDivisions=${odCount} exceeds ${MAX_EXPECTED_OPEN_DIVISIONS} — verify divisions table status field`);
+    }
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
