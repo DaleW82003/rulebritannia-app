@@ -249,6 +249,8 @@ test("resolveGroupIds returns name→id map from a single page", async () => {
   const saved = globalThis.fetch;
   globalThis.fetch = async () => ({
     ok: true,
+    status: 200,
+    headers: { get: (h) => h === "content-type" ? "application/json" : null },
     json: async () => ({
       groups: [
         { id: 1, name: "admins" },
@@ -270,11 +272,14 @@ test("resolveGroupIds returns name→id map from a single page", async () => {
 test("resolveGroupIds follows load_more_groups pagination", async () => {
   const saved = globalThis.fetch;
   let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
   globalThis.fetch = async () => {
     calls++;
     if (calls === 1) {
       return {
         ok: true,
+        status: 200,
+        headers: jsonHeaders,
         json: async () => ({
           groups: [{ id: 1, name: "admins" }],
           load_more_groups: "/groups.json?page=1",
@@ -283,6 +288,8 @@ test("resolveGroupIds follows load_more_groups pagination", async () => {
     }
     return {
       ok: true,
+      status: 200,
+      headers: jsonHeaders,
       json: async () => ({
         groups: [{ id: 2, name: "moderators" }],
         load_more_groups: null,
@@ -307,6 +314,47 @@ test("resolveGroupIds throws on HTTP error", async () => {
       () => resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" }),
       /resolveGroupIds failed: HTTP 403/
     );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds throws descriptive error when HTTP 200 but content-type is text/html", async () => {
+  const saved = globalThis.fetch;
+  const htmlBody = "<!DOCTYPE html><html><body>Login required</body></html>";
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: (h) => h === "content-type" ? "text/html; charset=utf-8" : null },
+    text: async () => htmlBody,
+  });
+  try {
+    await assert.rejects(
+      () => resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" }),
+      (err) => {
+        assert.ok(/resolveGroupIds failed/.test(err.message), `expected 'resolveGroupIds failed' in: ${err.message}`);
+        assert.ok(/content-type=text\/html/.test(err.message), `expected content-type in: ${err.message}`);
+        assert.ok(/Login required/.test(err.message), `expected body snippet in: ${err.message}`);
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds succeeds when content-type is application/json", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: (h) => h === "content-type" ? "application/json; charset=utf-8" : null },
+    json: async () => ({ groups: [{ id: 5, name: "staff" }], load_more_groups: null }),
+  });
+  try {
+    const map = await resolveGroupIds({ baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u" });
+    assert.equal(map.get("staff"), 5);
+    assert.equal(map.size, 1);
   } finally {
     globalThis.fetch = saved;
   }
