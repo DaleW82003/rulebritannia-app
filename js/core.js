@@ -1,5 +1,5 @@
 // js/core.js
-import { apiBootstrap, apiGetState, apiSaveState, setCsrfToken } from "./api.js";
+import { apiBootstrap, apiGetState, apiSaveState, setCsrfToken, apiGetCsrfToken } from "./api.js";
 
 // ── Session state cache (set once during bootData) ───────────────────────────
 let _user = null;
@@ -270,7 +270,12 @@ export async function bootData() {
   // Canonical active character from bootstrap (DB-derived, never stale localStorage).
   const bootstrapCharacter = bootstrap?.currentCharacter ?? null;
 
-  if (bootstrap?.csrfToken) setCsrfToken(bootstrap.csrfToken);
+  if (bootstrap?.csrfToken) {
+    setCsrfToken(bootstrap.csrfToken);
+  } else if (user) {
+    // Bootstrap succeeded but CSRF token missing (e.g. old session) — fetch separately
+    apiGetCsrfToken().catch(() => {});
+  }
 
   // Cache session state so isLoggedIn() and saveState() can use it synchronously.
   _user = user;

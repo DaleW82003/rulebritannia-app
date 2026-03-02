@@ -806,7 +806,7 @@ export async function initControlPanelPage(data) {
     const FEED_DEFS = {
       "party-org":  { label: "Party Organisation", actions: ["party-organisation-updated"] },
       "party-shop": { label: "Party Shop",          actions: ["party-shop-purchase", "party-shop-sale", "party-shop-dismissal"] },
-      "politician": { label: "Politician Log",       actions: ["character-shop-purchase", "character-shop-sale", "character-shop-dismissal"] },
+      "politician": { label: "Politician Log",       actions: ["character-shop-purchase", "character-shop-sale", "character-shop-dismissal", "office.assign", "office.unassign"] },
     };
 
     function formatFeedEntry(entry) {
