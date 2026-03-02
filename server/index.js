@@ -202,6 +202,7 @@ app.use(
     secret: process.env.SESSION_SECRET || "dev-secret-change-me",
     resave: false,
     saveUninitialized: false,
+    rolling: true,   // extend session TTL on every response (active users never expire)
     cookie: {
       httpOnly: true,
       sameSite: "none", // cross-site cookie (frontend on separate origin)
@@ -871,6 +872,10 @@ async function ensureSchema() {
   // Migration: rh_ever — permanent flag for characters who have held PM or Leader of the Opposition.
   // Once TRUE, it is never reverted. Controls "The Right Honourable" prefix and "PC" post-nominal for life.
   await pool.query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS rh_ever BOOLEAN NOT NULL DEFAULT FALSE`);
+
+  // Migration: tpl_ever — permanent flag for characters who have held the third-party leader (party-leader-3rd-4th) office.
+  // Once TRUE, it is never reverted. Controls "PC" post-nominal for life (alongside rh_ever for PM/LoTO).
+  await pool.query(`ALTER TABLE characters ADD COLUMN IF NOT EXISTS tpl_ever BOOLEAN NOT NULL DEFAULT FALSE`);
 
   // Migration: add active_character_id to users (DB-canonical pointer to the user's active character)
   await pool.query(`
@@ -2857,6 +2862,33 @@ async function runDebateAutoClose(month, year) {
   }
 }
 
+/**
+ * Called on every clock tick. Closes any open divisions whose closes_at_sim
+ * deadline has been reached or passed. Sets outcome = 'expired'.
+ * closes_at_sim is stored as TEXT in "YYYY-MM" format.
+ *
+ * @param {number} month - New sim month (1-12)
+ * @param {number} year  - New sim year
+ */
+async function runDivisionAutoClose(month, year) {
+  const deadline = simDeadlineToText(month, year); // "YYYY-MM"
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE divisions
+          SET status = 'closed', outcome = 'expired'
+        WHERE status = 'open'
+          AND closes_at_sim IS NOT NULL
+          AND closes_at_sim <= $1`,
+      [deadline]
+    );
+    if (rowCount) {
+      console.log(`[division/auto-close] closed ${rowCount} expired division(s) at sim ${deadline}`);
+    }
+  } catch (err) {
+    console.error("[division/auto-close] failed:", err.message);
+  }
+}
+
 // Server-side party name normaliser — mirrors scripts/convert-1997-csv.js.
 // Handles ASCII variants, Latin-1 mojibake and legacy CSV typos.
 const SERVER_PARTY_MAP = {
@@ -3937,7 +3969,7 @@ async function syncObjectTables(data) {
 /**
  * Health
  */
-app.get("/health", (req, res) => res.json({ ok: true }));
+app.get(["/health", "/api/health"], (req, res) => res.json({ ok: true }));
 
 /**
  * Permission map
@@ -5279,8 +5311,9 @@ app.get("/api/audit-log", auditReadLimit, async (req, res) => {
     if (!req.session?.userId) {
       return res.status(401).json({ error: "Not logged in" });
     }
-    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
-      return res.status(403).json({ error: "Forbidden: admin role required" });
+    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    if (!roles.includes("admin") && !roles.includes("mod")) {
+      return res.status(403).json({ error: "Forbidden: admin or mod role required" });
     }
 
     const { action, target, actor, limit = "50", offset = "0" } = req.query;
@@ -6205,9 +6238,8 @@ async function getCharacterParliamentaryMeta(pool, characterId) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows } = await pool.query(
-    `SELECT c.id, c.rh_ever,
+    `SELECT c.id, c.rh_ever, c.tpl_ever,
             EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
-            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc_ever,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (
               SELECT 1 FROM office_assignments oa
@@ -6231,8 +6263,8 @@ async function getCharacterParliamentaryMeta(pool, characterId) {
   // has_cabinet_office: any current cabinet office gives RH while in post.
   // is_privy_current: current PC membership also qualifies for RH.
   const is_rh = Boolean(m.rh_ever || m.is_privy_current || m.has_cabinet_office || m.is_third_party_leader);
-  // PC post-nominal: ever been a PC member, OR permanently qualifies via rh_ever (former PM/LoTO)
-  const is_pc = Boolean(m.rh_ever || m.is_pc_ever);
+  // PC post-nominal: only for PM/LoTO (rh_ever) and third-party leaders (tpl_ever) — permanently once held.
+  const is_pc = Boolean(m.rh_ever || m.tpl_ever);
   return {
     is_mp: Boolean(m.is_mp),
     is_pc,
@@ -6246,7 +6278,8 @@ function formatParliamentaryName({ bareName, isRH = false, isMP = false, isPC = 
   const n = String(bareName || "").trim();
   if (!n) return "";
   const title = isRH ? "The Right Honourable" : "The Honourable";
-  const suffix = [isMP ? "MP" : "", isPC ? "PC" : ""].filter(Boolean).join(" ");
+  // MP is universal — every character is an MP so it always appears.
+  const suffix = ["MP", isPC ? "PC" : ""].filter(Boolean).join(" ");
   return [title, n, suffix].filter(Boolean).join(" ").trim();
 }
 
@@ -6273,9 +6306,8 @@ async function batchGetCharacterDisplayNames(pool, entries) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows } = await pool.query(
-    `SELECT c.id, c.name, c.rh_ever,
+    `SELECT c.id, c.name, c.rh_ever, c.tpl_ever,
             EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
-            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc_ever,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
             EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
@@ -6285,7 +6317,7 @@ async function batchGetCharacterDisplayNames(pool, entries) {
 
   const byId = Object.fromEntries(rows.map((r) => {
     const is_rh = Boolean(r.rh_ever || r.is_privy_current || r.has_cabinet_office || r.is_third_party_leader);
-    const is_pc = Boolean(r.rh_ever || r.is_pc_ever);
+    const is_pc = Boolean(r.rh_ever || r.tpl_ever);
     return [r.id, formatParliamentaryName({ bareName: r.name || "", isRH: is_rh, isMP: Boolean(r.is_mp), isPC: is_pc })];
   }));
 
@@ -6319,9 +6351,8 @@ async function batchEnrichCharacterRows(pool, rows) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows: metaRows } = await pool.query(
-    `SELECT c.id, c.rh_ever,
+    `SELECT c.id, c.rh_ever, c.tpl_ever,
             EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
-            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id) AS is_pc_ever,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
             EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
@@ -6332,7 +6363,7 @@ async function batchEnrichCharacterRows(pool, rows) {
   // Store only the boolean flags; the display name is computed per-row using the original row.name.
   const byId = Object.fromEntries(metaRows.map((r) => {
     const is_rh = Boolean(r.rh_ever || r.is_privy_current || r.has_cabinet_office || r.is_third_party_leader);
-    const is_pc = Boolean(r.rh_ever || r.is_pc_ever);
+    const is_pc = Boolean(r.rh_ever || r.tpl_ever);
     return [r.id, { is_mp: Boolean(r.is_mp), is_pc, is_privy: Boolean(r.is_privy_current), is_rh }];
   }));
 
@@ -7154,6 +7185,7 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
     runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
     runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
     runDebateAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] debate auto-close failed:", e.message));
+    runDivisionAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] division auto-close failed:", e.message));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -8560,6 +8592,21 @@ app.post("/api/admin/force-logout-all", maintLimit, async (req, res) => {
     res.json({ ok: true, sessionsDeleted: rowCount, message: `${rowCount} session(s) terminated.` });
   } catch (e) {
     console.error("[admin/force-logout-all]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Close all stale divisions (status = 'open' → 'closed' with outcome 'abandoned')
+app.post("/api/admin/close-stale-divisions", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rowCount } = await pool.query(
+      `UPDATE divisions SET status = 'closed', outcome = 'abandoned' WHERE status = 'open'`
+    );
+    console.log(`[admin] close-stale-divisions: closed ${rowCount} open division(s) by user ${req.session.userId}`);
+    res.json({ ok: true, closed: rowCount, message: `Closed ${rowCount} stale open division(s).` });
+  } catch (e) {
+    console.error("[admin/close-stale-divisions]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -12959,6 +13006,11 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
     // rh_ever is set to TRUE the first time they are assigned to these offices and never reverted.
     if (RH_QUALIFYING_SPEC_IDS.includes(office.spec_id)) {
       await pool.query("UPDATE characters SET rh_ever = TRUE WHERE id = $1", [character_id]);
+    }
+
+    // tpl_ever is set to TRUE the first time they are assigned as third-party leader and never reverted.
+    if (office.spec_id === "party-leader-3rd-4th") {
+      await pool.query("UPDATE characters SET tpl_ever = TRUE WHERE id = $1", [character_id]);
     }
 
     // Auto-grant permanent Privy Council membership for PM / LoTO / Third-Party Leader.

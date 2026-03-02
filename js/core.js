@@ -273,8 +273,9 @@ export async function bootData() {
   if (bootstrap?.csrfToken) {
     setCsrfToken(bootstrap.csrfToken);
   } else if (user) {
-    // Bootstrap succeeded but CSRF token missing (e.g. old session) — fetch separately
-    apiGetCsrfToken().catch(() => {});
+    // Bootstrap succeeded but CSRF token missing (e.g. old session) — fetch and await so
+    // the token is ready before any page init function runs and the user can interact.
+    await apiGetCsrfToken().catch(() => {});
   }
 
   // Cache session state so isLoggedIn() and saveState() can use it synchronously.

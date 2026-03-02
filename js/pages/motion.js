@@ -32,7 +32,8 @@ function edmWeightedSignatures(item, data) {
   const seatMap = getPartySeatMap(data);
   const personal = (item.signatures || []).reduce((a, s) => a + Number(s.weight || 0), 0);
   const npc = Object.entries(item.npcSignatures || {}).reduce((a, [party, signed]) => a + (signed ? Number(seatMap[party] || 0) : 0), 0);
-  return personal + npc;
+  const rebel = Object.entries(item.rebelSignatures || {}).reduce((a, [, count]) => a + Number(count || 0), 0);
+  return personal + npc + rebel;
 }
 
 // ── DB-backed division rendering ─────────────────────────────────────────
@@ -477,10 +478,12 @@ function renderEdm(root, data, edm) {
   const char = getCharacterContext(data);
   const speaker = isSpeaker(data);
   const canStaff = canAdminModOrSpeaker(data);
+  const isAdminOrMod = canAdminOrMod(data);
   const disallowed = isGovernmentMember(data);
   const w = currentWeight(data);
   edm.signatures ??= [];
   edm.npcSignatures ??= {};
+  edm.rebelSignatures ??= {};
 
   // Display expired status without mutating persistent state.
   // Actual archival happens server-side; DB is authoritative.
@@ -488,7 +491,10 @@ function renderEdm(root, data, edm) {
     (edm.status !== "archived" && edm.closesAtSimObj && isDeadlinePassed(edm.closesAtSimObj, data.gameState));
   const signed = edm.signatures.some((s) => s.name === char?.name);
   const seats = getPartySeatMap(data);
-  const npcParties = Object.entries(seats).filter(([party, n]) => Number(n) > 0 && !["Conservative", "Labour", "Liberal Democrat"].includes(party));
+  const allParties = Array.isArray(data?.parliament?.parties) ? data.parliament.parties : [];
+  const playableNames = new Set(allParties.filter(p => p.playable).map(p => p.name));
+  const npcParties = Object.entries(seats).filter(([party, n]) => Number(n) > 0 && !playableNames.has(party));
+  const playableParties = Object.entries(seats).filter(([party, n]) => Number(n) > 0 && playableNames.has(party));
   const edmCountdown = edm.closesAtSimObj ? countdownToSimMonth(edm.closesAtSimObj.month, edm.closesAtSimObj.year, data.gameState) : "";
 
   root.innerHTML = `
@@ -505,18 +511,33 @@ function renderEdm(root, data, edm) {
 
     <section class="tile">
       <h3 style="margin-top:0;">Signatories</h3>
-      <p><b>Signatories:</b> ${Math.round(edmWeightedSignatures(edm, data))}</p>
-      <p><b>Signed by:</b> ${edm.signatures.length ? edm.signatures.map((s) => esc(s.name)).join(", ") : "No signatories yet."}</p>
-      ${Object.entries(edm.npcSignatures).filter(([,v])=>v).length ? `<p><b>NPC signatures:</b> ${Object.entries(edm.npcSignatures).filter(([,v])=>v).map(([p]) => esc(p)).join(", ")}</p>` : ""}
+      <p><b>Total signature weight:</b> ${Math.round(edmWeightedSignatures(edm, data))}</p>
+      <p><b>Signed by:</b> ${edm.signatures.length ? edm.signatures.map((s) => `${esc(s.name)} <span class="muted">(weight: ${Math.round(Number(s.weight || 0))})</span>`).join(", ") : "No signatories yet."}</p>
+      ${(() => { const npcSigned = Object.entries(edm.npcSignatures).filter(([,v])=>v); return npcSigned.length ? `<p><b>NPC signatures:</b> ${npcSigned.map(([p]) => `${esc(p)} (${Number(seats[p] || 0)} seats)`).join(", ")}</p>` : ""; })()}
+      ${(() => { const rebelSigned = Object.entries(edm.rebelSignatures).filter(([,n])=>Number(n)>0); return rebelSigned.length ? `<p><b>Rebel signatures:</b> ${rebelSigned.map(([p,n]) => `${esc(p)} (${Number(n)} seats)`).join(", ")}</p>` : ""; })()}
       ${expired ? `<p class="muted"><b>Signature period has closed.</b></p>` : disallowed ? `<p class="muted"><b>Government members cannot sign EDMs.</b></p>` : signed ? `<p class="muted"><b>You have already signed.</b></p>` : `<button class="btn" data-action="sign-edm" ${w > 0 ? "" : "disabled"}>Sign EDM</button>`}
 
-      ${speaker && !expired ? `
+      ${isAdminOrMod && !expired ? `
         <div style="margin-top:12px;">
-          <h4>Speaker NPC Signatures</h4>
+          <h4 style="margin:0 0 6px;">NPC &amp; Rebel Signatures (Staff)</h4>
           <form id="npc-sign-form">
-            ${npcParties.map(([party, n]) => `<label style="display:flex;gap:8px;align-items:center;margin-bottom:6px;"><input type="checkbox" name="npc-${esc(party)}" ${edm.npcSignatures?.[party] ? "checked" : ""}> ${esc(party)} (${Number(n)} seats)</label>`).join("")}
-            <button class="btn" type="submit">Apply NPC Signatures</button>
+            ${npcParties.length ? `
+              <p class="muted" style="margin:0 0 6px;font-size:0.85em;">NPC parties — tick to add all seats as signatories.</p>
+              ${npcParties.map(([party, n]) => `<label style="display:flex;gap:8px;align-items:center;margin-bottom:6px;"><input type="checkbox" name="npc-${esc(party)}" ${edm.npcSignatures?.[party] ? "checked" : ""}> ${esc(party)} (${Number(n)} seats)</label>`).join("")}
+            ` : ""}
+            ${playableParties.length ? `
+              <div style="margin-top:10px;">
+                <p class="muted" style="margin:0 0 6px;font-size:0.85em;">Rebel signatures — seats from playable parties signing outside the party whip.</p>
+                ${playableParties.map(([party, n]) => `
+                  <div class="kv" style="margin-bottom:6px;">
+                    <span><b>${esc(party)}</b> (${Number(n)} seats total)</span>
+                    <label>Rebel signatories: <input type="number" name="rebel-${esc(party)}" min="0" max="${Number(n)}" value="${Number(edm.rebelSignatures?.[party] || 0)}" class="input" style="width:70px;"></label>
+                  </div>`).join("")}
+              </div>
+            ` : ""}
+            <button class="btn" type="submit" style="margin-top:6px;">Apply Signatures</button>
           </form>
+          <p id="npc-sign-msg" class="muted" style="margin-top:4px;"></p>
         </div>
       ` : ""}
     </section>
@@ -552,21 +573,31 @@ function renderEdm(root, data, edm) {
 
   root.querySelector("#npc-sign-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!speaker) return;
+    if (!isAdminOrMod) return;
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
     const fd = new FormData(e.currentTarget);
-    const newSigs = { ...edm.npcSignatures };
-    npcParties.forEach(([party]) => { newSigs[party] = !!fd.get(`npc-${party}`); });
+    const newNpcSigs = { ...edm.npcSignatures };
+    npcParties.forEach(([party]) => { newNpcSigs[party] = !!fd.get(`npc-${party}`); });
+    const newRebelSigs = { ...edm.rebelSignatures };
+    playableParties.forEach(([party]) => {
+      const count = Number(fd.get(`rebel-${party}`) || 0);
+      if (count > 0) newRebelSigs[party] = count;
+      else delete newRebelSigs[party];
+    });
+    const msgEl = root.querySelector("#npc-sign-msg");
     const t0 = Date.now();
     try {
-      await apiUpdateMotion(edm.id, { ...edm, npcSignatures: newSigs });
-      edm.npcSignatures = newSigs;
-      if (Date.now() - t0 > 500) toastSuccess("NPC signatures applied.");
+      await apiUpdateMotion(edm.id, { ...edm, npcSignatures: newNpcSigs, rebelSignatures: newRebelSigs });
+      edm.npcSignatures = newNpcSigs;
+      edm.rebelSignatures = newRebelSigs;
+      if (Date.now() - t0 > 500) toastSuccess("Signatures applied.");
+      if (msgEl) msgEl.textContent = "Saved.";
     } catch (err) {
-      console.error("[motion] NPC sign failed:", err);
-      toastError(`NPC sign failed: ${err.message}`);
-      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Apply NPC Signatures"; }
+      console.error("[motion] NPC/rebel sign failed:", err);
+      toastError(`Sign failed: ${err.message}`);
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Apply Signatures"; }
+      if (msgEl) msgEl.textContent = `Error: ${err.message}`;
       return;
     }
     renderEdm(root, data, edm);
