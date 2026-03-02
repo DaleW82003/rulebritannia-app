@@ -11,20 +11,18 @@ var index_default = {
       });
     }
 
-    // Redirect bare domain → www BEFORE proxying to the backend.
+    // Redirect bare domain → www for browser navigation requests (GET/HEAD only).
     //
-    // Session cookies are set via www.rulebritannia.org (the canonical front-end
-    // origin).  Browsers scope cookies to the exact host by default, so a
-    // request that arrives on rulebritannia.org will NOT carry the www cookie.
-    // This causes the DiscourseConnect SSO callback (which Discourse sends to
-    // the configured discourse_connect_url) to arrive without a session, making
-    // the user appear logged-out even though they are authenticated on www.
+    // Session cookies are set with domain=".rulebritannia.org" so they are sent
+    // on both rulebritannia.org and www.rulebritannia.org.  The redirect here
+    // is kept for GET/HEAD so DiscourseConnect SSO callbacks from Discourse
+    // (which may target the bare domain) land on the canonical www origin.
     //
-    // By issuing a 301 here — before we touch the API proxy — the browser
-    // re-sends the request on www.rulebritannia.org where it carries the right
-    // cookie, so /api/discourse/sso sees the live session and completes the
-    // DiscourseConnect handshake seamlessly.
-    if (url.hostname === "rulebritannia.org") {
+    // POST/PUT/DELETE/PATCH requests must NOT be redirected: a cross-origin
+    // redirect for a credentialed fetch() causes a CORS block in the browser
+    // because the 308 response lacks Access-Control-Allow-Origin.  Those
+    // requests fall through to the API proxy below and are forwarded directly.
+    if (url.hostname === "rulebritannia.org" && ["GET", "HEAD"].includes(request.method)) {
       url.hostname = "www.rulebritannia.org";
       return Response.redirect(url.toString(), 308);
     }
