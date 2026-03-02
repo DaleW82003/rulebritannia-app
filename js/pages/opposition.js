@@ -1,4 +1,4 @@
-import { esc, formatMPName, partyBadge, PARTY_COLOURS } from "../ui.js";
+import { esc, partyBadge, PARTY_COLOURS } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
 import { apiGetOffices, apiGetCharacters, apiAssignOffice, apiUnassignOffice, apiGetParliamentStatus, apiUpdateParliamentStatus, apiGetCanonicalParties, apiFireOffice, apiResignOffice, apiResetOpposition, apiGetReshuffleStatus, apiDeclareReshuffle, apiEndReshuffle } from "../api.js";
 import { isLoggedIn } from "../core.js";
@@ -244,7 +244,7 @@ function render(data, state) {
           const name = office.holderName || "Vacant";
           const avatar = avatarFromCharacterProfile(data, office.holderName) || office.holderAvatar || "";
           const isFilled = !!office.holderName;
-          const displayName = office.holderDisplayName || (office.holderName ? formatMPName(office.holderName, { appendMP: true }) : "");
+          const displayName = office.holderDisplayName || office.holderName || "";
           // LOTO can freely replace themselves in non-LOTO shadow offices (dual-role special case)
           const isLotoSelfInNonLotoOffice = isLeader && isFilled && spec.id !== "leader-opposition" && office.holderName === currentName;
           const canEdit = canEditOffice(data, spec.id);

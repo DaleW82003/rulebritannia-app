@@ -68,7 +68,7 @@ function render(data) {
           <div>
             <label class="label" for="redlion-speaker">Post as</label>
             <select id="redlion-speaker" name="speaker" class="input">
-              <option value="character">${esc(char?.name || "Your character")}</option>
+              <option value="character">${esc(char?.display_name || char?.name || "Your character")}</option>
               ${allowBarkeep ? `<option value="barkeep">Bar keep</option>` : ""}
             </select>
           </div>

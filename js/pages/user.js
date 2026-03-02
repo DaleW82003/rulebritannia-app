@@ -329,7 +329,7 @@ function render(data, state) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Character Data / Create Character</h2>
       <div class="tile" style="margin-bottom:10px;">
-        <div><b>${esc(char?.name || "No character selected")}</b></div>
+        <div><b>${esc(char?.display_name || char?.name || "No character selected")}</b></div>
         <div class="muted"><b>DOB:</b> ${esc(char?.dateOfBirth || char?.date_of_birth || "-")}</div>
         <div class="muted"><b>Education:</b> ${esc(char?.education || "-")}</div>
         <div class="muted"><b>Career:</b> ${esc(char?.careerBackground || char?.career_background || "-")}</div>

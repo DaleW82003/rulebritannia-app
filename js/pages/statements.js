@@ -110,7 +110,7 @@ function render(data) {
               </div>
               <button type="submit" class="btn primary">Submit Statement</button>
             </form>
-            <p class="muted" style="margin-top:8px;">Submitting as ${esc(char?.name || "Government minister")}.</p>
+            <p class="muted" style="margin-top:8px;">Submitting as ${esc(char?.display_name || char?.name || "Government minister")}.</p>
           `
         })
       : tileSection({

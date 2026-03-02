@@ -949,6 +949,8 @@ function normalisePersonal(data) {
         p.financialBackgroundLevel = String(dbChar.financialBackgroundLevel);
       }
       if (dbChar.twitterHandle != null) p.twitterHandle = dbChar.twitterHandle;
+      // Sync canonical display_name from the server-authoritative current character.
+      if (dbChar.display_name) p.display_name = dbChar.display_name;
     }
   }
 
@@ -1048,7 +1050,7 @@ function render(data, state) {
               + `<div class="muted-block" style="display:none;width:88px;height:88px;padding:0;grid-template-columns:1fr;place-items:center;flex-shrink:0;border-radius:10px;">👤</div>`
             : '<div class="muted-block" style="width:88px;height:88px;padding:0;display:grid;place-items:center;flex-shrink:0;border-radius:10px;">👤</div>'}
           <div>
-            <div><b>${esc(profile.name)}</b></div>
+            <div><b>${esc(profile.display_name || profile.name)}</b></div>
             <div class="muted">${esc(profile.profile.party || "")}</div>
             ${profile.avatarAttribution ? `<div class="muted" style="font-size:.85em;">Avatar: ${esc(profile.avatarAttribution)}</div>` : ""}
           </div>
@@ -2080,6 +2082,8 @@ export async function initPersonalPage(data) {
         if (c.year_first_elected) prof.profile.yearFirstElected = String(c.year_first_elected);
         if (c.bio || c.personal_background) prof.bio = String(c.bio || c.personal_background || "");
         if (c.financial_background_level) prof.financialBackgroundLevel = String(c.financial_background_level);
+        // Store canonical display_name from the server (includes PC/RH/MP post-nominals)
+        if (c.display_name) prof.display_name = c.display_name;
         // Store offices_held from the API (admin/mod only — server populates this field)
         if (Array.isArray(c.offices_held)) prof.offices_held = c.offices_held;
       }
