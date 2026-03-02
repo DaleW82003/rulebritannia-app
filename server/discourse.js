@@ -232,6 +232,7 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername, _sleep, _w
   const sleepFn = _sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   const map = new Map();
   let pageUrl = `${cleanBase}/groups.json`;
+  let nextPageNum = 1;
   let firstPage = true;
 
   while (pageUrl) {
@@ -260,22 +261,24 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername, _sleep, _w
       );
     }
     const data = await res.json();
-    for (const g of data?.groups ?? []) {
+    const groups = data?.groups ?? [];
+    if (!groups.length) break;
+    for (const g of groups) {
       map.set(g.name, g.id);
     }
-    // load_more_groups is a relative path, e.g. "/groups.json?page=1"
+    // load_more_groups is a relative path, e.g. "/groups.json?page=1".
+    // When it contains ".json" we can follow it directly; when it is a bare
+    // HTML path (e.g. "/groups?page=1") we fall back to an explicit JSON URL
+    // so we never request an HTML endpoint.  A null value means no more pages.
     const more = data?.load_more_groups;
-    if (more != null) {
-      const morePath = more.split("?")[0];
-      if (!morePath.includes(".json")) {
-        throw new Error(
-          `resolveGroupIds: Discourse returned a non-API pagination URL; cannot safely crawl HTML. ` +
-          `Please ensure /groups.json returns load_more_groups with .json. ` +
-          `baseUrl=${cleanBase} load_more_groups=${more} pageUrl=${res.url}`
-        );
-      }
+    if (!more) {
+      pageUrl = null;
+    } else {
+      pageUrl = more.includes(".json")
+        ? `${cleanBase}${more}`
+        : `${cleanBase}/groups.json?page=${nextPageNum}`;
+      nextPageNum++;
     }
-    pageUrl = more ? `${cleanBase}${more}` : null;
   }
 
   return map;

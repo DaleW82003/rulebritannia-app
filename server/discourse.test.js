@@ -1027,32 +1027,78 @@ test("discourseApiRequest throws with '(no Location header)' when Location is ab
   }
 });
 
-// ── resolveGroupIds — non-JSON pagination URL validation ──────────────────────
+// ── resolveGroupIds — non-JSON pagination URL fallback ───────────────────────
 
-test("resolveGroupIds throws when load_more_groups is a non-JSON path like /groups?page=1", async () => {
+test("resolveGroupIds does NOT throw when load_more_groups is a non-JSON path like /groups?page=1; proceeds to /groups.json?page=1", async () => {
   const saved = globalThis.fetch;
   const baseUrl = "https://forum.example.com";
-  globalThis.fetch = async () => ({
-    ok: true,
-    status: 200,
-    url: `${baseUrl}/groups.json`,
-    headers: { get: (h) => h === "content-type" ? "application/json" : null },
-    json: async () => ({
-      groups: [{ id: 1, name: "admins" }],
-      load_more_groups: "/groups?page=1",
-    }),
-  });
+  const requestedUrls = [];
+  let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
+  globalThis.fetch = async (url) => {
+    requestedUrls.push(url);
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: true,
+        status: 200,
+        url: `${baseUrl}/groups.json`,
+        headers: jsonHeaders,
+        json: async () => ({
+          groups: [{ id: 41, name: "backbencher" }, { id: 49, name: "conservative" }],
+          load_more_groups: "/groups?page=1",
+        }),
+      };
+    }
+    // Second call (via /groups.json?page=1) — empty groups signals end of pagination
+    return {
+      ok: true,
+      status: 200,
+      url: `${baseUrl}/groups.json?page=1`,
+      headers: jsonHeaders,
+      json: async () => ({ groups: [], load_more_groups: null }),
+    };
+  };
   try {
-    await assert.rejects(
-      () => resolveGroupIds({ baseUrl, apiKey: "k", apiUsername: "u" }),
-      (err) => {
-        assert.ok(err.message.includes("non-API pagination URL"), `missing phrase: ${err.message}`);
-        assert.ok(err.message.includes("baseUrl=https://forum.example.com"), `baseUrl missing: ${err.message}`);
-        assert.ok(err.message.includes("load_more_groups=/groups?page=1"), `load_more_groups missing: ${err.message}`);
-        assert.ok(err.message.includes(".json"), `guidance missing: ${err.message}`);
-        return true;
-      }
-    );
+    const map = await resolveGroupIds({ baseUrl, apiKey: "k", apiUsername: "u", _pageDelayMs: 0 });
+    assert.equal(calls, 2, "should make exactly two requests");
+    assert.ok(requestedUrls[1].includes("/groups.json?page=1"), `second request must use JSON endpoint, got: ${requestedUrls[1]}`);
+    assert.ok(!requestedUrls.some((u) => u.includes("/groups?page=")), "must never request an HTML groups URL");
+    assert.equal(map.get("backbencher"), 41);
+    assert.equal(map.get("conservative"), 49);
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("resolveGroupIds stops paginating when groups array is empty", async () => {
+  const saved = globalThis.fetch;
+  const baseUrl = "https://forum.example.com";
+  let calls = 0;
+  const jsonHeaders = { get: (h) => h === "content-type" ? "application/json" : null };
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        ok: true,
+        status: 200,
+        url: `${baseUrl}/groups.json`,
+        headers: jsonHeaders,
+        json: async () => ({ groups: [{ id: 1, name: "admins" }], load_more_groups: "/groups?page=1" }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      url: `${baseUrl}/groups.json?page=1`,
+      headers: jsonHeaders,
+      json: async () => ({ groups: [], load_more_groups: null }),
+    };
+  };
+  try {
+    const map = await resolveGroupIds({ baseUrl, apiKey: "k", apiUsername: "u", _pageDelayMs: 0 });
+    assert.equal(calls, 2, "should stop after receiving empty groups");
+    assert.equal(map.size, 1);
   } finally {
     globalThis.fetch = saved;
   }
