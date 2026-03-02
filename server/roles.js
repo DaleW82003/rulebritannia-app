@@ -135,6 +135,63 @@ export function computeDiscourseGroups(roles) {
   return [...groups].sort();
 }
 
+// ── Role-assignment helpers ──────────────────────────────────────────────────
+
+/** Normalised party name → canonical party role. */
+const _PARTY_NAME_TO_ROLE = Object.freeze({
+  "conservative":     "party:conservative",
+  "labour":           "party:labour",
+  "liberal_democrat": "party:liberal_democrat",
+  "liberal democrat": "party:liberal_democrat",
+});
+
+/**
+ * Map a character's party name/slug to its canonical party:* role string.
+ * Returns null for Independents or unrecognised parties.
+ *
+ * @param {string|null} partyName
+ * @returns {string|null}
+ */
+export function partyRoleForPartyName(partyName) {
+  if (!partyName) return null;
+  return _PARTY_NAME_TO_ROLE[partyName.trim().toLowerCase()] ?? null;
+}
+
+/**
+ * Compute which roles to add to a user when approving a character application.
+ *
+ * Rules:
+ *   - Only add the party role if the user has no party:* role already (don't override).
+ *   - Always ensure office:backbencher is present (idempotent).
+ *
+ * @param {string[]} existingRoles - the user's current role list
+ * @param {string|null} partyRole  - party:* role derived from the character's party
+ * @returns {string[]} roles to insert (may be empty)
+ */
+export function computeApprovalRolesToAdd(existingRoles, partyRole) {
+  const toAdd = [];
+  const hasParty = existingRoles.some((r) => PARTY_ROLES.includes(r));
+  if (partyRole && !hasParty) toAdd.push(partyRole);
+  if (!existingRoles.includes("office:backbencher")) toAdd.push("office:backbencher");
+  return toAdd;
+}
+
+/**
+ * Map an office's spec_id and type to its canonical office:* user role.
+ * Returns null for parliamentary/other offices that carry no group role.
+ *
+ * @param {string|null} spec_id
+ * @param {string} office_type
+ * @returns {string|null}
+ */
+export function officeRoleFromSpecId(spec_id, office_type) {
+  if (spec_id === "prime-minister")    return "office:prime_minister";
+  if (spec_id === "leader-opposition") return "office:leader_of_opposition";
+  if (office_type === "cabinet")       return "office:secretary_of_state";
+  if (office_type === "shadow")        return "office:shadow_secretary_of_state";
+  return null;
+}
+
 // ── Permission map ───────────────────────────────────────────────────────────
 
 /**
