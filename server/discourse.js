@@ -153,6 +153,14 @@ export async function resolveGroupIds({ baseUrl, apiKey, apiUsername }) {
       const text = await res.text().catch(() => "");
       throw new Error(`resolveGroupIds failed: HTTP ${res.status} ${text}`);
     }
+    const contentType = res.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      const body = await res.text().catch(() => "");
+      const snippet = body.replace(/\r?\n/g, " ").slice(0, 200);
+      throw new Error(
+        `resolveGroupIds failed: HTTP ${res.status} content-type=${contentType} body=${snippet}`
+      );
+    }
     const data = await res.json();
     for (const g of data?.groups ?? []) {
       map.set(g.name, g.id);
