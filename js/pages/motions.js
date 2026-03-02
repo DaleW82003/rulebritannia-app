@@ -16,7 +16,10 @@ const GOVERNMENT_OFFICES = new Set([
 
 
 function isGovernmentMember(data) {
-  return GOVERNMENT_OFFICES.has(getCharacterContext(data)?.office);
+  const ctx = getCharacterContext(data);
+  // Check `offices` array (populated by bootstrap from DB) first, fall back to scalar `office`.
+  const offices = Array.isArray(ctx?.offices) ? ctx.offices : (ctx?.office ? [ctx.office] : []);
+  return offices.some((o) => GOVERNMENT_OFFICES.has(o));
 }
 
 function ensureMotions(data) {
