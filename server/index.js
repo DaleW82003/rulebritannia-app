@@ -12625,8 +12625,8 @@ app.post("/api/privy-council/posts", privyWriteLimit, async (req, res) => {
       return res.status(403).json({ error: "Only admin/mod/speaker may post as the Monarch" });
     }
 
-    const { rows: simRows } = await pool.query("SELECT sim_current_month AS month, sim_current_year AS year FROM sim_clock WHERE id = 'main' LIMIT 1");
-    const sim = simRows[0] || { month: 8, year: 1997 };
+    const { simMonth, simYear } = await getCurrentSimMonthYear();
+    const sim = { month: simMonth, year: simYear };
 
     let postedAs = "The Monarch";
     let avatarUrl = "";
