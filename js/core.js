@@ -137,7 +137,16 @@ export function saveState(data) {
   // Only staff roles may write the global state snapshot.
   // Non-staff authenticated users rely on feature-specific API endpoints for their writes.
   const roles = Array.isArray(_user?.roles) ? _user.roles : [];
-  const canPersist = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
+  const activeCharacter = data?.currentCharacter || data?.currentPlayer || {};
+  const activeRoles = Array.isArray(activeCharacter.roles) ? activeCharacter.roles : [];
+  const activeOffices = Array.isArray(activeCharacter.offices)
+    ? activeCharacter.offices
+    : (activeCharacter.office ? [activeCharacter.office] : []);
+  const isSpeakerCharacter = !!activeCharacter.isSpeaker ||
+    activeRoles.some((r) => /^speaker$/i.test(String(r || ""))) ||
+    activeOffices.some((o) => /^speaker$/i.test(String(o || ""))) ||
+    /^speaker$/i.test(String(activeCharacter.party || ""));
+  const canPersist = roles.includes("admin") || roles.includes("mod") || isSpeakerCharacter;
   if (!canPersist) {
     console.warn("[saveState] skipped for non-staff user -- use feature APIs for player writes.");
     return Promise.resolve();
