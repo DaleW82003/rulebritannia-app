@@ -6812,7 +6812,7 @@ app.get("/api/motions", crudReadLimit, async (req, res) => {
     const displayNames = await batchGetCharacterDisplayNames(pool, entries);
     const motions = rows.map((r, i) => {
       const author_display_name = r.data?.author_character_id ? displayNames[i] : (r.data?.author || "");
-      return normaliseDiscourseFields({ ...r.data, author_display_name, _motionType: r.motion_type, _updatedAt: r.updated_at });
+      return normaliseDiscourseFields({ ...r.data, id: r.id, author_display_name, _motionType: r.motion_type, _updatedAt: r.updated_at });
     });
     res.json({ motions });
   } catch (e) {
@@ -6832,7 +6832,7 @@ app.get("/api/motions/:id", crudReadLimit, async (req, res) => {
     const author_display_name = rows[0].data?.author_character_id
       ? await getCharacterDisplayName(pool, rows[0].data.author_character_id, rows[0].data?.author || "")
       : (rows[0].data?.author || "");
-    const motion = normaliseDiscourseFields({ ...rows[0].data, author_display_name, _motionType: rows[0].motion_type, _updatedAt: rows[0].updated_at });
+    const motion = normaliseDiscourseFields({ ...rows[0].data, id: rows[0].id, author_display_name, _motionType: rows[0].motion_type, _updatedAt: rows[0].updated_at });
 
     // For EDMs: attach canSignEdm / cannotSignReason so the frontend can
     // reliably gate the Sign button without trusting stale client-side state.
