@@ -25,7 +25,8 @@ function currentWeight() { return 1; }
 
 function getMotion(data, kind, id) {
   const list = kind === "edm" ? data.motions.edm : data.motions.house;
-  return list.find((m) => m.id === id) || list[0] || null;
+  if (!id) return null;
+  return list.find((m) => String(m.id) === String(id)) || null;
 }
 
 function edmWeightedSignatures(item, data) {
