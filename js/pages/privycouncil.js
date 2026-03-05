@@ -89,7 +89,7 @@ function render(members, posts, data, state, manager) {
               <div>
                 <div style="font-weight:700;">${esc(m.character_display_name || m.character_name)}</div>
                 <div class="muted" style="font-size:0.85em;">${esc(m.character_party || "")}${m.reason ? ` — ${esc(m.reason)}` : ""}</div>
-                <div class="muted" style="font-size:0.8em;">Appointed: ${new Date(m.appointed_at).toLocaleDateString("en-GB", { year: "numeric", month: "long", day: "numeric" })}</div>
+                <div class="muted" style="font-size:0.8em;">Appointed: ${m.sim_month && m.sim_year ? formatSimLabel(m.sim_month, m.sim_year) : new Date(m.appointed_at).toLocaleDateString("en-GB", { year: "numeric", month: "long" })}</div>
               </div>
               ${manager ? `
               <div>

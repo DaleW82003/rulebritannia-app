@@ -1920,6 +1920,8 @@ async function ensureSchema() {
     ALTER TABLE privy_council_members ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ;
     ALTER TABLE privy_council_members ADD COLUMN IF NOT EXISTS removed_by UUID REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE privy_council_members ADD COLUMN IF NOT EXISTS removal_reason TEXT NOT NULL DEFAULT '';
+    ALTER TABLE privy_council_members ADD COLUMN IF NOT EXISTS sim_month SMALLINT;
+    ALTER TABLE privy_council_members ADD COLUMN IF NOT EXISTS sim_year SMALLINT;
     CREATE INDEX IF NOT EXISTS idx_privy_council_members_char ON privy_council_members (character_id);
     CREATE TABLE IF NOT EXISTS privy_council_posts (
       id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -12474,7 +12476,7 @@ app.get("/api/privy-council", privyReadLimit, async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      `SELECT pcm.id, pcm.character_id, pcm.appointed_at, pcm.reason,
+      `SELECT pcm.id, pcm.character_id, pcm.appointed_at, pcm.sim_month, pcm.sim_year, pcm.reason,
               c.name AS character_name, c.party AS character_party, c.avatar AS character_avatar
          FROM privy_council_members pcm
          JOIN characters c ON c.id = pcm.character_id
@@ -12502,13 +12504,16 @@ app.post("/api/mod/privy-council/appoint", privyWriteLimit, async (req, res) => 
     );
     if (!charRows.length) return res.status(404).json({ error: "Character not found or inactive" });
 
+    const { simMonth, simYear } = await getCurrentSimMonthYear();
     const { rows: inserted } = await pool.query(
-      `INSERT INTO privy_council_members (character_id, appointed_by, reason, removed_at, removed_by, removal_reason)
-       VALUES ($1, $2, $3, NULL, NULL, '')
+      `INSERT INTO privy_council_members (character_id, appointed_by, reason, sim_month, sim_year, removed_at, removed_by, removal_reason)
+       VALUES ($1, $2, $3, $4, $5, NULL, NULL, '')
        ON CONFLICT (character_id)
-       DO UPDATE SET removed_at = NULL, removed_by = NULL, removal_reason = '', appointed_at = NOW(), appointed_by = EXCLUDED.appointed_by, reason = EXCLUDED.reason
+       DO UPDATE SET removed_at = NULL, removed_by = NULL, removal_reason = '', appointed_at = NOW(),
+                     sim_month = EXCLUDED.sim_month, sim_year = EXCLUDED.sim_year,
+                     appointed_by = EXCLUDED.appointed_by, reason = EXCLUDED.reason
        RETURNING id`,
-      [character_id, req.session.userId, String(reason).slice(0, 500)]
+      [character_id, req.session.userId, String(reason).slice(0, 500), simMonth, simYear]
     );
     await writeAuditLog(req.session.userId, "privy_council.appoint", "character", character_id,
       {}, { reason });
@@ -13081,13 +13086,16 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
     // On re-appointment, only reactivate (clear removal fields) — preserve original appointed_at.
     if (PC_QUALIFYING_SPEC_IDS.includes(office.spec_id)) {
       await pool.query(
-        `INSERT INTO privy_council_members (character_id, appointed_by, reason, removed_at, removed_by, removal_reason)
-         VALUES ($1, $2, $3, NULL, NULL, '')
+        `INSERT INTO privy_council_members (character_id, appointed_by, reason, sim_month, sim_year, removed_at, removed_by, removal_reason)
+         VALUES ($1, $2, $3, $4, $5, NULL, NULL, '')
          ON CONFLICT (character_id)
          DO UPDATE SET removed_at = NULL, removed_by = NULL, removal_reason = '',
+                       sim_month = COALESCE(privy_council_members.sim_month, EXCLUDED.sim_month),
+                       sim_year  = COALESCE(privy_council_members.sim_year,  EXCLUDED.sim_year),
                        appointed_by = EXCLUDED.appointed_by, reason = EXCLUDED.reason`,
         [character_id, req.session.userId,
-          `Auto-granted on appointment as ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`]
+          `Auto-granted on appointment as ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`,
+          simMonth, simYear]
       );
     }
 
