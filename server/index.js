@@ -5053,6 +5053,67 @@ app.put("/api/discourse/config", discourseWriteLimit, async (req, res) => {
   }
 });
 
+// GET /api/admin/discourse-category-ids — admin: read the 4 debate category IDs
+app.get("/api/admin/discourse-category-ids", discourseReadLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT key, value FROM app_config
+        WHERE key IN (
+          'discourse_category_bills',
+          'discourse_category_motions',
+          'discourse_category_statements',
+          'discourse_category_regulations'
+        )`
+    );
+    const cfg = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    res.json({
+      bills:       cfg.discourse_category_bills       ? Number(cfg.discourse_category_bills)       : null,
+      motions:     cfg.discourse_category_motions     ? Number(cfg.discourse_category_motions)     : null,
+      statements:  cfg.discourse_category_statements  ? Number(cfg.discourse_category_statements)  : null,
+      regulations: cfg.discourse_category_regulations ? Number(cfg.discourse_category_regulations) : null,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PUT /api/admin/discourse-category-ids — admin: save the 4 debate category IDs
+app.put("/api/admin/discourse-category-ids", discourseWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const KINDS = ["bills", "motions", "statements", "regulations"];
+    const entries = [];
+    for (const kind of KINDS) {
+      const raw = req.body?.[kind];
+      if (raw === undefined || raw === null || raw === "") continue;
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n <= 0) {
+        return res.status(400).json({ error: `Category ID for "${kind}" must be a positive integer` });
+      }
+      entries.push([`discourse_category_${kind}`, String(n)]);
+    }
+    if (!entries.length) {
+      return res.status(400).json({ error: "No valid category IDs provided" });
+    }
+    const keys   = entries.map(([k]) => k);
+    const values = entries.map(([, v]) => v);
+    await pool.query(
+      `INSERT INTO app_config (key, value)
+       SELECT unnest($1::text[]), unnest($2::text[])
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value,
+             updated_at = NOW()`,
+      [keys, values]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.post("/api/discourse/test", discourseWriteLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
@@ -7041,6 +7102,15 @@ app.put("/api/motions/:id", crudWriteLimit, async (req, res) => {
       params
     );
     if (!rows.length) return res.status(404).json({ error: "Motion not found" });
+    // Close any open divisions when motion is closed or archived
+    const newStatus = motion?.status;
+    if (newStatus === "closed" || newStatus === "archived") {
+      await pool.query(
+        `UPDATE divisions SET status = 'closed', outcome = 'cancelled', closes_at = NOW()
+          WHERE entity_type = 'motion' AND entity_id = $1 AND status = 'open'`,
+        [req.params.id]
+      );
+    }
     res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
   } catch (e) {
     console.error(e);
@@ -7051,6 +7121,12 @@ app.put("/api/motions/:id", crudWriteLimit, async (req, res) => {
 app.delete("/api/motions/:id", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAdminModOrSpeaker(req, res)) return;
+    // Close any open divisions for this motion before deleting
+    await pool.query(
+      `UPDATE divisions SET status = 'closed', outcome = 'cancelled', closes_at = NOW()
+        WHERE entity_type = 'motion' AND entity_id = $1 AND status = 'open'`,
+      [req.params.id]
+    );
     const { rowCount } = await pool.query("DELETE FROM motions WHERE id = $1", [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: "Motion not found" });
     res.json({ ok: true });
@@ -8934,6 +9010,45 @@ app.post("/api/admin/close-stale-divisions", maintLimit, async (req, res) => {
     res.json({ ok: true, closed: rowCount, message: `Closed ${rowCount} stale open division(s).` });
   } catch (e) {
     console.error("[admin/close-stale-divisions]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Close orphan motion divisions: open divisions whose entity_id has no matching motions row.
+// Uses a single atomic UPDATE … RETURNING to avoid a separate SELECT + uuid-array cast.
+app.post("/api/admin/close-orphan-motion-divisions", maintLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    // Single atomic query: find and close orphan motion divisions in one statement.
+    // divisions.id is UUID PRIMARY KEY; outcome is TEXT (no constraint) added via
+    // ensureSchema() ALTER TABLE … ADD COLUMN IF NOT EXISTS outcome TEXT.
+    const { rows: closedRows } = await pool.query(
+      `UPDATE divisions
+          SET status    = 'closed',
+              outcome   = 'cancelled',
+              closes_at = NOW()
+        WHERE entity_type = 'motion'
+          AND status      = 'open'
+          AND NOT EXISTS (
+            SELECT 1 FROM motions m WHERE m.id = entity_id
+          )
+        RETURNING id`
+    );
+    const closedIds = closedRows.map((r) => r.id);
+    if (closedIds.length > 0) {
+      await writeAuditLog(
+        req.session.userId,
+        "admin.close-orphan-motion-divisions",
+        "divisions",
+        "*",
+        null,
+        { closed: closedIds.length, ids: closedIds }
+      );
+    }
+    console.log(`[admin] close-orphan-motion-divisions: closed ${closedIds.length} orphan division(s) by user ${req.session.userId}`);
+    res.json({ ok: true, closed: closedIds.length, message: closedIds.length ? `Closed ${closedIds.length} orphan motion division(s).` : "No orphan motion divisions found." });
+  } catch (e) {
+    console.error("[admin/close-orphan-motion-divisions]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -14634,6 +14749,21 @@ app.post("/api/divisions/create", divWriteLimit, async (req, res) => {
     if (!entity_type || !entity_id) {
       return res.status(400).json({ error: "entity_type and entity_id are required" });
     }
+
+    // Guard: prevent multiple open divisions for the same motion
+    if (entity_type === "motion") {
+      const { rows: existingRows } = await pool.query(
+        `SELECT id FROM divisions WHERE entity_type = 'motion' AND entity_id = $1 AND status = 'open' LIMIT 1`,
+        [String(entity_id)]
+      );
+      if (existingRows.length) {
+        return res.status(409).json({
+          error: "An open division already exists for this motion",
+          divisionId: existingRows[0].id,
+        });
+      }
+    }
+
     const { rows } = await pool.query(
       `INSERT INTO divisions (entity_type, entity_id, title, closes_at, closes_at_sim)
        VALUES ($1, $2, $3, $4, $5)

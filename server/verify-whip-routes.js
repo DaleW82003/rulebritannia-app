@@ -204,6 +204,35 @@ check(
   serverSrc.includes('ON CONFLICT (division_id, party_slug)'),
 );
 
+// ── 7. Division integrity schema facts ─────────────────────────────────────
+console.log("\n[7] Division schema integrity (outcome column, UUID id, guards)");
+
+check(
+  'divisions.id is UUID PRIMARY KEY (required for any uuid[] cast operations)',
+  serverSrc.includes('id          UUID PRIMARY KEY'),
+);
+check(
+  'divisions.outcome TEXT column added via ALTER TABLE … ADD COLUMN IF NOT EXISTS',
+  serverSrc.includes("ADD COLUMN IF NOT EXISTS outcome                TEXT"),
+);
+check(
+  'POST /api/admin/close-orphan-motion-divisions is registered',
+  serverSrc.includes('app.post("/api/admin/close-orphan-motion-divisions"'),
+);
+check(
+  'Duplicate open-division guard for motions (409) is present',
+  serverSrc.includes("An open division already exists for this motion"),
+);
+check(
+  'Motion DELETE closes open divisions before deletion',
+  serverSrc.includes("DELETE FROM motions WHERE id = $1") &&
+  serverSrc.includes("entity_type = 'motion' AND entity_id = $1 AND status = 'open'"),
+);
+check(
+  'apiAdminCloseOrphanMotionDivisions exported in api.js',
+  clientSrc.includes('apiAdminCloseOrphanMotionDivisions'),
+);
+
 // ── Summary ────────────────────────────────────────────────────────────────
 console.log(`\n${"─".repeat(50)}`);
 console.log(`Results: ${passed} passed, ${failed} failed`);

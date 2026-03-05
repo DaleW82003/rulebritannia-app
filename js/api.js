@@ -574,6 +574,28 @@ export async function apiSaveDiscourseConfig({ base_url, api_key, api_username, 
   return res.json();
 }
 
+export async function apiGetDiscourseCategoryIds() {
+  const res = await _fetch(`${API_BASE}/api/admin/discourse-category-ids`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiGetDiscourseCategoryIds failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSaveDiscourseCategoryIds({ bills, motions, statements, regulations }) {
+  const res = await _fetch(`${API_BASE}/api/admin/discourse-category-ids`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ bills, motions, statements, regulations }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiSaveDiscourseCategoryIds failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function apiTestDiscourse() {
   const res = await _fetch(`${API_BASE}/api/discourse/test`, {
     method: "POST",
@@ -674,6 +696,7 @@ export const apiAdminRebuildCache        = maintPost("/api/admin/rebuild-cache")
 export const apiAdminRotateSessions      = maintPost("/api/admin/rotate-sessions");
 export const apiAdminForceLogoutAll      = maintPost("/api/admin/force-logout-all");
 export const apiAdminCloseStaleDiv       = maintPost("/api/admin/close-stale-divisions");
+export const apiAdminCloseOrphanMotionDivisions = maintPost("/api/admin/close-orphan-motion-divisions");
 
 export async function apiAdminExportSnapshot() {
   const res = await _fetch(`${API_BASE}/api/admin/export-snapshot`, {
@@ -1353,7 +1376,10 @@ export async function apiCreateDivision(entityType, entityId, title = "", closes
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `apiCreateDivision failed (${res.status})`);
+    const err = new Error(body.error || `apiCreateDivision failed (${res.status})`);
+    err.status = res.status;
+    if (body.divisionId) err.divisionId = body.divisionId;
+    throw err;
   }
   return res.json();
 }
@@ -1603,7 +1629,10 @@ export async function apiAdminDiscourseSyncDebates(kind) {
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify({ kind }),
   });
-  if (!res.ok) throw new Error(`apiAdminDiscourseSyncDebates failed (${res.status})`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminDiscourseSyncDebates failed (${res.status})`);
+  }
   return res.json();
 }
 

@@ -7,9 +7,10 @@ import {
   apiGetSnapshots, apiSaveSnapshot, apiRestoreSnapshot,
   apiGetAuditLog,
   apiGetDiscourseConfig, apiSaveDiscourseConfig, apiTestDiscourse,
+  apiGetDiscourseCategoryIds, apiSaveDiscourseCategoryIds,
   apiGetDiscourseSyncPreview, apiAdminSyncDiscourseGroups, apiAdminSyncDiscourseGroupsStatus, apiSetUserRoles,
   apiAdminClearCache, apiAdminRebuildCache, apiAdminRotateSessions,
-  apiAdminForceLogoutAll, apiAdminCloseStaleDiv,
+  apiAdminForceLogoutAll, apiAdminCloseStaleDiv, apiAdminCloseOrphanMotionDivisions,
   apiGetSsoReadiness,
   apiGetAdminDashboard, apiAdminDiscourseSyncDebates,
   apiGetPendingRegistrations, apiApproveRegistration, apiRejectRegistration,
@@ -35,6 +36,13 @@ function nextSundayIso() {
 
 const SYNC_POLL_INTERVAL_MS = 2000;
 
+const DISCOURSE_CATEGORY_KINDS = [
+  { key: "bills",       label: "Bills Debate Category ID" },
+  { key: "motions",     label: "Motions Debate Category ID" },
+  { key: "statements",  label: "Statements Debate Category ID" },
+  { key: "regulations", label: "Regulations Debate Category ID" },
+];
+
 export async function initAdminPanelPage(data) {
   const user = await requireAdmin();
   if (!user) return;
@@ -49,6 +57,7 @@ export async function initAdminPanelPage(data) {
   let auditTotal = 0;
   let auditFilters = { action: "", target: "", limit: 50, offset: 0 };
   let discourseConfig = { base_url: "", has_api_key: false, has_api_username: false, has_sso_secret: false };
+  let discourseCategoryIds = { bills: null, motions: null, statements: null, regulations: null };
   let syncPreview = [];
   let syncResults = null;  // null = never run; object = last sync results
   let _syncPollTimer = null;  // active polling interval; hoisted so re-renders don't orphan it
@@ -239,6 +248,15 @@ export async function initAdminPanelPage(data) {
     }
   }
 
+  async function loadDiscourseCategoryIds() {
+    try {
+      discourseCategoryIds = await apiGetDiscourseCategoryIds();
+    } catch (err) {
+      console.error("Failed to load Discourse category IDs:", err);
+      // Non-fatal; silently keep defaults
+    }
+  }
+
   async function loadSnapshots() {
     try {
       const result = await apiGetSnapshots();
@@ -312,6 +330,7 @@ export async function initAdminPanelPage(data) {
     const ssoSecretPh        = discourseConfig.has_sso_secret    ? "(already set — leave blank to keep)" : "Paste DiscourseConnect secret…";
     const testResult         = status && status.startsWith("disc-test:") ? status.slice(10) : "";
     const saveResult         = status && status.startsWith("disc-save:") ? status.slice(10) : "";
+    const catSaveResult      = status && status.startsWith("disc-cat:") ? status.slice(9) : "";
 
     return `
       <section class="panel" style="max-width:600px;margin-top:12px;">
@@ -359,6 +378,26 @@ export async function initAdminPanelPage(data) {
         </form>
         ${saveResult ? `<div style="margin-top:10px;font-size:13px;">${esc(saveResult)}</div>` : ""}
         <div id="discourse-test-result" style="margin-top:10px;font-size:13px;">${esc(testResult)}</div>
+
+        <h3 style="margin:18px 0 8px;">Debate Category IDs</h3>
+        <p style="font-size:12px;color:#555;margin:0 0 10px;">
+          Numeric Discourse category IDs used when creating debate topics for each entity type.
+          Must be a positive integer. Find these in your Discourse admin under Categories.
+        </p>
+        <form id="discourse-category-ids-form" style="display:flex;flex-direction:column;gap:10px;">
+          ${DISCOURSE_CATEGORY_KINDS.map(({ key, label }) => `
+          <div class="kv" style="align-items:center;gap:8px;">
+            <label for="disc-cat-${esc(key)}" style="min-width:200px;">${esc(label)}</label>
+            <input id="disc-cat-${esc(key)}" name="${esc(key)}" type="number" min="1" step="1"
+                   value="${discourseCategoryIds[key] != null ? esc(String(discourseCategoryIds[key])) : ""}"
+                   placeholder="e.g. 9"
+                   style="flex:1;padding:4px 8px;border:1px solid #ccc;border-radius:4px;" />
+          </div>`).join("")}
+          <div>
+            <button class="btn" type="submit">Save Category IDs</button>
+          </div>
+        </form>
+        ${catSaveResult ? `<div id="disc-cat-status" style="margin-top:10px;font-size:13px;">${esc(catSaveResult)}</div>` : ""}
       </section>`;
   }
 
@@ -684,6 +723,18 @@ export async function initAdminPanelPage(data) {
               <div id="close-stale-div-status" style="font-size:13px;margin-top:4px;"></div>
             </div>
             <button class="btn" id="btn-close-stale-div" type="button">Close Stale</button>
+          </div>
+
+          <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <b>Close Orphan Motion Divisions</b>
+              <p style="margin:4px 0 0;font-size:13px;color:#555;">
+                Closes all open divisions for motions whose motion record no longer exists (orphaned).
+                Updates status to <code>closed</code>, sets <code>closes_at</code> to now, and writes an audit entry.
+              </p>
+              <div id="close-orphan-motion-div-status" style="font-size:13px;margin-top:4px;"></div>
+            </div>
+            <button class="btn" id="btn-close-orphan-motion-div" type="button">Close Orphans</button>
           </div>
 
           <div class="muted-block" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -1099,6 +1150,25 @@ export async function initAdminPanelPage(data) {
       }
     });
 
+    host.querySelector("#discourse-category-ids-form")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const payload = {};
+      for (const { key } of DISCOURSE_CATEGORY_KINDS) {
+        const val = form.querySelector(`[name="${key}"]`)?.value?.trim();
+        if (val !== "" && val !== undefined) payload[key] = val;
+      }
+      try {
+        await apiSaveDiscourseCategoryIds(payload);
+        logAction({ action: "discourse-category-ids-saved", target: "discourse" });
+        await loadDiscourseCategoryIds();
+        render("disc-cat:✓ Debate category IDs saved.");
+      } catch (err) {
+        toastError(`Save category IDs: ${err.message}`);
+        render(`disc-cat:Error: ${err.message}`);
+      }
+    });
+
     host.querySelector("#snapshot-form")?.addEventListener("submit", async (e) => {
       e.preventDefault();
       const label = host.querySelector("#snapshot-label")?.value?.trim();
@@ -1504,6 +1574,28 @@ export async function initAdminPanelPage(data) {
       }
     });
 
+    // ── Close Orphan Motion Divisions handler ───────────────────────────────────
+    host.querySelector("#btn-close-orphan-motion-div")?.addEventListener("click", async () => {
+      const btn = host.querySelector("#btn-close-orphan-motion-div");
+      const statusEl = host.querySelector("#close-orphan-motion-div-status");
+      if (!confirm("Close all open divisions for motions that no longer exist? These will be marked as abandoned.")) return;
+      if (btn) { btn.disabled = true; btn.textContent = "Closing…"; }
+      if (statusEl) statusEl.textContent = "";
+      try {
+        const result = await apiAdminCloseOrphanMotionDivisions();
+        toastSuccess(result.message || "Done.");
+        if (statusEl) { statusEl.style.color = "#1a7a1a"; statusEl.textContent = `✓ ${result.message}`; }
+        logAction({ action: "admin.close-orphan-motion-divisions", details: { closed: result.closed } });
+        await loadDashboard();
+        render();
+      } catch (err) {
+        toastError(`Close orphan motion divisions: ${err.message}`);
+        if (statusEl) { statusEl.style.color = "#c00"; statusEl.textContent = `Error: ${err.message}`; }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "Close Orphans"; }
+      }
+    });
+
     // ── System Health Check handler ──────────────────────────────────────────
     host.querySelector("#btn-system-health-check")?.addEventListener("click", async () => {
       const btn = host.querySelector("#btn-system-health-check");
@@ -1787,7 +1879,7 @@ export async function initAdminPanelPage(data) {
     }
   }
 
-  await Promise.all([loadConfig(), loadDiscourseConfig(), loadSnapshots(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard(), loadPendingRegistrations()]);
+  await Promise.all([loadConfig(), loadDiscourseConfig(), loadDiscourseCategoryIds(), loadSnapshots(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard(), loadPendingRegistrations()]);
   render("");
 
   // Event delegation for pending registration approve/reject buttons
