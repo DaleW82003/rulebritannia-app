@@ -147,3 +147,38 @@ test("officeRoleFromSpecId: parliamentary type → null (no group role)", () => 
 test("officeRoleFromSpecId: other type → null (no group role)", () => {
   assert.equal(officeRoleFromSpecId(null, "other"), null);
 });
+
+// ── LOTO scenario: office:leader_of_opposition → loto + opposition-related groups ──
+
+test("computeDiscourseGroups: LOTO role → includes loto group", () => {
+  const groups = computeDiscourseGroups(["party:labour", "office:leader_of_opposition"]);
+  assert.ok(groups.includes("loto"),    "LOTO should receive loto group");
+  assert.ok(groups.includes("labour"),  "LOTO should retain party group");
+});
+
+test("computeDiscourseGroups: shadow secretary → includes opposition group", () => {
+  const groups = computeDiscourseGroups(["party:labour", "office:shadow_secretary_of_state"]);
+  assert.ok(groups.includes("opposition"), "shadow secretary should receive opposition group");
+  assert.ok(groups.includes("labour"),     "shadow secretary should retain party group");
+});
+
+test("computeDiscourseGroups: LOTO with party role → includes loto, labour, backbencher", () => {
+  const groups = computeDiscourseGroups(["party:labour", "office:leader_of_opposition"]);
+  assert.ok(groups.includes("loto"),       "should include loto");
+  assert.ok(groups.includes("labour"),     "should include labour");
+  assert.ok(groups.includes("backbencher"), "should include backbencher (party role holder)");
+});
+
+test("computeDiscourseGroups: leader-opposition officeRoleFromSpecId maps to loto via DISCOURSE_GROUP_MAP", () => {
+  // Verify the full pipeline: spec_id → office role → Discourse group
+  const officeRole = officeRoleFromSpecId("leader-opposition", "shadow");
+  assert.equal(officeRole, "office:leader_of_opposition", "spec_id should map to office:leader_of_opposition");
+  const groups = computeDiscourseGroups(["party:labour", officeRole]);
+  assert.ok(groups.includes("loto"), "office:leader_of_opposition must map to loto group");
+});
+
+test("computeDiscourseGroups: after opposition reset vacating LOTO role, loto group absent", () => {
+  // Simulate user after being removed from LOTO (no office:leader_of_opposition role)
+  const groups = computeDiscourseGroups(["party:labour"]);
+  assert.ok(!groups.includes("loto"), "user without LOTO office role should not be in loto group");
+});
