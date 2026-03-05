@@ -5,7 +5,7 @@ import { setAbsenceState, getCharacterContext } from "../engines/core-engine.js"
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import {
-  apiApplyCharacter, apiApplyNpcCharacter, apiGetMyApplications, apiGetMyCharacters,
+  apiApplyNpcCharacter, apiGetMyApplications, apiGetMyCharacters,
   apiGetCharacterApplications, apiApproveCharacterApplication,
   apiRejectCharacterApplication, apiSelectCharacter,
   apiGetConstituencies, apiGetCharacters,
@@ -288,9 +288,6 @@ function render(data, state) {
   const dbMyApps = Array.isArray(state.dbState?.myApplications) ? state.dbState.myApplications : [];
   const dbPendingApps = Array.isArray(state.dbState?.pendingApplications) ? state.dbState.pendingApplications : [];
 
-  const hasActiveOwned = dbChars.some((c) => c.is_active);
-  const inactiveOwned = dbChars.filter((c) => !c.is_active);
-  const pendingByCurrent = dbMyApps.filter((a) => a.status === "pending");
   const pendingNpcByCurrent = dbMyApps.filter((a) => a.status === "pending" && a.application_type === "npc");
   const delegationChoices = delegationChoicesForParty(data, char?.party, char?.name);
 
@@ -309,16 +306,6 @@ function render(data, state) {
 
   // Use server-provided enums (single source of truth) when available, fall back to built-in arrays.
   const enums = state.enums ?? {};
-  const HOME_TYPES = enums.homeTypes ?? [
-    "Studio Flat", "One-Bed Flat", "Two-Bed Flat", "Terraced House", "End-Terrace",
-    "Semi-Detached House", "Detached Suburban House", "Townhouse",
-    "Country House", "Country Estate", "Mansion"
-  ];
-  const RENTAL_TYPES = enums.rentalTypes ?? [
-    "Single Room Let", "Studio Flat", "One/Two-Bed Flat", "Terraced House",
-    "Semi-Detached House", "Detached House",
-    "High Street Retail Unit", "Office Unit", "Warehouse", "Holiday Let"
-  ];
   const EDUCATION_OPTIONS = enums.educationOptions ?? [
     "No Qualifications", "GCSEs", "A Levels", "Certificate of HE", "Diploma",
     "Bachelors Degree", "Masters Degree", "Doctorate",
@@ -335,11 +322,6 @@ function render(data, state) {
     "Divorced", "Divorced with Children", "Widowed",
     "Long-Term Partner with Children", "Long-Term Partner, No Children",
   ];
-  const PROPERTY_VALUES = [
-    "Under £100,000", "£100,001 to £200,000", "£200,001 to £300,000",
-    "£300,001 to £400,000", "£400,001 to £500,000", "Over £500,000"
-  ];
-  const RENTAL_STATUSES = enums.rentalStatuses ?? ["Occupied", "Vacant", "Under renovation"];
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">User</div></div>
@@ -364,7 +346,7 @@ function render(data, state) {
     </section>
 
     <section class="panel" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Character Data / Create Character</h2>
+      <h2 style="margin-top:0;">Character Data</h2>
       <div class="tile" style="margin-bottom:10px;">
         <div><b>${esc(char?.display_name || char?.name || "No character selected")}</b></div>
         <div class="muted"><b>DOB:</b> ${esc(char?.dateOfBirth || char?.date_of_birth || "-")}</div>
@@ -380,101 +362,6 @@ function render(data, state) {
         <div class="muted"><b>Absence:</b> ${char?.absent ? "Absent" : "Active"}${char?.absent ? ` · Delegated to ${esc(char?.delegatedTo || "None")}` : ""}</div>
         ${char?.avatarAttribution ? `<div class="muted"><b>Avatar:</b> ${esc(char.avatarAttribution)}</div>` : ""}
       </div>
-
-      <div class="tile" style="margin-bottom:10px;">
-        <div><b>Roster Eligibility</b></div>
-        <div class="muted">Active characters you own: ${esc(String(dbChars.filter((c) => c.is_active).length))} · Pending submissions: ${esc(String(pendingByCurrent.length))}</div>
-        ${hasActiveOwned ? `<div class="muted" style="margin-top:6px;">You already have an active character in this live simulation. Mark that character inactive before submitting a new one.</div>` : ""}
-        ${inactiveOwned.length ? `<div style="margin-top:8px;display:grid;gap:6px;">${inactiveOwned.map((c) => `<div class="tile" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><b>${esc(c.name)}</b> <span class="muted">(inactive)</span></div><button class="btn" type="button" data-action="reactivate-character" data-id="${esc(c.id)}" data-name="${esc(c.name)}">Re-Activate</button></div>`).join("")}</div>` : ""}
-      </div>
-
-      ${(hasActiveOwned || pendingByCurrent.length > 0) ? `
-        <div class="tile muted-block" style="margin-bottom:10px;">
-          ${hasActiveOwned
-            ? `<b>Create Character</b> — You already have an active character (<b>${esc(dbActiveChar?.name || "")}</b>). You cannot apply for a new one while one is active.`
-            : `<b>Create Character</b> — Your character application is currently pending moderator review. You cannot submit another until it is resolved.`}
-        </div>
-      ` : `
-      <details class="tile" style="margin-bottom:10px;">
-        <summary><b>Create Character (Moderator approval required)</b></summary>
-        <form id="create-character-form" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
-          <input class="input" name="name" placeholder="Name" required>
-          <input class="input" type="date" name="date_of_birth" required>
-          <select class="input" name="education" required>
-            <option value="">Education level</option>
-            ${EDUCATION_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
-          </select>
-          <select class="input" name="career_background" required>
-            <option value="">Pre-MP Career</option>
-            ${CAREER_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
-          </select>
-          <select class="input" name="family" required>
-            <option value="">Family Status</option>
-            ${FAMILY_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
-          </select>
-          <select class="input" name="party" id="char-party-select" required>
-            <option value="">Select party</option>
-            <option value="Conservative">Conservative</option>
-            <option value="Labour">Labour</option>
-            ${!data.adminSettings.libDemClosedToNewChars ? `<option value="Liberal Democrat">Liberal Democrat</option>` : ""}
-          </select>
-          <select class="input" name="constituency" id="char-constituency-select" required>
-            <option value="">Select party first</option>
-          </select>
-          <input class="input" name="twitter_handle" placeholder="Twitter handle (without @, optional)">
-          <div style="display:flex;flex-direction:column;gap:2px;">
-            <input class="input" name="avatar" placeholder="Avatar URL (optional)">
-            <span class="muted" style="font-size:.8em;margin-top:2px;">Recommended: 512×512 px (min 256×256 px)</span>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:2px;">
-            <input class="input" name="avatar_attribution" placeholder="Who is your avatar? (required, e.g. Alan Rickman)" required>
-            <span class="muted" style="font-size:.8em;margin-top:2px;">The real-world person whose likeness is used as your avatar.</span>
-          </div>
-          <input class="input" name="year_first_elected" placeholder="Year first elected" required>
-          <textarea class="input" name="bio" placeholder="Biography (max 2000 characters)" maxlength="2000" required style="grid-column:1/-1;resize:vertical;min-height:80px;"></textarea>
-          <select class="input" name="financial_background_level" required>
-            <option value="">Financial background</option>
-            <option value="1">1 – Poverty</option>
-            <option value="2">2 – Financially Strained</option>
-            <option value="3">3 – Lower Working Class</option>
-            <option value="4">4 – Skilled Working / Lower Middle</option>
-            <option value="5">5 – Solid Middle Class</option>
-            <option value="6">6 – Upper Middle Class</option>
-            <option value="7">7 – Affluent Professional</option>
-            <option value="8">8 – High Net Worth Individual</option>
-            <option value="9">9 – Top 5%</option>
-            <option value="10">10 – Top 1%</option>
-          </select>
-
-          <fieldset style="grid-column:1/-1;border:1px solid var(--border,#ccc);padding:8px;border-radius:4px;">
-            <legend><b>Primary Home</b></legend>
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
-              <select class="input" name="home_type">
-                <option value="">Select home type (optional)</option>
-                ${HOME_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}
-              </select>
-              <select class="input" name="home_value">
-                <option value="">Estimated value (optional)</option>
-                ${PROPERTY_VALUES.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}
-              </select>
-              <input class="input" name="home_region" placeholder="Region / location (optional)">
-              <label style="display:flex;gap:8px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:#fff;font-weight:400;color:var(--text);cursor:pointer;">
-                <input type="checkbox" name="home_mortgaged"> <span>Mortgaged</span>
-              </label>
-              <input class="input" name="home_notes" placeholder="Notes (optional)">
-            </div>
-          </fieldset>
-
-          <fieldset style="grid-column:1/-1;border:1px solid var(--border,#ccc);padding:8px;border-radius:4px;">
-            <legend><b>Rental Properties (0–5)</b></legend>
-            <div id="rentals-list" style="display:grid;gap:8px;"></div>
-            <button type="button" class="btn" id="add-rental-btn" style="margin-top:8px;">+ Add Rental</button>
-          </fieldset>
-
-          <button class="btn" type="submit" style="grid-column:1/-1;">Submit Character for Approval</button>
-        </form>
-      </details>
-      `}
 
       <details class="tile">
         <summary><b>Absence & Delegation</b></summary>
@@ -614,115 +501,6 @@ function render(data, state) {
 
     ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
   `;
-
-  // Rental builder
-  const rentalsList = host.querySelector("#rentals-list");
-  let rentalCount = 0;
-  function addRentalRow() {
-    if (rentalCount >= 5) return;
-    rentalCount++;
-    const idx = rentalCount;
-    const div = document.createElement("div");
-    div.dataset.rentalRow = idx;
-    div.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:6px 0;border-top:1px solid var(--border,#eee);";
-    div.innerHTML = `
-      <div style="grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;">
-        <b>Rental #${idx}</b>
-        <button type="button" class="btn danger" data-remove-rental="${idx}" style="padding:4px 10px;font-size:12px;">Remove</button>
-      </div>
-      <select class="input" name="rental_${idx}_type"><option value="">Type</option>${RENTAL_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}</select>
-      <select class="input" name="rental_${idx}_value"><option value="">Estimated value (optional)</option>${PROPERTY_VALUES.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select>
-      <input class="input" name="rental_${idx}_location" placeholder="Location">
-      <select class="input" name="rental_${idx}_status"><option value="">Status</option>${RENTAL_STATUSES.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("")}</select>
-      <input class="input" name="rental_${idx}_notes" placeholder="Notes (optional)">
-      <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" name="rental_${idx}_mortgaged"> <span>Mortgaged</span></label>
-    `;
-    div.querySelector(`[data-remove-rental="${idx}"]`)?.addEventListener("click", () => {
-      div.remove();
-      rentalCount = Math.max(0, rentalCount - 1);
-      const addBtn = host.querySelector("#add-rental-btn");
-      if (addBtn) addBtn.disabled = false;
-    });
-    rentalsList?.appendChild(div);
-    if (rentalCount >= 5) host.querySelector("#add-rental-btn").disabled = true;
-  }
-  host.querySelector("#add-rental-btn")?.addEventListener("click", addRentalRow);
-
-  // Party → constituency filtering
-  const partySelect = host.querySelector("#char-party-select");
-  const constSelect = host.querySelector("#char-constituency-select");
-  if (partySelect && constSelect) {
-    partySelect.addEventListener("change", () => {
-      const party = partySelect.value;
-      if (!party) {
-        constSelect.innerHTML = `<option value="">Select party first</option>`;
-        return;
-      }
-      const opts = allConstituenciesForPartyWithStatus(data, party);
-      constSelect.innerHTML = opts.length
-        ? renderConstituencyOptions(opts, `No constituencies for ${party}`)
-        : `<option value="">No constituencies for ${esc(party)}</option>`;
-    });
-  }
-
-  host.querySelector("#create-character-form")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const avatar_attribution = String(fd.get("avatar_attribution") || "").trim();
-    if (!avatar_attribution) {
-      state.message = "Please fill in \"Who is your avatar?\" before submitting.";
-      render(data, state);
-      return;
-    }
-    // Build rentals array from dynamic rows
-    const rentals = [];
-    for (let i = 1; i <= rentalCount; i++) {
-      const type = String(fd.get(`rental_${i}_type`) || "").trim();
-      if (type) {
-        rentals.push({
-          type,
-          value: String(fd.get(`rental_${i}_value`) || "").trim(),
-          location: String(fd.get(`rental_${i}_location`) || "").trim(),
-          status: String(fd.get(`rental_${i}_status`) || "").trim(),
-          notes: String(fd.get(`rental_${i}_notes`) || "").trim(),
-          mortgaged: fd.get(`rental_${i}_mortgaged`) === "on"
-        });
-      }
-    }
-    const home = {
-      type: String(fd.get("home_type") || "").trim(),
-      value: String(fd.get("home_value") || "").trim(),
-      region: String(fd.get("home_region") || "").trim(),
-      mortgaged: fd.get("home_mortgaged") === "on",
-      notes: String(fd.get("home_notes") || "").trim()
-    };
-    const fields = {
-      name: String(fd.get("name") || "").trim(),
-      party: String(fd.get("party") || "").trim(),
-      constituency: String(fd.get("constituency") || "").trim(),
-      date_of_birth: String(fd.get("date_of_birth") || "").trim(),
-      education: String(fd.get("education") || "").trim(),
-      career_background: String(fd.get("career_background") || "").trim(),
-      family: String(fd.get("family") || "").trim(),
-      year_first_elected: String(fd.get("year_first_elected") || "").trim(),
-      bio: String(fd.get("bio") || "").trim().slice(0, 2000),
-      financial_background_level: Number(fd.get("financial_background_level") || 1),
-      avatar: String(fd.get("avatar") || "").trim(),
-      avatar_attribution,
-      twitter_handle: String(fd.get("twitter_handle") || "").trim(),
-      home,
-      rentals
-    };
-    try {
-      await apiApplyCharacter(fields);
-      const { applications } = await apiGetMyApplications();
-      state.dbState = { ...state.dbState, myApplications: applications };
-      state.message = "Character submitted for moderator approval.";
-    } catch (err) {
-      state.message = String(err.message || "Submission failed.");
-    }
-    render(data, state);
-  });
 
   // Party → constituency filtering for NPC form
   const npcPartySelect = host.querySelector("#npc-party-select");
