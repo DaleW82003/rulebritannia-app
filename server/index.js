@@ -8400,15 +8400,16 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     const [clockRows, configRows, userRows, stateRows, charRows, seatTotalRows, canonicalPartyRows] = await Promise.all([
       pool.query(
         "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
-      ).then((r) => r.rows),
+      ).then((r) => r.rows).catch((err) => { console.error("[bootstrap] clock query failed:", err.message); return []; }),
 
-      pool.query("SELECT key, value FROM app_config").then((r) => r.rows),
+      pool.query("SELECT key, value FROM app_config").then((r) => r.rows)
+        .catch((err) => { console.error("[bootstrap] config query failed:", err.message); return []; }),
 
       isLoggedIn
         ? pool.query(
             "SELECT id, username, email, roles, created_at FROM users WHERE id = $1",
             [req.session.userId]
-          ).then((r) => r.rows)
+          ).then((r) => r.rows).catch((err) => { console.error("[bootstrap] user query failed:", err.message); return null; })
         : Promise.resolve([]),
 
       isLoggedIn
@@ -8417,7 +8418,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
                FROM app_state_current c
                JOIN state_snapshots s ON s.id = c.snapshot_id
               WHERE c.id = 'main'`
-          ).then((r) => r.rows)
+          ).then((r) => r.rows).catch((err) => { console.error("[bootstrap] state query failed:", err.message); return []; })
         : Promise.resolve([]),
 
       // Canonical active character: prefer session pointer, then DB pointer, then any active char.
@@ -8433,7 +8434,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
                        c.created_at DESC
               LIMIT 1`,
             [req.session.userId]
-          ).then((r) => r.rows)
+          ).then((r) => r.rows).catch((err) => { console.error("[bootstrap] char query failed:", err.message); return []; })
         : Promise.resolve([]),
 
       // Constituency seat totals — the canonical, DB-authoritative seat count per party.
@@ -8466,14 +8467,15 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     const seatTotals = seatTotalRows.map((r) => ({ party: r.party, seats: Number(r.seats) }));
     const canonicalParties = canonicalPartyRows.map((r) => ({ name: r.name, playable: Boolean(r.playable) }));
 
-    if (isLoggedIn && !userRows.length) {
+    if (isLoggedIn && userRows !== null && !userRows.length) {
       // Session references a deleted user; destroy it silently.
       req.session.destroy(() => {});
       return res.json({ clock, config, user: null, csrfToken: null, state: null, seatTotals, canonicalParties });
     }
 
-    if (!isLoggedIn) {
-      return res.json({ clock, config, user: null, csrfToken: null, state: null, is_demo: true, seatTotals, canonicalParties });
+    if (!isLoggedIn || userRows === null) {
+      // Not logged in, or user query failed transiently — don't destroy the session.
+      return res.json({ clock, config, user: null, csrfToken: null, state: null, is_demo: !isLoggedIn, seatTotals, canonicalParties });
     }
 
     // Lazily generate CSRF token for sessions that pre-date the feature.
