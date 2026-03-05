@@ -415,7 +415,12 @@ async function renderHouseDb(root, data, motion) {
       await apiCreateDivision("motion", motion.id, motion.title || "");
       await renderHouseDb(root, data, motion);
     } catch (err) {
-      if (msg) msg.textContent = `Error: ${err.message}`;
+      // 409 means an open division already exists — re-render to show it
+      if (err.status === 409) {
+        await renderHouseDb(root, data, motion);
+      } else {
+        if (msg) msg.textContent = `Error: ${err.message}`;
+      }
     }
   });
 
