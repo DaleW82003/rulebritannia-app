@@ -4039,6 +4039,54 @@ async function loadDiscourseCredentials() {
 }
 
 /**
+ * Best-effort helper: create and attach a Discourse debate topic to an entity row
+ * if it does not already have one. Failures are logged but do not throw.
+ */
+async function ensureEntityDebateTopic({ table, entityId, title, raw, categoryId, tags }) {
+  try {
+    const { rows: existing } = await pool.query(
+      `SELECT COALESCE(discourse_topic_id, data->>'discourseTopicId') AS topic_id
+         FROM ${table}
+        WHERE id = $1`,
+      [String(entityId)]
+    );
+    if (!existing.length || existing[0].topic_id) return null;
+
+    const { baseUrl, apiKey, apiUsername } = await loadDiscourseCredentials();
+    const { topicId, topicSlug } = await createTopicWithRetry(
+      {
+        baseUrl,
+        apiKey,
+        apiUsername,
+        title: String(title),
+        raw: String(raw),
+        categoryId,
+        tags: Array.isArray(tags) ? tags : undefined,
+      },
+      3,
+      500
+    );
+    const topicUrl = topicSlug
+      ? `${baseUrl}/t/${topicSlug}/${topicId}`
+      : `${baseUrl}/t/${topicId}`;
+
+    await pool.query(
+      `UPDATE ${table}
+          SET data = data || $1::jsonb,
+              discourse_topic_id = $3,
+              discourse_topic_url = $4,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [JSON.stringify({ discourseTopicId: topicId, discourseTopicUrl: topicUrl }), String(entityId), String(topicId), topicUrl]
+    );
+    return { topicId, topicUrl };
+  } catch (err) {
+    console.error(`[debate/auto-create] failed for ${table} ${entityId}:`, err.message);
+    return null;
+  }
+}
+
+/**
  * Sync the five key object tables from a full game-state snapshot.
  * Called whenever POST /api/state saves a new snapshot, keeping the
  * tables as a derived cache.  Uses batched upserts inside a transaction.
@@ -6877,7 +6925,16 @@ app.post("/api/motions", crudWriteLimit, async (req, res) => {
        RETURNING id, updated_at`,
       [enriched.id, motion_type, JSON.stringify(enriched)]
     );
-    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+
+    const debate = await ensureEntityDebateTopic({
+      table: "motions",
+      entityId: enriched.id,
+      title: `[Motion ${enriched.id}] ${enriched.title || "House Motion"} — Debate`,
+      raw: enriched.text || `Debate opened for motion **${enriched.title || enriched.id}**.`,
+      tags: ["motion", motion_type].filter(Boolean),
+    });
+
+    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at, debateTopicUrl: debate?.topicUrl || null });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7065,7 +7122,16 @@ app.post("/api/statements", crudWriteLimit, async (req, res) => {
        RETURNING id, updated_at`,
       [enriched.id, JSON.stringify(enriched)]
     );
-    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+
+    const debate = await ensureEntityDebateTopic({
+      table: "statements",
+      entityId: enriched.id,
+      title: `[Statement ${enriched.id}] ${enriched.title || "Ministerial Statement"} — Debate`,
+      raw: enriched.text || `Debate opened for statement **${enriched.title || enriched.id}**.`,
+      tags: ["statement"],
+    });
+
+    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at, debateTopicUrl: debate?.topicUrl || null });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7168,7 +7234,16 @@ app.post("/api/regulations", crudWriteLimit, async (req, res) => {
        RETURNING id, updated_at`,
       [enriched.id, JSON.stringify(enriched), authorCharId]
     );
-    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+
+    const debate = await ensureEntityDebateTopic({
+      table: "regulations",
+      entityId: enriched.id,
+      title: `[Regulation ${enriched.id}] ${enriched.shortTitle || enriched.title || "Government Regulation"} — Debate`,
+      raw: enriched.text || `Debate opened for regulation **${enriched.shortTitle || enriched.title || enriched.id}**.`,
+      tags: ["regulation"],
+    });
+
+    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at, debateTopicUrl: debate?.topicUrl || null });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -15840,6 +15915,114 @@ app.post("/api/admin/discourse-sync-bills", discourseBillSyncLimit, async (req, 
   }
 });
 
+const discourseDebateSyncLimit = rateLimit({ windowMs: 60_000, max: 10, standardHeaders: true, legacyHeaders: false });
+
+app.post("/api/admin/discourse-sync-debates", discourseDebateSyncLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const kind = String(req.body?.kind || "").trim().toLowerCase();
+    const ALLOWED = new Set(["bills", "motions", "statements", "regulations"]);
+    if (!ALLOWED.has(kind)) {
+      return res.status(400).json({ ok: false, error: "kind must be one of: bills, motions, statements, regulations" });
+    }
+
+    let baseUrl, apiKey, apiUsername;
+    try {
+      ({ baseUrl, apiKey, apiUsername } = await loadDiscourseCredentials());
+    } catch (credErr) {
+      return res.status(400).json({ ok: false, error: credErr.message });
+    }
+
+    let rows = [];
+    if (kind === "bills") {
+      const out = await pool.query(
+        `SELECT id, data FROM bills
+          WHERE (data->>'stage' = 'second_reading' OR data->>'status' = 'second_reading')
+            AND COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NULL`
+      );
+      rows = out.rows;
+    } else if (kind === "motions") {
+      const out = await pool.query(
+        `SELECT id, data FROM motions
+          WHERE motion_type = 'house'
+            AND COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NULL
+            AND COALESCE(data->>'status', 'open') NOT IN ('closed','archived')`
+      );
+      rows = out.rows;
+    } else if (kind === "statements") {
+      const out = await pool.query(
+        `SELECT id, data FROM statements
+          WHERE COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NULL
+            AND COALESCE(data->>'status', 'open') NOT IN ('closed','archived')`
+      );
+      rows = out.rows;
+    } else {
+      const out = await pool.query(
+        `SELECT id, data FROM regulations
+          WHERE COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NULL
+            AND COALESCE(data->>'status', 'open') NOT IN ('closed','archived')`
+      );
+      rows = out.rows;
+    }
+
+    const results = [];
+    for (const row of rows) {
+      try {
+        let title;
+        let raw;
+        let categoryId;
+        let tags;
+
+        if (kind === "bills") {
+          title = `[Bill ${row.id}] ${row.data.title || row.id} — Second Reading Debate`;
+          raw = row.data.summary || row.data.body || `Debate on **${row.data.title || row.id}** at Second Reading.`;
+          categoryId = 9;
+          tags = ["bill", "second-reading"];
+        } else if (kind === "motions") {
+          title = `[Motion ${row.id}] ${row.data.title || "House Motion"} — Debate`;
+          raw = row.data.text || `Debate opened for motion **${row.data.title || row.id}**.`;
+          tags = ["motion", "house"];
+        } else if (kind === "statements") {
+          title = `[Statement ${row.id}] ${row.data.title || "Ministerial Statement"} — Debate`;
+          raw = row.data.text || `Debate opened for statement **${row.data.title || row.id}**.`;
+          tags = ["statement"];
+        } else {
+          title = `[Regulation ${row.id}] ${row.data.shortTitle || row.data.title || "Government Regulation"} — Debate`;
+          raw = row.data.text || `Debate opened for regulation **${row.data.shortTitle || row.data.title || row.id}**.`;
+          tags = ["regulation"];
+        }
+
+        const { topicId, topicUrl } = await dcWithRetry(
+          () => dcCreateTopic(baseUrl, apiKey, apiUsername, title, raw, categoryId, tags),
+          3,
+          500
+        );
+
+        await pool.query(
+          `UPDATE ${kind}
+              SET data = data || $1::jsonb,
+                  discourse_topic_id = $3,
+                  discourse_topic_url = $4,
+                  updated_at = NOW()
+            WHERE id = $2`,
+          [JSON.stringify({ discourseTopicId: topicId, discourseTopicUrl: topicUrl }), row.id, String(topicId), topicUrl]
+        );
+        results.push({ id: row.id, ok: true, topicId, topicUrl });
+      } catch (err) {
+        results.push({ id: row.id, ok: false, error: err.message });
+      }
+    }
+
+    const synced = results.filter((r) => r.ok).length;
+    await writeAuditLog(req.session.userId, `admin.discourse-sync-${kind}`, kind, "*", null, { synced, results });
+    res.json({ ok: true, kind, synced, results });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ADMIN: wipe-content — safe sim reset (no user/registration deletion)
 // POST /api/admin/wipe-content
@@ -16334,17 +16517,66 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
 
-    const [qtPending, openDivisions, billsAwaitingDebate, recentAudit, pendingRegs] = await Promise.all([
+    const { rows: clockRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const simMonth = Number(clockRows[0]?.sim_current_month || 1);
+    const simYear  = Number(clockRows[0]?.sim_current_year || 1900);
+    const simDeadline = simDeadlineToText(simMonth, simYear);
+
+    const [qtPending, openDivisions, billsAwaitingDebate, motionsAwaitingDebate, statementsAwaitingDebate, regulationsAwaitingDebate, ongoingBillDebates, ongoingMotionDebates, ongoingStatementDebates, ongoingRegulationDebates, recentAudit, pendingRegs] = await Promise.all([
       pool.query(
         "SELECT COUNT(*) AS count FROM qt_questions WHERE status = 'open'"
       ),
       pool.query(
-        "SELECT COUNT(*) AS count FROM divisions WHERE status = 'open'"
+        `SELECT COUNT(*) AS count
+           FROM divisions
+          WHERE status = 'open'
+            AND (closes_at_sim IS NULL OR closes_at_sim > $1)
+            AND (closes_at IS NULL OR closes_at > NOW())`,
+        [simDeadline]
       ),
       pool.query(
         `SELECT COUNT(*) AS count FROM bills
           WHERE (data->>'stage' = 'second_reading' OR data->>'status' = 'second_reading')
-            AND data->>'discourseTopicId' IS NULL`
+            AND COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NULL`
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS count FROM motions
+          WHERE motion_type = 'house'
+            AND COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NULL
+            AND COALESCE(data->>'status', 'open') NOT IN ('closed','archived')`
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS count FROM statements
+          WHERE COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NULL
+            AND COALESCE(data->>'status', 'open') NOT IN ('closed','archived')`
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS count FROM regulations
+          WHERE COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NULL
+            AND COALESCE(data->>'status', 'open') NOT IN ('closed','archived')`
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS count FROM bills
+          WHERE COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NOT NULL
+            AND COALESCE(data->>'status', data->>'stage', 'open') NOT IN ('closed','archived','passed','failed','royal_assent')`
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS count FROM motions
+          WHERE motion_type = 'house'
+            AND COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NOT NULL
+            AND COALESCE(data->>'status', 'open') NOT IN ('closed','archived')`
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS count FROM statements
+          WHERE COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NOT NULL
+            AND COALESCE(data->>'status', 'open') NOT IN ('closed','archived')`
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS count FROM regulations
+          WHERE COALESCE(discourse_topic_id, data->>'discourseTopicId') IS NOT NULL
+            AND COALESCE(data->>'status', 'open') NOT IN ('closed','archived')`
       ),
       pool.query(
         `SELECT al.id, al.actor_id, COALESCE(u.email, al.actor_id) AS actor_name,
@@ -16358,21 +16590,30 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
       ),
     ]);
 
-    res.json({
-      pendingQtQuestions:   Number(qtPending.rows[0].count),
-      openDivisions:        Number(openDivisions.rows[0].count),
-      billsAwaitingDebate:  Number(billsAwaitingDebate.rows[0].count),
-      recentAuditLog:       recentAudit.rows,
-      pendingRegistrations: Number(pendingRegs.rows[0].count),
-    });
-    // Sanity: log if openDivisions looks unexpectedly high (defensive check for regression).
-    // In normal gameplay there should never be more than a handful of concurrent open divisions;
-    // values significantly above that indicate a stale or incorrect status field.
-    const MAX_EXPECTED_OPEN_DIVISIONS = 20;
     const odCount = Number(openDivisions.rows[0].count);
+    const MAX_EXPECTED_OPEN_DIVISIONS = 20;
     if (odCount > MAX_EXPECTED_OPEN_DIVISIONS) {
       console.warn(`[admin/dashboard] openDivisions=${odCount} exceeds ${MAX_EXPECTED_OPEN_DIVISIONS} — verify divisions table status field`);
     }
+
+    res.json({
+      pendingQtQuestions:   Number(qtPending.rows[0].count),
+      openDivisions:        odCount,
+      awaitingDebates: {
+        bills: Number(billsAwaitingDebate.rows[0].count),
+        motions: Number(motionsAwaitingDebate.rows[0].count),
+        statements: Number(statementsAwaitingDebate.rows[0].count),
+        regulations: Number(regulationsAwaitingDebate.rows[0].count),
+      },
+      ongoingDebates: {
+        bills: Number(ongoingBillDebates.rows[0].count),
+        motions: Number(ongoingMotionDebates.rows[0].count),
+        statements: Number(ongoingStatementDebates.rows[0].count),
+        regulations: Number(ongoingRegulationDebates.rows[0].count),
+      },
+      recentAuditLog:       recentAudit.rows,
+      pendingRegistrations: Number(pendingRegs.rows[0].count),
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

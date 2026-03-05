@@ -1486,10 +1486,35 @@ export async function apiDeleteQtQuestion(id) {
 // ── Question Time (legacy CRUD endpoint) ────────────────────────────────────
 
 export async function apiGetQtLegacyQuestions() {
-  const res = await _fetch(`${API_BASE}/api/questiontime-questions`, { credentials: "include" });
+  // Dashboard live docket should use the canonical structured QT endpoint so
+  // deleted/closed questions are removed immediately and stale legacy sessions
+  // do not persist in alerts.
+  const res = await _fetch(`${API_BASE}/api/qt/questions`, { credentials: "include" });
   if (res.status === 401 || res.status === 404) return null;
   if (!res.ok) throw new Error(`apiGetQtLegacyQuestions failed (${res.status})`);
-  return res.json();
+  const body = await res.json();
+
+  const questions = Array.isArray(body?.questions)
+    ? body.questions.map((q) => ({
+        id: q.id,
+        office: q.office_id,
+        askedBy: q.asked_by_display_name || q.asked_by_name || "",
+        text: q.question_text || "",
+        answer: q.answer_text || "",
+        archived: q.status === "archived",
+        _status: q.status,
+        followUps: Array.isArray(q.followups)
+          ? q.followups.map((f) => ({
+              id: f.id,
+              askedBy: f.asked_by_display_name || f.asked_by_name || "",
+              text: f.followup_text || "",
+              answer: f.answer_text || "",
+            }))
+          : [],
+      }))
+    : [];
+
+  return { questions };
 }
 
 export async function apiCreateQtLegacyQuestion(question) {
@@ -1568,6 +1593,17 @@ export async function apiAdminDiscourseSyncBills() {
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
   });
   if (!res.ok) throw new Error(`apiAdminDiscourseSyncBills failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiAdminDiscourseSyncDebates(kind) {
+  const res = await _fetch(`${API_BASE}/api/admin/discourse-sync-debates`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ kind }),
+  });
+  if (!res.ok) throw new Error(`apiAdminDiscourseSyncDebates failed (${res.status})`);
   return res.json();
 }
 
