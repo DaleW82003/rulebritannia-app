@@ -556,11 +556,11 @@ function render(data, state) {
           </select>
           ${isAdminOrMod ? (() => {
             // Build a sorted, de-duped list of parties that hold at least one constituency.
-            // Exclude Speaker (no NPC MPs) and Sinn Féin (do not take their seats).
+            // Exclude Sinn Féin (do not take their seats).
             const constParties = [...new Set(
               (data.constituencies || [])
                 .map((c) => c.party)
-                .filter((p) => p && !/^speaker$/i.test(p) && !/sinn\s*f[eé]in/i.test(p))
+                .filter((p) => p && !/sinn\s*f[eé]in/i.test(p))
             )].sort((a, b) => a.localeCompare(b));
             const opts = constParties.map((p) =>
               `<option value="${esc(p)}">${esc(p)}</option>`

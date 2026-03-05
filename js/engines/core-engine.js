@@ -4,11 +4,21 @@ export function getCharacterContext(data) {
   return data?.currentCharacter || data?.currentPlayer || {};
 }
 
+function isSpeakerCharacter(character) {
+  const c = character || {};
+  const roles = Array.isArray(c.roles) ? c.roles : [];
+  const offices = Array.isArray(c.offices) ? c.offices : (c.office ? [c.office] : []);
+  return !!c.isSpeaker ||
+    roles.some((r) => /^speaker$/i.test(String(r || ""))) ||
+    offices.some((o) => /^speaker$/i.test(String(o || ""))) ||
+    /^speaker$/i.test(String(c.party || ""));
+}
+
 export function hasRoleFlag(data, role) {
   const user = data?.currentUser || {};
   if (role === "admin") return !!user.isAdmin || (user.roles || []).includes("admin");
   if (role === "mod") return !!user.isMod || (user.roles || []).includes("mod");
-  if (role === "speaker") return !!user.isSpeaker || (user.roles || []).includes("speaker") || !!getCharacterContext(data)?.isSpeaker;
+  if (role === "speaker") return isSpeakerCharacter(getCharacterContext(data));
   return (user.roles || []).includes(role);
 }
 

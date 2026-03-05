@@ -1,6 +1,6 @@
 import { ensureDivision, castDivisionVote, tallyDivision, closeDivision, resolveDivisionResult, setNpcVotes, setRebellions } from "../engines/division-engine.js";
 import { buildDivisionWeights } from "../divisions.js";
-import { isAdmin, isMod, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import { esc, $, getIdFromUrl } from "../ui.js";
 import { createDeadline, isDeadlinePassed, simMonthsRemaining, countdownToSimMonth, formatSimMonthYear } from "../clock.js";
 import { logAction } from "../audit.js";
@@ -33,11 +33,6 @@ function canManageLegislativeAgenda(data) {
   const c = getCurrentCharacter(data);
   if (!c) return false;
   return c.office === "prime-minister" || c.office === "leader-commons";
-}
-
-function isSpeaker(data) {
-  const c = getCurrentCharacter(data);
-  return Boolean(c?.isSpeaker || data?.currentUser?.isSpeaker || data?.currentUser?.roles?.includes("speaker"));
 }
 
 function canProposeAmendment(data) {
