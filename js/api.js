@@ -2902,6 +2902,25 @@ export async function apiDeleteNewsStory(id) {
   return res.json();
 }
 
+// ── News Story Comments API ───────────────────────────────────────────────────
+export async function apiGetNewsComments(storyId) {
+  const res = await _fetch(`${API_BASE}/api/news/${encodeURIComponent(storyId)}/comments`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetNewsComments failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreateNewsComment(storyId, text) {
+  const res = await _fetch(`${API_BASE}/api/news/${encodeURIComponent(storyId)}/comments`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ text }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreateNewsComment failed (${res.status})`);
+  return body;
+}
+export async function apiDeleteNewsComment(storyId, commentId) {
+  const res = await _fetch(`${API_BASE}/api/news/${encodeURIComponent(storyId)}/comments/${encodeURIComponent(commentId)}`, { method: "DELETE", credentials: "include", headers: { ...csrfHeaders() } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiDeleteNewsComment failed (${res.status})`);
+  return body;
+}
+
 // ── Rules API ────────────────────────────────────────────────────────────────
 export async function apiGetRules() {
   const res = await _fetch(`${API_BASE}/api/rules`, { credentials: "include" });
@@ -3031,6 +3050,25 @@ export async function apiDeletePaperArticle(paperKey, id) {
   const res = await _fetch(`${API_BASE}/api/papers/${encodeURIComponent(paperKey)}/articles/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include", headers: { ...csrfHeaders() } });
   if (!res.ok) throw new Error(`apiDeletePaperArticle failed (${res.status})`);
   return res.json();
+}
+
+// ── Paper Article Comments API ────────────────────────────────────────────────
+export async function apiGetPaperComments(paperKey, articleId) {
+  const res = await _fetch(`${API_BASE}/api/papers/${encodeURIComponent(paperKey)}/articles/${encodeURIComponent(articleId)}/comments`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPaperComments failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreatePaperComment(paperKey, articleId, text) {
+  const res = await _fetch(`${API_BASE}/api/papers/${encodeURIComponent(paperKey)}/articles/${encodeURIComponent(articleId)}/comments`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ text }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreatePaperComment failed (${res.status})`);
+  return body;
+}
+export async function apiDeletePaperComment(paperKey, articleId, commentId) {
+  const res = await _fetch(`${API_BASE}/api/papers/${encodeURIComponent(paperKey)}/articles/${encodeURIComponent(articleId)}/comments/${encodeURIComponent(commentId)}`, { method: "DELETE", credentials: "include", headers: { ...csrfHeaders() } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiDeletePaperComment failed (${res.status})`);
+  return body;
 }
 
 // ── Online post edit (PATCH) ─────────────────────────────────────────────────

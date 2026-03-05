@@ -1,7 +1,7 @@
 import { formatSimMonthYear } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
 import { canPostNews, canAdminOrMod } from "../permissions.js";
-import { apiCreatePaperArticle, apiUpdatePaperArticle, apiDeletePaperArticle, apiGetPaperArticles } from "../api.js";
+import { apiCreatePaperArticle, apiUpdatePaperArticle, apiDeletePaperArticle, apiGetPaperArticles, apiGetPaperComments, apiCreatePaperComment, apiDeletePaperComment } from "../api.js";
 
 function byNewest(a, b) {
   return Number(b?.createdAt || 0) - Number(a?.createdAt || 0);
@@ -71,6 +71,10 @@ function renderReader(paper, canDelete = false) {
           <button class="btn" data-action="edit-article" data-paper="${esc(paper.key)}" data-article-id="${esc(i.id)}" type="button">Edit</button>
           <button class="btn danger" data-action="delete-article" data-paper="${esc(paper.key)}" data-article-id="${esc(i.id)}" type="button">Delete</button>
         </div>` : ""}
+        <div class="paper-comments-section" style="margin-top:8px;">
+          <button class="btn small" data-action="toggle-paper-comments" data-paper="${esc(paper.key)}" data-article-id="${esc(i.id)}" type="button">Comments</button>
+          <div class="paper-comments-panel" data-paper="${esc(paper.key)}" data-article-id="${esc(i.id)}" style="display:none;margin-top:6px;"></div>
+        </div>
       </article>
     `).join("")}
   `;
@@ -127,7 +131,111 @@ function ensurePaperEditPanel(data, canDelete) {
     if (paper) {
       setHTML("paperReader", renderReader(paper, canDelete));
       bindArticleDeleteListeners(data, canDelete);
+      bindPaperCommentToggles(data);
     }
+  });
+}
+
+function renderPaperCommentsList(comments, currentUserId, canMod) {
+  if (!comments.length) return `<div class="muted" style="font-size:.85em;">No comments yet.</div>`;
+  return comments.map((c) => {
+    if (c.isDeleted) {
+      return `<div class="comment-item deleted" style="font-size:.85em;color:#888;padding:4px 0;border-bottom:1px solid #eee;"><em>[deleted]</em></div>`;
+    }
+    const canDelete = canMod || (currentUserId && c.createdBy === currentUserId);
+    const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "";
+    return `
+      <div class="comment-item" style="font-size:.85em;padding:4px 0;border-bottom:1px solid #eee;" data-comment-id="${esc(c.id)}">
+        <span style="font-weight:600;">${esc(c.createdByName || "User")}</span>
+        <span class="muted" style="margin-left:6px;font-size:.9em;">${esc(date)}</span>
+        ${canDelete ? `<button class="btn danger small" data-action="delete-paper-comment" data-paper="${esc(c._paperKey || "")}" data-article-id="${esc(c._articleId || "")}" data-comment-id="${esc(c.id)}" type="button" style="margin-left:8px;padding:1px 6px;font-size:.8em;">Delete</button>` : ""}
+        <div style="margin-top:2px;">${esc(c.text)}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function refreshPaperCommentsPanel(panel, paperKey, articleId, comments, data) {
+  const currentUserId = data.currentUser?.id;
+  const canMod = canAdminOrMod(data);
+  const countLabel = comments.filter((c) => !c.isDeleted).length;
+  const toggleBtn = panel.closest(".paper-comments-section")?.querySelector("[data-action='toggle-paper-comments']");
+  if (toggleBtn) toggleBtn.textContent = `Hide Comments (${countLabel})`;
+  // Tag comments with paper/article for delete handler
+  const tagged = comments.map((c) => ({ ...c, _paperKey: paperKey, _articleId: articleId }));
+  panel.innerHTML = `
+    <div class="paper-comments-list">${renderPaperCommentsList(tagged, currentUserId, canMod)}</div>
+    <form class="paper-comment-form" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+      <textarea class="input paper-comment-text" rows="2" maxlength="5000" placeholder="Write a comment…" style="flex:1;min-width:180px;" required></textarea>
+      <button class="btn primary" type="submit" style="align-self:flex-end;">Post</button>
+    </form>
+  `;
+  panel.querySelectorAll("[data-action='delete-paper-comment']").forEach((delBtn) => {
+    delBtn.addEventListener("click", async () => {
+      const commentId = delBtn.dataset.commentId;
+      try {
+        await apiDeletePaperComment(paperKey, articleId, commentId);
+        const updated = comments.map((c) => c.id === commentId ? { ...c, isDeleted: true, text: null, createdByName: null } : c);
+        comments.splice(0, comments.length, ...updated);
+        refreshPaperCommentsPanel(panel, paperKey, articleId, comments, data);
+      } catch (err) {
+        console.error("[papers] delete comment failed:", err);
+      }
+    });
+  });
+  panel.querySelector(".paper-comment-form")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const textarea = panel.querySelector(".paper-comment-text");
+    const text = textarea?.value?.trim();
+    if (!text) return;
+    try {
+      const r = await apiCreatePaperComment(paperKey, articleId, text);
+      const newComment = {
+        id: r.id,
+        text,
+        createdBy: currentUserId,
+        createdByName: data.currentUser?.username || "",
+        createdAt: r.createdAt || new Date().toISOString(),
+        isDeleted: false,
+      };
+      comments.push(newComment);
+      textarea.value = "";
+      refreshPaperCommentsPanel(panel, paperKey, articleId, comments, data);
+    } catch (err) {
+      console.error("[papers] post comment failed:", err);
+    }
+  });
+}
+
+function bindPaperCommentToggles(data) {
+  document.querySelectorAll("[data-action='toggle-paper-comments']").forEach((btn) => {
+    if (btn.dataset.commentsBound) return;
+    btn.dataset.commentsBound = "1";
+    btn.addEventListener("click", async () => {
+      const paperKey = btn.dataset.paper;
+      const articleId = btn.dataset.articleId;
+      const panel = btn.closest(".paper-comments-section")?.querySelector(".paper-comments-panel");
+      if (!panel) return;
+      if (panel.style.display !== "none") {
+        panel.style.display = "none";
+        btn.textContent = "Comments";
+        return;
+      }
+      panel.style.display = "";
+      btn.textContent = "Hide Comments";
+      if (!panel.dataset.loaded) {
+        panel.innerHTML = `<div class="muted" style="font-size:.85em;">Loading…</div>`;
+        try {
+          const r = await apiGetPaperComments(paperKey, articleId);
+          panel.dataset.loaded = "1";
+          const comments = r.comments || [];
+          refreshPaperCommentsPanel(panel, paperKey, articleId, comments, data);
+        } catch (err) {
+          panel.innerHTML = `<div class="muted" style="font-size:.85em;">Failed to load comments.</div>`;
+          console.error("[papers] load comments failed:", err);
+        }
+      }
+    });
   });
 }
 
@@ -145,6 +253,7 @@ function bindArticleDeleteListeners(data, canDelete) {
       apiDeletePaperArticle(paperKey, articleId).catch(err => console.error("[papers] delete failed:", err)); // UI_ONLY_OK: admin CMS newspaper article deletion; no simulation-outcome consequence
       setHTML("paperReader", renderReader(targetPaper, canDelete));
       bindArticleDeleteListeners(data, canDelete);
+      bindPaperCommentToggles(data);
     });
   });
 
@@ -178,6 +287,7 @@ function bindOpenButtons(data, canDelete) {
       if (panel) panel.style.display = "";
       setHTML("paperReader", renderReader(paper, canDelete));
       bindArticleDeleteListeners(data, canDelete);
+      bindPaperCommentToggles(data);
     });
   });
 }

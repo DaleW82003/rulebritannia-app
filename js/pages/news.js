@@ -2,7 +2,7 @@ import { formatSimMonthYear, getSimDate } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
 import { canPostNews, canAdminOrMod } from "../permissions.js";
 import { nowMs } from "../core.js";
-import { apiGetNews, apiCreateNewsStory, apiUpdateNewsStory, apiDeleteNewsStory } from "../api.js";
+import { apiGetNews, apiCreateNewsStory, apiUpdateNewsStory, apiDeleteNewsStory, apiGetNewsComments, apiCreateNewsComment, apiDeleteNewsComment } from "../api.js";
 
 // 4 simulation months = 2 real weeks (2 sim months per real week per clock rules)
 const LIVE_WINDOW_SIM_MONTHS = 4;
@@ -53,6 +53,10 @@ function renderStoryCard(story, small = false, canDelete = false) {
         <button class="btn" data-action="edit-story" data-id="${esc(story.id)}" type="button">Edit</button>
         <button class="btn danger" data-action="delete-story" data-id="${esc(story.id)}" type="button">Delete</button>
       </div>` : ""}
+      <div class="news-comments-section" style="margin-top:8px;">
+        <button class="btn small" data-action="toggle-comments" data-id="${esc(story.id)}" type="button">Comments</button>
+        <div class="news-comments-panel" data-story-id="${esc(story.id)}" style="display:none;margin-top:6px;"></div>
+      </div>
     </article>
   `;
 }
@@ -74,6 +78,108 @@ function renderArchive(archiveStories, canDelete = false) {
     <div class="small" style="margin-bottom:10px;">Archived items in chronological order (oldest first).</div>
     <div class="news-grid">${archiveStories.map((s) => renderStoryCard(s, true, canDelete)).join("")}</div>
   `;
+}
+
+function renderCommentsList(comments, currentUserId, canMod) {
+  if (!comments.length) return `<div class="muted" style="font-size:.85em;">No comments yet.</div>`;
+  return comments.map((c) => {
+    if (c.isDeleted) {
+      return `<div class="comment-item deleted" style="font-size:.85em;color:#888;padding:4px 0;border-bottom:1px solid #eee;"><em>[deleted]</em></div>`;
+    }
+    const canDelete = canMod || (currentUserId && c.createdBy === currentUserId);
+    const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "";
+    return `
+      <div class="comment-item" style="font-size:.85em;padding:4px 0;border-bottom:1px solid #eee;" data-comment-id="${esc(c.id)}">
+        <span style="font-weight:600;">${esc(c.createdByName || "User")}</span>
+        <span class="muted" style="margin-left:6px;font-size:.9em;">${esc(date)}</span>
+        ${canDelete ? `<button class="btn danger small" data-action="delete-comment" data-comment-id="${esc(c.id)}" type="button" style="margin-left:8px;padding:1px 6px;font-size:.8em;">Delete</button>` : ""}
+        <div style="margin-top:2px;">${esc(c.text)}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function bindCommentToggles(data) {
+  document.querySelectorAll("[data-action='toggle-comments']").forEach((btn) => {
+    if (btn.dataset.commentsBound) return;
+    btn.dataset.commentsBound = "1";
+    btn.addEventListener("click", async () => {
+      const storyId = btn.dataset.id;
+      const panel = btn.closest(".news-comments-section")?.querySelector(".news-comments-panel");
+      if (!panel) return;
+      if (panel.style.display !== "none") {
+        panel.style.display = "none";
+        btn.textContent = "Comments";
+        return;
+      }
+      panel.style.display = "";
+      btn.textContent = "Hide Comments";
+      if (!panel.dataset.loaded) {
+        panel.innerHTML = `<div class="muted" style="font-size:.85em;">Loading…</div>`;
+        try {
+          const r = await apiGetNewsComments(storyId);
+          panel.dataset.loaded = "1";
+          panel.dataset.comments = JSON.stringify(r.comments || []);
+          refreshCommentsPanel(panel, storyId, r.comments || [], data);
+        } catch (err) {
+          panel.innerHTML = `<div class="muted" style="font-size:.85em;">Failed to load comments.</div>`;
+          console.error("[news] load comments failed:", err);
+        }
+      }
+    });
+  });
+}
+
+function refreshCommentsPanel(panel, storyId, comments, data) {
+  const currentUserId = data.currentUser?.id;
+  const canMod = canAdminOrMod(data);
+  const countLabel = comments.filter((c) => !c.isDeleted).length;
+  const toggleBtn = panel.closest(".news-comments-section")?.querySelector("[data-action='toggle-comments']");
+  if (toggleBtn) toggleBtn.textContent = `Hide Comments (${countLabel})`;
+  panel.innerHTML = `
+    <div class="comments-list">${renderCommentsList(comments, currentUserId, canMod)}</div>
+    <form class="comment-form" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;" data-story-id="${esc(storyId)}">
+      <textarea class="input comment-text" rows="2" maxlength="5000" placeholder="Write a comment…" style="flex:1;min-width:180px;" required></textarea>
+      <button class="btn primary" type="submit" style="align-self:flex-end;">Post</button>
+    </form>
+  `;
+  // Bind delete buttons
+  panel.querySelectorAll("[data-action='delete-comment']").forEach((delBtn) => {
+    delBtn.addEventListener("click", async () => {
+      const commentId = delBtn.dataset.commentId;
+      try {
+        await apiDeleteNewsComment(storyId, commentId);
+        const updated = comments.map((c) => c.id === commentId ? { ...c, isDeleted: true, text: null, createdByName: null } : c);
+        comments.splice(0, comments.length, ...updated);
+        refreshCommentsPanel(panel, storyId, comments, data);
+      } catch (err) {
+        console.error("[news] delete comment failed:", err);
+      }
+    });
+  });
+  // Bind post form
+  panel.querySelector(".comment-form")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const textarea = panel.querySelector(".comment-text");
+    const text = textarea?.value?.trim();
+    if (!text) return;
+    try {
+      const r = await apiCreateNewsComment(storyId, text);
+      const newComment = {
+        id: r.id,
+        text,
+        createdBy: currentUserId,
+        createdByName: data.currentUser?.username || "",
+        createdAt: r.createdAt || new Date().toISOString(),
+        isDeleted: false,
+      };
+      comments.push(newComment);
+      textarea.value = "";
+      refreshCommentsPanel(panel, storyId, comments, data);
+    } catch (err) {
+      console.error("[news] post comment failed:", err);
+    }
+  });
 }
 
 function bindNewsDesk(data, rerender) {
@@ -166,6 +272,7 @@ export async function initNewsPage(data) {
     setHTML("bbcMainNews", renderGrid(liveMain, false, `No Main News available.`, canDelete));
     setHTML("bbcOtherNews", renderGrid(liveOther, true, `No Other News available.`, canDelete));
     setHTML("bbcArchive", renderArchive(archive, canDelete));
+    bindCommentToggles(data);
   };
 
   renderAll();

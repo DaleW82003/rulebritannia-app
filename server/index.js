@@ -1820,6 +1820,35 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS idx_newspaper_articles_paper_key ON newspaper_articles(paper_key);
   `);
 
+  // ── News story comments ───────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS news_story_comments (
+      id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+      news_story_id   TEXT        NOT NULL REFERENCES news_stories(id) ON DELETE CASCADE,
+      text            TEXT        NOT NULL,
+      created_by      UUID        REFERENCES users(id) ON DELETE SET NULL,
+      created_by_name TEXT        NOT NULL DEFAULT '',
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at      TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_nsc_story_id ON news_story_comments(news_story_id, created_at);
+  `);
+
+  // ── Newspaper article comments ─────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS paper_article_comments (
+      id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+      paper_key   TEXT        NOT NULL,
+      article_id  TEXT        NOT NULL REFERENCES newspaper_articles(id) ON DELETE CASCADE,
+      text        TEXT        NOT NULL,
+      created_by      UUID        REFERENCES users(id) ON DELETE SET NULL,
+      created_by_name TEXT        NOT NULL DEFAULT '',
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at      TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_pac_article_id ON paper_article_comments(article_id, created_at);
+  `);
+
   // ── B) Whip status on characters ─────────────────────────────────────────
   await pool.query(`
     ALTER TABLE characters
@@ -19363,6 +19392,75 @@ app.delete("/api/news/:id", crudWriteLimit, async (req, res) => {
   } catch (e) { console.error("[DELETE /api/news/:id]", e); res.status(500).json({ error: "Server error" }); }
 });
 
+// ── News Story Comments API ───────────────────────────────────────────────────
+// GET    /api/news/:id/comments           — authenticated: list comments (oldest first)
+// POST   /api/news/:id/comments           — authenticated: create comment
+// DELETE /api/news/:id/comments/:cid      — author or admin/mod: soft-delete comment
+
+const MAX_COMMENT_LENGTH = 5000;
+
+app.get("/api/news/:id/comments", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT id, text, created_by, created_by_name, created_at, deleted_at
+         FROM news_story_comments
+        WHERE news_story_id = $1
+        ORDER BY created_at ASC`,
+      [req.params.id]
+    );
+    res.json({ comments: rows.map((r) => ({
+      id: r.id,
+      text: r.deleted_at ? null : r.text,
+      createdBy: r.created_by,
+      createdByName: r.deleted_at ? null : r.created_by_name,
+      createdAt: r.created_at,
+      isDeleted: !!r.deleted_at,
+    })) });
+  } catch (e) { console.error("[GET /api/news/:id/comments]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/news/:id/comments", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { text } = req.body || {};
+    if (!text || typeof text !== "string" || !text.trim()) return res.status(400).json({ error: "text is required" });
+    if (text.trim().length > MAX_COMMENT_LENGTH) return res.status(400).json({ error: `Comment must be at most ${MAX_COMMENT_LENGTH} characters` });
+    // Verify parent story exists
+    const { rows: storyRows } = await pool.query("SELECT id FROM news_stories WHERE id = $1", [req.params.id]);
+    if (!storyRows.length) return res.status(404).json({ error: "Story not found" });
+    // Get author's username for display
+    const { rows: userRows } = await pool.query("SELECT username FROM users WHERE id = $1", [req.session.userId]);
+    const authorName = userRows[0]?.username || "";
+    const { rows } = await pool.query(
+      `INSERT INTO news_story_comments (news_story_id, text, created_by, created_by_name)
+       VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
+      [req.params.id, text.trim(), req.session.userId, authorName]
+    );
+    await writeAuditLog(req.session.userId, "news_comment.create", "news_story_comment", rows[0].id, null, { storyId: req.params.id });
+    res.json({ ok: true, id: rows[0].id, createdAt: rows[0].created_at });
+  } catch (e) { console.error("[POST /api/news/:id/comments]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/news/:id/comments/:cid", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT id, created_by, deleted_at FROM news_story_comments WHERE id = $1 AND news_story_id = $2",
+      [req.params.cid, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Comment not found" });
+    if (rows[0].deleted_at) return res.status(410).json({ error: "Comment already deleted" });
+    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = roles.includes("admin") || roles.includes("mod");
+    const isAuthor = rows[0].created_by === req.session.userId;
+    if (!isAdminOrMod && !isAuthor) return res.status(403).json({ error: "Forbidden" });
+    await pool.query("UPDATE news_story_comments SET deleted_at = NOW() WHERE id = $1", [req.params.cid]);
+    await writeAuditLog(req.session.userId, "news_comment.delete", "news_story_comment", req.params.cid, null, { storyId: req.params.id });
+    res.json({ ok: true });
+  } catch (e) { console.error("[DELETE /api/news/:id/comments/:cid]", e); res.status(500).json({ error: "Server error" }); }
+});
+
 // ── Rules API ─────────────────────────────────────────────────────────────────
 app.get("/api/rules", crudReadLimit, async (req, res) => {
   try {
@@ -19685,6 +19783,72 @@ app.delete("/api/papers/:key/articles/:id", crudWriteLimit, async (req, res) => 
     await pool.query("DELETE FROM newspaper_articles WHERE id = $1 AND paper_key = $2", [req.params.id, req.params.key]);
     res.json({ ok: true });
   } catch (e) { console.error("[DELETE /api/papers/:key/articles/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Paper Article Comments API ────────────────────────────────────────────────
+// GET    /api/papers/:paperKey/articles/:articleId/comments
+// POST   /api/papers/:paperKey/articles/:articleId/comments
+// DELETE /api/papers/:paperKey/articles/:articleId/comments/:cid
+
+app.get("/api/papers/:paperKey/articles/:articleId/comments", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT id, text, created_by, created_by_name, created_at, deleted_at
+         FROM paper_article_comments
+        WHERE article_id = $1 AND paper_key = $2
+        ORDER BY created_at ASC`,
+      [req.params.articleId, req.params.paperKey]
+    );
+    res.json({ comments: rows.map((r) => ({
+      id: r.id,
+      text: r.deleted_at ? null : r.text,
+      createdBy: r.created_by,
+      createdByName: r.deleted_at ? null : r.created_by_name,
+      createdAt: r.created_at,
+      isDeleted: !!r.deleted_at,
+    })) });
+  } catch (e) { console.error("[GET /api/papers/:paperKey/articles/:articleId/comments]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/papers/:paperKey/articles/:articleId/comments", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { text } = req.body || {};
+    if (!text || typeof text !== "string" || !text.trim()) return res.status(400).json({ error: "text is required" });
+    if (text.trim().length > MAX_COMMENT_LENGTH) return res.status(400).json({ error: `Comment must be at most ${MAX_COMMENT_LENGTH} characters` });
+    // Verify parent article exists
+    const { rows: artRows } = await pool.query("SELECT id FROM newspaper_articles WHERE id = $1 AND paper_key = $2", [req.params.articleId, req.params.paperKey]);
+    if (!artRows.length) return res.status(404).json({ error: "Article not found" });
+    const { rows: userRows } = await pool.query("SELECT username FROM users WHERE id = $1", [req.session.userId]);
+    const authorName = userRows[0]?.username || "";
+    const { rows } = await pool.query(
+      `INSERT INTO paper_article_comments (paper_key, article_id, text, created_by, created_by_name)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
+      [req.params.paperKey, req.params.articleId, text.trim(), req.session.userId, authorName]
+    );
+    await writeAuditLog(req.session.userId, "paper_comment.create", "paper_article_comment", rows[0].id, null, { paperKey: req.params.paperKey, articleId: req.params.articleId });
+    res.json({ ok: true, id: rows[0].id, createdAt: rows[0].created_at });
+  } catch (e) { console.error("[POST /api/papers/:paperKey/articles/:articleId/comments]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/papers/:paperKey/articles/:articleId/comments/:cid", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT id, created_by, deleted_at FROM paper_article_comments WHERE id = $1 AND article_id = $2 AND paper_key = $3",
+      [req.params.cid, req.params.articleId, req.params.paperKey]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Comment not found" });
+    if (rows[0].deleted_at) return res.status(410).json({ error: "Comment already deleted" });
+    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = roles.includes("admin") || roles.includes("mod");
+    const isAuthor = rows[0].created_by === req.session.userId;
+    if (!isAdminOrMod && !isAuthor) return res.status(403).json({ error: "Forbidden" });
+    await pool.query("UPDATE paper_article_comments SET deleted_at = NOW() WHERE id = $1", [req.params.cid]);
+    await writeAuditLog(req.session.userId, "paper_comment.delete", "paper_article_comment", req.params.cid, null, { paperKey: req.params.paperKey, articleId: req.params.articleId });
+    res.json({ ok: true });
+  } catch (e) { console.error("[DELETE /api/papers/:paperKey/articles/:articleId/comments/:cid]", e); res.status(500).json({ error: "Server error" }); }
 });
 
 // ── Economy page data ────────────────────────────────────────────────────────
