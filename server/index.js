@@ -18128,9 +18128,10 @@ const adminCharMgmtLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeade
 
 // GET /api/admin/characters — list characters with optional filters
 // Query params: owned=unowned|owned, active=true|false
+// Admin or mod access.
 app.get("/api/admin/characters", adminCharMgmtLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { owned, active } = req.query;
     const conditions = [];
     const params = [];
@@ -18146,10 +18147,13 @@ app.get("/api/admin/characters", adminCharMgmtLimit, async (req, res) => {
     }
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const { rows } = await pool.query(`
-      SELECT c.id, c.name, c.party, c.constituency, c.is_active, c.user_id, c.created_at,
-             u.username AS owner_username
+      SELECT c.id, c.name, c.party, c.constituency, c.is_active, c.user_id, c.is_npc,
+             c.managed_by_user_id, c.created_at,
+             u.username AS owner_username,
+             mu.username AS managed_by_username
         FROM characters c
         LEFT JOIN users u ON u.id = c.user_id
+        LEFT JOIN users mu ON mu.id = c.managed_by_user_id
       ${where}
        ORDER BY c.is_active DESC, c.name ASC
     `, params);
@@ -18161,10 +18165,11 @@ app.get("/api/admin/characters", adminCharMgmtLimit, async (req, res) => {
 });
 
 // POST /api/admin/characters/:id/assign-owner — assign a character to a user
+// Admin or mod access.
 app.post("/api/admin/characters/:id/assign-owner", adminCharMgmtLimit, async (req, res) => {
   const client = await pool.connect();
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { user_id, set_active = false } = req.body || {};
     if (!user_id) return res.status(400).json({ error: "user_id is required" });
 
@@ -18228,9 +18233,10 @@ app.post("/api/admin/characters/:id/assign-owner", adminCharMgmtLimit, async (re
 });
 
 // POST /api/admin/users/:id/active-character — set or clear a user's active character pointer
+// Admin or mod access.
 app.post("/api/admin/users/:id/active-character", adminCharMgmtLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { character_id } = req.body || {}; // null = clear pointer
 
     const { rows: userRows } = await pool.query("SELECT id FROM users WHERE id = $1", [req.params.id]);
@@ -18264,6 +18270,61 @@ app.post("/api/admin/users/:id/active-character", adminCharMgmtLimit, async (req
   } catch (e) {
     console.error("[POST /api/admin/users/:id/active-character]", e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/characters/:id/assign-npc-manager — assign an NPC to a user as a managed NPC.
+// Sets managed_by_user_id on the character so the target user can operate it as a secondary NPC.
+// The NPC retains user_id = NULL (it is not "owned" in the PC sense).
+// Admin or mod access.
+app.post("/api/admin/characters/:id/assign-npc-manager", adminCharMgmtLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const { user_id } = req.body || {};
+    if (!user_id) return res.status(400).json({ error: "user_id is required" });
+
+    // Validate character exists and is an NPC
+    const { rows: charRows } = await client.query(
+      "SELECT id, name, is_npc, managed_by_user_id FROM characters WHERE id = $1",
+      [req.params.id]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+    const char = charRows[0];
+    if (!char.is_npc) {
+      return res.status(400).json({ error: "Character is not an NPC. Use assign-owner for player characters." });
+    }
+
+    // Validate target user exists
+    const { rows: userRows } = await client.query(
+      "SELECT id, username FROM users WHERE id = $1",
+      [user_id]
+    );
+    if (!userRows.length) return res.status(404).json({ error: "User not found" });
+
+    await client.query("BEGIN");
+
+    const { rows: updated } = await client.query(
+      `UPDATE characters SET managed_by_user_id = $1 WHERE id = $2
+       RETURNING id, name, is_npc, managed_by_user_id`,
+      [user_id, req.params.id]
+    );
+
+    await client.query("COMMIT");
+
+    await writeAuditLog(
+      req.session.userId, "admin.character.assign-npc-manager", "character", req.params.id,
+      { managed_by_user_id: char.managed_by_user_id },
+      { managed_by_user_id: user_id }
+    );
+    res.json({ ok: true, character: updated[0] });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /api/admin/characters/:id/assign-npc-manager]", e);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
   }
 });
 

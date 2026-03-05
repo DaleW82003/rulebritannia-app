@@ -2361,6 +2361,20 @@ export async function apiAdminSetUserActiveCharacter(userId, characterId) {
   return res.json();
 }
 
+export async function apiAdminAssignNpcManager(characterId, userId) {
+  const res = await _fetch(`${API_BASE}/api/admin/characters/${encodeURIComponent(characterId)}/assign-npc-manager`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ user_id: userId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminAssignNpcManager failed (${res.status})`);
+  }
+  return res.json();
+}
+
 // ── Playerbase & Finance APIs ──────────────────────────────────────────────
 
 export async function apiGetPlayerbase() {
