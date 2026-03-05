@@ -46,6 +46,35 @@ function openConstituencyOptionsForParty(data, partyName) {
   });
 }
 
+/**
+ * Return all constituencies for a party, sorted available-first then taken,
+ * each annotated with a `taken` flag so callers can render them disabled.
+ */
+function allConstituenciesForPartyWithStatus(data, partyName) {
+  const pending = new Set((data.userManagement?.pendingCharacters || []).map((p) => String(p.constituency || "").toLowerCase()));
+  const all = (data.constituencies || [])
+    .filter((c) => !partyName || String(c.party || "") === partyName)
+    .map((c) => ({
+      ...c,
+      taken: seatTaken(data, c.name) || pending.has(String(c.name || "").toLowerCase()),
+    }))
+    .sort((a, b) => {
+      if (a.taken !== b.taken) return a.taken ? 1 : -1; // available first
+      return String(a.name || "").localeCompare(String(b.name || ""));
+    });
+  return all;
+}
+
+/** Render <option> elements for a constituency dropdown, greying out taken seats. */
+function renderConstituencyOptions(constituencies, fallbackMsg) {
+  if (!constituencies.length) return `<option value="">${fallbackMsg}</option>`;
+  return `<option value="">Select constituency</option>` + constituencies.map((c) =>
+    c.taken
+      ? `<option value="${esc(c.name)}" disabled style="color:#aaa;">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)}) — Taken</option>`
+      : `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`
+  ).join("");
+}
+
 function normaliseUserData(data) {
   data.userManagement ??= {};
   data.userManagement.accounts ??= [
@@ -629,10 +658,10 @@ function render(data, state) {
         constSelect.innerHTML = `<option value="">Select party first</option>`;
         return;
       }
-      const opts = openConstituencyOptionsForParty(data, party);
+      const opts = allConstituenciesForPartyWithStatus(data, party);
       constSelect.innerHTML = opts.length
-        ? opts.map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("")
-        : `<option value="">No open constituencies for ${esc(party)}</option>`;
+        ? renderConstituencyOptions(opts, `No constituencies for ${party}`)
+        : `<option value="">No constituencies for ${esc(party)}</option>`;
     });
   }
 
@@ -706,17 +735,17 @@ function render(data, state) {
         npcConstSelect.innerHTML = `<option value="">Select party first</option>`;
         return;
       }
-      const opts = openConstituencyOptionsForParty(data, party);
+      const opts = allConstituenciesForPartyWithStatus(data, party);
       npcConstSelect.innerHTML = opts.length
-        ? opts.map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("")
-        : `<option value="">No open constituencies for ${esc(party)}</option>`;
+        ? renderConstituencyOptions(opts, `No constituencies for ${party}`)
+        : `<option value="">No constituencies for ${esc(party)}</option>`;
     });
   } else if (npcConstSelect && !npcPartySelect) {
     // non-admin/mod: party is locked to active character's party, populate immediately
-    const opts = openConstituencyOptionsForParty(data, activeCharParty);
+    const opts = allConstituenciesForPartyWithStatus(data, activeCharParty);
     npcConstSelect.innerHTML = opts.length
-      ? opts.map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("")
-      : `<option value="">No open constituencies for ${esc(activeCharParty)}</option>`;
+      ? renderConstituencyOptions(opts, `No constituencies for ${activeCharParty}`)
+      : `<option value="">No constituencies for ${esc(activeCharParty)}</option>`;
   }
 
   host.querySelector("#npc-character-form")?.addEventListener("submit", async (e) => {

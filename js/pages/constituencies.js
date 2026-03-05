@@ -458,7 +458,6 @@ export async function initConstituenciesPage(data) {
     ]);
     const characters = charResult.characters || [];
     if (characters.length) {
-      const existingIds = new Set((data.players || []).map((p) => p.id));
       const dbPlayers = characters
         .filter((c) => c.constituency)
         .map((c) => ({
@@ -470,9 +469,13 @@ export async function initConstituenciesPage(data) {
           constituency: c.constituency,
           _fromDb: true,
         }));
+      // DB players carry formatted display_name (The Honourable X MP, etc.).
+      // They must take priority over any same-constituency game-state entry
+      // that only has a bare name.
+      const dbConstituencies = new Set(dbPlayers.map((p) => String(p.constituency || "").toLowerCase()));
       data.players = [
-        ...(data.players || []),
-        ...dbPlayers.filter((p) => !existingIds.has(p.id)),
+        ...(data.players || []).filter((p) => !dbConstituencies.has(String(p.constituency || "").toLowerCase())),
+        ...dbPlayers,
       ];
     }
 
