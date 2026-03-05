@@ -1,5 +1,5 @@
 import { isLoggedIn } from "../core.js";
-import { esc } from "../ui.js";
+import { esc, affiliationBadge } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection } from "../components/tile.js";
 import { toastSuccess, toastError } from "../components/toast.js";
@@ -214,7 +214,7 @@ function render(data, state) {
             <div class="spaced">
               <div>
                 <b>${esc(spec.title)}</b> — ${esc(item.location)}
-                <div class="muted">Host: ${esc(item.hostName)} • ${esc(item.createdAt || "")}</div>
+                <div class="muted">Host: ${esc(item.hostName)}${affiliationBadge({ party: item.party }) ? ` ${affiliationBadge({ party: item.party })}` : ""} • ${esc(item.createdAt || "")}</div>
               </div>
               <div>${status}</div>
             </div>

@@ -1350,6 +1350,23 @@ input.invalid, textarea.invalid, select.invalid{
   border-color:rgba(107,33,168,.24);
 }
 
+
+.mod-affiliation-badge{
+  display:inline-block;
+  margin-left:4px;
+  padding:1px 8px;
+  border-radius:999px;
+  font-size:.74em;
+  font-weight:800;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:#fff;
+  background:linear-gradient(135deg,#6f42c1,#0d6efd);
+  border:1px solid rgba(255,255,255,.45);
+  box-shadow:0 1px 4px rgba(13,110,253,.35);
+  vertical-align:middle;
+}
+
 /* =========================
    Division UI (uniform across bill / motion / amendment)
    ========================= */

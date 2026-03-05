@@ -1,5 +1,5 @@
 import { formatSimMonthYear } from "../clock.js";
-import { setHTML, esc } from "../ui.js";
+import { setHTML, esc, affiliationBadge } from "../ui.js";
 import { canPostNews, canAdminOrMod } from "../permissions.js";
 import { apiCreatePaperArticle, apiUpdatePaperArticle, apiDeletePaperArticle, apiGetPaperArticles, apiGetPaperComments, apiCreatePaperComment, apiDeletePaperComment, apiGetPaperSubmissions, apiCreatePaperSubmission, apiResolvePaperSubmission, apiDeletePaperSubmission } from "../api.js";
 
@@ -146,7 +146,7 @@ function renderPaperCommentsList(comments, currentUserId, canMod) {
     const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "";
     return `
       <div class="comment-item" style="font-size:.85em;padding:4px 0;border-bottom:1px solid #eee;" data-comment-id="${esc(c.id)}">
-        <span style="font-weight:600;">${esc(c.createdByName || "User")}</span>
+        <span style="font-weight:600;">${esc(c.createdByName || "User")}</span>${affiliationBadge({ party: c.party }) ? ` ${affiliationBadge({ party: c.party })}` : ""}
         <span class="muted" style="margin-left:6px;font-size:.9em;">${esc(date)}</span>
         ${canDelete ? `<button class="btn danger small" data-action="delete-paper-comment" data-paper="${esc(c._paperKey || "")}" data-article-id="${esc(c._articleId || "")}" data-comment-id="${esc(c.id)}" type="button" style="margin-left:8px;padding:1px 6px;font-size:.8em;">Delete</button>` : ""}
         <div style="margin-top:2px;">${esc(c.text)}</div>
@@ -194,8 +194,9 @@ function refreshPaperCommentsPanel(panel, paperKey, articleId, comments, data) {
         id: r.id,
         text,
         createdBy: currentUserId,
-        createdByName: data.currentUser?.username || "",
+        createdByName: r.displayName || data.currentUser?.username || "",
         createdAt: r.createdAt || new Date().toISOString(),
+        party: r.party || "",
         isDeleted: false,
       };
       comments.push(newComment);
@@ -367,7 +368,7 @@ function renderSubmissionCard(s, canStaff) {
       ${s.headline ? `<div style="font-weight:600;margin-bottom:4px;">${esc(s.headline)}</div>` : ""}
       <div style="font-size:.85em;white-space:pre-wrap;margin-bottom:6px;">${esc(s.text.length > 400 ? s.text.slice(0, 400) + "…" : s.text)}</div>
       ${s.submissionType === "leak" ? `<div class="muted small">Source type: ${esc(SOURCE_TYPE_LABELS[s.sourceType] || s.sourceType)}${s.pseudonym ? ` · Pseudonym: "${esc(s.pseudonym)}"` : ""}</div>` : ""}
-      ${canStaff ? `<div class="muted small">Submitted by: ${esc(s.submittedByName || "?")} (${esc(s.charName || "—")})</div>` : ""}
+      ${canStaff ? `<div class="muted small">Submitted by: ${esc(s.submittedByName || "?")} (${esc(s.charName || "—")}${affiliationBadge({ party: s.charParty }) ? ` ${affiliationBadge({ party: s.charParty })}` : ""})</div>` : ""}
       ${canStaff && s.evidenceNotes ? `<div style="font-size:.8em;padding:4px 8px;background:#fff3cd;border-radius:3px;margin-top:4px;"><strong>Evidence:</strong> ${esc(s.evidenceNotes)}</div>` : ""}
       ${s.modNote && (canStaff || s.status !== "pending") ? `<div class="muted small" style="margin-top:4px;font-style:italic;">Mod note: ${esc(s.modNote)}</div>` : ""}
       ${s.status === "pending" && canStaff ? `

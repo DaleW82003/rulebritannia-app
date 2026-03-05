@@ -1,5 +1,5 @@
 import { formatSimMonthYear, getSimDate, formatSimDate } from "../clock.js";
-import { setHTML, esc } from "../ui.js";
+import { setHTML, esc, affiliationBadge } from "../ui.js";
 import { canPostNews, canAdminOrMod, canAdminModOrSpeaker, canRightOfReply } from "../permissions.js";
 import { nowMs } from "../core.js";
 import {
@@ -145,7 +145,7 @@ function renderHaveYourSayList(comments, currentUserId, canStaff) {
     return `
       <div class="comment-item${isReported && canStaff ? " reported" : ""}" style="font-size:.85em;padding:6px 0;border-bottom:1px solid #eee;${isReported && canStaff ? "background:#fff3cd;" : ""}" data-comment-id="${esc(c.id)}">
         <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
-          <span style="font-weight:600;">${esc(c.displayName || "Member")}</span>
+          <span style="font-weight:600;">${esc(c.displayName || "Member")}</span>${affiliationBadge({ party: c.party, isModAffiliation: !c.party && /monarch|civil service|barkeep/i.test(String(c.displayName || "")) }) ? ` ${affiliationBadge({ party: c.party, isModAffiliation: !c.party && /monarch|civil service|barkeep/i.test(String(c.displayName || "")) })}` : ""}
           ${simLabel ? `<span class="muted" style="font-size:.85em;">${simLabel}</span>` : ""}
           ${isReported && canStaff ? `<span style="font-size:.75em;background:#f44;color:#fff;border-radius:3px;padding:1px 4px;">REPORTED</span>` : ""}
           ${canDel ? `<button class="btn danger small" data-action="delete-hys-comment" data-comment-id="${esc(c.id)}" type="button" style="margin-left:auto;padding:1px 6px;font-size:.8em;">Delete</button>` : ""}
@@ -293,6 +293,7 @@ function refreshHaveYourSayPanel(panel, storyId, comments, data) {
         simMonth: r.simMonth,
         simYear: r.simYear,
         createdAt: r.createdAt || new Date().toISOString(),
+        party: r.party || "",
         isDeleted: false,
         deletedByUser: false,
       };

@@ -1881,10 +1881,17 @@ async function ensureSchema() {
       text        TEXT        NOT NULL,
       created_by      UUID        REFERENCES users(id) ON DELETE SET NULL,
       created_by_name TEXT        NOT NULL DEFAULT '',
+      character_id    UUID        REFERENCES characters(id) ON DELETE SET NULL,
+      character_name  TEXT        NOT NULL DEFAULT '',
       created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       deleted_at      TIMESTAMPTZ
     );
     CREATE INDEX IF NOT EXISTS idx_pac_article_id ON paper_article_comments(article_id, created_at);
+  `);
+  await pool.query(`
+    ALTER TABLE paper_article_comments
+      ADD COLUMN IF NOT EXISTS character_id   UUID REFERENCES characters(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS character_name TEXT NOT NULL DEFAULT '';
   `);
 
   // ── Paper submissions (Leaks + Editorials) ────────────────────────────────
@@ -19504,11 +19511,13 @@ app.get("/api/news/:id/comments", crudReadLimit, async (req, res) => {
     const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
     const isStaff = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
     const { rows } = await pool.query(
-      `SELECT id, text, original_text, created_by, created_by_name, character_name, character_id,
-              sim_month, sim_year, created_at, deleted_at, deleted_by_user, reported_at
-         FROM news_story_comments
-        WHERE news_story_id = $1
-        ORDER BY created_at ASC`,
+      `SELECT nsc.id, nsc.text, nsc.original_text, nsc.created_by, nsc.created_by_name, nsc.character_name, nsc.character_id,
+              nsc.sim_month, nsc.sim_year, nsc.created_at, nsc.deleted_at, nsc.deleted_by_user, nsc.reported_at,
+              c.party AS character_party
+         FROM news_story_comments nsc
+         LEFT JOIN characters c ON c.id = nsc.character_id
+        WHERE nsc.news_story_id = $1
+        ORDER BY nsc.created_at ASC`,
       [req.params.id]
     );
     res.json({ comments: rows.map((r) => {
@@ -19525,6 +19534,7 @@ app.get("/api/news/:id/comments", crudReadLimit, async (req, res) => {
         simMonth: r.sim_month,
         simYear: r.sim_year,
         createdAt: r.created_at,
+        party: isDeleted ? "" : (r.character_party || ""),
         isDeleted,
         reportedAt: isStaff ? r.reported_at : undefined,
       };
@@ -19553,9 +19563,11 @@ app.post("/api/news/:id/comments", crudWriteLimit, async (req, res) => {
     // Look up the user's active character for display name
     const charId = await getActiveCharacterId(req);
     let charName = "";
+    let charParty = "";
     if (charId) {
-      const { rows: cRows } = await pool.query("SELECT name FROM characters WHERE id = $1", [charId]);
+      const { rows: cRows } = await pool.query("SELECT name, party FROM characters WHERE id = $1", [charId]);
       charName = cRows[0]?.name || "";
+      charParty = cRows[0]?.party || "";
     }
     const { rows: userRows } = await pool.query("SELECT username FROM users WHERE id = $1", [req.session.userId]);
     const authorName = userRows[0]?.username || "";
@@ -19565,7 +19577,7 @@ app.post("/api/news/:id/comments", crudWriteLimit, async (req, res) => {
       [req.params.id, trimmed, req.session.userId, authorName, charId || null, charName, simMonth, simYear]
     );
     await writeAuditLog(req.session.userId, "news_comment.create", "news_story_comment", rows[0].id, null, { storyId: req.params.id });
-    res.json({ ok: true, id: rows[0].id, createdAt: rows[0].created_at, displayName: charName || authorName, simMonth, simYear });
+    res.json({ ok: true, id: rows[0].id, createdAt: rows[0].created_at, displayName: charName || authorName, party: charParty || "", simMonth, simYear });
   } catch (e) { console.error("[POST /api/news/:id/comments]", e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -20051,18 +20063,22 @@ app.get("/api/papers/:paperKey/articles/:articleId/comments", crudReadLimit, asy
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query(
-      `SELECT id, text, created_by, created_by_name, created_at, deleted_at
-         FROM paper_article_comments
-        WHERE article_id = $1 AND paper_key = $2
-        ORDER BY created_at ASC`,
+      `SELECT pac.id, pac.text, pac.created_by, pac.created_by_name, pac.character_name, pac.character_id,
+              pac.created_at, pac.deleted_at, c.party AS character_party
+         FROM paper_article_comments pac
+         LEFT JOIN characters c ON c.id = pac.character_id
+        WHERE pac.article_id = $1 AND pac.paper_key = $2
+        ORDER BY pac.created_at ASC`,
       [req.params.articleId, req.params.paperKey]
     );
     res.json({ comments: rows.map((r) => ({
       id: r.id,
       text: r.deleted_at ? null : r.text,
       createdBy: r.created_by,
-      createdByName: r.deleted_at ? null : r.created_by_name,
+      createdByName: r.deleted_at ? null : (r.character_name || r.created_by_name),
       createdAt: r.created_at,
+      characterId: r.character_id,
+      party: r.deleted_at ? "" : (r.character_party || ""),
       isDeleted: !!r.deleted_at,
     })) });
   } catch (e) { console.error("[GET /api/papers/:paperKey/articles/:articleId/comments]", e); res.status(500).json({ error: "Server error" }); }
@@ -20079,13 +20095,21 @@ app.post("/api/papers/:paperKey/articles/:articleId/comments", crudWriteLimit, a
     if (!artRows.length) return res.status(404).json({ error: "Article not found" });
     const { rows: userRows } = await pool.query("SELECT username FROM users WHERE id = $1", [req.session.userId]);
     const authorName = userRows[0]?.username || "";
+    const charId = await getActiveCharacterId(req);
+    let charName = "";
+    let charParty = "";
+    if (charId) {
+      const { rows: cRows } = await pool.query("SELECT name, party FROM characters WHERE id = $1", [charId]);
+      charName = cRows[0]?.name || "";
+      charParty = cRows[0]?.party || "";
+    }
     const { rows } = await pool.query(
-      `INSERT INTO paper_article_comments (paper_key, article_id, text, created_by, created_by_name)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
-      [req.params.paperKey, req.params.articleId, text.trim(), req.session.userId, authorName]
+      `INSERT INTO paper_article_comments (paper_key, article_id, text, created_by, created_by_name, character_id, character_name)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, created_at`,
+      [req.params.paperKey, req.params.articleId, text.trim(), req.session.userId, authorName, charId || null, charName]
     );
     await writeAuditLog(req.session.userId, "paper_comment.create", "paper_article_comment", rows[0].id, null, { paperKey: req.params.paperKey, articleId: req.params.articleId });
-    res.json({ ok: true, id: rows[0].id, createdAt: rows[0].created_at });
+    res.json({ ok: true, id: rows[0].id, createdAt: rows[0].created_at, displayName: charName || authorName, party: charParty || "", characterId: charId || null });
   } catch (e) { console.error("[POST /api/papers/:paperKey/articles/:articleId/comments]", e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -20175,19 +20199,21 @@ app.get("/api/papers/submissions", crudReadLimit, async (req, res) => {
       if (status) { qParams.push(status); conditions.push(`ps.status = $${qParams.length}`); }
       if (type)   { qParams.push(type);   conditions.push(`ps.submission_type = $${qParams.length}`); }
       if (risk === "high") conditions.push(`(ps.risk_level >= 2 OR ps.is_controversial = TRUE)`);
-      query = `SELECT ps.*, u.username AS resolved_by_name
+      query = `SELECT ps.*, u.username AS resolved_by_name, c.party AS char_party
                  FROM paper_submissions ps
                  LEFT JOIN users u ON u.id = ps.resolved_by
+                 LEFT JOIN characters c ON c.id = ps.char_id
                 WHERE ${conditions.join(" AND ")}
                 ORDER BY ps.created_at DESC`;
       params = qParams;
     } else {
-      query = `SELECT id, paper_key, submission_type, headline, text, source_type, pseudonym, image_url,
-                      risk_level, is_controversial, sim_month, sim_year, status, submitted_by_name,
-                      char_name, mod_note, created_at, resolved_at
-                 FROM paper_submissions
-                WHERE submitted_by = $1
-                ORDER BY created_at DESC`;
+      query = `SELECT ps.id, ps.paper_key, ps.submission_type, ps.headline, ps.text, ps.source_type, ps.pseudonym, ps.image_url,
+                      ps.risk_level, ps.is_controversial, ps.sim_month, ps.sim_year, ps.status, ps.submitted_by_name,
+                      ps.char_name, ps.mod_note, ps.created_at, ps.resolved_at, c.party AS char_party
+                 FROM paper_submissions ps
+                 LEFT JOIN characters c ON c.id = ps.char_id
+                WHERE ps.submitted_by = $1
+                ORDER BY ps.created_at DESC`;
       params = [req.session.userId];
     }
     const { rows } = await pool.query(query, params);
@@ -20202,7 +20228,7 @@ app.get("/api/papers/submissions", crudReadLimit, async (req, res) => {
         imageUrl: r.image_url, riskLevel: r.risk_level, isControversial: r.is_controversial,
         simMonth: r.sim_month, simYear: r.sim_year, status: r.status,
         submittedBy: r.submitted_by, submittedByName: r.submitted_by_name,
-        charId: r.char_id, charName: r.char_name,
+        charId: r.char_id, charName: r.char_name, charParty: r.char_party || "",
         // editorNote always visible; modNote only to owner/staff
         editorNote: r.editor_note,
         modNote: (isStaff || isOwn) ? r.mod_note : undefined,
