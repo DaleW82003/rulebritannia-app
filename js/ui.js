@@ -51,6 +51,8 @@ const PAGE_HREF_MAP = {
   statement:           "statement.html",
   motion:              "motion.html",
   regulation:          "regulation.html",
+  "staff-dropon":      "staff-dropon.html",
+  "player-dropon":     "player-dropon.html",
 };
 
 /** Muted one-line purpose description for each page. */
