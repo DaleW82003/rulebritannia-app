@@ -1950,6 +1950,30 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_reshuffles_type_active ON frontbench_reshuffles (type, is_active, created_at DESC);
   `);
+
+  // ── NPC character fields ───────────────────────────────────────────────────
+  // is_npc: marks characters created via the NPC workflow.
+  // managed_by_user_id: the user who requested the NPC and can operate it.
+  await pool.query(`
+    ALTER TABLE characters
+      ADD COLUMN IF NOT EXISTS is_npc             BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS managed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS characters_managed_by_idx ON characters (managed_by_user_id);
+  `);
+
+  // ── NPC application fields on pending_character_applications ─────────────
+  // application_type: 'pc' (player character, default) or 'npc'.
+  // npc_reason: required note to moderators explaining why the NPC is needed.
+  // requested_by_character_id, requested_by_character_name, requested_by_party:
+  //   snapshot of requester's active character at time of NPC request (for audit + mod context).
+  await pool.query(`
+    ALTER TABLE pending_character_applications
+      ADD COLUMN IF NOT EXISTS application_type            TEXT NOT NULL DEFAULT 'pc',
+      ADD COLUMN IF NOT EXISTS npc_reason                  TEXT,
+      ADD COLUMN IF NOT EXISTS requested_by_character_id   UUID REFERENCES characters(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS requested_by_character_name TEXT,
+      ADD COLUMN IF NOT EXISTS requested_by_party          TEXT;
+  `);
 }
 
 // ── Property / Finance model constants ────────────────────────────────────────
@@ -6257,8 +6281,10 @@ async function getCharacterParliamentaryMeta(pool, characterId) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows } = await pool.query(
-    `SELECT c.id, c.rh_ever, c.tpl_ever,
-            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
+    `SELECT c.id, c.rh_ever, c.tpl_ever, c.is_npc,
+            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency)
+                    AND (k.mp_type = 'character' OR (k.mp_type = 'npc' AND c.is_npc = TRUE))
+                    AND COALESCE(c.constituency, '') != '') AS is_mp,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (
               SELECT 1 FROM office_assignments oa
@@ -6325,8 +6351,10 @@ async function batchGetCharacterDisplayNames(pool, entries) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows } = await pool.query(
-    `SELECT c.id, c.name, c.rh_ever, c.tpl_ever,
-            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
+    `SELECT c.id, c.name, c.rh_ever, c.tpl_ever, c.is_npc,
+            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency)
+                    AND (k.mp_type = 'character' OR (k.mp_type = 'npc' AND c.is_npc = TRUE))
+                    AND COALESCE(c.constituency, '') != '') AS is_mp,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
             EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
@@ -6370,8 +6398,10 @@ async function batchEnrichCharacterRows(pool, rows) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows: metaRows } = await pool.query(
-    `SELECT c.id, c.rh_ever, c.tpl_ever,
-            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
+    `SELECT c.id, c.rh_ever, c.tpl_ever, c.is_npc,
+            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency)
+                    AND (k.mp_type = 'character' OR (k.mp_type = 'npc' AND c.is_npc = TRUE))
+                    AND COALESCE(c.constituency, '') != '') AS is_mp,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
             EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
@@ -6519,6 +6549,44 @@ function computeAllPlayerWeights(seatsByParty, players) {
   return { effectiveWeights, baseWeights, leaderByParty };
 }
 
+/**
+ * Compute the effective vote weight for a single character.
+ *
+ * When a character is an NPC assigned as a user's main active character they may
+ * not appear in the game-state `statePlayers` list (which is admin-managed).  In
+ * that case, inject them as a synthetic settled backbencher and recompute so that
+ * they receive their proportional share of their party's seats.
+ *
+ * Normal (non-NPC) characters that are absent from the player list intentionally
+ * receive 0 weight — that behaviour is preserved.
+ *
+ * @param {Object}   seatsByParty  - { partyName: seatCount } from constituencies DB
+ * @param {Array}    statePlayers  - player list from game state snapshot
+ * @param {string}   charName      - character name to look up
+ * @param {string|null} charParty  - character party
+ * @param {boolean}  isNpc         - true if the character has is_npc = true
+ * @returns {number}
+ */
+function computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc) {
+  const nameStr = String(charName || "");
+  const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
+  const w = Number(effectiveWeights[nameStr] || 0);
+  if (w > 0) return w;
+
+  // For NPCs not present in the game state, inject synthetically so they share party seats.
+  if (!isNpc || !charParty) return w;
+  if (SINN_FEIN_PARTY_RE.test(charParty) || SPEAKER_PARTY_RE.test(charParty)) return 0;
+  const inState = statePlayers.some((p) => String(p.name || "") === nameStr);
+  if (inState) return w; // already included but still got 0 — respect the computed result
+
+  const augmented = [
+    ...statePlayers,
+    { name: nameStr, party: charParty, role: "backbencher", active: true },
+  ];
+  const { effectiveWeights: ew2 } = computeAllPlayerWeights(seatsByParty, augmented);
+  return Number(ew2[nameStr] || 0);
+}
+
 // PATCH /api/bills/:id/vote — authenticated: cast a server-authoritative vote on a bill division
 app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
   try {
@@ -6544,11 +6612,11 @@ app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
 
     // Get current active character from DB
     const { rows: charRows } = await pool.query(
-      "SELECT name, party FROM characters WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at DESC LIMIT 1",
+      "SELECT name, party, is_npc FROM characters WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at DESC LIMIT 1",
       [req.session.userId]
     );
     if (!charRows.length) return res.status(400).json({ error: "No active character found" });
-    const { name: charName, party: charParty } = charRows[0];
+    const { name: charName, party: charParty, is_npc: isNpc } = charRows[0];
 
     // Seat totals from constituencies DB (authoritative source — constituencies page)
     const seatsByParty = await getPartySeatsFromConstituencies(pool);
@@ -6563,9 +6631,12 @@ app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
     const stateData = stateRows[0]?.data ?? {};
     const players = Array.isArray(stateData?.players) ? stateData.players : [];
 
-    // Compute effective weight server-side (seats from constituencies DB, players from state)
+    // Compute effective weight server-side (seats from constituencies DB, players from state).
+    // NPC characters not present in state are injected synthetically to receive their party share.
     const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, players);
-    const effectiveWeight = Number(effectiveWeights[charName] || 0);
+    const effectiveWeight = isNpc
+      ? computeCharacterWeight(seatsByParty, players, charName, charParty, true)
+      : Number(effectiveWeights[charName] || 0);
 
     // Initialise division if this is the first vote
     bill.division ??= { status: "open", votes: {}, openedAt: Date.now(), rebelsByParty: {}, npcVotes: {} };
@@ -6714,7 +6785,7 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
     if (!motionRows.length) return res.status(404).json({ error: "Motion not found" });
     if (motionRows[0].motion_type !== "edm") return res.status(400).json({ error: "Only EDMs can be signed" });
 
-    const { rows: charRows } = await pool.query("SELECT id, name, party FROM characters WHERE id = $1", [charId]);
+    const { rows: charRows } = await pool.query("SELECT id, name, party, is_npc FROM characters WHERE id = $1", [charId]);
     if (!charRows.length) return res.status(404).json({ error: "Character not found" });
     const char = charRows[0];
 
@@ -6729,7 +6800,8 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
     const already = edm.signatures.some((sig) => String(sig.name || "") === String(char.name || ""));
     if (already) return res.status(409).json({ error: "Already signed" });
 
-    // Compute signature weight using the same model as division votes
+    // Compute signature weight using the same model as division votes.
+    // NPC characters not present in state are injected synthetically to receive their party share.
     let weight = 1;
     try {
       const seatsByParty = await getPartySeatsFromConstituencies(pool);
@@ -6739,8 +6811,7 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
           WHERE asc2.id = 'main'`
       );
       const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-      const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
-      const computed = Number(effectiveWeights[char.name] || 0);
+      const computed = computeCharacterWeight(seatsByParty, statePlayers, char.name, char.party, Boolean(char.is_npc));
       if (computed > 0) weight = computed;
     } catch (wErr) {
       console.error("[edm.sign weight-calc]", wErr.message);
@@ -8786,7 +8857,7 @@ app.get("/api/characters", charReadLimit, async (req, res) => {
     const extraFields = isPrivileged
       ? ", date_of_birth, education, career_background, family, year_first_elected, personal_background, bio, financial_background_level, twitter_handle"
       : "";
-    let q = `SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at, avatar${extraFields} FROM characters`;
+    let q = `SELECT id, user_id, name, party, constituency, roles, offices, is_active, is_npc, created_at, avatar${extraFields} FROM characters`;
     const params = [];
     if (active === "true") { q += " WHERE is_active = TRUE"; }
     else if (active === "false") { q += " WHERE is_active = FALSE"; }
@@ -9151,6 +9222,148 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
   }
 });
 
+// POST /api/characters/apply-npc — submit an NPC character application
+// NOT blocked by "one active character per user" restriction.
+// Only admin, mod, or party leaders may submit NPC applications.
+// Non-admin/mod users: party must match their active character's party.
+app.post("/api/characters/apply-npc", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const {
+      name, party = "", constituency = "",
+      date_of_birth, education, career_background, family,
+      year_first_elected, personal_background, bio,
+      financial_background_level = 1,
+      avatar = "", avatar_attribution = "", twitter_handle = "",
+      home = {}, rentals = [],
+      npc_reason = ""
+    } = req.body || {};
+
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ error: "name is required" });
+    }
+    if (!avatar_attribution || typeof avatar_attribution !== "string" || !avatar_attribution.trim()) {
+      return res.status(400).json({ error: "avatar_attribution (who is your avatar?) is required" });
+    }
+    if (!npc_reason || typeof npc_reason !== "string" || !npc_reason.trim()) {
+      return res.status(400).json({ error: "npc_reason is required — explain why this NPC is needed" });
+    }
+
+    // Constituency is required for NPCs
+    if (!constituency || !constituency.trim()) {
+      return res.status(400).json({ error: "constituency is required for NPC characters" });
+    }
+    if (!party) {
+      return res.status(400).json({ error: "party is required for NPC characters" });
+    }
+
+    // Authorization: only admin, mod, or party leader may request NPCs.
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+
+    // Resolve the requester's active character (used for party-leader check + audit snapshot)
+    const { rows: activeCharRows } = await pool.query(
+      `SELECT c.id, c.name, c.party FROM users u
+         JOIN characters c ON c.id = u.active_character_id
+        WHERE u.id = $1
+        LIMIT 1`,
+      [req.session.userId]
+    );
+    const activeChar = activeCharRows[0] ?? null;
+
+    // Check if requester's active character is a party leader
+    let isPartyLeader = false;
+    if (activeChar?.id) {
+      const { rows: leaderRows } = await pool.query(
+        "SELECT 1 FROM parties WHERE leader_character_id = $1 LIMIT 1",
+        [activeChar.id]
+      );
+      isPartyLeader = leaderRows.length > 0;
+    }
+
+    if (!isAdminOrMod && !isPartyLeader) {
+      return res.status(403).json({ error: "Only administrators, moderators, and party leaders may request NPC characters." });
+    }
+
+    // Party restriction: non-admin/mod users must match their active character's party
+    if (!isAdminOrMod) {
+      if (!activeChar?.party) {
+        return res.status(403).json({ error: "You must have an active character to request an NPC." });
+      }
+      if (activeChar.party !== party) {
+        return res.status(403).json({ error: `NPC party must match your active character's party (${activeChar.party}).` });
+      }
+    }
+
+    // Validate that the selected constituency exists and belongs to the submitted party
+    const { rows: constRows } = await pool.query(
+      "SELECT id, party FROM constituencies WHERE LOWER(name) = LOWER($1) LIMIT 1",
+      [constituency.trim()]
+    );
+    if (!constRows.length) {
+      return res.status(400).json({ error: "Constituency not found." });
+    }
+    if (constRows[0].party !== party) {
+      return res.status(400).json({ error: `That constituency is held by ${constRows[0].party}, not ${party}. Please select a constituency from your party.` });
+    }
+
+    const bioValue = bio != null ? String(bio).slice(0, 2000) : (personal_background ?? null);
+
+    // Check no pending NPC application already
+    const { rows: pendingNpc } = await pool.query(
+      "SELECT id FROM pending_character_applications WHERE applicant_user_id = $1 AND status = 'pending' AND application_type = 'npc' LIMIT 1",
+      [req.session.userId]
+    );
+    if (pendingNpc.length) {
+      return res.status(409).json({ error: "You already have a pending NPC application." });
+    }
+
+    // Check constituency not already taken by an active character
+    const { rows: taken } = await pool.query(
+      "SELECT id FROM characters WHERE LOWER(constituency) = LOWER($1) AND is_active = TRUE LIMIT 1",
+      [constituency]
+    );
+    if (taken.length) {
+      return res.status(409).json({ error: "That constituency is already taken by an active character." });
+    }
+
+    // Get applicant username
+    const { rows: userRows } = await pool.query("SELECT username FROM users WHERE id = $1", [req.session.userId]);
+    const applicantUsername = userRows[0]?.username ?? req.session.userId;
+
+    const { rows } = await pool.query(
+      `INSERT INTO pending_character_applications
+         (applicant_user_id, applicant_username, name, party, constituency,
+          date_of_birth, education, career_background, family, year_first_elected,
+          personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals,
+          application_type, npc_reason,
+          requested_by_character_id, requested_by_character_name, requested_by_party)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,$20,$21,$22,$23)
+       RETURNING *`,
+      [
+        req.session.userId, applicantUsername, name.trim(), party, constituency.trim(),
+        date_of_birth ?? null, education ?? null, career_background ?? null,
+        family ?? null, year_first_elected ?? null, personal_background ?? null, bioValue,
+        Number(financial_background_level) || 1,
+        String(avatar || "").trim(),
+        String(avatar_attribution || "").trim(),
+        String(twitter_handle || "").trim().replace(/^@+/, ""),
+        JSON.stringify(home), JSON.stringify(rentals),
+        "npc", npc_reason.trim(),
+        activeChar?.id ?? null,
+        activeChar?.name ?? null,
+        activeChar?.party ?? null
+      ]
+    );
+    await writeAuditLog(req.session.userId, "character.apply-npc", "pending_character_application", rows[0].id, null, rows[0]);
+    res.status(201).json({ ok: true, application: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // GET /api/characters/applications/mine — list own applications
 app.get("/api/characters/applications/mine", charAppReadLimit, async (req, res) => {
   try {
@@ -9197,6 +9410,8 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
     const app_ = appRows[0];
     if (app_.status !== "pending") return res.status(409).json({ error: `Application is already ${app_.status}` });
 
+    const isNpcApp = app_.application_type === "npc";
+
     // Server-side constituency check
     if (app_.constituency) {
       const { rows: taken } = await client.query(
@@ -9210,98 +9425,165 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
 
     await client.query("BEGIN");
 
-    // Deactivate any existing active characters for the applicant
-    await client.query(
-      "UPDATE characters SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE",
-      [app_.applicant_user_id]
-    );
+    if (isNpcApp) {
+      // NPC approval: create character with is_npc=true, managed_by_user_id set.
+      // user_id is NULL so the NPC is not "owned" in the normal sense.
+      // Do NOT deactivate the requester's active player character.
+      const { rows: charRows } = await client.query(
+        `INSERT INTO characters
+           (user_id, managed_by_user_id, application_id, name, party, constituency, roles, offices, is_active, is_npc,
+            date_of_birth, education, career_background, family, year_first_elected,
+            personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals)
+         VALUES (NULL,$1,$2,$3,$4,$5,'[]'::jsonb,'[]'::jsonb,TRUE,TRUE,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
+         RETURNING *`,
+        [
+          app_.applicant_user_id, req.params.id, app_.name, app_.party, app_.constituency,
+          app_.date_of_birth, app_.education, app_.career_background, app_.family,
+          app_.year_first_elected, app_.personal_background, app_.bio ?? null,
+          app_.financial_background_level,
+          app_.avatar, app_.avatar_attribution, app_.twitter_handle,
+          JSON.stringify(app_.home ?? {}), JSON.stringify(app_.rentals ?? [])
+        ]
+      );
+      const character = charRows[0];
 
-    // Create the character, linking it back to the originating application
-    const { rows: charRows } = await client.query(
-      `INSERT INTO characters
-         (user_id, application_id, name, party, constituency, roles, offices, is_active,
-          date_of_birth, education, career_background, family, year_first_elected,
-          personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals)
-       VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'[]'::jsonb,TRUE,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
-       RETURNING *`,
-      [
-        app_.applicant_user_id, req.params.id, app_.name, app_.party, app_.constituency,
-        app_.date_of_birth, app_.education, app_.career_background, app_.family,
-        app_.year_first_elected, app_.personal_background, app_.bio ?? null,
-        app_.financial_background_level,
-        app_.avatar, app_.avatar_attribution, app_.twitter_handle,
-        JSON.stringify(app_.home ?? {}), JSON.stringify(app_.rentals ?? [])
-      ]
-    );
-    const character = charRows[0];
+      // Mark application approved
+      await client.query(
+        "UPDATE pending_character_applications SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+        [req.session.userId, req.params.id]
+      );
 
-    // Set DB-canonical active character pointer on the user
-    await client.query(
-      "UPDATE users SET active_character_id = $1 WHERE id = $2",
-      [character.id, app_.applicant_user_id]
-    );
+      await client.query("COMMIT");
 
-    // Mark application approved
-    await client.query(
-      "UPDATE pending_character_applications SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
-      [req.session.userId, req.params.id]
-    );
-
-    await client.query("COMMIT");
-
-    // Seed backbencher salary position for newly created character (best-effort)
-    await pool.query(
-      "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
-      [character.id]
-    ).catch((e) => console.warn("[approve] backbencher seed failed:", e.message));
-
-    // Seed starting bank balance from financial background level (one-time, only if no finance row exists)
-    const startingBalance = STARTING_BALANCES[Math.min(10, Math.max(1, Number(app_.financial_background_level) || 5))] ?? 25000;
-    await pool.query(
-      `INSERT INTO character_finance (character_id, bank_balance)
-       VALUES ($1, $2)
-       ON CONFLICT (character_id) DO UPDATE
-         SET bank_balance = EXCLUDED.bank_balance
-         WHERE character_finance.bank_balance = 0`,
-      [character.id, startingBalance]
-    ).catch((e) => console.warn("[approve] starting balance seed failed:", e.message));
-
-    // Update the applicant's active sessions to reflect the new active character (best-effort).
-    try {
+      // Update the constituency row to reflect this NPC's occupancy (best-effort).
+      // NPCs are MPs (hold a seat) but not Right Honourable by default.
+      const npcFormattedName = formatParliamentaryName({ bareName: character.name, isRH: false, isMP: true, isPC: false });
       await pool.query(
-        `UPDATE sessions
-            SET sess = jsonb_set(sess::jsonb, '{characterId}', to_jsonb($1::text))::json
-          WHERE sess::jsonb->>'userId' = $2`,
+        `UPDATE constituencies SET mp_type = 'npc', mp_name = $1, updated_at = NOW()
+          WHERE id = (SELECT id FROM constituencies WHERE LOWER(name) = LOWER($2) LIMIT 1)`,
+        [npcFormattedName, character.constituency]
+      ).catch((e) => console.warn("[approve-npc] constituency update failed:", e.message));
+
+      // Seed backbencher salary position (best-effort)
+      await pool.query(
+        "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
+        [character.id]
+      ).catch((e) => console.warn("[approve-npc] backbencher seed failed:", e.message));
+
+      // Seed starting bank balance (best-effort)
+      const startingBalance = STARTING_BALANCES[Math.min(10, Math.max(1, Number(app_.financial_background_level) || 5))] ?? 25000;
+      await pool.query(
+        `INSERT INTO character_finance (character_id, bank_balance)
+         VALUES ($1, $2)
+         ON CONFLICT (character_id) DO UPDATE
+           SET bank_balance = EXCLUDED.bank_balance
+           WHERE character_finance.bank_balance = 0`,
+        [character.id, startingBalance]
+      ).catch((e) => console.warn("[approve-npc] starting balance seed failed:", e.message));
+
+      await writeAuditLog(
+        req.session.userId, "character.application.approve",
+        "pending_character_application", req.params.id,
+        app_, { ...app_, status: "approved", character_id: character.id }
+      );
+
+      res.json({ ok: true, character });
+    } else {
+      // PC approval: existing behavior
+
+      // Deactivate any existing active characters for the applicant
+      await client.query(
+        "UPDATE characters SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE",
+        [app_.applicant_user_id]
+      );
+
+      // Create the character, linking it back to the originating application
+      const { rows: charRows } = await client.query(
+        `INSERT INTO characters
+           (user_id, application_id, name, party, constituency, roles, offices, is_active,
+            date_of_birth, education, career_background, family, year_first_elected,
+            personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals)
+         VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'[]'::jsonb,TRUE,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
+         RETURNING *`,
+        [
+          app_.applicant_user_id, req.params.id, app_.name, app_.party, app_.constituency,
+          app_.date_of_birth, app_.education, app_.career_background, app_.family,
+          app_.year_first_elected, app_.personal_background, app_.bio ?? null,
+          app_.financial_background_level,
+          app_.avatar, app_.avatar_attribution, app_.twitter_handle,
+          JSON.stringify(app_.home ?? {}), JSON.stringify(app_.rentals ?? [])
+        ]
+      );
+      const character = charRows[0];
+
+      // Set DB-canonical active character pointer on the user
+      await client.query(
+        "UPDATE users SET active_character_id = $1 WHERE id = $2",
         [character.id, app_.applicant_user_id]
       );
-    } catch (sessErr) {
-      console.warn("[approve] session update for applicant failed (non-fatal):", sessErr.message);
-    }
 
-    await writeAuditLog(
-      req.session.userId, "character.application.approve",
-      "pending_character_application", req.params.id,
-      app_, { ...app_, status: "approved", character_id: character.id }
-    );
+      // Mark application approved
+      await client.query(
+        "UPDATE pending_character_applications SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+        [req.session.userId, req.params.id]
+      );
 
-    // Auto-assign party role (only if missing) and ensure office:backbencher
-    const partyRole = partyRoleForPartyName(app_.party);
-    const { rows: existingRoleRows } = await pool.query(
-      "SELECT role FROM user_roles WHERE user_id = $1", [app_.applicant_user_id]
-    );
-    const existingRoles = existingRoleRows.map((r) => r.role);
-    const rolesToAdd = computeApprovalRolesToAdd(existingRoles, partyRole);
-    for (const role of rolesToAdd) {
+      await client.query("COMMIT");
+
+      // Seed backbencher salary position for newly created character (best-effort)
       await pool.query(
-        "INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (user_id, role) DO NOTHING",
-        [app_.applicant_user_id, role, req.session.userId]
-      ).catch((e) => console.warn("[approve] role insert failed:", e.message));
-    }
-    if (rolesToAdd.length) {
-      enqueueDiscourseGroupSync(`character approval: ${app_.name}`);
-    }
+        "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
+        [character.id]
+      ).catch((e) => console.warn("[approve] backbencher seed failed:", e.message));
 
-    res.json({ ok: true, character });
+      // Seed starting bank balance from financial background level (one-time, only if no finance row exists)
+      const startingBalance = STARTING_BALANCES[Math.min(10, Math.max(1, Number(app_.financial_background_level) || 5))] ?? 25000;
+      await pool.query(
+        `INSERT INTO character_finance (character_id, bank_balance)
+         VALUES ($1, $2)
+         ON CONFLICT (character_id) DO UPDATE
+           SET bank_balance = EXCLUDED.bank_balance
+           WHERE character_finance.bank_balance = 0`,
+        [character.id, startingBalance]
+      ).catch((e) => console.warn("[approve] starting balance seed failed:", e.message));
+
+      // Update the applicant's active sessions to reflect the new active character (best-effort).
+      try {
+        await pool.query(
+          `UPDATE sessions
+              SET sess = jsonb_set(sess::jsonb, '{characterId}', to_jsonb($1::text))::json
+            WHERE sess::jsonb->>'userId' = $2`,
+          [character.id, app_.applicant_user_id]
+        );
+      } catch (sessErr) {
+        console.warn("[approve] session update for applicant failed (non-fatal):", sessErr.message);
+      }
+
+      await writeAuditLog(
+        req.session.userId, "character.application.approve",
+        "pending_character_application", req.params.id,
+        app_, { ...app_, status: "approved", character_id: character.id }
+      );
+
+      // Auto-assign party role (only if missing) and ensure office:backbencher
+      const partyRole = partyRoleForPartyName(app_.party);
+      const { rows: existingRoleRows } = await pool.query(
+        "SELECT role FROM user_roles WHERE user_id = $1", [app_.applicant_user_id]
+      );
+      const existingRoles = existingRoleRows.map((r) => r.role);
+      const rolesToAdd = computeApprovalRolesToAdd(existingRoles, partyRole);
+      for (const role of rolesToAdd) {
+        await pool.query(
+          "INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (user_id, role) DO NOTHING",
+          [app_.applicant_user_id, role, req.session.userId]
+        ).catch((e) => console.warn("[approve] role insert failed:", e.message));
+      }
+      if (rolesToAdd.length) {
+        enqueueDiscourseGroupSync(`character approval: ${app_.name}`);
+      }
+
+      res.json({ ok: true, character });
+    }
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     console.error(e);
@@ -9310,6 +9592,7 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
     client.release();
   }
 });
+
 
 // POST /api/admin/characters/applications/:id/reject — reject application
 app.post("/api/admin/characters/applications/:id/reject", charAppWriteLimit, async (req, res) => {
@@ -14286,16 +14569,18 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 
     // Get character name and party for weight computation and rebellion check
     const { rows: charRows } = await pool.query(
-      "SELECT name, party, whip_status FROM characters WHERE id = $1", [charId]
+      "SELECT name, party, whip_status, is_npc FROM characters WHERE id = $1", [charId]
     );
     const charParty      = charRows[0]?.party       || null;
     const charName       = charRows[0]?.name        || null;
     const whipWithdrawn  = charRows[0]?.whip_status === "withdrawn";
+    const isNpc          = Boolean(charRows[0]?.is_npc);
 
     // Compute effective weight server-side:
     //   seats from constituencies DB (authoritative source)
     //   player list from game state (for absence/delegation)
     //   MPs with whip withdrawn vote as Independents with weight=1
+    //   NPC characters not present in state are injected synthetically to receive their party share.
     let effectiveWeight = 1;
     try {
       if (!whipWithdrawn) {
@@ -14306,8 +14591,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
             WHERE asc2.id = 'main'`
         );
         const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-        const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
-        effectiveWeight = Number(effectiveWeights[charName] || 0);
+        effectiveWeight = computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc);
       }
       // whipWithdrawn: effectiveWeight stays 1
     } catch (wErr) {
@@ -17908,9 +18192,10 @@ const adminCharMgmtLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeade
 
 // GET /api/admin/characters — list characters with optional filters
 // Query params: owned=unowned|owned, active=true|false
+// Admin or mod access.
 app.get("/api/admin/characters", adminCharMgmtLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { owned, active } = req.query;
     const conditions = [];
     const params = [];
@@ -17926,10 +18211,13 @@ app.get("/api/admin/characters", adminCharMgmtLimit, async (req, res) => {
     }
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const { rows } = await pool.query(`
-      SELECT c.id, c.name, c.party, c.constituency, c.is_active, c.user_id, c.created_at,
-             u.username AS owner_username
+      SELECT c.id, c.name, c.party, c.constituency, c.is_active, c.user_id, c.is_npc,
+             c.managed_by_user_id, c.created_at,
+             u.username AS owner_username,
+             mu.username AS managed_by_username
         FROM characters c
         LEFT JOIN users u ON u.id = c.user_id
+        LEFT JOIN users mu ON mu.id = c.managed_by_user_id
       ${where}
        ORDER BY c.is_active DESC, c.name ASC
     `, params);
@@ -17941,10 +18229,11 @@ app.get("/api/admin/characters", adminCharMgmtLimit, async (req, res) => {
 });
 
 // POST /api/admin/characters/:id/assign-owner — assign a character to a user
+// Admin or mod access.
 app.post("/api/admin/characters/:id/assign-owner", adminCharMgmtLimit, async (req, res) => {
   const client = await pool.connect();
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { user_id, set_active = false } = req.body || {};
     if (!user_id) return res.status(400).json({ error: "user_id is required" });
 
@@ -18008,9 +18297,10 @@ app.post("/api/admin/characters/:id/assign-owner", adminCharMgmtLimit, async (re
 });
 
 // POST /api/admin/users/:id/active-character — set or clear a user's active character pointer
+// Admin or mod access.
 app.post("/api/admin/users/:id/active-character", adminCharMgmtLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminOrMod(req, res)) return;
     const { character_id } = req.body || {}; // null = clear pointer
 
     const { rows: userRows } = await pool.query("SELECT id FROM users WHERE id = $1", [req.params.id]);
@@ -18044,6 +18334,61 @@ app.post("/api/admin/users/:id/active-character", adminCharMgmtLimit, async (req
   } catch (e) {
     console.error("[POST /api/admin/users/:id/active-character]", e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/characters/:id/assign-npc-manager — assign an NPC to a user as a managed NPC.
+// Sets managed_by_user_id on the character so the target user can operate it as a secondary NPC.
+// The NPC retains user_id = NULL (it is not "owned" in the PC sense).
+// Admin or mod access.
+app.post("/api/admin/characters/:id/assign-npc-manager", adminCharMgmtLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const { user_id } = req.body || {};
+    if (!user_id) return res.status(400).json({ error: "user_id is required" });
+
+    // Validate character exists and is an NPC
+    const { rows: charRows } = await client.query(
+      "SELECT id, name, is_npc, managed_by_user_id FROM characters WHERE id = $1",
+      [req.params.id]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+    const char = charRows[0];
+    if (!char.is_npc) {
+      return res.status(400).json({ error: "Character is not an NPC. Use assign-owner for player characters." });
+    }
+
+    // Validate target user exists
+    const { rows: userRows } = await client.query(
+      "SELECT id, username FROM users WHERE id = $1",
+      [user_id]
+    );
+    if (!userRows.length) return res.status(404).json({ error: "User not found" });
+
+    await client.query("BEGIN");
+
+    const { rows: updated } = await client.query(
+      `UPDATE characters SET managed_by_user_id = $1 WHERE id = $2
+       RETURNING id, name, is_npc, managed_by_user_id`,
+      [user_id, req.params.id]
+    );
+
+    await client.query("COMMIT");
+
+    await writeAuditLog(
+      req.session.userId, "admin.character.assign-npc-manager", "character", req.params.id,
+      { managed_by_user_id: char.managed_by_user_id },
+      { managed_by_user_id: user_id }
+    );
+    res.json({ ok: true, character: updated[0] });
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /api/admin/characters/:id/assign-npc-manager]", e);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
   }
 });
 

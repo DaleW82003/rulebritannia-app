@@ -17,6 +17,7 @@ import {
   apiAdminRepairCharacterOwners,
   apiAdminGetUsers, apiAdminGetCharacters,
   apiAdminAssignCharacterOwner, apiAdminSetUserActiveCharacter,
+  apiAdminAssignNpcManager,
   apiGetHealth,
 } from "../api.js";
 import { logAction } from "../audit.js";
@@ -673,9 +674,16 @@ export async function initAdminPanelPage(data) {
   }
 
   function renderUserCharacterManagement() {
-    const unownedRows = charMgmtUnowned.map((c) => `
+    const unownedRows = charMgmtUnowned.map((c) => {
+      const npcBadge = c.is_npc
+        ? `<span style="display:inline-block;background:#0b2d6b;color:#fff;font-size:.7em;padding:1px 5px;border-radius:8px;margin-right:4px;vertical-align:middle;">NPC</span>`
+        : "";
+      const managedByInfo = c.is_npc && c.managed_by_username
+        ? `<div style="font-size:11px;color:#888;margin-top:2px;">Manager: ${esc(c.managed_by_username)}</div>`
+        : "";
+      return `
       <tr data-char-id="${esc(c.id)}">
-        <td style="padding:6px 8px;">${esc(c.name)}</td>
+        <td style="padding:6px 8px;">${npcBadge}${esc(c.name)}${managedByInfo}</td>
         <td style="padding:6px 8px;">${esc(c.party || "—")}</td>
         <td style="padding:6px 8px;">${esc(c.constituency || "—")}</td>
         <td style="padding:6px 8px;">${c.is_active ? "✓ Active" : "Inactive"}</td>
@@ -684,10 +692,14 @@ export async function initAdminPanelPage(data) {
             <option value="">— select user —</option>
             ${charMgmtUsers.map((u) => `<option value="${esc(u.id)}">${esc(u.username)}</option>`).join("")}
           </select>
-          <button class="btn ucm-assign-btn" data-char-id="${esc(c.id)}" type="button" style="font-size:12px;padding:2px 8px;margin-right:4px;">Assign</button>
+          ${c.is_npc
+            ? `<button class="btn ucm-assign-npc-manager-btn" data-char-id="${esc(c.id)}" type="button" style="font-size:12px;padding:2px 8px;margin-right:4px;" title="Set this user as the manager of this NPC (managed_by_user_id). Intended for party leaders or other eligible users.">Assign NPC Manager</button>`
+            : ""}
+          <button class="btn ucm-assign-btn" data-char-id="${esc(c.id)}" type="button" style="font-size:12px;padding:2px 8px;margin-right:4px;">Assign as Active PC</button>
           <button class="btn ucm-assign-active-btn" data-char-id="${esc(c.id)}" type="button" style="font-size:12px;padding:2px 8px;">Assign + Set Active</button>
         </td>
-      </tr>`).join("");
+      </tr>`;
+    }).join("");
 
     const userRows = charMgmtUsers.map((u) => `
       <tr data-user-id="${esc(u.id)}">
@@ -704,10 +716,13 @@ export async function initAdminPanelPage(data) {
 
     return `
       <section class="panel" style="max-width:960px;margin-top:12px;" id="ucm-section">
-        <h2 style="margin-top:0;">User–Character Management <span class="admin-badge">Admin only</span></h2>
+        <h2 style="margin-top:0;">User–Character Management <span class="admin-badge">Admin/Mod</span></h2>
         <p style="font-size:13px;color:#555;margin-top:0;">
           Assign unowned characters to users and manage active character pointers. Use this as a backup if the
           normal approval flow did not correctly set ownership.
+          NPCs show an <b>[NPC]</b> badge — use <b>Assign NPC Manager</b> to give a party leader control of an NPC
+          without changing their main active character. Use <b>Assign + Set Active</b> to set an NPC (or PC) as a
+          user's main active character.
         </p>
         <div style="margin-bottom:10px;">
           <button class="btn" id="btn-ucm-reload" type="button" style="font-size:12px;">↺ Reload</button>
@@ -1534,6 +1549,27 @@ export async function initAdminPanelPage(data) {
       }
 
       host.querySelector("#btn-ucm-reload")?.addEventListener("click", () => loadUcmData());
+
+      // Assign NPC Manager button — sets managed_by_user_id without changing user_id or is_active
+      host.querySelectorAll(".ucm-assign-npc-manager-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const charId = btn.dataset.charId;
+          const sel = host.querySelector(`.ucm-user-select[data-char-id="${CSS.escape(charId)}"]`);
+          const userId = sel?.value;
+          if (!userId) { setStatus("Select a user first.", false); return; }
+          try {
+            btn.disabled = true;
+            await apiAdminAssignNpcManager(charId, userId);
+            toastSuccess("NPC manager assigned.");
+            setStatus("NPC manager assigned.");
+            await loadUcmData();
+          } catch (err) {
+            setStatus(err.message, false);
+            toastError(err.message);
+            btn.disabled = false;
+          }
+        });
+      });
 
       // Assign / Assign+Active buttons for unowned characters
       host.querySelectorAll(".ucm-assign-btn,.ucm-assign-active-btn").forEach((btn) => {

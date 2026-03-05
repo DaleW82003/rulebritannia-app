@@ -763,6 +763,20 @@ export async function apiApplyCharacter(fields) {
   return res.json();
 }
 
+export async function apiApplyNpcCharacter(fields) {
+  const res = await _fetch(`${API_BASE}/api/characters/apply-npc`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(fields),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiApplyNpcCharacter failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function apiGetMyApplications() {
   const res = await _fetch(`${API_BASE}/api/characters/applications/mine`, { credentials: "include" });
   if (!res.ok) throw new Error(`apiGetMyApplications failed (${res.status})`);
@@ -2343,6 +2357,20 @@ export async function apiAdminSetUserActiveCharacter(userId, characterId) {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `apiAdminSetUserActiveCharacter failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function apiAdminAssignNpcManager(characterId, userId) {
+  const res = await _fetch(`${API_BASE}/api/admin/characters/${encodeURIComponent(characterId)}/assign-npc-manager`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ user_id: userId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiAdminAssignNpcManager failed (${res.status})`);
   }
   return res.json();
 }
