@@ -58,3 +58,15 @@ export function canSeeAudienceItem(data, audience = {}) {
   }
   return true;
 }
+
+/**
+ * True if the current user/character is eligible to request Right of Reply:
+ * PM, Leader of the Opposition, third-party leader (Lib Dem), or Speaker.
+ */
+export function canRightOfReply(data) {
+  const userRoles = (data?.currentUser?.roles || []);
+  return userRoles.includes("office:prime_minister") ||
+         userRoles.includes("office:leader_of_opposition") ||
+         userRoles.includes("office:leader_of_third_party") ||
+         hasRoleFlag(data, "speaker");
+}

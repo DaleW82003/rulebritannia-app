@@ -112,6 +112,7 @@
       </div>
       <div class="tile-bottom" style="padding-top:0; margin-top:0;">
         <button class="btn primary" type="button" id="papersNewsDeskBtn" style="display:none;">News Desk</button>
+        <button class="btn" type="button" id="papersSubmissionsBtn">Submit a Leak / Editorial</button>
       </div>
     </div>
   </section>
@@ -149,6 +150,136 @@
         <button class="btn" type="button" id="papersDeskCancel">Cancel</button>
       </div>
     </form>
+  </section>
+
+  <!-- ── Papers Submissions UI ──────────────────────────────────────────── -->
+
+  <section class="panel" id="papersSubmissionsPanel" style="display:none;">
+    <div class="spaced" style="margin-bottom:12px;">
+      <h2 style="margin:0;">Submissions Inbox</h2>
+      <div>
+        <button class="btn" type="button" id="papersSubLeakBtn">📰 Leak to the Press</button>
+        <button class="btn" type="button" id="papersSubEditorialBtn">✏️ Write an Editorial</button>
+        <button class="btn" type="button" id="papersSubMyBtn">My Submissions</button>
+      </div>
+    </div>
+
+    <!-- Leak form -->
+    <section id="papersLeakForm" class="panel" style="display:none;border-left:3px solid #c00;margin-bottom:12px;">
+      <h3 style="margin-top:0;">📰 Leak to the Press</h3>
+      <div class="muted-block" style="margin-bottom:10px;">Submit anonymously. Only mods see your identity and evidence. Your character name is <em>not</em> shown in the published article.</div>
+      <form id="papersLeakFormEl" class="form-grid">
+        <label for="leakPaper">Target Paper</label>
+        <select id="leakPaper" required></select>
+
+        <label for="leakText">Story summary / leak text</label>
+        <textarea id="leakText" rows="5" maxlength="5000" required placeholder="What do you know? Be as specific as possible…"></textarea>
+
+        <label for="leakSourceType">Source type</label>
+        <select id="leakSourceType">
+          <option value="backbencher">Backbencher</option>
+          <option value="civil_servant">Civil Servant</option>
+          <option value="party_staff">Party Staff</option>
+          <option value="adviser">Adviser</option>
+          <option value="lobbyist">Lobbyist</option>
+          <option value="other" selected>Other</option>
+        </select>
+
+        <label for="leakPseudonym">Pseudonym (optional)</label>
+        <input id="leakPseudonym" type="text" maxlength="100" placeholder="e.g. 'A source close to the PM'">
+
+        <label for="leakEvidence">Sources / evidence (only mods will see this)</label>
+        <textarea id="leakEvidence" rows="3" maxlength="5000" placeholder="Links, dates, quotes, context…"></textarea>
+
+        <label for="leakRisk">Legal / scrutiny risk</label>
+        <select id="leakRisk">
+          <option value="0">0 — None</option>
+          <option value="1">1 — Minor</option>
+          <option value="2">2 — Moderate</option>
+          <option value="3">3 — High</option>
+        </select>
+
+        <label for="leakControversial" style="align-self:center;">Mark as controversial</label>
+        <div><input id="leakControversial" type="checkbox"> <span class="small">Flag for extra mod attention</span></div>
+
+        <div></div>
+        <div class="tile-bottom" style="padding-top:0;margin-top:0;">
+          <button class="btn primary" type="submit">Submit Leak</button>
+          <button class="btn" type="button" id="papersLeakCancel">Cancel</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Editorial form -->
+    <section id="papersEditorialForm" class="panel" style="display:none;border-left:3px solid #003f7d;margin-bottom:12px;">
+      <h3 style="margin-top:0;">✏️ Write an Editorial</h3>
+      <div class="muted-block" style="margin-bottom:10px;">Submit an opinion piece or editorial. Mods review before publishing. Your name / pseudonym will appear as the byline.</div>
+      <form id="papersEditorialFormEl" class="form-grid">
+        <label for="editPaper">Target Paper</label>
+        <select id="editPaper" required></select>
+
+        <label for="editHeadline">Headline</label>
+        <input id="editHeadline" type="text" maxlength="180" required placeholder="e.g. 'Why the Chancellor is wrong'">
+
+        <label for="editText">Editorial text</label>
+        <textarea id="editText" rows="7" maxlength="10000" required placeholder="Write your editorial…"></textarea>
+
+        <label for="editPseudonym">Byline / pseudonym (optional)</label>
+        <input id="editPseudonym" type="text" maxlength="100" placeholder="Defaults to your character name">
+
+        <label for="editImage">Image URL (optional)</label>
+        <input id="editImage" type="url" placeholder="https://…">
+
+        <label for="editRisk">Legal / scrutiny risk</label>
+        <select id="editRisk">
+          <option value="0">0 — None</option>
+          <option value="1">1 — Minor</option>
+          <option value="2">2 — Moderate</option>
+          <option value="3">3 — High</option>
+        </select>
+
+        <label for="editControversial" style="align-self:center;">Mark as controversial</label>
+        <div><input id="editControversial" type="checkbox"> <span class="small">Flag for extra mod attention</span></div>
+
+        <div></div>
+        <div class="tile-bottom" style="padding-top:0;margin-top:0;">
+          <button class="btn primary" type="submit">Submit Editorial</button>
+          <button class="btn" type="button" id="papersEditorialCancel">Cancel</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- My Submissions view -->
+    <div id="papersMySubmissions" style="display:none;">
+      <h3 style="margin-top:0;">My Submissions</h3>
+      <div id="papersMySubmissionsList" class="muted-block">Loading…</div>
+    </div>
+
+    <!-- Mod inbox (mods/admin only) -->
+    <div id="papersModInbox" style="display:none;">
+      <div class="spaced" style="margin-bottom:8px;">
+        <h3 style="margin:0;">Mod Inbox</h3>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <select id="modInboxFilterPaper" style="font-size:.85em;"><option value="">All Papers</option></select>
+          <select id="modInboxFilterStatus" style="font-size:.85em;">
+            <option value="">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="accepted">Accepted</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <select id="modInboxFilterType" style="font-size:.85em;">
+            <option value="">All Types</option>
+            <option value="leak">Leaks</option>
+            <option value="editorial">Editorials</option>
+          </select>
+          <label style="font-size:.85em;display:flex;gap:4px;align-items:center;">
+            <input id="modInboxFilterRisk" type="checkbox"> High-risk only
+          </label>
+          <button class="btn small" type="button" id="modInboxRefresh">Refresh</button>
+        </div>
+      </div>
+      <div id="papersModInboxList" class="muted-block">Loading…</div>
+    </div>
   </section>
 
 </main>

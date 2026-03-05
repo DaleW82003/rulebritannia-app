@@ -64,5 +64,6 @@ export {
   canRaiseCivilServiceCase,
   canSignEdm,
   canVoteDivision,
-  canSeeAudienceItem
+  canSeeAudienceItem,
+  canRightOfReply
 };
