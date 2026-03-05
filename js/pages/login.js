@@ -90,9 +90,13 @@ export function initLoginPage(_data) {
           window.location.href = next;
           return;
         }
-        // Priority 3: role-based dropon redirect
+        // Priority 3: role-based dropon redirect.
+        // Check both the roles array and the boolean flags the server may return,
+        // so routing works even if one or the other is absent from the response.
         const roles = result?.user?.roles || [];
-        const isStaff = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
+        const u = result?.user || {};
+        const isStaff = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker")
+          || !!u.isAdmin || !!u.isMod || !!u.isSpeaker;
         window.location.href = isStaff ? "staff-dropon.html" : "player-dropon.html";
       })
       .catch((err) => {
