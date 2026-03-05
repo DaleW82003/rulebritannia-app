@@ -26,6 +26,8 @@ export async function initStaffDroponPage(data) {
   const user = await requireLogin();
   if (!user) return;
 
+  data.currentUser ??= user;
+
   if (!canAdminModOrSpeaker(data)) {
     window.location.href = "dashboard.html";
     return;
