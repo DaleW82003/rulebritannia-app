@@ -520,6 +520,7 @@ function openNewsFromPostModal(data, prefillHeadline, prefillText) {
 
     document.getElementById("online-news-from-post-form")?.addEventListener("submit", async (ev) => {
       ev.preventDefault();
+      const form = ev.currentTarget;
       const headline = document.getElementById("nfp-headline")?.value?.trim();
       const text = document.getElementById("nfp-text")?.value?.trim();
       const imageUrl = document.getElementById("nfp-image")?.value?.trim();
@@ -543,7 +544,7 @@ function openNewsFromPostModal(data, prefillHeadline, prefillText) {
       try {
         await apiCreateNewsStory(story);
         if (statusEl) statusEl.textContent = "✓ Published!";
-        ev.currentTarget.reset();
+        if (form instanceof HTMLFormElement) form.reset();
         setTimeout(() => { modal.style.display = "none"; if (statusEl) statusEl.textContent = ""; }, 1500);
       } catch (err) {
         if (statusEl) statusEl.textContent = err.message || "Failed to publish.";
