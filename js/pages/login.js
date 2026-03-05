@@ -90,7 +90,14 @@ export function initLoginPage(_data) {
           window.location.href = next;
           return;
         }
-        window.location.href = "dashboard.html";
+        // Priority 3: role-based dropon redirect.
+        // Check both the roles array and the boolean flags the server may return,
+        // so routing works even if one or the other is absent from the response.
+        const roles = result?.user?.roles || [];
+        const u = result?.user || {};
+        const isStaff = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker")
+          || !!u.isAdmin || !!u.isMod || !!u.isSpeaker;
+        window.location.href = isStaff ? "staff-dropon.html" : "player-dropon.html";
       })
       .catch((err) => {
         const status = err?.message?.match(/\((\d+)\)/)?.[1];

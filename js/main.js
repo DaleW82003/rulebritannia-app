@@ -54,6 +54,8 @@ import { initControlPanelPage } from "./pages/control-panel.js";
 import { initAdminPanelPage } from "./pages/admin-panel.js";
 import { initPlayerbasePage } from "./pages/playerbase.js";
 import { initLoginPage } from "./pages/login.js";
+import { initStaffDroponPage } from "./pages/staff-dropon.js";
+import { initPlayerDroponPage } from "./pages/player-dropon.js";
 import { initLandingPage } from "./pages/landing.js";
 import { initRegisterPage } from "./pages/register.js";
 import { initVerifyEmailPage } from "./pages/verify-email.js";
@@ -192,6 +194,8 @@ function renderDataSourcePanel(sources) {
       "admin-panel": initAdminPanelPage,
       playerbase: initPlayerbasePage,
       login: initLoginPage,
+      "staff-dropon": initStaffDroponPage,
+      "player-dropon": initPlayerDroponPage,
       landing: initLandingPage,
       register: initRegisterPage,
       "verify-email": initVerifyEmailPage,
