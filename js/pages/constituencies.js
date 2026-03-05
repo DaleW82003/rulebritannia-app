@@ -34,17 +34,28 @@ function canManage(data) {
   return canAdminModOrSpeaker(data);
 }
 
-function activeMpNameForConstituency(data, constituencyName) {
+function activeMpForConstituency(data, constituencyName) {
   const cName = String(constituencyName || "").toLowerCase();
-  const player = (data.players || []).find((p) => String(p.constituency || "").toLowerCase() === cName);
-  return player?.name || "";
+  return (data.players || []).find((p) => String(p.constituency || "").toLowerCase() === cName) || null;
 }
 
+// Playable parties whose seats show "Available" when unoccupied (player characters fill them).
+// All other parties are NPC-only: unoccupied seats show "Unnamed NPC".
+const PLAYABLE_PARTY_NAMES = new Set(
+  CONSTITUENCY_PARTIES.filter((p) => p.playable).map((p) => p.name)
+);
+
 function seatLabel(c, data) {
-  const existingChar = activeMpNameForConstituency(data, c.name);
-  if (existingChar) return `${existingChar} (Character)`;
+  const player = activeMpForConstituency(data, c.name);
+  if (player) {
+    // Use display_name (pre-formatted parliamentary name) if available, otherwise bare name.
+    const label = player.display_name || player.name || "";
+    return player.is_npc ? `${label} (NPC)` : `${label} (Character)`;
+  }
   if (c.mpType === "npc" && c.mpName) return `${c.mpName} (NPC)`;
   if (c.mpType === "character" && c.mpName) return `${c.mpName} (Character)`;
+  // Non-playable party seats (NPC parties) have an unnamed NPC by default.
+  if (c.party && !PLAYABLE_PARTY_NAMES.has(c.party)) return "Unnamed NPC";
   return "Available";
 }
 
@@ -453,6 +464,8 @@ export async function initConstituenciesPage(data) {
         .map((c) => ({
           id: c.id,
           name: c.name,
+          display_name: c.display_name || c.name,
+          is_npc: Boolean(c.is_npc),
           party: c.party,
           constituency: c.constituency,
           _fromDb: true,

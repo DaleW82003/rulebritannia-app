@@ -6281,8 +6281,10 @@ async function getCharacterParliamentaryMeta(pool, characterId) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows } = await pool.query(
-    `SELECT c.id, c.rh_ever, c.tpl_ever,
-            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
+    `SELECT c.id, c.rh_ever, c.tpl_ever, c.is_npc,
+            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency)
+                    AND (k.mp_type = 'character' OR (k.mp_type = 'npc' AND c.is_npc = TRUE))
+                    AND COALESCE(c.constituency, '') != '') AS is_mp,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (
               SELECT 1 FROM office_assignments oa
@@ -6349,8 +6351,10 @@ async function batchGetCharacterDisplayNames(pool, entries) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows } = await pool.query(
-    `SELECT c.id, c.name, c.rh_ever, c.tpl_ever,
-            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
+    `SELECT c.id, c.name, c.rh_ever, c.tpl_ever, c.is_npc,
+            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency)
+                    AND (k.mp_type = 'character' OR (k.mp_type = 'npc' AND c.is_npc = TRUE))
+                    AND COALESCE(c.constituency, '') != '') AS is_mp,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
             EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
@@ -6394,8 +6398,10 @@ async function batchEnrichCharacterRows(pool, rows) {
 
   const thirdPartySlug = await getThirdPartySlug(pool);
   const { rows: metaRows } = await pool.query(
-    `SELECT c.id, c.rh_ever, c.tpl_ever,
-            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency) AND k.mp_type = 'character' AND COALESCE(c.constituency, '') != '') AS is_mp,
+    `SELECT c.id, c.rh_ever, c.tpl_ever, c.is_npc,
+            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency)
+                    AND (k.mp_type = 'character' OR (k.mp_type = 'npc' AND c.is_npc = TRUE))
+                    AND COALESCE(c.constituency, '') != '') AS is_mp,
             EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
             EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
             EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
@@ -8851,7 +8857,7 @@ app.get("/api/characters", charReadLimit, async (req, res) => {
     const extraFields = isPrivileged
       ? ", date_of_birth, education, career_background, family, year_first_elected, personal_background, bio, financial_background_level, twitter_handle"
       : "";
-    let q = `SELECT id, user_id, name, party, constituency, roles, offices, is_active, created_at, avatar${extraFields} FROM characters`;
+    let q = `SELECT id, user_id, name, party, constituency, roles, offices, is_active, is_npc, created_at, avatar${extraFields} FROM characters`;
     const params = [];
     if (active === "true") { q += " WHERE is_active = TRUE"; }
     else if (active === "false") { q += " WHERE is_active = FALSE"; }
@@ -9248,11 +9254,6 @@ app.post("/api/characters/apply-npc", charAppWriteLimit, async (req, res) => {
     if (!constituency || !constituency.trim()) {
       return res.status(400).json({ error: "constituency is required for NPC characters" });
     }
-
-    // Only the three canonical playable parties are accepted.
-    if (party && !PLAYABLE_PARTIES.includes(party)) {
-      return res.status(400).json({ error: `party must be one of: ${PLAYABLE_PARTIES.join(", ")}` });
-    }
     if (!party) {
       return res.status(400).json({ error: "party is required for NPC characters" });
     }
@@ -9293,6 +9294,18 @@ app.post("/api/characters/apply-npc", charAppWriteLimit, async (req, res) => {
       if (activeChar.party !== party) {
         return res.status(403).json({ error: `NPC party must match your active character's party (${activeChar.party}).` });
       }
+    }
+
+    // Validate that the selected constituency exists and belongs to the submitted party
+    const { rows: constRows } = await pool.query(
+      "SELECT id, party FROM constituencies WHERE LOWER(name) = LOWER($1) LIMIT 1",
+      [constituency.trim()]
+    );
+    if (!constRows.length) {
+      return res.status(400).json({ error: "Constituency not found." });
+    }
+    if (constRows[0].party !== party) {
+      return res.status(400).json({ error: `That constituency is held by ${constRows[0].party}, not ${party}. Please select a constituency from your party.` });
     }
 
     const bioValue = bio != null ? String(bio).slice(0, 2000) : (personal_background ?? null);
@@ -9441,6 +9454,15 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
       );
 
       await client.query("COMMIT");
+
+      // Update the constituency row to reflect this NPC's occupancy (best-effort).
+      // NPCs are MPs (hold a seat) but not Right Honourable by default.
+      const npcFormattedName = formatParliamentaryName({ bareName: character.name, isRH: false, isMP: true, isPC: false });
+      await pool.query(
+        `UPDATE constituencies SET mp_type = 'npc', mp_name = $1, updated_at = NOW()
+          WHERE id = (SELECT id FROM constituencies WHERE LOWER(name) = LOWER($2) LIMIT 1)`,
+        [npcFormattedName, character.constituency]
+      ).catch((e) => console.warn("[approve-npc] constituency update failed:", e.message));
 
       // Seed backbencher salary position (best-effort)
       await pool.query(

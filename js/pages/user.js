@@ -525,14 +525,23 @@ function render(data, state) {
             <option value="">Family Status (optional)</option>
             ${FAMILY_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
           </select>
-          ${isAdminOrMod ? `
+          ${isAdminOrMod ? (() => {
+            // Build a sorted, de-duped list of parties that hold at least one constituency.
+            // Exclude Speaker (no NPC MPs) and Sinn Féin (do not take their seats).
+            const constParties = [...new Set(
+              (data.constituencies || [])
+                .map((c) => c.party)
+                .filter((p) => p && !/^speaker$/i.test(p) && !/sinn\s*f[eé]in/i.test(p))
+            )].sort((a, b) => a.localeCompare(b));
+            const opts = constParties.map((p) =>
+              `<option value="${esc(p)}">${esc(p)}</option>`
+            ).join("");
+            return `
           <select class="input" name="party" id="npc-party-select" required>
             <option value="">Select party</option>
-            <option value="Conservative">Conservative</option>
-            <option value="Labour">Labour</option>
-            ${!data.adminSettings?.libDemClosedToNewChars ? `<option value="Liberal Democrat">Liberal Democrat</option>` : ""}
-          </select>
-          ` : `
+            ${opts}
+          </select>`;
+          })() : `
           <input type="hidden" name="party" value="${esc(activeCharParty)}">
           <div class="input" style="background:#f5f5f5;cursor:not-allowed;color:#888;">Party: ${esc(activeCharParty)} (locked)</div>
           `}
