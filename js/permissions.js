@@ -8,7 +8,8 @@ import {
   canRaiseCivilServiceCase,
   canSignEdm,
   canVoteDivision,
-  canSeeAudienceItem
+  canSeeAudienceItem,
+  canRightOfReply
 } from "./engines/permission-engine.js";
 
 export function isAdmin(data) {
