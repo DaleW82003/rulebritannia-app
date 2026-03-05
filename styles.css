@@ -176,7 +176,7 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
   backdrop-filter:saturate(1.05);
 }
 .topbar-inner{
-  width:min(1120px, calc(100% - 32px));
+  width:min(1320px, calc(100% - 32px));
   margin:0 auto;
   display:flex;
   align-items:center;
