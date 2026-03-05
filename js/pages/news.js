@@ -397,7 +397,7 @@ function bindRightOfReplyButtons(data, myReplyMap) {
           style="resize:vertical;font-size:.85em;"></textarea>
         <div style="display:flex;gap:6px;">
           <button class="btn primary" type="submit" style="font-size:.85em;">Submit Request</button>
-          <button class="btn" type="button" style="font-size:.85em;" class="rrf-cancel">Cancel</button>
+          <button class="btn" type="button" style="font-size:.85em;">Cancel</button>
         </div>
         <div class="rrf-status" style="font-size:.8em;color:#555;"></div>
       `;
@@ -556,7 +556,9 @@ export async function initNewsPage(data) {
   bindArchiveToggle();
   bindNewsDesk(data, renderAll);
   // Load reply requests panel for mods/admin (fire-and-forget, non-critical)
-  bindReplyRequestsPanel(data).catch(err => console.error("[news] reply requests panel failed:", err)); // UI_ONLY_OK: mod-only news admin panel; non-critical feature
+  bindReplyRequestsPanel(data).catch((err) => { // UI_ONLY_OK: mod-only news admin panel; non-critical feature
+    console.error("[news] reply requests panel failed:", err);
+  });
 
   if (canDelete) {
     document.addEventListener("click", (e) => {

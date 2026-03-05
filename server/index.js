@@ -19443,7 +19443,7 @@ app.delete("/api/news/:id", crudWriteLimit, async (req, res) => {
 // ── "Have Your Say" — News Story Comments API ────────────────────────────────
 // GET    /api/news/:id/comments              — authenticated: list comments (oldest first)
 // POST   /api/news/:id/comments              — authenticated: create comment (400 char cap, 1/sim-month/user)
-// DELETE /api/news/:id/comments/:cid         — author (soft, user-deleted label) or admin/mod/speaker (hard soft)
+// DELETE /api/news/:id/comments/:cid         — author (soft-delete, user-deleted label) or staff (soft-delete, removed-by-staff label)
 // POST   /api/news/:id/comments/:cid/report  — any user: flag comment to mods
 // ── Right of Reply API ────────────────────────────────────────────────────────
 // POST  /api/news/:id/reply-request          — PM/LoTO/3rd-party-leader/Speaker only
