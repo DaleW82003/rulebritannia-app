@@ -6543,6 +6543,44 @@ function computeAllPlayerWeights(seatsByParty, players) {
   return { effectiveWeights, baseWeights, leaderByParty };
 }
 
+/**
+ * Compute the effective vote weight for a single character.
+ *
+ * When a character is an NPC assigned as a user's main active character they may
+ * not appear in the game-state `statePlayers` list (which is admin-managed).  In
+ * that case, inject them as a synthetic settled backbencher and recompute so that
+ * they receive their proportional share of their party's seats.
+ *
+ * Normal (non-NPC) characters that are absent from the player list intentionally
+ * receive 0 weight — that behaviour is preserved.
+ *
+ * @param {Object}   seatsByParty  - { partyName: seatCount } from constituencies DB
+ * @param {Array}    statePlayers  - player list from game state snapshot
+ * @param {string}   charName      - character name to look up
+ * @param {string|null} charParty  - character party
+ * @param {boolean}  isNpc         - true if the character has is_npc = true
+ * @returns {number}
+ */
+function computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc) {
+  const nameStr = String(charName || "");
+  const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
+  const w = Number(effectiveWeights[nameStr] || 0);
+  if (w > 0) return w;
+
+  // For NPCs not present in the game state, inject synthetically so they share party seats.
+  if (!isNpc || !charParty) return w;
+  if (SINN_FEIN_PARTY_RE.test(charParty) || SPEAKER_PARTY_RE.test(charParty)) return 0;
+  const inState = statePlayers.some((p) => String(p.name || "") === nameStr);
+  if (inState) return w; // already included but still got 0 — respect the computed result
+
+  const augmented = [
+    ...statePlayers,
+    { name: nameStr, party: charParty, role: "backbencher", active: true },
+  ];
+  const { effectiveWeights: ew2 } = computeAllPlayerWeights(seatsByParty, augmented);
+  return Number(ew2[nameStr] || 0);
+}
+
 // PATCH /api/bills/:id/vote — authenticated: cast a server-authoritative vote on a bill division
 app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
   try {
@@ -6568,11 +6606,11 @@ app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
 
     // Get current active character from DB
     const { rows: charRows } = await pool.query(
-      "SELECT name, party FROM characters WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at DESC LIMIT 1",
+      "SELECT name, party, is_npc FROM characters WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at DESC LIMIT 1",
       [req.session.userId]
     );
     if (!charRows.length) return res.status(400).json({ error: "No active character found" });
-    const { name: charName, party: charParty } = charRows[0];
+    const { name: charName, party: charParty, is_npc: isNpc } = charRows[0];
 
     // Seat totals from constituencies DB (authoritative source — constituencies page)
     const seatsByParty = await getPartySeatsFromConstituencies(pool);
@@ -6587,9 +6625,12 @@ app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
     const stateData = stateRows[0]?.data ?? {};
     const players = Array.isArray(stateData?.players) ? stateData.players : [];
 
-    // Compute effective weight server-side (seats from constituencies DB, players from state)
+    // Compute effective weight server-side (seats from constituencies DB, players from state).
+    // NPC characters not present in state are injected synthetically to receive their party share.
     const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, players);
-    const effectiveWeight = Number(effectiveWeights[charName] || 0);
+    const effectiveWeight = isNpc
+      ? computeCharacterWeight(seatsByParty, players, charName, charParty, true)
+      : Number(effectiveWeights[charName] || 0);
 
     // Initialise division if this is the first vote
     bill.division ??= { status: "open", votes: {}, openedAt: Date.now(), rebelsByParty: {}, npcVotes: {} };
@@ -6738,7 +6779,7 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
     if (!motionRows.length) return res.status(404).json({ error: "Motion not found" });
     if (motionRows[0].motion_type !== "edm") return res.status(400).json({ error: "Only EDMs can be signed" });
 
-    const { rows: charRows } = await pool.query("SELECT id, name, party FROM characters WHERE id = $1", [charId]);
+    const { rows: charRows } = await pool.query("SELECT id, name, party, is_npc FROM characters WHERE id = $1", [charId]);
     if (!charRows.length) return res.status(404).json({ error: "Character not found" });
     const char = charRows[0];
 
@@ -6753,7 +6794,8 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
     const already = edm.signatures.some((sig) => String(sig.name || "") === String(char.name || ""));
     if (already) return res.status(409).json({ error: "Already signed" });
 
-    // Compute signature weight using the same model as division votes
+    // Compute signature weight using the same model as division votes.
+    // NPC characters not present in state are injected synthetically to receive their party share.
     let weight = 1;
     try {
       const seatsByParty = await getPartySeatsFromConstituencies(pool);
@@ -6763,8 +6805,7 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
           WHERE asc2.id = 'main'`
       );
       const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-      const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
-      const computed = Number(effectiveWeights[char.name] || 0);
+      const computed = computeCharacterWeight(seatsByParty, statePlayers, char.name, char.party, Boolean(char.is_npc));
       if (computed > 0) weight = computed;
     } catch (wErr) {
       console.error("[edm.sign weight-calc]", wErr.message);
@@ -14506,16 +14547,18 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 
     // Get character name and party for weight computation and rebellion check
     const { rows: charRows } = await pool.query(
-      "SELECT name, party, whip_status FROM characters WHERE id = $1", [charId]
+      "SELECT name, party, whip_status, is_npc FROM characters WHERE id = $1", [charId]
     );
     const charParty      = charRows[0]?.party       || null;
     const charName       = charRows[0]?.name        || null;
     const whipWithdrawn  = charRows[0]?.whip_status === "withdrawn";
+    const isNpc          = Boolean(charRows[0]?.is_npc);
 
     // Compute effective weight server-side:
     //   seats from constituencies DB (authoritative source)
     //   player list from game state (for absence/delegation)
     //   MPs with whip withdrawn vote as Independents with weight=1
+    //   NPC characters not present in state are injected synthetically to receive their party share.
     let effectiveWeight = 1;
     try {
       if (!whipWithdrawn) {
@@ -14526,8 +14569,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
             WHERE asc2.id = 'main'`
         );
         const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-        const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
-        effectiveWeight = Number(effectiveWeights[charName] || 0);
+        effectiveWeight = computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc);
       }
       // whipWithdrawn: effectiveWeight stays 1
     } catch (wErr) {

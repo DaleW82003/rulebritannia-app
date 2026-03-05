@@ -693,7 +693,7 @@ export async function initAdminPanelPage(data) {
             ${charMgmtUsers.map((u) => `<option value="${esc(u.id)}">${esc(u.username)}</option>`).join("")}
           </select>
           ${c.is_npc
-            ? `<button class="btn ucm-assign-npc-manager-btn" data-char-id="${esc(c.id)}" type="button" style="font-size:12px;padding:2px 8px;margin-right:4px;" title="Set this user as the party leader who manages this NPC (managed_by_user_id)">Assign NPC Manager</button>`
+            ? `<button class="btn ucm-assign-npc-manager-btn" data-char-id="${esc(c.id)}" type="button" style="font-size:12px;padding:2px 8px;margin-right:4px;" title="Set this user as the manager of this NPC (managed_by_user_id). Intended for party leaders or other eligible users.">Assign NPC Manager</button>`
             : ""}
           <button class="btn ucm-assign-btn" data-char-id="${esc(c.id)}" type="button" style="font-size:12px;padding:2px 8px;margin-right:4px;">Assign as Active PC</button>
           <button class="btn ucm-assign-active-btn" data-char-id="${esc(c.id)}" type="button" style="font-size:12px;padding:2px 8px;">Assign + Set Active</button>
