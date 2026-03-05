@@ -1,7 +1,9 @@
 import { setHTML, esc } from "../ui.js";
 import { canAdminModOrSpeaker } from "../permissions.js";
+import { isLoggedIn } from "../core.js";
 import {
   apiGetCharacters,
+  apiGetOffices,
   apiGetConstituencies,
   apiUpdateConstituency,
   apiGetParliamentStatus,
@@ -58,12 +60,16 @@ function getLargestParty(constituencies) {
 
 function getPM(data) {
   const offices = data?.government?.offices || [];
-  return offices.find((o) => o.id === "prime-minister")?.holderName || "Vacant";
+  const office = offices.find((o) => o.id === "prime-minister");
+  if (!office?.holderName) return "Vacant";
+  return office.holderDisplayName || office.holderName;
 }
 
 function getLeaderOfOpposition(data) {
   const offices = data?.opposition?.offices || [];
-  return offices.find((o) => o.id === "leader-opposition")?.holderName || "Vacant";
+  const office = offices.find((o) => o.id === "leader-opposition");
+  if (!office?.holderName) return "Vacant";
+  return office.holderDisplayName || office.holderName;
 }
 
 function renderStateOfParliament(constituencies, data, parlStatus) {
@@ -432,10 +438,15 @@ export async function initConstituenciesPage(data) {
     // Non-critical: may not be logged in or server unavailable
   }
 
-  // Fetch DB characters and merge into players list for constituency assignment
+  // Fetch DB characters and merge into players list for constituency assignment.
+  // Also fetch live office assignments to populate PM and LoTO display names.
   try {
-    const { characters } = await apiGetCharacters({ active: "true" });
-    if (characters && characters.length) {
+    const [charResult, officesResult] = await Promise.all([
+      apiGetCharacters({ active: "true" }),
+      isLoggedIn() ? apiGetOffices().catch(() => ({ offices: [] })) : Promise.resolve({ offices: [] }),
+    ]);
+    const characters = charResult.characters || [];
+    if (characters.length) {
       const existingIds = new Set((data.players || []).map((p) => p.id));
       const dbPlayers = characters
         .filter((c) => c.constituency)
@@ -451,8 +462,48 @@ export async function initConstituenciesPage(data) {
         ...dbPlayers.filter((p) => !existingIds.has(p.id)),
       ];
     }
+
+    // Enrich PM and LoTO office holders with formatted display names from the DB.
+    // This mirrors the same enrichment done by the Government and Opposition pages.
+    const dbOffices = officesResult.offices || [];
+    if (dbOffices.length && characters.length) {
+      const charById = Object.fromEntries(characters.map((c) => [c.id, c]));
+      data.government ??= {};
+      data.government.offices ??= [];
+      data.opposition ??= {};
+      data.opposition.offices ??= [];
+      const govMap = new Map(data.government.offices.map((o) => [o.id, o]));
+      const oppMap = new Map(data.opposition.offices.map((o) => [o.id, o]));
+
+      for (const dbOffice of dbOffices) {
+        const specId = dbOffice.spec_id ?? "";
+        if (specId !== "prime-minister" && specId !== "leader-opposition") continue;
+        const isGov = specId === "prime-minister";
+        const officeMap = isGov ? govMap : oppMap;
+        const officesList = isGov ? data.government.offices : data.opposition.offices;
+
+        let office = officeMap.get(specId);
+        if (!office) {
+          office = { id: specId, holderName: "", holderDisplayName: "" };
+          officesList.push(office);
+          officeMap.set(specId, office);
+        }
+
+        const firstAssignment = (dbOffice.assignments || [])[0];
+        if (firstAssignment) {
+          const char = charById[firstAssignment.character_id];
+          if (char) {
+            office.holderName        = char.name;
+            office.holderDisplayName = char.display_name || char.name;
+          }
+        } else {
+          office.holderName        = "";
+          office.holderDisplayName = "";
+        }
+      }
+    }
   } catch {
-    // Non-critical: fall back to state-based players list
+    // Non-critical: fall back to state-based players list and office data
   }
 
   refreshAll(constituencies, data, parlStatus);
