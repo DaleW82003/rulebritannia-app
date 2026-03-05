@@ -1,5 +1,5 @@
 // js/pages/privycouncil.js
-import { esc } from "../ui.js";
+import { esc, affiliationBadge } from "../ui.js";
 import { canAdminOrMod } from "../permissions.js";
 import { apiGetPrivyCouncil, apiAppointPrivyCouncillor, apiRemovePrivyCouncillor, apiGetCharacters, apiGetPrivyCouncilPosts, apiCreatePrivyCouncilPost, apiDeletePrivyCouncilPost } from "../api.js";
 
@@ -66,7 +66,7 @@ function render(members, posts, data, state, manager) {
               : `<img src="${esc(avatarFor(p.posted_as, p.avatar_url))}" alt="${esc(p.posted_as)}" width="44" height="44" style="border-radius:${p.posted_as_type === "monarch" ? "4px" : "999px"};object-fit:cover;flex-shrink:0;">`}
             <div style="flex:1;">
               <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                <div><b>${p.posted_as_type === "monarch" ? esc(monarchTitle + " the Monarch") : esc(p.posted_as)}</b>${p.posted_as_type === "monarch" ? ` <span class="muted">(Monarch)</span>` : ""}</div>
+                <div><b>${p.posted_as_type === "monarch" ? esc(monarchTitle + " the Monarch") : esc(p.posted_as)}</b>${affiliationBadge({ isModAffiliation: p.posted_as_type === "monarch" }) ? ` ${affiliationBadge({ isModAffiliation: p.posted_as_type === "monarch" })}` : ""}${p.posted_as_type === "monarch" ? ` <span class="muted">(Monarch)</span>` : ""}</div>
                 <div class="muted">${esc(formatSimLabel(p.sim_month, p.sim_year))}</div>
               </div>
               <p style="margin:8px 0;white-space:pre-wrap;">${esc(p.body)}</p>

@@ -435,6 +435,13 @@ export function partyBadge(partyName) {
   return `<span style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:.8em;font-weight:600;background:${colours.bg};color:${colours.fg};">${esc(partyName)}</span>`;
 }
 
+/** Render a party badge, or a special MOD badge for non-party institutional posters. */
+export function affiliationBadge({ party = "", isModAffiliation = false, modLabel = "MOD" } = {}) {
+  if (party) return partyBadge(party);
+  if (!isModAffiliation) return "";
+  return `<span class="mod-affiliation-badge">${esc(modLabel)}</span>`;
+}
+
 /**
  * Format an MP name with the correct parliamentary honorific and post-nominals.
  *
@@ -472,4 +479,3 @@ export function $(id) {
 export function getIdFromUrl() {
   return new URL(window.location.href).searchParams.get("id");
 }
-

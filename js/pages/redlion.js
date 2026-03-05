@@ -1,4 +1,4 @@
-import { esc } from "../ui.js";
+import { esc, affiliationBadge } from "../ui.js";
 import { isAdmin, isMod, isSpeaker } from "../permissions.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateRedLionPost, apiDeleteRedLionPost, apiGetRedLionPosts } from "../api.js";
@@ -86,7 +86,7 @@ function render(data) {
             <img src="${esc(avatarFor(p.displayName, p.avatar))}" alt="${esc(p.displayName)} avatar" width="44" height="44" style="border-radius:999px;object-fit:cover;">
             <div style="flex:1;">
               <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                <div><b>${esc(p.displayName)}</b>${p.asBarkeep ? ` <span class="muted">(Bar keep)</span>` : ""}</div>
+                <div><b>${esc(p.displayName)}</b>${affiliationBadge({ party: p.party, isModAffiliation: !!p.asBarkeep }) ? ` ${affiliationBadge({ party: p.party, isModAffiliation: !!p.asBarkeep })}` : ""}${p.asBarkeep ? ` <span class="muted">(Bar keep)</span>` : ""}</div>
                 <div class="muted">${esc(p.createdAt || "")}</div>
               </div>
               <p style="margin:8px 0;white-space:pre-wrap;">${esc(p.body)}</p>
@@ -116,6 +116,7 @@ function render(data) {
       displayName,
       asBarkeep,
       avatar: asBarkeep ? "https://dummyimage.com/64x64/6b3a0a/ffffff&text=🍺" : resolveCharacterAvatar(data, displayName, String(char?.avatar || "")),
+      party: asBarkeep ? "" : (char?.party || ""),
       body,
       createdAt: formatSimMonthYear(data.gameState)
     };

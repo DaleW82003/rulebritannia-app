@@ -757,7 +757,7 @@ function render(data, state) {
           <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;">
             <div>
               <b>${esc(d.ref || `Draft ${d.id}`)}:</b> ${esc(d.title)}
-              <div class="muted">By ${esc(d.authorName)} • ${esc(d.createdAt)}</div>
+              <div class="muted">By ${esc(d.authorName)}${affiliationBadge({ party: state.party }) ? ` ${affiliationBadge({ party: state.party })}` : ""} • ${esc(d.createdAt)}</div>
             </div>
             <button type="button" class="btn" data-action="open-draft" data-id="${esc(String(d.id))}">${state.openDraftId === d.id ? "Close" : "Open"}</button>
           </div>

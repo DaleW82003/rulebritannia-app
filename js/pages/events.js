@@ -1,5 +1,5 @@
 import { isLoggedIn } from "../core.js";
-import { esc } from "../ui.js";
+import { esc, affiliationBadge } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { tileSection, tileCard } from "../components/tile.js";
 import { toastSuccess, toastError } from "../components/toast.js";
@@ -135,7 +135,7 @@ function render(data, state) {
           <div class="spaced">
             <div>
               <b>${esc(eventTypeLabel(item.type))}</b> — ${esc(item.location)}
-              <div class="muted">${esc(item.party || "No party")} • Host: ${esc(item.hostName)} • ${esc(item.createdAt || "")}</div>
+              <div class="muted">${esc(item.party || "No party")} • Host: ${esc(item.hostName)}${affiliationBadge({ party: item.party }) ? ` ${affiliationBadge({ party: item.party })}` : ""} • ${esc(item.createdAt || "")}</div>
             </div>
             <div>${statusChip(item.status)}</div>
           </div>
@@ -154,7 +154,7 @@ function render(data, state) {
               <div class="muted-block" style="white-space:pre-wrap;">${esc(item.openingSpeech || "")}</div>
               ${item.type === "conference" ? `
                 <div style="margin-top:8px;"><b>Conference Speeches</b></div>
-                ${(item.speeches || []).length ? item.speeches.map((s) => `<div class="tile tile-stack"><b>${esc(s.author)}</b><div class="muted">${esc(s.createdAt || "")}</div><div style="white-space:pre-wrap;">${esc(s.body)}</div></div>`).join("") : `<div class="muted">No speeches added yet.</div>`}
+                ${(item.speeches || []).length ? item.speeches.map((s) => `<div class="tile tile-stack"><b>${esc(s.author)}</b>${affiliationBadge({ party: s.party }) ? ` ${affiliationBadge({ party: s.party })}` : ""}<div class="muted">${esc(s.createdAt || "")}</div><div style="white-space:pre-wrap;">${esc(s.body)}</div></div>`).join("") : `<div class="muted">No speeches added yet.</div>`}
                 ${canAddSpeech(char, item, data) ? `
                   <form data-action="add-speech" data-id="${esc(String(item.id))}" style="margin-top:8px;">
                     <div class="form-row">
@@ -323,7 +323,7 @@ function render(data, state) {
       if (!speech) return;
       const submitBtn = form.querySelector("button[type='submit']");
       if (submitBtn) submitBtn.disabled = true;
-      const newSpeech = { author: char?.name || "Character", body: speech, createdAt: formatSimMonthYear(data?.gameState || {}) };
+      const newSpeech = { author: char?.name || "Character", party: char?.party || "", body: speech, createdAt: formatSimMonthYear(data?.gameState || {}) };
       try {
         await apiUpdateEvent(id, { ...item, speeches: [...item.speeches, newSpeech] });
         const r = await apiGetEvents();

@@ -1,4 +1,4 @@
-import { esc } from "../ui.js";
+import { esc, affiliationBadge } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateOnlinePost, apiGetOnlinePosts, apiDeleteOnlinePost, apiUpdateOnlinePost, apiUpdateOnlineSettings, apiCreateNewsStory } from "../api.js";
@@ -130,7 +130,7 @@ function render(data, state) {
         ${webPosts.length ? webPosts.map((p) => `
           <article class="tile" style="margin-bottom:10px;">
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;"><b>${esc(p.title)}</b><span class="muted">${esc(p.createdAt || "")}</span></div>
-            <div class="muted">By ${esc(p.author)}</div>
+            <div class="muted">By ${esc(p.author)}${affiliationBadge({ party: p.party, isModAffiliation: !!p.isNpc }) ? ` ${affiliationBadge({ party: p.party, isModAffiliation: !!p.isNpc })}` : ""}</div>
             ${p.imageUrl ? `<img src="${esc(p.imageUrl)}" alt="web post image" style="max-width:100%;border-radius:8px;margin-top:8px;">` : ""}
             ${state.editPostId === String(p.id) ? `
               <form data-action="save-edit-web" data-id="${esc(String(p.id))}" style="margin-top:8px;">
@@ -167,7 +167,7 @@ function render(data, state) {
           <article class="tile" style="margin-bottom:8px;display:flex;gap:10px;">
             <img src="${esc(avatarFor(p.displayName, p.avatar))}" width="42" height="42" style="border-radius:999px;object-fit:cover;" alt="avatar">
             <div style="flex:1;">
-              <div><b>${esc(p.displayName)}</b> <span class="muted">${esc(p.createdAt || "")}</span></div>
+              <div><b>${esc(p.displayName)}</b>${affiliationBadge({ party: p.party, isModAffiliation: !!p.isNpc }) ? ` ${affiliationBadge({ party: p.party, isModAffiliation: !!p.isNpc })}` : ""} <span class="muted">${esc(p.createdAt || "")}</span></div>
               ${state.editPostId === String(p.id) ? `
                 <form data-action="save-edit-fb" data-id="${esc(String(p.id))}" style="margin-top:4px;">
                   <textarea class="input" name="body" required rows="3" style="margin-bottom:4px;">${esc(p.body)}</textarea>
@@ -206,7 +206,7 @@ function render(data, state) {
         ${twPosts.length ? twPosts.map((p) => `
           <article class="tile" style="margin-bottom:8px;">
             <div><b>${esc(p.handle)}</b> <span class="muted">${esc(p.createdAt || "")}</span></div>
-            <div>${esc(p.displayName)}</div>
+            <div>${esc(p.displayName)}${affiliationBadge({ party: p.party, isModAffiliation: !!p.isNpc }) ? ` ${affiliationBadge({ party: p.party, isModAffiliation: !!p.isNpc })}` : ""}</div>
             ${state.editPostId === String(p.id) ? `
               <form data-action="save-edit-tw" data-id="${esc(String(p.id))}" style="margin-top:4px;">
                 <textarea class="input" name="body" required rows="3" maxlength="${limit}" style="margin-bottom:4px;">${esc(p.body)}</textarea>
@@ -258,6 +258,8 @@ function render(data, state) {
       body,
       imageUrl,
       author: mod ? author : (char?.display_name || char?.name || author),
+      party: char?.party || "",
+      isNpc: false,
       createdAt: formatSimMonthYear(data.gameState),
       createdTs: Date.now()
     };
@@ -286,6 +288,8 @@ function render(data, state) {
       id: `fb-${Date.now()}`,
       displayName: mod ? displayName : (char?.display_name || char?.name || displayName),
       avatar: String(fd.get("avatar") || "").trim() || String(char?.avatar || "").trim(),
+      party: char?.party || "",
+      isNpc: false,
       body,
       createdAt: formatSimMonthYear(data.gameState),
       createdTs: Date.now()
@@ -323,6 +327,8 @@ function render(data, state) {
       id: `tw-${Date.now()}`,
       handle,
       displayName,
+      party: (mod && String(fd.get("handle") || "").trim() === "@npc") ? "" : (char?.party || ""),
+      isNpc: mod && String(fd.get("handle") || "").trim() === "@npc",
       body,
       createdAt: formatSimMonthYear(data.gameState),
       createdTs: Date.now()
