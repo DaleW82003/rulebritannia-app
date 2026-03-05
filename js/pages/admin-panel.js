@@ -11,7 +11,7 @@ import {
   apiAdminClearCache, apiAdminRebuildCache, apiAdminRotateSessions,
   apiAdminForceLogoutAll, apiAdminCloseStaleDiv,
   apiGetSsoReadiness,
-  apiGetAdminDashboard, apiAdminDiscourseSyncBills,
+  apiGetAdminDashboard, apiAdminDiscourseSyncBills, apiAdminDiscourseSyncDebates,
   apiGetPendingRegistrations, apiApproveRegistration, apiRejectRegistration,
   apiWipeContent, apiWipeWithCharacters,
   apiAdminRepairCharacterOwners,
@@ -54,7 +54,7 @@ export async function initAdminPanelPage(data) {
   let _syncPollTimer = null;  // active polling interval; hoisted so re-renders don't orphan it
   let ssoReadiness = null; // null = not yet loaded; object = readiness check results
   let dashboardData = null; // moderator dashboard summary
-  let billSyncResults = null; // results of last Discourse bill sync
+  let debateSyncResults = {}; // map kind -> last sync result
   let pendingRegistrations = []; // pending registration applications
 
   // ── User–Character Management state ─────────────────────────────────────
@@ -119,7 +119,7 @@ export async function initAdminPanelPage(data) {
         <p class="muted">Loading dashboard data…</p>
       </section>`;
     }
-    const { pendingQtQuestions, openDivisions, billsAwaitingDebate, recentAuditLog, pendingRegistrations: pendingRegsCount } = dashboardData;
+    const { pendingQtQuestions, openDivisions, awaitingDebates = {}, ongoingDebates = {}, recentAuditLog, pendingRegistrations: pendingRegsCount } = dashboardData;
     const auditRows = (recentAuditLog || []).map((e) => {
       const details = typeof e.details === "object" && e.details ? e.details : {};
       const headline = details.headline || "";
@@ -141,11 +141,16 @@ export async function initAdminPanelPage(data) {
       </tr>`;
     }).join("");
 
-    const syncMsg = billSyncResults
-      ? (billSyncResults.ok
-          ? `Synced ${billSyncResults.synced} bill(s). ${billSyncResults.message || ""}`
-          : `Sync error: ${esc(billSyncResults.error || "Unknown error")}`)
-      : "";
+    const syncKinds = ["bills", "motions", "statements", "regulations"];
+    const syncMsg = syncKinds
+      .filter((k) => debateSyncResults[k])
+      .map((k) => {
+        const r = debateSyncResults[k];
+        return r.ok
+          ? `${k}: synced ${r.synced}`
+          : `${k}: ${esc(r.error || "sync failed")}`;
+      })
+      .join(" · ");
 
     return `<section class="panel" style="margin-top:12px;">
       <h2 style="margin-top:0;">Moderator Dashboard</h2>
@@ -165,8 +170,36 @@ export async function initAdminPanelPage(data) {
           <div>Open Divisions</div>
         </div>
         <div class="tile" style="text-align:center;">
-          <div style="font-size:2rem;font-weight:700;">${billsAwaitingDebate ?? "—"}</div>
+          <div style="font-size:2rem;font-weight:700;">${awaitingDebates.bills ?? "—"}</div>
           <div>Bills Awaiting Debate</div>
+        </div>
+      </div>
+
+      <h3 style="margin:0 0 8px 0;">Parliament Control Panel</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:12px;">
+        <div class="tile" style="text-align:center;">
+          <div style="font-size:1.6rem;font-weight:700;">${ongoingDebates.bills ?? "—"}</div>
+          <div>Ongoing Bill Debates</div>
+          <button class="btn btn-sm btn-sync-debate-kind" data-kind="bills" style="margin-top:6px;">Sync Missing</button>
+          <div class="muted" style="font-size:12px;margin-top:4px;">Awaiting: ${awaitingDebates.bills ?? "—"}</div>
+        </div>
+        <div class="tile" style="text-align:center;">
+          <div style="font-size:1.6rem;font-weight:700;">${ongoingDebates.motions ?? "—"}</div>
+          <div>Ongoing House Motion Debates</div>
+          <button class="btn btn-sm btn-sync-debate-kind" data-kind="motions" style="margin-top:6px;">Sync Missing</button>
+          <div class="muted" style="font-size:12px;margin-top:4px;">Awaiting: ${awaitingDebates.motions ?? "—"}</div>
+        </div>
+        <div class="tile" style="text-align:center;">
+          <div style="font-size:1.6rem;font-weight:700;">${ongoingDebates.statements ?? "—"}</div>
+          <div>Ongoing Statement Debates</div>
+          <button class="btn btn-sm btn-sync-debate-kind" data-kind="statements" style="margin-top:6px;">Sync Missing</button>
+          <div class="muted" style="font-size:12px;margin-top:4px;">Awaiting: ${awaitingDebates.statements ?? "—"}</div>
+        </div>
+        <div class="tile" style="text-align:center;">
+          <div style="font-size:1.6rem;font-weight:700;">${ongoingDebates.regulations ?? "—"}</div>
+          <div>Ongoing Regulation Debates</div>
+          <button class="btn btn-sm btn-sync-debate-kind" data-kind="regulations" style="margin-top:6px;">Sync Missing</button>
+          <div class="muted" style="font-size:12px;margin-top:4px;">Awaiting: ${awaitingDebates.regulations ?? "—"}</div>
         </div>
       </div>
       <div style="margin-bottom:12px;">
@@ -1353,22 +1386,44 @@ export async function initAdminPanelPage(data) {
       }
     });
 
-    // ── Sync Discourse Bills button ────────────────────────────────────────────
+    // ── Sync Discourse debate buttons ─────────────────────────────────────────
     host.querySelector("#btn-sync-discourse-bills")?.addEventListener("click", async () => {
       const btn = host.querySelector("#btn-sync-discourse-bills");
       if (btn) btn.disabled = true;
       try {
-        billSyncResults = await apiAdminDiscourseSyncBills();
-        toastSuccess(`Synced ${billSyncResults.synced} bill(s) to Discourse.`);
+        const result = await apiAdminDiscourseSyncBills();
+        debateSyncResults.bills = result;
+        toastSuccess(`Synced ${result.synced} bill(s) to Discourse.`);
         await loadDashboard();
         render("");
       } catch (err) {
-        billSyncResults = { ok: false, error: err.message };
+        debateSyncResults.bills = { ok: false, error: err.message };
         toastError(`Discourse bill sync failed: ${err.message}`);
         render("");
       } finally {
         if (btn) btn.disabled = false;
       }
+    });
+
+    host.querySelectorAll(".btn-sync-debate-kind").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const kind = btn.getAttribute("data-kind") || "";
+        if (!kind) return;
+        btn.disabled = true;
+        try {
+          const result = await apiAdminDiscourseSyncDebates(kind);
+          debateSyncResults[kind] = result;
+          toastSuccess(`Synced ${result.synced} ${kind} debate topic(s).`);
+          await loadDashboard();
+          render("");
+        } catch (err) {
+          debateSyncResults[kind] = { ok: false, error: err.message };
+          toastError(`Discourse ${kind} sync failed: ${err.message}`);
+          render("");
+        } finally {
+          btn.disabled = false;
+        }
+      });
     });
 
     // ── Maintenance buttons ────────────────────────────────────────────────────
