@@ -905,7 +905,7 @@ export async function initAdminPanelPage(data) {
         <div id="user-role-editor" style="display:none;margin-top:16px;padding:12px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px;">
           <h3 style="margin-top:0;font-size:14px;">Edit roles for: <span id="user-role-editor-username"></span></h3>
           <div id="user-role-checkboxes" style="display:flex;flex-wrap:wrap;gap:8px 16px;margin-bottom:12px;">
-            ${["admin", "mod", "speaker"].map((r) => `
+            ${["admin", "mod"].map((r) => `
               <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;">
                 <input type="checkbox" class="user-role-checkbox" value="${esc(r)}" /> ${esc(r)}
               </label>`).join("")}
