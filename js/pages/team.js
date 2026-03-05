@@ -2,19 +2,17 @@ import { esc } from "../ui.js";
 import { isAdmin } from "../permissions.js";
 import { apiAdminGetUsers, apiGetTeam, apiSetUserRoles } from "../api.js";
 
-const SYSTEM_ROLES = ["admin", "mod", "speaker"];
+const SYSTEM_ROLES = ["admin", "mod"];
 
 const TEAM_LEVELS = [
   { id: "admins", label: "Admins", role: "admin" },
   { id: "mods", label: "Mods", role: "mod" },
-  { id: "speaker", label: "Speaker", role: "speaker" }
 ];
 
 function buildTeamFromUsers(users) {
   const admins = users.filter((u) => u.roles.includes("admin"));
   const mods   = users.filter((u) => u.roles.includes("mod"));
-  const speaker = users.filter((u) => u.roles.includes("speaker"));
-  return { admins, mods, speaker };
+  return { admins, mods };
 }
 
 function renderLevel(level, members, adminMode) {
@@ -79,7 +77,6 @@ function render(users, state) {
 
     ${renderLevel(TEAM_LEVELS[0], team.admins, adminMode)}
     ${renderLevel(TEAM_LEVELS[1], team.mods, adminMode)}
-    ${renderLevel(TEAM_LEVELS[2], team.speaker, adminMode)}
 
     ${adminMode ? renderEditor(users, state) : ""}
 

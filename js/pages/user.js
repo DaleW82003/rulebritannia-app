@@ -9,7 +9,7 @@ import {
   apiGetCharacterApplications, apiApproveCharacterApplication,
   apiRejectCharacterApplication, apiSelectCharacter,
   apiGetConstituencies, apiGetCharacters,
-  apiGetEnums,
+  apiGetEnums, apiGetParty,
 } from "../api.js";
 
 function canManage(data) {
@@ -147,9 +147,8 @@ function roleChips(account) {
   const tags = [];
   if (account.isAdmin) tags.push("Admin");
   if (account.isMod) tags.push("Mod");
-  if (account.isSpeaker) tags.push("Speaker");
   for (const r of account.roles || []) {
-    if (!["admin", "mod", "speaker"].includes(r) && !tags.includes(r)) tags.push(r);
+    if (!["admin", "mod"].includes(r) && !tags.includes(r)) tags.push(r);
   }
   return tags.length ? tags.join(" · ") : "Player";
 }
@@ -297,6 +296,9 @@ function render(data, state) {
   const pendingNpcByCurrent = dbMyApps.filter((a) => a.status === "pending" && a.application_type === "npc");
   const delegationChoices = delegationChoicesForParty(data, char?.party, char?.name);
 
+  // Use DB-backed party leader name (authoritative) when available, fall back to in-memory players scan.
+  const effectivePartyLeaderName = state.dbState?.dbPartyLeaderName || leaderForParty(data, char?.party);
+
   // Derive active character name from DB when state snapshot hasn't been updated yet.
   // This covers the window after a mod approves an application before the auto-select
   // in initUserPage has propagated (e.g. cached render, or viewing own page via state).
@@ -387,11 +389,11 @@ function render(data, state) {
         ` : `
           <p class="muted" style="margin-top:10px;">When absent, your weighted votes are automatically delegated to your Party Leader.</p>
           <form id="absence-form" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-            <input type="hidden" name="delegatedTo" value="${esc(leaderForParty(data, char?.party) || "")}">
-            <button class="btn" type="submit" ${!leaderForParty(data, char?.party) ? "disabled title='No Party Leader found'" : ""}>Set Absent (delegate to Party Leader)</button>
+            <input type="hidden" name="delegatedTo" value="${esc(effectivePartyLeaderName || "")}">
+            <button class="btn" type="submit" ${!effectivePartyLeaderName ? "disabled title='No Party Leader found'" : ""}>Set Absent (delegate to Party Leader)</button>
             <button class="btn" type="button" id="absence-clear">Return Active</button>
           </form>
-          ${!leaderForParty(data, char?.party) ? `<p class="muted" style="margin-top:6px;color:var(--danger);">No Party Leader is currently set for your party — absence cannot be delegated.</p>` : ""}
+          ${!effectivePartyLeaderName ? `<p class="muted" style="margin-top:6px;color:var(--danger);">No Party Leader is currently set for your party — absence cannot be delegated.</p>` : ""}
         `}
       </details>
 
@@ -579,7 +581,7 @@ function render(data, state) {
     if (!data.currentCharacter) return;
     const fd = new FormData(e.currentTarget);
     const delegatedTo = String(fd.get("delegatedTo") || "").trim();
-    const partyLeaderName = leaderForParty(data, data.currentCharacter?.party);
+    const partyLeaderName = effectivePartyLeaderName;
     const isLeader = String(data.currentCharacter?.name || "") === partyLeaderName;
 
     if (isLeader) {
@@ -747,10 +749,16 @@ export async function initUserPage(data) {
 
   // Load constituencies and active characters from DB so character creation
   // only shows genuinely available (unoccupied) constituencies.
+  // Also load DB-backed party data for the current user's party to get the authoritative leader name.
+  // Declared outside try-catch so it can be passed into dbState below.
+  let dbPartyLeaderName = "";
   try {
-    const [constResult, charResult] = await Promise.all([
+    // Only fetch party if the character has a party; empty string would match no party.
+    const charParty = String(data.currentCharacter?.party || "").trim();
+    const [constResult, charResult, partyResult] = await Promise.all([
       apiGetConstituencies().catch(() => ({ constituencies: [] })),
       apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
+      charParty ? apiGetParty(charParty).catch(() => null) : Promise.resolve(null),
     ]);
     if (constResult.constituencies?.length) {
       data.constituencies = constResult.constituencies;
@@ -764,6 +772,9 @@ export async function initUserPage(data) {
         ...(data.players || []),
         ...dbPlayers.filter((p) => !existingIds.has(p.id)),
       ];
+    }
+    if (partyResult?.party?.leader_name) {
+      dbPartyLeaderName = String(partyResult.party.leader_name);
     }
   } catch (e) {
     console.warn("[initUserPage] Constituency load failed:", e.message);
@@ -796,7 +807,7 @@ export async function initUserPage(data) {
     }
   }
 
-  const dbState = { myCharacters, myApplications, pendingApplications };
+  const dbState = { myCharacters, myApplications, pendingApplications, dbPartyLeaderName };
   // Initial render (uses built-in fallback enum arrays)
   const state = { message: "", dbState, viewingUsername, enums: null };
   render(data, state);
