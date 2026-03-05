@@ -11,7 +11,7 @@ import {
   apiAdminClearCache, apiAdminRebuildCache, apiAdminRotateSessions,
   apiAdminForceLogoutAll, apiAdminCloseStaleDiv,
   apiGetSsoReadiness,
-  apiGetAdminDashboard, apiAdminDiscourseSyncBills, apiAdminDiscourseSyncDebates,
+  apiGetAdminDashboard, apiAdminDiscourseSyncDebates,
   apiGetPendingRegistrations, apiApproveRegistration, apiRejectRegistration,
   apiWipeContent, apiWipeWithCharacters,
   apiAdminRepairCharacterOwners,
@@ -147,65 +147,59 @@ export async function initAdminPanelPage(data) {
       .map((k) => {
         const r = debateSyncResults[k];
         return r.ok
-          ? `${k}: synced ${r.synced}`
-          : `${k}: ${esc(r.error || "sync failed")}`;
+          ? `<span class="sync-ok">✓ ${k}: synced ${r.synced}</span>`
+          : `<span class="sync-err">✗ ${k}: ${esc(r.error || "sync failed")}</span>`;
       })
-      .join(" · ");
+      .join(" &nbsp;·&nbsp; ");
 
     return `<section class="panel" style="margin-top:12px;">
       <h2 style="margin-top:0;">Moderator Dashboard</h2>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px;">
-        <div class="tile" style="text-align:center;">
+        <div class="tile card-flex" style="text-align:center;">
           <div style="font-size:2rem;font-weight:700;">${pendingRegsCount ?? "—"}</div>
           <div>Pending Registrations</div>
-          <a href="#pending-reg-section" class="btn btn-sm" style="margin-top:6px;">Review</a>
+          <div class="tile-bottom"><a href="#pending-reg-section" class="btn btn-sm">Review</a></div>
         </div>
-        <div class="tile" style="text-align:center;">
+        <div class="tile card-flex" style="text-align:center;">
           <div style="font-size:2rem;font-weight:700;">${pendingQtQuestions ?? "—"}</div>
           <div>Pending QT Questions</div>
-          <a href="questiontime.html" class="btn btn-sm" style="margin-top:6px;">View</a>
+          <div class="tile-bottom"><a href="questiontime.html" class="btn btn-sm">View</a></div>
         </div>
-        <div class="tile" style="text-align:center;">
+        <div class="tile card-flex" style="text-align:center;">
           <div style="font-size:2rem;font-weight:700;">${openDivisions ?? "—"}</div>
           <div>Open Divisions</div>
-        </div>
-        <div class="tile" style="text-align:center;">
-          <div style="font-size:2rem;font-weight:700;">${awaitingDebates.bills ?? "—"}</div>
-          <div>Bills Awaiting Debate</div>
+          <div class="tile-bottom"></div>
         </div>
       </div>
 
       <h3 style="margin:0 0 8px 0;">Parliament Control Panel</h3>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:12px;">
-        <div class="tile" style="text-align:center;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:4px;">
+        <div class="tile card-flex" style="text-align:center;">
           <div style="font-size:1.6rem;font-weight:700;">${ongoingDebates.bills ?? "—"}</div>
           <div>Ongoing Bill Debates</div>
-          <button class="btn btn-sm btn-sync-debate-kind" data-kind="bills" style="margin-top:6px;">Sync Missing</button>
           <div class="muted" style="font-size:12px;margin-top:4px;">Awaiting: ${awaitingDebates.bills ?? "—"}</div>
+          <div class="tile-bottom"><button class="btn btn-sm btn-sync-debate-kind" data-kind="bills">Sync Missing</button></div>
         </div>
-        <div class="tile" style="text-align:center;">
+        <div class="tile card-flex" style="text-align:center;">
           <div style="font-size:1.6rem;font-weight:700;">${ongoingDebates.motions ?? "—"}</div>
           <div>Ongoing House Motion Debates</div>
-          <button class="btn btn-sm btn-sync-debate-kind" data-kind="motions" style="margin-top:6px;">Sync Missing</button>
           <div class="muted" style="font-size:12px;margin-top:4px;">Awaiting: ${awaitingDebates.motions ?? "—"}</div>
+          <div class="tile-bottom"><button class="btn btn-sm btn-sync-debate-kind" data-kind="motions">Sync Missing</button></div>
         </div>
-        <div class="tile" style="text-align:center;">
+        <div class="tile card-flex" style="text-align:center;">
           <div style="font-size:1.6rem;font-weight:700;">${ongoingDebates.statements ?? "—"}</div>
           <div>Ongoing Statement Debates</div>
-          <button class="btn btn-sm btn-sync-debate-kind" data-kind="statements" style="margin-top:6px;">Sync Missing</button>
           <div class="muted" style="font-size:12px;margin-top:4px;">Awaiting: ${awaitingDebates.statements ?? "—"}</div>
+          <div class="tile-bottom"><button class="btn btn-sm btn-sync-debate-kind" data-kind="statements">Sync Missing</button></div>
         </div>
-        <div class="tile" style="text-align:center;">
+        <div class="tile card-flex" style="text-align:center;">
           <div style="font-size:1.6rem;font-weight:700;">${ongoingDebates.regulations ?? "—"}</div>
           <div>Ongoing Regulation Debates</div>
-          <button class="btn btn-sm btn-sync-debate-kind" data-kind="regulations" style="margin-top:6px;">Sync Missing</button>
           <div class="muted" style="font-size:12px;margin-top:4px;">Awaiting: ${awaitingDebates.regulations ?? "—"}</div>
+          <div class="tile-bottom"><button class="btn btn-sm btn-sync-debate-kind" data-kind="regulations">Sync Missing</button></div>
         </div>
       </div>
-      <div style="margin-bottom:12px;">
-        <button id="btn-sync-discourse-bills" class="btn" type="button">Sync Discourse (Missing Bills)</button>
-        ${syncMsg ? `<span style="margin-left:10px;font-size:13px;">${syncMsg}</span>` : ""}
-      </div>
+      ${syncMsg ? `<div style="margin-bottom:12px;font-size:13px;padding:6px 0;">${syncMsg}</div>` : `<div style="margin-bottom:12px;"></div>`}
       <h3 style="margin-top:0;">Recent Audit Log</h3>
       <div style="overflow-x:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -1387,24 +1381,6 @@ export async function initAdminPanelPage(data) {
     });
 
     // ── Sync Discourse debate buttons ─────────────────────────────────────────
-    host.querySelector("#btn-sync-discourse-bills")?.addEventListener("click", async () => {
-      const btn = host.querySelector("#btn-sync-discourse-bills");
-      if (btn) btn.disabled = true;
-      try {
-        const result = await apiAdminDiscourseSyncBills();
-        debateSyncResults.bills = result;
-        toastSuccess(`Synced ${result.synced} bill(s) to Discourse.`);
-        await loadDashboard();
-        render("");
-      } catch (err) {
-        debateSyncResults.bills = { ok: false, error: err.message };
-        toastError(`Discourse bill sync failed: ${err.message}`);
-        render("");
-      } finally {
-        if (btn) btn.disabled = false;
-      }
-    });
-
     host.querySelectorAll(".btn-sync-debate-kind").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const kind = btn.getAttribute("data-kind") || "";
@@ -1413,7 +1389,11 @@ export async function initAdminPanelPage(data) {
         try {
           const result = await apiAdminDiscourseSyncDebates(kind);
           debateSyncResults[kind] = result;
-          toastSuccess(`Synced ${result.synced} ${kind} debate topic(s).`);
+          if (result.ok) {
+            toastSuccess(`Synced ${result.synced} ${kind} debate topic(s).`);
+          } else {
+            toastError(`${kind} sync: ${result.error || "sync failed"}`);
+          }
           await loadDashboard();
           render("");
         } catch (err) {

@@ -15917,6 +15917,10 @@ app.post("/api/admin/discourse-sync-bills", discourseBillSyncLimit, async (req, 
 
 const discourseDebateSyncLimit = rateLimit({ windowMs: 60_000, max: 10, standardHeaders: true, legacyHeaders: false });
 
+// Default Discourse category ID for bills debate topics (matches historical hard-coded value).
+// Override via app_config key 'discourse_category_bills' or env var DISCOURSE_CATEGORY_BILLS.
+const DEFAULT_BILLS_DISCOURSE_CATEGORY_ID = 9;
+
 app.post("/api/admin/discourse-sync-debates", discourseDebateSyncLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
@@ -15932,6 +15936,39 @@ app.post("/api/admin/discourse-sync-debates", discourseDebateSyncLimit, async (r
       ({ baseUrl, apiKey, apiUsername } = await loadDiscourseCredentials());
     } catch (credErr) {
       return res.status(400).json({ ok: false, error: credErr.message });
+    }
+
+    // Load per-kind Discourse category IDs from app_config (keys: discourse_category_bills,
+    // discourse_category_motions, discourse_category_statements, discourse_category_regulations).
+    // Fall back to environment variables (DISCOURSE_CATEGORY_BILLS etc.) then to 9 for bills.
+    // For other kinds, the category MUST be configured — if missing, return an actionable error.
+    const { rows: catRows } = await pool.query(
+      `SELECT key, value FROM app_config
+        WHERE key IN (
+          'discourse_category_bills',
+          'discourse_category_motions',
+          'discourse_category_statements',
+          'discourse_category_regulations'
+        )`
+    );
+    const catCfg = Object.fromEntries(catRows.map((r) => [r.key, r.value]));
+
+    function resolveCategoryId(k) {
+      const cfgVal = catCfg[`discourse_category_${k}`];
+      if (cfgVal) return Number(cfgVal);
+      const envVar = process.env[`DISCOURSE_CATEGORY_${k.toUpperCase()}`];
+      if (envVar) return Number(envVar);
+      return null;
+    }
+
+    const kindCategoryId = resolveCategoryId(kind) ?? (kind === "bills" ? DEFAULT_BILLS_DISCOURSE_CATEGORY_ID : null);
+    if (!kindCategoryId) {
+      return res.status(400).json({
+        ok: false,
+        error: `Discourse category ID not configured for kind "${kind}". ` +
+               `Set app_config key "discourse_category_${kind}" or environment variable ` +
+               `DISCOURSE_CATEGORY_${kind.toUpperCase()} to the numeric Discourse category ID.`,
+      });
     }
 
     let rows = [];
@@ -15971,13 +16008,11 @@ app.post("/api/admin/discourse-sync-debates", discourseDebateSyncLimit, async (r
       try {
         let title;
         let raw;
-        let categoryId;
         let tags;
 
         if (kind === "bills") {
           title = `[Bill ${row.id}] ${row.data.title || row.id} — Second Reading Debate`;
           raw = row.data.summary || row.data.body || `Debate on **${row.data.title || row.id}** at Second Reading.`;
-          categoryId = 9;
           tags = ["bill", "second-reading"];
         } else if (kind === "motions") {
           title = `[Motion ${row.id}] ${row.data.title || "House Motion"} — Debate`;
@@ -15994,7 +16029,7 @@ app.post("/api/admin/discourse-sync-debates", discourseDebateSyncLimit, async (r
         }
 
         const { topicId, topicUrl } = await dcWithRetry(
-          () => dcCreateTopic(baseUrl, apiKey, apiUsername, title, raw, categoryId, tags),
+          () => dcCreateTopic(baseUrl, apiKey, apiUsername, title, raw, kindCategoryId, tags),
           3,
           500
         );
@@ -16530,10 +16565,30 @@ app.get("/api/admin/dashboard", dashboardLimit, async (req, res) => {
       ),
       pool.query(
         `SELECT COUNT(*) AS count
-           FROM divisions
-          WHERE status = 'open'
-            AND (closes_at_sim IS NULL OR closes_at_sim > $1)
-            AND (closes_at IS NULL OR closes_at > NOW())`,
+           FROM divisions d
+          WHERE d.status = 'open'
+            AND (d.closes_at_sim IS NULL OR d.closes_at_sim > $1)
+            AND (d.closes_at IS NULL OR d.closes_at > NOW())
+            AND (
+              (d.entity_type = 'bill' AND EXISTS (
+                SELECT 1 FROM bills b WHERE b.id = d.entity_id
+                  AND COALESCE(b.data->>'status', b.data->>'stage', 'open')
+                    NOT IN ('closed','archived','passed','failed','royal_assent')
+              ))
+              OR (d.entity_type = 'motion' AND EXISTS (
+                SELECT 1 FROM motions m WHERE m.id = d.entity_id
+                  AND COALESCE(m.data->>'status', 'open') NOT IN ('closed','archived')
+              ))
+              OR (d.entity_type = 'statement' AND EXISTS (
+                SELECT 1 FROM statements s WHERE s.id = d.entity_id
+                  AND COALESCE(s.data->>'status', 'open') NOT IN ('closed','archived')
+              ))
+              OR (d.entity_type = 'regulation' AND EXISTS (
+                SELECT 1 FROM regulations r WHERE r.id = d.entity_id
+                  AND COALESCE(r.data->>'status', 'open') NOT IN ('closed','archived')
+              ))
+              OR d.entity_type NOT IN ('bill','motion','statement','regulation')
+            )`,
         [simDeadline]
       ),
       pool.query(

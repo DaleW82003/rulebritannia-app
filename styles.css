@@ -975,6 +975,8 @@ table tbody tr:nth-child(even){ background:rgba(11,45,107,.02); }
 .ds-label{ font-family:monospace; font-size:11px; color:var(--muted); flex-shrink:0; }
 .ds-err{ color:var(--red); font-size:10px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-left:4px; }
 .ds-caret{ margin-left:auto; opacity:.6; padding-left:6px; }
+.sync-ok{ color:var(--green); }
+.sync-err{ color:var(--red); }
 
 /* =========================
    Demo Mode Banner
