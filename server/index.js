@@ -4944,6 +4944,55 @@ app.put("/api/config", async (req, res) => {
 });
 
 /**
+ * GET  /api/mods-message — authenticated: returns { playerMessage, staffMessage }
+ * POST /api/mods-message — admin/mod/speaker: update one or both messages
+ */
+const modsMessageReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const modsMessageWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/mods-message", modsMessageReadLimit, async (req, res) => {
+  try {
+    if (!req.session?.userId) return res.status(401).json({ error: "Not logged in" });
+    const { rows } = await pool.query(
+      "SELECT key, value FROM app_config WHERE key IN ('mods_player_message', 'mods_staff_message')"
+    );
+    const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    res.json({
+      playerMessage: map.mods_player_message ?? "",
+      staffMessage:  map.mods_staff_message  ?? "",
+    });
+  } catch (e) {
+    console.error("[GET /api/mods-message]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/mods-message", modsMessageWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+    const { playerMessage, staffMessage } = req.body || {};
+    if (playerMessage === undefined && staffMessage === undefined) {
+      return res.status(400).json({ error: "Provide at least one of playerMessage or staffMessage" });
+    }
+    const entries = [];
+    if (playerMessage !== undefined) entries.push(["mods_player_message", String(playerMessage)]);
+    if (staffMessage  !== undefined) entries.push(["mods_staff_message",  String(staffMessage)]);
+    const keys   = entries.map(([k]) => k);
+    const values = entries.map(([, v]) => v);
+    await pool.query(
+      `INSERT INTO app_config (key, value)
+       SELECT unnest($1::text[]), unnest($2::text[])
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [keys, values]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[POST /api/mods-message]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/**
  * GET /api/config/enums — public (but requires auth); returns canonical enum arrays
  * for all dropdown fields used in character creation/editing.
  * This is the single source of truth for option values so UI and server always agree.
