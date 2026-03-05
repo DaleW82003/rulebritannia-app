@@ -1,10 +1,10 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
-import { apiCreateOnlinePost, apiGetOnlinePosts, apiDeleteOnlinePost, apiUpdateOnlinePost, apiUpdateOnlineSettings } from "../api.js";
+import { apiCreateOnlinePost, apiGetOnlinePosts, apiDeleteOnlinePost, apiUpdateOnlinePost, apiUpdateOnlineSettings, apiCreateNewsStory } from "../api.js";
 import { formatSimMonthYear } from "../clock.js";
 import { getCharacterContext } from "../engines/core-engine.js";
-import { isLoggedIn } from "../core.js";
+import { isLoggedIn, nowMs } from "../core.js";
 
 const CHANNELS = {
   webPost: "Post to the Web",
@@ -141,6 +141,7 @@ function render(data, state) {
             ${mod ? `<div style="margin-top:6px;display:flex;gap:6px;">
               <button class="btn" type="button" data-action="edit-web" data-id="${esc(String(p.id))}">Edit</button>
               <button class="btn danger" type="button" data-action="delete-web" data-id="${esc(String(p.id))}">Delete</button>
+              <button class="btn small" type="button" data-action="news-from-post" data-post-type="web" data-id="${esc(String(p.id))}" title="Create a flavour news story from this post">📰 Create News Story</button>
             </div>` : ""}
           </article>
         `).join("") : `<div class="muted">No web posts yet.</div>`}
@@ -176,6 +177,7 @@ function render(data, state) {
               ${mod ? `<div style="margin-top:4px;display:flex;gap:6px;">
                 <button class="btn" type="button" data-action="edit-fb" data-id="${esc(String(p.id))}">Edit</button>
                 <button class="btn danger" type="button" data-action="delete-fb" data-id="${esc(String(p.id))}">Delete</button>
+                <button class="btn small" type="button" data-action="news-from-post" data-post-type="facebook" data-id="${esc(String(p.id))}" title="Create a flavour news story from this post">📰 Create News Story</button>
               </div>` : ""}
             </div>
           </article>
@@ -214,6 +216,7 @@ function render(data, state) {
             ${mod ? `<div style="margin-top:4px;display:flex;gap:6px;">
               <button class="btn" type="button" data-action="edit-tw" data-id="${esc(String(p.id))}">Edit</button>
               <button class="btn danger" type="button" data-action="delete-tw" data-id="${esc(String(p.id))}">Delete</button>
+              <button class="btn small" type="button" data-action="news-from-post" data-post-type="twitter" data-id="${esc(String(p.id))}" title="Create a flavour news story from this post">📰 Create News Story</button>
             </div>` : ""}
           </article>
         `).join("") : `<div class="muted">No tweets yet.</div>`}
@@ -439,6 +442,130 @@ function render(data, state) {
       render(data, state);
     });
   });
+
+  // "Create News Story" from post (mods only)
+  root.querySelectorAll("[data-action='news-from-post']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!mod) return;
+      const postType = btn.getAttribute("data-post-type");
+      const id = String(btn.getAttribute("data-id") || "");
+      let prefillHeadline = "";
+      let prefillText = "";
+      if (postType === "web") {
+        const post = data.online.webPosts.find((p) => String(p.id) === id);
+        if (!post) return;
+        prefillHeadline = `Social media row as ${post.author || "user"} posts online`;
+        prefillText = `${post.author || "A user"} published a post online${post.title ? ` titled "${post.title}"` : ""}:\n\n"${post.body || ""}"`;
+      } else if (postType === "facebook") {
+        const post = data.online.facebookPosts.find((p) => String(p.id) === id);
+        if (!post) return;
+        prefillHeadline = `Social media row as ${post.displayName || "user"} posts on Facebook`;
+        prefillText = `${post.displayName || "A user"} posted on Facebook:\n\n"${post.body || ""}"`;
+      } else if (postType === "twitter") {
+        const post = data.online.twitterPosts.find((p) => String(p.id) === id);
+        if (!post) return;
+        prefillHeadline = `Social media row as ${post.handle || "user"} posts on Twitter`;
+        const attribution = post.displayName ? `${post.handle || "A user"} (${post.displayName})` : (post.handle || "A user");
+        prefillText = `${attribution} tweeted:\n\n"${post.body || ""}"`;
+      }
+      openNewsFromPostModal(data, prefillHeadline, prefillText);
+    });
+  });
+}
+
+/**
+ * Injects (once) and opens a modal panel for creating a flavour news story
+ * from an online post. Pre-fills headline and text; mod can edit before publishing.
+ */
+function openNewsFromPostModal(data, prefillHeadline, prefillText) {
+  let modal = document.getElementById("online-news-from-post-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "online-news-from-post-modal";
+    modal.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:9999;";
+    modal.innerHTML = `
+      <section class="panel" style="max-width:580px;width:100%;max-height:92vh;overflow-y:auto;">
+        <h2 style="margin-top:0;">📰 Create Flavour News Story</h2>
+        <div class="muted-block" style="margin-bottom:10px;">Creates an <em>Other News (Flavour)</em> story on the news page. Edit the pre-filled text as needed before publishing.</div>
+        <form id="online-news-from-post-form" class="form-grid">
+          <label for="nfp-headline">Headline</label>
+          <input id="nfp-headline" type="text" maxlength="160" required>
+
+          <label for="nfp-breaking">Breaking News?</label>
+          <div><input id="nfp-breaking" type="checkbox" style="width:auto;"> <span class="small">Include in BREAKING ticker</span></div>
+
+          <label for="nfp-image">Image URL (optional)</label>
+          <input id="nfp-image" type="url" placeholder="https://...">
+
+          <label for="nfp-text">Article text</label>
+          <textarea id="nfp-text" rows="6" required></textarea>
+
+          <div></div>
+          <div class="tile-bottom" style="padding-top:0;margin-top:0;display:flex;gap:8px;align-items:center;">
+            <button class="btn primary" type="submit">Publish to News</button>
+            <button class="btn" type="button" id="nfp-cancel">Cancel</button>
+            <span id="nfp-status" style="font-size:.85em;color:#555;"></span>
+          </div>
+        </form>
+      </section>
+    `;
+    document.body.appendChild(modal);
+
+    modal.addEventListener("click", (ev) => {
+      if (ev.target === modal) modal.style.display = "none";
+    });
+    document.getElementById("nfp-cancel")?.addEventListener("click", () => {
+      modal.style.display = "none";
+    });
+
+    document.getElementById("online-news-from-post-form")?.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const headline = document.getElementById("nfp-headline")?.value?.trim();
+      const text = document.getElementById("nfp-text")?.value?.trim();
+      const imageUrl = document.getElementById("nfp-image")?.value?.trim();
+      const isBreaking = Boolean(document.getElementById("nfp-breaking")?.checked);
+      if (!headline || !text) return;
+      const submitBtn = ev.currentTarget.querySelector("[type='submit']");
+      const statusEl = document.getElementById("nfp-status");
+      if (submitBtn) submitBtn.disabled = true;
+      if (statusEl) statusEl.textContent = "Publishing…";
+      const story = {
+        id: `news-${Math.random().toString(36).slice(2, 10)}`,
+        createdAt: nowMs(),
+        simDate: formatSimMonthYear(data.gameState),
+        isBreaking,
+        category: "Other",
+        headline,
+        imageUrl: imageUrl || "",
+        text,
+        flavour: true,
+      };
+      try {
+        await apiCreateNewsStory(story);
+        if (statusEl) statusEl.textContent = "✓ Published!";
+        ev.currentTarget.reset();
+        setTimeout(() => { modal.style.display = "none"; if (statusEl) statusEl.textContent = ""; }, 1500);
+      } catch (err) {
+        if (statusEl) statusEl.textContent = err.message || "Failed to publish.";
+        console.error("[online] news-from-post failed:", err);
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  // Pre-fill with this post's data
+  const headlineEl = document.getElementById("nfp-headline");
+  const textEl = document.getElementById("nfp-text");
+  const imageEl = document.getElementById("nfp-image");
+  const breakingEl = document.getElementById("nfp-breaking");
+  if (headlineEl) headlineEl.value = prefillHeadline;
+  if (textEl) textEl.value = prefillText;
+  if (imageEl) imageEl.value = "";
+  if (breakingEl) breakingEl.checked = false;
+  const statusEl = document.getElementById("nfp-status");
+  if (statusEl) statusEl.textContent = "";
+  modal.style.display = "flex";
 }
 
 export async function initOnlinePage(data) {
