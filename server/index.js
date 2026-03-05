@@ -2878,6 +2878,11 @@ async function runDebateAutoClose(month, year) {
  * deadline has been reached or passed. Sets outcome = 'expired'.
  * closes_at_sim is stored as TEXT in "YYYY-MM" format.
  *
+ * Also closes any divisions whose real-time closes_at timestamp has passed
+ * (these are created via the admin UI with a wall-clock deadline rather than
+ * a sim-clock deadline). This covers divisions that have no closes_at_sim value
+ * and would otherwise accumulate as permanently-open rows.
+ *
  * @param {number} month - New sim month (1-12)
  * @param {number} year  - New sim year
  */
@@ -2888,8 +2893,11 @@ async function runDivisionAutoClose(month, year) {
       `UPDATE divisions
           SET status = 'closed', outcome = 'expired'
         WHERE status = 'open'
-          AND closes_at_sim IS NOT NULL
-          AND closes_at_sim <= $1`,
+          AND (
+            (closes_at_sim IS NOT NULL AND closes_at_sim <= $1)
+            OR
+            (closes_at IS NOT NULL AND closes_at <= NOW())
+          )`,
       [deadline]
     );
     if (rowCount) {
@@ -8391,19 +8399,31 @@ app.get("/api/admin/discourse-sync-groups/status", discourseSyncLimit, async (re
  */
 const bootstrapLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
 
+// Returns a .catch() handler for bootstrap queries that logs the error and
+// falls back to an empty array. The user query uses a separate null-sentinel
+// fallback (see inline) to avoid falsely destroying sessions on transient failures.
+const bootstrapCatch = (name) => (err) => {
+  console.error(`[bootstrap] ${name} query failed:`, err.message);
+  return [];
+};
+
 app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
   try {
     const SENSITIVE = new Set(["discourse_api_key", "discourse_api_username"]);
     const isLoggedIn = Boolean(req.session?.userId);
 
     // Always fetch: clock + config.  Conditionally fetch: user row + state + active character.
+    // Each query has a .catch() so that a transient DB error on one query does not
+    // abort the entire Promise.all. The user query returns null (not []) so that a
+    // failure can be distinguished from a genuinely deleted user, preventing the
+    // session-destruction guard from logging out valid users.
     const [clockRows, configRows, userRows, stateRows, charRows, seatTotalRows, canonicalPartyRows] = await Promise.all([
       pool.query(
         "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
-      ).then((r) => r.rows).catch((err) => { console.error("[bootstrap] clock query failed:", err.message); return []; }),
+      ).then((r) => r.rows).catch(bootstrapCatch("clock")),
 
       pool.query("SELECT key, value FROM app_config").then((r) => r.rows)
-        .catch((err) => { console.error("[bootstrap] config query failed:", err.message); return []; }),
+        .catch(bootstrapCatch("config")),
 
       isLoggedIn
         ? pool.query(
@@ -8418,7 +8438,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
                FROM app_state_current c
                JOIN state_snapshots s ON s.id = c.snapshot_id
               WHERE c.id = 'main'`
-          ).then((r) => r.rows).catch((err) => { console.error("[bootstrap] state query failed:", err.message); return []; })
+          ).then((r) => r.rows).catch(bootstrapCatch("state"))
         : Promise.resolve([]),
 
       // Canonical active character: prefer session pointer, then DB pointer, then any active char.
@@ -8434,18 +8454,18 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
                        c.created_at DESC
               LIMIT 1`,
             [req.session.userId]
-          ).then((r) => r.rows).catch((err) => { console.error("[bootstrap] char query failed:", err.message); return []; })
+          ).then((r) => r.rows).catch(bootstrapCatch("char"))
         : Promise.resolve([]),
 
       // Constituency seat totals — the canonical, DB-authoritative seat count per party.
       pool.query(
         `SELECT party, COUNT(*) AS seats FROM constituencies GROUP BY party ORDER BY seats DESC`
-      ).then((r) => r.rows).catch((err) => { console.error("[bootstrap] constituencies query failed:", err.message); return []; }),
+      ).then((r) => r.rows).catch(bootstrapCatch("constituencies")),
 
       // Canonical party list (slug, name, playable flag) from parties table.
       pool.query(
         `SELECT slug, name, playable FROM parties ORDER BY playable DESC, name`
-      ).then((r) => r.rows).catch((err) => { console.error("[bootstrap] parties query failed:", err.message); return []; }),
+      ).then((r) => r.rows).catch(bootstrapCatch("parties")),
     ]);
 
     // Clock — fall back to defaults if the table row doesn't exist yet.
