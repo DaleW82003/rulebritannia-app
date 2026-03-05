@@ -9014,35 +9014,39 @@ app.post("/api/admin/close-stale-divisions", maintLimit, async (req, res) => {
   }
 });
 
-// Close orphan motion divisions: open divisions whose entity_id has no matching motions row
+// Close orphan motion divisions: open divisions whose entity_id has no matching motions row.
+// Uses a single atomic UPDATE … RETURNING to avoid a separate SELECT + uuid-array cast.
 app.post("/api/admin/close-orphan-motion-divisions", maintLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
-    const { rows: orphanRows } = await pool.query(
-      `SELECT d.id FROM divisions d
-        WHERE d.entity_type = 'motion'
-          AND d.status = 'open'
-          AND NOT EXISTS (SELECT 1 FROM motions m WHERE m.id = d.entity_id)`
+    // Single atomic query: find and close orphan motion divisions in one statement.
+    // divisions.id is UUID PRIMARY KEY; outcome is TEXT (no constraint) added via
+    // ensureSchema() ALTER TABLE … ADD COLUMN IF NOT EXISTS outcome TEXT.
+    const { rows: closedRows } = await pool.query(
+      `UPDATE divisions
+          SET status    = 'closed',
+              outcome   = 'cancelled',
+              closes_at = NOW()
+        WHERE entity_type = 'motion'
+          AND status      = 'open'
+          AND NOT EXISTS (
+            SELECT 1 FROM motions m WHERE m.id = entity_id
+          )
+        RETURNING id`
     );
-    if (!orphanRows.length) {
-      return res.json({ ok: true, closed: 0, message: "No orphan motion divisions found." });
+    const closedIds = closedRows.map((r) => r.id);
+    if (closedIds.length > 0) {
+      await writeAuditLog(
+        req.session.userId,
+        "admin.close-orphan-motion-divisions",
+        "divisions",
+        "*",
+        null,
+        { closed: closedIds.length, ids: closedIds }
+      );
     }
-    const orphanIds = orphanRows.map((r) => r.id);
-    const { rowCount } = await pool.query(
-      `UPDATE divisions SET status = 'closed', outcome = 'cancelled', closes_at = NOW()
-        WHERE id = ANY($1::uuid[])`,
-      [orphanIds]
-    );
-    await writeAuditLog(
-      req.session.userId,
-      "admin.close-orphan-motion-divisions",
-      "divisions",
-      "*",
-      null,
-      { closed: rowCount, ids: orphanIds }
-    );
-    console.log(`[admin] close-orphan-motion-divisions: closed ${rowCount} orphan division(s) by user ${req.session.userId}`);
-    res.json({ ok: true, closed: rowCount, message: `Closed ${rowCount} orphan motion division(s).` });
+    console.log(`[admin] close-orphan-motion-divisions: closed ${closedIds.length} orphan division(s) by user ${req.session.userId}`);
+    res.json({ ok: true, closed: closedIds.length, message: closedIds.length ? `Closed ${closedIds.length} orphan motion division(s).` : "No orphan motion divisions found." });
   } catch (e) {
     console.error("[admin/close-orphan-motion-divisions]", e);
     res.status(500).json({ error: "Server error" });
