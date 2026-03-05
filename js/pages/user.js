@@ -274,6 +274,9 @@ function render(data, state) {
   // Active character party for NPC form party-lock (non-admin/mod users)
   const activeCharParty = char?.party || dbActiveChar?.party || "";
   const isAdminOrMod = canAdminOrMod(data);
+  // Party leaders (PM, LoTO, third-party leader) are also eligible to request NPCs
+  const isPartyLeader = !!char?.partyLeader;
+  const canRequestNpc = isAdminOrMod || isPartyLeader;
 
   // Use server-provided enums (single source of truth) when available, fall back to built-in arrays.
   const enums = state.enums ?? {};
@@ -480,6 +483,7 @@ function render(data, state) {
             <div class="muted">Constituency: ${esc(p.constituency || "-")}</div>
             <div class="muted">Bio: ${esc((p.bio || p.personal_background || "-").slice(0, 200))}${(p.bio || p.personal_background || "").length > 200 ? "…" : ""}</div>
             ${p.avatar_attribution ? `<div class="muted">Avatar: ${esc(p.avatar_attribution)}</div>` : ""}
+            ${p.application_type === "npc" && p.requested_by_character_name ? `<div class="muted" style="margin-top:4px;"><b>Requested by character:</b> ${esc(p.requested_by_character_name)}${p.requested_by_party ? ` (${esc(p.requested_by_party)})` : ""}</div>` : ""}
             ${p.application_type === "npc" && p.npc_reason ? `<div class="muted" style="margin-top:4px;"><b>NPC Reason:</b> ${esc(p.npc_reason)}</div>` : ""}
             <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn" type="button" data-action="approve-character" data-id="${esc(p.id)}">${p.application_type === "npc" ? "Approve NPC" : "Approve + Activate"}</button>
@@ -493,10 +497,13 @@ function render(data, state) {
 
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Request NPC Character <span class="muted" style="font-size:.7em;font-weight:400;">(Moderator approval required)</span></h2>
-      ${!isLoggedIn() ? `<div class="tile muted-block">You must be logged in to request an NPC character.</div>` : `
+      ${!isLoggedIn() ? `<div class="tile muted-block">You must be logged in to request an NPC character.</div>` : !canRequestNpc ? `
+      <div class="tile muted-block">
+        <p class="muted" style="margin:0;">NPC character requests are available to <b>administrators</b>, <b>moderators</b>, and <b>party leaders</b> only.</p>
+      </div>
+      ` : `
       <div class="tile" style="margin-bottom:10px;">
         <p class="muted" style="margin:0 0 6px;">Use this form to request a non-player character (NPC) for in-game purposes. NPCs occupy a parliamentary seat and are managed by you but are not your active player character.</p>
-        ${!isAdminOrMod && !activeCharParty ? `<p class="muted" style="color:var(--danger);">You must have an active player character before you can request an NPC.</p>` : ""}
         ${!isAdminOrMod && activeCharParty ? `<p class="muted">Your NPC will be in the <b>${esc(activeCharParty)}</b> party (locked to your active character's party).</p>` : ""}
         ${pendingNpcByCurrent.length > 0 ? `<p class="muted">You already have a pending NPC application. You cannot submit another until it is resolved.</p>` : ""}
       </div>

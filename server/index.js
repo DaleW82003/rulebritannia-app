@@ -1964,10 +1964,15 @@ async function ensureSchema() {
   // ── NPC application fields on pending_character_applications ─────────────
   // application_type: 'pc' (player character, default) or 'npc'.
   // npc_reason: required note to moderators explaining why the NPC is needed.
+  // requested_by_character_id, requested_by_character_name, requested_by_party:
+  //   snapshot of requester's active character at time of NPC request (for audit + mod context).
   await pool.query(`
     ALTER TABLE pending_character_applications
-      ADD COLUMN IF NOT EXISTS application_type TEXT NOT NULL DEFAULT 'pc',
-      ADD COLUMN IF NOT EXISTS npc_reason       TEXT;
+      ADD COLUMN IF NOT EXISTS application_type            TEXT NOT NULL DEFAULT 'pc',
+      ADD COLUMN IF NOT EXISTS npc_reason                  TEXT,
+      ADD COLUMN IF NOT EXISTS requested_by_character_id   UUID REFERENCES characters(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS requested_by_character_name TEXT,
+      ADD COLUMN IF NOT EXISTS requested_by_party          TEXT;
   `);
 }
 
@@ -9172,6 +9177,7 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
 
 // POST /api/characters/apply-npc — submit an NPC character application
 // NOT blocked by "one active character per user" restriction.
+// Only admin, mod, or party leaders may submit NPC applications.
 // Non-admin/mod users: party must match their active character's party.
 app.post("/api/characters/apply-npc", charAppWriteLimit, async (req, res) => {
   try {
@@ -9210,21 +9216,41 @@ app.post("/api/characters/apply-npc", charAppWriteLimit, async (req, res) => {
       return res.status(400).json({ error: "party is required for NPC characters" });
     }
 
-    // Party restriction: non-admin/mod users must match their active character's party
+    // Authorization: only admin, mod, or party leader may request NPCs.
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
     const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
-    if (!isAdminOrMod) {
-      const { rows: userRow } = await pool.query(
-        `SELECT c.party FROM users u
-           JOIN characters c ON c.id = u.active_character_id
-          WHERE u.id = $1`,
-        [req.session.userId]
+
+    // Resolve the requester's active character (used for party-leader check + audit snapshot)
+    const { rows: activeCharRows } = await pool.query(
+      `SELECT c.id, c.name, c.party FROM users u
+         JOIN characters c ON c.id = u.active_character_id
+        WHERE u.id = $1
+        LIMIT 1`,
+      [req.session.userId]
+    );
+    const activeChar = activeCharRows[0] ?? null;
+
+    // Check if requester's active character is a party leader
+    let isPartyLeader = false;
+    if (activeChar?.id) {
+      const { rows: leaderRows } = await pool.query(
+        "SELECT 1 FROM parties WHERE leader_character_id = $1 LIMIT 1",
+        [activeChar.id]
       );
-      if (!userRow.length || !userRow[0].party) {
+      isPartyLeader = leaderRows.length > 0;
+    }
+
+    if (!isAdminOrMod && !isPartyLeader) {
+      return res.status(403).json({ error: "Only administrators, moderators, and party leaders may request NPC characters." });
+    }
+
+    // Party restriction: non-admin/mod users must match their active character's party
+    if (!isAdminOrMod) {
+      if (!activeChar?.party) {
         return res.status(403).json({ error: "You must have an active character to request an NPC." });
       }
-      if (userRow[0].party !== party) {
-        return res.status(403).json({ error: `NPC party must match your active character's party (${userRow[0].party}).` });
+      if (activeChar.party !== party) {
+        return res.status(403).json({ error: `NPC party must match your active character's party (${activeChar.party}).` });
       }
     }
 
@@ -9257,8 +9283,9 @@ app.post("/api/characters/apply-npc", charAppWriteLimit, async (req, res) => {
          (applicant_user_id, applicant_username, name, party, constituency,
           date_of_birth, education, career_background, family, year_first_elected,
           personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals,
-          application_type, npc_reason)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,$20)
+          application_type, npc_reason,
+          requested_by_character_id, requested_by_character_name, requested_by_party)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,$20,$21,$22,$23)
        RETURNING *`,
       [
         req.session.userId, applicantUsername, name.trim(), party, constituency.trim(),
@@ -9269,7 +9296,10 @@ app.post("/api/characters/apply-npc", charAppWriteLimit, async (req, res) => {
         String(avatar_attribution || "").trim(),
         String(twitter_handle || "").trim().replace(/^@+/, ""),
         JSON.stringify(home), JSON.stringify(rentals),
-        "npc", npc_reason.trim()
+        "npc", npc_reason.trim(),
+        activeChar?.id ?? null,
+        activeChar?.name ?? null,
+        activeChar?.party ?? null
       ]
     );
     await writeAuditLog(req.session.userId, "character.apply-npc", "pending_character_application", rows[0].id, null, rows[0]);
