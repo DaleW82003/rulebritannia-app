@@ -1950,6 +1950,25 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_reshuffles_type_active ON frontbench_reshuffles (type, is_active, created_at DESC);
   `);
+
+  // ── NPC character fields ───────────────────────────────────────────────────
+  // is_npc: marks characters created via the NPC workflow.
+  // managed_by_user_id: the user who requested the NPC and can operate it.
+  await pool.query(`
+    ALTER TABLE characters
+      ADD COLUMN IF NOT EXISTS is_npc             BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS managed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS characters_managed_by_idx ON characters (managed_by_user_id);
+  `);
+
+  // ── NPC application fields on pending_character_applications ─────────────
+  // application_type: 'pc' (player character, default) or 'npc'.
+  // npc_reason: required note to moderators explaining why the NPC is needed.
+  await pool.query(`
+    ALTER TABLE pending_character_applications
+      ADD COLUMN IF NOT EXISTS application_type TEXT NOT NULL DEFAULT 'pc',
+      ADD COLUMN IF NOT EXISTS npc_reason       TEXT;
+  `);
 }
 
 // ── Property / Finance model constants ────────────────────────────────────────
@@ -9151,6 +9170,116 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
   }
 });
 
+// POST /api/characters/apply-npc — submit an NPC character application
+// NOT blocked by "one active character per user" restriction.
+// Non-admin/mod users: party must match their active character's party.
+app.post("/api/characters/apply-npc", charAppWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+
+    const {
+      name, party = "", constituency = "",
+      date_of_birth, education, career_background, family,
+      year_first_elected, personal_background, bio,
+      financial_background_level = 1,
+      avatar = "", avatar_attribution = "", twitter_handle = "",
+      home = {}, rentals = [],
+      npc_reason = ""
+    } = req.body || {};
+
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ error: "name is required" });
+    }
+    if (!avatar_attribution || typeof avatar_attribution !== "string" || !avatar_attribution.trim()) {
+      return res.status(400).json({ error: "avatar_attribution (who is your avatar?) is required" });
+    }
+    if (!npc_reason || typeof npc_reason !== "string" || !npc_reason.trim()) {
+      return res.status(400).json({ error: "npc_reason is required — explain why this NPC is needed" });
+    }
+
+    // Constituency is required for NPCs
+    if (!constituency || !constituency.trim()) {
+      return res.status(400).json({ error: "constituency is required for NPC characters" });
+    }
+
+    // Only the three canonical playable parties are accepted.
+    if (party && !PLAYABLE_PARTIES.includes(party)) {
+      return res.status(400).json({ error: `party must be one of: ${PLAYABLE_PARTIES.join(", ")}` });
+    }
+    if (!party) {
+      return res.status(400).json({ error: "party is required for NPC characters" });
+    }
+
+    // Party restriction: non-admin/mod users must match their active character's party
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (!isAdminOrMod) {
+      const { rows: userRow } = await pool.query(
+        `SELECT c.party FROM users u
+           JOIN characters c ON c.id = u.active_character_id
+          WHERE u.id = $1`,
+        [req.session.userId]
+      );
+      if (!userRow.length || !userRow[0].party) {
+        return res.status(403).json({ error: "You must have an active character to request an NPC." });
+      }
+      if (userRow[0].party !== party) {
+        return res.status(403).json({ error: `NPC party must match your active character's party (${userRow[0].party}).` });
+      }
+    }
+
+    const bioValue = bio != null ? String(bio).slice(0, 2000) : (personal_background ?? null);
+
+    // Check no pending NPC application already
+    const { rows: pendingNpc } = await pool.query(
+      "SELECT id FROM pending_character_applications WHERE applicant_user_id = $1 AND status = 'pending' AND application_type = 'npc' LIMIT 1",
+      [req.session.userId]
+    );
+    if (pendingNpc.length) {
+      return res.status(409).json({ error: "You already have a pending NPC application." });
+    }
+
+    // Check constituency not already taken by an active character
+    const { rows: taken } = await pool.query(
+      "SELECT id FROM characters WHERE LOWER(constituency) = LOWER($1) AND is_active = TRUE LIMIT 1",
+      [constituency]
+    );
+    if (taken.length) {
+      return res.status(409).json({ error: "That constituency is already taken by an active character." });
+    }
+
+    // Get applicant username
+    const { rows: userRows } = await pool.query("SELECT username FROM users WHERE id = $1", [req.session.userId]);
+    const applicantUsername = userRows[0]?.username ?? req.session.userId;
+
+    const { rows } = await pool.query(
+      `INSERT INTO pending_character_applications
+         (applicant_user_id, applicant_username, name, party, constituency,
+          date_of_birth, education, career_background, family, year_first_elected,
+          personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals,
+          application_type, npc_reason)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,$20)
+       RETURNING *`,
+      [
+        req.session.userId, applicantUsername, name.trim(), party, constituency.trim(),
+        date_of_birth ?? null, education ?? null, career_background ?? null,
+        family ?? null, year_first_elected ?? null, personal_background ?? null, bioValue,
+        Number(financial_background_level) || 1,
+        String(avatar || "").trim(),
+        String(avatar_attribution || "").trim(),
+        String(twitter_handle || "").trim().replace(/^@+/, ""),
+        JSON.stringify(home), JSON.stringify(rentals),
+        "npc", npc_reason.trim()
+      ]
+    );
+    await writeAuditLog(req.session.userId, "character.apply-npc", "pending_character_application", rows[0].id, null, rows[0]);
+    res.status(201).json({ ok: true, application: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // GET /api/characters/applications/mine — list own applications
 app.get("/api/characters/applications/mine", charAppReadLimit, async (req, res) => {
   try {
@@ -9197,6 +9326,8 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
     const app_ = appRows[0];
     if (app_.status !== "pending") return res.status(409).json({ error: `Application is already ${app_.status}` });
 
+    const isNpcApp = app_.application_type === "npc";
+
     // Server-side constituency check
     if (app_.constituency) {
       const { rows: taken } = await client.query(
@@ -9210,98 +9341,156 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
 
     await client.query("BEGIN");
 
-    // Deactivate any existing active characters for the applicant
-    await client.query(
-      "UPDATE characters SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE",
-      [app_.applicant_user_id]
-    );
+    if (isNpcApp) {
+      // NPC approval: create character with is_npc=true, managed_by_user_id set.
+      // user_id is NULL so the NPC is not "owned" in the normal sense.
+      // Do NOT deactivate the requester's active player character.
+      const { rows: charRows } = await client.query(
+        `INSERT INTO characters
+           (user_id, managed_by_user_id, application_id, name, party, constituency, roles, offices, is_active, is_npc,
+            date_of_birth, education, career_background, family, year_first_elected,
+            personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals)
+         VALUES (NULL,$1,$2,$3,$4,$5,'[]'::jsonb,'[]'::jsonb,TRUE,TRUE,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
+         RETURNING *`,
+        [
+          app_.applicant_user_id, req.params.id, app_.name, app_.party, app_.constituency,
+          app_.date_of_birth, app_.education, app_.career_background, app_.family,
+          app_.year_first_elected, app_.personal_background, app_.bio ?? null,
+          app_.financial_background_level,
+          app_.avatar, app_.avatar_attribution, app_.twitter_handle,
+          JSON.stringify(app_.home ?? {}), JSON.stringify(app_.rentals ?? [])
+        ]
+      );
+      const character = charRows[0];
 
-    // Create the character, linking it back to the originating application
-    const { rows: charRows } = await client.query(
-      `INSERT INTO characters
-         (user_id, application_id, name, party, constituency, roles, offices, is_active,
-          date_of_birth, education, career_background, family, year_first_elected,
-          personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals)
-       VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'[]'::jsonb,TRUE,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
-       RETURNING *`,
-      [
-        app_.applicant_user_id, req.params.id, app_.name, app_.party, app_.constituency,
-        app_.date_of_birth, app_.education, app_.career_background, app_.family,
-        app_.year_first_elected, app_.personal_background, app_.bio ?? null,
-        app_.financial_background_level,
-        app_.avatar, app_.avatar_attribution, app_.twitter_handle,
-        JSON.stringify(app_.home ?? {}), JSON.stringify(app_.rentals ?? [])
-      ]
-    );
-    const character = charRows[0];
+      // Mark application approved
+      await client.query(
+        "UPDATE pending_character_applications SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+        [req.session.userId, req.params.id]
+      );
 
-    // Set DB-canonical active character pointer on the user
-    await client.query(
-      "UPDATE users SET active_character_id = $1 WHERE id = $2",
-      [character.id, app_.applicant_user_id]
-    );
+      await client.query("COMMIT");
 
-    // Mark application approved
-    await client.query(
-      "UPDATE pending_character_applications SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
-      [req.session.userId, req.params.id]
-    );
-
-    await client.query("COMMIT");
-
-    // Seed backbencher salary position for newly created character (best-effort)
-    await pool.query(
-      "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
-      [character.id]
-    ).catch((e) => console.warn("[approve] backbencher seed failed:", e.message));
-
-    // Seed starting bank balance from financial background level (one-time, only if no finance row exists)
-    const startingBalance = STARTING_BALANCES[Math.min(10, Math.max(1, Number(app_.financial_background_level) || 5))] ?? 25000;
-    await pool.query(
-      `INSERT INTO character_finance (character_id, bank_balance)
-       VALUES ($1, $2)
-       ON CONFLICT (character_id) DO UPDATE
-         SET bank_balance = EXCLUDED.bank_balance
-         WHERE character_finance.bank_balance = 0`,
-      [character.id, startingBalance]
-    ).catch((e) => console.warn("[approve] starting balance seed failed:", e.message));
-
-    // Update the applicant's active sessions to reflect the new active character (best-effort).
-    try {
+      // Seed backbencher salary position (best-effort)
       await pool.query(
-        `UPDATE sessions
-            SET sess = jsonb_set(sess::jsonb, '{characterId}', to_jsonb($1::text))::json
-          WHERE sess::jsonb->>'userId' = $2`,
+        "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
+        [character.id]
+      ).catch((e) => console.warn("[approve-npc] backbencher seed failed:", e.message));
+
+      // Seed starting bank balance (best-effort)
+      const startingBalance = STARTING_BALANCES[Math.min(10, Math.max(1, Number(app_.financial_background_level) || 5))] ?? 25000;
+      await pool.query(
+        `INSERT INTO character_finance (character_id, bank_balance)
+         VALUES ($1, $2)
+         ON CONFLICT (character_id) DO UPDATE
+           SET bank_balance = EXCLUDED.bank_balance
+           WHERE character_finance.bank_balance = 0`,
+        [character.id, startingBalance]
+      ).catch((e) => console.warn("[approve-npc] starting balance seed failed:", e.message));
+
+      await writeAuditLog(
+        req.session.userId, "character.application.approve",
+        "pending_character_application", req.params.id,
+        app_, { ...app_, status: "approved", character_id: character.id }
+      );
+
+      res.json({ ok: true, character });
+    } else {
+      // PC approval: existing behavior
+
+      // Deactivate any existing active characters for the applicant
+      await client.query(
+        "UPDATE characters SET is_active = FALSE WHERE user_id = $1 AND is_active = TRUE",
+        [app_.applicant_user_id]
+      );
+
+      // Create the character, linking it back to the originating application
+      const { rows: charRows } = await client.query(
+        `INSERT INTO characters
+           (user_id, application_id, name, party, constituency, roles, offices, is_active,
+            date_of_birth, education, career_background, family, year_first_elected,
+            personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals)
+         VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'[]'::jsonb,TRUE,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
+         RETURNING *`,
+        [
+          app_.applicant_user_id, req.params.id, app_.name, app_.party, app_.constituency,
+          app_.date_of_birth, app_.education, app_.career_background, app_.family,
+          app_.year_first_elected, app_.personal_background, app_.bio ?? null,
+          app_.financial_background_level,
+          app_.avatar, app_.avatar_attribution, app_.twitter_handle,
+          JSON.stringify(app_.home ?? {}), JSON.stringify(app_.rentals ?? [])
+        ]
+      );
+      const character = charRows[0];
+
+      // Set DB-canonical active character pointer on the user
+      await client.query(
+        "UPDATE users SET active_character_id = $1 WHERE id = $2",
         [character.id, app_.applicant_user_id]
       );
-    } catch (sessErr) {
-      console.warn("[approve] session update for applicant failed (non-fatal):", sessErr.message);
-    }
 
-    await writeAuditLog(
-      req.session.userId, "character.application.approve",
-      "pending_character_application", req.params.id,
-      app_, { ...app_, status: "approved", character_id: character.id }
-    );
+      // Mark application approved
+      await client.query(
+        "UPDATE pending_character_applications SET status='approved', reviewed_by=$1, reviewed_at=NOW() WHERE id=$2",
+        [req.session.userId, req.params.id]
+      );
 
-    // Auto-assign party role (only if missing) and ensure office:backbencher
-    const partyRole = partyRoleForPartyName(app_.party);
-    const { rows: existingRoleRows } = await pool.query(
-      "SELECT role FROM user_roles WHERE user_id = $1", [app_.applicant_user_id]
-    );
-    const existingRoles = existingRoleRows.map((r) => r.role);
-    const rolesToAdd = computeApprovalRolesToAdd(existingRoles, partyRole);
-    for (const role of rolesToAdd) {
+      await client.query("COMMIT");
+
+      // Seed backbencher salary position for newly created character (best-effort)
       await pool.query(
-        "INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (user_id, role) DO NOTHING",
-        [app_.applicant_user_id, role, req.session.userId]
-      ).catch((e) => console.warn("[approve] role insert failed:", e.message));
-    }
-    if (rolesToAdd.length) {
-      enqueueDiscourseGroupSync(`character approval: ${app_.name}`);
-    }
+        "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
+        [character.id]
+      ).catch((e) => console.warn("[approve] backbencher seed failed:", e.message));
 
-    res.json({ ok: true, character });
+      // Seed starting bank balance from financial background level (one-time, only if no finance row exists)
+      const startingBalance = STARTING_BALANCES[Math.min(10, Math.max(1, Number(app_.financial_background_level) || 5))] ?? 25000;
+      await pool.query(
+        `INSERT INTO character_finance (character_id, bank_balance)
+         VALUES ($1, $2)
+         ON CONFLICT (character_id) DO UPDATE
+           SET bank_balance = EXCLUDED.bank_balance
+           WHERE character_finance.bank_balance = 0`,
+        [character.id, startingBalance]
+      ).catch((e) => console.warn("[approve] starting balance seed failed:", e.message));
+
+      // Update the applicant's active sessions to reflect the new active character (best-effort).
+      try {
+        await pool.query(
+          `UPDATE sessions
+              SET sess = jsonb_set(sess::jsonb, '{characterId}', to_jsonb($1::text))::json
+            WHERE sess::jsonb->>'userId' = $2`,
+          [character.id, app_.applicant_user_id]
+        );
+      } catch (sessErr) {
+        console.warn("[approve] session update for applicant failed (non-fatal):", sessErr.message);
+      }
+
+      await writeAuditLog(
+        req.session.userId, "character.application.approve",
+        "pending_character_application", req.params.id,
+        app_, { ...app_, status: "approved", character_id: character.id }
+      );
+
+      // Auto-assign party role (only if missing) and ensure office:backbencher
+      const partyRole = partyRoleForPartyName(app_.party);
+      const { rows: existingRoleRows } = await pool.query(
+        "SELECT role FROM user_roles WHERE user_id = $1", [app_.applicant_user_id]
+      );
+      const existingRoles = existingRoleRows.map((r) => r.role);
+      const rolesToAdd = computeApprovalRolesToAdd(existingRoles, partyRole);
+      for (const role of rolesToAdd) {
+        await pool.query(
+          "INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (user_id, role) DO NOTHING",
+          [app_.applicant_user_id, role, req.session.userId]
+        ).catch((e) => console.warn("[approve] role insert failed:", e.message));
+      }
+      if (rolesToAdd.length) {
+        enqueueDiscourseGroupSync(`character approval: ${app_.name}`);
+      }
+
+      res.json({ ok: true, character });
+    }
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     console.error(e);
@@ -9310,6 +9499,7 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
     client.release();
   }
 });
+
 
 // POST /api/admin/characters/applications/:id/reject — reject application
 app.post("/api/admin/characters/applications/:id/reject", charAppWriteLimit, async (req, res) => {

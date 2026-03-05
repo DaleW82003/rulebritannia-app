@@ -5,7 +5,7 @@ import { setAbsenceState, getCharacterContext } from "../engines/core-engine.js"
 import { esc } from "../ui.js";
 import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
 import {
-  apiApplyCharacter, apiGetMyApplications, apiGetMyCharacters,
+  apiApplyCharacter, apiApplyNpcCharacter, apiGetMyApplications, apiGetMyCharacters,
   apiGetCharacterApplications, apiApproveCharacterApplication,
   apiRejectCharacterApplication, apiSelectCharacter,
   apiGetConstituencies, apiGetCharacters,
@@ -262,6 +262,7 @@ function render(data, state) {
   const hasActiveOwned = dbChars.some((c) => c.is_active);
   const inactiveOwned = dbChars.filter((c) => !c.is_active);
   const pendingByCurrent = dbMyApps.filter((a) => a.status === "pending");
+  const pendingNpcByCurrent = dbMyApps.filter((a) => a.status === "pending" && a.application_type === "npc");
   const delegationChoices = delegationChoicesForParty(data, char?.party, char?.name);
 
   // Derive active character name from DB when state snapshot hasn't been updated yet.
@@ -269,6 +270,10 @@ function render(data, state) {
   // in initUserPage has propagated (e.g. cached render, or viewing own page via state).
   const dbActiveChar = !isViewingOther ? dbChars.find((c) => c.is_active) : null;
   const displayActiveChar = account.activeCharacter || dbActiveChar?.name || "None";
+
+  // Active character party for NPC form party-lock (non-admin/mod users)
+  const activeCharParty = char?.party || dbActiveChar?.party || "";
+  const isAdminOrMod = canAdminOrMod(data);
 
   // Use server-provided enums (single source of truth) when available, fall back to built-in arrays.
   const enums = state.enums ?? {};
@@ -469,19 +474,97 @@ function render(data, state) {
         <h3 style="margin:10px 0 6px;">Pending Character Approvals</h3>
         ${dbPendingApps.map((p) => `
           <article class="tile" style="margin-bottom:8px;">
+            ${p.application_type === "npc" ? `<span style="display:inline-block;background:var(--accent,#0b2d6b);color:#fff;font-size:.75em;padding:1px 7px;border-radius:10px;margin-right:6px;vertical-align:middle;">NPC</span>` : ""}
             <b>${esc(p.name)}</b> (${esc(p.party)}) · Financial level ${esc(String(p.financial_background_level || "-"))}
             <div class="muted">Submitted by ${esc(p.applicant_username || "User")} at ${esc(p.submitted_at ? new Date(p.submitted_at).toLocaleString("en-GB") : "")}</div>
             <div class="muted">Constituency: ${esc(p.constituency || "-")}</div>
             <div class="muted">Bio: ${esc((p.bio || p.personal_background || "-").slice(0, 200))}${(p.bio || p.personal_background || "").length > 200 ? "…" : ""}</div>
             ${p.avatar_attribution ? `<div class="muted">Avatar: ${esc(p.avatar_attribution)}</div>` : ""}
+            ${p.application_type === "npc" && p.npc_reason ? `<div class="muted" style="margin-top:4px;"><b>NPC Reason:</b> ${esc(p.npc_reason)}</div>` : ""}
             <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn" type="button" data-action="approve-character" data-id="${esc(p.id)}">Approve + Activate</button>
+              <button class="btn" type="button" data-action="approve-character" data-id="${esc(p.id)}">${p.application_type === "npc" ? "Approve NPC" : "Approve + Activate"}</button>
               <button class="btn" type="button" data-action="reject-character" data-id="${esc(p.id)}">Reject</button>
             </div>
           </article>
         `).join("")}
       ` : ""}
 
+    </section>
+
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Request NPC Character <span class="muted" style="font-size:.7em;font-weight:400;">(Moderator approval required)</span></h2>
+      ${!isLoggedIn() ? `<div class="tile muted-block">You must be logged in to request an NPC character.</div>` : `
+      <div class="tile" style="margin-bottom:10px;">
+        <p class="muted" style="margin:0 0 6px;">Use this form to request a non-player character (NPC) for in-game purposes. NPCs occupy a parliamentary seat and are managed by you but are not your active player character.</p>
+        ${!isAdminOrMod && !activeCharParty ? `<p class="muted" style="color:var(--danger);">You must have an active player character before you can request an NPC.</p>` : ""}
+        ${!isAdminOrMod && activeCharParty ? `<p class="muted">Your NPC will be in the <b>${esc(activeCharParty)}</b> party (locked to your active character's party).</p>` : ""}
+        ${pendingNpcByCurrent.length > 0 ? `<p class="muted">You already have a pending NPC application. You cannot submit another until it is resolved.</p>` : ""}
+      </div>
+      ${(pendingNpcByCurrent.length === 0 && (isAdminOrMod || activeCharParty)) ? `
+      <details class="tile" style="margin-bottom:10px;">
+        <summary><b>Submit NPC Request</b></summary>
+        <form id="npc-character-form" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
+          <input class="input" name="name" placeholder="NPC Name" required>
+          <input class="input" type="date" name="date_of_birth">
+          <select class="input" name="education">
+            <option value="">Education level (optional)</option>
+            ${EDUCATION_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
+          </select>
+          <select class="input" name="career_background">
+            <option value="">Pre-MP Career (optional)</option>
+            ${CAREER_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
+          </select>
+          <select class="input" name="family">
+            <option value="">Family Status (optional)</option>
+            ${FAMILY_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}
+          </select>
+          ${isAdminOrMod ? `
+          <select class="input" name="party" id="npc-party-select" required>
+            <option value="">Select party</option>
+            <option value="Conservative">Conservative</option>
+            <option value="Labour">Labour</option>
+            ${!data.adminSettings?.libDemClosedToNewChars ? `<option value="Liberal Democrat">Liberal Democrat</option>` : ""}
+          </select>
+          ` : `
+          <input type="hidden" name="party" value="${esc(activeCharParty)}">
+          <div class="input" style="background:#f5f5f5;cursor:not-allowed;color:#888;">Party: ${esc(activeCharParty)} (locked)</div>
+          `}
+          <select class="input" name="constituency" id="npc-constituency-select" required>
+            <option value="">${isAdminOrMod ? "Select party first" : "Loading constituencies…"}</option>
+          </select>
+          <input class="input" name="twitter_handle" placeholder="Twitter handle (without @, optional)">
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <input class="input" name="avatar" placeholder="Avatar URL (optional)">
+            <span class="muted" style="font-size:.8em;margin-top:2px;">Recommended: 512×512 px (min 256×256 px)</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <input class="input" name="avatar_attribution" placeholder="Who is your avatar? (required, e.g. Alan Rickman)" required>
+            <span class="muted" style="font-size:.8em;margin-top:2px;">The real-world person whose likeness is used as your avatar.</span>
+          </div>
+          <input class="input" name="year_first_elected" placeholder="Year first elected">
+          <textarea class="input" name="bio" placeholder="Biography (max 2000 characters)" maxlength="2000" style="grid-column:1/-1;resize:vertical;min-height:80px;"></textarea>
+          <select class="input" name="financial_background_level">
+            <option value="">Financial background (optional)</option>
+            <option value="1">1 – Poverty</option>
+            <option value="2">2 – Financially Strained</option>
+            <option value="3">3 – Lower Working Class</option>
+            <option value="4">4 – Skilled Working / Lower Middle</option>
+            <option value="5">5 – Solid Middle Class</option>
+            <option value="6">6 – Upper Middle Class</option>
+            <option value="7">7 – Affluent Professional</option>
+            <option value="8">8 – High Net Worth Individual</option>
+            <option value="9">9 – Top 5%</option>
+            <option value="10">10 – Top 1%</option>
+          </select>
+          <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:4px;">
+            <label class="label"><b>Reason for NPC (required)</b> — explain to moderators why this NPC is needed</label>
+            <textarea class="input" name="npc_reason" placeholder="e.g. I need an NPC to serve as a minor government minister for roleplay purposes" maxlength="1000" required style="resize:vertical;min-height:60px;"></textarea>
+          </div>
+          <button class="btn" type="submit" style="grid-column:1/-1;">Submit NPC Request for Approval</button>
+        </form>
+      </details>
+      ` : ""}
+      `}
     </section>
 
     ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
@@ -590,6 +673,72 @@ function render(data, state) {
       const { applications } = await apiGetMyApplications();
       state.dbState = { ...state.dbState, myApplications: applications };
       state.message = "Character submitted for moderator approval.";
+    } catch (err) {
+      state.message = String(err.message || "Submission failed.");
+    }
+    render(data, state);
+  });
+
+  // Party → constituency filtering for NPC form
+  const npcPartySelect = host.querySelector("#npc-party-select");
+  const npcConstSelect = host.querySelector("#npc-constituency-select");
+  if (npcPartySelect && npcConstSelect) {
+    // admin/mod: filter by selected party
+    npcPartySelect.addEventListener("change", () => {
+      const party = npcPartySelect.value;
+      if (!party) {
+        npcConstSelect.innerHTML = `<option value="">Select party first</option>`;
+        return;
+      }
+      const opts = openConstituencyOptionsForParty(data, party);
+      npcConstSelect.innerHTML = opts.length
+        ? opts.map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("")
+        : `<option value="">No open constituencies for ${esc(party)}</option>`;
+    });
+  } else if (npcConstSelect && !npcPartySelect) {
+    // non-admin/mod: party is locked to active character's party, populate immediately
+    const opts = openConstituencyOptionsForParty(data, activeCharParty);
+    npcConstSelect.innerHTML = opts.length
+      ? opts.map((c) => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`).join("")
+      : `<option value="">No open constituencies for ${esc(activeCharParty)}</option>`;
+  }
+
+  host.querySelector("#npc-character-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const avatar_attribution = String(fd.get("avatar_attribution") || "").trim();
+    if (!avatar_attribution) {
+      state.message = "Please fill in \"Who is your avatar?\" before submitting.";
+      render(data, state);
+      return;
+    }
+    const npc_reason = String(fd.get("npc_reason") || "").trim();
+    if (!npc_reason) {
+      state.message = "Please fill in the NPC reason before submitting.";
+      render(data, state);
+      return;
+    }
+    const fields = {
+      name: String(fd.get("name") || "").trim(),
+      party: String(fd.get("party") || "").trim(),
+      constituency: String(fd.get("constituency") || "").trim(),
+      date_of_birth: String(fd.get("date_of_birth") || "").trim() || null,
+      education: String(fd.get("education") || "").trim() || null,
+      career_background: String(fd.get("career_background") || "").trim() || null,
+      family: String(fd.get("family") || "").trim() || null,
+      year_first_elected: String(fd.get("year_first_elected") || "").trim() || null,
+      bio: String(fd.get("bio") || "").trim().slice(0, 2000) || null,
+      financial_background_level: Number(fd.get("financial_background_level") || 5),
+      avatar: String(fd.get("avatar") || "").trim(),
+      avatar_attribution,
+      twitter_handle: String(fd.get("twitter_handle") || "").trim(),
+      npc_reason,
+    };
+    try {
+      await apiApplyNpcCharacter(fields);
+      const { applications } = await apiGetMyApplications();
+      state.dbState = { ...state.dbState, myApplications: applications };
+      state.message = "NPC request submitted for moderator approval.";
     } catch (err) {
       state.message = String(err.message || "Submission failed.");
     }
