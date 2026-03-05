@@ -1,7 +1,7 @@
 import { formatSimMonthYear } from "../clock.js";
 import { setHTML, esc } from "../ui.js";
 import { canPostNews, canAdminOrMod } from "../permissions.js";
-import { apiCreatePaperArticle, apiUpdatePaperArticle, apiDeletePaperArticle, apiGetPaperArticles, apiGetPaperComments, apiCreatePaperComment, apiDeletePaperComment } from "../api.js";
+import { apiCreatePaperArticle, apiUpdatePaperArticle, apiDeletePaperArticle, apiGetPaperArticles, apiGetPaperComments, apiCreatePaperComment, apiDeletePaperComment, apiGetPaperSubmissions, apiCreatePaperSubmission, apiResolvePaperSubmission, apiDeletePaperSubmission } from "../api.js";
 
 function byNewest(a, b) {
   return Number(b?.createdAt || 0) - Number(a?.createdAt || 0);
@@ -341,6 +341,318 @@ function bindNewsDesk(data, rerenderGrid) {
   });
 }
 
+const SOURCE_TYPE_LABELS = {
+  backbencher: "Backbencher",
+  civil_servant: "Civil Servant",
+  party_staff: "Party Staff",
+  adviser: "Adviser",
+  lobbyist: "Lobbyist",
+  other: "Anonymous",
+};
+
+const RISK_LABELS = ["None", "Minor", "Moderate", "High"];
+
+function renderSubmissionCard(s, canStaff) {
+  const typeLabel = s.submissionType === "leak" ? "📰 Leak" : "✏️ Editorial";
+  const statusColor = s.status === "pending" ? "#a56300" : s.status === "accepted" ? "#1a7a1a" : "#c00";
+  const riskBadge = s.riskLevel >= 2 || s.isControversial ? `<span style="background:#c00;color:#fff;border-radius:3px;padding:1px 5px;font-size:.75em;margin-left:4px;">⚠ ${s.isControversial ? "CONTROVERSIAL" : ""} Risk ${s.riskLevel}</span>` : "";
+  return `
+    <div class="submission-card" data-sub-id="${esc(s.id)}" style="border:1px solid #ccc;border-radius:4px;padding:10px;margin-bottom:10px;">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px;">
+        <span style="font-weight:600;">${typeLabel}</span>
+        <span class="muted small">${esc(s.paperKey)}</span>
+        ${riskBadge}
+        <span style="margin-left:auto;font-size:.8em;font-weight:600;color:${statusColor};">${s.status.toUpperCase()}</span>
+      </div>
+      ${s.headline ? `<div style="font-weight:600;margin-bottom:4px;">${esc(s.headline)}</div>` : ""}
+      <div style="font-size:.85em;white-space:pre-wrap;margin-bottom:6px;">${esc(s.text.length > 400 ? s.text.slice(0, 400) + "…" : s.text)}</div>
+      ${s.submissionType === "leak" ? `<div class="muted small">Source type: ${esc(SOURCE_TYPE_LABELS[s.sourceType] || s.sourceType)}${s.pseudonym ? ` · Pseudonym: "${esc(s.pseudonym)}"` : ""}</div>` : ""}
+      ${canStaff ? `<div class="muted small">Submitted by: ${esc(s.submittedByName || "?")} (${esc(s.charName || "—")})</div>` : ""}
+      ${canStaff && s.evidenceNotes ? `<div style="font-size:.8em;padding:4px 8px;background:#fff3cd;border-radius:3px;margin-top:4px;"><strong>Evidence:</strong> ${esc(s.evidenceNotes)}</div>` : ""}
+      ${s.modNote && (canStaff || s.status !== "pending") ? `<div class="muted small" style="margin-top:4px;font-style:italic;">Mod note: ${esc(s.modNote)}</div>` : ""}
+      ${s.status === "pending" && canStaff ? `
+        <details style="margin-top:8px;">
+          <summary style="cursor:pointer;font-size:.85em;font-weight:600;">Resolve this submission</summary>
+          <div style="padding:8px 0;">
+            <div class="form-grid" style="gap:6px;">
+              <label style="font-size:.85em;">Final headline (optional override)</label>
+              <input class="input resolve-headline" type="text" maxlength="200" placeholder="${esc(s.headline || "Auto-generated")}" style="font-size:.85em;">
+              <label style="font-size:.85em;">Final text (optional override)</label>
+              <textarea class="input resolve-text" rows="4" maxlength="10000" style="font-size:.85em;" placeholder="Leave blank to use submitted text">${esc(s.text)}</textarea>
+              <label style="font-size:.85em;">Byline override</label>
+              <input class="input resolve-byline" type="text" maxlength="120" style="font-size:.85em;" placeholder="${esc(s.submissionType === "editorial" ? (s.pseudonym || s.charName || "Correspondent") : "Auto-generated")}">
+              <label style="font-size:.85em;">Editor's note (appended to article)</label>
+              <input class="input resolve-editornote" type="text" maxlength="400" style="font-size:.85em;" placeholder="Optional italic note appended at end of article">
+              <label style="font-size:.85em;">Mod note (private, visible to submitter)</label>
+              <input class="input resolve-modnote" type="text" maxlength="300" style="font-size:.85em;" placeholder="Reason for rejection or any note">
+            </div>
+            <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn primary small resolve-accept" type="button">✓ Accept &amp; Publish</button>
+              <button class="btn small resolve-reject" type="button" style="border-color:#c00;color:#c00;">✗ Reject</button>
+              <button class="btn small resolve-delete" type="button">Delete</button>
+            </div>
+            <div class="resolve-status" style="font-size:.8em;margin-top:4px;color:#555;"></div>
+          </div>
+        </details>
+      ` : ""}
+      ${s.publishedArticleId ? `<div class="muted small" style="margin-top:4px;">✓ Published as article <code>${esc(s.publishedArticleId)}</code></div>` : ""}
+    </div>
+  `;
+}
+
+function bindSubmissionCardActions(container, onRefresh) {
+  container.querySelectorAll(".submission-card").forEach((card) => {
+    const subId = card.dataset.subId;
+    const statusDiv = card.querySelector(".resolve-status");
+
+    card.querySelector(".resolve-accept")?.addEventListener("click", async () => {
+      const headline = card.querySelector(".resolve-headline")?.value?.trim();
+      const text = card.querySelector(".resolve-text")?.value?.trim();
+      const byline = card.querySelector(".resolve-byline")?.value?.trim();
+      const editorNote = card.querySelector(".resolve-editornote")?.value?.trim();
+      const modNote = card.querySelector(".resolve-modnote")?.value?.trim();
+      if (statusDiv) statusDiv.textContent = "Publishing…";
+      try {
+        await apiResolvePaperSubmission(subId, { action: "accept", headline, text, byline, editorNote, modNote });
+        if (statusDiv) statusDiv.textContent = "✓ Published successfully.";
+        setTimeout(() => onRefresh(), 1200);
+      } catch (err) {
+        if (statusDiv) statusDiv.textContent = err.message || "Failed.";
+      }
+    });
+
+    card.querySelector(".resolve-reject")?.addEventListener("click", async () => {
+      const modNote = card.querySelector(".resolve-modnote")?.value?.trim();
+      if (statusDiv) statusDiv.textContent = "Rejecting…";
+      try {
+        await apiResolvePaperSubmission(subId, { action: "reject", modNote });
+        if (statusDiv) statusDiv.textContent = "Rejected.";
+        setTimeout(() => onRefresh(), 1200);
+      } catch (err) {
+        if (statusDiv) statusDiv.textContent = err.message || "Failed.";
+      }
+    });
+
+    card.querySelector(".resolve-delete")?.addEventListener("click", async () => {
+      if (!confirm("Delete this submission permanently?")) return;
+      try {
+        await apiDeletePaperSubmission(subId);
+        onRefresh();
+      } catch (err) {
+        if (statusDiv) statusDiv.textContent = err.message || "Delete failed.";
+      }
+    });
+  });
+}
+
+function bindSubmissions(data, papers) {
+  const mainBtn = document.getElementById("papersSubmissionsBtn");
+  const mainPanel = document.getElementById("papersSubmissionsPanel");
+  if (!mainBtn || !mainPanel) return;
+
+  const isLoggedIn = !!data.currentUser?.id;
+  const isStaff = canAdminOrMod(data);
+
+  // Show/hide submissions panel
+  mainBtn.addEventListener("click", () => {
+    const isOpen = mainPanel.style.display !== "none";
+    mainPanel.style.display = isOpen ? "none" : "";
+    mainBtn.textContent = isOpen ? "Submit a Leak / Editorial" : "Close Submissions";
+    if (!isOpen && isStaff) loadModInbox();
+  });
+
+  // Populate paper selects
+  const paperOptions = papers.map((p) => `<option value="${esc(p.key)}">${esc(p.name)}</option>`).join("");
+  ["leakPaper", "editPaper", "modInboxFilterPaper"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (id === "modInboxFilterPaper") {
+      el.innerHTML = `<option value="">All Papers</option>` + paperOptions;
+    } else {
+      el.innerHTML = paperOptions;
+    }
+  });
+
+  // Toggle sub-panels
+  const leakForm    = document.getElementById("papersLeakForm");
+  const editForm    = document.getElementById("papersEditorialForm");
+  const mySubsPanel = document.getElementById("papersMySubmissions");
+  const modInbox    = document.getElementById("papersModInbox");
+
+  function hideAll() {
+    [leakForm, editForm, mySubsPanel, modInbox].forEach((el) => { if (el) el.style.display = "none"; });
+  }
+
+  document.getElementById("papersSubLeakBtn")?.addEventListener("click", () => {
+    if (!isLoggedIn) { alert("Please log in to submit a leak."); return; }
+    const isShowing = leakForm?.style.display !== "none";
+    hideAll();
+    if (!isShowing && leakForm) leakForm.style.display = "";
+  });
+
+  document.getElementById("papersSubEditorialBtn")?.addEventListener("click", () => {
+    if (!isLoggedIn) { alert("Please log in to submit an editorial."); return; }
+    const isShowing = editForm?.style.display !== "none";
+    hideAll();
+    if (!isShowing && editForm) editForm.style.display = "";
+  });
+
+  document.getElementById("papersSubMyBtn")?.addEventListener("click", () => {
+    if (!isLoggedIn) { alert("Please log in to see your submissions."); return; }
+    const isShowing = mySubsPanel?.style.display !== "none";
+    hideAll();
+    if (!isShowing) {
+      if (mySubsPanel) mySubsPanel.style.display = "";
+      loadMySubmissions();
+    }
+  });
+
+  document.getElementById("papersLeakCancel")?.addEventListener("click", () => {
+    if (leakForm) leakForm.style.display = "none";
+  });
+  document.getElementById("papersEditorialCancel")?.addEventListener("click", () => {
+    if (editForm) editForm.style.display = "none";
+  });
+
+  // Leak form submit
+  document.getElementById("papersLeakFormEl")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const btn = ev.currentTarget.querySelector("[type='submit']");
+    if (btn) btn.disabled = true;
+    try {
+      await apiCreatePaperSubmission({
+        paperKey:       document.getElementById("leakPaper")?.value,
+        submissionType: "leak",
+        text:           document.getElementById("leakText")?.value?.trim(),
+        sourceType:     document.getElementById("leakSourceType")?.value,
+        pseudonym:      document.getElementById("leakPseudonym")?.value?.trim(),
+        evidenceNotes:  document.getElementById("leakEvidence")?.value?.trim(),
+        riskLevel:      Number(document.getElementById("leakRisk")?.value || 0),
+        isControversial: document.getElementById("leakControversial")?.checked,
+      });
+      ev.currentTarget.reset();
+      if (leakForm) leakForm.style.display = "none";
+      showSubmitSuccess("Leak submitted! Mods will review it shortly.");
+    } catch (err) {
+      showSubmitError(err.message || "Submission failed.");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  // Editorial form submit
+  document.getElementById("papersEditorialFormEl")?.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const btn = ev.currentTarget.querySelector("[type='submit']");
+    if (btn) btn.disabled = true;
+    try {
+      await apiCreatePaperSubmission({
+        paperKey:       document.getElementById("editPaper")?.value,
+        submissionType: "editorial",
+        headline:       document.getElementById("editHeadline")?.value?.trim(),
+        text:           document.getElementById("editText")?.value?.trim(),
+        pseudonym:      document.getElementById("editPseudonym")?.value?.trim(),
+        imageUrl:       document.getElementById("editImage")?.value?.trim(),
+        riskLevel:      Number(document.getElementById("editRisk")?.value || 0),
+        isControversial: document.getElementById("editControversial")?.checked,
+      });
+      ev.currentTarget.reset();
+      if (editForm) editForm.style.display = "none";
+      showSubmitSuccess("Editorial submitted! Mods will review it shortly.");
+    } catch (err) {
+      showSubmitError(err.message || "Submission failed.");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  function showSubmitSuccess(msg) {
+    const div = document.createElement("div");
+    div.style.cssText = "padding:8px 12px;background:#d4edda;border:1px solid #c3e6cb;border-radius:4px;margin-top:8px;font-size:.9em;";
+    div.textContent = msg;
+    mainPanel.prepend(div);
+    setTimeout(() => div.remove(), 5000);
+  }
+
+  function showSubmitError(msg) {
+    const div = document.createElement("div");
+    div.style.cssText = "padding:8px 12px;background:#f8d7da;border:1px solid #f5c6cb;border-radius:4px;margin-top:8px;font-size:.9em;";
+    div.textContent = `Error: ${msg}`;
+    mainPanel.prepend(div);
+    setTimeout(() => div.remove(), 7000);
+  }
+
+  // My Submissions
+  async function loadMySubmissions() {
+    const listEl = document.getElementById("papersMySubmissionsList");
+    if (!listEl) return;
+    listEl.innerHTML = `<div class="muted-block">Loading…</div>`;
+    try {
+      const r = await apiGetPaperSubmissions();
+      const subs = r.submissions || [];
+      if (!subs.length) { listEl.innerHTML = `<div class="muted-block">No submissions yet.</div>`; return; }
+      listEl.innerHTML = subs.map((s) => renderSubmissionCard(s, false)).join("");
+    } catch (err) {
+      listEl.innerHTML = `<div class="muted-block">Failed to load submissions.</div>`;
+      console.error("[papers] my submissions load failed:", err);
+    }
+  }
+
+  // Mod inbox
+  if (isStaff) {
+    if (modInbox) modInbox.style.display = "none";
+
+    document.querySelector(".tile-bottom")?.closest("section.panel"); // already opened via click
+
+    // Show mod inbox on panel open via the main button (already handled above)
+    // But also expose a way to access it directly from the page:
+    const modInboxBtn = document.createElement("button");
+    modInboxBtn.className = "btn small";
+    modInboxBtn.textContent = "Mod Inbox";
+    modInboxBtn.style.cssText = "margin-left:6px;";
+    modInboxBtn.addEventListener("click", () => {
+      if (mainPanel.style.display === "none") {
+        mainPanel.style.display = "";
+        mainBtn.textContent = "Close Submissions";
+      }
+      hideAll();
+      if (modInbox) modInbox.style.display = "";
+      loadModInbox();
+    });
+    mainBtn.insertAdjacentElement("afterend", modInboxBtn);
+
+    async function loadModInbox() {
+      const listEl = document.getElementById("papersModInboxList");
+      if (!listEl) return;
+      listEl.innerHTML = `<div class="muted-block">Loading…</div>`;
+      const filters = {};
+      const paperF = document.getElementById("modInboxFilterPaper")?.value;
+      const statusF = document.getElementById("modInboxFilterStatus")?.value;
+      const typeF = document.getElementById("modInboxFilterType")?.value;
+      const riskF = document.getElementById("modInboxFilterRisk")?.checked;
+      if (paperF)  filters.paper  = paperF;
+      if (statusF) filters.status = statusF;
+      if (typeF)   filters.type   = typeF;
+      if (riskF)   filters.risk   = "high";
+      try {
+        const r = await apiGetPaperSubmissions(filters);
+        const subs = r.submissions || [];
+        if (!subs.length) { listEl.innerHTML = `<div class="muted-block">No submissions match the current filters.</div>`; return; }
+        listEl.innerHTML = subs.map((s) => renderSubmissionCard(s, true)).join("");
+        bindSubmissionCardActions(listEl, loadModInbox);
+      } catch (err) {
+        listEl.innerHTML = `<div class="muted-block">Failed to load inbox.</div>`;
+        console.error("[papers] mod inbox load failed:", err);
+      }
+    }
+
+    document.getElementById("modInboxRefresh")?.addEventListener("click", loadModInbox);
+    ["modInboxFilterPaper", "modInboxFilterStatus", "modInboxFilterType", "modInboxFilterRisk"].forEach((id) => {
+      document.getElementById(id)?.addEventListener("change", loadModInbox);
+    });
+  }
+}
+
 export async function initPapersPage(data) {
   try {
     const r = await apiGetPaperArticles();
@@ -373,4 +685,5 @@ export async function initPapersPage(data) {
 
   rerenderGrid();
   bindNewsDesk(data, rerenderGrid);
+  bindSubmissions(data, papers);
 }

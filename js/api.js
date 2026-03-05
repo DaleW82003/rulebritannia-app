@@ -3099,6 +3099,37 @@ export async function apiDeletePaperComment(paperKey, articleId, commentId) {
   return body;
 }
 
+// ── Paper Submissions API (Leaks + Editorials) ────────────────────────────────
+export async function apiGetPaperSubmissions(filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.paper)  params.set("paper",  filters.paper);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.type)   params.set("type",   filters.type);
+  if (filters.risk)   params.set("risk",   filters.risk);
+  const qs = params.toString();
+  const res = await _fetch(`${API_BASE}/api/papers/submissions${qs ? `?${qs}` : ""}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetPaperSubmissions failed (${res.status})`);
+  return res.json();
+}
+export async function apiCreatePaperSubmission(payload) {
+  const res = await _fetch(`${API_BASE}/api/papers/submissions`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify(payload) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreatePaperSubmission failed (${res.status})`);
+  return body;
+}
+export async function apiResolvePaperSubmission(id, payload) {
+  const res = await _fetch(`${API_BASE}/api/papers/submissions/${encodeURIComponent(id)}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify(payload) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiResolvePaperSubmission failed (${res.status})`);
+  return body;
+}
+export async function apiDeletePaperSubmission(id) {
+  const res = await _fetch(`${API_BASE}/api/papers/submissions/${encodeURIComponent(id)}`, { method: "DELETE", credentials: "include", headers: { ...csrfHeaders() } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiDeletePaperSubmission failed (${res.status})`);
+  return body;
+}
+
 // ── Online post edit (PATCH) ─────────────────────────────────────────────────
 export async function apiUpdateOnlinePost(id, patch) {
   const res = await _fetch(`${API_BASE}/api/online/${encodeURIComponent(id)}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify(patch) });

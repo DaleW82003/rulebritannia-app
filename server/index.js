@@ -1887,6 +1887,42 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS idx_pac_article_id ON paper_article_comments(article_id, created_at);
   `);
 
+  // ── Paper submissions (Leaks + Editorials) ────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS paper_submissions (
+      id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+      paper_key         TEXT        NOT NULL,
+      submission_type   TEXT        NOT NULL DEFAULT 'leak'
+                        CHECK (submission_type IN ('leak','editorial')),
+      headline          TEXT        NOT NULL DEFAULT '',
+      text              TEXT        NOT NULL,
+      source_type       TEXT        NOT NULL DEFAULT 'other',
+      pseudonym         TEXT        NOT NULL DEFAULT '',
+      evidence_notes    TEXT        NOT NULL DEFAULT '',
+      image_url         TEXT        NOT NULL DEFAULT '',
+      risk_level        INT         NOT NULL DEFAULT 0
+                        CHECK (risk_level BETWEEN 0 AND 3),
+      is_controversial  BOOLEAN     NOT NULL DEFAULT FALSE,
+      sim_month         INT,
+      sim_year          INT,
+      status            TEXT        NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending','accepted','rejected')),
+      submitted_by      UUID        REFERENCES users(id) ON DELETE SET NULL,
+      submitted_by_name TEXT        NOT NULL DEFAULT '',
+      char_id           UUID        REFERENCES characters(id) ON DELETE SET NULL,
+      char_name         TEXT        NOT NULL DEFAULT '',
+      editor_note       TEXT        NOT NULL DEFAULT '',
+      mod_note          TEXT        NOT NULL DEFAULT '',
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      resolved_at       TIMESTAMPTZ,
+      resolved_by       UUID        REFERENCES users(id) ON DELETE SET NULL,
+      published_article_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ps_paper_key ON paper_submissions(paper_key);
+    CREATE INDEX IF NOT EXISTS idx_ps_submitted_by ON paper_submissions(submitted_by);
+    CREATE INDEX IF NOT EXISTS idx_ps_status ON paper_submissions(status);
+  `);
+
   // ── B) Whip status on characters ─────────────────────────────────────────
   await pool.query(`
     ALTER TABLE characters
@@ -20070,6 +20106,194 @@ app.delete("/api/papers/:paperKey/articles/:articleId/comments/:cid", crudWriteL
     await writeAuditLog(req.session.userId, "paper_comment.delete", "paper_article_comment", req.params.cid, null, { paperKey: req.params.paperKey, articleId: req.params.articleId });
     res.json({ ok: true });
   } catch (e) { console.error("[DELETE /api/papers/:paperKey/articles/:articleId/comments/:cid]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Paper Submissions API (Leaks + Editorials) ────────────────────────────────
+// POST   /api/papers/submissions              — authenticated: create submission
+// GET    /api/papers/submissions              — authenticated: own submissions; mods see all (filter: ?paper, ?status, ?type)
+// GET    /api/papers/submissions/:id          — authenticated: own only; mods see all
+// PATCH  /api/papers/submissions/:id          — mods only: accept/amend/reject
+// DELETE /api/papers/submissions/:id          — mods only: delete without publishing
+
+const VALID_SOURCE_TYPES  = ["backbencher","civil_servant","party_staff","adviser","lobbyist","other"];
+const VALID_RISK_LEVELS   = [0, 1, 2, 3];
+
+app.post("/api/papers/submissions", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const {
+      paperKey, submissionType = "leak", headline = "", text,
+      sourceType = "other", pseudonym = "", evidenceNotes = "",
+      imageUrl = "", riskLevel = 0, isControversial = false,
+    } = req.body || {};
+    if (!paperKey || typeof paperKey !== "string" || !paperKey.trim()) return res.status(400).json({ error: "paperKey is required" });
+    if (!["leak", "editorial"].includes(submissionType)) return res.status(400).json({ error: "submissionType must be 'leak' or 'editorial'" });
+    if (!text || typeof text !== "string" || !text.trim()) return res.status(400).json({ error: "text is required" });
+    if (text.trim().length > 10000) return res.status(400).json({ error: "text must be at most 10000 characters" });
+    if (!VALID_SOURCE_TYPES.includes(sourceType)) return res.status(400).json({ error: "invalid sourceType" });
+    const risk = Number(riskLevel);
+    if (!VALID_RISK_LEVELS.includes(risk)) return res.status(400).json({ error: "riskLevel must be 0-3" });
+    const { simMonth, simYear } = await getCurrentSimMonthYear();
+    const charId = await getActiveCharacterId(req);
+    let charName = "";
+    if (charId) {
+      const { rows: cRows } = await pool.query("SELECT name FROM characters WHERE id = $1", [charId]);
+      charName = cRows[0]?.name || "";
+    }
+    const { rows: uRows } = await pool.query("SELECT username FROM users WHERE id = $1", [req.session.userId]);
+    const submitterName = uRows[0]?.username || "";
+    const headlineSanitized = submissionType === "editorial" ? (typeof headline === "string" ? headline.trim().slice(0, 200) : "") : "";
+    const { rows } = await pool.query(
+      `INSERT INTO paper_submissions
+         (paper_key, submission_type, headline, text, source_type, pseudonym, evidence_notes, image_url,
+          risk_level, is_controversial, sim_month, sim_year, submitted_by, submitted_by_name, char_id, char_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       RETURNING id, created_at`,
+      [paperKey.trim(), submissionType, headlineSanitized, text.trim(), sourceType,
+       typeof pseudonym === "string" ? pseudonym.trim().slice(0, 100) : "",
+       typeof evidenceNotes === "string" ? evidenceNotes.trim().slice(0, 5000) : "",
+       typeof imageUrl === "string" ? imageUrl.trim().slice(0, 500) : "",
+       risk, !!isControversial, simMonth, simYear,
+       req.session.userId, submitterName, charId || null, charName]
+    );
+    await writeAuditLog(req.session.userId, "paper_submission.create", "paper_submission", rows[0].id, null, { paperKey, submissionType });
+    res.json({ ok: true, id: rows[0].id, createdAt: rows[0].created_at });
+  } catch (e) { console.error("[POST /api/papers/submissions]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.get("/api/papers/submissions", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = roles.includes("admin") || roles.includes("mod");
+    const { paper, status, type, risk } = req.query;
+    let query, params;
+    if (isStaff) {
+      const conditions = ["1=1"];
+      const qParams = [];
+      if (paper) { qParams.push(paper); conditions.push(`ps.paper_key = $${qParams.length}`); }
+      if (status) { qParams.push(status); conditions.push(`ps.status = $${qParams.length}`); }
+      if (type)   { qParams.push(type);   conditions.push(`ps.submission_type = $${qParams.length}`); }
+      if (risk === "high") conditions.push(`(ps.risk_level >= 2 OR ps.is_controversial = TRUE)`);
+      query = `SELECT ps.*, u.username AS resolved_by_name
+                 FROM paper_submissions ps
+                 LEFT JOIN users u ON u.id = ps.resolved_by
+                WHERE ${conditions.join(" AND ")}
+                ORDER BY ps.created_at DESC`;
+      params = qParams;
+    } else {
+      query = `SELECT id, paper_key, submission_type, headline, text, source_type, pseudonym, image_url,
+                      risk_level, is_controversial, sim_month, sim_year, status, submitted_by_name,
+                      char_name, mod_note, created_at, resolved_at
+                 FROM paper_submissions
+                WHERE submitted_by = $1
+                ORDER BY created_at DESC`;
+      params = [req.session.userId];
+    }
+    const { rows } = await pool.query(query, params);
+    res.json({ submissions: rows.map((r) => {
+      const isOwn = r.submitted_by === req.session.userId;
+      return {
+        id: r.id, paperKey: r.paper_key, submissionType: r.submission_type,
+        headline: r.headline, text: r.text,
+        // evidence_notes only visible to staff
+        evidenceNotes: isStaff ? r.evidence_notes : undefined,
+        sourceType: r.source_type, pseudonym: r.pseudonym,
+        imageUrl: r.image_url, riskLevel: r.risk_level, isControversial: r.is_controversial,
+        simMonth: r.sim_month, simYear: r.sim_year, status: r.status,
+        submittedBy: r.submitted_by, submittedByName: r.submitted_by_name,
+        charId: r.char_id, charName: r.char_name,
+        // editorNote always visible; modNote only to owner/staff
+        editorNote: r.editor_note,
+        modNote: (isStaff || isOwn) ? r.mod_note : undefined,
+        createdAt: r.created_at, resolvedAt: r.resolved_at,
+        resolvedByName: isStaff ? r.resolved_by_name : undefined,
+        publishedArticleId: r.published_article_id,
+      };
+    }) });
+  } catch (e) { console.error("[GET /api/papers/submissions]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.get("/api/papers/submissions/:id", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = roles.includes("admin") || roles.includes("mod");
+    const { rows } = await pool.query("SELECT * FROM paper_submissions WHERE id = $1", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Submission not found" });
+    const r = rows[0];
+    if (!isStaff && r.submitted_by !== req.session.userId) return res.status(403).json({ error: "Forbidden" });
+    res.json({
+      id: r.id, paperKey: r.paper_key, submissionType: r.submission_type,
+      headline: r.headline, text: r.text,
+      evidenceNotes: isStaff ? r.evidence_notes : undefined,
+      sourceType: r.source_type, pseudonym: r.pseudonym,
+      imageUrl: r.image_url, riskLevel: r.risk_level, isControversial: r.is_controversial,
+      simMonth: r.sim_month, simYear: r.sim_year, status: r.status,
+      submittedBy: r.submitted_by, submittedByName: r.submitted_by_name,
+      charId: r.char_id, charName: r.char_name,
+      editorNote: r.editor_note, modNote: r.mod_note,
+      createdAt: r.created_at, resolvedAt: r.resolved_at, publishedArticleId: r.published_article_id,
+    });
+  } catch (e) { console.error("[GET /api/papers/submissions/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.patch("/api/papers/submissions/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { action, editorNote = "", modNote = "", headline, text, imageUrl, byline } = req.body || {};
+    if (!["accept", "reject"].includes(action)) return res.status(400).json({ error: "action must be 'accept' or 'reject'" });
+    const { rows } = await pool.query("SELECT * FROM paper_submissions WHERE id = $1", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Submission not found" });
+    const sub = rows[0];
+    if (sub.status !== "pending") return res.status(409).json({ error: "Submission already resolved" });
+    let publishedArticleId = null;
+    if (action === "accept") {
+      // Build the final article text (may include editor's note)
+      const finalHeadline = (headline ? String(headline).trim() : sub.headline) || `Exclusive: ${sub.pseudonym ? `"${sub.pseudonym}" speaks` : "Source reveals all"}`;
+      const finalText = (text ? String(text).trim() : sub.text);
+      const finalImageUrl = (imageUrl ? String(imageUrl).trim() : sub.image_url) || "";
+      const articleEditorNote = String(editorNote).trim();
+      const fullText = articleEditorNote ? `${finalText}\n\n*Editor's note: ${articleEditorNote}*` : finalText;
+      const bylineName = (byline ? String(byline).trim() : "") ||
+        (sub.submission_type === "leak"
+          ? `Exclusive (source: ${sub.source_type === "other" ? "anonymous" : sub.source_type.replace(/_/g, " ")})`
+          : (sub.pseudonym || sub.char_name || "Correspondent"));
+      const { simMonth, simYear } = await getCurrentSimMonthYear();
+      const simDate = (() => {
+        const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+        return `${MONTHS[((simMonth - 1) % 12 + 12) % 12]} ${simYear}`;
+      })();
+      const articleId = `${sub.paper_key}-sub-${Date.now().toString(36)}`;
+      await pool.query(
+        `INSERT INTO newspaper_articles (id, paper_key, headline, text, byline_name, image_url, sim_date, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [articleId, sub.paper_key, finalHeadline, fullText, bylineName, finalImageUrl, simDate, req.session.userId]
+      );
+      publishedArticleId = articleId;
+    }
+    await pool.query(
+      `UPDATE paper_submissions
+          SET status = $2, editor_note = $3, mod_note = $4, resolved_at = NOW(), resolved_by = $5,
+              published_article_id = COALESCE($6, published_article_id)
+        WHERE id = $1`,
+      [req.params.id, action === "accept" ? "accepted" : "rejected",
+       String(editorNote).trim(), String(modNote).trim(), req.session.userId, publishedArticleId]
+    );
+    await writeAuditLog(req.session.userId, `paper_submission.${action}`, "paper_submission", req.params.id, null, { action, publishedArticleId });
+    res.json({ ok: true, publishedArticleId });
+  } catch (e) { console.error("[PATCH /api/papers/submissions/:id]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.delete("/api/papers/submissions/:id", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows } = await pool.query("SELECT id FROM paper_submissions WHERE id = $1", [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: "Submission not found" });
+    await pool.query("DELETE FROM paper_submissions WHERE id = $1", [req.params.id]);
+    await writeAuditLog(req.session.userId, "paper_submission.delete", "paper_submission", req.params.id, null, {});
+    res.json({ ok: true });
+  } catch (e) { console.error("[DELETE /api/papers/submissions/:id]", e); res.status(500).json({ error: "Server error" }); }
 });
 
 // ── Economy page data ────────────────────────────────────────────────────────
