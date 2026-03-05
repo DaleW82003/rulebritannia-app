@@ -236,8 +236,14 @@ function setCharacterInactiveEverywhere(data, characterName) {
 
 function leaderForParty(data, party) {
   const pname = String(party || "").toLowerCase();
-  const players = Array.isArray(data.players) ? data.players : [];
-  const leader = players.find((p) => String(p.party || "").toLowerCase() === pname && p.partyLeader);
+  const players = (Array.isArray(data.players) ? data.players : [])
+    .filter((p) => String(p?.party || "").toLowerCase() === pname && p?.active !== false);
+  const leader =
+    players.find((p) => p.partyLeader) ||
+    players.find((p) => p.role === "prime-minister") ||
+    players.find((p) => p.role === "leader-opposition") ||
+    players.find((p) => p.role === "party-leader-3rd-4th") ||
+    null;
   return leader?.name || "";
 }
 
@@ -573,7 +579,8 @@ function render(data, state) {
     if (!data.currentCharacter) return;
     const fd = new FormData(e.currentTarget);
     const delegatedTo = String(fd.get("delegatedTo") || "").trim();
-    const isLeader = !!data.currentCharacter.partyLeader;
+    const partyLeaderName = leaderForParty(data, data.currentCharacter?.party);
+    const isLeader = String(data.currentCharacter?.name || "") === partyLeaderName;
 
     if (isLeader) {
       // Party leader must pick a valid delegate from same party
@@ -585,15 +592,14 @@ function render(data, state) {
       }
     } else {
       // Normal character: auto-delegate to party leader
-      const leader = leaderForParty(data, data.currentCharacter?.party);
-      if (!leader) {
+      if (!partyLeaderName) {
         state.message = "Cannot set absent: no Party Leader found for your party.";
         render(data, state);
         return;
       }
     }
 
-    const absentDelegateTo = delegatedTo || leaderForParty(data, data.currentCharacter?.party);
+    const absentDelegateTo = delegatedTo || partyLeaderName;
     data.currentCharacter.absent = true;
     data.currentCharacter.delegatedTo = absentDelegateTo;
     try {
@@ -608,10 +614,19 @@ function render(data, state) {
     render(data, state);
   });
 
-  host.querySelector("#absence-clear")?.addEventListener("click", () => {
+  host.querySelector("#absence-clear")?.addEventListener("click", async () => {
     if (!data.currentCharacter) return;
+    const previousAbsent = !!data.currentCharacter.absent;
+    const previousDelegatedTo = data.currentCharacter.delegatedTo || null;
     setAbsenceState(data, { absent: false, delegatedTo: null });
-    state.message = "Character marked active.";
+    try {
+      await apiUpdateMyAbsent(false, null);
+      state.message = "Character marked active.";
+    } catch (err) {
+      setAbsenceState(data, { absent: previousAbsent, delegatedTo: previousDelegatedTo });
+      state.message = "Failed to clear absence. Please try again.";
+      console.error("[user] clear absent failed:", err);
+    }
     render(data, state);
   });
 
