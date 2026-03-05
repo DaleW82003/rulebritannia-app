@@ -2920,6 +2920,34 @@ export async function apiDeleteNewsComment(storyId, commentId) {
   if (!res.ok) throw new Error(body.error || `apiDeleteNewsComment failed (${res.status})`);
   return body;
 }
+export async function apiReportNewsComment(storyId, commentId) {
+  const res = await _fetch(`${API_BASE}/api/news/${encodeURIComponent(storyId)}/comments/${encodeURIComponent(commentId)}/report`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiReportNewsComment failed (${res.status})`);
+  return body;
+}
+export async function apiCreateNewsReplyRequest(storyId, textDraft = "") {
+  const res = await _fetch(`${API_BASE}/api/news/${encodeURIComponent(storyId)}/reply-request`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ textDraft }) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreateNewsReplyRequest failed (${res.status})`);
+  return body;
+}
+export async function apiGetNewsReplyRequests() {
+  const res = await _fetch(`${API_BASE}/api/news/reply-requests`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetNewsReplyRequests failed (${res.status})`);
+  return res.json();
+}
+export async function apiGetMyReplyRequests() {
+  const res = await _fetch(`${API_BASE}/api/news/my-reply-requests`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyReplyRequests failed (${res.status})`);
+  return res.json();
+}
+export async function apiResolveNewsReplyRequest(storyId, requestId, payload) {
+  const res = await _fetch(`${API_BASE}/api/news/${encodeURIComponent(storyId)}/reply-requests/${encodeURIComponent(requestId)}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify(payload) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiResolveNewsReplyRequest failed (${res.status})`);
+  return body;
+}
 
 // ── Rules API ────────────────────────────────────────────────────────────────
 export async function apiGetRules() {

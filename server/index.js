@@ -1833,6 +1833,44 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_nsc_story_id ON news_story_comments(news_story_id, created_at);
   `);
+  // ── "Have Your Say" comment enhancements (idempotent migrations) ──────────
+  await pool.query(`
+    ALTER TABLE news_story_comments
+      ADD COLUMN IF NOT EXISTS character_id   UUID        REFERENCES characters(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS character_name TEXT        NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS sim_month      INT,
+      ADD COLUMN IF NOT EXISTS sim_year       INT,
+      ADD COLUMN IF NOT EXISTS deleted_by_user BOOLEAN    NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS original_text  TEXT,
+      ADD COLUMN IF NOT EXISTS reported_at    TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS reported_by    UUID        REFERENCES users(id) ON DELETE SET NULL;
+  `);
+
+  // ── News reply requests (Right of Reply) ─────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS news_reply_requests (
+      id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+      story_id          TEXT        NOT NULL REFERENCES news_stories(id) ON DELETE CASCADE,
+      char_id           UUID        REFERENCES characters(id) ON DELETE SET NULL,
+      char_name         TEXT        NOT NULL DEFAULT '',
+      char_role         TEXT        NOT NULL DEFAULT '',
+      text_draft        TEXT        NOT NULL DEFAULT '',
+      status            TEXT        NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending','published','rejected')),
+      official_response TEXT        NOT NULL DEFAULT '',
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      resolved_at       TIMESTAMPTZ,
+      resolved_by       UUID        REFERENCES users(id) ON DELETE SET NULL,
+      mod_note          TEXT        NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_nrr_story_id ON news_reply_requests(story_id);
+    CREATE INDEX IF NOT EXISTS idx_nrr_status   ON news_reply_requests(status);
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_nrr_char_story_pending
+      ON news_reply_requests(story_id, char_id)
+      WHERE status = 'pending' AND char_id IS NOT NULL;
+  `);
 
   // ── Newspaper article comments ─────────────────────────────────────────────
   await pool.query(`
@@ -19341,10 +19379,20 @@ app.get("/api/news", crudReadLimit, async (req, res) => {
     const { rows } = await pool.query(
       "SELECT id, headline, text, category, image_url, is_breaking, flavour, sim_date, created_at FROM news_stories ORDER BY created_at DESC"
     );
+    // Fetch published official responses (Right of Reply) for all stories in one query
+    const { rows: replies } = await pool.query(
+      `SELECT story_id, char_name, char_role, official_response, resolved_at
+         FROM news_reply_requests WHERE status = 'published' AND official_response != ''`
+    );
+    const repliesByStory = {};
+    for (const r of replies) {
+      (repliesByStory[r.story_id] ??= []).push({ charName: r.char_name, charRole: r.char_role, text: r.official_response, resolvedAt: r.resolved_at });
+    }
     res.json({ stories: rows.map((r) => ({
       id: r.id, headline: r.headline, text: r.text, category: r.category,
       imageUrl: r.image_url, isBreaking: r.is_breaking, flavour: r.flavour,
       simDate: r.sim_date, createdAt: r.created_at,
+      officialResponses: repliesByStory[r.id] || [],
     })) });
   } catch (e) { console.error("[GET /api/news]", e); res.status(500).json({ error: "Server error" }); }
 });
@@ -19392,31 +19440,59 @@ app.delete("/api/news/:id", crudWriteLimit, async (req, res) => {
   } catch (e) { console.error("[DELETE /api/news/:id]", e); res.status(500).json({ error: "Server error" }); }
 });
 
-// ── News Story Comments API ───────────────────────────────────────────────────
-// GET    /api/news/:id/comments           — authenticated: list comments (oldest first)
-// POST   /api/news/:id/comments           — authenticated: create comment
-// DELETE /api/news/:id/comments/:cid      — author or admin/mod: soft-delete comment
+// ── "Have Your Say" — News Story Comments API ────────────────────────────────
+// GET    /api/news/:id/comments              — authenticated: list comments (oldest first)
+// POST   /api/news/:id/comments              — authenticated: create comment (400 char cap, 1/sim-month/user)
+// DELETE /api/news/:id/comments/:cid         — author (soft, user-deleted label) or admin/mod/speaker (hard soft)
+// POST   /api/news/:id/comments/:cid/report  — any user: flag comment to mods
+// ── Right of Reply API ────────────────────────────────────────────────────────
+// POST  /api/news/:id/reply-request          — PM/LoTO/3rd-party-leader/Speaker only
+// GET   /api/news/reply-requests             — admin/mod: list pending requests
+// GET   /api/news/my-reply-requests          — authenticated: own reply request statuses
+// PATCH /api/news/:id/reply-requests/:rid    — admin/mod: publish or reject
 
-const MAX_COMMENT_LENGTH = 5000;
+const MAX_COMMENT_LENGTH = 400;
+
+/** Is the session user an eligible Right of Reply leader (PM, LoTO, 3rd-party leader, or Speaker)? */
+function isReplyEligible(req) {
+  const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  return roles.includes("office:prime_minister") ||
+         roles.includes("office:leader_of_opposition") ||
+         roles.includes("office:leader_of_third_party") ||
+         roles.includes("speaker");
+}
 
 app.get("/api/news/:id/comments", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
+    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
     const { rows } = await pool.query(
-      `SELECT id, text, created_by, created_by_name, created_at, deleted_at
+      `SELECT id, text, original_text, created_by, created_by_name, character_name, character_id,
+              sim_month, sim_year, created_at, deleted_at, deleted_by_user, reported_at
          FROM news_story_comments
         WHERE news_story_id = $1
         ORDER BY created_at ASC`,
       [req.params.id]
     );
-    res.json({ comments: rows.map((r) => ({
-      id: r.id,
-      text: r.deleted_at ? null : r.text,
-      createdBy: r.created_by,
-      createdByName: r.deleted_at ? null : r.created_by_name,
-      createdAt: r.created_at,
-      isDeleted: !!r.deleted_at,
-    })) });
+    res.json({ comments: rows.map((r) => {
+      const isDeleted = !!r.deleted_at;
+      const displayName = r.character_name || r.created_by_name || "";
+      return {
+        id: r.id,
+        text: isDeleted ? null : r.text,
+        // Mods/admins/speakers see original text even when user-deleted
+        originalText: (isStaff && r.deleted_by_user) ? r.original_text : undefined,
+        deletedByUser: r.deleted_by_user,
+        createdBy: r.created_by,
+        displayName: isDeleted ? null : displayName,
+        simMonth: r.sim_month,
+        simYear: r.sim_year,
+        createdAt: r.created_at,
+        isDeleted,
+        reportedAt: isStaff ? r.reported_at : undefined,
+      };
+    }) });
   } catch (e) { console.error("[GET /api/news/:id/comments]", e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -19425,20 +19501,35 @@ app.post("/api/news/:id/comments", crudWriteLimit, async (req, res) => {
     if (!requireAuth(req, res)) return;
     const { text } = req.body || {};
     if (!text || typeof text !== "string" || !text.trim()) return res.status(400).json({ error: "text is required" });
-    if (text.trim().length > MAX_COMMENT_LENGTH) return res.status(400).json({ error: `Comment must be at most ${MAX_COMMENT_LENGTH} characters` });
+    const trimmed = text.trim();
+    if (trimmed.length > MAX_COMMENT_LENGTH) return res.status(400).json({ error: `Comment must be at most ${MAX_COMMENT_LENGTH} characters` });
     // Verify parent story exists
     const { rows: storyRows } = await pool.query("SELECT id FROM news_stories WHERE id = $1", [req.params.id]);
     if (!storyRows.length) return res.status(404).json({ error: "Story not found" });
-    // Get author's username for display
+    // Get current sim date
+    const { simMonth, simYear } = await getCurrentSimMonthYear();
+    // Enforce one comment per user per story per sim-month (even if previously deleted)
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM news_story_comments WHERE news_story_id = $1 AND created_by = $2 AND sim_month = $3 AND sim_year = $4 LIMIT 1`,
+      [req.params.id, req.session.userId, simMonth, simYear]
+    );
+    if (existing.length) return res.status(409).json({ error: "You have already commented on this story this month. One comment per story per sim-month is allowed." });
+    // Look up the user's active character for display name
+    const charId = await getActiveCharacterId(req);
+    let charName = "";
+    if (charId) {
+      const { rows: cRows } = await pool.query("SELECT name FROM characters WHERE id = $1", [charId]);
+      charName = cRows[0]?.name || "";
+    }
     const { rows: userRows } = await pool.query("SELECT username FROM users WHERE id = $1", [req.session.userId]);
     const authorName = userRows[0]?.username || "";
     const { rows } = await pool.query(
-      `INSERT INTO news_story_comments (news_story_id, text, created_by, created_by_name)
-       VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
-      [req.params.id, text.trim(), req.session.userId, authorName]
+      `INSERT INTO news_story_comments (news_story_id, text, created_by, created_by_name, character_id, character_name, sim_month, sim_year)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, created_at`,
+      [req.params.id, trimmed, req.session.userId, authorName, charId || null, charName, simMonth, simYear]
     );
     await writeAuditLog(req.session.userId, "news_comment.create", "news_story_comment", rows[0].id, null, { storyId: req.params.id });
-    res.json({ ok: true, id: rows[0].id, createdAt: rows[0].created_at });
+    res.json({ ok: true, id: rows[0].id, createdAt: rows[0].created_at, displayName: charName || authorName, simMonth, simYear });
   } catch (e) { console.error("[POST /api/news/:id/comments]", e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -19446,19 +19537,149 @@ app.delete("/api/news/:id/comments/:cid", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query(
-      "SELECT id, created_by, deleted_at FROM news_story_comments WHERE id = $1 AND news_story_id = $2",
+      "SELECT id, text, created_by, deleted_at FROM news_story_comments WHERE id = $1 AND news_story_id = $2",
       [req.params.cid, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Comment not found" });
     if (rows[0].deleted_at) return res.status(410).json({ error: "Comment already deleted" });
     const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = roles.includes("admin") || roles.includes("mod");
+    const isStaff = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
     const isAuthor = rows[0].created_by === req.session.userId;
-    if (!isAdminOrMod && !isAuthor) return res.status(403).json({ error: "Forbidden" });
-    await pool.query("UPDATE news_story_comments SET deleted_at = NOW() WHERE id = $1", [req.params.cid]);
-    await writeAuditLog(req.session.userId, "news_comment.delete", "news_story_comment", req.params.cid, null, { storyId: req.params.id });
+    if (!isStaff && !isAuthor) return res.status(403).json({ error: "Forbidden" });
+    if (isAuthor && !isStaff) {
+      // User-delete: soft-delete but preserve original text for mods
+      await pool.query(
+        "UPDATE news_story_comments SET deleted_at = NOW(), deleted_by_user = TRUE, original_text = text WHERE id = $1",
+        [req.params.cid]
+      );
+    } else {
+      // Staff (mod/admin/speaker) delete
+      await pool.query("UPDATE news_story_comments SET deleted_at = NOW() WHERE id = $1", [req.params.cid]);
+    }
+    await writeAuditLog(req.session.userId, "news_comment.delete", "news_story_comment", req.params.cid, null, { storyId: req.params.id, byUser: isAuthor && !isStaff });
     res.json({ ok: true });
   } catch (e) { console.error("[DELETE /api/news/:id/comments/:cid]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.post("/api/news/:id/comments/:cid/report", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { rows } = await pool.query(
+      "SELECT id, deleted_at, reported_at FROM news_story_comments WHERE id = $1 AND news_story_id = $2",
+      [req.params.cid, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Comment not found" });
+    if (rows[0].deleted_at) return res.status(410).json({ error: "Comment is deleted" });
+    if (rows[0].reported_at) return res.status(409).json({ error: "Already reported" });
+    await pool.query(
+      "UPDATE news_story_comments SET reported_at = NOW(), reported_by = $2 WHERE id = $1",
+      [req.params.cid, req.session.userId]
+    );
+    res.json({ ok: true });
+  } catch (e) { console.error("[POST /api/news/:id/comments/:cid/report]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+// ── Right of Reply endpoints ──────────────────────────────────────────────────
+
+app.post("/api/news/:id/reply-request", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    if (!isReplyEligible(req)) return res.status(403).json({ error: "Only PM, Leader of the Opposition, third-party leaders and the Speaker may request right of reply" });
+    const { textDraft = "" } = req.body || {};
+    // Verify story exists
+    const { rows: storyRows } = await pool.query("SELECT id FROM news_stories WHERE id = $1", [req.params.id]);
+    if (!storyRows.length) return res.status(404).json({ error: "Story not found" });
+    // Get active character
+    const charId = await getActiveCharacterId(req);
+    let charName = "";
+    if (charId) {
+      const { rows: cRows } = await pool.query("SELECT name FROM characters WHERE id = $1", [charId]);
+      charName = cRows[0]?.name || "";
+    }
+    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const charRole = roles.includes("office:prime_minister") ? "prime-minister"
+      : roles.includes("office:leader_of_opposition") ? "leader-opposition"
+      : roles.includes("office:leader_of_third_party") ? "party-leader-3rd-4th"
+      : "speaker";
+    // Prevent duplicate pending requests from same character on same story
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO news_reply_requests (story_id, char_id, char_name, char_role, text_draft)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
+        [req.params.id, charId || null, charName, charRole, String(textDraft).trim().slice(0, 5000)]
+      );
+      await writeAuditLog(req.session.userId, "reply_request.create", "news_reply_request", rows[0].id, null, { storyId: req.params.id, charRole });
+      res.json({ ok: true, id: rows[0].id, createdAt: rows[0].created_at });
+    } catch (e) {
+      if (e.code === "23505") return res.status(409).json({ error: "You already have a pending reply request for this story" });
+      throw e;
+    }
+  } catch (e) { console.error("[POST /api/news/:id/reply-request]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.get("/api/news/reply-requests", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows } = await pool.query(
+      `SELECT r.id, r.story_id, r.char_id, r.char_name, r.char_role, r.text_draft,
+              r.status, r.official_response, r.created_at, r.resolved_at, r.mod_note,
+              ns.headline AS story_headline
+         FROM news_reply_requests r
+         JOIN news_stories ns ON ns.id = r.story_id
+        ORDER BY r.created_at DESC`
+    );
+    res.json({ requests: rows.map((r) => ({
+      id: r.id, storyId: r.story_id, storyHeadline: r.story_headline,
+      charName: r.char_name, charRole: r.char_role, textDraft: r.text_draft,
+      status: r.status, officialResponse: r.official_response,
+      createdAt: r.created_at, resolvedAt: r.resolved_at, modNote: r.mod_note,
+    })) });
+  } catch (e) { console.error("[GET /api/news/reply-requests]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.get("/api/news/my-reply-requests", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.json({ requests: [] });
+    const { rows } = await pool.query(
+      `SELECT r.id, r.story_id, r.char_role, r.status, r.mod_note, r.created_at, r.resolved_at,
+              ns.headline AS story_headline
+         FROM news_reply_requests r
+         JOIN news_stories ns ON ns.id = r.story_id
+        WHERE r.char_id = $1
+        ORDER BY r.created_at DESC`,
+      [charId]
+    );
+    res.json({ requests: rows.map((r) => ({
+      id: r.id, storyId: r.story_id, storyHeadline: r.story_headline,
+      charRole: r.char_role, status: r.status, modNote: r.mod_note,
+      createdAt: r.created_at, resolvedAt: r.resolved_at,
+    })) });
+  } catch (e) { console.error("[GET /api/news/my-reply-requests]", e); res.status(500).json({ error: "Server error" }); }
+});
+
+app.patch("/api/news/:id/reply-requests/:rid", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { action, officialResponse = "", modNote = "" } = req.body || {};
+    if (!["publish", "reject"].includes(action)) return res.status(400).json({ error: "action must be 'publish' or 'reject'" });
+    const { rows } = await pool.query(
+      "SELECT id, status, story_id FROM news_reply_requests WHERE id = $1 AND story_id = $2",
+      [req.params.rid, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Reply request not found" });
+    if (rows[0].status !== "pending") return res.status(409).json({ error: "Request already resolved" });
+    const newStatus = action === "publish" ? "published" : "rejected";
+    await pool.query(
+      `UPDATE news_reply_requests
+          SET status = $2, official_response = $3, mod_note = $4, resolved_at = NOW(), resolved_by = $5
+        WHERE id = $1`,
+      [req.params.rid, newStatus, String(officialResponse).trim(), String(modNote).trim(), req.session.userId]
+    );
+    await writeAuditLog(req.session.userId, `reply_request.${action}`, "news_reply_request", req.params.rid, null, { storyId: req.params.id, action });
+    res.json({ ok: true });
+  } catch (e) { console.error("[PATCH /api/news/:id/reply-requests/:rid]", e); res.status(500).json({ error: "Server error" }); }
 });
 
 // ── Rules API ─────────────────────────────────────────────────────────────────
