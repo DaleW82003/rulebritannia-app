@@ -13384,6 +13384,19 @@ app.post("/api/offices/:id/fire", officeWriteLimit, async (req, res) => {
       }
     );
 
+    // Recompute office:* user roles and sync Discourse groups for the fired character
+    const fireRolesChanged = await recomputeUserOfficeRoles(firedCharId, req.session.userId).catch((e) => {
+      console.warn("[office.fire] recomputeUserOfficeRoles failed for char=%s: %s", firedCharId, e.message);
+      return false;
+    });
+    if (fireRolesChanged) {
+      await writeAuditLog(req.session.userId, "discourse.sync.trigger", "office_assignment",
+        `${req.params.id}:${firedCharId}`, null, null,
+        { reason: `office fire: ${officeTitle}`, characterId: firedCharId }
+      );
+      enqueueDiscourseGroupSync(`office fire: ${officeTitle}`);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/offices/:id/fire]", e);
@@ -13458,6 +13471,19 @@ app.post("/api/offices/:id/resign", officeWriteLimit, async (req, res) => {
       }
     );
 
+    // Recompute office:* user roles and sync Discourse groups for the resigned character
+    const resignRolesChanged = await recomputeUserOfficeRoles(resignCharId, req.session.userId).catch((e) => {
+      console.warn("[office.resign] recomputeUserOfficeRoles failed for char=%s: %s", resignCharId, e.message);
+      return false;
+    });
+    if (resignRolesChanged) {
+      await writeAuditLog(req.session.userId, "discourse.sync.trigger", "office_assignment",
+        `${req.params.id}:${resignCharId}`, null, null,
+        { reason: `office resign: ${officeTitle}`, characterId: resignCharId }
+      );
+      enqueueDiscourseGroupSync(`office resign: ${officeTitle}`);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/offices/:id/resign]", e);
@@ -13528,6 +13554,19 @@ app.post("/api/government/reset", officeWriteLimit, async (req, res) => {
       }
     );
 
+    // Recompute office:* user roles for all affected characters and sync Discourse groups
+    const cabinetCharIds = cabinetRows.map((r) => r.character_id);
+    const govResetCharIds = [...new Set([...cabinetCharIds, newPmCharId])];
+    for (const cid of govResetCharIds) {
+      await recomputeUserOfficeRoles(cid, req.session.userId).catch((e) => {
+        console.warn("[government.reset] recomputeUserOfficeRoles failed for char=%s: %s", cid, e.message);
+      });
+    }
+    await writeAuditLog(req.session.userId, "discourse.sync.trigger", "government", "reset", null, null,
+      { reason: "government reset", newPmCharId }
+    );
+    enqueueDiscourseGroupSync("government reset");
+
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/government/reset]", e);
@@ -13597,6 +13636,19 @@ app.post("/api/opposition/reset", officeWriteLimit, async (req, res) => {
         simYear,
       }
     );
+
+    // Recompute office:* user roles for all affected characters and sync Discourse groups
+    const shadowCharIds = shadowRows.map((r) => r.character_id);
+    const oppResetCharIds = [...new Set([...shadowCharIds, newLotoCharId])];
+    for (const cid of oppResetCharIds) {
+      await recomputeUserOfficeRoles(cid, req.session.userId).catch((e) => {
+        console.warn("[opposition.reset] recomputeUserOfficeRoles failed for char=%s: %s", cid, e.message);
+      });
+    }
+    await writeAuditLog(req.session.userId, "discourse.sync.trigger", "opposition", "reset", null, null,
+      { reason: "opposition reset", newLotoCharId }
+    );
+    enqueueDiscourseGroupSync("opposition reset");
 
     res.json({ ok: true });
   } catch (e) {
