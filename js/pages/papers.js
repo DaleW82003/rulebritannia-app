@@ -601,11 +601,6 @@ function bindSubmissions(data, papers) {
   // Mod inbox
   if (isStaff) {
     if (modInbox) modInbox.style.display = "none";
-
-    document.querySelector(".tile-bottom")?.closest("section.panel"); // already opened via click
-
-    // Show mod inbox on panel open via the main button (already handled above)
-    // But also expose a way to access it directly from the page:
     const modInboxBtn = document.createElement("button");
     modInboxBtn.className = "btn small";
     modInboxBtn.textContent = "Mod Inbox";

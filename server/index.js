@@ -20260,10 +20260,8 @@ app.patch("/api/papers/submissions/:id", crudWriteLimit, async (req, res) => {
           ? `Exclusive (source: ${sub.source_type === "other" ? "anonymous" : sub.source_type.replace(/_/g, " ")})`
           : (sub.pseudonym || sub.char_name || "Correspondent"));
       const { simMonth, simYear } = await getCurrentSimMonthYear();
-      const simDate = (() => {
-        const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-        return `${MONTHS[((simMonth - 1) % 12 + 12) % 12]} ${simYear}`;
-      })();
+      // simMonth is 1-indexed; SIM_MONTH_NAMES is 0-indexed
+      const simDate = `${SIM_MONTH_NAMES[(simMonth - 1 + 12) % 12]} ${simYear}`;
       const articleId = `${sub.paper_key}-sub-${Date.now().toString(36)}`;
       await pool.query(
         `INSERT INTO newspaper_articles (id, paper_key, headline, text, byline_name, image_url, sim_date, created_by)
