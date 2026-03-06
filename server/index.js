@@ -14736,12 +14736,56 @@ app.get("/api/divisions", divReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { status } = req.query;
-    let q = "SELECT id, entity_type, entity_id, title, status, closes_at, created_at FROM divisions";
-    const params = [];
-    if (status === "open" || status === "closed") {
-      q += " WHERE status = $1"; params.push(status);
+    let q;
+    let params = [];
+
+    if (status === "open") {
+      // Use the same filtering logic as the admin dashboard so that stale/expired
+      // divisions (whose sim-time or real-time deadline has passed, or whose parent
+      // entity is no longer active) are not counted as open.
+      const { rows: clockRows } = await pool.query(
+        "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+      );
+      if (!clockRows.length) console.warn("[GET /api/divisions] sim_clock main row missing — using fallback 1/1900");
+      const simMonth = Number(clockRows[0]?.sim_current_month || 1);
+      const simYear  = Number(clockRows[0]?.sim_current_year  || 1900);
+      const simDeadline = simDeadlineToText(simMonth, simYear);
+
+      q = `SELECT id, entity_type, entity_id, title, status, closes_at, created_at
+             FROM divisions d
+            WHERE d.status = 'open'
+              AND (d.closes_at_sim IS NULL OR d.closes_at_sim > $1)
+              AND (d.closes_at IS NULL OR d.closes_at > NOW())
+              AND (
+                (d.entity_type = 'bill' AND EXISTS (
+                  SELECT 1 FROM bills b WHERE b.id = d.entity_id
+                    AND COALESCE(b.data->>'status', b.data->>'stage', 'open')
+                          NOT IN ('closed','archived','passed','failed','royal_assent')
+                ))
+                OR (d.entity_type = 'motion' AND EXISTS (
+                  SELECT 1 FROM motions m WHERE m.id = d.entity_id
+                    AND COALESCE(m.data->>'status', 'open') NOT IN ('closed','archived')
+                ))
+                OR (d.entity_type = 'statement' AND EXISTS (
+                  SELECT 1 FROM statements s WHERE s.id = d.entity_id
+                    AND COALESCE(s.data->>'status', 'open') NOT IN ('closed','archived')
+                ))
+                OR (d.entity_type = 'regulation' AND EXISTS (
+                  SELECT 1 FROM regulations r WHERE r.id = d.entity_id
+                    AND COALESCE(r.data->>'status', 'open') NOT IN ('closed','archived')
+                ))
+                OR d.entity_type NOT IN ('bill','motion','statement','regulation')
+              )
+            ORDER BY created_at DESC`;
+      params = [simDeadline];
+    } else {
+      q = "SELECT id, entity_type, entity_id, title, status, closes_at, created_at FROM divisions";
+      if (status === "closed") {
+        q += " WHERE status = $1"; params.push(status);
+      }
+      q += " ORDER BY created_at DESC";
     }
-    q += " ORDER BY created_at DESC";
+
     const { rows } = await pool.query(q, params);
     res.json({ divisions: rows });
   } catch (e) {
