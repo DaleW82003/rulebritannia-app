@@ -14,6 +14,7 @@ import {
   apiGetFinanceConfig, apiUpdateFinanceSalaryBands, apiUpdateFinanceStartingBalances, apiApplyFinanceInflation,
   apiGetAuditLog,
   apiGetSim,
+  apiGetModsMessage, apiSetModsMessage,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -339,6 +340,35 @@ export async function initControlPanelPage(data) {
       </div>
     </details>
     ` : ""}
+
+    <details class="tile" style="margin-bottom:10px;" open>
+      <summary style="cursor:pointer;"><b>Message from the Mods <span class="mod-badge">Mod / Admin / Speaker</span></b></summary>
+      <div style="margin-top:10px;">
+        <p class="muted" style="margin:0 0 12px;font-size:.9em;">
+          These messages appear on the dropon landing pages. The <b>Player Message</b> is shown on
+          <code>player-dropon.html</code>. The <b>Staff Message</b> is shown on <code>staff-dropon.html</code>.
+          Leave blank to hide the box.
+        </p>
+        <form id="cp-mods-message-form">
+          <div style="margin-bottom:12px;">
+            <label class="label" for="cp-mods-player-msg">Player-facing message (shown to all players on their welcome page)</label>
+            <textarea id="cp-mods-player-msg" name="playerMessage" rows="4"
+                      class="input" style="width:100%;resize:vertical;font-family:inherit;"
+                      placeholder="e.g. Welcome back! This month we are running…"></textarea>
+          </div>
+          <div style="margin-bottom:12px;">
+            <label class="label" for="cp-mods-staff-msg">Staff-facing message (shown to staff on the staff briefing page)</label>
+            <textarea id="cp-mods-staff-msg" name="staffMessage" rows="4"
+                      class="input" style="width:100%;resize:vertical;font-family:inherit;"
+                      placeholder="e.g. Reminder: character approvals need processing by…"></textarea>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <button type="submit" class="btn primary">Save Messages</button>
+            <span id="cp-mods-message-status" style="font-size:13px;"></span>
+          </div>
+        </form>
+      </div>
+    </details>
   `;
 
   rolePanels.querySelectorAll('[data-action="set-inactive-player"]').forEach((btn) => {
@@ -877,5 +907,46 @@ export async function initControlPanelPage(data) {
       });
     }
     loadFeed(activeFeedTab);
+  }
+
+  // ── Mods Message form ──────────────────────────────────────────────────────
+  const modsMessageForm   = rolePanels.querySelector("#cp-mods-message-form");
+  const modsMessageStatus = rolePanels.querySelector("#cp-mods-message-status");
+  const modsPlayerInput   = rolePanels.querySelector("#cp-mods-player-msg");
+  const modsStaffInput    = rolePanels.querySelector("#cp-mods-staff-msg");
+
+  // Load current messages into the form
+  if (modsMessageForm) {
+    apiGetModsMessage().then((msg) => {
+      if (modsPlayerInput) modsPlayerInput.value = msg?.playerMessage ?? "";
+      if (modsStaffInput)  modsStaffInput.value  = msg?.staffMessage  ?? "";
+    }).catch((err) => {
+      console.warn("[control-panel] could not load mods message:", err);
+    });
+
+    modsMessageForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(modsMessageForm);
+      const playerMessage = String(fd.get("playerMessage") ?? "");
+      const staffMessage  = String(fd.get("staffMessage")  ?? "");
+      const btn = modsMessageForm.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+      if (modsMessageStatus) modsMessageStatus.textContent = "";
+      try {
+        await apiSetModsMessage(playerMessage, staffMessage);
+        logAction({ action: "admin.mods-message.update", details: {} });
+        if (modsMessageStatus) {
+          modsMessageStatus.style.color = "#1a7a1a";
+          modsMessageStatus.textContent = "✓ Messages saved.";
+        }
+      } catch (err) {
+        if (modsMessageStatus) {
+          modsMessageStatus.style.color = "var(--danger,#c00)";
+          modsMessageStatus.textContent = `✗ ${err.message}`;
+        }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    });
   }
 }
