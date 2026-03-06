@@ -9,6 +9,8 @@ import {
   apiGetStatements,
   apiGetRegulations,
   apiGetBills,
+  apiGetDivisions,
+  apiGetQtQuestions,
 } from "../api.js";
 
 function countTileHTML({ icon, title, count, href, desc }) {
@@ -53,6 +55,7 @@ async function render(host, data, counts) {
     { icon: "🗳️", title: "Open Motions",             count: counts.openMotions,   href: "motions.html",       desc: "House motions open for debate or division" },
     { icon: "⚖️", title: "Open Regulations",         count: counts.openRegs,      href: "regulations.html",   desc: "Regulations under parliamentary scrutiny" },
     { icon: "📢", title: "Open Statements",          count: counts.openStmts,     href: "statements.html",    desc: "Ministerial statements currently open" },
+    { icon: "🏴", title: "Active Divisions",         count: counts.openDivisions, href: "motions.html",       desc: "Divisions currently underway in the House" },
   ].map(countTileHTML).join("");
 
   host.innerHTML = `
@@ -117,13 +120,15 @@ export async function initStaffDroponPage(data) {
   if (!host) return;
 
   // Fetch all counts in parallel; graceful fallback on failure
-  const [msgResult, pendingAppsResult, billsResult, motionsResult, stmtsResult, regsResult] = await Promise.allSettled([
+  const [msgResult, pendingAppsResult, billsResult, motionsResult, stmtsResult, regsResult, divisionsResult, qtResult] = await Promise.allSettled([
     apiGetModsMessage(),
     apiGetCharacterApplications("pending"),
     apiGetBills(),
     apiGetMotions(),
     apiGetStatements(),
     apiGetRegulations(),
+    apiGetDivisions({ status: "open" }),
+    apiGetQtQuestions({ status: "open" }),
   ]);
 
   const msg        = msgResult.status === "fulfilled" ? msgResult.value : {};
@@ -132,11 +137,13 @@ export async function initStaffDroponPage(data) {
   const motionsRaw = motionsResult.status === "fulfilled" ? motionsResult.value : {};
   const stmtsRaw   = stmtsResult.status === "fulfilled" ? stmtsResult.value : {};
   const regsRaw    = regsResult.status === "fulfilled" ? regsResult.value : {};
+  const divsRaw    = divisionsResult.status === "fulfilled" ? divisionsResult.value : null;
+  const qtRaw      = qtResult.status === "fulfilled" ? qtResult.value : null;
 
   function countArr(val) {
     if (!val || val === "—") return "—";
     if (Array.isArray(val)) return val.length;
-    const arr = val.applications ?? val.bills ?? val.motions ?? val.statements ?? val.regulations;
+    const arr = val.applications ?? val.bills ?? val.motions ?? val.statements ?? val.regulations ?? val.divisions ?? val.questions;
     return Array.isArray(arr) ? arr.length : "—";
   }
 
@@ -152,13 +159,14 @@ export async function initStaffDroponPage(data) {
   const openRegs    = regs.filter((r) => r.status === "open" || r.status === "debate").length;
 
   const counts = {
-    staffMessage: msg?.staffMessage ?? "",
-    pendingApps:  countArr(pendingRaw),
-    openBills:    billsResult.status   === "fulfilled" ? openBills   : "—",
-    openMotions:  motionsResult.status === "fulfilled" ? openMotions : "—",
-    openStmts:    stmtsResult.status   === "fulfilled" ? openStmts   : "—",
-    openRegs:     regsResult.status    === "fulfilled" ? openRegs    : "—",
-    openQT:       "—", // no dedicated count endpoint; show graceful unknown
+    staffMessage:  msg?.staffMessage ?? "",
+    pendingApps:   countArr(pendingRaw),
+    openBills:     billsResult.status      === "fulfilled" ? openBills   : "—",
+    openMotions:   motionsResult.status    === "fulfilled" ? openMotions : "—",
+    openStmts:     stmtsResult.status      === "fulfilled" ? openStmts   : "—",
+    openRegs:      regsResult.status       === "fulfilled" ? openRegs    : "—",
+    openDivisions: countArr(divsRaw),
+    openQT:        countArr(qtRaw),
   };
 
   await render(host, data, counts);
