@@ -158,6 +158,37 @@ export async function initStaffDroponPage(data) {
   const openStmts   = stmts.filter((s) => s.status === "open" || s.status === "debate").length;
   const openRegs    = regs.filter((r) => r.status === "open" || r.status === "debate").length;
 
+  // Compute active divisions by cross-referencing entity status, mirroring the
+  // admin dashboard SQL filter so the count matches "Open Divisions" on the control panel.
+  // This guards against stale rows returned by the server (e.g. before a server restart).
+  //
+  // The 'open' fallback in the status checks mirrors COALESCE(…, 'open') in the SQL:
+  // entities with no status field are treated as active, same as the admin dashboard query.
+  const BILL_DONE_STATUSES  = new Set(["closed","archived","passed","failed","royal_assent"]);
+  const ENTITY_DONE_STATUSES = new Set(["closed","archived"]);
+  const activeBillIds   = new Set(bills.filter((b) => !BILL_DONE_STATUSES.has(b.status || b.stage || "open")).map((b) => String(b.id)));
+  const activeMotionIds = new Set(motions.filter((m) => !ENTITY_DONE_STATUSES.has(m.status || "open")).map((m) => String(m.id)));
+  const activeStmtIds   = new Set(stmts.filter((s) => !ENTITY_DONE_STATUSES.has(s.status || "open")).map((s) => String(s.id)));
+  const activeRegIds    = new Set(regs.filter((r) => !ENTITY_DONE_STATUSES.has(r.status || "open")).map((r) => String(r.id)));
+
+  const divList = Array.isArray(divsRaw?.divisions) ? divsRaw.divisions : [];
+  const activeDivisions = divList.filter((d) => {
+    const eid = String(d.entity_id ?? "");
+    switch (d.entity_type) {
+      case "bill":           return activeBillIds.has(eid);
+      case "motion":         return activeMotionIds.has(eid);
+      case "statement":      return activeStmtIds.has(eid);
+      case "regulation":     return activeRegIds.has(eid);
+      case "bill-amendment": {
+        // entity_id format: "<billId>:<amendmentId>"; extract the bill portion.
+        const colonIdx = eid.indexOf(":");
+        const billId = colonIdx !== -1 ? eid.slice(0, colonIdx) : "";
+        return billId !== "" && activeBillIds.has(billId);
+      }
+      default:               return true;
+    }
+  });
+
   const counts = {
     staffMessage:  msg?.staffMessage ?? "",
     pendingApps:   countArr(pendingRaw),
@@ -165,7 +196,7 @@ export async function initStaffDroponPage(data) {
     openMotions:   motionsResult.status    === "fulfilled" ? openMotions : "—",
     openStmts:     stmtsResult.status      === "fulfilled" ? openStmts   : "—",
     openRegs:      regsResult.status       === "fulfilled" ? openRegs    : "—",
-    openDivisions: countArr(divsRaw),
+    openDivisions: divisionsResult.status  === "fulfilled" ? activeDivisions.length : "—",
     openQT:        countArr(qtRaw),
   };
 
