@@ -1497,7 +1497,7 @@ function render(data, state) {
       ).map(([cat, items]) => {
         const pi = state.priceIndex || 1;
         return `
-          <details open style="margin-bottom:10px;">
+          <details style="margin-bottom:10px;">
             <summary style="cursor:pointer;font-weight:600;font-size:1em;margin-bottom:6px;">${esc(cat)}</summary>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:8px;margin-top:6px;">
               ${items.map((item) => {
