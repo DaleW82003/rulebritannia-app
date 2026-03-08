@@ -192,6 +192,7 @@ const PgStore = pgSession(session);
 // with crypto.randomBytes(32), stored server-side, compared with timingSafeEqual)
 // on every state-changing request. CodeQL does not recognise this custom
 // implementation as CSRF protection; the alert is a false positive.
+const _isTestMode = process.env.NODE_ENV === "test";
 app.use(
   session({
     store: new PgStore({
@@ -206,9 +207,12 @@ app.use(
     rolling: true,   // extend session TTL on every response (active users never expire)
     cookie: {
       httpOnly: true,
-      sameSite: "none", // cross-site cookie (frontend on separate origin)
-      secure: true, // must be true on https
-      domain: ".rulebritannia.org", // covers both rulebritannia.org and www.rulebritannia.org
+      // In test mode (NODE_ENV=test) we talk plain HTTP to localhost, so disable the
+      // production-only cookie restrictions.  In all other environments the original
+      // production values (secure:true / domain:".rulebritannia.org") are preserved.
+      sameSite: _isTestMode ? "lax"  : "none",
+      secure:   _isTestMode ? false  : true,
+      domain:   _isTestMode ? undefined : ".rulebritannia.org",
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     },
   })
@@ -304,12 +308,21 @@ async function ensureSchema() {
   // Scoped to users with NO entry in pending_registrations so that newly approved
   // users who have not yet clicked their verification link are not auto-verified on
   // every server restart.
+  // Guard: pending_registrations is created later in ensureSchema; only run the
+  // backfill once that table exists (idempotent on subsequent restarts).
   await pool.query(`
-    UPDATE users SET email_verified = TRUE, email_verified_at = NOW()
-     WHERE email_verified = FALSE
-       AND NOT EXISTS (
-         SELECT 1 FROM pending_registrations WHERE email = users.email
-       );
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'pending_registrations'
+      ) THEN
+        UPDATE users SET email_verified = TRUE, email_verified_at = NOW()
+         WHERE email_verified = FALSE
+           AND NOT EXISTS (
+             SELECT 1 FROM pending_registrations WHERE email = users.email
+           );
+      END IF;
+    END $$;
   `);
 
   // Migration: if the users table still has a TEXT primary key (legacy install), migrate to UUID PK.
@@ -22609,11 +22622,18 @@ if (process.env.ENABLE_DEV_SEED === "true") {
   console.warn("⚠ ENABLE_DEV_SEED is active — destructive admin routes enabled");
 }
 
-ensureSchema()
-  .then(() => {
-    app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
-  })
-  .catch((e) => {
-    console.error("[server] schema init failed", e);
-    process.exit(1);
-  });
+// In test mode the caller (test file) starts the server on a chosen port via
+// app.listen(), so we must not bind the default port here.
+if (process.env.NODE_ENV !== "test") {
+  ensureSchema()
+    .then(() => {
+      app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
+    })
+    .catch((e) => {
+      console.error("[server] schema init failed", e);
+      process.exit(1);
+    });
+}
+
+// Export for integration tests (NODE_ENV=test skips app.listen above)
+export { app, ensureSchema };
