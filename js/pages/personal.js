@@ -4,7 +4,7 @@ import { canManage } from "../permissions.js";
 import { getSimDate } from "../clock.js";
 import { getEducationOptions, getCareerOptions, getFamilyOptions } from "../character-enums.js";
 import { seatTaken, allConstituenciesForPartyWithStatus, renderConstituencyOptions } from "../constituency-utils.js";
-import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetCharacterOfficesHeld, apiGetConstituencies, apiGetMyCharacters, apiGetMyApplications, apiApplyCharacter, apiGetMyPoliticalState } from "../api.js";
+import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetCharacterOfficesHeld, apiGetConstituencies, apiGetMyCharacters, apiGetMyApplications, apiApplyCharacter, apiGetMyPoliticalState, apiGetPartyFactionClimate } from "../api.js";
 import { logAction } from "../audit.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
@@ -1417,6 +1417,24 @@ function render(data, state) {
                 </div>
               </details>
             ` : ""}
+
+            ${ps.faction_climate ? (() => {
+              const fc = ps.faction_climate;
+              const CLIMATE_COLOURS = { unified: "#2e7d32", stable: "#1565c0", tense: "#e65100", fractious: "#b71c1c" };
+              const col = CLIMATE_COLOURS[fc.climateLabel] || "#555";
+              const label = fc.climateLabel ? fc.climateLabel.charAt(0).toUpperCase() + fc.climateLabel.slice(1) : "Unknown";
+              return `
+                <div style="margin-top:12px;border:1px solid #ddd;border-radius:6px;padding:10px 12px;background:var(--bg-alt,#f9f9f9);">
+                  <div style="font-weight:600;margin-bottom:4px;">Party Climate Context</div>
+                  <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:.88em;">
+                    <div>Climate: <b style="color:${col};">${esc(label)}</b></div>
+                    <div>Score: <b>${fc.climateScore > 0 ? "+" : ""}${Math.round(fc.climateScore)}</b></div>
+                    ${fc.capitalResilienceBonus > 0 ? `<div style="color:#0a7f2e;">Aligned faction resilience: <b>+${fc.capitalResilienceBonus.toFixed(1)} capital</b></div>` : ""}
+                    ${fc.partyPressureModifier > 0 ? `<div style="color:#c00;">Hostile factions adding: <b>+${fc.partyPressureModifier.toFixed(1)} party pressure</b></div>` : ""}
+                  </div>
+                </div>
+              `;
+            })() : ""}
           `;
         })() : `<div class="muted-block" style="font-size:.9em;">Political capital is loading…</div>`}
       </article>
