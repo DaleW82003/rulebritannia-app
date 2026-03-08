@@ -3825,6 +3825,19 @@ function verifyCsrfToken(req, res, next) {
 }
 
 /**
+ * Parse ?limit and ?offset query parameters, clamping to [1, maxLimit].
+ * @param {import('express').Request} req
+ * @param {number} [defaultLimit=200]
+ * @param {number} [maxLimit=500]
+ * @returns {{ limit: number, offset: number }}
+ */
+function parsePaginationParams(req, defaultLimit = 200, maxLimit = 500) {
+  const limit = Math.min(Math.max(parseInt(req.query.limit || String(defaultLimit), 10), 1), maxLimit);
+  const offset = Math.max(parseInt(req.query.offset || "0", 10), 0);
+  return { limit, offset };
+}
+
+/**
  * Middleware helpers
  */
 function requireAuth(req, res) {
@@ -9733,10 +9746,12 @@ app.get("/api/admin/characters/applications", charAppReadLimit, async (req, res)
   try {
     if (!requireAdminOrMod(req, res)) return;
     const { status } = req.query;
+    const { limit, offset } = parsePaginationParams(req);
     let q = "SELECT * FROM pending_character_applications";
     const params = [];
     if (status) { q += " WHERE status = $1"; params.push(status); }
-    q += " ORDER BY submitted_at DESC";
+    q += ` ORDER BY submitted_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
     const { rows } = await pool.query(q, params);
     res.json({ applications: rows });
   } catch (e) {
@@ -9921,10 +9936,12 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
       );
       const existingRoles = existingRoleRows.map((r) => r.role);
       const rolesToAdd = computeApprovalRolesToAdd(existingRoles, partyRole);
-      for (const role of rolesToAdd) {
+      if (rolesToAdd.length) {
         await pool.query(
-          "INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $3) ON CONFLICT (user_id, role) DO NOTHING",
-          [app_.applicant_user_id, role, req.session.userId]
+          `INSERT INTO user_roles (user_id, role, assigned_by)
+           SELECT $1, unnest($2::text[]), $3
+           ON CONFLICT (user_id, role) DO NOTHING`,
+          [app_.applicant_user_id, rolesToAdd, req.session.userId]
         ).catch((e) => console.warn("[approve] role insert failed:", e.message));
       }
       if (rolesToAdd.length) {
@@ -14164,14 +14181,23 @@ app.post("/api/government/reset", officeWriteLimit, async (req, res) => {
          JOIN offices o ON o.id = oa.office_id
         WHERE o.type = 'cabinet'`
     );
-    for (const row of cabinetRows) {
-      await pool.query("DELETE FROM office_assignments WHERE office_id = $1 AND character_id = $2", [row.office_id, row.character_id]);
+    if (cabinetRows.length) {
+      const cabinetOfficeIds = cabinetRows.map((r) => r.office_id);
+      await pool.query(
+        "DELETE FROM office_assignments WHERE office_id = ANY($1::uuid[])",
+        [cabinetOfficeIds]
+      );
       await pool.query(
         `UPDATE office_assignment_history SET end_sim_month = $1, end_sim_year = $2
-          WHERE office_id = $3 AND character_id = $4 AND end_sim_month IS NULL`,
-        [simMonth, simYear, row.office_id, row.character_id]
+          WHERE end_sim_month IS NULL AND office_id = ANY($3::uuid[])`,
+        [simMonth, simYear, cabinetOfficeIds]
       );
-      await recomputeSalaryPositions(row.character_id).catch((e) => console.error("[salary positions]", e.message));
+      const uniqueCabinetCharIds = [...new Set(cabinetRows.map((r) => r.character_id))];
+      await Promise.all(
+        uniqueCabinetCharIds.map((charId) =>
+          recomputeSalaryPositions(charId).catch((e) => console.error("[salary positions]", charId, e.message))
+        )
+      );
     }
 
     // Assign new PM
@@ -14247,14 +14273,23 @@ app.post("/api/opposition/reset", officeWriteLimit, async (req, res) => {
          JOIN offices o ON o.id = oa.office_id
         WHERE o.type = 'shadow'`
     );
-    for (const row of shadowRows) {
-      await pool.query("DELETE FROM office_assignments WHERE office_id = $1 AND character_id = $2", [row.office_id, row.character_id]);
+    if (shadowRows.length) {
+      const shadowOfficeIds = shadowRows.map((r) => r.office_id);
+      await pool.query(
+        "DELETE FROM office_assignments WHERE office_id = ANY($1::uuid[])",
+        [shadowOfficeIds]
+      );
       await pool.query(
         `UPDATE office_assignment_history SET end_sim_month = $1, end_sim_year = $2
-          WHERE office_id = $3 AND character_id = $4 AND end_sim_month IS NULL`,
-        [simMonth, simYear, row.office_id, row.character_id]
+          WHERE end_sim_month IS NULL AND office_id = ANY($3::uuid[])`,
+        [simMonth, simYear, shadowOfficeIds]
       );
-      await recomputeSalaryPositions(row.character_id).catch((e) => console.error("[salary positions]", e.message));
+      const uniqueShadowCharIds = [...new Set(shadowRows.map((r) => r.character_id))];
+      await Promise.all(
+        uniqueShadowCharIds.map((charId) =>
+          recomputeSalaryPositions(charId).catch((e) => console.error("[salary positions]", charId, e.message))
+        )
+      );
     }
 
     // Assign new LOTO
@@ -20341,8 +20376,12 @@ app.delete("/api/guides/:id", crudWriteLimit, async (req, res) => {
 app.get("/api/civil-service/briefings", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
+    const { limit, offset } = parsePaginationParams(req);
     const { rows } = await pool.query(
-      "SELECT * FROM cs_briefings ORDER BY created_at DESC"
+      `SELECT id, title, target_office, cc_offices, status, current_stage_idx,
+              awaiting_next_stage, stages, audit_log, created_by, created_at_sim
+         FROM cs_briefings ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      [limit, offset]
     );
     res.json({ briefings: rows.map((r) => ({
       id: r.id, title: r.title, target_officeId: r.target_office,
@@ -20403,7 +20442,13 @@ app.delete("/api/civil-service/briefings/:id", crudWriteLimit, async (req, res) 
 app.get("/api/civil-service/cases", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { rows } = await pool.query("SELECT * FROM cs_cases ORDER BY created_at DESC");
+    const { limit, offset } = parsePaginationParams(req);
+    const { rows } = await pool.query(
+      `SELECT id, dept_id, title, status, created_by, created_by_avatar,
+              created_at_sim, closed_at_sim, closed_by, messages
+         FROM cs_cases ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
     res.json({ cases: rows.map((r) => ({
       id: r.id, deptId: r.dept_id, title: r.title, status: r.status,
       createdBy: r.created_by, createdByAvatar: r.created_by_avatar,
