@@ -232,7 +232,7 @@ Exports a single `pool` instance (node-postgres `Pool`) shared across all route 
 **Location:** `worker/index.js`  
 **Platform:** Cloudflare Worker  
 **Deployment:** via `wrangler deploy` (configuration in `wrangler.toml`)  
-**Route:** `rulebritannien.org/api/*`
+**Route:** `rulebritannia.org/api/*`
 
 The worker is a thin reverse proxy with two responsibilities:
 
@@ -250,8 +250,8 @@ compatibility_date = "2026-02-24"
 workers_dev = false
 
 [[routes]]
-pattern = "rulebritannien.org/api/*"
-zone_name = "rulebritannien.org"
+pattern = "rulebritannia.org/api/*"
+zone_name = "rulebritannia.org"
 ```
 
 ### 3.5 Discourse Integration (server/discourse.js + server/discourseClient.js)
