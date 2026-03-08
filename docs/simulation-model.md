@@ -453,7 +453,7 @@ For each faction the system computes and persists a `faction_political_state` re
 | `internal_power` | Derived from `(mp_count × 0.8) + (influence_bonus × 10)`. Indicates how much weight the faction carries within the party. |
 | `momentum` | `rising`, `stable`, or `falling` — derived by comparing current `internal_power` to the previously stored value. |
 | `leadership_pressure` | Pressure the faction exerts on the party leadership. Hostile factions with high `internal_power` produce high pressure; aligned factions produce negative pressure (damping effect); neutral factions produce a modest baseline. |
-| `cohesion` | `70 - (rebellion_bias × 40)`. Reflects how unified the faction's members tend to be. |
+| `cohesion` | `max(5, 70 - (rebellion_bias × 40))`. Reflects how unified the faction's members tend to be. Minimum value is 5. |
 | `breakdown` | JSONB object with a note explaining the formula weights. |
 
 ### Party climate

@@ -1,6 +1,6 @@
 # Alpha Safety Hardening Summary
 
-> **Historical record.** This document records the alpha-phase hardening of dev/admin endpoints. The policy described here (`isDevSeedAllowed()`, production-disabled endpoints, RBAC matrix updates) is now live in production and documented in [`docs/dev-guide.md §13`](docs/dev-guide.md) and [`docs/architecture.md §10`](docs/architecture.md).
+> **Historical record.** This document records the alpha-phase hardening of dev/admin endpoints. The policy described here (`isDevSeedAllowed()`, production-disabled endpoints, RBAC matrix updates) is now live in production and documented in [`docs/dev-guide.md §13`](../dev-guide.md) and [`docs/architecture.md §10`](../architecture.md).
 
 Audit and hardening of all dangerous dev/admin endpoints before invited alpha testing.
 
