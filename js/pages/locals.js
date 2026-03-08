@@ -1,6 +1,6 @@
 import { apiSaveLocals } from "../api.js";
 import { setHTML, esc } from "../ui.js";
-import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
+import { canManage } from "../permissions.js";
 
 const COUNTRY_ORDER = ["England", "Scotland", "Wales", "Northern Ireland"];
 const PARTY_SCHEMA = {
@@ -9,10 +9,6 @@ const PARTY_SCHEMA = {
   Wales: ["Plaid Cymru", "Labour", "Conservative", "Liberal Democrat", "Others"],
   "Northern Ireland": ["UUP", "DUP", "Alliance", "SDLP", "Sinn Fein", "TUV", "UKUP", "Independent", "Other"]
 };
-
-function canManage(data) {
-  return canAdminModOrSpeaker(data);
-}
 
 function ensureLocals(data) {
   data.locals ??= { countries: [] };

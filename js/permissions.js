@@ -60,6 +60,15 @@ export function canAdminModOrSpeaker(data) {
   return isAdmin(data) || isMod(data) || isSpeaker(data);
 }
 
+/**
+ * Alias for canAdminModOrSpeaker — the standard "can this user manage this
+ * resource?" check used across bodies, constituencies, locals, personal, and
+ * user pages.
+ */
+export function canManage(data) {
+  return canAdminModOrSpeaker(data);
+}
+
 export {
   canAnswerQuestionTime,
   canRaiseCivilServiceCase,

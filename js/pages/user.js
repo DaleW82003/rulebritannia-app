@@ -3,7 +3,9 @@ import { isLoggedIn } from "../core.js";
 
 import { setAbsenceState, getCharacterContext } from "../engines/core-engine.js";
 import { esc } from "../ui.js";
-import { isAdmin, isMod, isSpeaker, canAdminOrMod, canAdminModOrSpeaker } from "../permissions.js";
+import { isAdmin, isMod, isSpeaker, canAdminOrMod, canManage } from "../permissions.js";
+import { getEducationOptions, getCareerOptions, getFamilyOptions } from "../character-enums.js";
+import { seatTaken, allConstituenciesForPartyWithStatus, renderConstituencyOptions } from "../constituency-utils.js";
 import {
   apiApplyNpcCharacter, apiGetMyApplications, apiGetMyCharacters,
   apiGetCharacterApplications, apiApproveCharacterApplication,
@@ -11,23 +13,6 @@ import {
   apiGetConstituencies, apiGetCharacters,
   apiGetEnums, apiGetParty,
 } from "../api.js";
-
-function canManage(data) {
-  return canAdminModOrSpeaker(data);
-}
-
-function canAdmin(data) {
-  return isAdmin(data);
-}
-
-function seatTaken(data, constituencyName) {
-  const name = String(constituencyName || "").toLowerCase();
-  if (!name) return false;
-  const byPlayer = (data.players || []).some((p) => String(p.constituency || "").toLowerCase() === name);
-  if (byPlayer) return true;
-  const seat = (data.constituencies || []).find((c) => String(c.name || "").toLowerCase() === name);
-  return Boolean(seat && ((seat.mpType === "npc" && seat.mpName) || (seat.mpType === "character" && seat.mpName)));
-}
 
 function openConstituencyOptions(data) {
   const pending = new Set((data.userManagement?.pendingCharacters || []).map((p) => String(p.constituency || "").toLowerCase()));
@@ -44,35 +29,6 @@ function openConstituencyOptionsForParty(data, partyName) {
     if (partyName && String(c.party || "") !== partyName) return false;
     return true;
   });
-}
-
-/**
- * Return all constituencies for a party, sorted available-first then taken,
- * each annotated with a `taken` flag so callers can render them disabled.
- */
-function allConstituenciesForPartyWithStatus(data, partyName) {
-  const pending = new Set((data.userManagement?.pendingCharacters || []).map((p) => String(p.constituency || "").toLowerCase()));
-  const all = (data.constituencies || [])
-    .filter((c) => !partyName || String(c.party || "") === partyName)
-    .map((c) => ({
-      ...c,
-      taken: seatTaken(data, c.name) || pending.has(String(c.name || "").toLowerCase()),
-    }))
-    .sort((a, b) => {
-      if (a.taken !== b.taken) return a.taken ? 1 : -1; // available first
-      return String(a.name || "").localeCompare(String(b.name || ""));
-    });
-  return all;
-}
-
-/** Render <option> elements for a constituency dropdown, greying out taken seats. */
-function renderConstituencyOptions(constituencies, fallbackMsg) {
-  if (!constituencies.length) return `<option value="">${fallbackMsg}</option>`;
-  return `<option value="">Select constituency</option>` + constituencies.map((c) =>
-    c.taken
-      ? `<option value="${esc(c.name)}" disabled style="color:#aaa;">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)}) — Taken</option>`
-      : `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`
-  ).join("");
 }
 
 function normaliseUserData(data) {
@@ -271,7 +227,7 @@ function render(data, state) {
   normaliseUserData(data);
   const char = getCharacterContext(data);
   const manager = canManage(data);
-  const admin = canAdmin(data);
+  const admin = isAdmin(data);
 
   // When ?account= param is set (e.g. from A Team page) and the viewer is admin/mod,
   // show that user's account data in the Account Data section.
@@ -314,22 +270,9 @@ function render(data, state) {
 
   // Use server-provided enums (single source of truth) when available, fall back to built-in arrays.
   const enums = state.enums ?? {};
-  const EDUCATION_OPTIONS = enums.educationOptions ?? [
-    "No Qualifications", "GCSEs", "A Levels", "Certificate of HE", "Diploma",
-    "Bachelors Degree", "Masters Degree", "Doctorate",
-  ];
-  const CAREER_OPTIONS = enums.careerOptions ?? [
-    "Manual / Skilled Trade", "Public Sector Professional", "Legal Profession",
-    "Finance / Banking / Corporate", "Business Owner / Entrepreneur",
-    "Political Staffer / Researcher", "Trade Union / Activist",
-    "Media / Journalism / Communications", "Academia / Education Leadership",
-    "Military / Police / Security",
-  ];
-  const FAMILY_OPTIONS = enums.familyOptions ?? [
-    "Single", "Married, No Children", "Married with Children", "Civil Partnership",
-    "Divorced", "Divorced with Children", "Widowed",
-    "Long-Term Partner with Children", "Long-Term Partner, No Children",
-  ];
+  const EDUCATION_OPTIONS = getEducationOptions(enums);
+  const CAREER_OPTIONS = getCareerOptions(enums);
+  const FAMILY_OPTIONS = getFamilyOptions(enums);
 
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">User</div></div>
@@ -521,14 +464,14 @@ function render(data, state) {
         npcConstSelect.innerHTML = `<option value="">Select party first</option>`;
         return;
       }
-      const opts = allConstituenciesForPartyWithStatus(data, party);
+      const opts = allConstituenciesForPartyWithStatus(data, data.userManagement?.pendingCharacters, party);
       npcConstSelect.innerHTML = opts.length
         ? renderConstituencyOptions(opts, `No constituencies for ${party}`)
         : `<option value="">No constituencies for ${esc(party)}</option>`;
     });
   } else if (npcConstSelect && !npcPartySelect) {
     // non-admin/mod: party is locked to active character's party, populate immediately
-    const opts = allConstituenciesForPartyWithStatus(data, activeCharParty);
+    const opts = allConstituenciesForPartyWithStatus(data, data.userManagement?.pendingCharacters, activeCharParty);
     npcConstSelect.innerHTML = opts.length
       ? renderConstituencyOptions(opts, `No constituencies for ${activeCharParty}`)
       : `<option value="">No constituencies for ${esc(activeCharParty)}</option>`;
@@ -718,7 +661,7 @@ export async function initUserPage(data) {
   try {
     const urlParam = new URL(window.location.href).searchParams.get("account") || "";
     const selfUsername = String(data?.currentUser?.username || "").trim();
-    if (urlParam && urlParam !== selfUsername && canAdminModOrSpeaker(data)) {
+    if (urlParam && urlParam !== selfUsername && canManage(data)) {
       viewingUsername = urlParam;
     }
   } catch { /* non-browser or URL parse error — ignore */ }

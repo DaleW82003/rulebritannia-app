@@ -1,7 +1,9 @@
 import { esc } from "../ui.js";
 import { nowStamp, isLoggedIn } from "../core.js";
-import { canAdminModOrSpeaker } from "../permissions.js";
+import { canManage } from "../permissions.js";
 import { getSimDate } from "../clock.js";
+import { getEducationOptions, getCareerOptions, getFamilyOptions } from "../character-enums.js";
+import { seatTaken, allConstituenciesForPartyWithStatus, renderConstituencyOptions } from "../constituency-utils.js";
 import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetCharacterOfficesHeld, apiGetConstituencies, apiGetMyCharacters, apiGetMyApplications, apiApplyCharacter } from "../api.js";
 import { logAction } from "../audit.js";
 
@@ -837,10 +839,6 @@ function money(n) {
   return `£${val.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function canManage(data) {
-  return canAdminModOrSpeaker(data);
-}
-
 function getCharacterName(data) {
   return String(data?.currentCharacter?.name || "").trim();
 }
@@ -968,38 +966,6 @@ function biMonthlyCreditAmount(profile, mods) {
   return (Number(profile.salaryAnnual || 0) + extraAnnual + investmentIncome) / 6;
 }
 
-function seatTaken(data, constituencyName) {
-  const name = String(constituencyName || "").toLowerCase();
-  if (!name) return false;
-  const byPlayer = (data.players || []).some((p) => String(p.constituency || "").toLowerCase() === name);
-  if (byPlayer) return true;
-  const seat = (data.constituencies || []).find((c) => String(c.name || "").toLowerCase() === name);
-  return Boolean(seat && ((seat.mpType === "npc" && seat.mpName) || (seat.mpType === "character" && seat.mpName)));
-}
-
-function allConstituenciesForPartyWithStatus(data, pendingApps, partyName) {
-  const pending = new Set((pendingApps || []).map((p) => String(p.constituency || "").toLowerCase()));
-  return (data.constituencies || [])
-    .filter((c) => !partyName || String(c.party || "") === partyName)
-    .map((c) => ({
-      ...c,
-      taken: seatTaken(data, c.name) || pending.has(String(c.name || "").toLowerCase()),
-    }))
-    .sort((a, b) => {
-      if (a.taken !== b.taken) return a.taken ? 1 : -1;
-      return String(a.name || "").localeCompare(String(b.name || ""));
-    });
-}
-
-function renderConstituencyOptions(constituencies, fallbackMsg) {
-  if (!constituencies.length) return `<option value="">${fallbackMsg}</option>`;
-  return `<option value="">Select constituency</option>` + constituencies.map((c) =>
-    c.taken
-      ? `<option value="${esc(c.name)}" disabled style="color:#aaa;">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)}) — Taken</option>`
-      : `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.region)}, ${esc(c.nation)})</option>`
-  ).join("");
-}
-
 function render(data, state) {
   const host = document.getElementById("personal-root") || document.querySelector("main.wrap");
   if (!host) return;
@@ -1009,22 +975,9 @@ function render(data, state) {
   const name = getCharacterName(data);
   if (!name) {
     const enums = state.enums ?? {};
-    const EDUCATION_OPTIONS = enums.educationOptions ?? [
-      "No Qualifications", "GCSEs", "A Levels", "Certificate of HE", "Diploma",
-      "Bachelors Degree", "Masters Degree", "Doctorate",
-    ];
-    const CAREER_OPTIONS = enums.careerOptions ?? [
-      "Manual / Skilled Trade", "Public Sector Professional", "Legal Profession",
-      "Finance / Banking / Corporate", "Business Owner / Entrepreneur",
-      "Political Staffer / Researcher", "Trade Union / Activist",
-      "Media / Journalism / Communications", "Academia / Education Leadership",
-      "Military / Police / Security",
-    ];
-    const FAMILY_OPTIONS = enums.familyOptions ?? [
-      "Single", "Married, No Children", "Married with Children", "Civil Partnership",
-      "Divorced", "Divorced with Children", "Widowed",
-      "Long-Term Partner with Children", "Long-Term Partner, No Children",
-    ];
+    const EDUCATION_OPTIONS = getEducationOptions(enums);
+    const CAREER_OPTIONS = getCareerOptions(enums);
+    const FAMILY_OPTIONS = getFamilyOptions(enums);
     const HOME_TYPES = enums.homeTypes ?? [
       "Studio Flat", "One-Bed Flat", "Two-Bed Flat", "Terraced House", "End-Terrace",
       "Semi-Detached House", "Detached Suburban House", "Townhouse",
@@ -1283,21 +1236,21 @@ function render(data, state) {
                   <label class="label" for="pc-edu">Education</label>
                   <select id="pc-edu" class="input" name="education">
                     <option value="">— select —</option>
-                    ${(state.enums?.educationOptions ?? ["No Qualifications","GCSEs","A Levels","Certificate of HE","Diploma","Bachelors Degree","Masters Degree","Doctorate"]).map((o) => `<option value="${esc(o)}" ${profile.profile.education === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
+                    ${getEducationOptions(state.enums).map((o) => `<option value="${esc(o)}" ${profile.profile.education === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
                   </select>
                 </div>
                 <div>
                   <label class="label" for="pc-career">Career Background</label>
                   <select id="pc-career" class="input" name="career_background">
                     <option value="">— select —</option>
-                    ${(state.enums?.careerOptions ?? ["Manual / Skilled Trade","Public Sector Professional","Legal Profession","Finance / Banking / Corporate","Business Owner / Entrepreneur","Political Staffer / Researcher","Trade Union / Activist","Media / Journalism / Communications","Academia / Education Leadership","Military / Police / Security"]).map((o) => `<option value="${esc(o)}" ${profile.profile.careerBackground === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
+                    ${getCareerOptions(state.enums).map((o) => `<option value="${esc(o)}" ${profile.profile.careerBackground === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
                   </select>
                 </div>
                 <div>
                   <label class="label" for="pc-family">Family</label>
                   <select id="pc-family" class="input" name="family">
                     <option value="">— select —</option>
-                    ${(state.enums?.familyOptions ?? ["Single","Married, No Children","Married with Children","Civil Partnership","Divorced","Divorced with Children","Widowed","Long-Term Partner with Children","Long-Term Partner, No Children"]).map((o) => `<option value="${esc(o)}" ${profile.profile.family === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
+                    ${getFamilyOptions(state.enums).map((o) => `<option value="${esc(o)}" ${profile.profile.family === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
                   </select>
                 </div>
                 <div>
@@ -1596,15 +1549,15 @@ function render(data, state) {
                 return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><input id="pf-${esc(f.key)}" class="input" type="date" name="profile:${esc(f.key)}" value="${esc(val)}"></div>`;
               }
               if (f.key === "education") {
-                const opts = state.enums?.educationOptions ?? ["No Qualifications","GCSEs","A Levels","Certificate of HE","Diploma","Bachelors Degree","Masters Degree","Doctorate"];
+                const opts = getEducationOptions(state.enums);
                 return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><select id="pf-${esc(f.key)}" class="input" name="profile:${esc(f.key)}"><option value=""></option>${opts.map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></div>`;
               }
               if (f.key === "careerBackground") {
-                const opts = state.enums?.careerOptions ?? ["Manual / Skilled Trade","Public Sector Professional","Legal Profession","Finance / Banking / Corporate","Business Owner / Entrepreneur","Political Staffer / Researcher","Trade Union / Activist","Media / Journalism / Communications","Academia / Education Leadership","Military / Police / Security"];
+                const opts = getCareerOptions(state.enums);
                 return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><select id="pf-${esc(f.key)}" class="input" name="profile:${esc(f.key)}"><option value=""></option>${opts.map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></div>`;
               }
               if (f.key === "family") {
-                const opts = state.enums?.familyOptions ?? ["Single","Married, No Children","Married with Children","Civil Partnership","Divorced","Divorced with Children","Widowed","Long-Term Partner with Children","Long-Term Partner, No Children"];
+                const opts = getFamilyOptions(state.enums);
                 return `<div><label class="label" for="pf-${esc(f.key)}">${esc(f.label)}</label><select id="pf-${esc(f.key)}" class="input" name="profile:${esc(f.key)}"><option value=""></option>${opts.map((o) => `<option value="${esc(o)}" ${val === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></div>`;
               }
               if (f.key === "party") {
