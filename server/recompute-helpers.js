@@ -19,10 +19,20 @@
  *     computeFactionPoliticalState(factionId)
  *   );
  *
+ * An optional entityId can be supplied to correlate log lines back to the
+ * specific entity (character ID, faction ID, …) being recomputed.  When
+ * provided it appears as an `entity=` field in every log line, making it
+ * straightforward to `grep` for a single entity's recompute history.
+ *
  * Log line format:
  *   [recompute] start  type=<type> trigger=<trigger>
  *   [recompute] ok     type=<type> trigger=<trigger> dur=<N>ms
  *   [recompute] FAILED type=<type> trigger=<trigger> dur=<N>ms err=<message>
+ *
+ * With entityId supplied:
+ *   [recompute] start  type=<type> trigger=<trigger> entity=<entityId>
+ *   [recompute] ok     type=<type> trigger=<trigger> entity=<entityId> dur=<N>ms
+ *   [recompute] FAILED type=<type> trigger=<trigger> entity=<entityId> dur=<N>ms err=<message>
  */
 
 /**
@@ -37,15 +47,21 @@
  *                                  (e.g. "office.assign", "division.vote")
  * @param {() => Promise<*>} fn   - Zero-argument async factory that performs
  *                                  the recompute
+ * @param {string|number} [entityId] - Optional entity identifier
+ *                                  (e.g. a character ID or faction ID).
+ *                                  When provided, appears as `entity=<id>` in
+ *                                  every log line so individual entities can be
+ *                                  traced when logs are busy.
  */
-export function fireRecompute(recomputeType, trigger, fn) {
+export function fireRecompute(recomputeType, trigger, fn, entityId) {
+  const entitySuffix = entityId != null ? ` entity=${entityId}` : "";
   const start = Date.now();
-  console.log(`[recompute] start  type=${recomputeType} trigger=${trigger}`);
+  console.log(`[recompute] start  type=${recomputeType} trigger=${trigger}${entitySuffix}`);
   fn().then(() => {
-    console.log(`[recompute] ok     type=${recomputeType} trigger=${trigger} dur=${Date.now() - start}ms`);
+    console.log(`[recompute] ok     type=${recomputeType} trigger=${trigger}${entitySuffix} dur=${Date.now() - start}ms`);
   }).catch((err) => {
     console.error(
-      `[recompute] FAILED type=${recomputeType} trigger=${trigger} dur=${Date.now() - start}ms err=${err?.message ?? err}`
+      `[recompute] FAILED type=${recomputeType} trigger=${trigger}${entitySuffix} dur=${Date.now() - start}ms err=${err?.message ?? err}`
     );
   });
 }
@@ -59,19 +75,21 @@ export function fireRecompute(recomputeType, trigger, fn) {
  * @param {string} recomputeType
  * @param {string} trigger
  * @param {() => Promise<*>} fn
+ * @param {string|number} [entityId] - Optional entity identifier (same as fireRecompute).
  * @returns {Promise<*>}  Resolves with the fn() result; rejects on failure
  *                        (caller must handle the rejection).
  */
-export async function awaitedRecompute(recomputeType, trigger, fn) {
+export async function awaitedRecompute(recomputeType, trigger, fn, entityId) {
+  const entitySuffix = entityId != null ? ` entity=${entityId}` : "";
   const start = Date.now();
-  console.log(`[recompute] start  type=${recomputeType} trigger=${trigger}`);
+  console.log(`[recompute] start  type=${recomputeType} trigger=${trigger}${entitySuffix}`);
   try {
     const result = await fn();
-    console.log(`[recompute] ok     type=${recomputeType} trigger=${trigger} dur=${Date.now() - start}ms`);
+    console.log(`[recompute] ok     type=${recomputeType} trigger=${trigger}${entitySuffix} dur=${Date.now() - start}ms`);
     return result;
   } catch (err) {
     console.error(
-      `[recompute] FAILED type=${recomputeType} trigger=${trigger} dur=${Date.now() - start}ms err=${err?.message ?? err}`
+      `[recompute] FAILED type=${recomputeType} trigger=${trigger}${entitySuffix} dur=${Date.now() - start}ms err=${err?.message ?? err}`
     );
     throw err;
   }

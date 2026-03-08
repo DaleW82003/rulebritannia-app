@@ -8943,7 +8943,7 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
     await writeAuditLog(req.session.userId, "press.mark", "press_items", req.params.id, prevData, item);
     // Recompute political capital for author non-blockingly
     if (rows[0].author_character_id) {
-      fireRecompute("character-political-state", "press.mark", () => recomputeCharacterPoliticalState(rows[0].author_character_id));
+      fireRecompute("character-political-state", "press.mark", () => recomputeCharacterPoliticalState(rows[0].author_character_id), rows[0].author_character_id);
     }
     res.json({ ok: true, id: updated[0].id, updatedAt: updated[0].updated_at, item });
   } catch (e) {
@@ -14539,7 +14539,7 @@ app.post("/api/me/work-plan", cwpWriteLimit, async (req, res) => {
     );
     await writeAuditLog(req.session.userId, "work_plan.save", "character_work_plans", charId, null, { lastSavedSimIndex });
     // Recompute political capital non-blockingly after work plan save
-    fireRecompute("character-political-state", "work_plan", () => recomputeCharacterPoliticalState(charId));
+    fireRecompute("character-political-state", "work_plan", () => recomputeCharacterPoliticalState(charId), charId);
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/me/work-plan]", e);
@@ -14564,7 +14564,7 @@ app.get("/api/me/political-state", politicalStateReadLimit, async (req, res) => 
 
     // Recompute fresh each request for correctness; result is cached in DB for trend calculation
     const state = await awaitedRecompute("character-political-state", "me.political-state.get", () =>
-      recomputeCharacterPoliticalState(charId)
+      recomputeCharacterPoliticalState(charId), charId
     );
     res.json({ ok: true, politicalState: state });
   } catch (e) {
@@ -14825,7 +14825,7 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
 
     // Recompute political capital for assigned (and displaced) character non-blockingly
     for (const cid of [character_id, oldCharId].filter(Boolean)) {
-      fireRecompute("character-political-state", "office.assign", () => recomputeCharacterPoliticalState(cid));
+      fireRecompute("character-political-state", "office.assign", () => recomputeCharacterPoliticalState(cid), cid);
     }
     res.status(201).json({ ok: true, assignment: rows[0] });
   } catch (e) {
@@ -14905,7 +14905,7 @@ app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req,
     }
 
     // Recompute political capital for unassigned character non-blockingly
-    fireRecompute("character-political-state", "office.unassign", () => recomputeCharacterPoliticalState(req.params.characterId));
+    fireRecompute("character-political-state", "office.unassign", () => recomputeCharacterPoliticalState(req.params.characterId), req.params.characterId);
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
@@ -16125,7 +16125,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 
     // Non-blocking: recompute political state after vote (rebellion may have been logged)
     if (charId) {
-      fireRecompute("character-political-state", "division.vote", () => recomputeCharacterPoliticalState(charId));
+      fireRecompute("character-political-state", "division.vote", () => recomputeCharacterPoliticalState(charId), charId);
     }
   } catch (e) {
     console.error(e);
@@ -16322,7 +16322,7 @@ app.post("/api/divisions/:divisionId/rebel-request", divWriteLimit, async (req, 
     res.status(201).json({ ok: true, request: rows[0] });
 
     // Non-blocking: recompute political state (pending rebel request affects party pressure)
-    fireRecompute("character-political-state", "rebel-request.submit", () => recomputeCharacterPoliticalState(charId));
+    fireRecompute("character-political-state", "rebel-request.submit", () => recomputeCharacterPoliticalState(charId), charId);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -16404,7 +16404,7 @@ app.post("/api/divisions/:divisionId/rebel-request/:requestId/decide", divWriteL
     // Non-blocking: recompute the requester's political state (refused requests affect party pressure)
     const requesterId = rows[0]?.character_id;
     if (requesterId) {
-      fireRecompute("character-political-state", "rebel-request.decide", () => recomputeCharacterPoliticalState(requesterId));
+      fireRecompute("character-political-state", "rebel-request.decide", () => recomputeCharacterPoliticalState(requesterId), requesterId);
     }
   } catch (e) {
     console.error(e);
@@ -18225,7 +18225,7 @@ app.post("/api/scandals/:id/choose", scandalWriteLimit, async (req, res) => {
 
     res.json({ ok: true, next_stage_key: nextStageKey, status: newStatus });
     // Recompute political capital non-blockingly after scandal choice
-    fireRecompute("character-political-state", "scandal.choose", () => recomputeCharacterPoliticalState(characterId));
+    fireRecompute("character-political-state", "scandal.choose", () => recomputeCharacterPoliticalState(characterId), characterId);
   } catch (e) {
     console.error("[POST /api/scandals/:id/choose]", e);
     res.status(500).json({ error: "Server error" });
@@ -18491,7 +18491,7 @@ app.post("/api/mod/scandals/:id/decision", scandalWriteLimit, async (req, res) =
     });
 
     // Recompute political capital for the affected character non-blockingly
-    fireRecompute("character-political-state", "scandal.decision", () => recomputeCharacterPoliticalState(scandal.character_id));
+    fireRecompute("character-political-state", "scandal.decision", () => recomputeCharacterPoliticalState(scandal.character_id), scandal.character_id);
     res.json({ ok: true, status: newStatus, stage_key: newStageKey });
   } catch (e) {
     console.error("[POST /api/mod/scandals/:id/decision]", e);
@@ -18516,7 +18516,7 @@ app.post("/api/mod/scandals/:id/close", scandalWriteLimit, async (req, res) => {
 
     // Recompute political capital for the affected character non-blockingly
     if (rows[0].character_id) {
-      fireRecompute("character-political-state", "scandal.close", () => recomputeCharacterPoliticalState(rows[0].character_id));
+      fireRecompute("character-political-state", "scandal.close", () => recomputeCharacterPoliticalState(rows[0].character_id), rows[0].character_id);
     }
     res.json({ ok: true });
   } catch (e) {
@@ -19862,7 +19862,7 @@ app.post("/api/control-panel/affiliations/:rid/decide", affiliationsWriteLimit, 
 
     // Non-blocking: recompute political state after affiliation change (group pressure)
     if (row.character_id) {
-      fireRecompute("character-political-state", "affiliations.decide", () => recomputeCharacterPoliticalState(row.character_id));
+      fireRecompute("character-political-state", "affiliations.decide", () => recomputeCharacterPoliticalState(row.character_id), row.character_id);
     }
   } catch (e) {
     console.error("[POST /api/control-panel/affiliations/:rid/decide]", e);
@@ -22194,7 +22194,7 @@ app.patch("/api/admin/factions/:id", verifyCsrfToken, crudWriteLimit, async (req
     // Non-blocking: if leadership_alignment or rebellion_bias changed, faction political state may be stale
     const factionStateFieldsChanged = body.leadershipAlignment !== undefined || body.rebellionBias !== undefined;
     if (factionStateFieldsChanged) {
-      fireRecompute("faction-political-state", "faction.metadata.update", () => computeFactionPoliticalState(id));
+      fireRecompute("faction-political-state", "faction.metadata.update", () => computeFactionPoliticalState(id), id);
     }
   } catch (e) {
     if (e.code === "23505") {
@@ -22265,7 +22265,7 @@ app.patch("/api/admin/factions/:id/allocation", verifyCsrfToken, crudWriteLimit,
     res.json({ ok: true, totalMPs, allocatedMPs: proposedTotal, remainingMPs: totalMPs - proposedTotal });
 
     // Non-blocking: recompute faction political state now that allocation has changed
-    fireRecompute("faction-political-state", "faction.allocation.update", () => computeFactionPoliticalState(id));
+    fireRecompute("faction-political-state", "faction.allocation.update", () => computeFactionPoliticalState(id), id);
   } catch (e) {
     console.error("[PATCH /api/admin/factions/:id/allocation]", e);
     res.status(500).json({ error: "Server error" });

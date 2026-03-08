@@ -194,3 +194,122 @@ test("awaitedRecompute: FAILED log includes type, trigger, dur", async () => {
     cap.restore();
   }
 });
+
+// ── entityId correlation token ────────────────────────────────────────────────
+
+test("fireRecompute: entity= appears in start log when entityId is provided", async () => {
+  const cap = captureConsoleLogs();
+  try {
+    let resolve;
+    const p = new Promise((r) => { resolve = r; });
+    fireRecompute("char-state", "test.entity-start", () => p, "char-42");
+    const startLine = cap.logs.find((l) => l.includes("[recompute] start"));
+    assert.ok(startLine?.includes("entity=char-42"), `expected entity= in: ${startLine}`);
+    resolve();
+    await p.catch(() => {});
+  } finally {
+    cap.restore();
+  }
+});
+
+test("fireRecompute: entity= appears in ok log when entityId is provided", async () => {
+  const cap = captureConsoleLogs();
+  try {
+    await new Promise((resolve) => {
+      fireRecompute("char-state", "test.entity-ok", () => Promise.resolve(), "char-99");
+      setImmediate(resolve);
+    });
+    await new Promise((r) => setImmediate(r));
+    const okLine = cap.logs.find((l) => l.includes("[recompute] ok"));
+    assert.ok(okLine?.includes("entity=char-99"), `expected entity= in: ${okLine}`);
+  } finally {
+    cap.restore();
+  }
+});
+
+test("fireRecompute: entity= appears in FAILED log when entityId is provided", async () => {
+  const cap = captureConsoleLogs();
+  try {
+    await new Promise((resolve) => {
+      fireRecompute("char-state", "test.entity-fail", () => Promise.reject(new Error("fail")), "char-7");
+      setImmediate(resolve);
+    });
+    await new Promise((r) => setImmediate(r));
+    const failLine = cap.errors.find((l) => l.includes("[recompute] FAILED"));
+    assert.ok(failLine?.includes("entity=char-7"), `expected entity= in: ${failLine}`);
+  } finally {
+    cap.restore();
+  }
+});
+
+test("fireRecompute: entity= is absent when entityId is omitted", async () => {
+  const cap = captureConsoleLogs();
+  try {
+    await new Promise((resolve) => {
+      fireRecompute("char-state", "test.no-entity", () => Promise.resolve());
+      setImmediate(resolve);
+    });
+    await new Promise((r) => setImmediate(r));
+    const startLine = cap.logs.find((l) => l.includes("[recompute] start"));
+    const okLine    = cap.logs.find((l) => l.includes("[recompute] ok"));
+    assert.ok(!startLine?.includes("entity="), "entity= should not appear without entityId");
+    assert.ok(!okLine?.includes("entity="),    "entity= should not appear without entityId");
+  } finally {
+    cap.restore();
+  }
+});
+
+test("fireRecompute: works with numeric entityId", async () => {
+  const cap = captureConsoleLogs();
+  try {
+    await new Promise((resolve) => {
+      fireRecompute("faction-state", "test.numeric-entity", () => Promise.resolve(), 123);
+      setImmediate(resolve);
+    });
+    await new Promise((r) => setImmediate(r));
+    const startLine = cap.logs.find((l) => l.includes("[recompute] start"));
+    assert.ok(startLine?.includes("entity=123"), `expected entity=123 in: ${startLine}`);
+  } finally {
+    cap.restore();
+  }
+});
+
+test("awaitedRecompute: entity= appears in start and ok logs when entityId is provided", async () => {
+  const cap = captureConsoleLogs();
+  try {
+    await awaitedRecompute("char-state", "test.await-entity", () => Promise.resolve(), "char-55");
+    const startLine = cap.logs.find((l) => l.includes("[recompute] start"));
+    const okLine    = cap.logs.find((l) => l.includes("[recompute] ok"));
+    assert.ok(startLine?.includes("entity=char-55"), `expected entity= in start: ${startLine}`);
+    assert.ok(okLine?.includes("entity=char-55"),    `expected entity= in ok: ${okLine}`);
+  } finally {
+    cap.restore();
+  }
+});
+
+test("awaitedRecompute: entity= appears in FAILED log when entityId is provided", async () => {
+  const cap = captureConsoleLogs();
+  try {
+    await assert.rejects(
+      () => awaitedRecompute("char-state", "test.await-entity-fail", () => Promise.reject(new Error("oops")), "char-8"),
+      /oops/
+    );
+    const failLine = cap.errors.find((l) => l.includes("[recompute] FAILED"));
+    assert.ok(failLine?.includes("entity=char-8"), `expected entity= in FAILED: ${failLine}`);
+  } finally {
+    cap.restore();
+  }
+});
+
+test("awaitedRecompute: entity= is absent when entityId is omitted", async () => {
+  const cap = captureConsoleLogs();
+  try {
+    await awaitedRecompute("char-state", "test.await-no-entity", () => Promise.resolve());
+    const startLine = cap.logs.find((l) => l.includes("[recompute] start"));
+    const okLine    = cap.logs.find((l) => l.includes("[recompute] ok"));
+    assert.ok(!startLine?.includes("entity="), "entity= should not appear without entityId");
+    assert.ok(!okLine?.includes("entity="),    "entity= should not appear without entityId");
+  } finally {
+    cap.restore();
+  }
+});
