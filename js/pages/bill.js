@@ -407,6 +407,10 @@ function serializeBillTextWithArticles(originalText, articles) {
 
 function canAuthorManageAmendments(bill, data) {
   const c = getCurrentCharacter(data);
+  // Use immutable character_id for authorship check; fall back to name only when id is unavailable
+  if (c?.id && bill.author_character_id) {
+    return String(c.id) === String(bill.author_character_id);
+  }
   return String(c?.name || "") && String(c?.name || "") === String(bill.author || "");
 }
 
@@ -497,7 +501,10 @@ async function renderAmendments(bill, data) {
 
   const char = getCurrentCharacter(data);
   const canStaff = canAdminModOrSpeaker(data);
-  const canAuthorAct = String(char?.name || "") && String(char?.name || "") === String(bill.author || "");
+  // Use immutable character_id for authorship check; fall back to name only when id is unavailable
+  const canAuthorAct = (char?.id && bill.author_character_id)
+    ? String(char.id) === String(bill.author_character_id)
+    : (String(char?.name || "") && String(char?.name || "") === String(bill.author || ""));
   const isLeader = isPartyLeader(char || {});
 
   // Load amendments from DB (authoritative source)

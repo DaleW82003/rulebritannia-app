@@ -6683,6 +6683,7 @@ app.get("/api/bills", crudReadLimit, async (req, res) => {
     const displayNames = await batchGetCharacterDisplayNames(pool, entries);
     const bills = rows.map((r, i) => normaliseDiscourseFields({
       ...r.data,
+      author_character_id: r.author_character_id || null,
       author_display_name: displayNames[i],
       _updatedAt: r.updated_at,
     }));
@@ -6702,7 +6703,7 @@ app.get("/api/bills/:id", crudReadLimit, async (req, res) => {
     const author_display_name = r.author_character_id
       ? await getCharacterDisplayName(pool, r.author_character_id, r.data?.author || "")
       : (r.data?.author || "");
-    res.json({ bill: normaliseDiscourseFields({ ...r.data, author_display_name, _updatedAt: r.updated_at }) });
+    res.json({ bill: normaliseDiscourseFields({ ...r.data, author_character_id: r.author_character_id || null, author_display_name, _updatedAt: r.updated_at }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6990,15 +6991,16 @@ app.post("/api/bills/:id/withdraw", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
-    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    const { rows: billRows } = await pool.query("SELECT id, data, author_character_id FROM bills WHERE id = $1", [req.params.id]);
     if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
     const bill = billRows[0].data;
+    const billAuthorCharId = billRows[0].author_character_id || null;
 
     if (["passed", "failed", "withdrawn"].includes(String(bill.status || ""))) {
       return res.status(409).json({ error: "Bill is already concluded and cannot be withdrawn" });
     }
 
-    // Permission: bill author (by character name), PM, admin, or mod
+    // Permission: bill author (by character_id), PM, admin, or mod
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
     const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
     let canWithdraw = isStaff;
@@ -7006,11 +7008,11 @@ app.post("/api/bills/:id/withdraw", crudWriteLimit, async (req, res) => {
       const charId = await getActiveCharacterId(req);
       if (charId) {
         const { rows: cRows } = await pool.query(
-          "SELECT name, office, role FROM characters WHERE id = $1", [charId]
+          "SELECT office, role FROM characters WHERE id = $1", [charId]
         );
         const char = cRows[0] || {};
-        // Author match or PM
-        canWithdraw = String(char.name || "") === String(bill.author || "") ||
+        // Author match (immutable character_id) or PM
+        canWithdraw = (billAuthorCharId && String(charId) === String(billAuthorCharId)) ||
                       ["prime-minister", "leader-commons"].includes(String(char.office || "")) ||
                       String(char.role || "") === "prime-minister";
       }
@@ -7105,9 +7107,10 @@ app.post("/api/bills/:id/amendments", crudWriteLimit, async (req, res) => {
       return res.status(403).json({ error: "Only MPs may submit amendments" });
     }
 
-    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    const { rows: billRows } = await pool.query("SELECT id, data, author_character_id FROM bills WHERE id = $1", [req.params.id]);
     if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
     const bill = billRows[0].data;
+    const billAuthorCharId = billRows[0].author_character_id || null;
 
     const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
     const sm = clk[0]?.sim_current_month ?? 8;
@@ -7129,7 +7132,8 @@ app.post("/api/bills/:id/amendments", crudWriteLimit, async (req, res) => {
     );
     const amendId = `A${Number(countRows[0]?.cnt || 0) + 1}`;
 
-    const isAuthor = String(char.name || "") === String(bill.author || "");
+    // Author check uses immutable character_id (not mutable name string)
+    const isAuthor = !!(billAuthorCharId && String(charId) === String(billAuthorCharId));
     const initialStatus = isAuthor ? "accepted" : "proposed";
 
     await pool.query(
@@ -7174,9 +7178,10 @@ app.post("/api/bills/:id/amendments/:aid/decide", crudWriteLimit, async (req, re
       return res.status(400).json({ error: "decision must be 'accept' or 'refuse'" });
     }
 
-    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    const { rows: billRows } = await pool.query("SELECT id, data, author_character_id FROM bills WHERE id = $1", [req.params.id]);
     if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
     const bill = billRows[0].data;
+    const billAuthorCharId = billRows[0].author_character_id || null;
 
     const { rows: amRows } = await pool.query(
       "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, req.params.aid]
@@ -7185,13 +7190,12 @@ app.post("/api/bills/:id/amendments/:aid/decide", crudWriteLimit, async (req, re
     const am = amRows[0];
     if (am.status !== "proposed") return res.status(409).json({ error: `Amendment is already ${am.status}` });
 
-    // Only the bill author may decide
-    const { rows: cRows } = await pool.query("SELECT name FROM characters WHERE id = $1", [charId]);
-    if (!cRows.length || String(cRows[0].name) !== String(bill.author || "")) {
-      // Check if author, admin or mod
-      const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-      const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
-      if (!isStaff) return res.status(403).json({ error: "Only the bill author, admin or mod may decide on amendments" });
+    // Only the bill author may decide; authority checked via immutable character_id
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAuthor = !!(billAuthorCharId && String(charId) === String(billAuthorCharId));
+    if (!isAuthor && !isStaff) {
+      return res.status(403).json({ error: "Only the bill author, admin or mod may decide on amendments" });
     }
 
     if (decision === "accept") {
@@ -8808,9 +8812,10 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
       return res.status(400).json({ error: "entry.text required" });
     }
 
-    const { rows } = await pool.query("SELECT data FROM press_items WHERE id = $1", [req.params.id]);
+    const { rows } = await pool.query("SELECT data, author_character_id FROM press_items WHERE id = $1", [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: "Press item not found" });
     const item = rows[0].data;
+    const pressAuthorCharId = rows[0].author_character_id || null;
 
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
     const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
@@ -8822,13 +8827,10 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
         return res.status(403).json({ error: "Only staff may submit press conference questions" });
       }
     } else {
-      // Answer / walk-off: only the conference author (player)
+      // Answer / walk-off: only the conference author (player), checked via immutable character_id
       if (!req.session.characterId) return res.status(403).json({ error: "Forbidden: no active character" });
-      const { rows: charRows } = await pool.query(
-        "SELECT name FROM characters WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
-        [req.session.characterId, req.session.userId]
-      );
-      if (!charRows.length || item.author !== charRows[0].name) {
+      const isAuthor = !!(pressAuthorCharId && String(req.session.characterId) === String(pressAuthorCharId));
+      if (!isAuthor) {
         return res.status(403).json({ error: "Only the conference author may add transcript entries" });
       }
       // Anti-spam: author may only answer if there is at least one unanswered question

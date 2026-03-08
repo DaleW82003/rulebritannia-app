@@ -33,19 +33,26 @@ function normaliseShadowCabinet(data) {
   data.opposition.offices ??= [];
 }
 
-function getShadowCabinetMemberNames(data) {
-  const names = new Set();
+function getShadowCabinetMemberCharIds(data) {
+  const ids = new Set();
   for (const office of data.opposition?.offices || []) {
-    if (office?.holderName) names.add(String(office.holderName));
+    if (office?.holderCharId) ids.add(String(office.holderCharId));
   }
-  return names;
+  return ids;
 }
 
 function canAccessShadowCabinet(data) {
   if (canAdminOrMod(data)) return true;
+  const charId = String(getCharacterContext(data)?.id || "").trim();
+  if (charId) return getShadowCabinetMemberCharIds(data).has(charId);
+  // Fallback: name-based check for environments where holderCharId is not yet populated
   const charName = String(getCharacterContext(data)?.name || "").trim();
   if (!charName) return false;
-  return getShadowCabinetMemberNames(data).has(charName);
+  const names = new Set();
+  for (const office of data.opposition?.offices || []) {
+    if (office?.holderName) names.add(String(office.holderName));
+  }
+  return names.has(charName);
 }
 
 function isOppositionLeader(data) {

@@ -73,6 +73,10 @@ function getCurrentName(data) {
   return String(data.currentCharacter?.name || data.currentPlayer?.name || "").trim();
 }
 
+function getCurrentCharId(data) {
+  return String(data.currentCharacter?.id || data.currentPlayer?.id || "").trim();
+}
+
 function getOfficeMap(data) {
   return new Map((data.government?.offices || []).map((o) => [o.id, o]));
 }
@@ -126,7 +130,11 @@ function canEditOffice(data, officeId) {
   if (canAdminOrMod(data)) return true;
   if (officeId === "prime-minister") return false;
   const pm = getOfficeMap(data).get("prime-minister");
-  return !!pm?.holderName && pm.holderName === getCurrentName(data);
+  if (!pm) return false;
+  const currentCharId = getCurrentCharId(data);
+  // Use immutable character_id when available; fall back to name comparison
+  if (currentCharId && pm.holderCharId) return String(pm.holderCharId) === currentCharId;
+  return !!pm.holderName && pm.holderName === getCurrentName(data);
 }
 
 function applyAssignmentEffects(data) {
@@ -160,9 +168,16 @@ function applyAssignmentEffects(data) {
     }
   }
 
-  if (data.currentCharacter?.name) {
+  if (data.currentCharacter?.name || data.currentCharacter?.id) {
+    const currentCharId = String(data.currentCharacter?.id || "").trim();
+    const currentCharName = String(data.currentCharacter?.name || "").trim();
     const heldOffices = (data.government.offices || [])
-      .filter((o) => o.holderName === data.currentCharacter.name)
+      .filter((o) => {
+        if (!o.holderName) return false;
+        // Prefer immutable character_id; fall back to name
+        if (currentCharId && o.holderCharId) return String(o.holderCharId) === currentCharId;
+        return o.holderName === currentCharName;
+      })
       .map((o) => o.id);
     data.currentCharacter.offices = heldOffices;
     data.currentCharacter.office  = heldOffices[0] || null;
@@ -180,9 +195,15 @@ function render(data, state) {
   const govType = data._parlStatus?.governmentType || "Majority";
   const choices = getActiveCharacterChoices(data, governingParties);
   const manager = canAdminOrMod(data);
-  const pmHolder = officeMap.get("prime-minister")?.holderName || "";
-  const isPM = !!pmHolder && pmHolder === getCurrentName(data);
+  const pmOffice = officeMap.get("prime-minister");
+  const currentCharId = getCurrentCharId(data);
   const currentName = getCurrentName(data);
+  // Prefer immutable character_id; fall back to name comparison when holderCharId not populated
+  const isPM = pmOffice
+    ? (currentCharId && pmOffice.holderCharId
+        ? String(pmOffice.holderCharId) === currentCharId
+        : !!(pmOffice.holderName && pmOffice.holderName === currentName))
+    : false;
   const canonicalParties = Array.isArray(data._canonicalParties) ? data._canonicalParties : [];
   const reshuffleStatus = data._reshuffleStatus || {};
   const reshuffleActive = !!reshuffleStatus.isActive;
@@ -287,15 +308,21 @@ function render(data, state) {
           const avatar = avatarFromCharacterProfile(data, office.holderName) || office.holderAvatar || "";
           const isFilled = !!office.holderName;
           const displayName = office.holderDisplayName || office.holderName || "";
+          // Use immutable character_id for self-identity checks; fall back to name
+          const isCurrentHolder = isFilled && (
+            (currentCharId && office.holderCharId)
+              ? String(office.holderCharId) === currentCharId
+              : office.holderName === currentName
+          );
           // During reshuffle: all offices with edit permission show dropdowns
           // PM self-held non-PM office: always show dropdown
-          const isPmSelfInNonPmOffice = isPM && isFilled && spec.id !== "prime-minister" && office.holderName === currentName;
+          const isPmSelfInNonPmOffice = isPM && isFilled && spec.id !== "prime-minister" && isCurrentHolder;
           const canEdit = canEditOffice(data, spec.id);
           const showDropdown = (!isFilled && canEdit) || isPmSelfInNonPmOffice || (reshuffleActive && canEdit);
           // Fire: PM (for non-PM offices) or admin/mod; only when NOT in reshuffle mode (reshuffle provides dropdown)
           const canFire = !reshuffleActive && isFilled && (manager || (isPM && spec.id !== "prime-minister"));
           // Resign: current holder only (or admin/mod), not when dropdown is shown
-          const canResignOffice = !reshuffleActive && !isPmSelfInNonPmOffice && isFilled && (manager || office.holderName === currentName);
+          const canResignOffice = !reshuffleActive && !isPmSelfInNonPmOffice && isFilled && (manager || isCurrentHolder);
           return `
             <article class="tile" style="display:grid;grid-template-columns:minmax(260px,2fr) minmax(220px,2fr) 84px;gap:10px;align-items:center;">
               <div>
