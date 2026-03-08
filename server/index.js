@@ -15975,7 +15975,8 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
       [req.params.id, charId, vote, effectiveWeight]
     );
 
-    // Rebellion logging: check if party instruction exists and vote differs
+    // Rebellion logging: keep a single authoritative rebellion record per (division, character)
+    // so party-pressure calculations reflect current vote intent, not historical toggles.
     if (charParty) {
       try {
         const { rows: instrRows } = await pool.query(
@@ -15983,6 +15984,14 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
             WHERE division_id = $1 AND party_slug = $2`,
           [req.params.id, charParty]
         );
+
+        // Remove any stale rebellion log first (e.g. player changed vote back to party line).
+        await pool.query(
+          `DELETE FROM division_rebellion_log
+            WHERE division_id = $1 AND character_id = $2`,
+          [req.params.id, charId]
+        );
+
         if (instrRows.length) {
           const instr = instrRows[0];
           if (instr.position !== "free" && instr.position !== vote) {
@@ -16115,8 +16124,9 @@ app.post("/api/divisions/:divisionId/party-instruction", divWriteLimit, async (r
     if (![0,1,2,3].includes(Number(whipLevel))) return res.status(400).json({ error: "whipLevel must be 0, 1, 2 or 3" });
 
     // Verify division exists
-    const { rows: divRows } = await pool.query("SELECT id FROM divisions WHERE id = $1", [req.params.divisionId]);
+    const { rows: divRows } = await pool.query("SELECT id, status FROM divisions WHERE id = $1", [req.params.divisionId]);
     if (!divRows.length) return res.status(404).json({ error: "Division not found" });
+    if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
 
     // Permission: admin/mod OR chief whip (party leader is fallback if no chief whip assigned)
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
@@ -16200,8 +16210,9 @@ app.post("/api/divisions/:divisionId/rebel-request", divWriteLimit, async (req, 
     if (!charRows.length) return res.status(404).json({ error: "Character not found" });
     const partySlug = charRows[0].party;
 
-    const { rows: divRows } = await pool.query("SELECT id FROM divisions WHERE id = $1", [req.params.divisionId]);
+    const { rows: divRows } = await pool.query("SELECT id, status FROM divisions WHERE id = $1", [req.params.divisionId]);
     if (!divRows.length) return res.status(404).json({ error: "Division not found" });
+    if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
 
     // Cancel any existing pending request before creating a new one
     await pool.query(
@@ -16265,6 +16276,10 @@ app.post("/api/divisions/:divisionId/rebel-request/:requestId/decide", divWriteL
     );
     if (!reqRows.length) return res.status(404).json({ error: "Request not found" });
     if (reqRows[0].status !== "pending") return res.status(409).json({ error: "Request is no longer pending" });
+
+    const { rows: divRows } = await pool.query("SELECT status FROM divisions WHERE id = $1", [req.params.divisionId]);
+    if (!divRows.length) return res.status(404).json({ error: "Division not found" });
+    if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
 
     const partySlug = reqRows[0].party_slug;
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
@@ -21938,7 +21953,13 @@ const FACTION_PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
 
 /** Normalise a faction slug: lowercase, hyphens instead of spaces. */
 function normaliseFactionSlug(s) {
-  return String(s).toLowerCase().replace(/\s+/g, "-");
+  return String(s)
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 /**
@@ -22021,7 +22042,8 @@ app.post("/api/admin/parties/:slug/factions", verifyCsrfToken, crudWriteLimit, a
       rebellionBias = 0, mediaSensitivity = 0, constituencySensitivity = 0,
       displayOrder = 0, active = true,
     } = req.body || {};
-    if (!name || !factionSlug) {
+    const canonicalFactionSlug = normaliseFactionSlug(factionSlug);
+    if (!name || !canonicalFactionSlug) {
       return res.status(400).json({ error: "name and slug are required" });
     }
     const { rows } = await pool.query(
@@ -22031,7 +22053,7 @@ app.post("/api/admin/parties/:slug/factions", verifyCsrfToken, crudWriteLimit, a
        VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12)
        RETURNING id`,
       [
-        slug, normaliseFactionSlug(factionSlug),
+        slug, canonicalFactionSlug,
         String(name), String(description), String(colour),
         JSON.stringify(Array.isArray(ideologyTags) ? ideologyTags : []),
         String(leadershipAlignment),
@@ -22067,13 +22089,17 @@ app.patch("/api/admin/factions/:id", verifyCsrfToken, crudWriteLimit, async (req
     if (!FACTION_PLAYABLE_PARTIES.includes(existing[0].party_slug)) {
       return res.status(400).json({ error: "Cannot edit factions for this party" });
     }
-    const allowed = ["name","description","colour","ideology_tags","leadership_alignment",
-                     "rebellion_bias","media_sensitivity","constituency_sensitivity","display_order","active","slug"];
     const sets = [];
     const vals = [];
     const body = req.body || {};
     if (body.name !== undefined)                  { sets.push(`name = $${vals.push(String(body.name))}`); }
-    if (body.slug !== undefined)                  { sets.push(`slug = $${vals.push(normaliseFactionSlug(body.slug))}`); }
+    if (body.slug !== undefined) {
+      const canonicalFactionSlug = normaliseFactionSlug(body.slug);
+      if (!canonicalFactionSlug) {
+        return res.status(400).json({ error: "slug must contain at least one alphanumeric character" });
+      }
+      sets.push(`slug = $${vals.push(canonicalFactionSlug)}`);
+    }
     if (body.description !== undefined)           { sets.push(`description = $${vals.push(String(body.description))}`); }
     if (body.colour !== undefined)                { sets.push(`colour = $${vals.push(String(body.colour))}`); }
     if (body.ideologyTags !== undefined)          { sets.push(`ideology_tags = $${vals.push(JSON.stringify(Array.isArray(body.ideologyTags) ? body.ideologyTags : []))}::jsonb`); }
