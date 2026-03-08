@@ -18,6 +18,7 @@ import {
 } from "./discourseClient.js";
 import { ALL_VALID_ROLES, PARTY_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP, partyRoleForPartyName, computeApprovalRolesToAdd, officeRoleFromSpecId } from "./roles.js";
 import { computeSimDateFromGameState } from "./clock.js";
+import { assertSnapshotDerivedTable, stripRelationalKeys } from "./state-contracts.js";
 
 const __serverDir = dirname(fileURLToPath(import.meta.url));
 
@@ -5011,8 +5012,12 @@ async function syncObjectTables(data) {
   try {
     await client.query("BEGIN");
 
-    // helper: bulk-upsert an array of {id, data} rows into a simple table
+    // helper: bulk-upsert an array of {id, data} rows into a simple table.
+    // assertSnapshotDerivedTable() throws synchronously if `table` is not in
+    // the explicit allowlist, making it impossible to accidentally write a
+    // relational-authoritative table through this path.
     async function upsertRows(table, rows) {
+      assertSnapshotDerivedTable(table); // runtime ownership guard
       if (!rows.length) return;
       // Build VALUES ($1,$2), ($3,$4), …
       const placeholders = rows.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2}::jsonb)`).join(", ");
@@ -5652,7 +5657,10 @@ app.get("/api/state", async (req, res) => {
        WHERE c.id = 'main'`
     );
     if (!rows.length) return res.status(404).json({ error: "No state yet" });
-    res.json({ data: rows[0].data, updatedAt: rows[0].updated_at });
+    // Strip any relational-authoritative keys that may exist in legacy snapshots
+    // so clients never receive them as if they were snapshot-owned.
+    const { clean: safeData } = stripRelationalKeys(rows[0].data, "GET /api/state");
+    res.json({ data: safeData, updatedAt: rows[0].updated_at });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -5669,9 +5677,18 @@ app.post("/api/state", async (req, res) => {
       return res.status(403).json({ error: "Forbidden: admin, mod, or speaker role required" });
     }
 
-    const data = req.body?.data;
-    if (!data || typeof data !== "object") {
+    const rawData = req.body?.data;
+    if (!rawData || typeof rawData !== "object") {
       return res.status(400).json({ error: "Body must be { data: <object> }" });
+    }
+
+    // Strip relational-authoritative keys before persisting. If a caller
+    // accidentally includes divisions/factions/finance etc. in the payload
+    // they are silently removed here so the snapshot never becomes a
+    // competing source of truth for those systems.
+    const { clean: data, stripped } = stripRelationalKeys(rawData, "POST /api/state");
+    if (stripped.length) {
+      console.warn(`[POST /api/state] user=${req.session.userId} — stripped forbidden keys: ${stripped.join(", ")}`);
     }
 
     const label = req.body?.label || "autosave";
@@ -5769,12 +5786,19 @@ app.post("/api/snapshots", async (req, res) => {
       return res.status(403).json({ error: "Forbidden: admin role required" });
     }
 
-    const { label, data } = req.body || {};
+    const { label } = req.body || {};
+    const rawDataFromBody = (req.body || {}).data;
     if (!label || typeof label !== "string" || !label.trim()) {
       return res.status(400).json({ error: "Body must include a non-empty label" });
     }
-    if (!data || typeof data !== "object") {
+    if (!rawDataFromBody || typeof rawDataFromBody !== "object") {
       return res.status(400).json({ error: "Body must include a data object" });
+    }
+
+    // Strip relational-authoritative keys before persisting the named snapshot.
+    const { clean: data, stripped } = stripRelationalKeys(rawDataFromBody, "POST /api/snapshots");
+    if (stripped.length) {
+      console.warn(`[POST /api/snapshots] user=${req.session.userId} — stripped forbidden keys: ${stripped.join(", ")}`);
     }
 
     const { rows } = await pool.query(
@@ -10104,12 +10128,20 @@ app.post("/api/admin/import-snapshot", maintLimit, async (req, res) => {
     if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
 
-    const { label, data } = req.body || {};
+    const { label, data: rawData } = req.body || {};
     if (!label || typeof label !== "string" || !label.trim()) {
       return res.status(400).json({ error: "Body must include a non-empty label." });
     }
-    if (!data || typeof data !== "object" || Array.isArray(data)) {
+    if (!rawData || typeof rawData !== "object" || Array.isArray(rawData)) {
       return res.status(400).json({ error: "Body must include a data object." });
+    }
+
+    // Strip relational-authoritative keys before persisting the imported snapshot.
+    // This ensures import cannot become a competing write path for gameplay systems
+    // that are owned by dedicated relational tables.
+    const { clean: data, stripped } = stripRelationalKeys(rawData, "POST /api/admin/import-snapshot");
+    if (stripped.length) {
+      console.warn(`[admin/import-snapshot] user=${req.session.userId} — stripped forbidden keys: ${stripped.join(", ")}`);
     }
 
     const { rows } = await pool.query(
@@ -10143,6 +10175,7 @@ app.post("/api/admin/import-snapshot", maintLimit, async (req, res) => {
       snapshotId: snap.id,
       createdAt: snap.created_at,
       label: snap.label,
+      ...(stripped.length ? { strippedKeys: stripped } : {}),
       ...(cacheWarning ? { warning: cacheWarning } : {}),
     });
   } catch (e) {
