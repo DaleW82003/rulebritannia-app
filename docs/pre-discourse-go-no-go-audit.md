@@ -1,5 +1,7 @@
 # Rule Britannia GO/NO-GO Audit (Pre-Discourse)
 
+> **Historical audit — issues resolved.** This audit was generated on 2026-02-26 and returned a NO-GO verdict due to four blocking issues (B1–B4). All four issues have since been resolved. See [`AUDIT_FIX_SUMMARY.md`](../AUDIT_FIX_SUMMARY.md) for the fixes applied and [`docs/dev-guide.md §13`](dev-guide.md) for current security status.
+
 _Generated: 2026-02-26T00:27:38.478481Z_
 
 ## Executive Verdict
