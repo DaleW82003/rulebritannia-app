@@ -13,6 +13,57 @@ The application is designed for a relatively small player base (tens to low hund
 
 ---
 
+## 1a. High-Level Architecture Diagram
+
+The diagram below shows the five architectural layers and their relationships. Read it top-to-bottom: every user action originates in the Client/UI layer and ultimately lands in PostgreSQL, which is the sole authoritative source of truth for all live gameplay state.
+
+```mermaid
+flowchart TD
+    subgraph CLIENT["Client / UI Layer"]
+        direction TB
+        PAGES["53 × HTML pages\n(Cloudflare Pages)"]
+        JSPAGES["js/pages/* — per-page init modules"]
+        APIHELPERS["js/api.js — ~351 API call wrappers\njs/auth.js · js/permissions.js · js/core.js"]
+    end
+
+    subgraph API["API Layer  (server/index.js)"]
+        direction TB
+        ROUTES["~373 Express route handlers"]
+        RBAC["Auth / CSRF / Rate-limiting / RBAC guards\n(requireAdmin · requireAdminOrMod · requireAdminModOrSpeaker)"]
+    end
+
+    subgraph DOMAIN["Domain Logic Layer"]
+        direction TB
+        PARL["Parliamentary systems\n(bills · amendments · divisions · motions · statements · QT)"]
+        FACTIONS["Faction systems\n(party_factions · faction_political_state)"]
+        POLSTATE["Political-state recompute\n(recomputeCharacterPoliticalState)"]
+        FINANCE["Finance systems\n(character_finance · finance_config · party treasury)"]
+        STAFF["Staff / admin systems\n(civil service · budget · elections · clock)"]
+    end
+
+    subgraph PERSIST["Persistence Layer  ★ authoritative source of truth"]
+        direction TB
+        PG[("PostgreSQL  (Neon)\n~92 tables — auto-bootstrapped by ensureSchema()")]
+        RELTABLES["Relational tables (authoritative)\nbills · amendments · divisions · factions\npolitical_state · finance · characters · parties\nconstituencies · sessions · audit_log · …"]
+    end
+
+    subgraph DERIVED["Derived State Layer  (secondary / tooling only)"]
+        direction TB
+        SNAP["state_snapshots  +  app_state_current\n(versioned JSONB blobs — sim-config and bulk objects)"]
+        CACHE["Derived-cache tables rebuilt from snapshot\nbills · motions · statements · regulations\nquestiontime_questions\n(syncObjectTables — NOT authoritative)"]
+    end
+
+    CLIENT -->|"HTTPS  /api/*  +  CSRF token"| API
+    API --> DOMAIN
+    DOMAIN -->|"reads / writes"| PERSIST
+    DOMAIN -.->|"snapshot write/restore triggers\nsyncObjectTables() only"| DERIVED
+    DERIVED -. "never overwrites\nauthoritative tables" .-> PERSIST
+```
+
+**Data flow summary:** A player action in the browser calls a wrapper in `js/api.js`, which sends an authenticated, CSRF-protected `fetch` request to an Express route in `server/index.js`. The route enforces RBAC, executes domain logic (parliamentary, faction, political-state, finance, or staff/admin), and reads/writes directly to PostgreSQL — the sole authoritative store for all live gameplay state. A small set of snapshot and derived-cache operations (`syncObjectTables`, snapshot restore) exist as operational tooling; they operate on a separate JSONB snapshot layer and are explicitly prevented from overwriting the relational-authoritative tables by `server/state-contracts.js`.
+
+---
+
 ## 2. High-Level Architecture
 
 ```
