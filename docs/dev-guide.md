@@ -746,7 +746,7 @@ Three unit test files cover core server-side modules without requiring a live da
 | `server/discourse.test.js` | DiscourseConnect SSO helpers — HMAC verification, payload building, group management |
 | `server/roles.test.js` | `computeDiscourseGroups`, `partyRoleForPartyName`, `computeApprovalRolesToAdd`, `officeRoleFromSpecId` |
 
-Only `server/discourse.test.js` is currently wired into CI. Run all three locally with `node --test server/*.test.js`.
+Only `server/discourse.test.js` ran in CI previously; all three now run automatically in CI.
 
 ### Static Analysis
 
@@ -789,10 +789,8 @@ node --test tests/api/*.spec.js
 Runs on every push and pull request:
 1. `node scripts/static-checks.js` — static analysis
 2. `node scripts/audit/feature-manifest.js` — RBAC/write-path audit
-3. `node --test server/discourse.test.js` — Discourse SSO unit tests
+3. `node --test server/clock.test.js server/discourse.test.js server/roles.test.js` — server unit tests
 4. Uploads `scripts/audit/rbac-matrix.json` as a workflow artefact (retained 30 days)
-
-> `server/clock.test.js` and `server/roles.test.js` are not yet in the CI workflow. Run them locally.
 
 ---
 

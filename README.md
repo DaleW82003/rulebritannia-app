@@ -169,7 +169,7 @@ rulebritannia-app/
 │
 ├── .github/
 │   └── workflows/
-│       └── static-checks.yml      # CI: static-checks + feature-manifest + discourse tests
+│       └── static-checks.yml      # CI: static-checks + feature-manifest + server unit tests
 │
 ├── ALPHA_HARDENING_SUMMARY.md      # Security hardening log (dev endpoint guards)
 └── AUDIT_FIX_SUMMARY.md            # Audit fix log (B1–B4 findings)
@@ -518,9 +518,7 @@ Compares registered Express routes against `scripts/audit/rbac-matrix.json` and 
 
 ### CI
 
-GitHub Actions runs on every push and pull request (`.github/workflows/static-checks.yml`): static checks, feature manifest, `server/discourse.test.js`, and RBAC matrix artefact upload.
-
-> **Note:** `server/clock.test.js` and `server/roles.test.js` are not yet wired into CI. Run them locally with `node --test server/*.test.js`.
+GitHub Actions runs on every push and pull request (`.github/workflows/static-checks.yml`): static checks, feature manifest, all three server unit tests (`clock.test.js`, `discourse.test.js`, `roles.test.js`), and RBAC matrix artefact upload.
 
 For staging integration tests, API suite tests, and manual testing scenarios, see **[`docs/dev-guide.md §11`](docs/dev-guide.md)**.
 
