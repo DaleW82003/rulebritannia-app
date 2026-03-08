@@ -19,6 +19,11 @@ import {
 import { ALL_VALID_ROLES, PARTY_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP, partyRoleForPartyName, computeApprovalRolesToAdd, officeRoleFromSpecId } from "./roles.js";
 import { computeSimDateFromGameState } from "./clock.js";
 import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_ROLES } from "./state-contracts.js";
+import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-helpers.js";
+import { fireRecompute, awaitedRecompute } from "./recompute-helpers.js";
+import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, seed1997Factions } from "./political-state-service.js";
+import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb } from "./division-helpers.js";
+import { resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary } from "./finance-service.js";
 
 const __serverDir = dirname(fileURLToPath(import.meta.url));
 
@@ -2590,861 +2595,9 @@ async function recomputeSalaryPositions(characterId) {
  *   work plan             +5 if work plan updated in last 3 sim periods
  *   party leadership role +12 party leader, +6 chief/deputy whip, +4 whip/chairman
  */
-// Helper: clamp a value to [0, 100]
-function clamp100(v) { return Math.min(100, Math.max(0, Math.round(v))); }
-
-// Helper: pressure label from 0-100 score
-function pressureLabel(v) {
-  if (v >= 75) return "critical";
-  if (v >= 50) return "high";
-  if (v >= 25) return "moderate";
-  return "low";
-}
-
-async function recomputeCharacterPoliticalState(characterId) {
-  const breakdown = [];
-  let total = 0;
-
-  // ── Shared data ────────────────────────────────────────────────────────────
-  const { rows: clkRows } = await pool.query(
-    "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
-  );
-  const simMonth = clkRows[0]?.sim_current_month ?? 8;
-  const simYear  = clkRows[0]?.sim_current_year  ?? 1997;
-  const currentIndex = (simYear - 1997) * 12 + (simMonth - 1);
-
-  // Character's party and constituency
-  const { rows: charRows } = await pool.query(
-    "SELECT party, constituency FROM characters WHERE id = $1",
-    [characterId]
-  );
-  const charParty        = charRows[0]?.party        || "";
-  const charConstituency = charRows[0]?.constituency || "";
-
-  // ── Offices ────────────────────────────────────────────────────────────────
-  const { rows: officeRows } = await pool.query(
-    `SELECT o.spec_id, o.type
-       FROM office_assignments oa
-       JOIN offices o ON o.id = oa.office_id
-      WHERE oa.character_id = $1`,
-    [characterId]
-  );
-  for (const { spec_id, type } of officeRows) {
-    let delta = 0;
-    let label = "";
-    if (spec_id === "prime-minister") {
-      delta = 30; label = "Prime Minister";
-    } else if (spec_id === "leader-opposition") {
-      delta = 20; label = "Leader of the Opposition";
-    } else if (spec_id === "leader-commons") {
-      delta = 15; label = "Leader of the House of Commons";
-    } else if (type === "cabinet") {
-      delta = 20; label = `Cabinet office (${spec_id})`;
-    } else if (type === "shadow") {
-      delta = 10; label = `Shadow cabinet office (${spec_id})`;
-    } else {
-      delta = 8;  label = `Parliamentary office (${spec_id || type})`;
-    }
-    total += delta;
-    breakdown.push({ category: "office", label, delta });
-  }
-
-  // ── Press items ────────────────────────────────────────────────────────────
-  const { rows: pressRows } = await pool.query(
-    `SELECT (data->>'score')::numeric AS score
-       FROM press_items
-      WHERE author_character_id = $1
-        AND data->>'is_marked' = 'true'`,
-    [characterId]
-  );
-  let positivePress = 0;
-  let negativePress = 0;
-  for (const { score } of pressRows) {
-    const s = Number(score ?? 0);
-    if (s > 0) positivePress++;
-    else if (s < 0) negativePress++;
-  }
-  if (positivePress > 0) {
-    const delta = positivePress * 3;
-    total += delta;
-    breakdown.push({ category: "press", label: `${positivePress} positive press item${positivePress !== 1 ? "s" : ""}`, delta });
-  }
-  if (negativePress > 0) {
-    const delta = negativePress * -5;
-    total += delta;
-    breakdown.push({ category: "press", label: `${negativePress} negative press item${negativePress !== 1 ? "s" : ""}`, delta });
-  }
-
-  // ── Scandals ───────────────────────────────────────────────────────────────
-  const { rows: scandalRows } = await pool.query(
-    `SELECT status, severity_current
-       FROM scandals
-      WHERE character_id = $1`,
-    [characterId]
-  );
-  let activeScandals = 0;
-  let heavyClosedScandals = 0;
-  for (const { status, severity_current } of scandalRows) {
-    if (status === "open" || status === "awaiting_mod") {
-      activeScandals++;
-    } else if (status === "closed" && Number(severity_current) > 3) {
-      heavyClosedScandals++;
-    }
-  }
-  if (activeScandals > 0) {
-    const delta = activeScandals * -10;
-    total += delta;
-    breakdown.push({ category: "scandal", label: `${activeScandals} active scandal${activeScandals !== 1 ? "s" : ""}`, delta });
-  }
-  if (heavyClosedScandals > 0) {
-    const delta = heavyClosedScandals * -15;
-    total += delta;
-    breakdown.push({ category: "scandal", label: `${heavyClosedScandals} major resolved scandal${heavyClosedScandals !== 1 ? "s" : ""}`, delta });
-  }
-
-  // ── Work plan ──────────────────────────────────────────────────────────────
-  const { rows: wpRows } = await pool.query(
-    `SELECT last_saved_sim_index
-       FROM character_work_plans
-      WHERE character_id = $1`,
-    [characterId]
-  );
-  if (wpRows.length > 0) {
-    const savedIndex = Number(wpRows[0].last_saved_sim_index ?? 0);
-    if (currentIndex - savedIndex <= 3) {
-      const delta = 5;
-      total += delta;
-      breakdown.push({ category: "work_plan", label: "Active work plan", delta });
-    }
-  }
-
-  // ── Party leadership / whip roles ──────────────────────────────────────────
-  const { rows: partyRows } = await pool.query(
-    `SELECT slug,
-            leader_character_id,
-            chairman_character_id,
-            chief_whip_character_id,
-            deputy_whip_character_id,
-            whip_character_id
-       FROM parties`,
-    []
-  );
-  const charIdStr = String(characterId);
-  for (const p of partyRows) {
-    if (String(p.leader_character_id) === charIdStr) {
-      const delta = 12;
-      total += delta;
-      breakdown.push({ category: "party", label: `Party leader (${p.slug})`, delta });
-    } else if (
-      String(p.chief_whip_character_id) === charIdStr ||
-      String(p.deputy_whip_character_id) === charIdStr
-    ) {
-      const delta = 6;
-      total += delta;
-      breakdown.push({ category: "party", label: `Chief/Deputy Whip (${p.slug})`, delta });
-    } else if (String(p.whip_character_id) === charIdStr) {
-      const delta = 4;
-      total += delta;
-      breakdown.push({ category: "party", label: `Whip (${p.slug})`, delta });
-    } else if (String(p.chairman_character_id) === charIdStr) {
-      const delta = 4;
-      total += delta;
-      breakdown.push({ category: "party", label: `Party chairman (${p.slug})`, delta });
-    }
-  }
-
-  // ── Derive momentum and reputation ─────────────────────────────────────────
-  const { rows: prevRows } = await pool.query(
-    "SELECT capital_current FROM character_political_state WHERE character_id = $1",
-    [characterId]
-  );
-  const previousCapital = prevRows.length ? Number(prevRows[0].capital_current) : null;
-  const capitalTrend = previousCapital !== null ? total - previousCapital : 0;
-
-  let momentum = "stable";
-  if (capitalTrend >= 5) momentum = "rising";
-  else if (capitalTrend <= -5) momentum = "falling";
-
-  let reputation = "neutral";
-  if (total >= 60) reputation = "excellent";
-  else if (total >= 30) reputation = "good";
-  else if (total >= 10) reputation = "neutral";
-  else if (total >= -10) reputation = "poor";
-  else reputation = "damaged";
-
-  // ── PRESSURE CHANNELS ──────────────────────────────────────────────────────
-
-  // ── 1. Party pressure ──────────────────────────────────────────────────────
-  // Sources: rebellion log (whipped vote defiance), rebel requests refused
-  let partyPressureRaw = 0;
-  const partyPressureBreakdown = [];
-
-  const { rows: rebellionRows } = await pool.query(
-    `SELECT whip_level FROM division_rebellion_log
-      WHERE character_id = $1
-      ORDER BY created_at DESC LIMIT 20`,
-    [characterId]
-  );
-  for (const { whip_level } of rebellionRows) {
-    const wl = Number(whip_level ?? 0);
-    // Pressure weight per rebellion: 3-line whip defiance carries maximum party damage
-    const WHIP_REBELLION_WEIGHT = { 3: 25, 2: 15, 1: 8, 0: 3 };
-    partyPressureRaw += WHIP_REBELLION_WEIGHT[wl] ?? 3;
-  }
-  if (rebellionRows.length > 0) {
-    partyPressureBreakdown.push(`${rebellionRows.length} rebellion${rebellionRows.length !== 1 ? "s" : ""} on record`);
-  }
-
-  const { rows: refusedRequestRows } = await pool.query(
-    `SELECT COUNT(*) AS cnt FROM division_rebel_requests
-      WHERE character_id = $1 AND status = 'refused'`,
-    [characterId]
-  );
-  const refusedRequests = Number(refusedRequestRows[0]?.cnt ?? 0);
-  if (refusedRequests > 0) {
-    partyPressureRaw += refusedRequests * 10;
-    partyPressureBreakdown.push(`${refusedRequests} rebel request${refusedRequests !== 1 ? "s" : ""} refused by whips`);
-  }
-
-  const { rows: pendingRequestRows } = await pool.query(
-    `SELECT COUNT(*) AS cnt FROM division_rebel_requests
-      WHERE character_id = $1 AND status = 'pending'`,
-    [characterId]
-  );
-  const pendingRequests = Number(pendingRequestRows[0]?.cnt ?? 0);
-  if (pendingRequests > 0) {
-    partyPressureRaw += pendingRequests * 5;
-    partyPressureBreakdown.push(`${pendingRequests} rebel request${pendingRequests !== 1 ? "s" : ""} pending`);
-  }
-
-  const partyPressure = clamp100(partyPressureRaw);
-
-  // ── 1b. Faction climate effect on party pressure ───────────────────────────
-  // Hostile factions increase party_pressure; aligned factions build resilience (capital bonus).
-  // Only applies when the character belongs to a playable party with factions set up.
-  let factionClimateContext = null;
-  if (charParty && FACTION_PLAYABLE_PARTIES.includes(charParty)) {
-    try {
-      factionClimateContext = await getPartyFactionClimate(charParty);
-    } catch (_) { /* non-fatal: factions may not be seeded yet */ }
-  }
-  const factionPartyPressureBonus  = factionClimateContext ? factionClimateContext.partyPressureModifier  : 0;
-  const factionCapitalBonus        = factionClimateContext ? factionClimateContext.capitalResilienceBonus : 0;
-  if (factionClimateContext && factionClimateContext.partyPressureModifier > 0) {
-    partyPressureBreakdown.push(
-      `Faction climate (${factionClimateContext.climateLabel}): +${factionClimateContext.partyPressureModifier.toFixed(1)} party pressure`
-    );
-  }
-  if (factionClimateContext && factionClimateContext.capitalResilienceBonus > 0) {
-    breakdown.push({
-      category: "faction",
-      label: `Aligned faction support (${factionClimateContext.climateLabel})`,
-      delta: Math.round(factionCapitalBonus * 10) / 10,
-    });
-    total += factionCapitalBonus;
-  }
-  const partyPressureFinal = clamp100(partyPressure + factionPartyPressureBonus);
-
-  // ── 2. Constituency pressure ───────────────────────────────────────────────
-  // Sources: stale/missing work plan, constituency seat changes
-  let constituencyPressureRaw = 0;
-  const constituencyPressureBreakdown = [];
-
-  if (wpRows.length === 0) {
-    constituencyPressureRaw += 30;
-    constituencyPressureBreakdown.push("No work plan on record");
-  } else {
-    const savedIndex = Number(wpRows[0].last_saved_sim_index ?? 0);
-    const monthsStale = currentIndex - savedIndex;
-    if (monthsStale > 3) {
-      const stalePenalty = Math.min(40, monthsStale * 5);
-      constituencyPressureRaw += stalePenalty;
-      constituencyPressureBreakdown.push(`Work plan ${monthsStale} month${monthsStale !== 1 ? "s" : ""} out of date`);
-    }
-  }
-
-  if (charConstituency) {
-    const { rows: ceRows } = await pool.query(
-      `SELECT change_type FROM constituency_events
-        WHERE constituency_id = $1
-        ORDER BY created_at DESC LIMIT 5`,
-      [charConstituency]
-    );
-    // party_change and by_election indicate seat instability, raising local pressure
-    const ADVERSE_CONSTITUENCY_EVENT_TYPES = new Set(["party_change", "by_election"]);
-    const adverseEvents = ceRows.filter((r) => ADVERSE_CONSTITUENCY_EVENT_TYPES.has(r.change_type)).length;
-    if (adverseEvents > 0) {
-      constituencyPressureRaw += adverseEvents * 15;
-      constituencyPressureBreakdown.push(`${adverseEvents} recent constituency event${adverseEvents !== 1 ? "s" : ""}`);
-    }
-  }
-
-  const constituencyPressure = clamp100(constituencyPressureRaw);
-
-  // ── 3. Media pressure ─────────────────────────────────────────────────────
-  // Sources: negative/marked press items, active/closed scandals
-  let mediaPressureRaw = 0;
-  const mediaPressureBreakdown = [];
-
-  if (negativePress > 0) {
-    mediaPressureRaw += negativePress * 15;
-    mediaPressureBreakdown.push(`${negativePress} negative press item${negativePress !== 1 ? "s" : ""}`);
-  }
-  if (activeScandals > 0) {
-    mediaPressureRaw += activeScandals * 25;
-    mediaPressureBreakdown.push(`${activeScandals} active scandal${activeScandals !== 1 ? "s" : ""}`);
-  }
-  if (heavyClosedScandals > 0) {
-    mediaPressureRaw += heavyClosedScandals * 10;
-    mediaPressureBreakdown.push(`${heavyClosedScandals} major resolved scandal${heavyClosedScandals !== 1 ? "s" : ""}`);
-  }
-
-  const mediaPressure = clamp100(mediaPressureRaw);
-
-  // ── 4. Group pressure ─────────────────────────────────────────────────────
-  // Sources: affiliation requests pending removal (group friction), number of
-  //          active approved affiliations (exposure to group demands)
-  let groupPressureRaw = 0;
-  const groupPressureBreakdown = [];
-
-  const { rows: affiliationRows } = await pool.query(
-    `SELECT ca.status, ac.category
-       FROM character_affiliations ca
-       JOIN affiliations_catalog ac ON ac.id = ca.affiliation_id
-      WHERE ca.character_id = $1`,
-    [characterId]
-  );
-  const pendingRemove = affiliationRows.filter((r) => r.status === "pending_remove").length;
-  const approvedAffiliations = affiliationRows.filter((r) => r.status === "approved").length;
-  // 5+ active affiliations creates competing group demands; +5 per additional group beyond 4, capped at 20
-  if (approvedAffiliations >= 5) {
-    groupPressureRaw += Math.min(20, (approvedAffiliations - 4) * 5);
-    groupPressureBreakdown.push(`${approvedAffiliations} active group affiliations`);
-  }
-  if (pendingRemove > 0) {
-    groupPressureRaw += pendingRemove * 15;
-    groupPressureBreakdown.push(`${pendingRemove} affiliation removal${pendingRemove !== 1 ? "s" : ""} pending`);
-  }
-
-  const groupPressure = clamp100(groupPressureRaw);
-
-  // ── 5. Institutional pressure ─────────────────────────────────────────────
-  // Sources: senior/cabinet offices carry high responsibility and scrutiny
-  let institutionalPressureRaw = 0;
-  const institutionalPressureBreakdown = [];
-
-  for (const { spec_id, type } of officeRows) {
-    if (spec_id === "prime-minister") {
-      institutionalPressureRaw += 40;
-      institutionalPressureBreakdown.push("Prime Minister — high institutional responsibility");
-    } else if (type === "cabinet" || spec_id === "leader-opposition" || spec_id === "leader-commons") {
-      institutionalPressureRaw += 25;
-      institutionalPressureBreakdown.push(`Senior office (${spec_id || type}) — institutional scrutiny`);
-    } else if (type === "shadow") {
-      institutionalPressureRaw += 15;
-      institutionalPressureBreakdown.push(`Shadow cabinet office (${spec_id}) — scrutiny`);
-    } else if (type === "parliamentary") {
-      institutionalPressureRaw += 8;
-      institutionalPressureBreakdown.push(`Parliamentary office (${spec_id || type})`);
-    }
-  }
-
-  const institutionalPressure = clamp100(institutionalPressureRaw);
-
-  // ── Derived: rebellion risk ────────────────────────────────────────────────
-  // 60% weight from accumulated party pressure + 8pts per recent rebellion (up to 5 counted).
-  // Coefficients keep the score responsive to fresh rebellions while reflecting cumulative party tension.
-  const recentRebellions = Math.min(rebellionRows.length, 5);
-  const rebellionRisk = clamp100(partyPressureFinal * 0.6 + recentRebellions * 8);
-
-  // ── Derived: scandal risk ─────────────────────────────────────────────────
-  // 70% weight from media pressure + 15pts per active scandal.
-  // Active scandals dominate because they represent unresolved and escalating exposure.
-  const scandalRisk = clamp100(mediaPressure * 0.7 + activeScandals * 15);
-
-  // ── Assemble full breakdown with channel tags ──────────────────────────────
-  const pressureBreakdown = [
-    ...partyPressureBreakdown.map((label) => ({ channel: "party", label })),
-    ...constituencyPressureBreakdown.map((label) => ({ channel: "constituency", label })),
-    ...mediaPressureBreakdown.map((label) => ({ channel: "media", label })),
-    ...groupPressureBreakdown.map((label) => ({ channel: "group", label })),
-    ...institutionalPressureBreakdown.map((label) => ({ channel: "institutional", label })),
-  ];
-
-  await pool.query(
-    `INSERT INTO character_political_state
-       (character_id, capital_current, capital_trend, momentum, reputation, breakdown,
-        party_pressure, constituency_pressure, media_pressure, group_pressure,
-        institutional_pressure, rebellion_risk, scandal_risk, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, now())
-     ON CONFLICT (character_id) DO UPDATE
-       SET capital_current        = EXCLUDED.capital_current,
-           capital_trend          = EXCLUDED.capital_trend,
-           momentum               = EXCLUDED.momentum,
-           reputation             = EXCLUDED.reputation,
-           breakdown              = EXCLUDED.breakdown,
-           party_pressure         = EXCLUDED.party_pressure,
-           constituency_pressure  = EXCLUDED.constituency_pressure,
-           media_pressure         = EXCLUDED.media_pressure,
-           group_pressure         = EXCLUDED.group_pressure,
-           institutional_pressure = EXCLUDED.institutional_pressure,
-           rebellion_risk         = EXCLUDED.rebellion_risk,
-           scandal_risk           = EXCLUDED.scandal_risk,
-           updated_at             = now()`,
-    [
-      characterId, total, capitalTrend, momentum, reputation, JSON.stringify(breakdown),
-      partyPressureFinal, constituencyPressure, mediaPressure, groupPressure,
-      institutionalPressure, rebellionRisk, scandalRisk,
-    ]
-  );
-
-  return {
-    capital_current: total, capital_trend: capitalTrend, momentum, reputation, breakdown,
-    party_pressure: partyPressureFinal,
-    constituency_pressure: constituencyPressure,
-    media_pressure: mediaPressure,
-    group_pressure: groupPressure,
-    institutional_pressure: institutionalPressure,
-    rebellion_risk: rebellionRisk,
-    scandal_risk: scandalRisk,
-    pressure_breakdown: pressureBreakdown,
-    faction_climate: factionClimateContext ? {
-      climateLabel:           factionClimateContext.climateLabel,
-      climateScore:           factionClimateContext.climateScore,
-      partyPressureModifier:  factionClimateContext.partyPressureModifier,
-      capitalResilienceBonus: factionClimateContext.capitalResilienceBonus,
-    } : null,
-  };
-}
-
-// ── Faction political state helpers ──────────────────────────────────────────
-//
-// FACTION_PLAYABLE_PARTIES is defined at the Party Faction API section below
-// (line ~21531). Since these are function declarations they are hoisted and
-// called only at request-time — by which point all module-level constants are
-// fully initialised. Forward reference is safe.
-//
-// To add or remove playable parties, update FACTION_PLAYABLE_PARTIES below.
-//
-// ── Seed values and formula weights ──────────────────────────────────────────
-// All weights used in computeFactionStrength / computeLeadershipPressure /
-// getPartyFactionClimate are documented inline.  Mods/admins with code access
-// can adjust them there.  In-game, MP counts and influence_bonus on each
-// faction are editable from the Control Panel without code changes.
-
-/**
- * Compute internal_power for a faction from its allocation data.
- * Formula (transparent, easy to tune):
- *   raw = (mp_count × 0.8) + (influence_bonus × 10) + officeholder_weight
- *   internal_power = clamp(raw, 0, 100)
- * Weights:
- *   - mp_count:       0.8 pts each — principal driver; 125 MPs ≈ 100 pts
- *   - influence_bonus: 10 pts each — mod-adjustable strategic weight
- *   - officeholder:   up to +15 pts if the faction holds a senior party office
- */
-function computeFactionStrength({ mpCount = 0, influenceBonus = 0, officeholderWeight = 0 }) {
-  const raw = mpCount * 0.8 + influenceBonus * 10 + officeholderWeight;
-  return clamp100(raw);
-}
-
-/**
- * Compute cohesion for a faction.
- * Starts at 70 (default baseline), reduced by rebellion_bias (0–1 scale).
- * rebellion_bias = 1.0 → cohesion penalty of 40; cohesion floor is 5.
- */
-function computeFactionCohesion(rebellionBias = 0) {
-  return Math.max(5, 70 - Number(rebellionBias) * 40);
-}
-
-/**
- * Compute leadership_pressure a faction exerts on the party leadership.
- * Hostile factions with high internal_power drive up pressure;
- * aligned factions dampen it slightly.
- * Neutral factions contribute a modest baseline.
- */
-function computeLeadershipPressure(internalPower, leadershipAlignment) {
-  if (leadershipAlignment === "hostile")  return clamp100(internalPower * 1.2);
-  if (leadershipAlignment === "neutral")  return clamp100(internalPower * 0.4);
-  if (leadershipAlignment === "aligned")  return clamp100(internalPower * 0.1);
-  return clamp100(internalPower * 0.4);
-}
-
-/**
- * Compute and persist faction_political_state for a single faction.
- * Returns the computed state object.
- */
-async function computeFactionPoliticalState(factionId) {
-  const { rows } = await pool.query(
-    `SELECT f.id, f.leadership_alignment, f.rebellion_bias,
-            COALESCE(a.mp_count, 0)       AS mp_count,
-            COALESCE(a.influence_bonus, 0) AS influence_bonus
-       FROM party_factions f
-       LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
-      WHERE f.id = $1`,
-    [factionId]
-  );
-  if (!rows.length) throw new Error(`Faction ${factionId} not found`);
-  const f = rows[0];
-
-  const internalPower     = computeFactionStrength({ mpCount: Number(f.mp_count), influenceBonus: Number(f.influence_bonus) });
-  const cohesion          = computeFactionCohesion(Number(f.rebellion_bias));
-  const leadershipPressure = computeLeadershipPressure(internalPower, f.leadership_alignment);
-
-  // Momentum: check previous state for trend
-  const { rows: prevRows } = await pool.query(
-    "SELECT internal_power FROM faction_political_state WHERE faction_id = $1",
-    [factionId]
-  );
-  const prevPower = prevRows.length ? Number(prevRows[0].internal_power) : null;
-  const trend = prevPower !== null ? internalPower - prevPower : 0;
-  const momentum = trend >= 3 ? "rising" : trend <= -3 ? "falling" : "stable";
-
-  const breakdown = {
-    mp_count:             Number(f.mp_count),
-    influence_bonus:      Number(f.influence_bonus),
-    leadership_alignment: f.leadership_alignment,
-    rebellion_bias:       Number(f.rebellion_bias),
-    internal_power_raw:   internalPower,
-    cohesion_raw:         cohesion,
-    leadership_pressure_raw: leadershipPressure,
-    note: "Weights: mp×0.8 + influence×10; cohesion=70-(rebellion_bias×40); see computeFactionStrength in server/index.js",
-  };
-
-  await pool.query(
-    `INSERT INTO faction_political_state
-       (faction_id, internal_power, momentum, leadership_pressure, cohesion, breakdown, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
-     ON CONFLICT (faction_id) DO UPDATE
-       SET internal_power      = EXCLUDED.internal_power,
-           momentum            = EXCLUDED.momentum,
-           leadership_pressure = EXCLUDED.leadership_pressure,
-           cohesion            = EXCLUDED.cohesion,
-           breakdown           = EXCLUDED.breakdown,
-           updated_at          = now()`,
-    [factionId, internalPower, momentum, leadershipPressure, cohesion, JSON.stringify(breakdown)]
-  );
-
-  return { faction_id: factionId, internal_power: internalPower, momentum, leadership_pressure: leadershipPressure, cohesion, breakdown };
-}
-
-/**
- * Return the party-level faction climate for a party slug.
- * climate_score > 0 = unified/stable; < 0 = fractious/hostile.
- * Also returns capital_resilience_bonus and party_pressure_modifier
- * so callers can integrate these into political state calculations.
- *
- * Weights (transparent, easy to tune):
- *   hostile_pressure  = sum of hostile faction leadership_pressure scores
- *   aligned_strength  = sum of aligned faction leadership_pressure scores (damping)
- *   climate_score     = aligned_strength - hostile_pressure  (range −100 to +100)
- *   party_pressure_modifier   = hostile_pressure × 0.15   (adds 0–15 pts to party_pressure)
- *   capital_resilience_bonus  = aligned_strength × 0.10   (adds 0–10 pts to capital)
- */
-async function getPartyFactionClimate(partySlug) {
-  const { rows } = await pool.query(
-    `SELECT f.id, f.name, f.slug, f.colour, f.leadership_alignment, f.rebellion_bias,
-            COALESCE(a.mp_count, 0)        AS mp_count,
-            COALESCE(a.influence_bonus, 0) AS influence_bonus,
-            fps.internal_power, fps.momentum, fps.leadership_pressure, fps.cohesion
-       FROM party_factions f
-       LEFT JOIN party_faction_allocations a   ON a.faction_id   = f.id
-       LEFT JOIN faction_political_state fps   ON fps.faction_id = f.id
-      WHERE f.party_slug = $1 AND f.active = TRUE
-      ORDER BY f.display_order ASC, f.name ASC`,
-    [partySlug]
-  );
-
-  let hostilePressure  = 0;
-  let alignedStrength  = 0;
-  let totalInternalPower = 0;
-  const factionSummaries = [];
-
-  for (const r of rows) {
-    // Use cached computed state if available, otherwise compute on the fly
-    const internalPower = r.internal_power !== null
-      ? Number(r.internal_power)
-      : computeFactionStrength({ mpCount: Number(r.mp_count), influenceBonus: Number(r.influence_bonus) });
-    const lp = r.leadership_pressure !== null
-      ? Number(r.leadership_pressure)
-      : computeLeadershipPressure(internalPower, r.leadership_alignment);
-    const cohesion = r.cohesion !== null
-      ? Number(r.cohesion)
-      : computeFactionCohesion(Number(r.rebellion_bias));
-
-    if (r.leadership_alignment === "hostile")  hostilePressure  += lp;
-    else if (r.leadership_alignment === "aligned") alignedStrength += lp;
-    totalInternalPower += internalPower;
-
-    factionSummaries.push({
-      id:                  r.id,
-      name:                r.name,
-      slug:                r.slug,
-      colour:              r.colour,
-      leadershipAlignment: r.leadership_alignment,
-      mpCount:             Number(r.mp_count),
-      internalPower,
-      leadershipPressure:  lp,
-      cohesion,
-      momentum:            r.momentum ?? "stable",
-    });
-  }
-
-  hostilePressure  = clamp100(hostilePressure);
-  alignedStrength  = clamp100(alignedStrength);
-  const climateScore             = Math.max(-100, Math.min(100, alignedStrength - hostilePressure));
-  const partyPressureModifier    = hostilePressure  * 0.15;
-  const capitalResilienceBonus   = alignedStrength  * 0.10;
-
-  let climateLabel;
-  if (climateScore >= 30)       climateLabel = "unified";
-  else if (climateScore >= 0)   climateLabel = "stable";
-  else if (climateScore >= -30) climateLabel = "tense";
-  else                          climateLabel = "fractious";
-
-  return {
-    partySlug,
-    factions: factionSummaries,
-    hostilePressure,
-    alignedStrength,
-    climateScore,
-    climateLabel,
-    partyPressureModifier,
-    capitalResilienceBonus,
-    totalInternalPower: clamp100(totalInternalPower),
-    // Weights documented for developers/admins with code access:
-    weights: {
-      mp_count_weight:           0.8,
-      influence_bonus_weight:   10.0,
-      hostile_pressure_factor:   0.15,
-      aligned_resilience_factor: 0.10,
-      note: "Formula weights require code changes to server/index.js (computeFactionStrength/computeLeadershipPressure). In-game MP counts and influence_bonus are editable without code changes via the Control Panel.",
-    },
-  };
-}
-
-/**
- * Seed editable 1997 baseline factions for the three playable parties.
- * Inserts only if no factions exist for that party yet — safe to call repeatedly.
- * Returns a summary of what was inserted vs. already present.
- *
- * SEED VALUES — mods/admins can change these after seeding via the control panel.
- * All mp_counts are approximate 1997 estimates; adjust freely in-game.
- */
-async function seed1997Factions(actorUserId = "") {
-  const SEED_DATA = [
-    // ── Labour (418 seats, May 1997) ─────────────────────────────────────────
-    // New Labour swept to power; internal factions reflect Blairite dominance
-    // with a sizeable traditional left and eurosceptic minority.
-    {
-      party_slug: "Labour", slug: "new-labour-blairite", name: "New Labour / Blairite",
-      description: "The dominant Blairite modernising wing backing Blair's third-way programme.",
-      colour: "#cc0000", ideology_tags: ["centrist", "moderniser", "third-way"],
-      leadership_alignment: "aligned", rebellion_bias: 0.05, media_sensitivity: 0.4,
-      constituency_sensitivity: 0.2, display_order: 1, mp_count: 200, influence_bonus: 2.0,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Labour", slug: "tribune-group", name: "Tribune Group / Soft Left",
-      description: "Broad soft-left grouping supportive of Labour values but cautious on market reforms.",
-      colour: "#e05050", ideology_tags: ["soft-left", "labour-movement"],
-      leadership_alignment: "neutral", rebellion_bias: 0.30, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.3, display_order: 2, mp_count: 100, influence_bonus: 0.5,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Labour", slug: "campaign-group", name: "Campaign Group / Hard Left",
-      description: "Socialist left grouping, most likely to rebel against New Labour policies.",
-      colour: "#7b0000", ideology_tags: ["socialist", "hard-left", "anti-war"],
-      leadership_alignment: "hostile", rebellion_bias: 0.80, media_sensitivity: 0.5,
-      constituency_sensitivity: 0.4, display_order: 3, mp_count: 40, influence_bonus: 0.0,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Labour", slug: "labour-first", name: "Labour First / Mainstream Right",
-      description: "Right-of-party grouping favouring electability and fiscal caution.",
-      colour: "#ff6666", ideology_tags: ["centre-right", "labour-right"],
-      leadership_alignment: "aligned", rebellion_bias: 0.10, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.2, display_order: 4, mp_count: 50, influence_bonus: 0.3,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Labour", slug: "labour-eurosceptics", name: "Labour Eurosceptics",
-      description: "Cross-ideological group sceptical of deeper European integration.",
-      colour: "#994444", ideology_tags: ["eurosceptic", "sovereign"],
-      leadership_alignment: "neutral", rebellion_bias: 0.50, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.3, display_order: 5, mp_count: 28, influence_bonus: 0.0,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-
-    // ── Conservative (165 seats, May 1997) ───────────────────────────────────
-    // Party in shock defeat; split between eurosceptic resurgence and one-nation moderates.
-    {
-      party_slug: "Conservative", slug: "one-nation", name: "One Nation Conservatives",
-      description: "Moderate, pro-European strand emphasising social cohesion and pragmatic governance.",
-      colour: "#1d6ab0", ideology_tags: ["one-nation", "moderate", "pro-europe"],
-      leadership_alignment: "aligned", rebellion_bias: 0.10, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.2, display_order: 1, mp_count: 50, influence_bonus: 0.5,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Conservative", slug: "fresh-start-eurosceptics", name: "Fresh Start / Eurosceptics",
-      description: "Dominant eurosceptic grouping; grew after Maastricht and pushed for harder EU line.",
-      colour: "#003087", ideology_tags: ["eurosceptic", "sovereign", "thatcherite"],
-      leadership_alignment: "hostile", rebellion_bias: 0.60, media_sensitivity: 0.4,
-      constituency_sensitivity: 0.3, display_order: 2, mp_count: 60, influence_bonus: 1.0,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Conservative", slug: "thatcherite-right", name: "Thatcherite Right",
-      description: "Free-market Thatcherites prioritising low tax, deregulation, and strong defence.",
-      colour: "#001f5b", ideology_tags: ["thatcherite", "free-market", "right"],
-      leadership_alignment: "neutral", rebellion_bias: 0.40, media_sensitivity: 0.4,
-      constituency_sensitivity: 0.3, display_order: 3, mp_count: 35, influence_bonus: 0.3,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Conservative", slug: "tory-modernisers", name: "Conservative Modernisers",
-      description: "Post-defeat modernising faction pushing for social liberalism and party reform.",
-      colour: "#4a90d9", ideology_tags: ["moderniser", "liberal-conservative", "centrist"],
-      leadership_alignment: "aligned", rebellion_bias: 0.05, media_sensitivity: 0.5,
-      constituency_sensitivity: 0.2, display_order: 4, mp_count: 20, influence_bonus: 0.5,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-
-    // ── Liberal Democrat (46 seats, May 1997) ────────────────────────────────
-    // Paddy Ashdown era; broadly cohesive with a social/economic liberal divide.
-    {
-      party_slug: "Liberal Democrat", slug: "social-liberals", name: "Social Liberal Forum",
-      description: "Left-leaning social liberals prioritising public services and civil liberties.",
-      colour: "#f4a900", ideology_tags: ["social-liberal", "left-leaning", "civil-liberties"],
-      leadership_alignment: "aligned", rebellion_bias: 0.10, media_sensitivity: 0.4,
-      constituency_sensitivity: 0.3, display_order: 1, mp_count: 25, influence_bonus: 0.5,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Liberal Democrat", slug: "economic-liberals", name: "Economic Liberals",
-      description: "Market-oriented liberals emphasising enterprise, free trade, and fiscal discipline.",
-      colour: "#e8961e", ideology_tags: ["economic-liberal", "free-market", "orange-book"],
-      leadership_alignment: "aligned", rebellion_bias: 0.20, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.2, display_order: 2, mp_count: 15, influence_bonus: 0.3,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Liberal Democrat", slug: "independent-liberals", name: "Independent Liberals",
-      description: "Constituency-first pragmatists resistant to strong whipping.",
-      colour: "#d4891e", ideology_tags: ["pragmatist", "localist"],
-      leadership_alignment: "neutral", rebellion_bias: 0.35, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.5, display_order: 3, mp_count: 6, influence_bonus: 0.0,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-  ];
-
-  const results = { inserted: [], skipped: [] };
-
-  for (const f of SEED_DATA) {
-    // Skip if a faction with this slug already exists for this party
-    const { rows: existing } = await pool.query(
-      "SELECT id FROM party_factions WHERE party_slug = $1 AND slug = $2",
-      [f.party_slug, f.slug]
-    );
-    if (existing.length > 0) {
-      results.skipped.push(`${f.party_slug}/${f.slug}`);
-      continue;
-    }
-
-    const { rows: inserted } = await pool.query(
-      `INSERT INTO party_factions
-         (party_slug, slug, name, description, colour, ideology_tags, leadership_alignment,
-          rebellion_bias, media_sensitivity, constituency_sensitivity, display_order, active)
-       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,TRUE)
-       RETURNING id`,
-      [
-        f.party_slug, f.slug, f.name, f.description, f.colour,
-        JSON.stringify(f.ideology_tags),
-        f.leadership_alignment, f.rebellion_bias, f.media_sensitivity,
-        f.constituency_sensitivity, f.display_order,
-      ]
-    );
-    const newId = inserted[0].id;
-    await pool.query(
-      `INSERT INTO party_faction_allocations (faction_id, mp_count, influence_bonus, notes, updated_by)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [newId, f.mp_count, f.influence_bonus, f.notes, actorUserId]
-    );
-    results.inserted.push(`${f.party_slug}/${f.slug}`);
-  }
-
-  return results;
-}
-
-// ── Salary computation helpers ────────────────────────────────────────────────
-
-/**
- * Returns the active salary scale row + its roles for the given sim index.
- * "Active" = latest scale where effective_from_sim_index <= simIndex.
- */
-async function resolveActiveSalaryScale(simIndex) {
-  const { rows: scales } = await pool.query(
-    `SELECT s.id, s.name, s.effective_from_sim_index,
-            json_object_agg(r.role_key, r.annual_salary) AS roles
-       FROM salary_scales s
-       JOIN salary_scale_roles r ON r.scale_id = s.id
-      WHERE s.effective_from_sim_index <= $1
-      GROUP BY s.id, s.name, s.effective_from_sim_index
-      ORDER BY s.effective_from_sim_index DESC
-      LIMIT 1`,
-    [simIndex]
-  );
-  return scales[0] ?? null;
-}
-
-/**
- * Compute a character's base annual salary using Rule 1 (highest-wins) from DB positions.
- * Returns { annualSalary, positionKeys, scaleId }.
- */
-async function computeCharacterAnnualSalary(characterId, simIndex) {
-  const scale = await resolveActiveSalaryScale(simIndex);
-  if (!scale) return { annualSalary: 0, positionKeys: [], scaleId: null };
-
-  const { rows: positions } = await pool.query(
-    "SELECT position_key FROM character_positions WHERE character_id = $1",
-    [characterId]
-  );
-  const positionKeys = positions.map((p) => p.position_key);
-
-  // Rule 1: highest salary wins
-  let maxSalary = 0;
-  const rolesMap = scale.roles || {};
-  for (const key of positionKeys) {
-    const s = Number(rolesMap[key] ?? 0);
-    if (s > maxSalary) maxSalary = s;
-  }
-
-  return { annualSalary: maxSalary, positionKeys, scaleId: scale.id };
-}
-
-/**
- * Resolve annual salary for a character: override takes precedence over computed.
- */
-async function resolvedAnnualSalary(characterId, simIndex) {
-  const { rows: fin } = await pool.query(
-    "SELECT annual_salary_override FROM character_finance WHERE character_id = $1",
-    [characterId]
-  );
-  const override = fin[0]?.annual_salary_override;
-  if (override != null) return { annualSalary: Number(override), isOverride: true };
-  const { annualSalary, positionKeys, scaleId } = await computeCharacterAnnualSalary(characterId, simIndex);
-  return { annualSalary, positionKeys, scaleId, isOverride: false };
-}
-
-/**
- * Automatically credit salary for all player characters that have missed periods.
- * Called on every clock tick. simIndex = year*12 + (month-1).
- *
- * Batched implementation: resolves the salary scale once, then performs all
- * character lookups and the final credit update in a small fixed set of queries
- * rather than 3–5 queries per character (N+1).
- */
+// clamp100, pressureLabel, recomputeCharacterPoliticalState → server/political-state-service.js
+// computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, seed1997Factions → server/political-state-service.js
+// resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary → server/finance-service.js
 async function runSalaryCrediting(month, year) {
   const simIndex = year * 12 + (month - 1);
   try {
@@ -4752,7 +3905,7 @@ function requireAdminOrMod(req, res) {
     res.status(401).json({ error: "Not logged in" });
     return false;
   }
-  const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  const roles = getSessionRoles(req);
   if (!roles.includes("admin") && !roles.includes("mod")) {
     res.status(403).json({ error: "Forbidden: admin or mod role required" });
     return false;
@@ -4765,7 +3918,7 @@ function requireAdminModOrSpeaker(req, res) {
     res.status(401).json({ error: "Not logged in" });
     return false;
   }
-  const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  const roles = getSessionRoles(req);
   if (!roles.includes("admin") && !roles.includes("mod") && !roles.includes("speaker")) {
     res.status(403).json({ error: "Forbidden: admin, mod, or speaker role required" });
     return false;
@@ -6628,8 +5781,7 @@ app.get("/api/audit-log", auditReadLimit, async (req, res) => {
     if (!req.session?.userId) {
       return res.status(401).json({ error: "Not logged in" });
     }
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    if (!roles.includes("admin") && !roles.includes("mod")) {
+    if (!hasAdminOrMod(req)) {
       return res.status(403).json({ error: "Forbidden: admin or mod role required" });
     }
 
@@ -6914,8 +6066,7 @@ app.post("/api/bills/:id/first-reading", crudWriteLimit, async (req, res) => {
     }
 
     // Permission: PM, Leader of the House, admin, or mod
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     let canAct = isStaff;
     if (!canAct) {
       const charId = await getActiveCharacterId(req);
@@ -7014,8 +6165,7 @@ app.post("/api/bills/:id/withdraw", crudWriteLimit, async (req, res) => {
     }
 
     // Permission: bill author (by character_id), PM, admin, or mod
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     let canWithdraw = isStaff;
     if (!canWithdraw) {
       const charId = await getActiveCharacterId(req);
@@ -7204,8 +6354,7 @@ app.post("/api/bills/:id/amendments/:aid/decide", crudWriteLimit, async (req, re
     if (am.status !== "proposed") return res.status(409).json({ error: `Amendment is already ${am.status}` });
 
     // Only the bill author may decide; authority checked via immutable character_id
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     const isAuthor = !!(billAuthorCharId && String(charId) === String(billAuthorCharId));
     if (!isAuthor && !isStaff) {
       return res.status(403).json({ error: "Only the bill author, admin or mod may decide on amendments" });
@@ -7507,364 +6656,7 @@ function applyAmendmentToBillText(billText, articleNumber, type, amendText) {
 
   return [headerLines.join("\n"), body, finalPart].join("\n").trim();
 }
-/** Party name regexes for parties with special voting rules. */
-const SPEAKER_PARTY_RE  = /^speaker$/i;
-const SINN_FEIN_PARTY_RE = /sinn\s*f[ée]in/i;
-
-/**
- * Get party seat totals from the constituencies table.
- * This is the canonical, DB-authoritative source for weighted voting calculations,
- * matching what is displayed on the constituencies page.
- *
- * @param {Pool} pool - pg Pool
- * @returns {Promise<Object>} { partyName: seatCount }
- */
-async function getPartySeatsFromConstituencies(pool) {
-  const { rows } = await pool.query(
-    "SELECT party, COUNT(*) AS seats FROM constituencies WHERE party IS NOT NULL AND party <> '' GROUP BY party"
-  );
-  return Object.fromEntries(rows.map((r) => [String(r.party), Number(r.seats)]));
-}
-
-
-/**
- * Return parties ranked by parliamentary seats (descending).
- * Tie-break rule: when seat totals tie, sort lexicographically by slug ascending.
- * This keeps Third Party selection deterministic.
- */
-async function getPartiesRankedBySeats(pool) {
-  const { rows } = await pool.query(
-    `SELECT p.slug, COUNT(c.id) AS seats
-       FROM parties p
-       LEFT JOIN constituencies c ON c.party = p.name
-      GROUP BY p.slug
-      ORDER BY COUNT(c.id) DESC, p.slug ASC`
-  );
-  return rows.map((r) => ({ slug: String(r.slug), seats: Number(r.seats || 0) }));
-}
-
-async function getThirdPartySlug(pool) {
-  const ranked = await getPartiesRankedBySeats(pool);
-  return ranked[2]?.slug || null;
-}
-
-const RH_QUALIFYING_SPEC_IDS = ["prime-minister", "leader-opposition"];
-// Offices that confer permanent Privy Council membership on appointment.
-// Includes the third-party leader (who is RH while in post but earns PC for life via this grant).
-// Note: rh_ever covers PM and LoTO; third-party leader is RH via is_third_party_leader but not rh_ever.
-const PC_QUALIFYING_SPEC_IDS = ["prime-minister", "leader-opposition", "party-leader-3rd-4th"];
-
-async function getCharacterParliamentaryMeta(pool, characterId) {
-  if (!characterId) return { is_mp: false, is_pc: false, is_privy_current: false, is_rh: false, is_third_party_leader: false };
-
-  const thirdPartySlug = await getThirdPartySlug(pool);
-  const { rows } = await pool.query(
-    `SELECT c.id, c.rh_ever, c.tpl_ever, c.is_npc,
-            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency)
-                    AND (k.mp_type = 'character' OR (k.mp_type = 'npc' AND c.is_npc = TRUE))
-                    AND COALESCE(c.constituency, '') != '') AS is_mp,
-            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
-            EXISTS (
-              SELECT 1 FROM office_assignments oa
-                JOIN offices o ON o.id = oa.office_id
-               WHERE oa.character_id = c.id
-                 AND o.type = 'cabinet'
-            ) AS has_cabinet_office,
-            EXISTS (
-              SELECT 1 FROM parties p
-               WHERE p.leader_character_id = c.id
-                 AND $2::text IS NOT NULL
-                 AND p.slug = $2
-            ) AS is_third_party_leader
-       FROM characters c
-      WHERE c.id = $1
-      LIMIT 1`,
-    [characterId, thirdPartySlug]
-  );
-  const m = rows[0] || {};
-  // rh_ever: set permanently when a character is first appointed PM or LoTO. Never reverts.
-  // has_cabinet_office: any current cabinet office gives RH while in post.
-  // is_privy_current: current PC membership also qualifies for RH.
-  const is_rh = Boolean(m.rh_ever || m.is_privy_current || m.has_cabinet_office || m.is_third_party_leader);
-  // PC post-nominal: only for PM/LoTO (rh_ever) and third-party leaders (tpl_ever) — permanently once held.
-  const is_pc = Boolean(m.rh_ever || m.tpl_ever);
-  return {
-    is_mp: Boolean(m.is_mp),
-    is_pc,
-    is_privy_current: Boolean(m.is_privy_current),
-    is_rh,
-    is_third_party_leader: Boolean(m.is_third_party_leader),
-  };
-}
-
-function formatParliamentaryName({ bareName, isRH = false, isMP = false, isPC = false }) {
-  const n = String(bareName || "").trim();
-  if (!n) return "";
-  const title = isRH ? "The Right Honourable" : "The Honourable";
-  // MP is universal — every character is an MP so it always appears.
-  const suffix = ["MP", isPC ? "PC" : ""].filter(Boolean).join(" ");
-  return [title, n, suffix].filter(Boolean).join(" ").trim();
-}
-
-async function getCharacterDisplayName(pool, characterId, fallbackName = "") {
-  if (!characterId) return String(fallbackName || "");
-  const { rows } = await pool.query("SELECT name FROM characters WHERE id = $1 LIMIT 1", [characterId]);
-  const bareName = rows[0]?.name || fallbackName || "";
-  const meta = await getCharacterParliamentaryMeta(pool, characterId);
-  return formatParliamentaryName({ bareName, isRH: meta.is_rh, isMP: meta.is_mp, isPC: meta.is_pc });
-}
-
-/**
- * Efficiently compute display names for many characters in a single DB round-trip.
- * Returns an array of display name strings in the same order as the input entries.
- * Null/undefined IDs use the entry's fallback string directly.
- * @param {Array<{ id: string|null|undefined, fallback: string }>} entries
- * @returns {Promise<string[]>}
- */
-async function batchGetCharacterDisplayNames(pool, entries) {
-  const ids = [...new Set(entries.map((e) => e.id).filter(Boolean))];
-  if (!ids.length) {
-    return entries.map((e) => e.fallback || "");
-  }
-
-  const thirdPartySlug = await getThirdPartySlug(pool);
-  const { rows } = await pool.query(
-    `SELECT c.id, c.name, c.rh_ever, c.tpl_ever, c.is_npc,
-            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency)
-                    AND (k.mp_type = 'character' OR (k.mp_type = 'npc' AND c.is_npc = TRUE))
-                    AND COALESCE(c.constituency, '') != '') AS is_mp,
-            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
-            EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
-            EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
-       FROM characters c WHERE c.id = ANY($1::uuid[])`,
-    [ids, thirdPartySlug]
-  );
-
-  const byId = Object.fromEntries(rows.map((r) => {
-    const is_rh = Boolean(r.rh_ever || r.is_privy_current || r.has_cabinet_office || r.is_third_party_leader);
-    const is_pc = Boolean(r.rh_ever || r.tpl_ever);
-    return [r.id, formatParliamentaryName({ bareName: r.name || "", isRH: is_rh, isMP: Boolean(r.is_mp), isPC: is_pc })];
-  }));
-
-  return entries.map((e) => (e.id ? (byId[e.id] ?? (e.fallback || "")) : (e.fallback || "")));
-}
-
-
-async function enrichCharacterRowWithDisplay(row) {
-  const meta = await getCharacterParliamentaryMeta(pool, row?.id);
-  return {
-    ...row,
-    display_name: formatParliamentaryName({ bareName: row?.name || "", isRH: meta.is_rh, isMP: meta.is_mp, isPC: meta.is_pc }),
-    is_mp: meta.is_mp,
-    is_pc: meta.is_pc,
-    is_privy: meta.is_privy_current,
-    is_rh: meta.is_rh,
-  };
-}
-
-/**
- * Batch-enrich an array of character rows with display_name, is_mp, is_pc, is_privy, and is_rh
- * using a single DB round-trip instead of one query per row.
- * @param {Pool} pool — database connection pool
- * @param {Array<Object>} rows — character rows, each must have at least { id, name }
- * @returns {Promise<Array<Object>>} — same rows with display_name/is_mp/is_pc/is_privy/is_rh merged in
- */
-async function batchEnrichCharacterRows(pool, rows) {
-  if (!rows.length) return rows;
-  const ids = rows.map((r) => r.id).filter(Boolean);
-  if (!ids.length) return rows.map((r) => ({ ...r, display_name: r.name || "", is_mp: false, is_pc: false, is_privy: false, is_rh: false }));
-
-  const thirdPartySlug = await getThirdPartySlug(pool);
-  const { rows: metaRows } = await pool.query(
-    `SELECT c.id, c.rh_ever, c.tpl_ever, c.is_npc,
-            EXISTS (SELECT 1 FROM constituencies k WHERE LOWER(k.name) = LOWER(c.constituency)
-                    AND (k.mp_type = 'character' OR (k.mp_type = 'npc' AND c.is_npc = TRUE))
-                    AND COALESCE(c.constituency, '') != '') AS is_mp,
-            EXISTS (SELECT 1 FROM privy_council_members pcm WHERE pcm.character_id = c.id AND pcm.removed_at IS NULL) AS is_privy_current,
-            EXISTS (SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id WHERE oa.character_id = c.id AND o.type = 'cabinet') AS has_cabinet_office,
-            EXISTS (SELECT 1 FROM parties p WHERE p.leader_character_id = c.id AND $2::text IS NOT NULL AND p.slug = $2) AS is_third_party_leader
-       FROM characters c WHERE c.id = ANY($1::uuid[])`,
-    [ids, thirdPartySlug]
-  );
-
-  // Store only the boolean flags; the display name is computed per-row using the original row.name.
-  const byId = Object.fromEntries(metaRows.map((r) => {
-    const is_rh = Boolean(r.rh_ever || r.is_privy_current || r.has_cabinet_office || r.is_third_party_leader);
-    const is_pc = Boolean(r.rh_ever || r.tpl_ever);
-    return [r.id, { is_mp: Boolean(r.is_mp), is_pc, is_privy: Boolean(r.is_privy_current), is_rh }];
-  }));
-
-  return rows.map((row) => {
-    const meta = byId[row.id];
-    if (!meta) return { ...row, display_name: row.name || "", is_mp: false, is_pc: false, is_privy: false, is_rh: false };
-    return {
-      ...row,
-      display_name: formatParliamentaryName({ bareName: row.name || "", isRH: meta.is_rh, isMP: meta.is_mp, isPC: meta.is_pc }),
-      is_mp: meta.is_mp,
-      is_pc: meta.is_pc,
-      is_privy: meta.is_privy,
-      is_rh: meta.is_rh,
-    };
-  });
-}
-
-/**
- * Compute weighted vote weights for all active players.
- *
- * Formula: each party's constituency seat total is distributed evenly among its
- * active, settled players. New backbenchers (<2 weeks) receive 1 until settled.
- * Absent players' weights delegate to their party leader (or a nominated deputy).
- *
- * Special rules:
- * - Speaker party members receive 0 weight (Speaker does not vote; tie-break only).
- * - Sinn Féin members receive 0 weight (do not take their seats).
- *
- * @param {Object} seatsByParty - { partyName: seatCount } from constituencies DB
- * @param {Array}  players      - active players from game state (with absent/delegatedTo/joinedAt/role)
- * @returns {{ effectiveWeights: Object, baseWeights: Object, leaderByParty: Object }}
- */
-function computeAllPlayerWeights(seatsByParty, players) {
-  const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
-  const allPlayers = (players || []).filter((p) => p != null && p.active !== false);
-
-  function isSettledBackbencher(p) {
-    if (!p || p.role !== "backbencher") return true;
-    const joined = Date.parse(p.joinedAt || "");
-    if (!Number.isFinite(joined)) return true;
-    return (Date.now() - joined) >= TWO_WEEKS_MS;
-  }
-
-  function findPartyLeader(members) {
-    return (
-      members.find((m) => m.partyLeader) ||
-      members.find((m) => m.role === "prime-minister") ||
-      members.find((m) => m.role === "leader-opposition") ||
-      members.find((m) => m.role === "party-leader-3rd-4th") ||
-      members[0] ||
-      null
-    );
-  }
-
-  // Group by party
-  const byParty = new Map();
-  allPlayers.forEach((p) => {
-    const party = String(p.party || "Independent");
-    if (!byParty.has(party)) byParty.set(party, []);
-    byParty.get(party).push(p);
-  });
-
-  const baseWeights = {};
-  const leaderByParty = {};
-
-  byParty.forEach((members, party) => {
-    members.forEach((m) => { baseWeights[String(m.name || "")] = 0; });
-
-    // Speaker does not vote (tie-break only); Sinn Féin do not take their seats.
-    if (SPEAKER_PARTY_RE.test(party) || SINN_FEIN_PARTY_RE.test(party)) return;
-
-    const seats = Math.max(0, Math.floor(Number(seatsByParty[party] || 0)));
-    const leader = findPartyLeader(members);
-    if (leader) leaderByParty[party] = String(leader.name || "");
-
-    const newBackbenchers = members.filter((m) => !isSettledBackbencher(m));
-    newBackbenchers.forEach((m) => { baseWeights[String(m.name || "")] += 1; });
-
-    const remaining = Math.max(0, seats - newBackbenchers.length);
-    const splitMembers = members.filter((m) => isSettledBackbencher(m));
-
-    if (!splitMembers.length) {
-      if (leader) baseWeights[String(leader.name || "")] = (baseWeights[String(leader.name || "")] || 0) + remaining;
-      return;
-    }
-
-    const each = Math.floor(remaining / splitMembers.length);
-    const odd  = remaining - (each * splitMembers.length);
-    splitMembers.forEach((m) => { baseWeights[String(m.name || "")] = (baseWeights[String(m.name || "")] || 0) + each; });
-
-    if (odd > 0) {
-      const leaderName = leader ? String(leader.name || "") : null;
-      const oddTarget = leaderName && splitMembers.some((m) => m.name === leader.name)
-        ? leaderName
-        : String(splitMembers[0].name || "");
-      baseWeights[oddTarget] = (baseWeights[oddTarget] || 0) + odd;
-    }
-  });
-
-  // Delegation: absent players' weights route to their party leader (or deputy)
-  const effectiveWeights = { ...baseWeights };
-  const playersByName = Object.fromEntries(allPlayers.map((p) => [String(p.name || ""), p]));
-
-  allPlayers.forEach((p) => {
-    if (!p?.absent) return;
-    const from = String(p.name || "");
-    const amount = Number(effectiveWeights[from] || 0);
-    if (amount <= 0) return;
-
-    const party = String(p.party || "Independent");
-    const leaderName = leaderByParty[party] || null;
-    const isLeader = leaderName && from === leaderName;
-
-    let target = null;
-    if (isLeader) {
-      const candidate = String(p.delegatedTo || "").trim();
-      if (candidate && playersByName[candidate] && !playersByName[candidate].absent) {
-        target = candidate;
-      } else {
-        target = allPlayers.find(
-          (q) => String(q.party || "Independent") === party && q.name !== from && !q.absent
-        )?.name || null;
-      }
-    } else if (leaderName && playersByName[leaderName] && !playersByName[leaderName].absent) {
-      target = leaderName;
-    }
-
-    effectiveWeights[from] = 0;
-    if (target && target !== from) {
-      effectiveWeights[target] = (Number(effectiveWeights[target] || 0)) + amount;
-    }
-  });
-
-  return { effectiveWeights, baseWeights, leaderByParty };
-}
-
-/**
- * Compute the effective vote weight for a single character.
- *
- * When a character is an NPC assigned as a user's main active character they may
- * not appear in the game-state `statePlayers` list (which is admin-managed).  In
- * that case, inject them as a synthetic settled backbencher and recompute so that
- * they receive their proportional share of their party's seats.
- *
- * Normal (non-NPC) characters that are absent from the player list intentionally
- * receive 0 weight — that behaviour is preserved.
- *
- * @param {Object}   seatsByParty  - { partyName: seatCount } from constituencies DB
- * @param {Array}    statePlayers  - player list from game state snapshot
- * @param {string}   charName      - character name to look up
- * @param {string|null} charParty  - character party
- * @param {boolean}  isNpc         - true if the character has is_npc = true
- * @returns {number}
- */
-function computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc) {
-  const nameStr = String(charName || "");
-  const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
-  const w = Number(effectiveWeights[nameStr] || 0);
-  if (w > 0) return w;
-
-  // For NPCs not present in the game state, inject synthetically so they share party seats.
-  if (!isNpc || !charParty) return w;
-  if (SINN_FEIN_PARTY_RE.test(charParty) || SPEAKER_PARTY_RE.test(charParty)) return 0;
-  const inState = statePlayers.some((p) => String(p.name || "") === nameStr);
-  if (inState) return w; // already included but still got 0 — respect the computed result
-
-  const augmented = [
-    ...statePlayers,
-    { name: nameStr, party: charParty, role: "backbencher", active: true },
-  ];
-  const { effectiveWeights: ew2 } = computeAllPlayerWeights(seatsByParty, augmented);
-  return Number(ew2[nameStr] || 0);
-}
-
+// SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH/PC_QUALIFYING_SPEC_IDS, getPartySeats*, getThirdPartySlug, parliamentary meta/display helpers, computeAllPlayerWeights, computeCharacterWeight → server/division-helpers.js
 // PATCH /api/bills/:id/vote — authenticated: cast a server-authoritative vote on a bill division
 app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
   try {
@@ -8606,7 +7398,7 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
     await writeAuditLog(req.session.userId, "clock.tick", "sim_clock", "main", null, { ...rows[0], archivedItems: archived });
 
     // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
-    runSalaryCrediting(newMonth, newYear).catch((e) => console.error("[clock/tick] salary crediting failed:", e.message));
+    fireRecompute("salary-crediting", "clock.tick", () => runSalaryCrediting(newMonth, newYear));
     runShopUpkeep(newMonth, newYear).catch((e) => console.error("[clock/tick] shop upkeep failed:", e.message));
     runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
     runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
@@ -8751,8 +7543,7 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     }
     // Enforce NPC author restriction: only admin/mod/speaker may post comments with npcAuthor flag
     if (press_type === "comment" && item.npcAuthor) {
-      const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-      if (!roles.includes("admin") && !roles.includes("mod") && !roles.includes("speaker")) {
+      if (!hasAdminModOrSpeaker(req)) {
         return res.status(403).json({ error: "Only admin, mod, or speaker may post as NPC" });
       }
     }
@@ -8830,8 +7621,7 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
     const item = rows[0].data;
     const pressAuthorCharId = rows[0].author_character_id || null;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
     const isQuestion = entry.isQuestion === true;
 
     if (isQuestion) {
@@ -8893,8 +7683,8 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
 app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = roles.includes("admin") || roles.includes("mod");
+    const roles = getSessionRoles(req);
+    const isAdminOrMod = hasAdminOrMod(req);
     const isSpeakerRole = roles.includes("speaker");
 
     if (!isAdminOrMod && !isSpeakerRole) {
@@ -8947,7 +7737,7 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
     await writeAuditLog(req.session.userId, "press.mark", "press_items", req.params.id, prevData, item);
     // Recompute political capital for author non-blockingly
     if (rows[0].author_character_id) {
-      recomputeCharacterPoliticalState(rows[0].author_character_id).catch((e) => console.error("[political-state] press.mark trigger:", e.message));
+      fireRecompute("character-political-state", "press.mark", () => recomputeCharacterPoliticalState(rows[0].author_character_id), rows[0].author_character_id);
     }
     res.json({ ok: true, id: updated[0].id, updatedAt: updated[0].updated_at, item });
   } catch (e) {
@@ -9080,8 +7870,7 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
   try {
     // Debate topic creation is restricted to admin and mod users.
     if (!requireAuth(req, res)) return;
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    if (!roles.includes("admin") && !roles.includes("mod")) {
+    if (!hasAdminOrMod(req)) {
       return res.status(403).json({ error: "Forbidden: admin or mod role required to create debate topics" });
     }
 
@@ -10239,8 +9028,7 @@ app.get("/api/characters", charReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { active } = req.query;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isPrivileged = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isPrivileged = hasAdminOrMod(req);
     // Admin/mod get extended profile fields so the personal page mod view can display full profiles
     const extraFields = isPrivileged
       ? ", date_of_birth, education, career_background, family, year_first_elected, personal_background, bio, financial_background_level, twitter_handle"
@@ -10647,8 +9435,7 @@ app.post("/api/characters/apply-npc", charAppWriteLimit, async (req, res) => {
     }
 
     // Authorization: only admin, mod, or party leader may request NPCs.
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     // Resolve the requester's active character (used for party-leader check + audit snapshot)
     const { rows: activeCharRows } = await pool.query(
@@ -11562,8 +10349,7 @@ const whipWriteLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: t
  * isDirectAuthority = false when caller is only chief whip (routes through leader).
  */
 async function getWhipAuthority(req, characterParty) {
-  const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-  if (sessionRoles.includes("admin") || sessionRoles.includes("mod")) {
+  if (hasAdminOrMod(req)) {
     return { canManage: true, isDirectAuthority: true };
   }
   if (!req.session.characterId) return { canManage: false, isDirectAuthority: false };
@@ -11686,8 +10472,7 @@ app.get("/api/parties/:partyId/whip-requests", whipWriteLimit, async (req, res) 
   try {
     if (!requireAuth(req, res)) return;
     const partySlug = req.params.partyId;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     if (!isStaff) {
       const { rows: partyRows } = await pool.query(
         "SELECT leader_character_id FROM parties WHERE slug = $1", [partySlug]
@@ -11719,8 +10504,7 @@ app.post("/api/parties/:partyId/whip-requests/:reqId/approve", whipWriteLimit, a
   try {
     if (!requireAuth(req, res)) return;
     const partySlug = req.params.partyId;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     if (!isStaff) {
       const { rows: partyRows } = await pool.query(
         "SELECT leader_character_id FROM parties WHERE slug = $1", [partySlug]
@@ -11773,8 +10557,7 @@ app.post("/api/parties/:partyId/whip-requests/:reqId/deny", whipWriteLimit, asyn
   try {
     if (!requireAuth(req, res)) return;
     const partySlug = req.params.partyId;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     if (!isStaff) {
       const { rows: partyRows } = await pool.query(
         "SELECT leader_character_id FROM parties WHERE slug = $1", [partySlug]
@@ -11932,8 +10715,7 @@ app.post("/api/parties/:partyId/leadership", partyWriteLimit, async (req, res) =
       return res.status(400).json({ error: "role must be 'chairman' or 'whip'" });
     }
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     // Non-admin/mod must be the active character who is party leader
     if (!isAdminOrMod) {
@@ -11999,8 +10781,7 @@ app.post("/api/parties/:partyId/chief-whip", partyWriteLimit, async (req, res) =
 
     const { chiefWhipId = null, deputyWhipId = null } = req.body || {};
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     const { rows: partyRows } = await pool.query(
       "SELECT * FROM parties WHERE slug = $1", [req.params.partyId]
@@ -12784,8 +11565,7 @@ app.delete("/api/me/character/shop-purchases/:id", meFinanceWriteLimit, async (r
     if (!charRows.length) { return res.status(404).json({ error: "No active character found" }); }
     const charId = charRows[0].id;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const isAdminOrMod = hasAdminModOrSpeaker(req);
 
     // Verify the purchase belongs to the caller's character (or caller is admin/mod)
     const { rows: pRows } = await client.query(
@@ -13049,8 +11829,7 @@ app.post("/api/parties/:partyId/structure", partyWriteLimit, async (req, res) =>
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     if (!isAdminOrMod) {
       if (!req.session.characterId) {
@@ -13126,8 +11905,7 @@ app.post("/api/parties/:partyId/treasury", partyWriteLimit, async (req, res) => 
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     if (!isAdminOrMod) {
       if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
@@ -13227,8 +12005,7 @@ app.post("/api/parties/:partyId/membership-fee", partyWriteLimit, async (req, re
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     if (!isAdminOrMod) {
       if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
@@ -13269,8 +12046,7 @@ app.get("/api/parties/:partyId/donations", partyReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     if (!isAdminOrMod) {
       if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
@@ -13413,8 +12189,7 @@ app.post("/api/parties/:partyId/shop-purchases", partyShopLimit, async (req, res
   try {
     if (!requireAuth(req, res)) { return; }
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       if (!req.session.characterId) { return res.status(403).json({ error: "No active character selected" }); }
       const { rows: pr } = await client.query(
@@ -13491,8 +12266,7 @@ app.delete("/api/parties/:partyId/shop-purchases/:id", partyShopLimit, async (re
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) return res.status(403).json({ error: "Admin or mod required" });
 
     const { rows } = await pool.query(
@@ -13517,8 +12291,7 @@ app.post("/api/parties/:partyId/shop-purchases/:id/sell", partyShopLimit, async 
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       if (!req.session.characterId) { return res.status(403).json({ error: "No active character selected" }); }
       const { rows: pr } = await client.query(
@@ -13587,8 +12360,7 @@ app.post("/api/parties/:partyId/shop-purchases/:id/dismiss", partyShopLimit, asy
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       if (!req.session.characterId) { return res.status(403).json({ error: "No active character selected" }); }
       const { rows: pr } = await pool.query(
@@ -13632,8 +12404,7 @@ app.post("/api/parties/:partyId/drafts", partyWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     if (!isAdminOrMod) {
       if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
@@ -13677,8 +12448,7 @@ const expulsionReadLimit  = rateLimit({ windowMs: 60_000, max: 60, standardHeade
 app.post("/api/parties/:partyId/expulsions", expulsionWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     // Must be party leader or admin/mod
     if (!isAdminOrMod) {
@@ -14161,8 +12931,7 @@ app.get("/api/privy-council", privyReadLimit, async (req, res) => {
     if (!requireAuth(req, res)) return;
 
     // Access gated: only privy councillors and staff (admin/mod/speaker)
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
 
     if (!isStaff) {
       // Check if current active character is a privy councillor
@@ -14280,8 +13049,7 @@ app.post("/api/mod/privy-council/remove", privyWriteLimit, async (req, res) => {
 
 /** Check if the request has Privy Council access (current PC member or staff). */
 async function hasPrivyCouncilAccess(req) {
-  const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-  if (sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker")) return true;
+  if (hasAdminModOrSpeaker(req)) return true;
   if (!req.session.characterId) return false;
   const { rows } = await pool.query(
     "SELECT id FROM privy_council_members WHERE character_id = $1 AND removed_at IS NULL",
@@ -14320,8 +13088,7 @@ app.post("/api/privy-council/posts", privyWriteLimit, async (req, res) => {
     const { body, posted_as_type = "character" } = req.body || {};
     if (!body || !String(body).trim()) return res.status(400).json({ error: "Post body is required" });
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
 
     // Only staff may post as the Monarch
     if (posted_as_type === "monarch" && !isStaff) {
@@ -14381,8 +13148,7 @@ const groupDraftWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHea
  * Also returns whether the caller is admin/mod/speaker.
  */
 async function resolveCallerCharacter(req) {
-  const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-  const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+  const isStaff = hasAdminModOrSpeaker(req);
   if (isStaff) return { isStaff: true, charId: null };
   if (!req.session.characterId) return { isStaff: false, charId: null };
   const { rows } = await pool.query(
@@ -14567,7 +13333,7 @@ app.post("/api/me/work-plan", cwpWriteLimit, async (req, res) => {
     );
     await writeAuditLog(req.session.userId, "work_plan.save", "character_work_plans", charId, null, { lastSavedSimIndex });
     // Recompute political capital non-blockingly after work plan save
-    recomputeCharacterPoliticalState(charId).catch((e) => console.error("[political-state] work_plan trigger:", e.message));
+    fireRecompute("character-political-state", "work_plan", () => recomputeCharacterPoliticalState(charId), charId);
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/me/work-plan]", e);
@@ -14591,7 +13357,9 @@ app.get("/api/me/political-state", politicalStateReadLimit, async (req, res) => 
     if (!charId) return res.status(404).json({ error: "No active character" });
 
     // Recompute fresh each request for correctness; result is cached in DB for trend calculation
-    const state = await recomputeCharacterPoliticalState(charId);
+    const state = await awaitedRecompute("character-political-state", "me.political-state.get", () =>
+      recomputeCharacterPoliticalState(charId), charId
+    );
     res.json({ ok: true, politicalState: state });
   } catch (e) {
     console.error("[GET /api/me/political-state]", e);
@@ -14724,8 +13492,7 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
     const office = offRows[0];
 
     // Permission: admin/mod always allowed; PM can assign non-PM cabinet; LOTO can assign non-LOTO shadow
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
@@ -14852,7 +13619,7 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
 
     // Recompute political capital for assigned (and displaced) character non-blockingly
     for (const cid of [character_id, oldCharId].filter(Boolean)) {
-      recomputeCharacterPoliticalState(cid).catch((e) => console.error("[political-state] office.assign trigger:", e.message));
+      fireRecompute("character-political-state", "office.assign", () => recomputeCharacterPoliticalState(cid), cid);
     }
     res.status(201).json({ ok: true, assignment: rows[0] });
   } catch (e) {
@@ -14873,8 +13640,7 @@ app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req,
     if (!offRows.length) return res.status(404).json({ error: "Office not found" });
     const office = offRows[0];
 
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
@@ -14933,7 +13699,7 @@ app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req,
     }
 
     // Recompute political capital for unassigned character non-blockingly
-    recomputeCharacterPoliticalState(req.params.characterId).catch((e) => console.error("[political-state] office.unassign trigger:", e.message));
+    fireRecompute("character-political-state", "office.unassign", () => recomputeCharacterPoliticalState(req.params.characterId), req.params.characterId);
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
@@ -15034,8 +13800,7 @@ app.post("/api/offices/:id/fire", officeWriteLimit, async (req, res) => {
     const { character_id: firedCharId, character_name: firedCharName } = assignRows[0];
 
     // Permission: admin/mod, PM can fire cabinet (non-PM), LOTO can fire shadow (non-LOTO)
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
@@ -15152,8 +13917,7 @@ app.post("/api/offices/:id/resign", officeWriteLimit, async (req, res) => {
     const { character_id: resignCharId, character_name: resignCharName } = assignRows[0];
 
     // Permission: current holder or admin/mod
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId || callerCharId !== resignCharId) {
@@ -15507,8 +14271,7 @@ app.post("/api/government/reshuffle", officeWriteLimit, async (req, res) => {
     if (!requireAuth(req, res)) return;
 
     // Permission: admin/mod or current PM
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     let callerCharId = null;
     if (!isAdminOrMod) {
       callerCharId = await getActiveCharacterId(req);
@@ -15582,8 +14345,7 @@ app.post("/api/government/reshuffle/end", officeWriteLimit, async (req, res) => 
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
@@ -15609,8 +14371,7 @@ app.post("/api/opposition/reshuffle", officeWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     let callerCharId = null;
     if (!isAdminOrMod) {
       callerCharId = await getActiveCharacterId(req);
@@ -15679,8 +14440,7 @@ app.post("/api/opposition/reshuffle/end", officeWriteLimit, async (req, res) => 
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
@@ -15731,94 +14491,7 @@ app.post("/api/opposition/reshuffle/end", officeWriteLimit, async (req, res) => 
  * @param {object} seatsByParty  - { partyName: seatCount } from constituencies DB
  * @returns {Promise<{aye:number, no:number, abstain:number}>}
  */
-async function computeDivisionTallyFromDb(db, divisionId, npcVotes, rebelsByParty, rebelsByPartyChoice, seatsByParty) {
-  // 1. Player votes — aggregated by party and direction
-  const { rows: pvRows } = await db.query(
-    `SELECT COALESCE(c.party, 'Independent') AS party, dv.vote,
-            SUM(dv.effective_weight) AS weight
-       FROM division_votes dv
-       LEFT JOIN characters c ON c.id = dv.character_id
-      WHERE dv.division_id = $1
-      GROUP BY COALESCE(c.party, 'Independent'), dv.vote`,
-    [divisionId]
-  );
-
-  const tally = { aye: 0, no: 0, abstain: 0 };
-  const partyVoteMap = {};
-  for (const pv of pvRows) {
-    const w = Number(pv.weight || 0);
-    if (tally[pv.vote] !== undefined) tally[pv.vote] += w;
-    if (!partyVoteMap[pv.party]) partyVoteMap[pv.party] = {};
-    partyVoteMap[pv.party][pv.vote] = (partyVoteMap[pv.party][pv.vote] || 0) + w;
-  }
-
-  // byParty tracks per-party seat contributions to the final tally (player + NPC + rebels + Sinn Féin)
-  const byParty = {};
-  for (const [party, votes] of Object.entries(partyVoteMap)) {
-    byParty[party] = { ...votes };
-  }
-
-  // 2. NPC party votes (seat-weighted) — Speaker and Sinn Féin excluded
-  for (const [party, npcVote] of Object.entries(npcVotes)) {
-    if (tally[npcVote] === undefined) continue;
-    if (SINN_FEIN_PARTY_RE.test(party) || SPEAKER_PARTY_RE.test(party)) continue;
-    const seats = Number(seatsByParty[party] || 0);
-    const rebels = Number(rebelsByParty[party] || 0);
-    const effective = Math.max(0, seats - rebels);
-    if (seats > 0) {
-      tally[npcVote] += effective;
-      if (effective > 0) {
-        byParty[party] = byParty[party] || {};
-        byParty[party][npcVote] = (byParty[party][npcVote] || 0) + effective;
-      }
-    }
-    if (rebels > 0) {
-      const rebelDir = rebelsByPartyChoice[party];
-      if (rebelDir && tally[rebelDir] !== undefined) {
-        tally[rebelDir] += rebels;
-        byParty[party] = byParty[party] || {};
-        byParty[party][rebelDir] = (byParty[party][rebelDir] || 0) + rebels;
-      }
-    }
-  }
-
-  // 3. Playable-party rebels: deduct proportionally from player votes, credit rebel direction
-  for (const [party, rebels] of Object.entries(rebelsByParty)) {
-    if (npcVotes[party]) continue; // NPC parties already handled above
-    const rebelCount = Number(rebels);
-    if (rebelCount <= 0) continue;
-    const rebelDir = rebelsByPartyChoice[party];
-    const voteDirs = partyVoteMap[party] || {};
-    const totalPartyWeight = Object.values(voteDirs).reduce((s, w) => s + w, 0);
-    if (totalPartyWeight > 0) {
-      const rebelDeduction = Math.min(rebelCount, totalPartyWeight);
-      for (const [dir, weight] of Object.entries(voteDirs)) {
-        const deduct = Math.round((weight / totalPartyWeight) * rebelDeduction);
-        tally[dir] = Math.max(0, (tally[dir] || 0) - deduct);
-        if (byParty[party]) {
-          byParty[party][dir] = Math.max(0, (byParty[party][dir] || 0) - deduct);
-        }
-      }
-    }
-    if (rebelDir && tally[rebelDir] !== undefined) {
-      tally[rebelDir] += rebelCount;
-      byParty[party] = byParty[party] || {};
-      byParty[party][rebelDir] = (byParty[party][rebelDir] || 0) + rebelCount;
-    }
-  }
-
-  // 4. Sinn Féin always abstain
-  for (const [party, seats] of Object.entries(seatsByParty)) {
-    if (SINN_FEIN_PARTY_RE.test(party) && seats > 0) {
-      tally.abstain += seats;
-      byParty[party] = byParty[party] || {};
-      byParty[party].abstain = (byParty[party].abstain || 0) + seats;
-    }
-  }
-
-  return { tally, byParty };
-}
-
+// computeDivisionTallyFromDb → server/division-helpers.js
 const divReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
 const divWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
 
@@ -15924,8 +14597,7 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
 app.post("/api/divisions/create", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const canCreate = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const canCreate = hasAdminModOrSpeaker(req);
     if (!canCreate) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
     const { entity_type, entity_id, title = "", closes_at, closes_at_sim } = req.body || {};
@@ -16160,9 +14832,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 
     // Non-blocking: recompute political state after vote (rebellion may have been logged)
     if (charId) {
-      recomputeCharacterPoliticalState(charId).catch((e) =>
-        console.error("[political-state] division.vote trigger:", e.message)
-      );
+      fireRecompute("character-political-state", "division.vote", () => recomputeCharacterPoliticalState(charId), charId);
     }
   } catch (e) {
     console.error(e);
@@ -16174,8 +14844,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const canClose = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const canClose = hasAdminModOrSpeaker(req);
     if (!canClose) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
     // Fetch constituency seat totals (authoritative source) outside the transaction
@@ -16224,8 +14893,7 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
 app.patch("/api/divisions/:id/npc-votes", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const canSet = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const canSet = hasAdminModOrSpeaker(req);
     if (!canSet) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
     const { npc_votes = {}, rebels_by_party = {}, rebels_by_party_choice = {} } = req.body || {};
@@ -16262,8 +14930,7 @@ app.post("/api/divisions/:divisionId/party-instruction", divWriteLimit, async (r
     if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
 
     // Permission: admin/mod OR chief whip (party leader is fallback if no chief whip assigned)
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const charId = await getActiveCharacterId(req);
       if (!charId) return res.status(403).json({ error: "No active character" });
@@ -16362,9 +15029,7 @@ app.post("/api/divisions/:divisionId/rebel-request", divWriteLimit, async (req, 
     res.status(201).json({ ok: true, request: rows[0] });
 
     // Non-blocking: recompute political state (pending rebel request affects party pressure)
-    recomputeCharacterPoliticalState(charId).catch((e) =>
-      console.error("[political-state] rebel-request.submit trigger:", e.message)
-    );
+    fireRecompute("character-political-state", "rebel-request.submit", () => recomputeCharacterPoliticalState(charId), charId);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -16415,8 +15080,7 @@ app.post("/api/divisions/:divisionId/rebel-request/:requestId/decide", divWriteL
     if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
 
     const partySlug = reqRows[0].party_slug;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const charId = await getActiveCharacterId(req);
       if (!charId) return res.status(403).json({ error: "No active character" });
@@ -16447,9 +15111,7 @@ app.post("/api/divisions/:divisionId/rebel-request/:requestId/decide", divWriteL
     // Non-blocking: recompute the requester's political state (refused requests affect party pressure)
     const requesterId = rows[0]?.character_id;
     if (requesterId) {
-      recomputeCharacterPoliticalState(requesterId).catch((e) =>
-        console.error("[political-state] rebel-request.decide trigger:", e.message)
-      );
+      fireRecompute("character-political-state", "rebel-request.decide", () => recomputeCharacterPoliticalState(requesterId), requesterId);
     }
   } catch (e) {
     console.error(e);
@@ -16671,8 +15333,7 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
 
     // ── Server-side QT rule enforcement ─────────────────────────────────────
     // Staff (admin/mod/speaker) may post as NPCs without rule checks
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+    const isStaff = hasAdminModOrSpeaker(req);
 
     if (!isStaff && charId) {
       // Look up character's office assignments (spec_ids)
@@ -16821,8 +15482,7 @@ app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
 
     // Permission check: admin/mod/speaker always allowed; also allow the office holder,
     // PM, or Leader of the House (they may step in for any department).
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+    const isStaff = hasAdminModOrSpeaker(req);
     let canAnswer = isStaff;
     let answererCharId = null;
 
@@ -16905,8 +15565,7 @@ app.post("/api/qt/questions/:id/followup", qtWriteLimit, async (req, res) => {
     const question = qRows[0];
 
     // Staff bypass rule checks
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+    const isStaff = hasAdminModOrSpeaker(req);
 
     if (!isStaff && charId) {
       // Determine role for limit computation — include third-party leader check
@@ -16979,8 +15638,7 @@ app.patch("/api/qt/followups/:id", qtWriteLimit, async (req, res) => {
     }
 
     // Permission check: admin/mod/speaker, or the office holder / PM / leader-commons
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+    const isStaff = hasAdminModOrSpeaker(req);
     let canAnswer = isStaff;
     let answererCharId = null;
 
@@ -17098,7 +15756,7 @@ app.post("/api/sim/tick", simWriteLimit, async (req, res) => {
     await writeAuditLog(req.session.userId, "sim.tick", "sim_state", "main", null, rows[0]);
 
     // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
-    runSalaryCrediting(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] salary crediting failed:", e.message));
+    fireRecompute("salary-crediting", "sim.tick", () => runSalaryCrediting(rows[0].month, rows[0].year));
     runShopUpkeep(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] shop upkeep failed:", e.message));
     runMembershipIntake(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] membership intake failed:", e.message));
   } catch (e) {
@@ -18274,7 +16932,7 @@ app.post("/api/scandals/:id/choose", scandalWriteLimit, async (req, res) => {
 
     res.json({ ok: true, next_stage_key: nextStageKey, status: newStatus });
     // Recompute political capital non-blockingly after scandal choice
-    recomputeCharacterPoliticalState(characterId).catch((e) => console.error("[political-state] scandal.choose trigger:", e.message));
+    fireRecompute("character-political-state", "scandal.choose", () => recomputeCharacterPoliticalState(characterId), characterId);
   } catch (e) {
     console.error("[POST /api/scandals/:id/choose]", e);
     res.status(500).json({ error: "Server error" });
@@ -18540,7 +17198,7 @@ app.post("/api/mod/scandals/:id/decision", scandalWriteLimit, async (req, res) =
     });
 
     // Recompute political capital for the affected character non-blockingly
-    recomputeCharacterPoliticalState(scandal.character_id).catch((e) => console.error("[political-state] scandal.decision trigger:", e.message));
+    fireRecompute("character-political-state", "scandal.decision", () => recomputeCharacterPoliticalState(scandal.character_id), scandal.character_id);
     res.json({ ok: true, status: newStatus, stage_key: newStageKey });
   } catch (e) {
     console.error("[POST /api/mod/scandals/:id/decision]", e);
@@ -18565,7 +17223,7 @@ app.post("/api/mod/scandals/:id/close", scandalWriteLimit, async (req, res) => {
 
     // Recompute political capital for the affected character non-blockingly
     if (rows[0].character_id) {
-      recomputeCharacterPoliticalState(rows[0].character_id).catch((e) => console.error("[political-state] scandal.close trigger:", e.message));
+      fireRecompute("character-political-state", "scandal.close", () => recomputeCharacterPoliticalState(rows[0].character_id), rows[0].character_id);
     }
     res.json({ ok: true });
   } catch (e) {
@@ -19911,9 +18569,7 @@ app.post("/api/control-panel/affiliations/:rid/decide", affiliationsWriteLimit, 
 
     // Non-blocking: recompute political state after affiliation change (group pressure)
     if (row.character_id) {
-      recomputeCharacterPoliticalState(row.character_id).catch((e) =>
-        console.error("[political-state] affiliations.decide trigger:", e.message)
-      );
+      fireRecompute("character-political-state", "affiliations.decide", () => recomputeCharacterPoliticalState(row.character_id), row.character_id);
     }
   } catch (e) {
     console.error("[POST /api/control-panel/affiliations/:rid/decide]", e);
@@ -20814,8 +19470,7 @@ app.post("/api/events", crudWriteLimit, async (req, res) => {
 app.put("/api/events/:id", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
 
     // Non-staff may only update their own event (verified by character name on the stored record)
     if (!isStaff) {
@@ -21160,7 +19815,7 @@ const MAX_COMMENT_LENGTH = 400;
 
 /** Is the session user an eligible Right of Reply leader (PM, LoTO, 3rd-party leader, or Speaker)? */
 function isReplyEligible(req) {
-  const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  const roles = getSessionRoles(req);
   return roles.includes("office:prime_minister") ||
          roles.includes("office:leader_of_opposition") ||
          roles.includes("office:leader_of_third_party") ||
@@ -21170,8 +19825,7 @@ function isReplyEligible(req) {
 app.get("/api/news/:id/comments", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
     const { rows } = await pool.query(
       `SELECT nsc.id, nsc.text, nsc.original_text, nsc.created_by, nsc.created_by_name, nsc.character_name, nsc.character_id,
               nsc.sim_month, nsc.sim_year, nsc.created_at, nsc.deleted_at, nsc.deleted_by_user, nsc.reported_at,
@@ -21252,8 +19906,7 @@ app.delete("/api/news/:id/comments/:cid", crudWriteLimit, async (req, res) => {
     );
     if (!rows.length) return res.status(404).json({ error: "Comment not found" });
     if (rows[0].deleted_at) return res.status(410).json({ error: "Comment already deleted" });
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
     const isAuthor = rows[0].created_by === req.session.userId;
     if (!isStaff && !isAuthor) return res.status(403).json({ error: "Forbidden" });
     if (isAuthor && !isStaff) {
@@ -21306,7 +19959,7 @@ app.post("/api/news/:id/reply-request", crudWriteLimit, async (req, res) => {
       const { rows: cRows } = await pool.query("SELECT name FROM characters WHERE id = $1", [charId]);
       charName = cRows[0]?.name || "";
     }
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const roles = getSessionRoles(req);
     const charRole = roles.includes("office:prime_minister") ? "prime-minister"
       : roles.includes("office:leader_of_opposition") ? "leader-opposition"
       : roles.includes("office:leader_of_third_party") ? "party-leader-3rd-4th"
@@ -21794,8 +20447,7 @@ app.delete("/api/papers/:paperKey/articles/:articleId/comments/:cid", crudWriteL
     );
     if (!rows.length) return res.status(404).json({ error: "Comment not found" });
     if (rows[0].deleted_at) return res.status(410).json({ error: "Comment already deleted" });
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = roles.includes("admin") || roles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     const isAuthor = rows[0].created_by === req.session.userId;
     if (!isAdminOrMod && !isAuthor) return res.status(403).json({ error: "Forbidden" });
     await pool.query("UPDATE paper_article_comments SET deleted_at = NOW() WHERE id = $1", [req.params.cid]);
@@ -21860,8 +20512,7 @@ app.post("/api/papers/submissions", crudWriteLimit, async (req, res) => {
 app.get("/api/papers/submissions", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = roles.includes("admin") || roles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     const { paper, status, type, risk } = req.query;
     let query, params;
     if (isStaff) {
@@ -21915,8 +20566,7 @@ app.get("/api/papers/submissions", crudReadLimit, async (req, res) => {
 app.get("/api/papers/submissions/:id", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = roles.includes("admin") || roles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     const { rows } = await pool.query("SELECT * FROM paper_submissions WHERE id = $1", [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: "Submission not found" });
     const r = rows[0];
@@ -22082,7 +20732,7 @@ app.put("/api/shadowcabinet/headline", crudWriteLimit, async (req, res) => {
 
 // ── Party Faction API ─────────────────────────────────────────────────────────
 
-const FACTION_PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
+// FACTION_PLAYABLE_PARTIES imported from political-state-service.js
 
 /** Normalise a faction slug: lowercase, hyphens instead of spaces. */
 function normaliseFactionSlug(s) {
@@ -22247,6 +20897,12 @@ app.patch("/api/admin/factions/:id", verifyCsrfToken, crudWriteLimit, async (req
     vals.push(id);
     await pool.query(`UPDATE party_factions SET ${sets.join(", ")} WHERE id = $${vals.length}`, vals);
     res.json({ ok: true });
+
+    // Non-blocking: if leadership_alignment or rebellion_bias changed, faction political state may be stale
+    const factionStateFieldsChanged = body.leadershipAlignment !== undefined || body.rebellionBias !== undefined;
+    if (factionStateFieldsChanged) {
+      fireRecompute("faction-political-state", "faction.metadata.update", () => computeFactionPoliticalState(id), id);
+    }
   } catch (e) {
     if (e.code === "23505") {
       return res.status(409).json({ error: "A faction with that slug already exists for this party." });
@@ -22314,6 +20970,9 @@ app.patch("/api/admin/factions/:id/allocation", verifyCsrfToken, crudWriteLimit,
       ]
     );
     res.json({ ok: true, totalMPs, allocatedMPs: proposedTotal, remainingMPs: totalMPs - proposedTotal });
+
+    // Non-blocking: recompute faction political state now that allocation has changed
+    fireRecompute("faction-political-state", "faction.allocation.update", () => computeFactionPoliticalState(id), id);
   } catch (e) {
     console.error("[PATCH /api/admin/factions/:id/allocation]", e);
     res.status(500).json({ error: "Server error" });
