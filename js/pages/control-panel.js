@@ -16,6 +16,7 @@ import {
   apiGetSim,
   apiGetModsMessage, apiSetModsMessage,
   apiGetAdminPartyFactions, apiCreatePartyFaction, apiUpdatePartyFaction, apiUpdatePartyFactionAllocation,
+  apiAdminSeed1997Factions,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -1146,5 +1147,35 @@ export async function initControlPanelPage(data) {
     }
 
     loadAllFactions();
+
+    // ── Seed 1997 Factions button ─────────────────────────────────────────────
+    const seedBtnHtml = `
+      <div style="margin-bottom:12px;padding:10px 12px;background:var(--bg-alt,#f7f7f7);border-radius:6px;border:1px solid var(--border,#ddd);">
+        <b style="font-size:.9em;">1997 Baseline Setup</b>
+        <p class="muted" style="font-size:.82em;margin:4px 0 8px;">
+          Seeds the default 1997 starter factions for Labour, Conservative, and Liberal Democrat.
+          This is idempotent — existing factions with the same slug are not overwritten.
+          Seed values (MP counts, alignment, rebellion bias) are editable via the tiles above after seeding.
+        </p>
+        <button class="btn" id="cp-seed-1997-btn" type="button">Seed 1997 Factions</button>
+        <span id="cp-seed-1997-status" style="font-size:.85em;margin-left:8px;"></span>
+      </div>
+    `;
+    factionsRoot.insertAdjacentHTML("beforebegin", seedBtnHtml);
+    document.getElementById("cp-seed-1997-btn")?.addEventListener("click", async () => {
+      const btn = document.getElementById("cp-seed-1997-btn");
+      const statusEl = document.getElementById("cp-seed-1997-status");
+      if (btn) btn.disabled = true;
+      if (statusEl) { statusEl.style.color = ""; statusEl.textContent = "Seeding…"; }
+      try {
+        const result = await apiAdminSeed1997Factions();
+        const msg = `✓ Inserted: ${result.inserted?.length ?? 0}, skipped (already exist): ${result.skipped?.length ?? 0}`;
+        if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = msg; }
+        await loadAllFactions();
+      } catch (err) {
+        if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = `✗ ${err.message}`; }
+        if (btn) btn.disabled = false;
+      }
+    });
   }
 }

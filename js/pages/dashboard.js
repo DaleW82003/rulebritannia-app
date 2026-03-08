@@ -683,6 +683,13 @@ function renderPoliticalCapitalSummary(ps) {
     ${showPressureAlert ? `<div style="color:${pressureAlertColor};margin-top:8px;font-weight:500;">⚠️ ${esc(topChannel.label)} pressure is ${topChannel.value >= 75 ? "critical" : "high"} (${Math.round(topChannel.value)}/100) — <a href="personal.html">view full pressure profile</a>.</div>` : ""}
     ${rebellionRisk >= 50 ? `<div style="color:#c00;margin-top:6px;font-size:.9em;">🔴 Rebellion risk elevated (${rebellionRisk}/100).</div>` : ""}
     ${scandalRisk >= 50 ? `<div style="color:#c00;margin-top:6px;font-size:.9em;">🔴 Scandal risk elevated (${scandalRisk}/100).</div>` : ""}
+    ${ps.faction_climate && ps.faction_climate.climateLabel !== "stable" && ps.faction_climate.climateLabel !== "unified" ? (() => {
+      const fc = ps.faction_climate;
+      const CLIMATE_COLOURS = { tense: "#e65100", fractious: "#b71c1c" };
+      const col = CLIMATE_COLOURS[fc.climateLabel] || "#555";
+      const label = fc.climateLabel.charAt(0).toUpperCase() + fc.climateLabel.slice(1);
+      return `<div style="color:${col};margin-top:6px;font-size:.9em;">⚠️ Party climate is <b>${esc(label)}</b> — hostile factions adding +${fc.partyPressureModifier.toFixed(1)} to party pressure. <a href="party.html">View party page</a>.</div>`;
+    })() : ""}
   `;
 }
 

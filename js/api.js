@@ -3473,6 +3473,25 @@ export async function apiGetPartyFactions(slug) {
   return res.json();
 }
 
+/** Player-facing: get faction climate (balance, pressure, resilience) for a party */
+export async function apiGetPartyFactionClimate(slug) {
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(slug)}/faction-climate`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiGetPartyFactionClimate failed (${res.status})`); }
+  return res.json();
+}
+
+/** Admin/mod: idempotent seed of 1997 baseline factions for Labour, Conservative, Liberal Democrat */
+export async function apiAdminSeed1997Factions() {
+  const res = await _fetch(`${API_BASE}/api/admin/seed-1997-factions`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({}),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAdminSeed1997Factions failed (${res.status})`);
+  return body;
+}
+
 /** Fetch the active character's political capital state from the server. */
 export async function apiGetMyPoliticalState() {
   const res = await _fetch(`${API_BASE}/api/me/political-state`, { credentials: "include" });

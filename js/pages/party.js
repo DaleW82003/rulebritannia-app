@@ -1,7 +1,7 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection, apiGetPartyFactions } from "../api.js";
+import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection, apiGetPartyFactions, apiGetPartyFactionClimate } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { logAction } from "../audit.js";
 import { isLoggedIn } from "../core.js";
@@ -1088,6 +1088,44 @@ function render(data, state) {
       </div>
     </section>
     ` : ""}
+
+    ${state.factionClimate ? (() => {
+      const c = state.factionClimate;
+      const CLIMATE_COLOURS = { unified: "#2e7d32", stable: "#1565c0", tense: "#e65100", fractious: "#b71c1c" };
+      const climateColour = CLIMATE_COLOURS[c.climateLabel] || "#555";
+      const scoreBarWidth = Math.round(((c.climateScore + 100) / 200) * 100);
+      return `
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Internal Party Climate</h2>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+        <span style="font-size:1.2em;font-weight:700;color:${climateColour};">${esc(c.climateLabel.charAt(0).toUpperCase() + c.climateLabel.slice(1))}</span>
+        <span class="muted" style="font-size:.85em;">Climate score: ${c.climateScore > 0 ? "+" : ""}${Math.round(c.climateScore)}</span>
+      </div>
+      <div style="background:var(--bg-alt,#f0f0f0);border-radius:4px;height:10px;margin-bottom:10px;position:relative;overflow:hidden;">
+        <div style="position:absolute;left:0;top:0;height:100%;width:${scoreBarWidth}%;background:${climateColour};border-radius:4px;transition:width .3s;"></div>
+        <div style="position:absolute;left:50%;top:0;height:100%;width:1px;background:#999;"></div>
+      </div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:.88em;">
+        <div>
+          <span class="muted">Aligned support</span><br>
+          <b>${Math.round(c.alignedStrength)}</b>
+        </div>
+        <div>
+          <span class="muted">Hostile pressure</span><br>
+          <b>${Math.round(c.hostilePressure)}</b>
+        </div>
+        <div>
+          <span class="muted">Capital resilience bonus</span><br>
+          <b>+${c.capitalResilienceBonus.toFixed(1)}</b>
+        </div>
+        <div>
+          <span class="muted">Party pressure modifier</span><br>
+          <b>+${c.partyPressureModifier.toFixed(1)}</b>
+        </div>
+      </div>
+    </section>
+      `;
+    })() : ""}
   `;
 
   root.querySelector("#party-switch")?.addEventListener("change", async (e) => {
@@ -1099,13 +1137,14 @@ function render(data, state) {
     state.donationMessage = "";
     // Reload DB party data for the newly selected party
     try {
-      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult] = await Promise.all([
+      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult, climateResult] = await Promise.all([
         apiGetParty(next).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
         apiGetPartyStructure(next).catch(() => ({ structure: {}, treasuryOverspend: false })),
         apiGetPartyLedger(next).catch(() => ({ donations: [] })),
         apiGetWhipRequests(next, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(next).catch(() => ({ factions: [] })),
+        apiGetPartyFactionClimate(next).catch(() => ({ climate: null })),
       ]);
       if (partyResult?.party) state.dbState = { ...state.dbState, party: partyResult.party };
       const partyNameLower = next.toLowerCase();
@@ -1117,6 +1156,7 @@ function render(data, state) {
       state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
       state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
       state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
+      state.factionClimate = climateResult.climate ?? null;
     } catch (e) {
       console.warn("[party-switch] DB reload failed:", e.message);
     }
@@ -1832,6 +1872,7 @@ export async function initPartyPage(data) {
     ledger: [],
     priceIndex: 1.0,
     factions: [],
+    factionClimate: null,
     dbState: { party: null, partyCharacters: [], sessionCharId: "", partyStructure: null, treasuryOverspend: false }
   };
 
@@ -1888,11 +1929,12 @@ export async function initPartyPage(data) {
       state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
 
       // Load governance data: elections, pending expulsions, whip requests, and factions
-      const [electionsResult, expulsionsResult, whipReqResult, factionsResult] = await Promise.all([
+      const [electionsResult, expulsionsResult, whipReqResult, factionsResult, climateResult] = await Promise.all([
         apiGetPartyElections(partyId).catch(() => ({ elections: [] })),
         apiGetExpulsions("pending").catch(() => ({ expulsions: [] })),
         apiGetWhipRequests(partyId, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(partyId).catch(() => ({ factions: [] })),
+        apiGetPartyFactionClimate(partyId).catch(() => ({ climate: null })),
       ]);
       state.elections = electionsResult.elections || [];
       const openStatuses = ["nominations", "voting", "runoff"];
@@ -1902,6 +1944,7 @@ export async function initPartyPage(data) {
       );
       state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
       state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
+      state.factionClimate = climateResult.climate ?? null;
     } catch (e) {
       console.warn("[initPartyPage] DB load failed:", e.message);
     }
