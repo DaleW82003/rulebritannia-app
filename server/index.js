@@ -6683,6 +6683,7 @@ app.get("/api/bills", crudReadLimit, async (req, res) => {
     const displayNames = await batchGetCharacterDisplayNames(pool, entries);
     const bills = rows.map((r, i) => normaliseDiscourseFields({
       ...r.data,
+      author_character_id: r.author_character_id || null,
       author_display_name: displayNames[i],
       _updatedAt: r.updated_at,
     }));
@@ -6702,7 +6703,7 @@ app.get("/api/bills/:id", crudReadLimit, async (req, res) => {
     const author_display_name = r.author_character_id
       ? await getCharacterDisplayName(pool, r.author_character_id, r.data?.author || "")
       : (r.data?.author || "");
-    res.json({ bill: normaliseDiscourseFields({ ...r.data, author_display_name, _updatedAt: r.updated_at }) });
+    res.json({ bill: normaliseDiscourseFields({ ...r.data, author_character_id: r.author_character_id || null, author_display_name, _updatedAt: r.updated_at }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6990,15 +6991,16 @@ app.post("/api/bills/:id/withdraw", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
-    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    const { rows: billRows } = await pool.query("SELECT id, data, author_character_id FROM bills WHERE id = $1", [req.params.id]);
     if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
     const bill = billRows[0].data;
+    const billAuthorCharId = billRows[0].author_character_id || null;
 
     if (["passed", "failed", "withdrawn"].includes(String(bill.status || ""))) {
       return res.status(409).json({ error: "Bill is already concluded and cannot be withdrawn" });
     }
 
-    // Permission: bill author (by character name), PM, admin, or mod
+    // Permission: bill author (by character_id), PM, admin, or mod
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
     const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
     let canWithdraw = isStaff;
@@ -7006,11 +7008,11 @@ app.post("/api/bills/:id/withdraw", crudWriteLimit, async (req, res) => {
       const charId = await getActiveCharacterId(req);
       if (charId) {
         const { rows: cRows } = await pool.query(
-          "SELECT name, office, role FROM characters WHERE id = $1", [charId]
+          "SELECT office, role FROM characters WHERE id = $1", [charId]
         );
         const char = cRows[0] || {};
-        // Author match or PM
-        canWithdraw = String(char.name || "") === String(bill.author || "") ||
+        // Author match (immutable character_id) or PM
+        canWithdraw = (billAuthorCharId && String(charId) === String(billAuthorCharId)) ||
                       ["prime-minister", "leader-commons"].includes(String(char.office || "")) ||
                       String(char.role || "") === "prime-minister";
       }
@@ -7105,9 +7107,10 @@ app.post("/api/bills/:id/amendments", crudWriteLimit, async (req, res) => {
       return res.status(403).json({ error: "Only MPs may submit amendments" });
     }
 
-    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    const { rows: billRows } = await pool.query("SELECT id, data, author_character_id FROM bills WHERE id = $1", [req.params.id]);
     if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
     const bill = billRows[0].data;
+    const billAuthorCharId = billRows[0].author_character_id || null;
 
     const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
     const sm = clk[0]?.sim_current_month ?? 8;
@@ -7129,7 +7132,8 @@ app.post("/api/bills/:id/amendments", crudWriteLimit, async (req, res) => {
     );
     const amendId = `A${Number(countRows[0]?.cnt || 0) + 1}`;
 
-    const isAuthor = String(char.name || "") === String(bill.author || "");
+    // Author check uses immutable character_id (not mutable name string)
+    const isAuthor = !!(billAuthorCharId && String(charId) === String(billAuthorCharId));
     const initialStatus = isAuthor ? "accepted" : "proposed";
 
     await pool.query(
@@ -7174,9 +7178,10 @@ app.post("/api/bills/:id/amendments/:aid/decide", crudWriteLimit, async (req, re
       return res.status(400).json({ error: "decision must be 'accept' or 'refuse'" });
     }
 
-    const { rows: billRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [req.params.id]);
+    const { rows: billRows } = await pool.query("SELECT id, data, author_character_id FROM bills WHERE id = $1", [req.params.id]);
     if (!billRows.length) return res.status(404).json({ error: "Bill not found" });
     const bill = billRows[0].data;
+    const billAuthorCharId = billRows[0].author_character_id || null;
 
     const { rows: amRows } = await pool.query(
       "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2", [req.params.id, req.params.aid]
@@ -7185,13 +7190,12 @@ app.post("/api/bills/:id/amendments/:aid/decide", crudWriteLimit, async (req, re
     const am = amRows[0];
     if (am.status !== "proposed") return res.status(409).json({ error: `Amendment is already ${am.status}` });
 
-    // Only the bill author may decide
-    const { rows: cRows } = await pool.query("SELECT name FROM characters WHERE id = $1", [charId]);
-    if (!cRows.length || String(cRows[0].name) !== String(bill.author || "")) {
-      // Check if author, admin or mod
-      const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-      const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
-      if (!isStaff) return res.status(403).json({ error: "Only the bill author, admin or mod may decide on amendments" });
+    // Only the bill author may decide; authority checked via immutable character_id
+    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAuthor = !!(billAuthorCharId && String(charId) === String(billAuthorCharId));
+    if (!isAuthor && !isStaff) {
+      return res.status(403).json({ error: "Only the bill author, admin or mod may decide on amendments" });
     }
 
     if (decision === "accept") {
@@ -8808,9 +8812,10 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
       return res.status(400).json({ error: "entry.text required" });
     }
 
-    const { rows } = await pool.query("SELECT data FROM press_items WHERE id = $1", [req.params.id]);
+    const { rows } = await pool.query("SELECT data, author_character_id FROM press_items WHERE id = $1", [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: "Press item not found" });
     const item = rows[0].data;
+    const pressAuthorCharId = rows[0].author_character_id || null;
 
     const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
     const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
@@ -8822,13 +8827,10 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
         return res.status(403).json({ error: "Only staff may submit press conference questions" });
       }
     } else {
-      // Answer / walk-off: only the conference author (player)
+      // Answer / walk-off: only the conference author (player), checked via immutable character_id
       if (!req.session.characterId) return res.status(403).json({ error: "Forbidden: no active character" });
-      const { rows: charRows } = await pool.query(
-        "SELECT name FROM characters WHERE id = $1 AND user_id = $2 AND is_active = TRUE",
-        [req.session.characterId, req.session.userId]
-      );
-      if (!charRows.length || item.author !== charRows[0].name) {
+      const isAuthor = !!(pressAuthorCharId && String(req.session.characterId) === String(pressAuthorCharId));
+      if (!isAuthor) {
         return res.status(403).json({ error: "Only the conference author may add transcript entries" });
       }
       // Anti-spam: author may only answer if there is at least one unanswered question
@@ -22362,6 +22364,230 @@ app.post("/api/admin/seed-1997-factions", verifyCsrfToken, crudWriteLimit, async
     res.json({ ok: true, inserted: results.inserted, skipped: results.skipped });
   } catch (e) {
     console.error("[POST /api/admin/seed-1997-factions]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Identity / authority legacy repair endpoints ──────────────────────────────
+
+/** UUID v4 pattern — used by the legacy-identity endpoints to detect whether a
+ *  field already holds an immutable UUID rather than a mutable name string. */
+const AUTHOR_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Pure helper: given an array of {id, name} character objects and a target name,
+ * returns the character's id when exactly one character matches (case-insensitive,
+ * trimmed). Returns null when the match is absent or ambiguous.
+ */
+function resolveCharacterIdByName(characters, targetName) {
+  if (!targetName || typeof targetName !== "string") return null;
+  const norm = targetName.toLowerCase().trim();
+  if (!norm) return null;
+  const matches = characters.filter((c) => c && typeof c.name === "string" && c.name.toLowerCase().trim() === norm);
+  return matches.length === 1 ? matches[0].id : null;
+}
+
+// GET /api/admin/legacy-identity-report — admin/mod: visibility into unresolved legacy rows
+app.get("/api/admin/legacy-identity-report", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const [billsTotal, billsMissing, pressTotal, pressMissingNonNpc, cabDrafts, shdDrafts] = await Promise.all([
+      pool.query("SELECT COUNT(*) AS cnt FROM bills"),
+      pool.query("SELECT COUNT(*) AS cnt FROM bills WHERE author_character_id IS NULL"),
+      pool.query("SELECT COUNT(*) AS cnt FROM press_items"),
+      pool.query(`
+        SELECT COUNT(*) AS cnt
+          FROM press_items
+         WHERE author_character_id IS NULL
+           AND (data->>'npcAuthor') IS NULL
+           AND data->>'author' IS NOT NULL
+           AND data->>'author' != ''
+      `),
+      pool.query("SELECT drafts FROM group_drafts WHERE group_key = 'cabinet'"),
+      pool.query("SELECT drafts FROM group_drafts WHERE group_key = 'shadowcabinet'"),
+    ]);
+
+    const countLegacyDrafts = (drafts) =>
+      (Array.isArray(drafts) ? drafts : []).filter((d) => d && d.authorId && !AUTHOR_UUID_RE.test(String(d.authorId))).length;
+
+    const cabDraftArr = cabDrafts.rows[0]?.drafts || [];
+    const shdDraftArr = shdDrafts.rows[0]?.drafts || [];
+
+    res.json({
+      ok: true,
+      bills: {
+        total: Number(billsTotal.rows[0]?.cnt ?? 0),
+        missing_author_id: Number(billsMissing.rows[0]?.cnt ?? 0),
+      },
+      press_items: {
+        total: Number(pressTotal.rows[0]?.cnt ?? 0),
+        missing_author_id_non_npc: Number(pressMissingNonNpc.rows[0]?.cnt ?? 0),
+      },
+      group_drafts: {
+        cabinet: {
+          total_drafts: cabDraftArr.length,
+          legacy_author_id: countLegacyDrafts(cabDraftArr),
+        },
+        shadowcabinet: {
+          total_drafts: shdDraftArr.length,
+          legacy_author_id: countLegacyDrafts(shdDraftArr),
+        },
+      },
+    });
+  } catch (e) {
+    console.error("[GET /api/admin/legacy-identity-report]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/repair/backfill-author-ids — admin/mod: backfill missing author_character_id
+// Idempotent: only fills NULL fields; skips NPC items; only links when the match is unambiguous.
+app.post("/api/admin/repair/backfill-author-ids", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    // ── 1. Backfill bills.author_character_id ─────────────────────────────────
+    // For each bill without an author_character_id, look up by data->>'author' name.
+    // Only update when exactly one active character has that name.
+    const { rows: billsUpdated } = await pool.query(`
+      WITH candidates AS (
+        SELECT b.id AS bill_id,
+               COUNT(c.id)          AS match_count,
+               (ARRAY_AGG(c.id))[1] AS char_id
+          FROM bills b
+          JOIN characters c
+            ON LOWER(TRIM(c.name)) = LOWER(TRIM(b.data->>'author'))
+           AND c.is_active = TRUE
+         WHERE b.author_character_id IS NULL
+           AND b.data->>'author'     IS NOT NULL
+           AND b.data->>'author'     != ''
+           AND (b.data->>'npc')      IS NULL
+         GROUP BY b.id
+      )
+      UPDATE bills b
+         SET author_character_id = candidates.char_id
+        FROM candidates
+       WHERE candidates.bill_id   = b.id
+         AND candidates.match_count = 1
+      RETURNING b.id, b.data->>'author' AS author_name, b.author_character_id
+    `);
+
+    // Count ambiguous bills (multiple character name matches) — not updated, only reported
+    const { rows: billsAmbiguous } = await pool.query(`
+      SELECT b.id, b.data->>'author' AS author_name, COUNT(c.id) AS match_count
+        FROM bills b
+        JOIN characters c
+          ON LOWER(TRIM(c.name)) = LOWER(TRIM(b.data->>'author'))
+         AND c.is_active = TRUE
+       WHERE b.author_character_id IS NULL
+         AND b.data->>'author'     IS NOT NULL
+         AND b.data->>'author'     != ''
+         AND (b.data->>'npc')      IS NULL
+       GROUP BY b.id
+      HAVING COUNT(c.id) > 1
+    `);
+
+    // ── 2. Backfill press_items.author_character_id ───────────────────────────
+    const { rows: pressUpdated } = await pool.query(`
+      WITH candidates AS (
+        SELECT p.id AS press_id,
+               COUNT(c.id)          AS match_count,
+               (ARRAY_AGG(c.id))[1] AS char_id
+          FROM press_items p
+          JOIN characters c
+            ON LOWER(TRIM(c.name)) = LOWER(TRIM(p.data->>'author'))
+           AND c.is_active = TRUE
+         WHERE p.author_character_id IS NULL
+           AND (p.data->>'npcAuthor') IS NULL
+           AND p.data->>'author'      IS NOT NULL
+           AND p.data->>'author'      != ''
+         GROUP BY p.id
+      )
+      UPDATE press_items p
+         SET author_character_id = candidates.char_id
+        FROM candidates
+       WHERE candidates.press_id   = p.id
+         AND candidates.match_count = 1
+      RETURNING p.id, p.data->>'author' AS author_name, p.author_character_id
+    `);
+
+    const { rows: pressAmbiguous } = await pool.query(`
+      SELECT p.id, p.data->>'author' AS author_name, COUNT(c.id) AS match_count
+        FROM press_items p
+        JOIN characters c
+          ON LOWER(TRIM(c.name)) = LOWER(TRIM(p.data->>'author'))
+         AND c.is_active = TRUE
+       WHERE p.author_character_id IS NULL
+         AND (p.data->>'npcAuthor') IS NULL
+         AND p.data->>'author'      IS NOT NULL
+         AND p.data->>'author'      != ''
+       GROUP BY p.id
+      HAVING COUNT(c.id) > 1
+    `);
+
+    // ── 3. Backfill group_drafts authorId fields ──────────────────────────────
+    // Load all characters once for name resolution
+    const { rows: allChars } = await pool.query("SELECT id, name FROM characters WHERE is_active = TRUE");
+
+    let groupDraftsResolved = 0;
+    let groupDraftsAmbiguous = 0;
+    let groupDraftsUnresolvable = 0;
+
+    for (const groupKey of ["cabinet", "shadowcabinet"]) {
+      const { rows } = await pool.query("SELECT drafts FROM group_drafts WHERE group_key = $1", [groupKey]);
+      const drafts = Array.isArray(rows[0]?.drafts) ? rows[0].drafts : [];
+      let changed = false;
+
+      for (const draft of drafts) {
+        if (!draft || !draft.authorId) continue;
+        // Already a UUID — nothing to do
+        if (AUTHOR_UUID_RE.test(String(draft.authorId))) continue;
+
+        const charId = resolveCharacterIdByName(allChars, String(draft.authorId));
+        if (charId) {
+          draft.authorId = charId;
+          changed = true;
+          groupDraftsResolved += 1;
+        } else {
+          // Determine if ambiguous or simply unresolvable
+          const norm = String(draft.authorId).toLowerCase().trim();
+          const matchCount = allChars.filter((c) => c.name && c.name.toLowerCase().trim() === norm).length;
+          if (matchCount > 1) groupDraftsAmbiguous += 1;
+          else                groupDraftsUnresolvable += 1;
+        }
+      }
+
+      if (changed) {
+        await pool.query(
+          `UPDATE group_drafts SET drafts = $1::jsonb, updated_at = NOW() WHERE group_key = $2`,
+          [JSON.stringify(drafts), groupKey]
+        );
+      }
+    }
+
+    // ── Audit log ─────────────────────────────────────────────────────────────
+    const summary = {
+      bills_resolved:   billsUpdated.length,
+      bills_ambiguous:  billsAmbiguous.length,
+      press_resolved:   pressUpdated.length,
+      press_ambiguous:  pressAmbiguous.length,
+      drafts_resolved:  groupDraftsResolved,
+      drafts_ambiguous: groupDraftsAmbiguous,
+      drafts_unresolvable: groupDraftsUnresolvable,
+    };
+    if (Object.values(summary).some((v) => v > 0)) {
+      await writeAuditLog(req.session.userId, "admin.repair.backfill-author-ids", "system", null, null, summary);
+    }
+
+    res.json({
+      ok: true,
+      bills:        { resolved: billsUpdated.length,  ambiguous: billsAmbiguous.length },
+      press_items:  { resolved: pressUpdated.length,  ambiguous: pressAmbiguous.length },
+      group_drafts: { resolved: groupDraftsResolved, ambiguous: groupDraftsAmbiguous, unresolvable: groupDraftsUnresolvable },
+    });
+  } catch (e) {
+    console.error("[POST /api/admin/repair/backfill-author-ids]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
