@@ -4990,6 +4990,21 @@ async function ensureEntityDebateTopic({ table, entityId, title, raw, categoryId
  * Sync the five key object tables from a full game-state snapshot.
  * Called whenever POST /api/state saves a new snapshot, keeping the
  * tables as a derived cache.  Uses batched upserts inside a transaction.
+ *
+ * STATE OWNERSHIP — DERIVED CACHE ONLY
+ * This function manages the following derived/read-model tables only:
+ *   bills, motions, statements, regulations, questiontime_questions
+ *
+ * The following tables are RELATIONAL-AUTHORITATIVE and must NEVER be
+ * written here.  They have their own dedicated API routes and lifecycle:
+ *   divisions            — written by /api/divisions/* routes
+ *   bill_amendments      — written by /api/bills/:id/amendments/* routes
+ *   party_factions       — written by /api/parties/:id/factions/* routes
+ *   faction_political_state — written by faction management routes
+ *   character_finance    — written by /api/admin/finance/* routes
+ *
+ * Adding any of those tables here would create a competing source of truth
+ * for live gameplay systems and must be treated as a bug.
  */
 async function syncObjectTables(data) {
   const client = await pool.connect();
@@ -5601,6 +5616,28 @@ app.post("/api/admin/registrations/:id/reject", regAdminLimit, verifyCsrfToken, 
 
 /**
  * STATE
+ *
+ * STATE OWNERSHIP BOUNDARY
+ * ─────────────────────────────────────────────────────────────────────────
+ * SNAPSHOT-BACKED (stored in state_snapshots.data JSONB):
+ *   gameState       — simulation clock, pause flag, sim start config
+ *   orderPaperCommons — bills (synced → bills table as derived cache)
+ *   motions         — house and EDM motions (synced → motions table)
+ *   statements      — press statements (synced → statements table)
+ *   regulations     — regulations (synced → regulations table)
+ *   questionTime    — question time items (synced → questiontime_questions)
+ *   papers, news, polling, economy, parliament, etc.
+ *
+ * RELATIONAL-AUTHORITATIVE (NOT stored in the snapshot; dedicated tables):
+ *   divisions / division_votes     — source of truth for all divisions
+ *   bill_amendments                — source of truth for all amendments
+ *   party_factions / faction_political_state — faction & political state
+ *   character_finance / finance_config / finance_applied — finance system
+ *
+ * Snapshot save/restore/import MUST NOT become an alternate write path for
+ * relational-authoritative systems.  syncObjectTables() enforces this by
+ * only touching the five derived-cache tables listed above.
+ * ─────────────────────────────────────────────────────────────────────────
  */
 app.get("/api/state", async (req, res) => {
   try {
@@ -5654,7 +5691,8 @@ app.post("/api/state", async (req, res) => {
       [snapshotId]
     );
 
-    // Keep the object tables in sync with the new state
+    // Sync derived object-cache tables only — relational-authoritative tables
+    // are not touched. See syncObjectTables() for the full ownership boundary.
     try { await syncObjectTables(data); } catch (syncErr) { console.error("[syncObjectTables]", syncErr); }
 
     // Sync sim_clock and sim_state with the gameState from the snapshot so that
@@ -5689,6 +5727,12 @@ app.post("/api/state", async (req, res) => {
  * GET  /api/snapshots                — admin: list all snapshots
  * POST /api/snapshots                — admin: create named snapshot { label, data }
  * POST /api/snapshots/:id/restore    — admin: set current pointer to snapshot (O(1))
+ *
+ * OWNERSHIP NOTE: snapshot operations store/restore only snapshot-backed state
+ * (gameState, bills, motions, statements, regulations, questionTime, etc.).
+ * Relational-authoritative systems (divisions, amendments, factions, political
+ * state, finance) are NEVER overwritten by snapshot save, restore, or import.
+ * Those systems have dedicated routes as their sole write path.
  */
 app.get("/api/snapshots", async (req, res) => {
   try {
@@ -9854,12 +9898,18 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
  *
  * All endpoints require the admin role.
  *
- * POST /api/admin/clear-cache          — truncate the 5 object-cache tables
- * POST /api/admin/rebuild-cache        — re-sync object tables from the current snapshot
+ * POST /api/admin/clear-cache          — truncate the 5 object-cache tables (dev/staff only)
+ * POST /api/admin/rebuild-cache        — re-sync derived object-cache tables from the current snapshot
  * POST /api/admin/rotate-sessions      — regenerate the caller's own session ID + new CSRF token
  * POST /api/admin/force-logout-all     — delete every session except the caller's
  * GET  /api/admin/export-snapshot      — download the current snapshot as a JSON file attachment
- * POST /api/admin/import-snapshot      — accept { label, data } body, save as new snapshot + set current
+ * POST /api/admin/import-snapshot      — accept { label, data } body, save as new snapshot + set current (dev/staff only)
+ *
+ * OWNERSHIP NOTE: clear-cache and rebuild-cache operate ONLY on the five
+ * derived object-cache tables.  They do NOT touch relational-authoritative
+ * tables.  import-snapshot likewise only calls syncObjectTables() which
+ * honours the same boundary.  See syncObjectTables() for the full
+ * ownership documentation.
  */
 const maintLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
 
@@ -9886,7 +9936,10 @@ app.post("/api/admin/clear-cache", maintLimit, async (req, res) => {
   }
 });
 
-// Rebuild object-cache tables from the current snapshot
+// Rebuild derived object-cache tables from the current snapshot.
+// Scope: bills, motions, statements, regulations, questiontime_questions ONLY.
+// Relational-authoritative tables (divisions, bill_amendments, party_factions,
+// faction_political_state, character_finance) are NOT modified.
 app.post("/api/admin/rebuild-cache", maintLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
@@ -10041,6 +10094,11 @@ app.get("/api/admin/export-snapshot", maintLimit, async (req, res) => {
 
 // Import a snapshot from a JSON body: { label, data }
 // Saves as a new snapshot and sets it as the active current state.
+// Restricted to dev/staff environments via isDevSeedAllowed().
+// Only derived object-cache tables (bills, motions, statements, regulations,
+// questiontime_questions) are rebuilt from the imported data.
+// Relational-authoritative tables (divisions, bill_amendments, party_factions,
+// faction_political_state, character_finance) are NOT overwritten.
 app.post("/api/admin/import-snapshot", maintLimit, async (req, res) => {
   try {
     if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
@@ -10069,6 +10127,8 @@ app.post("/api/admin/import-snapshot", maintLimit, async (req, res) => {
       [snap.id]
     );
 
+    // Rebuilds derived cache only — relational tables untouched.
+    // See syncObjectTables() for the full ownership boundary documentation.
     let cacheWarning = null;
     try {
       await syncObjectTables(data);
