@@ -4,7 +4,7 @@ import { canManage } from "../permissions.js";
 import { getSimDate } from "../clock.js";
 import { getEducationOptions, getCareerOptions, getFamilyOptions } from "../character-enums.js";
 import { seatTaken, allConstituenciesForPartyWithStatus, renderConstituencyOptions } from "../constituency-utils.js";
-import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetCharacterOfficesHeld, apiGetConstituencies, apiGetMyCharacters, apiGetMyApplications, apiApplyCharacter } from "../api.js";
+import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetCharacterOfficesHeld, apiGetConstituencies, apiGetMyCharacters, apiGetMyApplications, apiApplyCharacter, apiGetMyPoliticalState } from "../api.js";
 import { logAction } from "../audit.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
@@ -1314,6 +1314,40 @@ function render(data, state) {
         </div>
       </article>
 
+      <article class="tile" style="grid-column:1/-1;">
+        <h2 style="margin-top:0;">Political Capital</h2>
+        ${state.politicalState ? (() => {
+          const ps = state.politicalState;
+          const momentumIcon = ps.momentum === "rising" ? "📈" : ps.momentum === "falling" ? "📉" : "➡️";
+          const momentumColor = ps.momentum === "rising" ? "#0a7f2e" : ps.momentum === "falling" ? "#c00" : "inherit";
+          const repColors = { excellent: "#0a5a8a", good: "#0a7f2e", neutral: "inherit", poor: "#b06000", damaged: "#c00" };
+          const repColor = repColors[ps.reputation] || "inherit";
+          const repLabel = { excellent: "Excellent", good: "Good", neutral: "Neutral", poor: "Poor", damaged: "Damaged" }[ps.reputation] || ps.reputation;
+          const breakdown = Array.isArray(ps.breakdown) ? ps.breakdown : [];
+          return `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 20px;margin-bottom:10px;">
+              <div><b>Capital:</b> <span style="font-size:1.15em;font-weight:600;">${Math.round(Number(ps.capital_current ?? 0))}</span></div>
+              <div><b>Trend:</b> <span style="color:${momentumColor};">${momentumIcon} ${Number(ps.capital_trend) >= 0 ? "+" : ""}${Math.round(Number(ps.capital_trend ?? 0))}</span></div>
+              <div><b>Momentum:</b> <span style="color:${momentumColor};text-transform:capitalize;">${esc(ps.momentum)}</span></div>
+              <div><b>Reputation:</b> <span style="color:${repColor};">${esc(repLabel)}</span></div>
+            </div>
+            ${breakdown.length ? `
+              <details>
+                <summary style="cursor:pointer;font-weight:500;font-size:.9em;">Why this score?</summary>
+                <div style="margin-top:6px;display:grid;gap:4px;font-size:.88em;line-height:1.7;">
+                  ${breakdown.map((b) => `
+                    <div style="display:flex;justify-content:space-between;gap:8px;">
+                      <span class="muted">${esc(b.label)}</span>
+                      <b style="color:${Number(b.delta) >= 0 ? "#0a7f2e" : "#c00"};">${Number(b.delta) >= 0 ? "+" : ""}${Math.round(Number(b.delta))}</b>
+                    </div>
+                  `).join("")}
+                </div>
+              </details>
+            ` : ""}
+          `;
+        })() : `<div class="muted-block" style="font-size:.9em;">Political capital is loading…</div>`}
+      </article>
+
       <article class="tile" style="min-height:240px;">
         <h2 style="margin-top:0;">Income &amp; Upkeep Summary</h2>
         <div style="line-height:1.8;">
@@ -2174,7 +2208,7 @@ function syncFinanceIntoProfile(profile, fin, data, profileName, state) {
 
 export async function initPersonalPage(data) {
   normalisePersonal(data);
-  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined, affiliationsMonthlyFees: undefined, affiliationsMonthlyFeesItems: undefined, enums: null, officeHistory: null, dbState: { myCharacters: [], myApplications: [] } };
+  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined, affiliationsMonthlyFees: undefined, affiliationsMonthlyFeesItems: undefined, enums: null, officeHistory: null, politicalState: null, dbState: { myCharacters: [], myApplications: [] } };
 
   if (!isLoggedIn()) {
     render(data, state);
@@ -2282,6 +2316,12 @@ export async function initPersonalPage(data) {
       render(data, state);
     }).catch(() => {});
   }
+
+  // Load political capital state non-blocking; re-render once data arrives.
+  apiGetMyPoliticalState().then(({ politicalState }) => {
+    state.politicalState = politicalState ?? null;
+    render(data, state);
+  }).catch(() => {});
 
   render(data, state);
 }

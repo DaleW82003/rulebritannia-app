@@ -2116,6 +2116,21 @@ async function ensureSchema() {
       updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  // ── Political capital state ───────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS character_political_state (
+      character_id     UUID PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+      capital_current  NUMERIC(8,2) NOT NULL DEFAULT 0,
+      capital_trend    NUMERIC(8,2) NOT NULL DEFAULT 0,
+      momentum         TEXT NOT NULL DEFAULT 'stable'
+                       CHECK (momentum IN ('rising','stable','falling')),
+      reputation       TEXT NOT NULL DEFAULT 'neutral'
+                       CHECK (reputation IN ('excellent','good','neutral','poor','damaged')),
+      breakdown        JSONB NOT NULL DEFAULT '[]'::jsonb,
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
 }
 
 // ── Property / Finance model constants ────────────────────────────────────────
@@ -2520,6 +2535,198 @@ async function recomputeSalaryPositions(characterId) {
   } finally {
     client.release();
   }
+}
+
+// ── Political capital computation ─────────────────────────────────────────────
+
+/**
+ * Compute and persist a character's political capital state from authoritative
+ * DB data. Weights are intentionally simple and human-readable so the score
+ * is always explainable.
+ *
+ * Score components (each produces a signed delta and a label):
+ *   offices held          +30 PM, +20 cabinet/leader-commons-or-opposition, +10 shadow cabinet, +8 other
+ *   press (marked items)  +3 per positive (score>0), −5 per negative (score<0)
+ *   scandals              −10 per open/awaiting, −15 per closed scandal (severity>3)
+ *   work plan             +5 if work plan updated in last 3 sim periods
+ *   party leadership role +12 party leader, +6 chief/deputy whip, +4 whip/chairman
+ */
+async function recomputeCharacterPoliticalState(characterId) {
+  const breakdown = [];
+  let total = 0;
+
+  // ── Offices ────────────────────────────────────────────────────────────────
+  const { rows: officeRows } = await pool.query(
+    `SELECT o.spec_id, o.type
+       FROM office_assignments oa
+       JOIN offices o ON o.id = oa.office_id
+      WHERE oa.character_id = $1`,
+    [characterId]
+  );
+  for (const { spec_id, type } of officeRows) {
+    let delta = 0;
+    let label = "";
+    if (spec_id === "prime-minister") {
+      delta = 30; label = "Prime Minister";
+    } else if (spec_id === "leader-opposition") {
+      delta = 20; label = "Leader of the Opposition";
+    } else if (spec_id === "leader-commons") {
+      delta = 15; label = "Leader of the House of Commons";
+    } else if (type === "cabinet") {
+      delta = 20; label = `Cabinet office (${spec_id})`;
+    } else if (type === "shadow") {
+      delta = 10; label = `Shadow cabinet office (${spec_id})`;
+    } else {
+      delta = 8;  label = `Parliamentary office (${spec_id || type})`;
+    }
+    total += delta;
+    breakdown.push({ category: "office", label, delta });
+  }
+
+  // ── Press items ────────────────────────────────────────────────────────────
+  const { rows: pressRows } = await pool.query(
+    `SELECT (data->>'score')::numeric AS score
+       FROM press_items
+      WHERE author_character_id = $1
+        AND data->>'is_marked' = 'true'`,
+    [characterId]
+  );
+  let positivePress = 0;
+  let negativePress = 0;
+  for (const { score } of pressRows) {
+    const s = Number(score ?? 0);
+    if (s > 0) positivePress++;
+    else if (s < 0) negativePress++;
+  }
+  if (positivePress > 0) {
+    const delta = positivePress * 3;
+    total += delta;
+    breakdown.push({ category: "press", label: `${positivePress} positive press item${positivePress !== 1 ? "s" : ""}`, delta });
+  }
+  if (negativePress > 0) {
+    const delta = negativePress * -5;
+    total += delta;
+    breakdown.push({ category: "press", label: `${negativePress} negative press item${negativePress !== 1 ? "s" : ""}`, delta });
+  }
+
+  // ── Scandals ───────────────────────────────────────────────────────────────
+  const { rows: scandalRows } = await pool.query(
+    `SELECT status, severity_current
+       FROM scandals
+      WHERE character_id = $1`,
+    [characterId]
+  );
+  let activeScandals = 0;
+  let heavyClosedScandals = 0;
+  for (const { status, severity_current } of scandalRows) {
+    if (status === "open" || status === "awaiting_mod") {
+      activeScandals++;
+    } else if (status === "closed" && Number(severity_current) > 3) {
+      heavyClosedScandals++;
+    }
+  }
+  if (activeScandals > 0) {
+    const delta = activeScandals * -10;
+    total += delta;
+    breakdown.push({ category: "scandal", label: `${activeScandals} active scandal${activeScandals !== 1 ? "s" : ""}`, delta });
+  }
+  if (heavyClosedScandals > 0) {
+    const delta = heavyClosedScandals * -15;
+    total += delta;
+    breakdown.push({ category: "scandal", label: `${heavyClosedScandals} major resolved scandal${heavyClosedScandals !== 1 ? "s" : ""}`, delta });
+  }
+
+  // ── Work plan ──────────────────────────────────────────────────────────────
+  const { rows: wpRows } = await pool.query(
+    `SELECT last_saved_sim_index
+       FROM character_work_plans
+      WHERE character_id = $1`,
+    [characterId]
+  );
+  if (wpRows.length > 0) {
+    const { rows: clkRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+    );
+    const simMonth = clkRows[0]?.sim_current_month ?? 8;
+    const simYear  = clkRows[0]?.sim_current_year  ?? 1997;
+    const currentIndex = (simYear - 1997) * 12 + (simMonth - 1);
+    const savedIndex = Number(wpRows[0].last_saved_sim_index ?? 0);
+    if (currentIndex - savedIndex <= 3) {
+      const delta = 5;
+      total += delta;
+      breakdown.push({ category: "work_plan", label: "Active work plan", delta });
+    }
+  }
+
+  // ── Party leadership / whip roles ──────────────────────────────────────────
+  const { rows: partyRows } = await pool.query(
+    `SELECT slug,
+            leader_character_id,
+            chairman_character_id,
+            chief_whip_character_id,
+            deputy_whip_character_id,
+            whip_character_id
+       FROM parties`,
+    []
+  );
+  const charIdStr = String(characterId);
+  for (const p of partyRows) {
+    if (String(p.leader_character_id) === charIdStr) {
+      const delta = 12;
+      total += delta;
+      breakdown.push({ category: "party", label: `Party leader (${p.slug})`, delta });
+    } else if (
+      String(p.chief_whip_character_id) === charIdStr ||
+      String(p.deputy_whip_character_id) === charIdStr
+    ) {
+      const delta = 6;
+      total += delta;
+      breakdown.push({ category: "party", label: `Chief/Deputy Whip (${p.slug})`, delta });
+    } else if (String(p.whip_character_id) === charIdStr) {
+      const delta = 4;
+      total += delta;
+      breakdown.push({ category: "party", label: `Whip (${p.slug})`, delta });
+    } else if (String(p.chairman_character_id) === charIdStr) {
+      const delta = 4;
+      total += delta;
+      breakdown.push({ category: "party", label: `Party chairman (${p.slug})`, delta });
+    }
+  }
+
+  // ── Derive momentum and reputation ─────────────────────────────────────────
+  const { rows: prevRows } = await pool.query(
+    "SELECT capital_current FROM character_political_state WHERE character_id = $1",
+    [characterId]
+  );
+  const previousCapital = prevRows.length ? Number(prevRows[0].capital_current) : null;
+  const capitalTrend = previousCapital !== null ? total - previousCapital : 0;
+
+  let momentum = "stable";
+  if (capitalTrend >= 5) momentum = "rising";
+  else if (capitalTrend <= -5) momentum = "falling";
+
+  let reputation = "neutral";
+  if (total >= 60) reputation = "excellent";
+  else if (total >= 30) reputation = "good";
+  else if (total >= 10) reputation = "neutral";
+  else if (total >= -10) reputation = "poor";
+  else reputation = "damaged";
+
+  await pool.query(
+    `INSERT INTO character_political_state
+       (character_id, capital_current, capital_trend, momentum, reputation, breakdown, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
+     ON CONFLICT (character_id) DO UPDATE
+       SET capital_current = EXCLUDED.capital_current,
+           capital_trend   = EXCLUDED.capital_trend,
+           momentum        = EXCLUDED.momentum,
+           reputation      = EXCLUDED.reputation,
+           breakdown       = EXCLUDED.breakdown,
+           updated_at      = now()`,
+    [characterId, total, capitalTrend, momentum, reputation, JSON.stringify(breakdown)]
+  );
+
+  return { capital_current: total, capital_trend: capitalTrend, momentum, reputation, breakdown };
 }
 
 // ── Salary computation helpers ────────────────────────────────────────────────
@@ -7973,7 +8180,7 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
       : {};
 
     const { rows } = await pool.query(
-      "SELECT data, press_type FROM press_items WHERE id = $1",
+      "SELECT data, press_type, author_character_id FROM press_items WHERE id = $1",
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Press item not found" });
@@ -7996,6 +8203,10 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
       [JSON.stringify(item), req.params.id]
     );
     await writeAuditLog(req.session.userId, "press.mark", "press_items", req.params.id, prevData, item);
+    // Recompute political capital for author non-blockingly
+    if (rows[0].author_character_id) {
+      recomputeCharacterPoliticalState(rows[0].author_character_id).catch((e) => console.error("[political-state] press.mark trigger:", e.message));
+    }
     res.json({ ok: true, id: updated[0].id, updatedAt: updated[0].updated_at, item });
   } catch (e) {
     console.error("[POST /api/press/:id/mark]", e);
@@ -13588,6 +13799,8 @@ app.post("/api/me/work-plan", cwpWriteLimit, async (req, res) => {
       [charId, JSON.stringify(hours), String(secondJobTitleCompany).slice(0, MAX_JOB_TITLE_LENGTH), Number(lastSavedSimIndex) || 0]
     );
     await writeAuditLog(req.session.userId, "work_plan.save", "character_work_plans", charId, null, { lastSavedSimIndex });
+    // Recompute political capital non-blockingly after work plan save
+    recomputeCharacterPoliticalState(charId).catch((e) => console.error("[political-state] work_plan trigger:", e.message));
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/me/work-plan]", e);
@@ -13600,6 +13813,26 @@ app.post("/api/me/work-plan", cwpWriteLimit, async (req, res) => {
 // DELETE /api/offices/:id/assign/:characterId — admin: remove assignment
 // GET    /api/characters/:id/offices-held — office assignment history
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ── GET /api/me/political-state ───────────────────────────────────────────────
+const politicalStateReadLimit = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/me/political-state", politicalStateReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const charId = await getActiveCharacterId(req);
+    if (!charId) return res.status(404).json({ error: "No active character" });
+
+    // Recompute fresh each request for correctness; result is cached in DB for trend calculation
+    const state = await recomputeCharacterPoliticalState(charId);
+    res.json({ ok: true, politicalState: state });
+  } catch (e) {
+    console.error("[GET /api/me/political-state]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+// ═══════════════════════════════════════════════════════════════════════════
+
 
 const SIM_MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
@@ -13850,6 +14083,10 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
       enqueueDiscourseGroupSync(`office assign: ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`);
     }
 
+    // Recompute political capital for assigned (and displaced) character non-blockingly
+    for (const cid of [character_id, oldCharId].filter(Boolean)) {
+      recomputeCharacterPoliticalState(cid).catch((e) => console.error("[political-state] office.assign trigger:", e.message));
+    }
     res.status(201).json({ ok: true, assignment: rows[0] });
   } catch (e) {
     console.error(e);
@@ -13928,6 +14165,8 @@ app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req,
       enqueueDiscourseGroupSync(`office unassign: ${OFFICE_SPEC_TITLES[office.spec_id] || office.name}`);
     }
 
+    // Recompute political capital for unassigned character non-blockingly
+    recomputeCharacterPoliticalState(req.params.characterId).catch((e) => console.error("[political-state] office.unassign trigger:", e.message));
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
@@ -17232,6 +17471,8 @@ app.post("/api/scandals/:id/choose", scandalWriteLimit, async (req, res) => {
     );
 
     res.json({ ok: true, next_stage_key: nextStageKey, status: newStatus });
+    // Recompute political capital non-blockingly after scandal choice
+    recomputeCharacterPoliticalState(characterId).catch((e) => console.error("[political-state] scandal.choose trigger:", e.message));
   } catch (e) {
     console.error("[POST /api/scandals/:id/choose]", e);
     res.status(500).json({ error: "Server error" });
@@ -17496,6 +17737,8 @@ app.post("/api/mod/scandals/:id/decision", scandalWriteLimit, async (req, res) =
       decision_type, severity_delta, next_stage_key,
     });
 
+    // Recompute political capital for the affected character non-blockingly
+    recomputeCharacterPoliticalState(scandal.character_id).catch((e) => console.error("[political-state] scandal.decision trigger:", e.message));
     res.json({ ok: true, status: newStatus, stage_key: newStageKey });
   } catch (e) {
     console.error("[POST /api/mod/scandals/:id/decision]", e);
@@ -17511,13 +17754,17 @@ app.post("/api/mod/scandals/:id/close", scandalWriteLimit, async (req, res) => {
     const { rows } = await pool.query(
       `UPDATE scandals SET status = 'closed', closed_at = now()
         WHERE id = $1 AND status != 'closed'
-        RETURNING id`,
+        RETURNING id, character_id`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Scandal not found or already closed" });
 
     await writeAuditLog(req.session.userId, "scandal.mod.close", "scandals", req.params.id, null, null);
 
+    // Recompute political capital for the affected character non-blockingly
+    if (rows[0].character_id) {
+      recomputeCharacterPoliticalState(rows[0].character_id).catch((e) => console.error("[political-state] scandal.close trigger:", e.message));
+    }
     res.json({ ok: true });
   } catch (e) {
     console.error("[POST /api/mod/scandals/:id/close]", e);

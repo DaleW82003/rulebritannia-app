@@ -3472,3 +3472,10 @@ export async function apiGetPartyFactions(slug) {
   if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiGetPartyFactions failed (${res.status})`); }
   return res.json();
 }
+
+/** Fetch the active character's political capital state from the server. */
+export async function apiGetMyPoliticalState() {
+  const res = await _fetch(`${API_BASE}/api/me/political-state`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetMyPoliticalState failed (${res.status})`);
+  return res.json();
+}
