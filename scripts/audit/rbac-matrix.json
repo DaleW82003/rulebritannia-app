@@ -238,11 +238,14 @@
       "method": "POST",
       "path": "/api/press",
       "roles": [
-        "authenticated"
+        "admin",
+        "mod",
+        "speaker"
       ],
       "immutable": true,
       "category": "parliament",
-      "immutable_note": "Press items cannot be edited by author after submit"
+      "immutable_note": "Press items cannot be edited by author after submit",
+      "rationale": "Any authenticated user may create standard press items. However, the route also handles NPC-authored comments (npcAuthor flag), which require admin, mod, or speaker. The server enforces requireAuth as the base check and then gates the npcAuthor path behind an explicit roles check for admin/mod/speaker. The manifest infers [admin,mod,speaker] from the in-handler roles check within the scan window."
     },
     {
       "method": "PUT",
@@ -811,7 +814,8 @@
       "method": "POST",
       "path": "/api/admin/characters/:id/assign-owner",
       "roles": [
-        "admin"
+        "admin",
+        "mod"
       ],
       "immutable": false,
       "category": "characters"
@@ -820,7 +824,8 @@
       "method": "POST",
       "path": "/api/admin/users/:id/active-character",
       "roles": [
-        "admin"
+        "admin",
+        "mod"
       ],
       "immutable": false,
       "category": "characters"
