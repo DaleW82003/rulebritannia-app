@@ -655,6 +655,22 @@ function renderPoliticalCapitalSummary(ps) {
   const trend   = Number(ps.capital_trend ?? 0);
   const majorDrop = trend <= -10;
 
+  // Identify the highest pressure channel for the warning alert
+  const channels = [
+    { label: "Party",         value: Number(ps.party_pressure        ?? 0) },
+    { label: "Constituency",  value: Number(ps.constituency_pressure ?? 0) },
+    { label: "Media",         value: Number(ps.media_pressure        ?? 0) },
+    { label: "Group",         value: Number(ps.group_pressure        ?? 0) },
+    { label: "Institutional", value: Number(ps.institutional_pressure ?? 0) },
+  ];
+  const topChannel = channels.reduce((a, b) => a.value >= b.value ? a : b, { label: "", value: 0 });
+  const showPressureAlert = topChannel.value >= 50;
+  const pressureAlertColor = topChannel.value >= 75 ? "#8b0000" : "#c00";
+
+  // Rebellion / scandal risk alerts
+  const rebellionRisk = Math.round(Number(ps.rebellion_risk ?? 0));
+  const scandalRisk   = Math.round(Number(ps.scandal_risk   ?? 0));
+
   root.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:14px 24px;align-items:center;">
       <div><b>Capital:</b> <span style="font-size:1.1em;font-weight:600;">${capital}</span></div>
@@ -664,6 +680,9 @@ function renderPoliticalCapitalSummary(ps) {
       <div><a class="btn" href="personal.html">Full breakdown</a></div>
     </div>
     ${majorDrop ? `<div style="color:#c00;margin-top:8px;font-weight:500;">⚠️ Major recent drop in political capital (${Math.round(trend)} this period).</div>` : ""}
+    ${showPressureAlert ? `<div style="color:${pressureAlertColor};margin-top:8px;font-weight:500;">⚠️ ${esc(topChannel.label)} pressure is ${topChannel.value >= 75 ? "critical" : "high"} (${Math.round(topChannel.value)}/100) — <a href="personal.html">view full pressure profile</a>.</div>` : ""}
+    ${rebellionRisk >= 50 ? `<div style="color:#c00;margin-top:6px;font-size:.9em;">🔴 Rebellion risk elevated (${rebellionRisk}/100).</div>` : ""}
+    ${scandalRisk >= 50 ? `<div style="color:#c00;margin-top:6px;font-size:.9em;">🔴 Scandal risk elevated (${scandalRisk}/100).</div>` : ""}
   `;
 }
 

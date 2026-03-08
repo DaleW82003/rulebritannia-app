@@ -1315,7 +1315,7 @@ function render(data, state) {
       </article>
 
       <article class="tile" style="grid-column:1/-1;">
-        <h2 style="margin-top:0;">Political Capital</h2>
+        <h2 style="margin-top:0;">Political Capital &amp; Pressure Profile</h2>
         ${state.politicalState ? (() => {
           const ps = state.politicalState;
           const momentumIcon = ps.momentum === "rising" ? "📈" : ps.momentum === "falling" ? "📉" : "➡️";
@@ -1324,16 +1324,89 @@ function render(data, state) {
           const repColor = repColors[ps.reputation] || "inherit";
           const repLabel = { excellent: "Excellent", good: "Good", neutral: "Neutral", poor: "Poor", damaged: "Damaged" }[ps.reputation] || ps.reputation;
           const breakdown = Array.isArray(ps.breakdown) ? ps.breakdown : [];
+
+          // Pressure channel helpers
+          function pressureColor(v) {
+            if (v >= 75) return "#8b0000";
+            if (v >= 50) return "#c00";
+            if (v >= 25) return "#b06000";
+            return "#0a7f2e";
+          }
+          function pressureBadge(v) {
+            if (v >= 75) return "🔴 Critical";
+            if (v >= 50) return "🟠 High";
+            if (v >= 25) return "🟡 Moderate";
+            return "🟢 Low";
+          }
+
+          const channels = [
+            { key: "party_pressure",        label: "Party",         hint: "Rebellion record and whip conflicts" },
+            { key: "constituency_pressure",  label: "Constituency",  hint: "Local engagement and constituency events" },
+            { key: "media_pressure",         label: "Media",         hint: "Press coverage and scandal exposure" },
+            { key: "group_pressure",         label: "Group",         hint: "Affiliated group demands" },
+            { key: "institutional_pressure", label: "Institutional", hint: "Office responsibility and scrutiny" },
+          ];
+          const risks = [
+            { key: "rebellion_risk", label: "Rebellion Risk" },
+            { key: "scandal_risk",   label: "Scandal Risk" },
+          ];
+
+          const pressureBreakdown = Array.isArray(ps.pressure_breakdown) ? ps.pressure_breakdown : [];
+
           return `
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 20px;margin-bottom:10px;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 20px;margin-bottom:12px;">
               <div><b>Capital:</b> <span style="font-size:1.15em;font-weight:600;">${Math.round(Number(ps.capital_current ?? 0))}</span></div>
               <div><b>Trend:</b> <span style="color:${momentumColor};">${momentumIcon} ${Number(ps.capital_trend) >= 0 ? "+" : ""}${Math.round(Number(ps.capital_trend ?? 0))}</span></div>
               <div><b>Momentum:</b> <span style="color:${momentumColor};text-transform:capitalize;">${esc(ps.momentum)}</span></div>
               <div><b>Reputation:</b> <span style="color:${repColor};">${esc(repLabel)}</span></div>
             </div>
+
+            <h3 style="font-size:.95em;margin:10px 0 6px;font-weight:600;">Pressure Channels</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-bottom:12px;">
+              ${channels.map(({ key, label, hint }) => {
+                const v = Number(ps[key] ?? 0);
+                const pct = Math.round(v);
+                const col = pressureColor(v);
+                const badge = pressureBadge(v);
+                const chBreakdown = pressureBreakdown.filter((b) => b.channel === key.replace("_pressure", ""));
+                return `
+                  <div style="border:1px solid #ddd;border-radius:6px;padding:10px 12px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                      <b>${esc(label)}</b>
+                      <span style="color:${col};font-size:.85em;">${badge}</span>
+                    </div>
+                    <div style="background:#eee;border-radius:4px;height:8px;margin-bottom:6px;">
+                      <div style="background:${col};width:${pct}%;height:8px;border-radius:4px;transition:width .3s;"></div>
+                    </div>
+                    <div style="font-size:.8em;color:#666;">${esc(hint)}</div>
+                    ${chBreakdown.length ? `<div style="font-size:.8em;margin-top:4px;color:#444;">${chBreakdown.map((b) => `• ${esc(b.label)}`).join("<br>")}</div>` : ""}
+                  </div>
+                `;
+              }).join("")}
+            </div>
+
+            <h3 style="font-size:.95em;margin:10px 0 6px;font-weight:600;">Derived Risks</h3>
+            <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+              ${risks.map(({ key, label }) => {
+                const v = Number(ps[key] ?? 0);
+                const pct = Math.round(v);
+                const col = pressureColor(v);
+                const badge = pressureBadge(v);
+                return `
+                  <div style="border:1px solid #ddd;border-radius:6px;padding:10px 14px;min-width:160px;">
+                    <div style="font-weight:600;margin-bottom:4px;">${esc(label)}</div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <span style="font-size:1.2em;font-weight:700;color:${col};">${pct}</span>
+                      <span style="color:${col};font-size:.85em;">${badge}</span>
+                    </div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+
             ${breakdown.length ? `
               <details>
-                <summary style="cursor:pointer;font-weight:500;font-size:.9em;">Why this score?</summary>
+                <summary style="cursor:pointer;font-weight:500;font-size:.9em;">Capital score breakdown</summary>
                 <div style="margin-top:6px;display:grid;gap:4px;font-size:.88em;line-height:1.7;">
                   ${breakdown.map((b) => `
                     <div style="display:flex;justify-content:space-between;gap:8px;">

@@ -2131,6 +2131,17 @@ async function ensureSchema() {
       updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  // ── Pressure channels (additive migrations) ───────────────────────────────
+  await pool.query(`
+    ALTER TABLE character_political_state
+      ADD COLUMN IF NOT EXISTS party_pressure        NUMERIC(5,2) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS constituency_pressure NUMERIC(5,2) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS media_pressure        NUMERIC(5,2) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS group_pressure        NUMERIC(5,2) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS institutional_pressure NUMERIC(5,2) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS rebellion_risk        NUMERIC(5,2) NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS scandal_risk          NUMERIC(5,2) NOT NULL DEFAULT 0;
+  `);
 }
 
 // ── Property / Finance model constants ────────────────────────────────────────
@@ -2551,9 +2562,36 @@ async function recomputeSalaryPositions(characterId) {
  *   work plan             +5 if work plan updated in last 3 sim periods
  *   party leadership role +12 party leader, +6 chief/deputy whip, +4 whip/chairman
  */
+// Helper: clamp a value to [0, 100]
+function clamp100(v) { return Math.min(100, Math.max(0, Math.round(v))); }
+
+// Helper: pressure label from 0-100 score
+function pressureLabel(v) {
+  if (v >= 75) return "critical";
+  if (v >= 50) return "high";
+  if (v >= 25) return "moderate";
+  return "low";
+}
+
 async function recomputeCharacterPoliticalState(characterId) {
   const breakdown = [];
   let total = 0;
+
+  // ── Shared data ────────────────────────────────────────────────────────────
+  const { rows: clkRows } = await pool.query(
+    "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
+  );
+  const simMonth = clkRows[0]?.sim_current_month ?? 8;
+  const simYear  = clkRows[0]?.sim_current_year  ?? 1997;
+  const currentIndex = (simYear - 1997) * 12 + (simMonth - 1);
+
+  // Character's party and constituency
+  const { rows: charRows } = await pool.query(
+    "SELECT party, constituency FROM characters WHERE id = $1",
+    [characterId]
+  );
+  const charParty        = charRows[0]?.party        || "";
+  const charConstituency = charRows[0]?.constituency || "";
 
   // ── Offices ────────────────────────────────────────────────────────────────
   const { rows: officeRows } = await pool.query(
@@ -2644,12 +2682,6 @@ async function recomputeCharacterPoliticalState(characterId) {
     [characterId]
   );
   if (wpRows.length > 0) {
-    const { rows: clkRows } = await pool.query(
-      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
-    );
-    const simMonth = clkRows[0]?.sim_current_month ?? 8;
-    const simYear  = clkRows[0]?.sim_current_year  ?? 1997;
-    const currentIndex = (simYear - 1997) * 12 + (simMonth - 1);
     const savedIndex = Number(wpRows[0].last_saved_sim_index ?? 0);
     if (currentIndex - savedIndex <= 3) {
       const delta = 5;
@@ -2712,21 +2744,217 @@ async function recomputeCharacterPoliticalState(characterId) {
   else if (total >= -10) reputation = "poor";
   else reputation = "damaged";
 
+  // ── PRESSURE CHANNELS ──────────────────────────────────────────────────────
+
+  // ── 1. Party pressure ──────────────────────────────────────────────────────
+  // Sources: rebellion log (whipped vote defiance), rebel requests refused
+  let partyPressureRaw = 0;
+  const partyPressureBreakdown = [];
+
+  const { rows: rebellionRows } = await pool.query(
+    `SELECT whip_level FROM division_rebellion_log
+      WHERE character_id = $1
+      ORDER BY created_at DESC LIMIT 20`,
+    [characterId]
+  );
+  for (const { whip_level } of rebellionRows) {
+    const wl = Number(whip_level ?? 0);
+    // Pressure weight per rebellion: 3-line whip defiance carries maximum party damage
+    const WHIP_REBELLION_WEIGHT = { 3: 25, 2: 15, 1: 8, 0: 3 };
+    partyPressureRaw += WHIP_REBELLION_WEIGHT[wl] ?? 3;
+  }
+  if (rebellionRows.length > 0) {
+    partyPressureBreakdown.push(`${rebellionRows.length} rebellion${rebellionRows.length !== 1 ? "s" : ""} on record`);
+  }
+
+  const { rows: refusedRequestRows } = await pool.query(
+    `SELECT COUNT(*) AS cnt FROM division_rebel_requests
+      WHERE character_id = $1 AND status = 'refused'`,
+    [characterId]
+  );
+  const refusedRequests = Number(refusedRequestRows[0]?.cnt ?? 0);
+  if (refusedRequests > 0) {
+    partyPressureRaw += refusedRequests * 10;
+    partyPressureBreakdown.push(`${refusedRequests} rebel request${refusedRequests !== 1 ? "s" : ""} refused by whips`);
+  }
+
+  const { rows: pendingRequestRows } = await pool.query(
+    `SELECT COUNT(*) AS cnt FROM division_rebel_requests
+      WHERE character_id = $1 AND status = 'pending'`,
+    [characterId]
+  );
+  const pendingRequests = Number(pendingRequestRows[0]?.cnt ?? 0);
+  if (pendingRequests > 0) {
+    partyPressureRaw += pendingRequests * 5;
+    partyPressureBreakdown.push(`${pendingRequests} rebel request${pendingRequests !== 1 ? "s" : ""} pending`);
+  }
+
+  const partyPressure = clamp100(partyPressureRaw);
+
+  // ── 2. Constituency pressure ───────────────────────────────────────────────
+  // Sources: stale/missing work plan, constituency seat changes
+  let constituencyPressureRaw = 0;
+  const constituencyPressureBreakdown = [];
+
+  if (wpRows.length === 0) {
+    constituencyPressureRaw += 30;
+    constituencyPressureBreakdown.push("No work plan on record");
+  } else {
+    const savedIndex = Number(wpRows[0].last_saved_sim_index ?? 0);
+    const monthsStale = currentIndex - savedIndex;
+    if (monthsStale > 3) {
+      const stalePenalty = Math.min(40, monthsStale * 5);
+      constituencyPressureRaw += stalePenalty;
+      constituencyPressureBreakdown.push(`Work plan ${monthsStale} month${monthsStale !== 1 ? "s" : ""} out of date`);
+    }
+  }
+
+  if (charConstituency) {
+    const { rows: ceRows } = await pool.query(
+      `SELECT change_type FROM constituency_events
+        WHERE constituency_id = $1
+        ORDER BY created_at DESC LIMIT 5`,
+      [charConstituency]
+    );
+    // party_change and by_election indicate seat instability, raising local pressure
+    const ADVERSE_CONSTITUENCY_EVENT_TYPES = new Set(["party_change", "by_election"]);
+    const adverseEvents = ceRows.filter((r) => ADVERSE_CONSTITUENCY_EVENT_TYPES.has(r.change_type)).length;
+    if (adverseEvents > 0) {
+      constituencyPressureRaw += adverseEvents * 15;
+      constituencyPressureBreakdown.push(`${adverseEvents} recent constituency event${adverseEvents !== 1 ? "s" : ""}`);
+    }
+  }
+
+  const constituencyPressure = clamp100(constituencyPressureRaw);
+
+  // ── 3. Media pressure ─────────────────────────────────────────────────────
+  // Sources: negative/marked press items, active/closed scandals
+  let mediaPressureRaw = 0;
+  const mediaPressureBreakdown = [];
+
+  if (negativePress > 0) {
+    mediaPressureRaw += negativePress * 15;
+    mediaPressureBreakdown.push(`${negativePress} negative press item${negativePress !== 1 ? "s" : ""}`);
+  }
+  if (activeScandals > 0) {
+    mediaPressureRaw += activeScandals * 25;
+    mediaPressureBreakdown.push(`${activeScandals} active scandal${activeScandals !== 1 ? "s" : ""}`);
+  }
+  if (heavyClosedScandals > 0) {
+    mediaPressureRaw += heavyClosedScandals * 10;
+    mediaPressureBreakdown.push(`${heavyClosedScandals} major resolved scandal${heavyClosedScandals !== 1 ? "s" : ""}`);
+  }
+
+  const mediaPressure = clamp100(mediaPressureRaw);
+
+  // ── 4. Group pressure ─────────────────────────────────────────────────────
+  // Sources: affiliation requests pending removal (group friction), number of
+  //          active approved affiliations (exposure to group demands)
+  let groupPressureRaw = 0;
+  const groupPressureBreakdown = [];
+
+  const { rows: affiliationRows } = await pool.query(
+    `SELECT ca.status, ac.category
+       FROM character_affiliations ca
+       JOIN affiliations_catalog ac ON ac.id = ca.affiliation_id
+      WHERE ca.character_id = $1`,
+    [characterId]
+  );
+  const pendingRemove = affiliationRows.filter((r) => r.status === "pending_remove").length;
+  const approvedAffiliations = affiliationRows.filter((r) => r.status === "approved").length;
+  // 5+ active affiliations creates competing group demands; +5 per additional group beyond 4, capped at 20
+  if (approvedAffiliations >= 5) {
+    groupPressureRaw += Math.min(20, (approvedAffiliations - 4) * 5);
+    groupPressureBreakdown.push(`${approvedAffiliations} active group affiliations`);
+  }
+  if (pendingRemove > 0) {
+    groupPressureRaw += pendingRemove * 15;
+    groupPressureBreakdown.push(`${pendingRemove} affiliation removal${pendingRemove !== 1 ? "s" : ""} pending`);
+  }
+
+  const groupPressure = clamp100(groupPressureRaw);
+
+  // ── 5. Institutional pressure ─────────────────────────────────────────────
+  // Sources: senior/cabinet offices carry high responsibility and scrutiny
+  let institutionalPressureRaw = 0;
+  const institutionalPressureBreakdown = [];
+
+  for (const { spec_id, type } of officeRows) {
+    if (spec_id === "prime-minister") {
+      institutionalPressureRaw += 40;
+      institutionalPressureBreakdown.push("Prime Minister — high institutional responsibility");
+    } else if (type === "cabinet" || spec_id === "leader-opposition" || spec_id === "leader-commons") {
+      institutionalPressureRaw += 25;
+      institutionalPressureBreakdown.push(`Senior office (${spec_id || type}) — institutional scrutiny`);
+    } else if (type === "shadow") {
+      institutionalPressureRaw += 15;
+      institutionalPressureBreakdown.push(`Shadow cabinet office (${spec_id}) — scrutiny`);
+    } else if (type === "parliamentary") {
+      institutionalPressureRaw += 8;
+      institutionalPressureBreakdown.push(`Parliamentary office (${spec_id || type})`);
+    }
+  }
+
+  const institutionalPressure = clamp100(institutionalPressureRaw);
+
+  // ── Derived: rebellion risk ────────────────────────────────────────────────
+  // 60% weight from accumulated party pressure + 8pts per recent rebellion (up to 5 counted).
+  // Coefficients keep the score responsive to fresh rebellions while reflecting cumulative party tension.
+  const recentRebellions = Math.min(rebellionRows.length, 5);
+  const rebellionRisk = clamp100(partyPressure * 0.6 + recentRebellions * 8);
+
+  // ── Derived: scandal risk ─────────────────────────────────────────────────
+  // 70% weight from media pressure + 15pts per active scandal.
+  // Active scandals dominate because they represent unresolved and escalating exposure.
+  const scandalRisk = clamp100(mediaPressure * 0.7 + activeScandals * 15);
+
+  // ── Assemble full breakdown with channel tags ──────────────────────────────
+  const pressureBreakdown = [
+    ...partyPressureBreakdown.map((label) => ({ channel: "party", label })),
+    ...constituencyPressureBreakdown.map((label) => ({ channel: "constituency", label })),
+    ...mediaPressureBreakdown.map((label) => ({ channel: "media", label })),
+    ...groupPressureBreakdown.map((label) => ({ channel: "group", label })),
+    ...institutionalPressureBreakdown.map((label) => ({ channel: "institutional", label })),
+  ];
+
   await pool.query(
     `INSERT INTO character_political_state
-       (character_id, capital_current, capital_trend, momentum, reputation, breakdown, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
+       (character_id, capital_current, capital_trend, momentum, reputation, breakdown,
+        party_pressure, constituency_pressure, media_pressure, group_pressure,
+        institutional_pressure, rebellion_risk, scandal_risk, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, now())
      ON CONFLICT (character_id) DO UPDATE
-       SET capital_current = EXCLUDED.capital_current,
-           capital_trend   = EXCLUDED.capital_trend,
-           momentum        = EXCLUDED.momentum,
-           reputation      = EXCLUDED.reputation,
-           breakdown       = EXCLUDED.breakdown,
-           updated_at      = now()`,
-    [characterId, total, capitalTrend, momentum, reputation, JSON.stringify(breakdown)]
+       SET capital_current        = EXCLUDED.capital_current,
+           capital_trend          = EXCLUDED.capital_trend,
+           momentum               = EXCLUDED.momentum,
+           reputation             = EXCLUDED.reputation,
+           breakdown              = EXCLUDED.breakdown,
+           party_pressure         = EXCLUDED.party_pressure,
+           constituency_pressure  = EXCLUDED.constituency_pressure,
+           media_pressure         = EXCLUDED.media_pressure,
+           group_pressure         = EXCLUDED.group_pressure,
+           institutional_pressure = EXCLUDED.institutional_pressure,
+           rebellion_risk         = EXCLUDED.rebellion_risk,
+           scandal_risk           = EXCLUDED.scandal_risk,
+           updated_at             = now()`,
+    [
+      characterId, total, capitalTrend, momentum, reputation, JSON.stringify(breakdown),
+      partyPressure, constituencyPressure, mediaPressure, groupPressure,
+      institutionalPressure, rebellionRisk, scandalRisk,
+    ]
   );
 
-  return { capital_current: total, capital_trend: capitalTrend, momentum, reputation, breakdown };
+  return {
+    capital_current: total, capital_trend: capitalTrend, momentum, reputation, breakdown,
+    party_pressure: partyPressure,
+    constituency_pressure: constituencyPressure,
+    media_pressure: mediaPressure,
+    group_pressure: groupPressure,
+    institutional_pressure: institutionalPressure,
+    rebellion_risk: rebellionRisk,
+    scandal_risk: scandalRisk,
+    pressure_breakdown: pressureBreakdown,
+  };
 }
 
 // ── Salary computation helpers ────────────────────────────────────────────────
@@ -15381,6 +15609,13 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
     tallyRows.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
 
     res.json({ ok: true, vote: voteRows[0], tally });
+
+    // Non-blocking: recompute political state after vote (rebellion may have been logged)
+    if (charId) {
+      recomputeCharacterPoliticalState(charId).catch((e) =>
+        console.error("[political-state] division.vote trigger:", e.message)
+      );
+    }
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -15575,6 +15810,11 @@ app.post("/api/divisions/:divisionId/rebel-request", divWriteLimit, async (req, 
       [req.params.divisionId, charId, partySlug, requestedVote, message || null]
     );
     res.status(201).json({ ok: true, request: rows[0] });
+
+    // Non-blocking: recompute political state (pending rebel request affects party pressure)
+    recomputeCharacterPoliticalState(charId).catch((e) =>
+      console.error("[political-state] rebel-request.submit trigger:", e.message)
+    );
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -15649,6 +15889,14 @@ app.post("/api/divisions/:divisionId/rebel-request/:requestId/decide", divWriteL
       [decision, deciderId || null, req.session.userId, simStr, req.params.requestId]
     );
     res.json({ ok: true, request: rows[0] });
+
+    // Non-blocking: recompute the requester's political state (refused requests affect party pressure)
+    const requesterId = rows[0]?.character_id;
+    if (requesterId) {
+      recomputeCharacterPoliticalState(requesterId).catch((e) =>
+        console.error("[political-state] rebel-request.decide trigger:", e.message)
+      );
+    }
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -19106,6 +19354,13 @@ app.post("/api/control-panel/affiliations/:rid/decide", affiliationsWriteLimit, 
     await writeAuditLog(reviewer, `affiliations.${decision}`, "character_affiliation", rid, null,
       { affiliation_id: row.affiliation_id, character_id: row.character_id, original_status: row.status, note });
     res.json({ ok: true });
+
+    // Non-blocking: recompute political state after affiliation change (group pressure)
+    if (row.character_id) {
+      recomputeCharacterPoliticalState(row.character_id).catch((e) =>
+        console.error("[political-state] affiliations.decide trigger:", e.message)
+      );
+    }
   } catch (e) {
     console.error("[POST /api/control-panel/affiliations/:rid/decide]", e);
     res.status(500).json({ error: "Server error" });
