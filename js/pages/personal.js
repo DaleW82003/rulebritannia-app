@@ -1345,7 +1345,7 @@ function render(data, state) {
               </details>
             ` : ""}
           `;
-        })() : `<div class="muted-block" style="font-size:.9em;">Political capital is loading\u2026</div>`}
+        })() : `<div class="muted-block" style="font-size:.9em;">Political capital is loading…</div>`}
       </article>
 
       <article class="tile" style="min-height:240px;">

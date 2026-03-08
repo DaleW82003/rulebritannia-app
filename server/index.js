@@ -2545,11 +2545,11 @@ async function recomputeSalaryPositions(characterId) {
  * is always explainable.
  *
  * Score components (each produces a signed delta and a label):
- *   offices held          +30 PM, +20 cabinet/shadow-sec, +10 leader-opposition, +8 other gov
+ *   offices held          +30 PM, +20 cabinet/leader-commons-or-opposition, +10 shadow cabinet, +8 other
  *   press (marked items)  +3 per positive (score>0), −5 per negative (score<0)
  *   scandals              −10 per open/awaiting, −15 per closed scandal (severity>3)
  *   work plan             +5 if work plan updated in last 3 sim periods
- *   party leadership role +12 party leader, +6 chief/deputy whip
+ *   party leadership role +12 party leader, +6 chief/deputy whip, +4 whip/chairman
  */
 async function recomputeCharacterPoliticalState(characterId) {
   const breakdown = [];
@@ -2669,23 +2669,24 @@ async function recomputeCharacterPoliticalState(characterId) {
        FROM parties`,
     []
   );
+  const charIdStr = String(characterId);
   for (const p of partyRows) {
-    if (String(p.leader_character_id) === String(characterId)) {
+    if (String(p.leader_character_id) === charIdStr) {
       const delta = 12;
       total += delta;
       breakdown.push({ category: "party", label: `Party leader (${p.slug})`, delta });
     } else if (
-      String(p.chief_whip_character_id) === String(characterId) ||
-      String(p.deputy_whip_character_id) === String(characterId)
+      String(p.chief_whip_character_id) === charIdStr ||
+      String(p.deputy_whip_character_id) === charIdStr
     ) {
       const delta = 6;
       total += delta;
       breakdown.push({ category: "party", label: `Chief/Deputy Whip (${p.slug})`, delta });
-    } else if (String(p.whip_character_id) === String(characterId)) {
+    } else if (String(p.whip_character_id) === charIdStr) {
       const delta = 4;
       total += delta;
       breakdown.push({ category: "party", label: `Whip (${p.slug})`, delta });
-    } else if (String(p.chairman_character_id) === String(characterId)) {
+    } else if (String(p.chairman_character_id) === charIdStr) {
       const delta = 4;
       total += delta;
       breakdown.push({ category: "party", label: `Party chairman (${p.slug})`, delta });
