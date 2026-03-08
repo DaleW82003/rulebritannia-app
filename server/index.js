@@ -22368,6 +22368,230 @@ app.post("/api/admin/seed-1997-factions", verifyCsrfToken, crudWriteLimit, async
   }
 });
 
+// ── Identity / authority legacy repair endpoints ──────────────────────────────
+
+/** UUID v4 pattern — used by the legacy-identity endpoints to detect whether a
+ *  field already holds an immutable UUID rather than a mutable name string. */
+const AUTHOR_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Pure helper: given an array of {id, name} character objects and a target name,
+ * returns the character's id when exactly one character matches (case-insensitive,
+ * trimmed). Returns null when the match is absent or ambiguous.
+ */
+function resolveCharacterIdByName(characters, targetName) {
+  if (!targetName || typeof targetName !== "string") return null;
+  const norm = targetName.toLowerCase().trim();
+  if (!norm) return null;
+  const matches = characters.filter((c) => c && typeof c.name === "string" && c.name.toLowerCase().trim() === norm);
+  return matches.length === 1 ? matches[0].id : null;
+}
+
+// GET /api/admin/legacy-identity-report — admin/mod: visibility into unresolved legacy rows
+app.get("/api/admin/legacy-identity-report", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const [billsTotal, billsMissing, pressTotal, pressMissingNonNpc, cabDrafts, shdDrafts] = await Promise.all([
+      pool.query("SELECT COUNT(*) AS cnt FROM bills"),
+      pool.query("SELECT COUNT(*) AS cnt FROM bills WHERE author_character_id IS NULL"),
+      pool.query("SELECT COUNT(*) AS cnt FROM press_items"),
+      pool.query(`
+        SELECT COUNT(*) AS cnt
+          FROM press_items
+         WHERE author_character_id IS NULL
+           AND (data->>'npcAuthor') IS NULL
+           AND data->>'author' IS NOT NULL
+           AND data->>'author' != ''
+      `),
+      pool.query("SELECT drafts FROM group_drafts WHERE group_key = 'cabinet'"),
+      pool.query("SELECT drafts FROM group_drafts WHERE group_key = 'shadowcabinet'"),
+    ]);
+
+    const countLegacyDrafts = (drafts) =>
+      (Array.isArray(drafts) ? drafts : []).filter((d) => d && d.authorId && !AUTHOR_UUID_RE.test(String(d.authorId))).length;
+
+    const cabDraftArr = cabDrafts.rows[0]?.drafts || [];
+    const shdDraftArr = shdDrafts.rows[0]?.drafts || [];
+
+    res.json({
+      ok: true,
+      bills: {
+        total: Number(billsTotal.rows[0]?.cnt ?? 0),
+        missing_author_id: Number(billsMissing.rows[0]?.cnt ?? 0),
+      },
+      press_items: {
+        total: Number(pressTotal.rows[0]?.cnt ?? 0),
+        missing_author_id_non_npc: Number(pressMissingNonNpc.rows[0]?.cnt ?? 0),
+      },
+      group_drafts: {
+        cabinet: {
+          total_drafts: cabDraftArr.length,
+          legacy_author_id: countLegacyDrafts(cabDraftArr),
+        },
+        shadowcabinet: {
+          total_drafts: shdDraftArr.length,
+          legacy_author_id: countLegacyDrafts(shdDraftArr),
+        },
+      },
+    });
+  } catch (e) {
+    console.error("[GET /api/admin/legacy-identity-report]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/repair/backfill-author-ids — admin/mod: backfill missing author_character_id
+// Idempotent: only fills NULL fields; skips NPC items; only links when the match is unambiguous.
+app.post("/api/admin/repair/backfill-author-ids", crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    // ── 1. Backfill bills.author_character_id ─────────────────────────────────
+    // For each bill without an author_character_id, look up by data->>'author' name.
+    // Only update when exactly one active character has that name.
+    const { rows: billsUpdated } = await pool.query(`
+      WITH candidates AS (
+        SELECT b.id AS bill_id,
+               COUNT(c.id)          AS match_count,
+               (ARRAY_AGG(c.id))[1] AS char_id
+          FROM bills b
+          JOIN characters c
+            ON LOWER(TRIM(c.name)) = LOWER(TRIM(b.data->>'author'))
+           AND c.is_active = TRUE
+         WHERE b.author_character_id IS NULL
+           AND b.data->>'author'     IS NOT NULL
+           AND b.data->>'author'     != ''
+           AND (b.data->>'npc')      IS NULL
+         GROUP BY b.id
+      )
+      UPDATE bills b
+         SET author_character_id = candidates.char_id
+        FROM candidates
+       WHERE candidates.bill_id   = b.id
+         AND candidates.match_count = 1
+      RETURNING b.id, b.data->>'author' AS author_name, b.author_character_id
+    `);
+
+    // Count ambiguous bills (multiple character name matches) — not updated, only reported
+    const { rows: billsAmbiguous } = await pool.query(`
+      SELECT b.id, b.data->>'author' AS author_name, COUNT(c.id) AS match_count
+        FROM bills b
+        JOIN characters c
+          ON LOWER(TRIM(c.name)) = LOWER(TRIM(b.data->>'author'))
+         AND c.is_active = TRUE
+       WHERE b.author_character_id IS NULL
+         AND b.data->>'author'     IS NOT NULL
+         AND b.data->>'author'     != ''
+         AND (b.data->>'npc')      IS NULL
+       GROUP BY b.id
+      HAVING COUNT(c.id) > 1
+    `);
+
+    // ── 2. Backfill press_items.author_character_id ───────────────────────────
+    const { rows: pressUpdated } = await pool.query(`
+      WITH candidates AS (
+        SELECT p.id AS press_id,
+               COUNT(c.id)          AS match_count,
+               (ARRAY_AGG(c.id))[1] AS char_id
+          FROM press_items p
+          JOIN characters c
+            ON LOWER(TRIM(c.name)) = LOWER(TRIM(p.data->>'author'))
+           AND c.is_active = TRUE
+         WHERE p.author_character_id IS NULL
+           AND (p.data->>'npcAuthor') IS NULL
+           AND p.data->>'author'      IS NOT NULL
+           AND p.data->>'author'      != ''
+         GROUP BY p.id
+      )
+      UPDATE press_items p
+         SET author_character_id = candidates.char_id
+        FROM candidates
+       WHERE candidates.press_id   = p.id
+         AND candidates.match_count = 1
+      RETURNING p.id, p.data->>'author' AS author_name, p.author_character_id
+    `);
+
+    const { rows: pressAmbiguous } = await pool.query(`
+      SELECT p.id, p.data->>'author' AS author_name, COUNT(c.id) AS match_count
+        FROM press_items p
+        JOIN characters c
+          ON LOWER(TRIM(c.name)) = LOWER(TRIM(p.data->>'author'))
+         AND c.is_active = TRUE
+       WHERE p.author_character_id IS NULL
+         AND (p.data->>'npcAuthor') IS NULL
+         AND p.data->>'author'      IS NOT NULL
+         AND p.data->>'author'      != ''
+       GROUP BY p.id
+      HAVING COUNT(c.id) > 1
+    `);
+
+    // ── 3. Backfill group_drafts authorId fields ──────────────────────────────
+    // Load all characters once for name resolution
+    const { rows: allChars } = await pool.query("SELECT id, name FROM characters WHERE is_active = TRUE");
+
+    let groupDraftsResolved = 0;
+    let groupDraftsAmbiguous = 0;
+    let groupDraftsUnresolvable = 0;
+
+    for (const groupKey of ["cabinet", "shadowcabinet"]) {
+      const { rows } = await pool.query("SELECT drafts FROM group_drafts WHERE group_key = $1", [groupKey]);
+      const drafts = Array.isArray(rows[0]?.drafts) ? rows[0].drafts : [];
+      let changed = false;
+
+      for (const draft of drafts) {
+        if (!draft || !draft.authorId) continue;
+        // Already a UUID — nothing to do
+        if (AUTHOR_UUID_RE.test(String(draft.authorId))) continue;
+
+        const charId = resolveCharacterIdByName(allChars, String(draft.authorId));
+        if (charId) {
+          draft.authorId = charId;
+          changed = true;
+          groupDraftsResolved += 1;
+        } else {
+          // Determine if ambiguous or simply unresolvable
+          const norm = String(draft.authorId).toLowerCase().trim();
+          const matchCount = allChars.filter((c) => c.name && c.name.toLowerCase().trim() === norm).length;
+          if (matchCount > 1) groupDraftsAmbiguous += 1;
+          else                groupDraftsUnresolvable += 1;
+        }
+      }
+
+      if (changed) {
+        await pool.query(
+          `UPDATE group_drafts SET drafts = $1::jsonb, updated_at = NOW() WHERE group_key = $2`,
+          [JSON.stringify(drafts), groupKey]
+        );
+      }
+    }
+
+    // ── Audit log ─────────────────────────────────────────────────────────────
+    const summary = {
+      bills_resolved:   billsUpdated.length,
+      bills_ambiguous:  billsAmbiguous.length,
+      press_resolved:   pressUpdated.length,
+      press_ambiguous:  pressAmbiguous.length,
+      drafts_resolved:  groupDraftsResolved,
+      drafts_ambiguous: groupDraftsAmbiguous,
+      drafts_unresolvable: groupDraftsUnresolvable,
+    };
+    if (Object.values(summary).some((v) => v > 0)) {
+      await writeAuditLog(req.session.userId, "admin.repair.backfill-author-ids", "system", null, null, summary);
+    }
+
+    res.json({
+      ok: true,
+      bills:        { resolved: billsUpdated.length,  ambiguous: billsAmbiguous.length },
+      press_items:  { resolved: pressUpdated.length,  ambiguous: pressAmbiguous.length },
+      group_drafts: { resolved: groupDraftsResolved, ambiguous: groupDraftsAmbiguous, unresolvable: groupDraftsUnresolvable },
+    });
+  } catch (e) {
+    console.error("[POST /api/admin/repair/backfill-author-ids]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 
 if (process.env.NODE_ENV === "production") {

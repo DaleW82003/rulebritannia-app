@@ -66,6 +66,20 @@ function discussUrlForDraft(draft) {
   return draft.discussUrl || null;
 }
 
+/**
+ * True if `char` is the author of `draft`.
+ * Prefers character_id equality (new drafts); falls back to name equality for
+ * legacy drafts where authorId was stored as the character's display name.
+ */
+function isDraftAuthor(draft, char) {
+  if (!draft || !char) return false;
+  const charId   = String(char.id   || "");
+  const charName = String(char.name || "");
+  if (charId   && draft.authorId === charId)   return true;
+  if (charName && draft.authorId === charName) return true;
+  return false;
+}
+
 function render(data, state) {
   const host = document.getElementById("shadowcabinet-root") || document.querySelector("main.wrap");
   if (!host) return;
@@ -124,7 +138,8 @@ function render(data, state) {
       <h2 style="margin-top:0;">Shadow Cabinet Drafts</h2>
       ${drafts.length ? drafts.map((d) => {
         const open = state.openDraftId === d.id;
-        const canEdit = manager || d.authorId === String(char?.name || "");
+        // Prefer character_id equality; fall back to name for legacy drafts with name-based authorId
+        const canEdit = manager || isDraftAuthor(d, char);
         return `
           <article class="tile" style="margin-bottom:10px;">
             <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;">
@@ -177,8 +192,7 @@ function render(data, state) {
 
     if (state.editingDraftId) {
       const draft = data.shadowCabinet.drafts.find((x) => x.id === state.editingDraftId);
-      const userId = String(char?.name || "");
-      if (!draft || (!manager && draft.authorId !== userId)) return;
+      if (!draft || (!manager && !isDraftAuthor(draft, char))) return;
       draft.title = title;
       draft.purpose = purpose;
       draft.body = body;
@@ -214,7 +228,7 @@ function render(data, state) {
       commencement,
       articles,
       authorName,
-      authorId: authorName,
+      authorId: char?.id || authorName,
       createdAt: nowStamp()
     };
     data.shadowCabinet.drafts.unshift(draft);
@@ -239,8 +253,7 @@ function render(data, state) {
       const id = Number(btn.dataset.id || 0);
       const draft = data.shadowCabinet.drafts.find((x) => x.id === id);
       if (!draft) return;
-      const userId = String(char?.name || "");
-      if (!manager && draft.authorId !== userId) return;
+      if (!manager && !isDraftAuthor(draft, char)) return;
       state.editingDraftId = id;
       state.message = `Editing ${draft.ref}.`;
       render(data, state);
