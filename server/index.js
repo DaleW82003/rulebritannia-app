@@ -3887,9 +3887,23 @@ function requireAdminModOrSpeaker(req, res) {
 }
 
 /**
- * Returns true if destructive seed/wipe/initialize endpoints are allowed.
+ * Returns true if destructive seed/wipe/initialize/import/repair endpoints are allowed.
  * These are only permitted outside production, or when ENABLE_DEV_SEED=true
  * is explicitly set (e.g. for staging environments that need seeding).
+ *
+ * Endpoints gated by this function (return 404 in production unless ENABLE_DEV_SEED=true):
+ *   POST   /api/admin/clear-cache
+ *   POST   /api/admin/import-snapshot
+ *   POST   /api/admin/repair/character-owner-pointers
+ *   POST   /api/admin/elections/seed-1997
+ *   POST   /api/admin/budget/seed
+ *   POST   /api/admin/reset-baseline
+ *   POST   /api/admin/wipe-content
+ *   POST   /api/admin/wipe-with-characters
+ *   POST   /api/admin/seed-demo
+ *   POST   /api/admin/seed
+ *   POST   /api/admin/constituencies/initialize-1997
+ *   DELETE /api/admin/constituencies/clear
  */
 function isDevSeedAllowed() {
   return process.env.NODE_ENV !== "production" || process.env.ENABLE_DEV_SEED === "true";
@@ -8975,6 +8989,7 @@ const maintLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true,
 // Clear object-cache tables
 app.post("/api/admin/clear-cache", maintLimit, async (req, res) => {
   try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
     await pool.query("BEGIN");
     try {
@@ -9151,6 +9166,7 @@ app.get("/api/admin/export-snapshot", maintLimit, async (req, res) => {
 // Saves as a new snapshot and sets it as the active current state.
 app.post("/api/admin/import-snapshot", maintLimit, async (req, res) => {
   try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
 
     const { label, data } = req.body || {};
@@ -10047,6 +10063,7 @@ app.post("/api/admin/characters/:id/set-inactive", charWriteLimit, async (req, r
 // whose created characters have a missing or incorrect user_id owner pointer.
 app.post("/api/admin/repair/character-owner-pointers", charAppWriteLimit, async (req, res) => {
   try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdminOrMod(req, res)) return;
 
     // Diagnostic counts — collected before repairs so they reflect the "problem" state
@@ -17809,6 +17826,7 @@ app.post("/api/elections/:id/finalize", electionsApiWriteLimit, async (req, res)
 // POST /api/admin/elections/seed-1997  — idempotent re-seed of 1997 baseline
 app.post("/api/admin/elections/seed-1997", electionsApiWriteLimit, async (req, res) => {
   try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdminOrMod(req, res)) return;
     await seedElection1997();
     const { rows } = await pool.query(
@@ -18366,6 +18384,7 @@ app.get("/api/budget", budgetReadLimit, async (req, res) => {
 
 app.post("/api/admin/budget/seed", budgetWriteLimit, async (req, res) => {
   try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
     const { force = false } = req.body || {};
     if (!force) {
@@ -19073,6 +19092,7 @@ const resetBaselineLimit = rateLimit({ windowMs: 60_000, max: 5, standardHeaders
 
 app.post("/api/admin/reset-baseline", resetBaselineLimit, async (req, res) => {
   try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
 
     const { confirm: confirmText } = req.body || {};
@@ -20983,6 +21003,10 @@ if (process.env.NODE_ENV === "production") {
     );
     process.exit(1);
   }
+}
+
+if (process.env.ENABLE_DEV_SEED === "true") {
+  console.warn("⚠ ENABLE_DEV_SEED is active — destructive admin routes enabled");
 }
 
 ensureSchema()

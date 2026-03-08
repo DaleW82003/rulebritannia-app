@@ -31,6 +31,7 @@ The server listens on `http://localhost:3000` by default (override with `PORT`).
 | `SESSION_SECRET` | ✅ | Long random string to sign session cookies. In production the server will refuse to start without it. |
 | `PORT` | — | Port to listen on (default: `3000`) |
 | `NODE_ENV` | — | Set to `production` on Render/hosting to enable production guards |
+| `ENABLE_DEV_SEED` | — | Set to `true` to enable destructive seed/wipe/reset endpoints in non-production environments like staging. **Never set in real production.** |
 | `DISCOURSE_SSO_ENABLED` | — | `true` to activate DiscourseConnect SSO endpoints |
 | `DISCOURSE_ENCRYPTION_KEY` | — | 64-char hex AES-256 key for encrypting stored Discourse credentials |
 | `SENDGRID_API_KEY` | — | SendGrid key for email verification messages |
@@ -41,6 +42,39 @@ The server listens on `http://localhost:3000` by default (override with `PORT`).
 | `TURNSTILE_SECRET_KEY` | — | Turnstile secret key — **never commit** |
 
 See `server/.env.example` for a commented template.
+
+## Production-Disabled Endpoints
+
+The following endpoints are **disabled in production** (`NODE_ENV=production`) unless `ENABLE_DEV_SEED=true` is explicitly set. They return `404 Not Found` in production. This is enforced by the `isDevSeedAllowed()` helper in `server/index.js`.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/admin/clear-cache` | Truncates all parliamentary content tables |
+| `POST` | `/api/admin/import-snapshot` | Overwrites entire game state from uploaded JSON |
+| `POST` | `/api/admin/repair/character-owner-pointers` | Reconciles character owner pointers by patching data |
+| `POST` | `/api/admin/elections/seed-1997` | Seeds 1997 general election baseline data |
+| `POST` | `/api/admin/budget/seed` | Seeds 1996–97 budget baseline |
+| `POST` | `/api/admin/reset-baseline` | Wipes all election/constituency data and re-seeds baseline |
+| `POST` | `/api/admin/wipe-content` | Deletes all gameplay content |
+| `POST` | `/api/admin/wipe-with-characters` | Deletes all content AND all characters |
+| `POST` | `/api/admin/seed-demo` | Resets and populates the database with demo data |
+| `POST` | `/api/admin/seed` | Alias for `/api/admin/seed-demo` |
+| `POST` | `/api/admin/constituencies/initialize-1997` | Overwrites all 659 constituencies with 1997 baseline |
+| `DELETE` | `/api/admin/constituencies/clear` | Deletes all constituencies |
+
+### Environment flag
+
+Set `ENABLE_DEV_SEED=true` **only** on non-production environments (local dev, staging) that need to run seeding or wipe operations.  Never set this on a real production instance.
+
+## Admin-Only Endpoints (safe in production)
+
+The following sensitive endpoints are available in production but require the `admin` role:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/api/admin/export-snapshot` | Downloads current game state as a JSON attachment |
+| `POST` | `/api/admin/rotate-sessions` | Regenerates the caller's session ID and CSRF token |
+| `POST` | `/api/admin/force-logout-all` | Terminates all sessions except the caller's |
 
 ## Whip System Endpoints
 

@@ -238,11 +238,14 @@
       "method": "POST",
       "path": "/api/press",
       "roles": [
-        "authenticated"
+        "admin",
+        "mod",
+        "speaker"
       ],
       "immutable": true,
       "category": "parliament",
-      "immutable_note": "Press items cannot be edited by author after submit"
+      "immutable_note": "Press items cannot be edited by author after submit",
+      "rationale": "Any authenticated user may create standard press items. However, the route also handles NPC-authored comments (npcAuthor flag), which require admin, mod, or speaker. The server enforces requireAuth as the base check and then gates the npcAuthor path behind an explicit roles check for admin/mod/speaker. The manifest infers [admin,mod,speaker] from the in-handler roles check within the scan window."
     },
     {
       "method": "PUT",
@@ -503,7 +506,10 @@
         "admin"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Truncates all parliamentary content tables (bills, motions, statements, regulations, QT). Destructive — disabled in production unless ENABLE_DEV_SEED=true."
     },
     {
       "method": "POST",
@@ -521,7 +527,8 @@
         "admin"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "rationale": "Regenerates the caller's session ID and CSRF token. Admin-only security maintenance tool; safe in production."
     },
     {
       "method": "POST",
@@ -530,7 +537,18 @@
         "admin"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "rationale": "Deletes all sessions except the caller's. Admin-only security tool; safe in production."
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/export-snapshot",
+      "roles": [
+        "admin"
+      ],
+      "immutable": false,
+      "category": "admin",
+      "rationale": "Downloads the current game snapshot as a JSON attachment. Admin-only; read-only export, safe in production."
     },
     {
       "method": "POST",
@@ -539,7 +557,10 @@
         "admin"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Overwrites entire game state from user-provided JSON. Destructive — disabled in production unless ENABLE_DEV_SEED=true."
     },
     {
       "method": "POST",
@@ -548,7 +569,22 @@
         "admin"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Deletes all gameplay content. Destructive — disabled in production unless ENABLE_DEV_SEED=true."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/wipe-with-characters",
+      "roles": [
+        "admin"
+      ],
+      "immutable": false,
+      "category": "admin",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Deletes all content AND characters. Destructive — disabled in production unless ENABLE_DEV_SEED=true."
     },
     {
       "method": "POST",
@@ -557,7 +593,10 @@
         "public"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Resets and re-populates the database with demo data. Requires admin role and ENABLE_DEV_SEED=true; disabled in production. Manifest infers [public] because auth is enforced inside a shared handler function."
     },
     {
       "method": "POST",
@@ -566,7 +605,10 @@
         "public"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Alias for /api/admin/seed-demo. Resets and re-populates the database with demo data. Destructive — disabled in production unless ENABLE_DEV_SEED=true."
     },
     {
       "method": "POST",
@@ -575,7 +617,10 @@
         "admin"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Wipes all election/constituency data and re-seeds canonical baseline. Destructive — disabled in production unless ENABLE_DEV_SEED=true."
     },
     {
       "method": "POST",
@@ -584,7 +629,10 @@
         "admin"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Seeds 1996–97 budget baseline. Destructive — disabled in production unless ENABLE_DEV_SEED=true."
     },
     {
       "method": "PUT",
@@ -633,7 +681,10 @@
         "speaker"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Overwrites all 659 constituencies with 1997 baseline. Destructive — disabled in production unless ENABLE_DEV_SEED=true."
     },
     {
       "method": "DELETE",
@@ -642,7 +693,10 @@
         "admin"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Deletes all constituencies. Destructive — disabled in production unless ENABLE_DEV_SEED=true."
     },
     {
       "method": "POST",
@@ -652,7 +706,10 @@
         "mod"
       ],
       "immutable": false,
-      "category": "admin"
+      "category": "admin",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Seeds 1997 general election data. Destructive — disabled in production unless ENABLE_DEV_SEED=true."
     },
     {
       "method": "POST",
@@ -805,13 +862,17 @@
         "mod"
       ],
       "immutable": false,
-      "category": "characters"
+      "category": "characters",
+      "production_disabled": true,
+      "dev_flag": "ENABLE_DEV_SEED",
+      "rationale": "Reconciles character owner pointers by patching data. Repair/mutation — disabled in production unless ENABLE_DEV_SEED=true."
     },
     {
       "method": "POST",
       "path": "/api/admin/characters/:id/assign-owner",
       "roles": [
-        "admin"
+        "admin",
+        "mod"
       ],
       "immutable": false,
       "category": "characters"
@@ -820,7 +881,8 @@
       "method": "POST",
       "path": "/api/admin/users/:id/active-character",
       "roles": [
-        "admin"
+        "admin",
+        "mod"
       ],
       "immutable": false,
       "category": "characters"
