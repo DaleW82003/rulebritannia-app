@@ -1,5 +1,5 @@
 import { setHTML, esc } from "../ui.js";
-import { isAdmin, isMod, isSpeaker, canAdminModOrSpeaker } from "../permissions.js";
+import { canManage } from "../permissions.js";
 import { apiGetBodies, apiUpdateBody } from "../api.js";
 
 const BODY_ORDER = [
@@ -19,10 +19,6 @@ const BODY_DEFAULTS = [
   { id: "ni-assembly", name: "Northern Irish Assembly", type: "standard", desc: "The devolved legislature for Northern Ireland.", visible: true, totalSeats: 108, parties: [], controlType: "minority", controlParty: "" },
   { id: "directly-elected-mayors", name: "Directly Elected Mayors", type: "mayors", desc: "Directly elected mayoralties relevant to the simulation period.", visible: true, mayors: [] }
 ];
-
-function canManage(data) {
-  return canAdminModOrSpeaker(data);
-}
 
 function labelControl(control) {
   if (control === "coalition") return "Coalition";

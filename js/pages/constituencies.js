@@ -1,5 +1,5 @@
 import { setHTML, esc } from "../ui.js";
-import { canAdminModOrSpeaker } from "../permissions.js";
+import { canManage } from "../permissions.js";
 import { isLoggedIn } from "../core.js";
 import {
   apiGetCharacters,
@@ -29,10 +29,6 @@ const CONSTITUENCY_PARTIES = [
   { name: "Independents",     playable: false },
   { name: "Speaker",          playable: false },
 ];
-
-function canManage(data) {
-  return canAdminModOrSpeaker(data);
-}
 
 function activeMpForConstituency(data, constituencyName) {
   const cName = String(constituencyName || "").toLowerCase();
