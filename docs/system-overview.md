@@ -123,7 +123,7 @@ The simulation models UK parliamentary government circa 1997. The core concepts 
 | Concept | Description |
 |---|---|
 | **Characters** | Named political figures owned by players or staff. Each character has a party, constituency, career background, and accumulated post-nominals (MP, PC). |
-| **Constituencies** | All 650 UK constituencies seeded from 1997 election data, each assigned a party and MP character. |
+| **Constituencies** | All 659 UK constituencies seeded from 1997 election data, each assigned a party and MP character. |
 | **Parties** | Conservative, Labour, Liberal Democrat, SNP, Plaid Cymru, and others. Each has leadership roles (leader, chief whip, treasury spokesperson) and an internal whipping system. |
 | **Parliament** | Seat counts derived from 1997 results. Party strength drives division outcomes and bill passage. |
 | **Government & Opposition** | A formed government (PM + Cabinet) and official opposition (LOTO + Shadow Cabinet) with assigned office roles. |
@@ -246,7 +246,7 @@ Bot-protection on the registration form when `TURNSTILE_ENABLED=true`. Verificat
 7. **`js/api.js`** and **`js/core.js`** — How browser pages talk to the backend and how simulation state is loaded and cached.
 8. **`server/roles.js`** — Canonical role constants and the Discourse group mapping.
 9. **`scripts/audit/rbac-matrix.json`** — Machine-readable RBAC matrix; read alongside `server/roles.js` to understand what each endpoint requires.
-10. **`ALPHA_HARDENING_SUMMARY.md`** — Security policy for production-disabled dev endpoints.
+10. **`ALPHA_HARDENING_SUMMARY.md`** — Historical record of alpha security hardening; current policy is in `docs/architecture.md §10` and `docs/dev-guide.md §13`.
 
 ---
 
@@ -256,7 +256,7 @@ Bot-protection on the registration form when `TURNSTILE_ENABLED=true`. Verificat
 |---|---|
 | **Database migration strategy** | No migrations framework is used. Schema is bootstrapped on startup via `ensureSchema()`. Behaviour on schema drift between deployments is not fully documented — implied by code but not explicitly specified. |
 | **Worker vs Pages Function precedence** | Both `worker/index.js` and `functions/api/[[path]].js` proxy `/api/*`. The README and `functions/` source note the Pages Function is a fallback, but the exact failover behaviour is not verifiable from the repository alone. |
-| **Clock tick trigger** | The simulation clock is advanced only by explicit `POST /api/clock/tick` calls. Whether this is called by a scheduled job, a cron, or manual admin action is not verifiable from the repository alone. |
+| **Clock tick trigger** | The simulation clock is advanced only by explicit `POST /api/clock/tick` calls. This is a **manual admin action** (via Admin Panel or API); there is no automated cron scheduler. See `docs/dev-guide.md §14`. |
 | **Session store at scale** | Sessions are stored in PostgreSQL (`sessions` table via `connect-pg-simple`). Behaviour under high connection load on Render's free tier is behaviour implied by architecture but not documented. |
 | **Turnstile bypass in dev** | Registration Turnstile verification is conditional on `TURNSTILE_ENABLED=true`. The exact fallback behaviour when the env var is absent is implied by code but not explicitly tested. |
 | **Email delivery in dev** | SendGrid integration is skipped when `SENDGRID_API_KEY` is absent. Whether this is documented for local dev setup is not verifiable from README alone. |

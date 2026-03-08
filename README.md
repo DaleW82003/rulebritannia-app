@@ -51,7 +51,7 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
 ```
 ┌────────────────────────────────────────────────────────────┐
 │  Browser                                                   │
-│  54 × .html (multi-page)  +  js/  (vanilla ES2020+)       │
+│  53 × .html (multi-page)  +  js/  (vanilla ES2020+)       │
 │  Served by: Cloudflare Pages (www.rulebritannia.org)       │
 └──────────────────┬─────────────────────────────────────────┘
                    │  /api/*  (relative, same-origin)
@@ -67,7 +67,7 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
                    ▼
 ┌────────────────────────────────────────────────────────────┐
 │  Express server  (server/index.js, Node ≥ 18)              │
-│  ~21 000 lines, 100+ REST endpoints                        │
+│  ~21 000 lines, ~373 REST endpoints                        │
 │  Auth / CSRF / Sessions / Rate-limiting / RBAC             │
 │  Email (SendGrid)  ·  Discourse API  ·  Turnstile          │
 └──────────────────┬─────────────────────────────────────────┘
@@ -75,7 +75,7 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
                    ▼
 ┌────────────────────────────────────────────────────────────┐
 │  PostgreSQL (Neon recommended)                             │
-│  40+ tables: users, bills, motions, divisions, sessions,   │
+│  ~91 tables: users, bills, motions, divisions, sessions,   │
 │  discourse_topics, audit_logs, app_config, finance_config, │
 │  characters, parties, constituencies, …                    │
 └────────────────────────────────────────────────────────────┘
@@ -94,7 +94,7 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
 
 ```
 rulebritannia-app/
-├── *.html                  # 54 multi-page HTML routes
+├── *.html                  # 53 multi-page HTML routes
 ├── styles.css              # Global stylesheet (CSS custom properties)
 ├── wrangler.toml           # Cloudflare Worker configuration
 │
@@ -157,11 +157,15 @@ rulebritannia-app/
 │   └── landing/                   # Landing page assets
 │
 ├── docs/
-│   ├── trial-runbook.md            # 3-user live trial guide
-│   ├── pre-discourse-go-no-go-audit.md
-│   ├── ui-polish-notes.md
-│   ├── third-party-naming-notes.md
-│   └── audits/                    # Dated audit snapshots
+│   ├── system-overview.md          # High-level architecture map and component guide
+│   ├── architecture.md             # Deep architecture: schema, security, CORS, sessions
+│   ├── dev-guide.md                # Developer handbook: workflow, patterns, testing
+│   ├── simulation-model.md         # Simulation domain: legislation, divisions, budget
+│   ├── trial-runbook.md            # 3-user live trial guide + Discourse SSO setup
+│   ├── pre-discourse-go-no-go-audit.md  # Historical pre-Discourse audit (issues resolved)
+│   ├── ui-polish-notes.md          # UI implementation notes
+│   ├── third-party-naming-notes.md # Third-party parliamentary naming notes
+│   └── audits/                     # Dated audit snapshots
 │
 ├── .github/
 │   └── workflows/
@@ -190,6 +194,21 @@ rulebritannia-app/
 | **Rate limiting** | `express-rate-limit` |
 | **CI** | GitHub Actions |
 | **Test runner** | Node.js native test runner (`node --test`) |
+
+---
+
+## Documentation
+
+| Document | Purpose |
+|---|---|
+| **[`docs/system-overview.md`](docs/system-overview.md)** | High-level system map: architecture diagram, component table, data flow, roles, background tasks |
+| **[`docs/architecture.md`](docs/architecture.md)** | Deep architecture reference: schema design, session config, CORS, rate limiting, security hardening |
+| **[`docs/dev-guide.md`](docs/dev-guide.md)** | Developer handbook: backend internals, frontend patterns, development workflow, testing guide |
+| **[`docs/simulation-model.md`](docs/simulation-model.md)** | Simulation domain: parliamentary procedure, legislative lifecycle, divisions, budget, economy |
+| **[`docs/trial-runbook.md`](docs/trial-runbook.md)** | Operational runbook: live trial setup, wipe/seed procedures, Discourse SSO configuration |
+| **[`server/README.md`](server/README.md)** | Server-specific notes: env vars, production-disabled endpoints, whip system API |
+| **[`ALPHA_HARDENING_SUMMARY.md`](ALPHA_HARDENING_SUMMARY.md)** | Historical record: alpha security hardening of dev/admin endpoints |
+| **[`AUDIT_FIX_SUMMARY.md`](AUDIT_FIX_SUMMARY.md)** | Historical record: B1–B4 audit fixes (state authority, division weights, RBAC tests) |
 
 ---
 
@@ -437,87 +456,28 @@ node scripts/audit/generate-audit-report.mjs
 
 ## Worker Process
 
-### `worker/index.js` — Cloudflare Worker
+`worker/index.js` (Cloudflare Worker) proxies all `/api/*` requests from `rulebritannia.org` to the Render backend and 308-redirects bare-domain `GET`/`HEAD` traffic to `www.rulebritannia.org`. The Cloudflare Pages Function at `functions/api/[[path]].js` provides the same proxy for `www.rulebritannia.org/api/*`. Both forward cookies and headers unchanged.
 
-The Cloudflare Worker handles three responsibilities:
-
-1. **API proxy** — all `/api/*` requests are forwarded to `https://rulebritannia-app-backend.onrender.com`. This allows the frontend to use relative `/api/...` paths in production.
-2. **Apex domain redirect** — `GET`/`HEAD` requests to `rulebritannia.org` (without `www`) are 301-redirected to `https://www.rulebritannia.org`. `POST`/`PUT`/`PATCH`/`DELETE` requests are proxied directly (browsers won't navigate bare-domain on mutations).
-3. **Health check** — responds to `GET /api/worker-test` with `"WORKER_OK rb-api-proxy"`.
-
-Session cookies are scoped to `.rulebritannia.org` so they work on both the apex and `www` subdomains.
-
-Deploy with:
+Deploy the Worker with:
 ```bash
 wrangler deploy
 ```
 
-### `functions/api/[[path]].js` — Cloudflare Pages Function
-
-An always-on fallback API proxy deployed automatically as part of the Cloudflare Pages build. It serves `www.rulebritannia.org/api/*` when the standalone Worker is not yet deployed. Once the Worker is live, the Worker takes precedence for `rulebritannia.org/api/*` while this Pages Function continues handling `www.rulebritannia.org/api/*`.
-
-No separate deployment step is needed — it is included in the Pages publish directory.
+For detailed proxy configuration and background-task architecture, see **[`docs/architecture.md`](docs/architecture.md)**.
 
 ---
 
 ## Discourse Integration
 
-### Architecture
-
-Rule Britannia acts as the **DiscourseConnect identity provider** (not consumer). The flow is:
-
-```
-1. User clicks "Login with Discourse" on the sim
-2. Browser → GET /api/discourse/sso  (no params — starts SSO)
-3. Server generates nonce + HMAC-signed payload → redirects to:
-      https://forum.rulebritannia.org/session/sso_provider?sso=…&sig=…
-4. Discourse authenticates the user, then redirects back to:
-      /api/discourse/sso/callback?sso=…&sig=…
-5. Server verifies signature + nonce, finds or creates local account,
-   sets session, redirects to the sim dashboard
-```
-
-> ⚠️ **Common misconfiguration:** Do **not** set Discourse's `discourse_connect_url` — that enables *Discourse-as-consumer* mode and will cause Discourse to send `sso`/`sig` parameters to `/api/discourse/sso`, which the server rejects with HTTP 400. The correct Discourse setting is `enable_discourse_connect_provider`.
-
-### Discourse credentials
-
-Credentials (base URL, API key, API username, SSO secret) are stored **encrypted** in the `app_config` database table and managed through **Admin Panel → Discourse Integration**. They are never read from environment variables.
+Rule Britannia acts as the **DiscourseConnect identity provider** — users log in to the sim and are seamlessly authenticated into the Discourse forum. Credentials (Discourse base URL, API key, SSO secret) are stored **encrypted** in the `app_config` database table and managed through **Admin Panel → Discourse Integration**. They are never read from environment variables.
 
 The only Discourse-related environment variables are:
 - `DISCOURSE_SSO_ENABLED=true` — activates the SSO endpoints
 - `DISCOURSE_ENCRYPTION_KEY` — optional AES-256 key override for encrypted DB storage
 
-### Discourse modules
+> ⚠️ **Common misconfiguration:** In Discourse admin, enable `enable_discourse_connect_provider` (the sim is the provider). Do **not** enable `enable_discourse_connect` (that sets Discourse as the consumer and sends `sso`/`sig` params to the sim, which the server rejects with HTTP 400).
 
-Two client modules coexist in `server/`:
-
-| Module | Style | Used for |
-|---|---|---|
-| `discourse.js` | Object-param style (`opts` argument) | `closeDiscTopic`, SSO payload helpers, group management, `resolveGroupIds` |
-| `discourseClient.js` | Positional-arg style | `dcCreateTopic`, `dcCreatePost`, `dcWithRetry` |
-
-Both have a `closeTopic` function; only the `discourse.js` version is currently called from `server/index.js`.
-
-### Group sync
-
-`enqueueDiscourseGroupSync()` maintains Discourse group membership in sync with application roles. It uses a debounce timer and single-flight mechanism to avoid redundant syncs. Groups in `DISCOURSE_GROUP_MAP` (defined in `server/roles.js`) correspond to application roles; Discourse automatic groups (`admins`/`moderators`) are excluded — admin/mod status is conveyed via DiscourseConnect SSO flags.
-
-### Debate topics
-
-`POST /api/debates/create` creates a Discourse topic and persists its `topicId`/`topicUrl` to both the `discourse_topic_id`/`discourse_topic_url` columns and the `data` JSONB field. The auto-close cron (`runDebateAutoClose()`) closes topics on the clock tick using the `discourse_topic_id` column.
-
-### SSO URL reference
-
-| URL | Purpose |
-|---|---|
-| `GET /api/discourse/sso` | Starts SSO flow — **no params**. Returns 400 if `sso`/`sig` are present. |
-| `GET /api/discourse/sso/callback` | SSO callback — Discourse redirects here after auth. Never call directly. |
-
-To enable SSO:
-1. Fill in Discourse credentials in the Admin Panel.
-2. In Discourse Admin → Settings → Login: enable `enable_discourse_connect_provider` and add the shared secret under `discourse_connect_provider_secrets`.
-3. Set `DISCOURSE_SSO_ENABLED=true` in server env and restart.
-4. Use **Admin Panel → SSO Readiness** to verify all prerequisites are met.
+For the full SSO setup guide, group sync details, and server module reference, see **[`docs/trial-runbook.md`](docs/trial-runbook.md)** and **[`docs/dev-guide.md §9`](docs/dev-guide.md)**.
 
 ---
 
@@ -556,40 +516,13 @@ node scripts/audit/generate-audit-report.mjs
 
 Compares registered Express routes against `scripts/audit/rbac-matrix.json` and reports drift warnings. Target: `rbacDriftWarnings: 0`.
 
-### Staging integration tests
-
-Requires a live staging server and valid credentials:
-
-```bash
-BASE_URL="https://rulebritannia-app-backend.onrender.com" \
-TEST_EMAIL="admin@example.com" \
-TEST_PASSWORD="..." \
-TEST_LOW_EMAIL="backbencher@example.com" \
-TEST_LOW_PASSWORD="..." \
-node scripts/test-staging.mjs
-```
-
-Tests: persistence, immutability, division authority, bill vote authority, RBAC.
-
-CSRF tokens are fetched automatically via `GET /api/csrf-token`.
-
-### API test suites
-
-```bash
-BASE_URL="https://rulebritannia-app-backend.onrender.com" \
-COOKIE_PLAYER="rb.sid=..." \
-COOKIE_MOD="rb.sid=..." \
-COOKIE_ADMIN="rb.sid=..." \
-node --test tests/api/*.spec.js
-```
-
 ### CI
 
-GitHub Actions runs on every push and pull request (`.github/workflows/static-checks.yml`):
-- `scripts/static-checks.js`
-- `scripts/audit/feature-manifest.js`
-- `server/discourse.test.js`
-- Uploads the feature manifest as a build artefact
+GitHub Actions runs on every push and pull request (`.github/workflows/static-checks.yml`): static checks, feature manifest, `server/discourse.test.js`, and RBAC matrix artefact upload.
+
+> **Note:** `server/clock.test.js` and `server/roles.test.js` are not yet wired into CI. Run them locally with `node --test server/*.test.js`.
+
+For staging integration tests, API suite tests, and manual testing scenarios, see **[`docs/dev-guide.md §11`](docs/dev-guide.md)**.
 
 ---
 
@@ -605,8 +538,6 @@ Rule Britannia uses a **gated registration** model. A new account requires both 
 
 **Email resend** is rate-limited to 3 requests/hour per IP and a 5-minute minimum between resends per address (`POST /api/auth/resend-verification`).
 
-**Marketing opt-in** (unchecked by default) is stored as `marketing_opt_in` / `marketing_opt_in_at` on the pending registration. Transactional emails are sent regardless of this setting.
-
 ---
 
 ## Simulation Clock
@@ -621,79 +552,18 @@ The simulation clock maps real calendar time to simulated months:
 
 This yields **2 sim months per real week**. The default start date is **August 1997**.
 
-The clock algorithm is implemented in both `js/clock.js` (frontend) and `server/clock.js` (backend) and must be kept in sync. The server exposes `GET /api/clock` (read), `POST /api/clock/tick` (advance), and `POST /api/clock/set` (set directly). The clock can be paused and resumed; while paused, the sim date is frozen at `pausedAtRealDate`.
+The clock algorithm is implemented in both `js/clock.js` (frontend) and `server/clock.js` (backend) and must be kept in sync. The server exposes `GET /api/clock` (read), `POST /api/clock/tick` (advance), and `POST /api/clock/set` (set directly).
 
 ---
 
-## Development Notes
+## Security Notes
 
-### Alpha Safety Hardening (ALPHA_HARDENING_SUMMARY.md)
+- All mutation endpoints require a CSRF token (double-submit cookie). The `js/api.js` `_fetch()` wrapper auto-refreshes on `403 "CSRF token missing or invalid"`.
+- Sessions use `connect-pg-simple` (PostgreSQL store); `sameSite: "none"`, `secure: true`, `httpOnly: true`, scoped to `.rulebritannia.org`.
+- `isDevSeedAllowed()` gates all destructive endpoints — returns `404` in `NODE_ENV=production` unless `ENABLE_DEV_SEED=true`. Always set `NODE_ENV=production` on hosted instances.
+- Discourse API credentials are AES-256-encrypted in the `app_config` table. Never stored in environment variables.
 
-Before alpha testing, all dangerous dev/admin endpoints were audited and hardened:
-
-- **Production-disabled** (`wipe` / `reset` / `clear` / `seed` / `initialize` / `import` / `repair`) — return `404` unless `ENABLE_DEV_SEED=true`. Guard via `isDevSeedAllowed()` called as the **first** check on each endpoint.
-- **Admin-only in production** (`export-snapshot`, `force-logout-all`, `rotate-sessions`, `discourse/test`, `government/reset`, `opposition/reset`) — available in production, require `admin` (or `admin`/`mod`) role.
-
-The `isDevSeedAllowed()` helper is defined once in `server/index.js`:
-
-```javascript
-function isDevSeedAllowed() {
-  return process.env.NODE_ENV !== "production" || process.env.ENABLE_DEV_SEED === "true";
-}
-```
-
-> ⚠️ If `NODE_ENV` is unset, `isDevSeedAllowed()` returns `true` (permissive). Always set `NODE_ENV=production` on your hosting environment.
-
-### Audit Fixes (AUDIT_FIX_SUMMARY.md)
-
-Four audit findings (B1–B4) were addressed:
-
-- **B1** — Staging test script (`scripts/test-staging.mjs`) added, covering persistence, immutability, division authority, bill vote authority, and RBAC.
-- **B2** — Frontend authenticated state no longer cached in `localStorage`; `saveData()` throws and `saveState()` warns if called when authenticated.
-- **B3** — Division voting is now server-authoritative: `effective_weight` and `immutable_result` are computed and stored server-side; new `PATCH /api/bills/:id/vote` endpoint handles proportional seat-weight voting.
-- **B4** — Feature manifest matcher improved; RBAC allowlist updated; `remainingWarnings: 0` achieved.
-
----
-
-## Security / Hardening Notes
-
-### Authentication
-
-- Email + password login with bcrypt password hashing.
-- DiscourseConnect SSO available as an alternative login method when `DISCOURSE_SSO_ENABLED=true`.
-- Sessions use a PostgreSQL session store (`connect-pg-simple`). `session.rolling = true` keeps active sessions alive.
-- In `NODE_ENV=production` the server refuses to start if `SESSION_SECRET` is missing or uses the default placeholder value.
-
-### CSRF protection
-
-All mutation endpoints require a CSRF token (double-submit cookie pattern). The frontend `js/api.js` `_fetch()` wrapper auto-refreshes the token and retries once on `403 "CSRF token missing or invalid"`.
-
-### Role-based access control (RBAC)
-
-The server enforces the following role hierarchy on relevant endpoints:
-
-| Middleware | Roles granted |
-|---|---|
-| `requireAdmin` | `admin` |
-| `requireAdminOrMod` | `admin`, `mod` |
-| `requireAdminModOrSpeaker` | `admin`, `mod`, `speaker` |
-| `requireLogin` | any authenticated user |
-
-Additional office-level roles (e.g. `office:prime_minister`, `office:secretary_of_state`) are granted on office assignment and checked per endpoint.
-
-Party roles (`party:leader`, `party:whip`, etc.) are managed via `server/roles.js` helpers and reflected in Discourse group membership.
-
-The RBAC matrix (`scripts/audit/rbac-matrix.json`) documents every endpoint with its required roles, `production_disabled` flag, and rationale. Run `node scripts/audit/feature-manifest.js` to check for drift.
-
-### Discourse credential encryption
-
-Discourse API credentials are encrypted with AES-256 before being stored in the `app_config` database table. The encryption key defaults to a value derived from `SESSION_SECRET` and can be overridden with `DISCOURSE_ENCRYPTION_KEY`.
-
-### Rate limiting
-
-`express-rate-limit` is applied to sensitive endpoints:
-- Email verification resend: 3 requests/hour per IP; 5-minute minimum between resends per email address.
-- Additional limits are applied to registration and authentication endpoints.
+For the full security reference (CORS, rate limiting, RBAC, audit hardening), see **[`docs/architecture.md §10`](docs/architecture.md)**.
 
 ---
 
@@ -709,69 +579,11 @@ See **[docs/trial-runbook.md](docs/trial-runbook.md)** for the 3-user live trial
 
 ---
 
-## Staging Audit Run
+## Development Notes
 
-Run the full pre-deploy verification (persistence, RBAC, immutability, division authority):
+Alpha safety hardening (production-disabled dev/seed endpoints via `isDevSeedAllowed()`) is documented in **[`ALPHA_HARDENING_SUMMARY.md`](ALPHA_HARDENING_SUMMARY.md)**.
 
-```bash
-BASE_URL="https://rulebritannia-app-backend.onrender.com" \
-TEST_EMAIL="admin@example.com" \
-TEST_PASSWORD="..." \
-TEST_LOW_EMAIL="backbencher@example.com" \
-TEST_LOW_PASSWORD="..." \
-node scripts/test-staging.mjs
-```
-
-Then run API test suites:
-
-```bash
-BASE_URL="https://rulebritannia-app-backend.onrender.com" \
-COOKIE_PLAYER="rb.sid=..." \
-COOKIE_MOD="rb.sid=..." \
-COOKIE_ADMIN="rb.sid=..." \
-node --test tests/api/*.spec.js
-```
-
----
-
-## Manual Testing Scenarios
-
-### Demo mode (unauthenticated)
-
-1. Open any page (e.g. `dashboard.html`) without logging in.
-2. Verify the topbar shows "Not logged in" and a "Login" link.
-3. State is sourced from `data/demo.json` (read-only). No network calls to `/api/state` are made.
-4. Reload — demo state is always fresh; local edits do not persist.
-5. Confirm `GET /api/state` returns `401` without a session cookie.
-
-### Authenticated admin experience
-
-1. Navigate to `login.html` and log in with admin credentials.
-2. Verify the topbar shows the logged-in username.
-3. State is loaded from `GET /api/state`. Confirm the request returns `200` in DevTools → Network.
-4. Open `admin-panel.html` and verify email and roles are displayed.
-5. Click **Save current state to server** — confirm `POST /api/state` returns `200 { ok: true }`.
-6. Logout — session cleared, topbar reverts, `GET /api/auth/me` returns `401`.
-
-### API endpoint smoke tests
-
-```bash
-# Register
-curl -s -X POST https://www.rulebritannia.org/api/register \
-  -H "Content-Type: application/json" \
-  -d '{"displayName":"Test","username":"testuser","email":"test@example.com","password":"Str0ng#P!","ageConfirmed":true}' | jq .
-
-# Login
-curl -s -c /tmp/rb-cookies.txt -X POST https://www.rulebritannia.org/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"Str0ng#P!"}' | jq .
-
-# Check session
-curl -s -b /tmp/rb-cookies.txt https://www.rulebritannia.org/api/auth/me | jq .
-
-# Public bootstrap config
-curl -s https://www.rulebritannia.org/api/bootstrap | jq .
-```
+Pre-launch audit fixes (B1–B4: state authority, server-authoritative division weights, staging tests, RBAC manifest) are documented in **[`AUDIT_FIX_SUMMARY.md`](AUDIT_FIX_SUMMARY.md)**.
 
 ---
 
@@ -798,16 +610,15 @@ curl -s https://www.rulebritannia.org/api/bootstrap | jq .
 - **CSRF** — all mutation (`POST`/`PATCH`/`PUT`/`DELETE`) endpoints must use the CSRF middleware.
 - **Clock algorithm** — if you change `js/clock.js`, update `server/clock.js` to match, and vice versa.
 
+For the full development workflow (environment setup, modifying backend/frontend, adding API endpoints, cache busting), see **[`docs/dev-guide.md §12`](docs/dev-guide.md)**.
+
 ---
 
 ## Known Limitations
 
-- **Single-file server** — `server/index.js` is ~21 000 lines. There is no module splitting or router separation; navigating the codebase requires familiarity with the file.
+- **Single-file server** — `server/index.js` is ~21 000 lines. There is no module splitting or router separation.
 - **`NODE_ENV` default** — if `NODE_ENV` is unset, `isDevSeedAllowed()` returns `true`, exposing dev/seed endpoints. Always set `NODE_ENV=production` in hosted environments.
-- **Discourse group sync concurrency** — the manual admin `POST /api/admin/discourse-sync-groups` endpoint creates a sync job via `setImmediate` without updating the debounce timer. If `enqueueDiscourseGroupSync()` fires concurrently, two sync jobs may run in parallel.
-- **`parsePaginationParams` NaN handling** — the shared pagination helper passes non-numeric `?limit` / `?offset` values through `parseInt("abc", 10)` which returns `NaN`. This propagates through `Math.min`/`Math.max` without validation.
-- **`recomputeUserOfficeRoles()` coverage** — office roles are recomputed on assignment/unassignment but not on fire/resign/government-reset/opposition-reset endpoints.
-- **Discourse `closeTopic` duplication** — both `discourse.js` and `discourseClient.js` export a `closeTopic` function, but only the `discourse.js` version is used. The `discourseClient.js` version is dead code.
-- **Export endpoint** — `GET /api/admin/export-snapshot` exposes the full game state JSON. The only protection is the `admin` role guard. Rate-limiting or IP allowlisting is recommended for production hardening.
-- **Staging test script** — `scripts/test-staging.mjs` requires manually obtained session cookies for the API suite tests; there is no automated credential exchange.
-- **Demo data staleness** — `data/demo.json` is a static snapshot. It does not automatically update when the simulation schema evolves.
+- **Manual sim clock** — the clock does not tick automatically; an admin must trigger `POST /api/clock/tick`.
+- **No real-time push** — there is no WebSocket or SSE layer; pages must be manually refreshed.
+
+For the full list of known limitations and future development areas, see **[`docs/dev-guide.md §15–16`](docs/dev-guide.md)**.

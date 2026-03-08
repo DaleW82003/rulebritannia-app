@@ -27,28 +27,15 @@
 
 ## 1. System Overview
 
-Rule Britannia is a browser-based UK parliamentary political simulation set in 1997. Players take on parliamentary roles — Prime Minister, ministers, backbenchers, shadow cabinet — and participate in legislation, Question Time, press management, budget debates, and more.
+> For the full system map including architecture diagram, component table, data flow, roles, and background tasks, see **[`docs/system-overview.md`](system-overview.md)**.
 
-The system has four main runtime components:
-
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| **Backend API server** | `server/` | Express.js REST API — all data authority, auth, simulation logic |
-| **Browser UI** | Root `*.html` + `js/` | Static HTML/CSS/JS pages that call the API |
-| **Cloudflare Worker** | `worker/index.js` | Edge proxy that forwards `/api/*` requests to the backend |
-| **Cloudflare Pages Function** | `functions/api/[[path]].js` | Alternate API proxy for `www.rulebritannia.org/api/*` |
-
-Supporting artefacts:
-
-| Artefact | Location | Purpose |
-|----------|----------|---------|
-| **Scripts** | `scripts/` | One-off tooling for data conversion, cache-busting, auditing |
-| **Data files** | `data/` | Static seed data (1997 constituency results, demo baseline) |
-| **Docs** | `docs/` | Operational runbooks and audit documents |
+Rule Britannia is a browser-based UK parliamentary political simulation set in 1997. The system has four main runtime components: the Express API server (`server/`), the static browser UI (`*.html` + `js/`), the Cloudflare Worker edge proxy (`worker/index.js`), and the Cloudflare Pages Function fallback proxy (`functions/api/[[path]].js`).
 
 ---
 
 ## 2. Architecture Diagram (Textual)
+
+> A detailed architecture diagram is in **[`docs/system-overview.md §3`](system-overview.md)** and **[`docs/architecture.md`](architecture.md)**. The diagram below is a concise developer reference.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -68,7 +55,7 @@ Supporting artefacts:
                    ▼
 ┌──────────────────────────────────────────────────────────┐
 │              Express API Server  (Render)                │
-│  server/index.js  — ~305 routes                         │
+│  server/index.js  — ~373 routes                         │
 │  server/db.js     — pg Pool (Neon / Postgres)            │
 │  server/clock.js  — sim-date calculation                 │
 │  server/discourse.js  — Discourse API client (full)      │
@@ -79,7 +66,7 @@ Supporting artefacts:
                    ▼
 ┌──────────────────────────────────────────────────────────┐
 │              Neon (Postgres)                             │
-│  ~14+ tables: users, characters, bills, motions,         │
+│  ~91 tables: users, characters, bills, motions,          │
 │  statements, regulations, divisions, press_items, …      │
 └──────────────────────────────────────────────────────────┘
 
@@ -147,7 +134,7 @@ Auth guards used throughout:
 
 **Error response shape:** All error responses use `{ error: "<string>" }` — this is enforced by `static-checks.js`.
 
-**Route count (from feature manifest):** ~305 endpoints total, ~199 write endpoints.
+**Route count (from feature manifest):** ~373 endpoints total.
 
 **Major route groups:**
 
@@ -468,7 +455,7 @@ A fresh demo baseline can be seeded from the Admin Panel (Danger Zone → Wipe +
 
 ### Game State
 
-The live simulation state is stored in the `app_state` table as a JSONB document. `GET /api/state` returns `{ data: { … } }`. Staff-level saves go through `POST /api/state`.
+Live simulation state is stored in the `state_snapshots` table (one row per snapshot, JSONB `data` column). The `app_state_current` table holds a single pointer (`snapshot_id`) to the active snapshot. `GET /api/state` resolves the current pointer and returns `{ data: { … } }`. Staff-level saves write a new `state_snapshots` row and update the pointer. The legacy `app_state` table is retained only for migration purposes.
 
 The state object includes (non-exhaustive):
 - `gameState` — clock config (`startRealDate`, `startSimMonth`, `startSimYear`, `isPaused`, `pausedAtRealDate`, `started`)
@@ -518,7 +505,7 @@ The Express server itself handles background-style tasks inline:
 
 1. User submits email + password to `POST /api/auth/login` (rate-limited).
 2. Server verifies the bcrypt hash and checks `email_verified = true`.
-3. On success, creates a server-side session (stored in Postgres via `connect-pg-simple`). Session cookie is `HttpOnly`, `SameSite=Lax`, domain `.rulebritannia.org`.
+3. On success, creates a server-side session (stored in Postgres via `connect-pg-simple`). Session cookie is `HttpOnly`, `sameSite: "none"` (required for cross-origin Cloudflare proxy), `secure: true`, domain `.rulebritannia.org`.
 4. `GET /api/auth/me` returns the current user object (id, email, roles). Returns `{ user: null }` if unauthenticated.
 5. `POST /api/auth/logout` destroys the session.
 
@@ -743,17 +730,23 @@ node scripts/test-staging.mjs
 
 ## 11. Testing
 
-### Unit Tests (`server/discourse.test.js`)
+### Unit Tests
 
 Node's built-in test runner is used:
 
 ```bash
-node --test server/discourse.test.js
+node --test server/*.test.js
 ```
 
-This is the only automated unit test file in the repository. It covers the Discourse SSO module (HMAC verification, payload building) without requiring a live database or Discourse instance.
+Three unit test files cover core server-side modules without requiring a live database or Discourse instance:
 
-Run automatically in CI via the `Static Checks` GitHub Actions workflow.
+| File | Coverage |
+|------|---------|
+| `server/clock.test.js` | `computeSimDateFromGameState` — null input, sim-not-started, paused, running |
+| `server/discourse.test.js` | DiscourseConnect SSO helpers — HMAC verification, payload building, group management |
+| `server/roles.test.js` | `computeDiscourseGroups`, `partyRoleForPartyName`, `computeApprovalRolesToAdd`, `officeRoleFromSpecId` |
+
+Only `server/discourse.test.js` is currently wired into CI. Run all three locally with `node --test server/*.test.js`.
 
 ### Static Analysis
 
@@ -796,8 +789,10 @@ node --test tests/api/*.spec.js
 Runs on every push and pull request:
 1. `node scripts/static-checks.js` — static analysis
 2. `node scripts/audit/feature-manifest.js` — RBAC/write-path audit
-3. `node --test server/discourse.test.js` — Discourse unit tests
+3. `node --test server/discourse.test.js` — Discourse SSO unit tests
 4. Uploads `scripts/audit/rbac-matrix.json` as a workflow artefact (retained 30 days)
+
+> `server/clock.test.js` and `server/roles.test.js` are not yet in the CI workflow. Run them locally.
 
 ---
 
