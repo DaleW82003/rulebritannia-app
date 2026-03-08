@@ -18,6 +18,7 @@ import {
 } from "./discourseClient.js";
 import { ALL_VALID_ROLES, PARTY_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP, partyRoleForPartyName, computeApprovalRolesToAdd, officeRoleFromSpecId } from "./roles.js";
 import { computeSimDateFromGameState } from "./clock.js";
+import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_ROLES } from "./state-contracts.js";
 
 const __serverDir = dirname(fileURLToPath(import.meta.url));
 
@@ -4990,14 +4991,33 @@ async function ensureEntityDebateTopic({ table, entityId, title, raw, categoryId
  * Sync the five key object tables from a full game-state snapshot.
  * Called whenever POST /api/state saves a new snapshot, keeping the
  * tables as a derived cache.  Uses batched upserts inside a transaction.
+ *
+ * STATE OWNERSHIP — DERIVED CACHE ONLY
+ * This function manages the following derived/read-model tables only:
+ *   bills, motions, statements, regulations, questiontime_questions
+ *
+ * The following tables are RELATIONAL-AUTHORITATIVE and must NEVER be
+ * written here.  They have their own dedicated API routes and lifecycle:
+ *   divisions            — written by /api/divisions/* routes
+ *   bill_amendments      — written by /api/bills/:id/amendments/* routes
+ *   party_factions       — written by /api/parties/:id/factions/* routes
+ *   faction_political_state — written by faction management routes
+ *   character_finance    — written by /api/admin/finance/* routes
+ *
+ * Adding any of those tables here would create a competing source of truth
+ * for live gameplay systems and must be treated as a bug.
  */
 async function syncObjectTables(data) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    // helper: bulk-upsert an array of {id, data} rows into a simple table
+    // helper: bulk-upsert an array of {id, data} rows into a simple table.
+    // assertSnapshotDerivedTable() throws synchronously if `table` is not in
+    // the explicit allowlist, making it impossible to accidentally write a
+    // relational-authoritative table through this path.
     async function upsertRows(table, rows) {
+      assertSnapshotDerivedTable(table); // runtime ownership guard
       if (!rows.length) return;
       // Build VALUES ($1,$2), ($3,$4), …
       const placeholders = rows.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2}::jsonb)`).join(", ");
@@ -5601,6 +5621,28 @@ app.post("/api/admin/registrations/:id/reject", regAdminLimit, verifyCsrfToken, 
 
 /**
  * STATE
+ *
+ * STATE OWNERSHIP BOUNDARY
+ * ─────────────────────────────────────────────────────────────────────────
+ * SNAPSHOT-BACKED (stored in state_snapshots.data JSONB):
+ *   gameState       — simulation clock, pause flag, sim start config
+ *   orderPaperCommons — bills (synced → bills table as derived cache)
+ *   motions         — house and EDM motions (synced → motions table)
+ *   statements      — press statements (synced → statements table)
+ *   regulations     — regulations (synced → regulations table)
+ *   questionTime    — question time items (synced → questiontime_questions)
+ *   papers, news, polling, economy, parliament, etc.
+ *
+ * RELATIONAL-AUTHORITATIVE (NOT stored in the snapshot; dedicated tables):
+ *   divisions / division_votes     — source of truth for all divisions
+ *   bill_amendments                — source of truth for all amendments
+ *   party_factions / faction_political_state — faction & political state
+ *   character_finance / finance_config / finance_applied — finance system
+ *
+ * Snapshot save/restore/import MUST NOT become an alternate write path for
+ * relational-authoritative systems.  syncObjectTables() enforces this by
+ * only touching the five derived-cache tables listed above.
+ * ─────────────────────────────────────────────────────────────────────────
  */
 app.get("/api/state", async (req, res) => {
   try {
@@ -5615,7 +5657,10 @@ app.get("/api/state", async (req, res) => {
        WHERE c.id = 'main'`
     );
     if (!rows.length) return res.status(404).json({ error: "No state yet" });
-    res.json({ data: rows[0].data, updatedAt: rows[0].updated_at });
+    // Strip any relational-authoritative keys that may exist in legacy snapshots
+    // so clients never receive them as if they were snapshot-owned.
+    const { clean: safeData } = stripRelationalKeys(rows[0].data, "GET /api/state");
+    res.json({ data: safeData, updatedAt: rows[0].updated_at });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -5628,13 +5673,25 @@ app.post("/api/state", async (req, res) => {
       return res.status(401).json({ error: "Not logged in" });
     }
     const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    if (!roles.includes("admin") && !roles.includes("mod") && !roles.includes("speaker")) {
+    // ALLOWED_STATE_WRITE_ROLES: admin (full game admin), mod (sim control),
+    // speaker (parliamentary-state management via control panel).
+    // See server/state-contracts.js for the authoritative justification.
+    if (!roles.some((r) => ALLOWED_STATE_WRITE_ROLES.has(r))) {
       return res.status(403).json({ error: "Forbidden: admin, mod, or speaker role required" });
     }
 
-    const data = req.body?.data;
-    if (!data || typeof data !== "object") {
+    const rawData = req.body?.data;
+    if (!rawData || typeof rawData !== "object") {
       return res.status(400).json({ error: "Body must be { data: <object> }" });
+    }
+
+    // Strip relational-authoritative keys before persisting. If a caller
+    // accidentally includes divisions/factions/finance etc. in the payload
+    // they are silently removed here so the snapshot never becomes a
+    // competing source of truth for those systems.
+    const { clean: data, stripped } = stripRelationalKeys(rawData, "POST /api/state");
+    if (stripped.length) {
+      console.warn(`[POST /api/state] user=${req.session.userId} — stripped forbidden keys: ${stripped.join(", ")}`);
     }
 
     const label = req.body?.label || "autosave";
@@ -5654,7 +5711,8 @@ app.post("/api/state", async (req, res) => {
       [snapshotId]
     );
 
-    // Keep the object tables in sync with the new state
+    // Sync derived object-cache tables only — relational-authoritative tables
+    // are not touched. See syncObjectTables() for the full ownership boundary.
     try { await syncObjectTables(data); } catch (syncErr) { console.error("[syncObjectTables]", syncErr); }
 
     // Sync sim_clock and sim_state with the gameState from the snapshot so that
@@ -5689,6 +5747,12 @@ app.post("/api/state", async (req, res) => {
  * GET  /api/snapshots                — admin: list all snapshots
  * POST /api/snapshots                — admin: create named snapshot { label, data }
  * POST /api/snapshots/:id/restore    — admin: set current pointer to snapshot (O(1))
+ *
+ * OWNERSHIP NOTE: snapshot operations store/restore only snapshot-backed state
+ * (gameState, bills, motions, statements, regulations, questionTime, etc.).
+ * Relational-authoritative systems (divisions, amendments, factions, political
+ * state, finance) are NEVER overwritten by snapshot save, restore, or import.
+ * Those systems have dedicated routes as their sole write path.
  */
 app.get("/api/snapshots", async (req, res) => {
   try {
@@ -5725,12 +5789,19 @@ app.post("/api/snapshots", async (req, res) => {
       return res.status(403).json({ error: "Forbidden: admin role required" });
     }
 
-    const { label, data } = req.body || {};
+    const { label } = req.body || {};
+    const rawDataFromBody = (req.body || {}).data;
     if (!label || typeof label !== "string" || !label.trim()) {
       return res.status(400).json({ error: "Body must include a non-empty label" });
     }
-    if (!data || typeof data !== "object") {
+    if (!rawDataFromBody || typeof rawDataFromBody !== "object") {
       return res.status(400).json({ error: "Body must include a data object" });
+    }
+
+    // Strip relational-authoritative keys before persisting the named snapshot.
+    const { clean: data, stripped } = stripRelationalKeys(rawDataFromBody, "POST /api/snapshots");
+    if (stripped.length) {
+      console.warn(`[POST /api/snapshots] user=${req.session.userId} — stripped forbidden keys: ${stripped.join(", ")}`);
     }
 
     const { rows } = await pool.query(
@@ -5765,22 +5836,44 @@ app.post("/api/snapshots/:id/restore", async (req, res) => {
 
     const snapshotId = req.params.id;
 
+    // Fetch the full snapshot so we can rebuild derived caches after restore.
     const { rows } = await pool.query(
-      "SELECT id FROM state_snapshots WHERE id = $1",
+      "SELECT id, data FROM state_snapshots WHERE id = $1",
       [snapshotId]
     );
     if (!rows.length) {
       return res.status(404).json({ error: "Snapshot not found" });
     }
 
+    // Update the current pointer (O(1) — the snapshot data is not copied).
     await pool.query(
       `INSERT INTO app_state_current (id, snapshot_id)
        VALUES ('main', $1)
        ON CONFLICT (id) DO UPDATE SET snapshot_id = EXCLUDED.snapshot_id`,
       [snapshotId]
     );
+    console.log(`[restore] snapshot pointer set to ${snapshotId} by user ${req.session.userId}`);
 
-    res.json({ ok: true });
+    // Auto-rebuild derived object-cache tables from the restored snapshot data.
+    // Only SNAPSHOT_DERIVED_TABLES are touched; relational-authoritative tables
+    // (divisions, amendments, factions, finance, etc.) are never written here.
+    let cacheRebuilt = false;
+    let cacheWarning = null;
+    try {
+      await syncObjectTables(rows[0].data);
+      cacheRebuilt = true;
+      console.log(`[restore] derived-cache rebuild succeeded for snapshot ${snapshotId}`);
+    } catch (syncErr) {
+      console.error(`[restore] derived-cache rebuild FAILED for snapshot ${snapshotId}:`, syncErr);
+      cacheWarning = "Snapshot restored but derived-cache rebuild failed. Run POST /api/admin/rebuild-cache manually to re-sync object tables.";
+    }
+
+    res.json({
+      ok: true,
+      snapshotId,
+      cacheRebuilt,
+      ...(cacheWarning ? { warning: cacheWarning } : {}),
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -9854,12 +9947,18 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
  *
  * All endpoints require the admin role.
  *
- * POST /api/admin/clear-cache          — truncate the 5 object-cache tables
- * POST /api/admin/rebuild-cache        — re-sync object tables from the current snapshot
+ * POST /api/admin/clear-cache          — truncate the 5 object-cache tables (dev/staff only)
+ * POST /api/admin/rebuild-cache        — re-sync derived object-cache tables from the current snapshot
  * POST /api/admin/rotate-sessions      — regenerate the caller's own session ID + new CSRF token
  * POST /api/admin/force-logout-all     — delete every session except the caller's
  * GET  /api/admin/export-snapshot      — download the current snapshot as a JSON file attachment
- * POST /api/admin/import-snapshot      — accept { label, data } body, save as new snapshot + set current
+ * POST /api/admin/import-snapshot      — accept { label, data } body, save as new snapshot + set current (dev/staff only)
+ *
+ * OWNERSHIP NOTE: clear-cache and rebuild-cache operate ONLY on the five
+ * derived object-cache tables.  They do NOT touch relational-authoritative
+ * tables.  import-snapshot likewise only calls syncObjectTables() which
+ * honours the same boundary.  See syncObjectTables() for the full
+ * ownership documentation.
  */
 const maintLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
 
@@ -9886,7 +9985,10 @@ app.post("/api/admin/clear-cache", maintLimit, async (req, res) => {
   }
 });
 
-// Rebuild object-cache tables from the current snapshot
+// Rebuild derived object-cache tables from the current snapshot.
+// Scope: bills, motions, statements, regulations, questiontime_questions ONLY.
+// Relational-authoritative tables (divisions, bill_amendments, party_factions,
+// faction_political_state, character_finance) are NOT modified.
 app.post("/api/admin/rebuild-cache", maintLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
@@ -10041,17 +10143,30 @@ app.get("/api/admin/export-snapshot", maintLimit, async (req, res) => {
 
 // Import a snapshot from a JSON body: { label, data }
 // Saves as a new snapshot and sets it as the active current state.
+// Restricted to dev/staff environments via isDevSeedAllowed().
+// Only derived object-cache tables (bills, motions, statements, regulations,
+// questiontime_questions) are rebuilt from the imported data.
+// Relational-authoritative tables (divisions, bill_amendments, party_factions,
+// faction_political_state, character_finance) are NOT overwritten.
 app.post("/api/admin/import-snapshot", maintLimit, async (req, res) => {
   try {
     if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
 
-    const { label, data } = req.body || {};
+    const { label, data: rawData } = req.body || {};
     if (!label || typeof label !== "string" || !label.trim()) {
       return res.status(400).json({ error: "Body must include a non-empty label." });
     }
-    if (!data || typeof data !== "object" || Array.isArray(data)) {
+    if (!rawData || typeof rawData !== "object" || Array.isArray(rawData)) {
       return res.status(400).json({ error: "Body must include a data object." });
+    }
+
+    // Strip relational-authoritative keys before persisting the imported snapshot.
+    // This ensures import cannot become a competing write path for gameplay systems
+    // that are owned by dedicated relational tables.
+    const { clean: data, stripped } = stripRelationalKeys(rawData, "POST /api/admin/import-snapshot");
+    if (stripped.length) {
+      console.warn(`[admin/import-snapshot] user=${req.session.userId} — stripped forbidden keys: ${stripped.join(", ")}`);
     }
 
     const { rows } = await pool.query(
@@ -10069,6 +10184,8 @@ app.post("/api/admin/import-snapshot", maintLimit, async (req, res) => {
       [snap.id]
     );
 
+    // Rebuilds derived cache only — relational tables untouched.
+    // See syncObjectTables() for the full ownership boundary documentation.
     let cacheWarning = null;
     try {
       await syncObjectTables(data);
@@ -10083,6 +10200,7 @@ app.post("/api/admin/import-snapshot", maintLimit, async (req, res) => {
       snapshotId: snap.id,
       createdAt: snap.created_at,
       label: snap.label,
+      ...(stripped.length ? { strippedKeys: stripped } : {}),
       ...(cacheWarning ? { warning: cacheWarning } : {}),
     });
   } catch (e) {
