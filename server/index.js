@@ -21005,6 +21005,10 @@ if (process.env.NODE_ENV === "production") {
   }
 }
 
+if (process.env.ENABLE_DEV_SEED === "true") {
+  console.warn("⚠ ENABLE_DEV_SEED is active — destructive admin routes enabled");
+}
+
 ensureSchema()
   .then(() => {
     app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
