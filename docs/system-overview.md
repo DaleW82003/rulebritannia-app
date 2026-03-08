@@ -20,6 +20,48 @@ A Cloudflare Worker (and a Cloudflare Pages Function backup) proxies all `/api/*
 
 ---
 
+## Current System Boundaries
+
+### Implemented Systems
+
+- **Parliamentary simulation**
+  - bills
+  - amendments
+  - divisions
+  - rebellions
+
+- **Party systems**
+  - factions
+  - faction allocations
+  - faction climate
+
+- **Political state**
+  - political capital
+  - political pressure
+  - character political state
+
+- **Finance**
+  - personal finance
+  - party finance
+
+- **Staff governance tools**
+  - admin and moderator systems
+  - Speaker NPC role and powers
+
+- **State tooling**
+  - relational DB authoritative model
+  - constrained snapshot/app_state tooling
+
+### Systems Not Yet Fully Implemented
+
+- integrated economic simulation
+- national budget system
+- polling and public opinion model
+
+The current simulation focuses on political institutions and internal political dynamics. The economic, fiscal, and polling systems will later extend this foundation.
+
+---
+
 ## 3. High-Level Architecture Diagram
 
 ```
