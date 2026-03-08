@@ -105,6 +105,15 @@ after(async () => {
 /** Fresh unauthenticated client (no session). */
 function anonClient() { return new TestClient(baseUrl); }
 
+/** Read treasury.cash for a party directly from the DB. */
+async function getPartyCash(partySlug) {
+  const { rows } = await pool.query(
+    "SELECT treasury FROM parties WHERE slug = $1",
+    [partySlug]
+  );
+  return Number(rows[0]?.treasury?.cash ?? 0);
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. Personal finance — mutation → read consistency
 // ═════════════════════════════════════════════════════════════════════════════
@@ -259,12 +268,7 @@ test("PARTY FINANCE: admin adds donation, treasury cash increases, donation is r
   assert.equal(getRes.body.donations[0].amount, donationAmount);
 
   // Treasury cash should have increased by the donation amount
-  const { rows } = await pool.query(
-    "SELECT treasury FROM parties WHERE slug = $1",
-    [partySlug]
-  );
-  assert.ok(rows.length, "party row must exist");
-  const cash = Number(rows[0].treasury?.cash ?? 0);
+  const cash = await getPartyCash(partySlug);
   assert.equal(cash, initialCash + donationAmount, "treasury.cash must increase by the donation amount");
 });
 
@@ -278,11 +282,7 @@ test("PARTY FINANCE: two donations are cumulative in treasury.cash", async () =>
     fromName: "Donor B", amount: 2000,
   });
 
-  const { rows } = await pool.query(
-    "SELECT treasury FROM parties WHERE slug = $1",
-    [partySlug]
-  );
-  const cash = Number(rows[0].treasury?.cash ?? 0);
+  const cash = await getPartyCash(partySlug);
   assert.equal(cash, 3000, "treasury.cash must be the sum of both donations");
 });
 

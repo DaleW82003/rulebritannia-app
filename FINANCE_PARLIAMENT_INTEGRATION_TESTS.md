@@ -59,7 +59,7 @@
 
 ## Remaining Gaps / Assumptions
 
-- **Party treasury direct update** (`POST /api/parties/:id/treasury`) is not tested here; it requires leader/chairman character linkage or admin override and is covered separately by the chairman/leader role logic.
+- **Party treasury direct update** (`POST /api/parties/:id/treasury`) is not tested here; it requires leader/chairman character linkage or admin override and is not yet covered by the integration test suite — this would be a useful follow-up test.
 - **Salary computation pathway** is exercised indirectly through `GET /api/me/finance` (no salary scale rows seeded → `annualSalary = 0` is the expected fallback). A dedicated salary-scale integration test could be added to cover the salary-bands uprate pathway.
 - **Finance cost index / inflation** (`PATCH /api/admin/finance/apply-inflation`) is not tested; this is an admin-only batch operation that modifies `finance_config.finance_cost_index`.
 - **Character shop purchases** create/sell/dismiss pathways are not covered; these are part of the personal finance write surface and could be added as a follow-up.

@@ -74,12 +74,12 @@ export async function createTestSchema() {
       delegated_to TEXT,
       rh_ever      BOOLEAN NOT NULL DEFAULT FALSE,
       tpl_ever     BOOLEAN NOT NULL DEFAULT FALSE,
-      home         JSONB,
-      rentals      JSONB,
-      financial_background_level INT  NOT NULL DEFAULT 5,
-      education    TEXT,
-      career_background TEXT,
-      family       TEXT,
+      home         JSONB,         -- NULL means no property; server defaults to empty object
+      rentals      JSONB,         -- NULL means no rentals; server defaults to empty array
+      financial_background_level INT  NOT NULL DEFAULT 5, -- 1-10 scale; 5 = mid-tier background
+      education    TEXT,          -- optional; NULL treated as unknown (multiplier defaults to 1.0)
+      career_background TEXT,     -- optional; NULL treated as unknown (multiplier defaults to 1.0)
+      family       TEXT,          -- optional; NULL treated as unknown (multiplier defaults to 1.0)
       created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS characters_user_idx    ON characters (user_id);
