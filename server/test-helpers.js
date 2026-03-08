@@ -382,6 +382,49 @@ export async function createTestSchema() {
       data       JSONB NOT NULL
     );
   `);
+
+  // ── Faction tables ────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS party_factions (
+      id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      party_slug               TEXT NOT NULL,
+      slug                     TEXT NOT NULL,
+      name                     TEXT NOT NULL,
+      description              TEXT NOT NULL DEFAULT '',
+      colour                   TEXT NOT NULL DEFAULT '#888888',
+      ideology_tags            JSONB NOT NULL DEFAULT '[]'::jsonb,
+      leadership_alignment     TEXT NOT NULL DEFAULT 'neutral',
+      rebellion_bias           NUMERIC(4,2) NOT NULL DEFAULT 0,
+      media_sensitivity        NUMERIC(4,2) NOT NULL DEFAULT 0,
+      constituency_sensitivity NUMERIC(4,2) NOT NULL DEFAULT 0,
+      display_order            INTEGER NOT NULL DEFAULT 0,
+      active                   BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (party_slug, slug)
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS party_faction_allocations (
+      faction_id    UUID PRIMARY KEY REFERENCES party_factions(id) ON DELETE CASCADE,
+      mp_count      INTEGER NOT NULL DEFAULT 0,
+      influence_bonus NUMERIC(4,2) NOT NULL DEFAULT 0,
+      notes         TEXT NOT NULL DEFAULT '',
+      updated_by    TEXT NOT NULL DEFAULT '',
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS faction_political_state (
+      faction_id          UUID PRIMARY KEY REFERENCES party_factions(id) ON DELETE CASCADE,
+      internal_power      NUMERIC(5,2) NOT NULL DEFAULT 0,
+      momentum            TEXT NOT NULL DEFAULT 'stable',
+      leadership_pressure NUMERIC(5,2) NOT NULL DEFAULT 0,
+      cohesion            NUMERIC(5,2) NOT NULL DEFAULT 70,
+      breakdown           JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 }
 
 /**
@@ -408,6 +451,9 @@ export async function dropTestSchema() {
       offices,
       parties,
       constituency_events,
+      faction_political_state,
+      party_faction_allocations,
+      party_factions,
       constituencies,
       privy_council_members,
       divisions,
@@ -505,6 +551,60 @@ export async function seedBill(authorCharId, opts = {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 // HTTP test client
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Seed N fake constituency rows for a given party.
+ * Used to set up a party's MP total so allocation validation has something to check against.
+ *
+ * @param {string} partySlug  e.g. "Labour"
+ * @param {number} count      number of constituency rows to insert
+ * @returns {Promise<void>}
+ */
+export async function seedConstituencies(partySlug, count) {
+  for (let i = 0; i < count; i++) {
+    const id = `TEST-CONST-${partySlug.replace(/\s+/g, "-").toUpperCase()}-${i}-${randomUUID().slice(0, 6)}`;
+    await pool.query(
+      `INSERT INTO constituencies (id, name, nation, region, party, mp_type, mp_name)
+       VALUES ($1, $2, 'England', 'Test Region', $3, 'MP', 'Test MP')
+       ON CONFLICT (id) DO NOTHING`,
+      [id, `Test Constituency ${i}`, partySlug]
+    );
+  }
+}
+
+/**
+ * Seed a party_factions row (and a default party_faction_allocations row) for tests.
+ *
+ * @param {{ partySlug, name?, slug?, leadershipAlignment?, rebellionBias?, mpCount?, influenceBonus? }} opts
+ * @returns {{ factionId: string }}
+ */
+export async function seedFaction(opts = {}) {
+  const suffix             = randomUUID().slice(0, 8);
+  const partySlug          = opts.partySlug          ?? "Labour";
+  const name               = opts.name               ?? `Test Faction ${suffix}`;
+  const slug               = opts.slug               ?? `test-faction-${suffix}`;
+  const leadershipAlignment = opts.leadershipAlignment ?? "neutral";
+  const rebellionBias      = opts.rebellionBias      ?? 0.1;
+  const mpCount            = opts.mpCount            ?? 0;
+  const influenceBonus     = opts.influenceBonus     ?? 0;
+
+  const { rows } = await pool.query(
+    `INSERT INTO party_factions
+       (party_slug, slug, name, leadership_alignment, rebellion_bias)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id`,
+    [partySlug, slug, name, leadershipAlignment, rebellionBias]
+  );
+  const factionId = rows[0].id;
+
+  await pool.query(
+    `INSERT INTO party_faction_allocations (faction_id, mp_count, influence_bonus, updated_by)
+     VALUES ($1, $2, $3, 'test-seed')`,
+    [factionId, mpCount, influenceBonus]
+  );
+
+  return { factionId };
+}
 
 /**
  * Start the Express app on an OS-assigned free port.
@@ -609,6 +709,7 @@ export class TestClient {
   get(path)             { return this.request("GET",    path); }
   post(path, body)      { return this.request("POST",   path, body); }
   put(path, body)       { return this.request("PUT",    path, body); }
+  patch(path, body)     { return this.request("PATCH",  path, body); }
   delete(path)          { return this.request("DELETE", path); }
 
   /**
