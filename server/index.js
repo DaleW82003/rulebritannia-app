@@ -19,6 +19,7 @@ import {
 import { ALL_VALID_ROLES, PARTY_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP, partyRoleForPartyName, computeApprovalRolesToAdd, officeRoleFromSpecId } from "./roles.js";
 import { computeSimDateFromGameState } from "./clock.js";
 import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_ROLES } from "./state-contracts.js";
+import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-helpers.js";
 
 const __serverDir = dirname(fileURLToPath(import.meta.url));
 
@@ -4752,7 +4753,7 @@ function requireAdminOrMod(req, res) {
     res.status(401).json({ error: "Not logged in" });
     return false;
   }
-  const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  const roles = getSessionRoles(req);
   if (!roles.includes("admin") && !roles.includes("mod")) {
     res.status(403).json({ error: "Forbidden: admin or mod role required" });
     return false;
@@ -4765,7 +4766,7 @@ function requireAdminModOrSpeaker(req, res) {
     res.status(401).json({ error: "Not logged in" });
     return false;
   }
-  const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  const roles = getSessionRoles(req);
   if (!roles.includes("admin") && !roles.includes("mod") && !roles.includes("speaker")) {
     res.status(403).json({ error: "Forbidden: admin, mod, or speaker role required" });
     return false;
@@ -6628,8 +6629,7 @@ app.get("/api/audit-log", auditReadLimit, async (req, res) => {
     if (!req.session?.userId) {
       return res.status(401).json({ error: "Not logged in" });
     }
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    if (!roles.includes("admin") && !roles.includes("mod")) {
+    if (!hasAdminOrMod(req)) {
       return res.status(403).json({ error: "Forbidden: admin or mod role required" });
     }
 
@@ -6914,8 +6914,7 @@ app.post("/api/bills/:id/first-reading", crudWriteLimit, async (req, res) => {
     }
 
     // Permission: PM, Leader of the House, admin, or mod
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     let canAct = isStaff;
     if (!canAct) {
       const charId = await getActiveCharacterId(req);
@@ -7014,8 +7013,7 @@ app.post("/api/bills/:id/withdraw", crudWriteLimit, async (req, res) => {
     }
 
     // Permission: bill author (by character_id), PM, admin, or mod
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     let canWithdraw = isStaff;
     if (!canWithdraw) {
       const charId = await getActiveCharacterId(req);
@@ -7204,8 +7202,7 @@ app.post("/api/bills/:id/amendments/:aid/decide", crudWriteLimit, async (req, re
     if (am.status !== "proposed") return res.status(409).json({ error: `Amendment is already ${am.status}` });
 
     // Only the bill author may decide; authority checked via immutable character_id
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     const isAuthor = !!(billAuthorCharId && String(charId) === String(billAuthorCharId));
     if (!isAuthor && !isStaff) {
       return res.status(403).json({ error: "Only the bill author, admin or mod may decide on amendments" });
@@ -8751,8 +8748,7 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     }
     // Enforce NPC author restriction: only admin/mod/speaker may post comments with npcAuthor flag
     if (press_type === "comment" && item.npcAuthor) {
-      const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-      if (!roles.includes("admin") && !roles.includes("mod") && !roles.includes("speaker")) {
+      if (!hasAdminModOrSpeaker(req)) {
         return res.status(403).json({ error: "Only admin, mod, or speaker may post as NPC" });
       }
     }
@@ -8830,8 +8826,7 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
     const item = rows[0].data;
     const pressAuthorCharId = rows[0].author_character_id || null;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
     const isQuestion = entry.isQuestion === true;
 
     if (isQuestion) {
@@ -8893,8 +8888,8 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
 app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = roles.includes("admin") || roles.includes("mod");
+    const roles = getSessionRoles(req);
+    const isAdminOrMod = hasAdminOrMod(req);
     const isSpeakerRole = roles.includes("speaker");
 
     if (!isAdminOrMod && !isSpeakerRole) {
@@ -9080,8 +9075,7 @@ app.post("/api/debates/create", discourseWriteLimit, async (req, res) => {
   try {
     // Debate topic creation is restricted to admin and mod users.
     if (!requireAuth(req, res)) return;
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    if (!roles.includes("admin") && !roles.includes("mod")) {
+    if (!hasAdminOrMod(req)) {
       return res.status(403).json({ error: "Forbidden: admin or mod role required to create debate topics" });
     }
 
@@ -10239,8 +10233,7 @@ app.get("/api/characters", charReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { active } = req.query;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isPrivileged = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isPrivileged = hasAdminOrMod(req);
     // Admin/mod get extended profile fields so the personal page mod view can display full profiles
     const extraFields = isPrivileged
       ? ", date_of_birth, education, career_background, family, year_first_elected, personal_background, bio, financial_background_level, twitter_handle"
@@ -10647,8 +10640,7 @@ app.post("/api/characters/apply-npc", charAppWriteLimit, async (req, res) => {
     }
 
     // Authorization: only admin, mod, or party leader may request NPCs.
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     // Resolve the requester's active character (used for party-leader check + audit snapshot)
     const { rows: activeCharRows } = await pool.query(
@@ -11562,8 +11554,7 @@ const whipWriteLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: t
  * isDirectAuthority = false when caller is only chief whip (routes through leader).
  */
 async function getWhipAuthority(req, characterParty) {
-  const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-  if (sessionRoles.includes("admin") || sessionRoles.includes("mod")) {
+  if (hasAdminOrMod(req)) {
     return { canManage: true, isDirectAuthority: true };
   }
   if (!req.session.characterId) return { canManage: false, isDirectAuthority: false };
@@ -11686,8 +11677,7 @@ app.get("/api/parties/:partyId/whip-requests", whipWriteLimit, async (req, res) 
   try {
     if (!requireAuth(req, res)) return;
     const partySlug = req.params.partyId;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     if (!isStaff) {
       const { rows: partyRows } = await pool.query(
         "SELECT leader_character_id FROM parties WHERE slug = $1", [partySlug]
@@ -11719,8 +11709,7 @@ app.post("/api/parties/:partyId/whip-requests/:reqId/approve", whipWriteLimit, a
   try {
     if (!requireAuth(req, res)) return;
     const partySlug = req.params.partyId;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     if (!isStaff) {
       const { rows: partyRows } = await pool.query(
         "SELECT leader_character_id FROM parties WHERE slug = $1", [partySlug]
@@ -11773,8 +11762,7 @@ app.post("/api/parties/:partyId/whip-requests/:reqId/deny", whipWriteLimit, asyn
   try {
     if (!requireAuth(req, res)) return;
     const partySlug = req.params.partyId;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     if (!isStaff) {
       const { rows: partyRows } = await pool.query(
         "SELECT leader_character_id FROM parties WHERE slug = $1", [partySlug]
@@ -11932,8 +11920,7 @@ app.post("/api/parties/:partyId/leadership", partyWriteLimit, async (req, res) =
       return res.status(400).json({ error: "role must be 'chairman' or 'whip'" });
     }
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     // Non-admin/mod must be the active character who is party leader
     if (!isAdminOrMod) {
@@ -11999,8 +11986,7 @@ app.post("/api/parties/:partyId/chief-whip", partyWriteLimit, async (req, res) =
 
     const { chiefWhipId = null, deputyWhipId = null } = req.body || {};
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     const { rows: partyRows } = await pool.query(
       "SELECT * FROM parties WHERE slug = $1", [req.params.partyId]
@@ -12784,8 +12770,7 @@ app.delete("/api/me/character/shop-purchases/:id", meFinanceWriteLimit, async (r
     if (!charRows.length) { return res.status(404).json({ error: "No active character found" }); }
     const charId = charRows[0].id;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const isAdminOrMod = hasAdminModOrSpeaker(req);
 
     // Verify the purchase belongs to the caller's character (or caller is admin/mod)
     const { rows: pRows } = await client.query(
@@ -13049,8 +13034,7 @@ app.post("/api/parties/:partyId/structure", partyWriteLimit, async (req, res) =>
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     if (!isAdminOrMod) {
       if (!req.session.characterId) {
@@ -13126,8 +13110,7 @@ app.post("/api/parties/:partyId/treasury", partyWriteLimit, async (req, res) => 
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     if (!isAdminOrMod) {
       if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
@@ -13227,8 +13210,7 @@ app.post("/api/parties/:partyId/membership-fee", partyWriteLimit, async (req, re
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     if (!isAdminOrMod) {
       if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
@@ -13269,8 +13251,7 @@ app.get("/api/parties/:partyId/donations", partyReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     if (!isAdminOrMod) {
       if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
@@ -13413,8 +13394,7 @@ app.post("/api/parties/:partyId/shop-purchases", partyShopLimit, async (req, res
   try {
     if (!requireAuth(req, res)) { return; }
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       if (!req.session.characterId) { return res.status(403).json({ error: "No active character selected" }); }
       const { rows: pr } = await client.query(
@@ -13491,8 +13471,7 @@ app.delete("/api/parties/:partyId/shop-purchases/:id", partyShopLimit, async (re
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) return res.status(403).json({ error: "Admin or mod required" });
 
     const { rows } = await pool.query(
@@ -13517,8 +13496,7 @@ app.post("/api/parties/:partyId/shop-purchases/:id/sell", partyShopLimit, async 
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       if (!req.session.characterId) { return res.status(403).json({ error: "No active character selected" }); }
       const { rows: pr } = await client.query(
@@ -13587,8 +13565,7 @@ app.post("/api/parties/:partyId/shop-purchases/:id/dismiss", partyShopLimit, asy
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       if (!req.session.characterId) { return res.status(403).json({ error: "No active character selected" }); }
       const { rows: pr } = await pool.query(
@@ -13632,8 +13609,7 @@ app.post("/api/parties/:partyId/drafts", partyWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     if (!isAdminOrMod) {
       if (!req.session.characterId) return res.status(403).json({ error: "No active character selected" });
@@ -13677,8 +13653,7 @@ const expulsionReadLimit  = rateLimit({ windowMs: 60_000, max: 60, standardHeade
 app.post("/api/parties/:partyId/expulsions", expulsionWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
 
     // Must be party leader or admin/mod
     if (!isAdminOrMod) {
@@ -14161,8 +14136,7 @@ app.get("/api/privy-council", privyReadLimit, async (req, res) => {
     if (!requireAuth(req, res)) return;
 
     // Access gated: only privy councillors and staff (admin/mod/speaker)
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
 
     if (!isStaff) {
       // Check if current active character is a privy councillor
@@ -14280,8 +14254,7 @@ app.post("/api/mod/privy-council/remove", privyWriteLimit, async (req, res) => {
 
 /** Check if the request has Privy Council access (current PC member or staff). */
 async function hasPrivyCouncilAccess(req) {
-  const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-  if (sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker")) return true;
+  if (hasAdminModOrSpeaker(req)) return true;
   if (!req.session.characterId) return false;
   const { rows } = await pool.query(
     "SELECT id FROM privy_council_members WHERE character_id = $1 AND removed_at IS NULL",
@@ -14320,8 +14293,7 @@ app.post("/api/privy-council/posts", privyWriteLimit, async (req, res) => {
     const { body, posted_as_type = "character" } = req.body || {};
     if (!body || !String(body).trim()) return res.status(400).json({ error: "Post body is required" });
 
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
 
     // Only staff may post as the Monarch
     if (posted_as_type === "monarch" && !isStaff) {
@@ -14381,8 +14353,7 @@ const groupDraftWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHea
  * Also returns whether the caller is admin/mod/speaker.
  */
 async function resolveCallerCharacter(req) {
-  const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-  const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+  const isStaff = hasAdminModOrSpeaker(req);
   if (isStaff) return { isStaff: true, charId: null };
   if (!req.session.characterId) return { isStaff: false, charId: null };
   const { rows } = await pool.query(
@@ -14724,8 +14695,7 @@ app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
     const office = offRows[0];
 
     // Permission: admin/mod always allowed; PM can assign non-PM cabinet; LOTO can assign non-LOTO shadow
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
@@ -14873,8 +14843,7 @@ app.delete("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req,
     if (!offRows.length) return res.status(404).json({ error: "Office not found" });
     const office = offRows[0];
 
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
@@ -15034,8 +15003,7 @@ app.post("/api/offices/:id/fire", officeWriteLimit, async (req, res) => {
     const { character_id: firedCharId, character_name: firedCharName } = assignRows[0];
 
     // Permission: admin/mod, PM can fire cabinet (non-PM), LOTO can fire shadow (non-LOTO)
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
@@ -15152,8 +15120,7 @@ app.post("/api/offices/:id/resign", officeWriteLimit, async (req, res) => {
     const { character_id: resignCharId, character_name: resignCharName } = assignRows[0];
 
     // Permission: current holder or admin/mod
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId || callerCharId !== resignCharId) {
@@ -15507,8 +15474,7 @@ app.post("/api/government/reshuffle", officeWriteLimit, async (req, res) => {
     if (!requireAuth(req, res)) return;
 
     // Permission: admin/mod or current PM
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     let callerCharId = null;
     if (!isAdminOrMod) {
       callerCharId = await getActiveCharacterId(req);
@@ -15582,8 +15548,7 @@ app.post("/api/government/reshuffle/end", officeWriteLimit, async (req, res) => 
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
@@ -15609,8 +15574,7 @@ app.post("/api/opposition/reshuffle", officeWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     let callerCharId = null;
     if (!isAdminOrMod) {
       callerCharId = await getActiveCharacterId(req);
@@ -15679,8 +15643,7 @@ app.post("/api/opposition/reshuffle/end", officeWriteLimit, async (req, res) => 
   try {
     if (!requireAuth(req, res)) return;
 
-    const sessionRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const callerCharId = await getActiveCharacterId(req);
       if (!callerCharId) return res.status(403).json({ error: "Forbidden" });
@@ -15924,8 +15887,7 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
 app.post("/api/divisions/create", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const canCreate = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const canCreate = hasAdminModOrSpeaker(req);
     if (!canCreate) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
     const { entity_type, entity_id, title = "", closes_at, closes_at_sim } = req.body || {};
@@ -16174,8 +16136,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const canClose = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const canClose = hasAdminModOrSpeaker(req);
     if (!canClose) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
     // Fetch constituency seat totals (authoritative source) outside the transaction
@@ -16224,8 +16185,7 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
 app.patch("/api/divisions/:id/npc-votes", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const canSet = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const canSet = hasAdminModOrSpeaker(req);
     if (!canSet) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
     const { npc_votes = {}, rebels_by_party = {}, rebels_by_party_choice = {} } = req.body || {};
@@ -16262,8 +16222,7 @@ app.post("/api/divisions/:divisionId/party-instruction", divWriteLimit, async (r
     if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
 
     // Permission: admin/mod OR chief whip (party leader is fallback if no chief whip assigned)
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const charId = await getActiveCharacterId(req);
       if (!charId) return res.status(403).json({ error: "No active character" });
@@ -16415,8 +16374,7 @@ app.post("/api/divisions/:divisionId/rebel-request/:requestId/decide", divWriteL
     if (divRows[0].status !== "open") return res.status(409).json({ error: "Division is closed" });
 
     const partySlug = reqRows[0].party_slug;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     if (!isAdminOrMod) {
       const charId = await getActiveCharacterId(req);
       if (!charId) return res.status(403).json({ error: "No active character" });
@@ -16671,8 +16629,7 @@ app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
 
     // ── Server-side QT rule enforcement ─────────────────────────────────────
     // Staff (admin/mod/speaker) may post as NPCs without rule checks
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+    const isStaff = hasAdminModOrSpeaker(req);
 
     if (!isStaff && charId) {
       // Look up character's office assignments (spec_ids)
@@ -16821,8 +16778,7 @@ app.post("/api/qt/questions/:id/answer", qtWriteLimit, async (req, res) => {
 
     // Permission check: admin/mod/speaker always allowed; also allow the office holder,
     // PM, or Leader of the House (they may step in for any department).
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+    const isStaff = hasAdminModOrSpeaker(req);
     let canAnswer = isStaff;
     let answererCharId = null;
 
@@ -16905,8 +16861,7 @@ app.post("/api/qt/questions/:id/followup", qtWriteLimit, async (req, res) => {
     const question = qRows[0];
 
     // Staff bypass rule checks
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+    const isStaff = hasAdminModOrSpeaker(req);
 
     if (!isStaff && charId) {
       // Determine role for limit computation — include third-party leader check
@@ -16979,8 +16934,7 @@ app.patch("/api/qt/followups/:id", qtWriteLimit, async (req, res) => {
     }
 
     // Permission check: admin/mod/speaker, or the office holder / PM / leader-commons
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.some((r) => ["admin", "mod", "speaker"].includes(r));
+    const isStaff = hasAdminModOrSpeaker(req);
     let canAnswer = isStaff;
     let answererCharId = null;
 
@@ -20814,8 +20768,7 @@ app.post("/api/events", crudWriteLimit, async (req, res) => {
 app.put("/api/events/:id", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const sessionRoles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod") || sessionRoles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
 
     // Non-staff may only update their own event (verified by character name on the stored record)
     if (!isStaff) {
@@ -21160,7 +21113,7 @@ const MAX_COMMENT_LENGTH = 400;
 
 /** Is the session user an eligible Right of Reply leader (PM, LoTO, 3rd-party leader, or Speaker)? */
 function isReplyEligible(req) {
-  const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+  const roles = getSessionRoles(req);
   return roles.includes("office:prime_minister") ||
          roles.includes("office:leader_of_opposition") ||
          roles.includes("office:leader_of_third_party") ||
@@ -21170,8 +21123,7 @@ function isReplyEligible(req) {
 app.get("/api/news/:id/comments", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
     const { rows } = await pool.query(
       `SELECT nsc.id, nsc.text, nsc.original_text, nsc.created_by, nsc.created_by_name, nsc.character_name, nsc.character_id,
               nsc.sim_month, nsc.sim_year, nsc.created_at, nsc.deleted_at, nsc.deleted_by_user, nsc.reported_at,
@@ -21252,8 +21204,7 @@ app.delete("/api/news/:id/comments/:cid", crudWriteLimit, async (req, res) => {
     );
     if (!rows.length) return res.status(404).json({ error: "Comment not found" });
     if (rows[0].deleted_at) return res.status(410).json({ error: "Comment already deleted" });
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = roles.includes("admin") || roles.includes("mod") || roles.includes("speaker");
+    const isStaff = hasAdminModOrSpeaker(req);
     const isAuthor = rows[0].created_by === req.session.userId;
     if (!isStaff && !isAuthor) return res.status(403).json({ error: "Forbidden" });
     if (isAuthor && !isStaff) {
@@ -21306,7 +21257,7 @@ app.post("/api/news/:id/reply-request", crudWriteLimit, async (req, res) => {
       const { rows: cRows } = await pool.query("SELECT name FROM characters WHERE id = $1", [charId]);
       charName = cRows[0]?.name || "";
     }
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
+    const roles = getSessionRoles(req);
     const charRole = roles.includes("office:prime_minister") ? "prime-minister"
       : roles.includes("office:leader_of_opposition") ? "leader-opposition"
       : roles.includes("office:leader_of_third_party") ? "party-leader-3rd-4th"
@@ -21794,8 +21745,7 @@ app.delete("/api/papers/:paperKey/articles/:articleId/comments/:cid", crudWriteL
     );
     if (!rows.length) return res.status(404).json({ error: "Comment not found" });
     if (rows[0].deleted_at) return res.status(410).json({ error: "Comment already deleted" });
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isAdminOrMod = roles.includes("admin") || roles.includes("mod");
+    const isAdminOrMod = hasAdminOrMod(req);
     const isAuthor = rows[0].created_by === req.session.userId;
     if (!isAdminOrMod && !isAuthor) return res.status(403).json({ error: "Forbidden" });
     await pool.query("UPDATE paper_article_comments SET deleted_at = NOW() WHERE id = $1", [req.params.cid]);
@@ -21860,8 +21810,7 @@ app.post("/api/papers/submissions", crudWriteLimit, async (req, res) => {
 app.get("/api/papers/submissions", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = roles.includes("admin") || roles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     const { paper, status, type, risk } = req.query;
     let query, params;
     if (isStaff) {
@@ -21915,8 +21864,7 @@ app.get("/api/papers/submissions", crudReadLimit, async (req, res) => {
 app.get("/api/papers/submissions/:id", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    const isStaff = roles.includes("admin") || roles.includes("mod");
+    const isStaff = hasAdminOrMod(req);
     const { rows } = await pool.query("SELECT * FROM paper_submissions WHERE id = $1", [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: "Submission not found" });
     const r = rows[0];
