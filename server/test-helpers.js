@@ -74,6 +74,12 @@ export async function createTestSchema() {
       delegated_to TEXT,
       rh_ever      BOOLEAN NOT NULL DEFAULT FALSE,
       tpl_ever     BOOLEAN NOT NULL DEFAULT FALSE,
+      home         JSONB,         -- NULL means no property; server defaults to empty object
+      rentals      JSONB,         -- NULL means no rentals; server defaults to empty array
+      financial_background_level INT  NOT NULL DEFAULT 5, -- 1-10 scale; 5 = mid-tier background
+      education    TEXT,          -- optional; NULL treated as unknown (multiplier defaults to 1.0)
+      career_background TEXT,     -- optional; NULL treated as unknown (multiplier defaults to 1.0)
+      family       TEXT,          -- optional; NULL treated as unknown (multiplier defaults to 1.0)
       created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS characters_user_idx    ON characters (user_id);
@@ -290,6 +296,11 @@ export async function createTestSchema() {
       whip_character_id        UUID REFERENCES characters(id) ON DELETE SET NULL,
       chief_whip_character_id  UUID REFERENCES characters(id) ON DELETE SET NULL,
       deputy_whip_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      treasury                 JSONB NOT NULL DEFAULT '{}',
+      membership_fee_annual    NUMERIC NOT NULL DEFAULT 0,
+      last_members_update_sim_index INT,
+      hq_url                   TEXT,
+      updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
@@ -425,6 +436,105 @@ export async function createTestSchema() {
       updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  // ── Finance tables ────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS character_finance (
+      character_id            UUID PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+      bank_balance            NUMERIC        NOT NULL DEFAULT 0,
+      annual_salary_override  NUMERIC,
+      shop_monthly_upkeep     NUMERIC        NOT NULL DEFAULT 0,
+      finance_overspend       BOOLEAN        NOT NULL DEFAULT false,
+      positions_override      BOOLEAN        NOT NULL DEFAULT false,
+      last_paid_sim_index     INT,
+      updated_at              TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS character_additional_revenue (
+      id            UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id  UUID    NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      label         TEXT    NOT NULL,
+      annual_amount NUMERIC NOT NULL DEFAULT 0,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS character_shop_purchases (
+      id             UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      character_id   UUID    NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      item_id        TEXT    NOT NULL DEFAULT '',
+      item_name      TEXT    NOT NULL DEFAULT '',
+      price          NUMERIC NOT NULL DEFAULT 0,
+      base_price     NUMERIC NOT NULL DEFAULT 0,
+      monthly_upkeep NUMERIC NOT NULL DEFAULT 0,
+      effects        JSONB   NOT NULL DEFAULT '[]'::jsonb,
+      risk_modifier  TEXT,
+      purchased_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS salary_scales (
+      id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name                     TEXT NOT NULL DEFAULT '',
+      effective_from_sim_index INT  NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS salary_scales_idx ON salary_scales (effective_from_sim_index DESC);
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS salary_scale_roles (
+      scale_id      UUID    NOT NULL REFERENCES salary_scales(id) ON DELETE CASCADE,
+      role_key      TEXT    NOT NULL,
+      annual_salary NUMERIC NOT NULL DEFAULT 0,
+      PRIMARY KEY (scale_id, role_key)
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS character_positions (
+      character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+      position_key TEXT NOT NULL,
+      PRIMARY KEY (character_id, position_key)
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS finance_config (
+      id                              TEXT        PRIMARY KEY DEFAULT 'main',
+      salary_bands                    JSONB       NOT NULL DEFAULT '{}'::jsonb,
+      starting_balances               JSONB       NOT NULL DEFAULT '{}'::jsonb,
+      finance_cost_index              NUMERIC     NOT NULL DEFAULT 1.0,
+      last_salary_bands_sim_year      INTEGER,
+      last_starting_balances_sim_year INTEGER,
+      last_inflation_sim_year         INTEGER,
+      updated_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by                      UUID        REFERENCES users(id)
+    );
+    INSERT INTO finance_config (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS party_donations (
+      id         UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      party_slug TEXT    NOT NULL,
+      from_name  TEXT    NOT NULL DEFAULT '',
+      amount     NUMERIC NOT NULL DEFAULT 0,
+      note       TEXT    NOT NULL DEFAULT '',
+      sim_month  INT,
+      sim_year   INT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // ── Parliament status ─────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS parliament_status (
+      id                        TEXT    PRIMARY KEY DEFAULT 'main',
+      government_type           TEXT    NOT NULL DEFAULT 'Majority',
+      governing_parties         JSONB   NOT NULL DEFAULT '[]'::jsonb,
+      confidence_supply_parties JSONB   NOT NULL DEFAULT '[]'::jsonb,
+      opposition_parties        JSONB   NOT NULL DEFAULT '[]'::jsonb,
+      updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    INSERT INTO parliament_status (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
+  `);
 }
 
 /**
@@ -434,6 +544,15 @@ export async function createTestSchema() {
 export async function dropTestSchema() {
   await pool.query(`
     DROP TABLE IF EXISTS
+      parliament_status,
+      party_donations,
+      finance_config,
+      character_positions,
+      salary_scale_roles,
+      salary_scales,
+      character_shop_purchases,
+      character_additional_revenue,
+      character_finance,
       privy_council_members,
       division_rebel_requests,
       division_rebellion_log,
@@ -604,6 +723,28 @@ export async function seedFaction(opts = {}) {
   );
 
   return { factionId };
+}
+
+/**
+ * Seed a party row for tests.
+ *
+ * @param {{ slug?, name?, initialCash? }} opts
+ * @returns {{ partySlug: string }}
+ */
+export async function seedParty(opts = {}) {
+  const suffix      = randomUUID().slice(0, 8);
+  const slug        = opts.slug        ?? `test-party-${suffix}`;
+  const name        = opts.name        ?? `Test Party ${suffix}`;
+  const initialCash = opts.initialCash ?? 0;
+
+  await pool.query(
+    `INSERT INTO parties (slug, name, treasury)
+     VALUES ($1, $2, $3::jsonb)
+     ON CONFLICT (slug) DO UPDATE SET treasury = EXCLUDED.treasury`,
+    [slug, name, JSON.stringify({ cash: initialCash })]
+  );
+
+  return { partySlug: slug };
 }
 
 /**
