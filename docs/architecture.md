@@ -221,6 +221,24 @@ Verification emails are sent via SendGrid (`@sendgrid/mail`). If `SENDGRID_API_K
 | Privy council | `GET /api/privy-council`, `GET/POST /api/privy-council/posts`, `DELETE /api/privy-council/posts/:id` |
 | Locals | `GET/PUT /api/locals` |
 
+### 3.1a Server-Side Service Modules
+
+High-value business logic has been extracted from `server/index.js` into focused service/helper modules under `server/`. All exports are ES-module named exports; DB-dependent functions import `pool` from `./db.js`.
+
+| Module | Exports | Purpose |
+|---|---|---|
+| `server/political-state-service.js` | `FACTION_PLAYABLE_PARTIES`, `clamp100`, `pressureLabel`, `recomputeCharacterPoliticalState`, `computeFactionStrength`, `computeFactionCohesion`, `computeLeadershipPressure`, `computeFactionPoliticalState`, `getPartyFactionClimate`, `seed1997Factions` | All character and faction political-state computation. Formula weights are documented inline. |
+| `server/division-helpers.js` | `SPEAKER_PARTY_RE`, `SINN_FEIN_PARTY_RE`, `RH_QUALIFYING_SPEC_IDS`, `PC_QUALIFYING_SPEC_IDS`, `getPartySeatsFromConstituencies`, `getPartiesRankedBySeats`, `getThirdPartySlug`, `getCharacterParliamentaryMeta`, `formatParliamentaryName`, `getCharacterDisplayName`, `batchGetCharacterDisplayNames`, `enrichCharacterRowWithDisplay`, `batchEnrichCharacterRows`, `computeAllPlayerWeights`, `computeCharacterWeight`, `computeDivisionTallyFromDb` | Division vote-weight computation, parliamentary display-name enrichment, and seat helpers. |
+| `server/finance-service.js` | `resolveActiveSalaryScale`, `computeCharacterAnnualSalary`, `resolvedAnnualSalary` | Salary scale resolution and per-character annual salary computation (override-first). |
+| `server/rbac-helpers.js` | `getSessionRoles`, `hasAdminOrMod`, `hasAdminModOrSpeaker` | RBAC helpers replacing inline `Array.isArray(req.session.roles)` patterns. |
+| `server/recompute-helpers.js` | `fireRecompute`, `awaitedRecompute` | Structured logging wrapper for political-state and salary recompute triggers; accepts optional `entityId` for per-entity log correlation. |
+| `server/roles.js` | `ALL_VALID_ROLES`, `PARTY_ROLES`, `PERMISSION_MAP`, and Discourse group helpers | Role constants, PERMISSION_MAP, and Discourse group mapping. |
+| `server/state-contracts.js` | `SNAPSHOT_DERIVED_TABLES`, `assertSnapshotDerivedTable`, `stripRelationalKeys` | Runtime source of truth for state-ownership boundaries. |
+
+**Not yet extracted (post-alpha candidates):**
+- `runSalaryCrediting`, `runShopUpkeep`, `runRevenuePayouts`, `runMembershipIntake` — clock-tick runners; depend on `writeAuditLog` (still inline in `index.js`); worth extracting once `writeAuditLog` is modularised.
+- `writeAuditLog` itself — called from ~100 route handlers; extraction requires a separate pass.
+
 ### 3.2 Simulation Clock (server/clock.js)
 
 **Location:** `server/clock.js`  
@@ -779,6 +797,10 @@ wrangler deploy       # production deploy
 | `server/discourse.test.js` | Discourse client helpers |
 | `server/state-contracts.test.js` | `assertSnapshotDerivedTable()`, `stripRelationalKeys()` |
 | `server/roles.test.js` | Role constant correctness |
+| `server/rbac-helpers.test.js` | `getSessionRoles`, `hasAdminOrMod`, `hasAdminModOrSpeaker` |
+| `server/recompute-helpers.test.js` | `fireRecompute`, `awaitedRecompute`, entity correlation token |
+| `server/service-modules.test.js` | Pure exports from `political-state-service.js` and `division-helpers.js` (faction strength/cohesion/pressure, clamp100, vote weights, regex constants) |
+| `server/parliamentary-political-state.integration.test.js` | Pure parliamentary logic mirrors (amendment authority, rebellion pressure, political-state composition) |
 
 Run with:
 ```bash
@@ -831,7 +853,7 @@ Integration tests are not run in CI (require a live database). They are run manu
 
 ## 12. Architectural Constraints
 
-1. **Single-file server.** `server/index.js` is ~21,000 lines. All route handlers, middleware, schema bootstrap, helper functions, and business logic are co-located. There is no route-splitting or controller separation.
+1. **Large monolithic server.** `server/index.js` is the primary API entry-point (~18,000 lines post-extraction). Route handlers, middleware, and schema bootstrap remain co-located. The highest-risk business logic has been extracted into focused service modules (see §3.1a); route-level concerns and the remaining large helper functions (`writeAuditLog`, clock-tick runners) are not yet extracted.
 
 2. **No message queue or background jobs.** Simulation advances and finance cycles require manual admin invocation. There is no cron scheduler, no task queue (no Redis, no BullMQ, no Temporal).
 
@@ -859,6 +881,6 @@ Integration tests are not run in CI (require a live database). They are run manu
 
 4. **Staging test suite:** `scripts/test-staging.mjs` (Audit Fix B1) provides an executable staging smoke-test covering persistence, immutability, division authority, bill votes, and RBAC. Intended to run against a staging deployment before each trial.
 
-5. **Server modularisation:** The 21,000-line `server/index.js` is a natural candidate for splitting into route modules as the codebase grows, though no refactor is currently in progress.
+5. **Server modularisation:** The highest-risk business logic has been extracted into `political-state-service.js`, `division-helpers.js`, and `finance-service.js` (see §3.1a). The next candidates are `writeAuditLog` (needed to enable extraction of the clock-tick runners) and the route handler groups themselves once the codebase is past alpha.
 
 6. **Scheduled simulation ticks:** If the player base grows and manual clock management becomes burdensome, adding a scheduled Cloudflare Worker cron trigger or an external cron calling `POST /api/clock/tick` would be straightforward given the current stateless clock algorithm.
