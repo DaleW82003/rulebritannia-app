@@ -1,6 +1,8 @@
-# Rule Britannia Backend
+# Rule Britannia
 
-A browser-based UK parliamentary political simulation.
+A browser-based UK parliamentary political simulation — **alpha-ready**.
+
+> **Project status:** Core parliamentary systems, factions, political capital/pressure, character political state, personal and party finance, and the Discourse integration are all implemented and in use. Upcoming: expanded economy model, budget workflow enhancements, and live polling simulation.
 
 ---
 
@@ -160,19 +162,14 @@ rulebritannia-app/
 │   ├── system-overview.md          # High-level architecture map and component guide
 │   ├── architecture.md             # Deep architecture: schema, security, CORS, sessions
 │   ├── dev-guide.md                # Developer handbook: workflow, patterns, testing
-│   ├── simulation-model.md         # Simulation domain: legislation, divisions, budget
-│   ├── trial-runbook.md            # 3-user live trial guide + Discourse SSO setup
-│   ├── pre-discourse-go-no-go-audit.md  # Historical pre-Discourse audit (issues resolved)
-│   ├── ui-polish-notes.md          # UI implementation notes
-│   ├── third-party-naming-notes.md # Third-party parliamentary naming notes
-│   └── audits/                     # Dated audit snapshots
+│   ├── simulation-model.md         # Simulation domain: legislation, divisions, political state, finance
+│   ├── trial-runbook.md            # Operational runbook: live trial, smoke tests, rollback
+│   ├── state-ownership.md          # State-ownership boundary reference (snapshot vs relational)
+│   └── archive/                    # Historical planning and audit documents (not current)
 │
 ├── .github/
 │   └── workflows/
 │       └── static-checks.yml      # CI: static-checks + feature-manifest + server unit tests
-│
-├── ALPHA_HARDENING_SUMMARY.md      # Security hardening log (dev endpoint guards)
-└── AUDIT_FIX_SUMMARY.md            # Audit fix log (B1–B4 findings)
 ```
 
 ---
@@ -202,13 +199,13 @@ rulebritannia-app/
 | Document | Purpose |
 |---|---|
 | **[`docs/system-overview.md`](docs/system-overview.md)** | High-level system map: architecture diagram, component table, data flow, roles, background tasks |
-| **[`docs/architecture.md`](docs/architecture.md)** | Deep architecture reference: schema design, session config, CORS, rate limiting, security hardening |
+| **[`docs/architecture.md`](docs/architecture.md)** | Deep architecture reference: schema design, state-ownership, session config, CORS, security hardening, testing |
 | **[`docs/dev-guide.md`](docs/dev-guide.md)** | Developer handbook: backend internals, frontend patterns, development workflow, testing guide |
-| **[`docs/simulation-model.md`](docs/simulation-model.md)** | Simulation domain: parliamentary procedure, legislative lifecycle, divisions, budget, economy |
-| **[`docs/trial-runbook.md`](docs/trial-runbook.md)** | Operational runbook: live trial setup, wipe/seed procedures, Discourse SSO configuration |
+| **[`docs/simulation-model.md`](docs/simulation-model.md)** | Simulation domain: parliamentary procedure, factions, political capital/pressure, character political state, finance |
+| **[`docs/trial-runbook.md`](docs/trial-runbook.md)** | Operational runbook: live trial setup, smoke test flows, monitoring, snapshot restore, rollback |
+| **[`docs/state-ownership.md`](docs/state-ownership.md)** | State-ownership boundary reference: snapshot vs relational tables, route scope, runtime enforcement |
 | **[`server/README.md`](server/README.md)** | Server-specific notes: env vars, production-disabled endpoints, whip system API |
-| **[`ALPHA_HARDENING_SUMMARY.md`](ALPHA_HARDENING_SUMMARY.md)** | Historical record: alpha security hardening of dev/admin endpoints |
-| **[`AUDIT_FIX_SUMMARY.md`](AUDIT_FIX_SUMMARY.md)** | Historical record: B1–B4 audit fixes (state authority, division weights, RBAC tests) |
+| **[`docs/archive/`](docs/archive/)** | Historical planning and audit documents retained for reference |
 
 ---
 
@@ -579,9 +576,9 @@ See **[docs/trial-runbook.md](docs/trial-runbook.md)** for the 3-user live trial
 
 ## Development Notes
 
-Alpha safety hardening (production-disabled dev/seed endpoints via `isDevSeedAllowed()`) is documented in **[`ALPHA_HARDENING_SUMMARY.md`](ALPHA_HARDENING_SUMMARY.md)**.
+Alpha safety hardening (production-disabled dev/seed endpoints via `isDevSeedAllowed()`) is documented in **[`docs/dev-guide.md §13`](docs/dev-guide.md)** and **[`docs/architecture.md §10`](docs/architecture.md)**. The historical hardening summary is in [`docs/archive/ALPHA_HARDENING_SUMMARY.md`](docs/archive/ALPHA_HARDENING_SUMMARY.md).
 
-Pre-launch audit fixes (B1–B4: state authority, server-authoritative division weights, staging tests, RBAC manifest) are documented in **[`AUDIT_FIX_SUMMARY.md`](AUDIT_FIX_SUMMARY.md)**.
+Pre-launch audit fixes (B1–B4: state authority, server-authoritative division weights, staging tests, RBAC manifest) are described in [`docs/archive/AUDIT_FIX_SUMMARY.md`](docs/archive/AUDIT_FIX_SUMMARY.md).
 
 ---
 
@@ -620,3 +617,17 @@ For the full development workflow (environment setup, modifying backend/frontend
 - **No real-time push** — there is no WebSocket or SSE layer; pages must be manually refreshed.
 
 For the full list of known limitations and future development areas, see **[`docs/dev-guide.md §15–16`](docs/dev-guide.md)**.
+
+---
+
+## Upcoming Work
+
+The following systems are partially implemented or planned for the next development phase:
+
+| Area | Status | Notes |
+|---|---|---|
+| **Economy** | Partially implemented | Economy indicators (GDP, inflation, unemployment) exist as admin-editable fields. Dynamic modelling linking policy choices to economic outcomes is not yet implemented. |
+| **Budget** | Implemented (draft/approve flow) | Budget draft, approval, and rejection workflows are live. Automatic effect propagation from budget decisions to economic indicators is upcoming. |
+| **Polling** | Implemented (entry recording) | Polling entries can be created and archived. A live polling engine driven by gameplay events (legislation, scandal, economic conditions) is upcoming. |
+| **House of Lords** | Body tracked | The Lords exist as a tracked parliamentary body but do not participate in bill passage. A Lords stage is a planned extension. |
+| **Elections** | Seed data only | The 1997 result is seeded at setup. A general election mechanism allowing seat redistribution mid-simulation is a planned extension. |

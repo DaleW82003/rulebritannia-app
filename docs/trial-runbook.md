@@ -1,28 +1,63 @@
-# Rule Britannia — 3-User Live Trial Runbook
+# Rule Britannia — Operational Trial Runbook
 
-This document describes how to run the 3-user live trial and how to reset the simulation between rounds using the Admin Panel Danger Zone tools.
+This document describes how to run live trials and ongoing simulation sessions: environment setup, staff roles, smoke test flows, monitoring, snapshot safety, and rollback procedures.
+
+---
+
+## Staff Roles
+
+| Role | Admin Panel assignment | Responsibilities during trial |
+|---|---|---|
+| **Admin** | `admin` role | Full access; approves registrations; manages wipe/seed; triggers clock ticks; assigns roles; monitors admin dashboard |
+| **Moderator** | `mod` role | Manages content moderation; can manage bills, motions, statements; edits civil service briefings and cases; approves press items |
+| **Speaker** | `speaker` role | Controls legislative procedure from the chamber; manages divisions; can advance bills; no vote weight in divisions |
+| **Staff / Civil Service** | Admin or Mod with relevant dept. access | Creates civil service briefings and cases; responds to ministerial choices |
+
+> **Identity authority:** All role checks use immutable character IDs, not display names. Staff must not rename characters to gain elevated access.
+
+---
+
+## Environment Setup
+
+- [ ] Server running and accessible at `https://rulebritannia-app-backend.onrender.com` (or your staging URL)
+- [ ] `NODE_ENV=production` set on the server
+- [ ] `SESSION_SECRET` set (long random string)
+- [ ] `DATABASE_URL` pointing to the correct Neon/PostgreSQL instance
+- [ ] At least one admin account created and verified
+- [ ] Sim clock set to August 1997 (Admin Panel → App Config)
+- [ ] Baseline data seeded if needed (Admin Panel → Danger Zone → **Wipe + Seed**)
+
+For alpha/staging environments only:
+- [ ] `ENABLE_DEV_SEED=true` set if wipe/seed endpoints are needed
+- [ ] `NODE_ENV` **not** set to `production` (or `ENABLE_DEV_SEED=true` explicitly)
+
+> **Production warning:** Never set `ENABLE_DEV_SEED=true` on a real production instance.
+
+---
+
+## Pre-Session Checklist
+
+- [ ] At least one admin account active
+- [ ] Trial user accounts registered and approved via Admin Panel → Pending Registrations
+- [ ] Appropriate roles assigned to each user (party roles + office roles)
+- [ ] Sim clock checked (Admin Panel → App Config → current sim month/year)
+- [ ] Faction baseline seeded if needed (Admin Panel → Danger Zone → Seed 1997 Factions)
+- [ ] Budget baseline seeded if needed (Admin Panel → Danger Zone → Seed Budget)
+- [ ] Discourse SSO readiness checked if forum will be used (Admin Panel → SSO Readiness)
+- [ ] Discourse group syncing confirmed **off** unless explicitly tested (do not press "Sync Groups Now" until ready)
+- [ ] Admin dashboard checked for stale open divisions (Admin Panel → Dashboard → Open Divisions)
 
 ---
 
 ## Overview
 
-The trial runs with **3 real users** who log in through the normal registration and admin-approval flow. There are no automated load testing tools involved.
+The trial runs with real users who log in through the normal registration and admin-approval flow. There are no automated load testing tools involved.
 
 Users interact with the parliamentary simulation in real time — submitting bills, motions, statements, press items, polling entries, and question-time questions. The admin can observe and moderate from the Admin Panel at `/admin-panel.html`.
 
 ---
 
-## Pre-trial checklist
-
-- [ ] At least one user account has the `admin` role assigned (via Admin Panel → User Permissions).
-- [ ] The sim clock is set to the desired start date (default: August 1997). Check in Admin Panel → App Config.
-- [ ] Demo baseline data has been seeded if required (Admin Panel → Danger Zone → **Wipe + Seed**).
-- [ ] DiscourseConnect SSO is working if the Discourse forum will be used during the trial (check Admin Panel → SSO Readiness).
-- [ ] **Discourse group syncing is NOT enabled by default** — do not press "Sync Discourse Groups Now" until the UI/UX and group role mappings have been confirmed as ready.
-
----
-
-## Running the trial
+## Running the Trial
 
 1. Direct each trial user to the registration page (`/register.html`).
 2. They complete registration; admin receives a pending registration in the Admin Panel.
@@ -32,7 +67,70 @@ Users interact with the parliamentary simulation in real time — submitting bil
 
 ---
 
-## Resetting the sim between trial rounds
+## Smoke Test Flows
+
+Run these manually before or during a trial to verify key paths are working.
+
+### Amendment flow
+
+1. Log in as a character with an MP role.
+2. Navigate to an open bill in Second Reading stage (`/bills.html`).
+3. Submit an amendment via the bill page.
+4. Log in as admin/mod. Navigate to the bill. The amendment should appear in the amendments list.
+5. As the bill author (or admin/mod), decide on the amendment (accept/reject).
+6. Verify the amendment status updates and the bill page reflects the decision.
+
+**Expected:** Amendment created, visible to other users, decidable by author/admin. Decision is immutable after recording.
+
+### Division flow
+
+1. As admin/mod or Speaker, open a division on a bill (Final Division) or standalone motion.
+2. As an MP character, navigate to the division and cast a vote (Aye/No/Abstain).
+3. Verify the vote is recorded server-side (check Admin Panel → relevant bill/division).
+4. As admin/mod, close the division (or wait for the sim deadline).
+5. Verify the `immutable_result` is set and the division shows the correct tally.
+
+**Expected:** Votes are recorded with server-computed `effective_weight` (not client-supplied). Result is immutable after close.
+
+### Faction admin edit
+
+1. Log in as admin/mod.
+2. Navigate to Control Panel → Factions (or Admin Panel → Faction Management).
+3. Edit a faction's MP count or influence bonus.
+4. Verify `faction_political_state` is updated for that faction (check Admin Panel or via API: `GET /api/parties/:slug/factions`).
+
+**Expected:** Faction state recomputes on save. Party climate score updates accordingly.
+
+### Political-state update
+
+1. Log in as a character.
+2. Navigate to a division and cast a vote against the party whip instruction.
+3. Check the character's political state (Admin Panel → Character → Political State or `GET /api/characters/:id`).
+4. Verify `party_pressure` has increased.
+
+**Expected:** Political state reflects the rebellion. `party_pressure` channel shows the rebellion as a contributor.
+
+### Finance update
+
+1. Log in as admin.
+2. Navigate to Admin Panel → Finance → set a salary override for a character.
+3. Check `GET /api/me/finance` for that character's session.
+4. Verify the bank balance and salary reflect the update.
+
+**Expected:** Finance changes persist in `character_finance`. Owner sees updated values on next load.
+
+### Speaker actions
+
+1. Log in as a Speaker-role character.
+2. Navigate to an open division.
+3. Verify the Speaker has no vote weight in the division (their effective_weight shows 0).
+4. As Speaker, advance a bill to a new stage (e.g., Second Reading → Report Stage).
+
+**Expected:** Speaker can manage legislative procedure but cannot cast a weighted vote. The division tally excludes the Speaker.
+
+---
+
+## Resetting the Sim Between Trial Rounds
 
 The Admin Panel includes a **Danger Zone** section (red-bordered, clearly labelled) for performing a safe content wipe between trial rounds.
 
@@ -60,6 +158,7 @@ The Admin Panel includes a **Danger Zone** section (red-bordered, clearly labell
 
 - User accounts (`users` table)
 - Pending registrations (`pending_registrations` table)
+- Character political state or finance records
 - Audit log
 - Discourse credentials
 - App configuration
@@ -77,7 +176,91 @@ The Admin Panel includes a **Danger Zone** section (red-bordered, clearly labell
 
 ---
 
-## Discourse integration during the trial
+## Monitoring Guidance
+
+### Admin Dashboard
+
+The Admin Panel dashboard (`/admin-panel.html` → Dashboard) shows:
+- Count of open divisions (with close deadlines)
+- Pending registrations
+- Recent audit log entries
+
+Check this before each session to ensure no stale divisions are blocking gameplay.
+
+### Server logs (Render)
+
+Access server logs via the Render dashboard → Service → Logs. Look for:
+- `[political-state]` error lines — indicate a recompute failure (non-fatal but worth noting)
+- `[discourse]` error lines — indicate a Discourse API failure
+- `500` responses — indicate unhandled server errors
+
+### Discourse sync
+
+Discourse group sync is manual. If role assignments have changed and Discourse groups should be updated:
+1. Admin Panel → Discourse Integration → Preview Discourse Group Sync
+2. Review the preview, then apply if correct.
+
+Do not sync Discourse groups unless you have confirmed the group mappings are correct.
+
+---
+
+## Snapshot Restore / Rebuild Safety
+
+### When to use snapshot restore
+
+Snapshot restore (`POST /api/snapshots/:id/restore`) updates the `app_state_current` pointer and rebuilds the five derived-cache tables (`bills`, `motions`, `statements`, `regulations`, `questiontime_questions`).
+
+**Snapshot restore does NOT:**
+- Restore or overwrite relational-authoritative tables (divisions, factions, political state, finance)
+- Touch user accounts, characters, or session data
+
+Use snapshot restore only to recover a known-good snapshot of parliamentary content (bills on the order paper, motions, etc.).
+
+### Creating a named snapshot
+
+Before a significant trial session, create a named snapshot:
+1. Admin Panel → Snapshots → Create Named Snapshot
+2. Give it a descriptive name (e.g., "pre-trial-round-2-2026-03-08")
+3. The snapshot captures the current state blob (not relational data)
+
+### Rebuild cache
+
+If the derived-cache tables become out of sync with the snapshot (e.g., after a database incident), use:
+- Admin Panel → Maintenance → Rebuild Cache (`POST /api/admin/rebuild-cache`)
+
+This rebuilds the five derived-cache tables from the current snapshot. It does not affect relational-authoritative tables.
+
+---
+
+## Rollback Procedures
+
+### Rollback parliamentary content to a snapshot
+
+1. Admin Panel → Snapshots → select the target snapshot.
+2. Click **Restore** and confirm.
+3. The derived-cache tables (`bills`, `motions`, `statements`, `regulations`, `questiontime_questions`) are rebuilt from the snapshot.
+4. Relational data (divisions, factions, political state, finance) is untouched — manual cleanup may be needed for those systems.
+
+### Rollback the full database (Neon)
+
+For catastrophic failures, use the Neon Console to restore the database to a point-in-time backup:
+1. Log in to Neon Console → select the project.
+2. Go to Branches → choose a restore point.
+3. This is a full database restore — all tables are affected including user accounts.
+
+> ⚠️ Full database restore will lose all changes since the restore point, including new user registrations. Only use as a last resort.
+
+### Clear and re-seed
+
+If the database is in an inconsistent state that cannot be fixed by snapshot restore:
+1. Ensure `ENABLE_DEV_SEED=true` is set on the server (staging only).
+2. Admin Panel → Danger Zone → **Wipe Content** or **Wipe + Seed**.
+3. Re-assign roles to all user accounts.
+4. Re-seed faction data if needed (Admin Panel → Danger Zone → Seed 1997 Factions).
+
+---
+
+## Discourse Integration During the Trial
 
 - **DiscourseConnect SSO** is functional and can be used for seamless forum login if `DISCOURSE_SSO_ENABLED=true` is set.  The **SIM is the identity source** — users log in to the SIM with their email/password and are automatically authenticated into Discourse via DiscourseConnect.
 - **Discourse group syncing** is **off by default**. The "Sync Discourse Groups Now" button in Admin Panel → Preview Discourse Group Sync should **not** be used during the trial unless Discourse group mappings and the Discourse forum UI/UX have been confirmed as ready.

@@ -745,8 +745,28 @@ Three unit test files cover core server-side modules without requiring a live da
 | `server/clock.test.js` | `computeSimDateFromGameState` — null input, sim-not-started, paused, running |
 | `server/discourse.test.js` | DiscourseConnect SSO helpers — HMAC verification, payload building, group management |
 | `server/roles.test.js` | `computeDiscourseGroups`, `partyRoleForPartyName`, `computeApprovalRolesToAdd`, `officeRoleFromSpecId` |
+| `server/state-contracts.test.js` | `assertSnapshotDerivedTable()`, `stripRelationalKeys()` — state-ownership boundary enforcement |
 
-Only `server/discourse.test.js` ran in CI previously; all three now run automatically in CI.
+### Integration Tests
+
+Integration tests require a live PostgreSQL test database. They run against a dedicated test schema created by `createTestSchema()` within the test DB.
+
+```bash
+# Must be run SEPARATELY — each file calls pool.end() in after()
+node --test server/parliamentary.integration.test.js
+node --test server/factions.integration.test.js
+node --test server/finance-parliament.integration.test.js
+```
+
+**Do not run multiple integration test files in a single `node --test` invocation.** Each file calls `pool.end()` in its `after()` hook, which terminates the shared connection pool and causes cross-contamination.
+
+| File | Coverage |
+|------|---------|
+| `server/parliamentary.integration.test.js` | Bill lifecycle, amendments, divisions, whipping, rebellions, political state triggers |
+| `server/factions.integration.test.js` | Faction CRUD, allocation guards, `computeFactionPoliticalState()`, `getPartyFactionClimate()` |
+| `server/finance-parliament.integration.test.js` | Finance config, salary bands, character finance, party finance |
+
+**Test schema note:** `createTestSchema()` creates a minimal subset of the production schema. Some production-only constraints (e.g., `CHECK (momentum IN ('rising','stable','falling'))` on `faction_political_state`) are not replicated. Tests and production schemas are not identical.
 
 ### Static Analysis
 
@@ -789,8 +809,10 @@ node --test tests/api/*.spec.js
 Runs on every push and pull request:
 1. `node scripts/static-checks.js` — static analysis
 2. `node scripts/audit/feature-manifest.js` — RBAC/write-path audit
-3. `node --test server/clock.test.js server/discourse.test.js server/roles.test.js` — server unit tests
+3. `node --test server/clock.test.js server/discourse.test.js server/roles.test.js server/state-contracts.test.js` — server unit tests
 4. Uploads `scripts/audit/rbac-matrix.json` as a workflow artefact (retained 30 days)
+
+Integration tests are not run in CI (require a live database). Run them manually before significant releases.
 
 ---
 
@@ -881,7 +903,7 @@ This appends `?v=<commit-sha>` to `styles.css` and `js/main.js` references in al
 
 ## 13. Security & Hardening
 
-### Alpha Hardening (`ALPHA_HARDENING_SUMMARY.md`)
+### Alpha Hardening
 
 Before the invited alpha phase, all dangerous dev/admin endpoints were audited for production safety:
 
@@ -902,11 +924,9 @@ function isDevSeedAllowed() {
 
 > ⚠️ If `NODE_ENV` is unset, `isDevSeedAllowed()` returns `true` (permissive). Always set `NODE_ENV=production` on hosted instances.
 
-**Fixed in the hardening PR:** Six endpoints that previously had only auth guards now also call `isDevSeedAllowed()` first (e.g. `POST /api/admin/clear-cache`, `POST /api/admin/import-snapshot`, `POST /api/admin/budget/seed`).
+### Audit Fixes (B1–B4)
 
-### Audit Fixes (`AUDIT_FIX_SUMMARY.md`)
-
-Four blocking issues (B1–B4) were identified and resolved before the trial:
+Four blocking issues were identified and resolved before the trial:
 
 | Issue | Fix |
 |-------|-----|
@@ -931,7 +951,74 @@ Every route group has a dedicated `express-rate-limit` instance. Auth endpoints 
 
 ---
 
-## 14. Operational Notes
+## 13a. Working with Political-State Recomputes
+
+Character political state (`character_political_state`) is computed on-demand by `recomputeCharacterPoliticalState(characterId)` in `server/index.js`. This function:
+1. Queries offices, press items, scandals, work plans, party roles, and faction climate from the database.
+2. Computes `capital_current`, `capital_trend`, `momentum`, `reputation`, and all pressure channels.
+3. Upserts the result into `character_political_state`.
+
+**When it is called (event triggers):**
+- Division vote cast or updated
+- Office assigned or unassigned
+- Scandal opened, decided, or closed
+- Press item marked (approved coverage)
+- Work plan submitted or updated
+- Rebel request submitted or decided
+- Constituency work plan updated
+
+**Important:** All calls are non-blocking (`.catch()` wrapped):
+```javascript
+recomputeCharacterPoliticalState(charId).catch(e => console.error("[political-state]", e.message));
+```
+This means the response to the triggering API call is returned **before** the recompute completes. If you need freshly computed political state, issue a separate `GET /api/characters/:id` request after the mutation resolves.
+
+**Adding a new recompute trigger:** When adding a route that changes data used in political-state computation, call `recomputeCharacterPoliticalState()` at the end of the handler using the fire-and-forget pattern above.
+
+---
+
+## 13b. State-Ownership Rules
+
+Every developer must respect the state-ownership boundary between snapshot-backed and relational-authoritative systems. Full details are in `docs/state-ownership.md` and `server/state-contracts.js`.
+
+**Golden rule:** Each system has exactly one source of truth. Never add relational-authoritative tables to snapshot flows.
+
+**Relational-authoritative tables** (never in snapshot blobs):
+- `divisions`, `division_votes`
+- `bill_amendments`, `bill_amendment_supporters`
+- `party_factions`, `party_faction_allocations`
+- `faction_political_state`
+- `character_political_state`
+- `character_finance`, `character_additional_revenue`, `finance_config`, `finance_applied`
+
+**When adding a new schema safely:**
+1. Add the table to `ensureSchema()` in `server/index.js` with an `IF NOT EXISTS` guard.
+2. For additive column changes, use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+3. If the table is relational-authoritative, add it to `RELATIONAL_AUTHORITATIVE_SNAPSHOT_KEYS` in `server/state-contracts.js` if it has a corresponding key in snapshot blobs.
+4. If the table is snapshot-derived, add it to `SNAPSHOT_DERIVED_TABLES` in `server/state-contracts.js` and update `syncObjectTables()`.
+5. Run `node --test server/state-contracts.test.js` to verify the boundary is not broken.
+
+---
+
+## 13c. Avoiding Name-Based Authority Checks
+
+A previous audit identified fragile name-string comparisons for ownership/authority checks. The codebase now uses immutable character IDs for all authority decisions. **Do not reintroduce name-based checks.**
+
+**Wrong pattern (do not use):**
+```javascript
+// Fragile: name can change; two characters may share a name
+if (char.name === bill.author) { /* grant access */ }
+```
+
+**Correct pattern:**
+```javascript
+// Immutable: character ID cannot change
+if (String(charId) === String(bill.author_character_id)) { /* grant access */ }
+```
+
+All bill, amendment, and press authority checks now compare `author_character_id` (UUID) against `req.session.characterId`. The pattern is established in the amendment decision, bill withdrawal, and press transcript routes. Follow the same pattern for any new ownership-gated route.
+
+---
 
 ### Running Trials
 
@@ -1000,4 +1087,4 @@ Based on the current codebase, the following areas are natural candidates for ex
 
 ---
 
-*Document generated from repository inspection. See also: `docs/trial-runbook.md` (operational), `ALPHA_HARDENING_SUMMARY.md` (security), `AUDIT_FIX_SUMMARY.md` (B1–B4 audit fixes), `docs/pre-discourse-go-no-go-audit.md` (pre-Discourse audit results).*
+*Document generated from repository inspection. See also: `docs/trial-runbook.md` (operational), `docs/state-ownership.md` (state ownership reference), `docs/archive/` (historical audit records).*

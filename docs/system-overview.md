@@ -133,10 +133,41 @@ The simulation models UK parliamentary government circa 1997. The core concepts 
 | **Statements & Regulations** | Ministerial statements and secondary legislation routes. |
 | **Divisions/Votes** | Formal votes in the chamber. Each character votes Aye/No/Abstain (one vote each, whipped). Bill divisions use proportional seat-weight counting. |
 | **Question Time** | Parliamentary question-and-answer sessions with scheduling and transcript recording. |
-| **Budget** | Government fiscal controls: revenue, expenditure, bank balances, salary overrides, inflation tracking. |
-| **Economy** | Economy indicators and polling data tracking public opinion. |
+| **Factions** | Intra-party ideological groupings (e.g., Labour Campaign Group, Conservative 1922 Committee, ERG). Each faction has an `internal_power`, `momentum`, `leadership_pressure`, and `cohesion` score computed server-side. |
+| **Political capital** | Per-character accumulated influence score computed from office, press coverage, party roles, work plans, and scandal exposure. Stored in `character_political_state`. |
+| **Political pressure** | Per-character pressure channels (party, constituency, media, group, institutional, rebellion risk) computed at the same time as capital. Influences character behaviour and resilience. |
+| **Faction climate** | Party-level climate derived from its factions' aggregate `leadership_pressure` scores. A hostile climate increases party pressure on all characters; an aligned climate provides a capital resilience bonus. |
+| **Personal finance** | Per-character salary bands, bank balances, additional revenue, property costs, and purchase history. Computed server-side from `finance_config` and stored in `character_finance`. |
+| **Party finance** | Party treasury balances, membership fee schedules, donation tracking, and fundraising. Managed through party API routes. |
+| **Budget** | Government fiscal controls: seven revenue lines, fifteen expenditure lines, aggregate fiscal metrics (deficit, debt, GDP ratios). The Chancellor drafts; admins/mods approve or reject. |
+| **Economy** | Admin-editable economic indicators (GDP growth, inflation, unemployment). Partial implementation; dynamic modelling is a planned extension. |
 | **Press & Debates** | Press releases, newspaper articles, and Discourse-backed debate threads linked to legislative items. |
 | **Simulation Clock** | Accelerated time: Mon–Wed = one sim-month, Thu–Sat = one sim-month, Sunday frozen. Starting point: August 1997. |
+| **Speaker NPC** | The Speaker of the House holds a special role: no vote weight in divisions (tie-break only), manages legislative procedure, assigned by admins/mods. |
+| **Snapshot / state tooling** | Versioned `state_snapshots` JSONB blobs with `app_state_current` pointer provide bulk-object snapshots for bills, motions, and other derived-cache tables. Relational gameplay systems (divisions, factions, political state, finance) are excluded from snapshot flows. |
+
+---
+
+### 6a. How Systems Interact During Gameplay
+
+The following describes how a player action flows through connected systems:
+
+**Legislative action → political capital**
+When a character tables an amendment, casts a division vote, or submits a press release, `recomputeCharacterPoliticalState()` is triggered asynchronously. The function re-derives the character's `capital_current`, pressure channels, `momentum`, and `reputation` from the current state of the database and stores the result in `character_political_state`.
+
+**Division rebellion → party pressure**
+If a character votes against a whipped party instruction, a rebellion log entry is created in `division_rebellion_log`. The next time `recomputeCharacterPoliticalState()` runs for that character, the rebellion history is included in the party pressure calculation, increasing `party_pressure`.
+
+**Faction climate → capital and pressure**
+When political state is recomputed for a character in a playable party, the server calls `getPartyFactionClimate()`. If the party's factions are in a hostile climate (high aggregate `leadership_pressure` from opposing factions), `party_pressure` for all characters in that party rises. If the climate is aligned (supporting factions dominate), a `capital_resilience_bonus` is applied to each character's total capital.
+
+**Scandal → capital**
+When a scandal is opened against a character or a mod decision is recorded, `recomputeCharacterPoliticalState()` is triggered. Active scandals subtract from capital; major resolved scandals leave a lasting penalty.
+
+**Office assignment → capital**
+When a character is assigned or removed from a cabinet, shadow cabinet, or parliamentary office, `recomputeCharacterPoliticalState()` is triggered. Cabinet roles add 20 points; the Prime Minister adds 30 points; shadow roles add 10 points.
+
+**Recompute timing caution:** All `recomputeCharacterPoliticalState()` calls are non-blocking (`.catch()` wrapped). This means character political state may briefly show a stale value immediately after a triggering action. The value self-corrects on the next API read that triggers recomputation.
 
 ---
 
@@ -239,14 +270,15 @@ Bot-protection on the registration form when `TURNSTILE_ENABLED=true`. Verificat
 
 1. **`README.md`** — Project overview, setup instructions, environment variables, and deployment notes.
 2. **`docs/system-overview.md`** *(this file)* — High-level map of the whole system.
-3. **`docs/architecture.md`** — Deeper architectural decisions: CORS, session configuration, rate limiting, schema design, caching, and security hardening.
+3. **`docs/architecture.md`** — Deeper architectural decisions: CORS, session configuration, rate limiting, schema design, state-ownership, and security hardening.
 4. **`docs/dev-guide.md`** — Developer handbook: full workflow, backend internals, frontend patterns, testing, known limitations.
-5. **`docs/simulation-model.md`** — Simulation domain deep-dive: parliamentary procedure, roles, legislative lifecycle, divisions, budget, economy.
-6. **`server/index.js`** — The main server entry point and every API route. Start with the top ~300 lines for middleware setup, then navigate by route category.
-7. **`js/api.js`** and **`js/core.js`** — How browser pages talk to the backend and how simulation state is loaded and cached.
-8. **`server/roles.js`** — Canonical role constants and the Discourse group mapping.
-9. **`scripts/audit/rbac-matrix.json`** — Machine-readable RBAC matrix; read alongside `server/roles.js` to understand what each endpoint requires.
-10. **`ALPHA_HARDENING_SUMMARY.md`** — Historical record of alpha security hardening; current policy is in `docs/architecture.md §10` and `docs/dev-guide.md §13`.
+5. **`docs/simulation-model.md`** — Simulation domain deep-dive: parliamentary procedure, factions, political capital/pressure, character political state, finance, divisions.
+6. **`docs/state-ownership.md`** — State-ownership boundary reference: which tables are snapshot-backed vs relational-authoritative and the runtime enforcement contract.
+7. **`server/index.js`** — The main server entry point and every API route. Start with the top ~300 lines for middleware setup, then navigate by route category.
+8. **`js/api.js`** and **`js/core.js`** — How browser pages talk to the backend and how simulation state is loaded and cached.
+9. **`server/roles.js`** — Canonical role constants and the Discourse group mapping.
+10. **`scripts/audit/rbac-matrix.json`** — Machine-readable RBAC matrix; read alongside `server/roles.js` to understand what each endpoint requires.
+11. **`docs/archive/`** — Historical planning and audit documents retained for reference.
 
 ---
 
@@ -254,11 +286,11 @@ Bot-protection on the registration form when `TURNSTILE_ENABLED=true`. Verificat
 
 | Area | Status |
 |---|---|
-| **Database migration strategy** | No migrations framework is used. Schema is bootstrapped on startup via `ensureSchema()`. Behaviour on schema drift between deployments is not fully documented — implied by code but not explicitly specified. |
-| **Worker vs Pages Function precedence** | Both `worker/index.js` and `functions/api/[[path]].js` proxy `/api/*`. The README and `functions/` source note the Pages Function is a fallback, but the exact failover behaviour is not verifiable from the repository alone. |
-| **Clock tick trigger** | The simulation clock is advanced only by explicit `POST /api/clock/tick` calls. This is a **manual admin action** (via Admin Panel or API); there is no automated cron scheduler. See `docs/dev-guide.md §14`. |
-| **Session store at scale** | Sessions are stored in PostgreSQL (`sessions` table via `connect-pg-simple`). Behaviour under high connection load on Render's free tier is behaviour implied by architecture but not documented. |
-| **Turnstile bypass in dev** | Registration Turnstile verification is conditional on `TURNSTILE_ENABLED=true`. The exact fallback behaviour when the env var is absent is implied by code but not explicitly tested. |
-| **Email delivery in dev** | SendGrid integration is skipped when `SENDGRID_API_KEY` is absent. Whether this is documented for local dev setup is not verifiable from README alone. |
-| **Discourse credential encryption** | Discourse credentials are encrypted with AES-256 using a key derived from `SESSION_SECRET` when `DISCOURSE_ENCRYPTION_KEY` is not set. The derivation mechanism is not described in docs. |
-| **`data/demo.json` freshness** | The demo snapshot is a static file. How and when it is updated relative to the live simulation state is not verifiable from the repository alone. |
+| **Database migration strategy** | No migrations framework is used. Schema is bootstrapped on startup via `ensureSchema()` using idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements for additive changes. Destructive schema changes require manual intervention. |
+| **Worker vs Pages Function precedence** | Both `worker/index.js` and `functions/api/[[path]].js` proxy `/api/*`. The Pages Function is the always-on fallback; the Worker handles the bare domain. Exact failover order is controlled by Cloudflare routing, not verifiable from the repository alone. |
+| **Clock tick trigger** | The simulation clock is advanced only by explicit `POST /api/clock/tick` calls. This is a **manual admin action**; there is no automated cron scheduler. See `docs/dev-guide.md §14`. |
+| **Recompute timing** | `recomputeCharacterPoliticalState()` is called non-blocking (fire-and-forget). Political state values may briefly show stale data immediately after a triggering action. |
+| **Email delivery in dev** | SendGrid integration is skipped when `SENDGRID_API_KEY` is absent. Email verification is not enforced as a hard gate in development. |
+| **Discourse credential encryption** | Discourse credentials are encrypted with AES-256-GCM. The key is derived from `SESSION_SECRET` via `scryptSync` (salt `"rb-discourse-v1"`) unless `DISCOURSE_ENCRYPTION_KEY` is provided as a 64-char hex string. |
+| **`data/demo.json` freshness** | The demo snapshot is a static file. It must be manually regenerated using the export-snapshot endpoint and committed when the live world changes significantly. |
+| **Economy modelling** | Economic indicators (GDP, inflation, unemployment) are admin-editable fields. A dynamic model linking policy choices to economic outcomes is not yet implemented. |
