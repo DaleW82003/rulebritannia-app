@@ -10,6 +10,9 @@ The simulation models:
 - **Role-based political interaction** — every participant occupies a specific office (Prime Minister, Secretary of State, backbencher MP, etc.) that determines what they may do and say.
 - **Legislative processes** — bills move through formal readings, report stages, and parliamentary divisions before becoming law.
 - **Institutional decision-making** — cabinet papers, civil service briefings, budget-setting, and the management of devolved bodies all involve distinct actors and procedures.
+- **Intra-party faction dynamics** — each playable party contains named ideological factions whose relative strength shapes a party climate that affects character political capital and pressure.
+- **Political capital and political pressure** — every character carries a computed political standing reflecting their offices held, press coverage, scandals, rebellion history, and faction climate.
+- **Personal and party finance** — characters earn salaries tied to their offices; parties maintain treasury balances supported by fundraising and membership fees.
 - **Accelerated simulation time** — real calendar days map to simulated months, so a full parliamentary term can be experienced over weeks of real time.
 
 The historical starting point (August 1997, immediately after Labour's landslide election victory) provides a realistic, data-backed world that players inhabit rather than an abstract one they must build from scratch.
@@ -429,63 +432,230 @@ The demo dataset establishes the shape of the live game state for frontend devel
 
 ---
 
-## 12. Simulation Constraints
+## 12. Factions and Faction Political State
 
-Based on the current codebase, the following limitations are visible in the model.
+### What factions are
 
-**Simplified legislative process**  
-Bills move through a linear sequence of stages; there is no committee stage, no Lords stage, no ping-pong between chambers, and no use of the Parliament Acts. The House of Lords exists as a tracked body but does not participate in the bill passage mechanism.
+Factions are intra-party ideological groupings that exist within playable parties (Labour, Conservative, Liberal Democrat). Each faction has:
 
-**Static constituency boundaries**  
-The 1997 constituency data is fixed at start-up. There are no by-elections, no redistribution of seats, and no mechanism for seats to change hands during play. The seat count per party remains the 1997 election result for the lifetime of the simulation.
+- **Slug and name** — a machine-readable identifier and display name (e.g., `faction_1922` / "Conservative 1922 Committee").
+- **Alignment** — `aligned` (supportive of current party leadership), `hostile` (in opposition to leadership), or `neutral`.
+- **Rebellion bias** — a numeric indicator of how prone the faction's members are to vote against the whip.
+- **MP count** — the number of MPs associated with the faction (editable by admins/mods without code changes).
+- **Influence bonus** — an additional weighting factor applied to the faction's power calculation.
 
-**NPC voting by instruction only**  
-Non-player-character MPs vote according to party whip instructions entered by a whip or admin. They do not have independent policy preferences, rebellion probability, or behavioural modelling beyond applying the instruction mechanically.
+### Computed faction state
 
-**No AI-driven actors**  
-There is no artificial intelligence generating political behaviour, strategy, or responses. All political agency comes from human players.
+For each faction the system computes and persists a `faction_political_state` record:
 
-**Limited economic simulation**  
-The budget system records revenues and expenditures and calculates aggregate fiscal metrics, but these figures do not feed back into simulated economic outcomes. GDP growth, inflation, and unemployment are static display values in the demo state; there is no dynamic model linking policy choices to economic indicators.
+| Field | Description |
+|---|---|
+| `internal_power` | Derived from `(mp_count × 0.8) + (influence_bonus × 10)`. Indicates how much weight the faction carries within the party. |
+| `momentum` | `rising`, `stable`, or `falling` — derived by comparing current `internal_power` to the previously stored value. |
+| `leadership_pressure` | Pressure the faction exerts on the party leadership. Hostile factions with high `internal_power` produce high pressure; aligned factions produce negative pressure (damping effect); neutral factions produce a modest baseline. |
+| `cohesion` | `max(5, 70 - (rebellion_bias × 40))`. Reflects how unified the faction's members tend to be. Minimum value is 5. |
+| `breakdown` | JSONB object with a note explaining the formula weights. |
 
-**No election mechanism**  
-The simulation begins post-election and does not include a mechanism for calling a general election, running a campaign, or redistributing seats based on a result. The parliament composition reflects 1997 and does not change.
+### Party climate
 
-**Single chamber voting**  
-Only the House of Commons participates in divisions. The House of Lords, devolved legislatures, and other bodies are tracked informationally but do not vote on Commons legislation.
+`getPartyFactionClimate(partySlug)` aggregates across all factions in a party to produce a climate object:
 
-**No public opinion system**  
-Nine newspapers are represented in the data model, but there is no polling system, approval rating tracker, or mechanism by which media coverage affects character standing or electoral outcomes.
+- **Hostile pressure** — sum of `leadership_pressure` from hostile factions.
+- **Aligned damping** — sum of `leadership_pressure` from aligned factions (subtracted from hostile pressure).
+- **Net climate score** — `hostile_pressure - aligned_strength`. Determines the climate label:
+  - `> 15`: `"hostile"` — significant faction opposition to leadership
+  - `10–15`: `"tense"` — notable internal pressure
+  - `5–10`: `"unsettled"` — mild internal friction
+  - `< 5`: `"stable"` — faction landscape is supportive or neutral
+- **`partyPressureModifier`** — added to `party_pressure` for every character in the party when political state is recomputed.
+- **`capitalResilienceBonus`** — added to `capital_current` for every character in the party (from aligned faction support).
+
+### Seeded factions
+
+`seed1997Factions()` creates an initial set of factions reflecting the post-1997 landscape:
+- **Labour**: Blairite mainstream, Campaign Group (left), Labour First (centrist), Blue Labour (traditionalist)
+- **Conservative**: 1922 Committee, Tory Reform Group (modernisers), ERG (Eurosceptic)
+- **Liberal Democrats**: Federalist Group
+
+Faction data is editable via the Control Panel without code changes.
 
 ---
 
-## 13. Potential Simulation Extensions
+## 13. Political Capital and Political Pressure
 
-The following extensions would be reasonable evolutions of the existing architecture based on what the codebase already contains.
+### Political capital
 
-**Elections and seat redistribution**  
-The constituency data structure already supports tracking party affiliation and MP occupancy per seat. An election engine could compute swing percentages, redistribute seats, and update the `parliament` object accordingly, triggering recalculation of all division weights.
+Political capital is a per-character score measuring accumulated political influence. It is computed by `recomputeCharacterPoliticalState()` and stored in `character_political_state.capital_current`.
 
-**House of Lords legislative stage**  
-The Lords already exist as a tracked body. Introducing a Lords reading stage between `Passed – Awaiting Assent` and Royal Assent would add a second chamber dynamic: the Lords could amend, delay, or return bills to the Commons.
+**Capital sources (additive):**
 
-**Dynamic economic model**  
-Budget revenues and expenditures already feed into deficit and debt calculations. Connecting spending decisions to the economic indicator values (GDP, inflation, unemployment) would allow policy choices to have in-simulation consequences.
+| Source | Delta |
+|---|---|
+| Prime Minister office | +30 |
+| Cabinet office | +20 |
+| Leader of the Opposition | +20 |
+| Leader of the House of Commons | +15 |
+| Shadow cabinet office | +10 |
+| Other parliamentary office | +8 |
+| Party leader role | +12 |
+| Chief/Deputy Whip role | +6 |
+| Party Whip role | +4 |
+| Party Chairman role | +4 |
+| Each positive marked press item | +3 |
+| Each negative marked press item | −5 |
+| Each active scandal | −10 |
+| Each major resolved scandal (severity > 3) | −15 |
+| Active work plan (submitted within 3 sim months) | +5 |
+| Aligned faction climate bonus | variable |
 
-**Public opinion and polling**  
-The nine newspapers in the data model provide a framework for a media system. A polling engine could track party approval ratings influenced by legislation passed, economic conditions, and media coverage, feeding into simulated election outcomes.
+**Capital indicators:**
 
-**NPC behavioural modelling**  
-NPCs could be given ideological profiles and rebellion probabilities, making division outcomes less predictable and more dependent on genuine parliamentary management by government whips.
+| Field | Description |
+|---|---|
+| `capital_current` | Current computed total |
+| `capital_trend` | Difference from previous computation (positive = rising) |
+| `momentum` | `rising` (trend ≥ +5), `stable`, or `falling` (trend ≤ −5) |
+| `reputation` | `excellent` (≥ 60), `good` (≥ 30), `neutral` (≥ 10), `poor` (≥ −10), `damaged` (< −10) |
+| `breakdown` | JSONB array of contributing factors with category, label, and delta |
 
-**Committee stage for legislation**  
-A committee of MPs could be assigned to scrutinise a bill after Second Reading, proposing amendments with a quorum-based mini-division, before the bill returns to the floor for Report Stage.
+### Political pressure
 
-**Devolved legislative processes**  
-The Scottish Parliament, Welsh Assembly, and Northern Ireland Assembly already have seat counts and party breakdowns. Giving them their own bill stage pipelines and division systems would allow devolved legislation to be modelled separately from Westminster legislation.
+Political pressure measures the external forces weighing on a character. It is computed alongside capital and stored as multiple channels:
 
-**Party leadership contests**  
-The role system already distinguishes between leaders at different levels. A leadership election mechanic — triggered by resignation or confidence vote — could allow the party membership to choose a new leader, updating role assignments automatically.
+| Channel | Sources |
+|---|---|
+| `party_pressure` | Rebellion log history (weighted by whip level), refused rebel requests, pending rebel requests, hostile faction climate |
+| `constituency_pressure` | Stale or missing work plan |
+| `media_pressure` | *Computed but not yet fully populated — reserved for future press system integration* |
+| `group_pressure` | *Reserved for future use* |
+| `institutional_pressure` | *Reserved for future use* |
+| `rebellion_risk` | *Reserved for future use* |
 
-**By-elections**  
-A by-election system could allow individual constituency seats to change hands mid-simulation, updating party seat totals and therefore division weights without requiring a full general election.
+All pressure channels are clamped to 0–100.
+
+**Party pressure whip weights:**
+- 3-line whip rebellion: +25 per incident
+- 2-line whip rebellion: +15 per incident
+- 1-line whip rebellion: +8 per incident
+- Free vote rebellion: +3 per incident
+- Refused rebel request: +10
+- Pending rebel request: +5
+
+### Recompute triggers
+
+`recomputeCharacterPoliticalState()` is called non-blocking (fire-and-forget) from these events:
+- Division vote cast or updated
+- Office assigned or removed
+- Scandal opened, decided, or closed
+- Press item marked
+- Work plan submitted or updated
+- Rebel request submitted or decided
+- Constituency work plan saved
+
+**Timing caution:** Because calls are non-blocking, political state values may be briefly stale immediately after a triggering action. Do not rely on freshly-computed political state in the same response as the triggering mutation.
+
+---
+
+## 14. Personal and Party Finance
+
+### Personal finance
+
+Each character has a `character_finance` record maintained by the server. Finance includes:
+
+- **Salary** — determined by the character's office assignment and the salary band for that office, drawn from `character_positions` and `finance_config`. Salary is expressed in pounds per simulation month.
+- **Bank balance** — running total adjusted by salary inflows, property costs, and shop purchases.
+- **Additional revenue** — supplemental income sources recorded in `character_additional_revenue`.
+- **Property costs** — computed from the character's constituency location and property holdings.
+- **Shop purchases** — one-off items purchased via the in-game shop system (`character_shop_purchases`).
+
+Finance is visible to the character themselves and to admins/mods via separate API routes:
+- `GET /api/me/finance` — player's own finance summary
+- `GET /api/me/finance/summary` — simplified summary view
+- Admin routes under `/api/admin/finance/*` — full management access
+
+Salary bands and starting balances are configured globally via `finance_config` and are uprated for inflation by admins using the salary-scales endpoints.
+
+### Party finance
+
+Parties maintain a treasury balance and multiple finance streams:
+
+- **Membership fees** — configurable per-party fee schedule
+- **Donations** — logged via donation API routes
+- **Fundraising** — events managed through `fundraising_items`; proceeds credited to the party treasury
+
+Party finance is visible to party members and managed by party leaders, admins, and mods.
+
+---
+
+## 15. Role of Staff Scenarios (Civil Service Briefings)
+
+Civil service departments issue briefings to the relevant cabinet minister. Each briefing may present a branching scenario with multiple policy choices. Staff (admins/mods acting as the civil service) create briefings; cabinet ministers respond with their policy decision.
+
+**Briefing lifecycle:**
+1. Admin/mod creates a briefing for a department (e.g., Home Office) with a scenario description and options.
+2. The relevant Secretary of State reads the briefing and selects a response option.
+3. The response is recorded and may trigger consequences (e.g., additional briefings, scandal exposure, political capital effects).
+
+**Civil service cases** track ongoing departmental issues (scandals, investigations, policy reviews) with a status lifecycle managed by admins/mods.
+
+This system gives the civil service (staff) a mechanism to inject structured policy dilemmas into the simulation without requiring code changes.
+
+---
+
+## 16. Simulation Constraints
+
+The following limitations apply to the current implementation.
+
+**Simplified legislative process**
+Bills move through a linear sequence of stages; there is no committee stage, no Lords stage, and no ping-pong between chambers. The House of Lords exists as a tracked body but does not participate in the bill passage mechanism.
+
+**Static constituency boundaries**
+The 1997 constituency data is fixed at start-up. There are no by-elections, no redistribution of seats, and no mechanism for seats to change hands during play.
+
+**NPC voting by instruction only**
+NPCs vote according to party whip instructions entered by a whip or admin. They do not have independent policy preferences or rebellion probability.
+
+**No AI-driven actors**
+All political agency comes from human players. There is no AI generating political behaviour.
+
+**Limited economic simulation** *(partially implemented)*
+The budget system records revenues and expenditures and calculates aggregate fiscal metrics (deficit, debt, GDP ratios). Economic indicators (GDP, inflation, unemployment) are admin-editable fields. A dynamic model linking policy choices to economic outcomes is not yet implemented.
+
+**Polling** *(partially implemented)*
+Polling entries can be created and archived by staff. A live polling engine driven by gameplay events is not yet implemented.
+
+**No election mechanism**
+The simulation begins post-election. A general election mechanism for redistributing seats is planned but not implemented.
+
+**Single chamber voting**
+Only the House of Commons participates in divisions.
+
+---
+
+## 17. Planned Simulation Extensions
+
+The following extensions are planned or natural candidates for the next development phase:
+
+**Dynamic economic model**
+Budget revenues and expenditures already feed into deficit and debt calculations. Connecting spending decisions to economic indicator values would allow policy choices to have in-simulation consequences.
+
+**Live polling engine**
+The polling entry system exists. A polling engine that adjusts party approval ratings based on legislation, scandal exposure, and economic conditions would add depth.
+
+**House of Lords legislative stage**
+The Lords already exist as a tracked body. A Lords reading stage between `Passed – Awaiting Assent` and Royal Assent would add a second chamber dynamic.
+
+**Elections and seat redistribution**
+The constituency data structure already supports tracking party affiliation per seat. An election engine could compute swing percentages and redistribute seats.
+
+**NPC behavioural modelling**
+NPCs could be given ideological profiles and rebellion probabilities, making division outcomes less predictable.
+
+**By-elections**
+Individual constituency seats could change hands mid-simulation, updating party seat totals and division weights.
+
+**Devolved legislative processes**
+The Scottish Parliament, Welsh Assembly, and Northern Ireland Assembly already have seat counts. Giving them their own bill stage pipelines would allow devolved legislation to be modelled separately.
+
+**Committee stage for legislation**
+A committee of MPs could scrutinise a bill after Second Reading, proposing amendments with a quorum-based mini-division.

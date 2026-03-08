@@ -1,6 +1,6 @@
 # Audit Fix Summary (B1–B4)
 
-> **Historical record.** This document records the four blocking issues (B1–B4) found in the pre-Discourse GO/NO-GO audit and the fixes applied before launch. All issues are resolved. Current state is documented in [`docs/dev-guide.md §13`](docs/dev-guide.md) and [`docs/architecture.md`](docs/architecture.md).
+> **Historical record.** This document records the four blocking issues (B1–B4) found in the pre-Discourse GO/NO-GO audit and the fixes applied before launch. All issues are resolved. Current state is documented in [`docs/dev-guide.md §13`](../dev-guide.md) and [`docs/architecture.md`](../architecture.md).
 
 ## B1 — Executable staging tests
 - Added `scripts/test-staging.mjs`.

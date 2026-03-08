@@ -13,6 +13,57 @@ The application is designed for a relatively small player base (tens to low hund
 
 ---
 
+## 1a. High-Level Architecture Diagram
+
+The diagram below shows the five architectural layers and their relationships. Read it top-to-bottom: every user action originates in the Client/UI layer and ultimately lands in PostgreSQL, which is the sole authoritative source of truth for all live gameplay state.
+
+```mermaid
+flowchart TD
+    subgraph CLIENT["Client / UI Layer"]
+        direction TB
+        PAGES["53 × HTML pages\n(Cloudflare Pages)"]
+        JSPAGES["js/pages/* — per-page init modules"]
+        APIHELPERS["js/api.js — ~351 API call wrappers\njs/auth.js · js/permissions.js · js/core.js"]
+    end
+
+    subgraph API["API Layer  (server/index.js)"]
+        direction TB
+        ROUTES["~373 Express route handlers"]
+        RBAC["Auth / CSRF / Rate-limiting / RBAC guards\n(requireAdmin · requireAdminOrMod · requireAdminModOrSpeaker)"]
+    end
+
+    subgraph DOMAIN["Domain Logic Layer"]
+        direction TB
+        PARL["Parliamentary systems\n(bills · amendments · divisions · motions · statements · QT)"]
+        FACTIONS["Faction systems\n(party_factions · faction_political_state)"]
+        POLSTATE["Political-state recompute\n(recomputeCharacterPoliticalState)"]
+        FINANCE["Finance systems\n(character_finance · finance_config · party treasury)"]
+        STAFF["Staff / admin systems\n(civil service · budget · elections · clock)"]
+    end
+
+    subgraph PERSIST["Persistence Layer  ★ authoritative source of truth"]
+        direction TB
+        PG[("PostgreSQL  (Neon)\n~92 tables — auto-bootstrapped by ensureSchema()")]
+        RELTABLES["Relational tables (authoritative)\nbills · amendments · divisions · factions\npolitical_state · finance · characters · parties\nconstituencies · sessions · audit_log · …"]
+    end
+
+    subgraph DERIVED["Derived State Layer  (secondary / tooling only)"]
+        direction TB
+        SNAP["state_snapshots  +  app_state_current\n(versioned JSONB blobs — sim-config and bulk objects)"]
+        CACHE["Derived-cache tables rebuilt from snapshot\nbills · motions · statements · regulations\nquestiontime_questions\n(syncObjectTables — NOT authoritative)"]
+    end
+
+    CLIENT -->|"HTTPS  /api/*  +  CSRF token"| API
+    API --> DOMAIN
+    DOMAIN -->|"reads / writes"| PERSIST
+    DOMAIN -.->|"snapshot write/restore triggers\nsyncObjectTables() only"| DERIVED
+    DERIVED -. "never overwrites\nauthoritative tables" .-> PERSIST
+```
+
+**Data flow summary:** A player action in the browser calls a wrapper in `js/api.js`, which sends an authenticated, CSRF-protected `fetch` request to an Express route in `server/index.js`. The route enforces RBAC, executes domain logic (parliamentary, faction, political-state, finance, or staff/admin), and reads/writes directly to PostgreSQL — the sole authoritative store for all live gameplay state. A small set of snapshot and derived-cache operations (`syncObjectTables`, snapshot restore) exist as operational tooling; they operate on a separate JSONB snapshot layer and are explicitly prevented from overwriting the relational-authoritative tables by `server/state-contracts.js`.
+
+---
+
 ## 2. High-Level Architecture
 
 ```
@@ -403,6 +454,17 @@ Two parallel implementations: the legacy `questiontime_questions` table and the 
 **Finance and shop:**  
 Characters have a `character_finance` record (salary, bank balance). `character_positions` defines salary rates per office. `shop_price_index` tracks purchasable items with inflationary adjustments. `fundraising_items` support party fundraising events. `character_shop_purchases` and `party_shop_purchases` record transactions.
 
+**Factions and faction political state:**  
+`party_factions` stores intra-party ideological groupings with fields: `slug`, `name`, `description`, `alignment` (`aligned`/`hostile`/`neutral`), `rebellion_bias`, `mp_count`, `influence_bonus`. `party_faction_allocations` records editable allocation data (MP count, influence bonus, notes). `faction_political_state` stores the computed state per faction: `internal_power`, `momentum` (`rising`/`stable`/`falling`), `leadership_pressure`, `cohesion`, and a JSONB `breakdown`. Computed by `computeFactionPoliticalState()` and `getPartyFactionClimate()`.
+
+**Character political state:**  
+`character_political_state` stores per-character computed state: `capital_current`, `capital_trend`, `momentum`, `reputation`, `breakdown` (JSONB array of contributing factors), plus pressure channel columns: `party_pressure`, `constituency_pressure`, `media_pressure`, `group_pressure`, `institutional_pressure`, `rebellion_risk`. Computed by `recomputeCharacterPoliticalState()`, called non-blocking from event triggers (division vote, office assignment, scandal, press mark, work plan update, etc.).
+
+**Recompute timing caution:** `recomputeCharacterPoliticalState()` is always called with `.catch()` in a fire-and-forget pattern. State values may be briefly stale immediately after a triggering action. Do not rely on the return value of the triggering route for freshly-computed political state — fetch it separately if needed.
+
+**Finance:**  
+`finance_config` stores global salary bands and starting balance parameters. `character_finance` stores per-character salary, bank balance, and additional revenue. `character_positions` defines salary rates per office spec. `finance_applied` tracks when finance was last computed. `character_additional_revenue` records supplemental revenue sources.
+
 **Scandals:**  
 Template-driven scandal system: `scandal_templates` → `scandal_situations` → `scandals` (per-player instances) → `scandal_player_choices` / `scandal_mod_decisions`.
 
@@ -414,6 +476,63 @@ Template-driven scandal system: `scandal_templates` → `scandal_situations` →
 
 **Privy Council:**  
 `privy_council_members` and `privy_council_posts` for a restricted discussion area.
+
+---
+
+## 5a. State-Ownership Rules
+
+The application stores gameplay state in two complementary ways. **Each system has exactly one source of truth.**
+
+| Storage layer | Purpose |
+|---|---|
+| `state_snapshots` / `app_state_current` | Versioned JSONB blobs for sim-config and bulk objects (bills, motions, statements, regulations, QT questions) |
+| Dedicated relational tables | Live gameplay systems with their own dedicated API routes and DB tables |
+
+### What is snapshot-backed
+
+The following data is stored in `state_snapshots.data` (JSONB) and served via `GET /api/state`:
+
+- `gameState` — simulation clock config, pause flag, start month/year
+- `orderPaperCommons[]` — bills on the order paper (derived-cache also in `bills` table)
+- `motions.house[]` / `motions.edm[]` — motions and EDMs (derived-cache in `motions` table)
+- `statements.items[]` — ministerial statements (derived-cache in `statements` table)
+- `regulations.items[]` — statutory instruments (derived-cache in `regulations` table)
+- `questionTime.questions[]` — QT questions (derived-cache in `questiontime_questions` table)
+- Supporting data: `papers`, `news`, `polling`, `economy`, `parliament`, etc.
+
+The `bills`, `motions`, `statements`, `regulations`, and `questiontime_questions` relational tables are **derived caches** rebuilt from the snapshot by `syncObjectTables()`. They are not the source of truth; the snapshot blob is.
+
+### What is relational-authoritative
+
+These systems are managed exclusively through their dedicated API routes and relational tables, and are **never stored in or rebuilt from the snapshot**:
+
+| System | Table(s) |
+|---|---|
+| Divisions | `divisions`, `division_votes` |
+| Bill amendments | `bill_amendments`, `bill_amendment_supporters` |
+| Factions | `party_factions`, `party_faction_allocations` |
+| Faction political state | `faction_political_state` |
+| Character political state | `character_political_state` |
+| Finance | `character_finance`, `character_additional_revenue`, `finance_config`, `finance_applied` |
+
+Any attempt to add these tables to `syncObjectTables()` or any snapshot import/rebuild flow must be treated as a **bug** — it would create a competing source of truth for live gameplay systems.
+
+### Runtime enforcement
+
+`server/state-contracts.js` is the runtime source of truth for state-ownership boundaries:
+- `SNAPSHOT_DERIVED_TABLES` — allowlist of tables that may be written from snapshot data
+- `RELATIONAL_AUTHORITATIVE_SNAPSHOT_KEYS` — keys that must not appear in snapshot blobs
+- `assertSnapshotDerivedTable(tableName)` — throws if a table is not on the allowlist
+- `stripRelationalKeys(data)` — removes relational-authoritative keys before saving a snapshot
+
+`POST /api/state` and `POST /api/snapshots` both call `stripRelationalKeys()` before writing. `syncObjectTables()` calls `assertSnapshotDerivedTable()` for each table it writes. See `server/state-contracts.test.js` for the unit tests.
+
+### Snapshot tooling limitations
+
+- **Snapshot restore does not rebuild relational data.** Restoring a snapshot via `POST /api/snapshots/:id/restore` updates the pointer and rebuilds the five derived-cache tables only (`bills`, `motions`, `statements`, `regulations`, `questiontime_questions`). Divisions, factions, finance, and political state are not touched.
+- **Import is dev/staging only.** `POST /api/admin/import-snapshot` is gated by `isDevSeedAllowed()` and returns `404` in production unless `ENABLE_DEV_SEED=true`.
+
+See `docs/state-ownership.md` for the full reference.
 
 ---
 
@@ -651,6 +770,65 @@ wrangler deploy       # production deploy
 
 ---
 
+## 11a. Testing Architecture
+
+### Unit tests
+
+| File | What it tests |
+|---|---|
+| `server/discourse.test.js` | Discourse client helpers |
+| `server/state-contracts.test.js` | `assertSnapshotDerivedTable()`, `stripRelationalKeys()` |
+| `server/roles.test.js` | Role constant correctness |
+
+Run with:
+```bash
+cd server && node --test *.test.js
+```
+
+### Integration tests
+
+Integration tests require a live PostgreSQL database. They run against a dedicated test schema created within the test database.
+
+| File | Coverage |
+|---|---|
+| `server/parliamentary.integration.test.js` | Bill lifecycle, amendments, divisions, whipping, rebellions, political state triggers |
+| `server/factions.integration.test.js` | Faction CRUD, allocation guards, `computeFactionPoliticalState()`, `getPartyFactionClimate()` |
+| `server/finance-parliament.integration.test.js` | Finance config, salary bands, character finance, party finance |
+
+**Important:** Each integration test file calls `pool.end()` in its `after()` hook. The files must be run **separately** — running them together in a single `node --test` invocation causes connection pool contamination:
+
+```bash
+# Run each file separately
+node --test server/parliamentary.integration.test.js
+node --test server/factions.integration.test.js
+node --test server/finance-parliament.integration.test.js
+```
+
+**Test schema vs. production schema:** The integration test `createTestSchema()` helper creates a minimal subset of the production schema. Some production-only constraints (e.g., `CHECK (momentum IN ('rising','stable','falling'))` on `faction_political_state`) are not replicated in the test schema. Test schemas and production schemas are not identical.
+
+### Staging smoke tests
+
+`scripts/test-staging.mjs` exercises key paths against a running staging environment:
+
+- Persistence: create press release → GET list → verify title present
+- Immutability: author PUT on own press item → must return 401/403
+- Division authority: POST vote with tampered `weight:9999` → `effective_weight` must be server-computed
+- Bill vote authority: PATCH bill vote → `effective_weight` must be server-computed
+- RBAC: unauthenticated write → must return 401/403
+
+Requires environment variables: `BASE_URL`, `TEST_EMAIL`, `TEST_PASSWORD`.
+
+### CI
+
+The GitHub Actions workflow (`.github/workflows/static-checks.yml`) runs on every push and PR:
+1. `node scripts/static-checks.js` — 8 static analysis checks
+2. `node scripts/audit/feature-manifest.js` — RBAC matrix drift check
+3. `node --test server/*.test.js` — unit tests
+
+Integration tests are not run in CI (require a live database). They are run manually before significant releases.
+
+---
+
 ## 12. Architectural Constraints
 
 1. **Single-file server.** `server/index.js` is ~21,000 lines. All route handlers, middleware, schema bootstrap, helper functions, and business logic are co-located. There is no route-splitting or controller separation.
@@ -672,8 +850,6 @@ wrangler deploy       # production deploy
 ---
 
 ## 13. Future Architecture Evolution
-
-Based on documentation (`docs/trial-runbook.md`, `ALPHA_HARDENING_SUMMARY.md`, `AUDIT_FIX_SUMMARY.md`) and code comments:
 
 1. **Discourse SSO enablement:** The SSO provider infrastructure is complete. Enabling it requires setting `DISCOURSE_SSO_ENABLED=true` and configuring credentials in the Admin Panel. It is currently off by default pending UX confirmation.
 
