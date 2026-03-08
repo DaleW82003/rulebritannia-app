@@ -3419,3 +3419,56 @@ export async function apiSetModsMessage(playerMessage, staffMessage) {
   if (!res.ok) throw new Error(body.error || `apiSetModsMessage failed (${res.status})`);
   return body;
 }
+
+
+// ── Party Faction API ─────────────────────────────────────────────────────────
+
+/** Admin: list factions + allocations for a party */
+export async function apiGetAdminPartyFactions(slug) {
+  const res = await _fetch(`${API_BASE}/api/admin/parties/${encodeURIComponent(slug)}/factions`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiGetAdminPartyFactions failed (${res.status})`); }
+  return res.json();
+}
+
+/** Admin: create a new faction for a party */
+export async function apiCreatePartyFaction(slug, payload) {
+  const res = await _fetch(`${API_BASE}/api/admin/parties/${encodeURIComponent(slug)}/factions`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreatePartyFaction failed (${res.status})`);
+  return body;
+}
+
+/** Admin: update faction metadata */
+export async function apiUpdatePartyFaction(id, patch) {
+  const res = await _fetch(`${API_BASE}/api/admin/factions/${encodeURIComponent(id)}`, {
+    method: "PATCH", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(patch),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdatePartyFaction failed (${res.status})`);
+  return body;
+}
+
+/** Admin: update faction MP allocation */
+export async function apiUpdatePartyFactionAllocation(id, payload) {
+  const res = await _fetch(`${API_BASE}/api/admin/factions/${encodeURIComponent(id)}/allocation`, {
+    method: "PATCH", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiUpdatePartyFactionAllocation failed (${res.status})`);
+  return body;
+}
+
+/** Player-facing: list active factions for a party */
+export async function apiGetPartyFactions(slug) {
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(slug)}/factions`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiGetPartyFactions failed (${res.status})`); }
+  return res.json();
+}

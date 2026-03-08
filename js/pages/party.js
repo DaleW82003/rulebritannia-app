@@ -1,7 +1,7 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection } from "../api.js";
+import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection, apiGetPartyFactions } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { logAction } from "../audit.js";
 import { isLoggedIn } from "../core.js";
@@ -1070,6 +1070,24 @@ function render(data, state) {
       ` : `<div class="muted-block">No income entries yet.</div>`}
     </section>
     ` : ""}
+
+    ${state.factions.length > 0 ? `
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Parliamentary Factions</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;">
+        ${state.factions.map((f) => `
+          <article class="tile" style="border-left:4px solid ${esc(f.colour || "#888")};padding:10px 14px;">
+            <div style="font-weight:600;font-size:1.05em;">${esc(f.name)}</div>
+            ${f.ideologyTags?.length ? `<div class="muted" style="font-size:.8em;margin-top:2px;">${f.ideologyTags.map((t) => esc(String(t))).join(" · ")}</div>` : ""}
+            ${f.description ? `<div style="font-size:.85em;margin-top:4px;">${esc(f.description)}</div>` : ""}
+            <div style="margin-top:8px;font-size:.9em;">
+              <b>${esc(String(f.mpCount ?? 0))}</b> <span class="muted">MPs</span>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+    ` : ""}
   `;
 
   root.querySelector("#party-switch")?.addEventListener("change", async (e) => {
@@ -1081,12 +1099,13 @@ function render(data, state) {
     state.donationMessage = "";
     // Reload DB party data for the newly selected party
     try {
-      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult] = await Promise.all([
+      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult] = await Promise.all([
         apiGetParty(next).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
         apiGetPartyStructure(next).catch(() => ({ structure: {}, treasuryOverspend: false })),
         apiGetPartyLedger(next).catch(() => ({ donations: [] })),
         apiGetWhipRequests(next, "pending").catch(() => ({ requests: [] })),
+        apiGetPartyFactions(next).catch(() => ({ factions: [] })),
       ]);
       if (partyResult?.party) state.dbState = { ...state.dbState, party: partyResult.party };
       const partyNameLower = next.toLowerCase();
@@ -1097,6 +1116,7 @@ function render(data, state) {
       state.dbState.treasuryOverspend = !!structureResult.treasuryOverspend;
       state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
       state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
+      state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
     } catch (e) {
       console.warn("[party-switch] DB reload failed:", e.message);
     }
@@ -1811,6 +1831,7 @@ export async function initPartyPage(data) {
     currentElection: null,
     ledger: [],
     priceIndex: 1.0,
+    factions: [],
     dbState: { party: null, partyCharacters: [], sessionCharId: "", partyStructure: null, treasuryOverspend: false }
   };
 
@@ -1866,11 +1887,12 @@ export async function initPartyPage(data) {
       state.dbState.treasuryOverspend = !!structureResult.treasuryOverspend;
       state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
 
-      // Load governance data: elections, pending expulsions, and pending whip requests
-      const [electionsResult, expulsionsResult, whipReqResult] = await Promise.all([
+      // Load governance data: elections, pending expulsions, whip requests, and factions
+      const [electionsResult, expulsionsResult, whipReqResult, factionsResult] = await Promise.all([
         apiGetPartyElections(partyId).catch(() => ({ elections: [] })),
         apiGetExpulsions("pending").catch(() => ({ expulsions: [] })),
         apiGetWhipRequests(partyId, "pending").catch(() => ({ requests: [] })),
+        apiGetPartyFactions(partyId).catch(() => ({ factions: [] })),
       ]);
       state.elections = electionsResult.elections || [];
       const openStatuses = ["nominations", "voting", "runoff"];
@@ -1879,6 +1901,7 @@ export async function initPartyPage(data) {
         (ex) => (ex.party || "").toLowerCase() === partyId.toLowerCase()
       );
       state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
+      state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
     } catch (e) {
       console.warn("[initPartyPage] DB load failed:", e.message);
     }

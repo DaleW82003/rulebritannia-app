@@ -2084,6 +2084,38 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS requested_by_character_name TEXT,
       ADD COLUMN IF NOT EXISTS requested_by_party          TEXT;
   `);
+
+  // ── Party Faction system ──────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS party_factions (
+      id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      party_slug            TEXT NOT NULL,
+      slug                  TEXT NOT NULL,
+      name                  TEXT NOT NULL,
+      description           TEXT NOT NULL DEFAULT '',
+      colour                TEXT NOT NULL DEFAULT '#888888',
+      ideology_tags         JSONB NOT NULL DEFAULT '[]'::jsonb,
+      leadership_alignment  TEXT NOT NULL DEFAULT 'neutral',
+      rebellion_bias        NUMERIC(4,2) NOT NULL DEFAULT 0,
+      media_sensitivity     NUMERIC(4,2) NOT NULL DEFAULT 0,
+      constituency_sensitivity NUMERIC(4,2) NOT NULL DEFAULT 0,
+      display_order         INTEGER NOT NULL DEFAULT 0,
+      active                BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (party_slug, slug)
+    );
+    CREATE INDEX IF NOT EXISTS party_factions_party_idx ON party_factions (party_slug);
+
+    CREATE TABLE IF NOT EXISTS party_faction_allocations (
+      faction_id      UUID PRIMARY KEY REFERENCES party_factions(id) ON DELETE CASCADE,
+      mp_count        INTEGER NOT NULL DEFAULT 0,
+      influence_bonus NUMERIC(4,2) NOT NULL DEFAULT 0,
+      notes           TEXT NOT NULL DEFAULT '',
+      updated_by      TEXT NOT NULL DEFAULT '',
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 }
 
 // ── Property / Finance model constants ────────────────────────────────────────
@@ -20991,6 +21023,268 @@ app.put("/api/shadowcabinet/headline", crudWriteLimit, async (req, res) => {
   } catch (e) { console.error("[PUT /api/shadowcabinet/headline]", e); res.status(500).json({ error: "Server error" }); }
 });
 
+
+// ── Party Faction API ─────────────────────────────────────────────────────────
+
+const FACTION_PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
+
+/** Normalise a faction slug: lowercase, hyphens instead of spaces. */
+function normaliseFactionSlug(s) {
+  return String(s).toLowerCase().replace(/\s+/g, "-");
+}
+
+/**
+ * Return the total number of constituency MPs held by a party.
+ * Note: the constituencies table stores the full party name (e.g. "Conservative")
+ * in the party column, which matches the party_slug values used throughout the
+ * system (slug === name for playable parties).
+ * Uses the canonical constituencies table as the source of truth.
+ */
+async function getPartyConstituencyMPs(partyName) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*) AS total FROM constituencies WHERE party = $1`,
+    [partyName]
+  );
+  return Number(rows[0]?.total || 0);
+}
+
+// GET /api/admin/parties/:slug/factions
+app.get("/api/admin/parties/:slug/factions", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { slug } = req.params;
+    if (!FACTION_PLAYABLE_PARTIES.includes(slug)) {
+      return res.status(400).json({ error: `Factions only supported for: ${FACTION_PLAYABLE_PARTIES.join(", ")}` });
+    }
+    const [factionsResult, totalMPs] = await Promise.all([
+      pool.query(
+        `SELECT f.*, a.mp_count, a.influence_bonus, a.notes, a.updated_by, a.updated_at AS allocation_updated_at
+           FROM party_factions f
+           LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
+          WHERE f.party_slug = $1
+          ORDER BY f.display_order ASC, f.name ASC`,
+        [slug]
+      ),
+      getPartyConstituencyMPs(slug),
+    ]);
+    const factions = factionsResult.rows.map((r) => ({
+      id:                      r.id,
+      partySlug:               r.party_slug,
+      slug:                    r.slug,
+      name:                    r.name,
+      description:             r.description,
+      colour:                  r.colour,
+      ideologyTags:            Array.isArray(r.ideology_tags) ? r.ideology_tags : [],
+      leadershipAlignment:     r.leadership_alignment,
+      rebellionBias:           Number(r.rebellion_bias),
+      mediaSensitivity:        Number(r.media_sensitivity),
+      constituencySensitivity: Number(r.constituency_sensitivity),
+      displayOrder:            Number(r.display_order),
+      active:                  Boolean(r.active),
+      createdAt:               r.created_at,
+      updatedAt:               r.updated_at,
+      mpCount:                 Number(r.mp_count ?? 0),
+      influenceBonus:          Number(r.influence_bonus ?? 0),
+      notes:                   r.notes ?? "",
+      updatedBy:               r.updated_by ?? "",
+      allocationUpdatedAt:     r.allocation_updated_at ?? null,
+    }));
+    const allocatedMPs = factions.filter((f) => f.active).reduce((sum, f) => sum + f.mpCount, 0);
+    // allocatedMPs intentionally only counts active factions; inactive faction allocations
+    // are preserved for history but do not count against the party's available MP total.
+    res.json({ factions, totalMPs, allocatedMPs, remainingMPs: totalMPs - allocatedMPs });
+  } catch (e) {
+    console.error("[GET /api/admin/parties/:slug/factions]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/parties/:slug/factions
+app.post("/api/admin/parties/:slug/factions", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { slug } = req.params;
+    if (!FACTION_PLAYABLE_PARTIES.includes(slug)) {
+      return res.status(400).json({ error: `Factions only supported for: ${FACTION_PLAYABLE_PARTIES.join(", ")}` });
+    }
+    const {
+      name, slug: factionSlug, description = "", colour = "#888888",
+      ideologyTags = [], leadershipAlignment = "neutral",
+      rebellionBias = 0, mediaSensitivity = 0, constituencySensitivity = 0,
+      displayOrder = 0, active = true,
+    } = req.body || {};
+    if (!name || !factionSlug) {
+      return res.status(400).json({ error: "name and slug are required" });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO party_factions
+         (party_slug, slug, name, description, colour, ideology_tags, leadership_alignment,
+          rebellion_bias, media_sensitivity, constituency_sensitivity, display_order, active)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12)
+       RETURNING id`,
+      [
+        slug, normaliseFactionSlug(factionSlug),
+        String(name), String(description), String(colour),
+        JSON.stringify(Array.isArray(ideologyTags) ? ideologyTags : []),
+        String(leadershipAlignment),
+        Number(rebellionBias) || 0, Number(mediaSensitivity) || 0,
+        Number(constituencySensitivity) || 0, Number(displayOrder) || 0,
+        active !== false,
+      ]
+    );
+    const newId = rows[0].id;
+    // Create a default allocation row
+    await pool.query(
+      `INSERT INTO party_faction_allocations (faction_id, mp_count, updated_by) VALUES ($1, 0, $2)`,
+      [newId, req.session.userId || ""]
+    );
+    res.status(201).json({ ok: true, id: newId });
+  } catch (e) {
+    if (e.code === "23505") {
+      return res.status(409).json({ error: "A faction with that slug already exists for this party." });
+    }
+    console.error("[POST /api/admin/parties/:slug/factions]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PATCH /api/admin/factions/:id
+app.patch("/api/admin/factions/:id", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { id } = req.params;
+    // Verify faction exists
+    const { rows: existing } = await pool.query("SELECT id, party_slug FROM party_factions WHERE id = $1", [id]);
+    if (!existing.length) return res.status(404).json({ error: "Faction not found" });
+    if (!FACTION_PLAYABLE_PARTIES.includes(existing[0].party_slug)) {
+      return res.status(400).json({ error: "Cannot edit factions for this party" });
+    }
+    const allowed = ["name","description","colour","ideology_tags","leadership_alignment",
+                     "rebellion_bias","media_sensitivity","constituency_sensitivity","display_order","active","slug"];
+    const sets = [];
+    const vals = [];
+    const body = req.body || {};
+    if (body.name !== undefined)                  { sets.push(`name = $${vals.push(String(body.name))}`); }
+    if (body.slug !== undefined)                  { sets.push(`slug = $${vals.push(normaliseFactionSlug(body.slug))}`); }
+    if (body.description !== undefined)           { sets.push(`description = $${vals.push(String(body.description))}`); }
+    if (body.colour !== undefined)                { sets.push(`colour = $${vals.push(String(body.colour))}`); }
+    if (body.ideologyTags !== undefined)          { sets.push(`ideology_tags = $${vals.push(JSON.stringify(Array.isArray(body.ideologyTags) ? body.ideologyTags : []))}::jsonb`); }
+    if (body.leadershipAlignment !== undefined)   { sets.push(`leadership_alignment = $${vals.push(String(body.leadershipAlignment))}`); }
+    if (body.rebellionBias !== undefined)         { sets.push(`rebellion_bias = $${vals.push(Number(body.rebellionBias) || 0)}`); }
+    if (body.mediaSensitivity !== undefined)      { sets.push(`media_sensitivity = $${vals.push(Number(body.mediaSensitivity) || 0)}`); }
+    if (body.constituencySensitivity !== undefined) { sets.push(`constituency_sensitivity = $${vals.push(Number(body.constituencySensitivity) || 0)}`); }
+    if (body.displayOrder !== undefined)          { sets.push(`display_order = $${vals.push(Number(body.displayOrder) || 0)}`); }
+    if (body.active !== undefined)                { sets.push(`active = $${vals.push(body.active !== false && body.active !== "false")}`); }
+    if (!sets.length) return res.status(400).json({ error: "No fields to update" });
+    sets.push(`updated_at = NOW()`);
+    vals.push(id);
+    await pool.query(`UPDATE party_factions SET ${sets.join(", ")} WHERE id = $${vals.length}`, vals);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === "23505") {
+      return res.status(409).json({ error: "A faction with that slug already exists for this party." });
+    }
+    console.error("[PATCH /api/admin/factions/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PATCH /api/admin/factions/:id/allocation
+app.patch("/api/admin/factions/:id/allocation", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { id } = req.params;
+    const { rows: existing } = await pool.query(
+      "SELECT f.id, f.party_slug, f.active FROM party_factions f WHERE f.id = $1", [id]
+    );
+    if (!existing.length) return res.status(404).json({ error: "Faction not found" });
+    const faction = existing[0];
+    if (!FACTION_PLAYABLE_PARTIES.includes(faction.party_slug)) {
+      return res.status(400).json({ error: "Cannot edit factions for this party" });
+    }
+    const { mpCount, influenceBonus, notes } = req.body || {};
+    const newMpCount = Number(mpCount);
+    if (!Number.isInteger(newMpCount) || newMpCount < 0) {
+      return res.status(400).json({ error: "mp_count must be a non-negative integer" });
+    }
+    // Validate: sum of active faction mp_counts for this party must not exceed total constituency MPs
+    const [totalMPs, sumResult] = await Promise.all([
+      getPartyConstituencyMPs(faction.party_slug),
+      pool.query(
+        `SELECT COALESCE(SUM(a.mp_count), 0) AS total
+           FROM party_factions f
+           JOIN party_faction_allocations a ON a.faction_id = f.id
+          WHERE f.party_slug = $1
+            AND f.active = TRUE
+            AND f.id <> $2`,
+        [faction.party_slug, id]
+      ),
+    ]);
+    const otherActiveTotal = Number(sumResult.rows[0].total);
+    const proposedTotal = faction.active ? otherActiveTotal + newMpCount : otherActiveTotal;
+    if (proposedTotal > totalMPs) {
+      return res.status(400).json({
+        error: `Allocation would exceed party's constituency MPs. Total: ${totalMPs}, already allocated: ${otherActiveTotal}, proposed: ${newMpCount}.`,
+        totalMPs,
+        allocatedMPs: otherActiveTotal,
+        remainingMPs: totalMPs - otherActiveTotal,
+      });
+    }
+    await pool.query(
+      `INSERT INTO party_faction_allocations (faction_id, mp_count, influence_bonus, notes, updated_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (faction_id) DO UPDATE
+         SET mp_count = EXCLUDED.mp_count,
+             influence_bonus = EXCLUDED.influence_bonus,
+             notes = EXCLUDED.notes,
+             updated_by = EXCLUDED.updated_by,
+             updated_at = NOW()`,
+      [
+        id, newMpCount,
+        Number(influenceBonus) || 0,
+        String(notes ?? ""),
+        req.session.userId || "",
+      ]
+    );
+    res.json({ ok: true, totalMPs, allocatedMPs: proposedTotal, remainingMPs: totalMPs - proposedTotal });
+  } catch (e) {
+    console.error("[PATCH /api/admin/factions/:id/allocation]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/parties/:slug/factions  (player-facing, read-only, no hidden modifiers)
+app.get("/api/parties/:slug/factions", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const { slug } = req.params;
+    const { rows } = await pool.query(
+      `SELECT f.id, f.name, f.slug, f.description, f.colour, f.ideology_tags,
+              f.display_order, f.active,
+              COALESCE(a.mp_count, 0) AS mp_count
+         FROM party_factions f
+         LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
+        WHERE f.party_slug = $1 AND f.active = TRUE
+        ORDER BY f.display_order ASC, f.name ASC`,
+      [slug]
+    );
+    const factions = rows.map((r) => ({
+      id:           r.id,
+      name:         r.name,
+      slug:         r.slug,
+      description:  r.description,
+      colour:       r.colour,
+      ideologyTags: Array.isArray(r.ideology_tags) ? r.ideology_tags : [],
+      displayOrder: Number(r.display_order),
+      active:       Boolean(r.active),
+      mpCount:      Number(r.mp_count),
+    }));
+    res.json({ factions });
+  } catch (e) {
+    console.error("[GET /api/parties/:slug/factions]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 

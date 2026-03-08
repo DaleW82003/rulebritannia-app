@@ -15,6 +15,7 @@ import {
   apiGetAuditLog,
   apiGetSim,
   apiGetModsMessage, apiSetModsMessage,
+  apiGetAdminPartyFactions, apiCreatePartyFaction, apiUpdatePartyFaction, apiUpdatePartyFactionAllocation,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -369,6 +370,15 @@ export async function initControlPanelPage(data) {
         </form>
       </div>
     </details>
+
+    ${canEdit ? `
+    <details class="tile" style="margin-bottom:10px;">
+      <summary style="cursor:pointer;"><b>Party Faction Management <span class="mod-badge">Mod / Admin</span></b></summary>
+      <div style="margin-top:10px;" id="cp-factions-root">
+        <div class="muted-block">Loading faction data…</div>
+      </div>
+    </details>
+    ` : ""}
   `;
 
   rolePanels.querySelectorAll('[data-action="set-inactive-player"]').forEach((btn) => {
@@ -948,5 +958,193 @@ export async function initControlPanelPage(data) {
         if (btn) btn.disabled = false;
       }
     });
+  }
+
+  // ── Party Faction Management ───────────────────────────────────────────────
+  const factionsRoot = canEdit ? rolePanels.querySelector("#cp-factions-root") : null;
+  if (factionsRoot) {
+    const PLAYABLE_PARTIES = ["Labour", "Conservative", "Liberal Democrat"];
+
+    /** Render the full faction section from loaded data */
+    function renderFactions(partyDataMap) {
+      factionsRoot.innerHTML = PLAYABLE_PARTIES.map((partySlug) => {
+        const d = partyDataMap[partySlug] || { factions: [], totalMPs: 0, allocatedMPs: 0, remainingMPs: 0 };
+        const totalMPs = Number(d.totalMPs || 0);
+        const allocatedMPs = Number(d.allocatedMPs || 0);
+        const remainingMPs = totalMPs - allocatedMPs;
+        const factionRows = (d.factions || []).map((f) => `
+          <article class="tile" style="margin-bottom:8px;" data-faction-id="${esc(f.id)}">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:start;flex-wrap:wrap;">
+              <div>
+                <label class="label" style="font-size:.8em;">Name</label>
+                <input class="input" type="text" data-field="name" value="${esc(f.name)}" style="width:100%;">
+              </div>
+              <div>
+                <label class="label" style="font-size:.8em;">Slug</label>
+                <input class="input" type="text" data-field="slug" value="${esc(f.slug)}" style="width:100%;">
+              </div>
+              <div>
+                <label class="label" style="font-size:.8em;">Colour</label>
+                <input class="input" type="color" data-field="colour" value="${esc(f.colour || "#888888")}" style="width:100%;height:36px;padding:2px;">
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;padding-top:18px;">
+                <label style="font-size:.8em;display:flex;align-items:center;gap:4px;">
+                  <input type="checkbox" data-field="active" ${f.active ? "checked" : ""}> Active
+                </label>
+              </div>
+            </div>
+            <div style="margin-top:6px;">
+              <label class="label" style="font-size:.8em;">Description</label>
+              <textarea class="input" data-field="description" rows="2" style="width:100%;resize:vertical;">${esc(f.description || "")}</textarea>
+            </div>
+            <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <div>
+                <label class="label" style="font-size:.8em;">MP Count</label>
+                <input class="input" type="number" min="0" data-field="mpCount" value="${esc(String(f.mpCount ?? 0))}" style="width:90px;">
+              </div>
+              <div>
+                <label class="label" style="font-size:.8em;">Notes</label>
+                <input class="input" type="text" data-field="notes" value="${esc(f.notes || "")}" style="width:200px;">
+              </div>
+              <div style="padding-top:18px;">
+                <button class="btn" type="button" data-action="cp-save-faction" data-party="${esc(partySlug)}" data-id="${esc(f.id)}">Save</button>
+                <span class="cp-faction-status" style="font-size:.85em;margin-left:6px;"></span>
+              </div>
+            </div>
+            <div class="muted" style="font-size:.8em;margin-top:4px;">
+              Last allocation update: ${f.allocationUpdatedAt ? esc(new Date(f.allocationUpdatedAt).toLocaleString("en-GB")) : "never"}
+              ${f.updatedBy ? `by ${esc(f.updatedBy)}` : ""}
+            </div>
+          </article>
+        `).join("");
+
+        return `
+          <section style="margin-bottom:16px;">
+            <h3 style="margin:0 0 6px;">${esc(partySlug)}</h3>
+            <div class="muted" style="font-size:.85em;margin-bottom:8px;">
+              Constituency MPs: <b>${totalMPs}</b> &nbsp;|&nbsp;
+              Allocated: <b>${allocatedMPs}</b> &nbsp;|&nbsp;
+              Remaining: <b style="color:${remainingMPs < 0 ? "var(--danger,#c00)" : "inherit"}">${remainingMPs}</b>
+              ${remainingMPs < 0 ? `<span style="color:var(--danger,#c00);font-weight:600;"> ⚠ Over-allocated!</span>` : ""}
+            </div>
+            <div id="cp-factions-${esc(partySlug.replace(/\s+/g, "-"))}">
+              ${factionRows || `<div class="muted-block">No factions yet.</div>`}
+            </div>
+            <form class="cp-new-faction-form" data-party="${esc(partySlug)}" style="margin-top:8px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+              <div>
+                <label class="label" style="font-size:.8em;">New faction name</label>
+                <input class="input" type="text" name="newFactionName" placeholder="e.g. Soft Left" style="width:160px;">
+              </div>
+              <div>
+                <label class="label" style="font-size:.8em;">Slug</label>
+                <input class="input" type="text" name="newFactionSlug" placeholder="soft-left" style="width:120px;">
+              </div>
+              <button class="btn primary" type="submit">Add Faction</button>
+              <span class="cp-new-faction-status" style="font-size:.85em;"></span>
+            </form>
+          </section>
+        `;
+      }).join('<hr style="border:none;border-top:1px solid var(--border,#ddd);margin:8px 0;">');
+    }
+
+    /** Load faction data for all playable parties */
+    async function loadAllFactions() {
+      factionsRoot.innerHTML = '<div class="muted-block">Loading…</div>';
+      try {
+        const results = await Promise.all(
+          PLAYABLE_PARTIES.map((slug) => apiGetAdminPartyFactions(slug).catch(() => ({ factions: [], totalMPs: 0, allocatedMPs: 0, remainingMPs: 0 })))
+        );
+        const partyDataMap = Object.fromEntries(PLAYABLE_PARTIES.map((slug, i) => [slug, results[i]]));
+        renderFactions(partyDataMap);
+        wireFactionHandlers(partyDataMap);
+      } catch (err) {
+        factionsRoot.innerHTML = `<div class="muted-block">Could not load factions: ${esc(err.message)}</div>`;
+      }
+    }
+
+    /** Wire save + add handlers after render */
+    function wireFactionHandlers(partyDataMap) {
+      // Save faction button
+      factionsRoot.querySelectorAll('[data-action="cp-save-faction"]').forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const id = btn.dataset.id;
+          const partySlug = btn.dataset.party;
+          const article = btn.closest("article");
+          if (!article || !id) return;
+          const statusEl = article.querySelector(".cp-faction-status");
+          btn.disabled = true;
+          if (statusEl) statusEl.textContent = "";
+
+          // Read fields
+          const name          = article.querySelector('[data-field="name"]')?.value?.trim();
+          const slug          = article.querySelector('[data-field="slug"]')?.value?.trim();
+          const colour        = article.querySelector('[data-field="colour"]')?.value?.trim();
+          const description   = article.querySelector('[data-field="description"]')?.value?.trim();
+          const active        = article.querySelector('[data-field="active"]')?.checked ?? true;
+          const mpCount       = Number(article.querySelector('[data-field="mpCount"]')?.value ?? 0);
+          const notes         = article.querySelector('[data-field="notes"]')?.value?.trim();
+
+          if (!name || !slug) {
+            if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = "✗ Name and slug required."; }
+            btn.disabled = false;
+            return;
+          }
+
+          // Client-side MP validation
+          const d = partyDataMap[partySlug] || { factions: [], totalMPs: 0 };
+          const otherActive = (d.factions || []).filter((f) => f.active && f.id !== id).reduce((s, f) => s + Number(f.mpCount ?? 0), 0);
+          const proposed = active ? otherActive + mpCount : otherActive;
+          if (proposed > Number(d.totalMPs || 0)) {
+            if (statusEl) {
+              statusEl.style.color = "var(--danger,#c00)";
+              statusEl.textContent = `✗ Allocation exceeds total MPs (${d.totalMPs}). Allocated so far: ${otherActive}.`;
+            }
+            btn.disabled = false;
+            return;
+          }
+
+          try {
+            await Promise.all([
+              apiUpdatePartyFaction(id, { name, slug, colour, description, active }),
+              apiUpdatePartyFactionAllocation(id, { mpCount, notes }),
+            ]);
+            if (statusEl) { statusEl.style.color = "#1a7a1a"; statusEl.textContent = "✓ Saved."; }
+            // Refresh data
+            await loadAllFactions();
+          } catch (err) {
+            if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = `✗ ${err.message}`; }
+            btn.disabled = false;
+          }
+        });
+      });
+
+      // New faction form
+      factionsRoot.querySelectorAll(".cp-new-faction-form").forEach((form) => {
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const partySlug = form.dataset.party;
+          const nameInput = form.querySelector('[name="newFactionName"]');
+          const slugInput = form.querySelector('[name="newFactionSlug"]');
+          const statusEl  = form.querySelector(".cp-new-faction-status");
+          const btn       = form.querySelector('button[type="submit"]');
+          const name = nameInput?.value?.trim();
+          const slug = slugInput?.value?.trim() || name?.toLowerCase().replace(/\s+/g, "-");
+          if (!name) return;
+          if (btn) btn.disabled = true;
+          if (statusEl) statusEl.textContent = "";
+          try {
+            await apiCreatePartyFaction(partySlug, { name, slug });
+            if (nameInput) nameInput.value = "";
+            if (slugInput) slugInput.value = "";
+            await loadAllFactions();
+          } catch (err) {
+            if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = `✗ ${err.message}`; }
+            if (btn) btn.disabled = false;
+          }
+        });
+      });
+    }
+
+    loadAllFactions();
   }
 }
