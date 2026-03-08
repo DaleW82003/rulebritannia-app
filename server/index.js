@@ -18,7 +18,7 @@ import {
 } from "./discourseClient.js";
 import { ALL_VALID_ROLES, PARTY_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP, partyRoleForPartyName, computeApprovalRolesToAdd, officeRoleFromSpecId } from "./roles.js";
 import { computeSimDateFromGameState } from "./clock.js";
-import { assertSnapshotDerivedTable, stripRelationalKeys } from "./state-contracts.js";
+import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_ROLES } from "./state-contracts.js";
 
 const __serverDir = dirname(fileURLToPath(import.meta.url));
 
@@ -5673,7 +5673,10 @@ app.post("/api/state", async (req, res) => {
       return res.status(401).json({ error: "Not logged in" });
     }
     const roles = Array.isArray(req.session.roles) ? req.session.roles : [];
-    if (!roles.includes("admin") && !roles.includes("mod") && !roles.includes("speaker")) {
+    // ALLOWED_STATE_WRITE_ROLES: admin (full game admin), mod (sim control),
+    // speaker (parliamentary-state management via control panel).
+    // See server/state-contracts.js for the authoritative justification.
+    if (!roles.some((r) => ALLOWED_STATE_WRITE_ROLES.has(r))) {
       return res.status(403).json({ error: "Forbidden: admin, mod, or speaker role required" });
     }
 
@@ -5833,22 +5836,44 @@ app.post("/api/snapshots/:id/restore", async (req, res) => {
 
     const snapshotId = req.params.id;
 
+    // Fetch the full snapshot so we can rebuild derived caches after restore.
     const { rows } = await pool.query(
-      "SELECT id FROM state_snapshots WHERE id = $1",
+      "SELECT id, data FROM state_snapshots WHERE id = $1",
       [snapshotId]
     );
     if (!rows.length) {
       return res.status(404).json({ error: "Snapshot not found" });
     }
 
+    // Update the current pointer (O(1) — the snapshot data is not copied).
     await pool.query(
       `INSERT INTO app_state_current (id, snapshot_id)
        VALUES ('main', $1)
        ON CONFLICT (id) DO UPDATE SET snapshot_id = EXCLUDED.snapshot_id`,
       [snapshotId]
     );
+    console.log(`[restore] snapshot pointer set to ${snapshotId} by user ${req.session.userId}`);
 
-    res.json({ ok: true });
+    // Auto-rebuild derived object-cache tables from the restored snapshot data.
+    // Only SNAPSHOT_DERIVED_TABLES are touched; relational-authoritative tables
+    // (divisions, amendments, factions, finance, etc.) are never written here.
+    let cacheRebuilt = false;
+    let cacheWarning = null;
+    try {
+      await syncObjectTables(rows[0].data);
+      cacheRebuilt = true;
+      console.log(`[restore] derived-cache rebuild succeeded for snapshot ${snapshotId}`);
+    } catch (syncErr) {
+      console.error(`[restore] derived-cache rebuild FAILED for snapshot ${snapshotId}:`, syncErr);
+      cacheWarning = "Snapshot restored but derived-cache rebuild failed. Run POST /api/admin/rebuild-cache manually to re-sync object tables.";
+    }
+
+    res.json({
+      ok: true,
+      snapshotId,
+      cacheRebuilt,
+      ...(cacheWarning ? { warning: cacheWarning } : {}),
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

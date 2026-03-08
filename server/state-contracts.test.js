@@ -10,6 +10,7 @@ import {
   SNAPSHOT_DERIVED_TABLES,
   RELATIONAL_AUTHORITATIVE_TABLES,
   RELATIONAL_AUTHORITATIVE_SNAPSHOT_KEYS,
+  ALLOWED_STATE_WRITE_ROLES,
   assertSnapshotDerivedTable,
   stripRelationalKeys,
 } from "./state-contracts.js";
@@ -196,3 +197,67 @@ test("stripRelationalKeys handles array input gracefully (arrays are not snapsho
   assert.equal(clean, arr, "Arrays should be returned unchanged");
   assert.deepEqual(stripped, []);
 });
+
+// ── ALLOWED_STATE_WRITE_ROLES ────────────────────────────────────────────────
+
+test("ALLOWED_STATE_WRITE_ROLES contains admin, mod, and speaker", () => {
+  const expected = ["admin", "mod", "speaker"];
+  for (const r of expected) {
+    assert.ok(ALLOWED_STATE_WRITE_ROLES.has(r), `Expected '${r}' in ALLOWED_STATE_WRITE_ROLES`);
+  }
+});
+
+test("ALLOWED_STATE_WRITE_ROLES has exactly three entries", () => {
+  assert.equal(
+    ALLOWED_STATE_WRITE_ROLES.size,
+    3,
+    "Exactly admin, mod, and speaker should be in ALLOWED_STATE_WRITE_ROLES"
+  );
+});
+
+test("ALLOWED_STATE_WRITE_ROLES does not include non-staff roles", () => {
+  const nonStaff = ["player", "user", "viewer", "civil_service"];
+  for (const r of nonStaff) {
+    assert.ok(!ALLOWED_STATE_WRITE_ROLES.has(r), `Non-staff role '${r}' must not be in ALLOWED_STATE_WRITE_ROLES`);
+  }
+});
+
+// ── Restore + rebuild response contract ─────────────────────────────────────
+// These unit tests verify the contracts used by the restore endpoint rather
+// than the DB-dependent endpoint itself.
+
+test("stripRelationalKeys produces clean payload for restore rebuild", () => {
+  // Simulate a legacy snapshot that contains forbidden relational keys
+  const legacySnapshot = {
+    gameState: { started: true },
+    orderPaperCommons: [{ id: "bill-1" }],
+    divisions: [{ id: "div-1" }],   // relational — must be stripped
+    factions: [{ id: "fac-1" }],    // relational — must be stripped
+  };
+  const { clean, stripped } = stripRelationalKeys(legacySnapshot, "restore-test");
+  // The clean payload is what syncObjectTables() would receive
+  assert.ok(Object.hasOwn(clean, "gameState"),           "gameState should survive");
+  assert.ok(Object.hasOwn(clean, "orderPaperCommons"),   "orderPaperCommons should survive");
+  assert.ok(!Object.hasOwn(clean, "divisions"),          "divisions must be stripped before rebuild");
+  assert.ok(!Object.hasOwn(clean, "factions"),           "factions must be stripped before rebuild");
+  assert.deepEqual(stripped.sort(), ["divisions", "factions"].sort());
+});
+
+test("assertSnapshotDerivedTable prevents relational tables from being rebuilt during restore", () => {
+  // Every table syncObjectTables() attempts to write goes through
+  // assertSnapshotDerivedTable().  Verify relational tables are rejected
+  // so the restore + rebuild path can never touch them.
+  const relational = ["divisions", "bill_amendments", "party_factions", "faction_political_state", "character_finance"];
+  for (const t of relational) {
+    assert.throws(
+      () => assertSnapshotDerivedTable(t),
+      /FORBIDDEN/,
+      `restore rebuild must reject relational table '${t}'`
+    );
+  }
+  // And the 5 derived-cache tables must pass
+  for (const t of SNAPSHOT_DERIVED_TABLES) {
+    assert.doesNotThrow(() => assertSnapshotDerivedTable(t), `restore rebuild must allow derived table '${t}'`);
+  }
+});
+

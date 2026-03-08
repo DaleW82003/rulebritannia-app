@@ -66,6 +66,34 @@ export const RELATIONAL_AUTHORITATIVE_SNAPSHOT_KEYS = new Set([
 ]);
 
 /**
+ * Staff roles that are permitted to write the global state snapshot via
+ * POST /api/state.
+ *
+ * Why these three roles?
+ *   admin   — full game administration; manages all snapshot-backed state
+ *   mod     — game moderation; manages sim control (pause/unpause, dates,
+ *             economy, polling, government offices, etc.)
+ *   speaker — manages parliamentary procedure state (parliament bucket,
+ *             question time, order of business) through the control panel;
+ *             has a distinct, documented parliamentary management workflow
+ *             that legitimately mutates snapshot-backed state
+ *
+ * All other roles (player roles, civil-service, etc.) must use dedicated
+ * feature APIs rather than the global state snapshot.
+ *
+ * Changing this set is a deliberate access-control decision.  Do not widen
+ * it without auditing whether the new role actually needs global-snapshot
+ * write access rather than a scoped feature endpoint.
+ *
+ * @type {Set<string>}
+ */
+export const ALLOWED_STATE_WRITE_ROLES = new Set([
+  "admin",
+  "mod",
+  "speaker",
+]);
+
+/**
  * Assert that `table` is in the snapshot-derived allowlist.
  * Throws synchronously if the table is not permitted.
  *

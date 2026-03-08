@@ -69,10 +69,10 @@ source of truth for live gameplay systems.
 | Method | Path | Auth | Notes |
 |---|---|---|---|
 | `GET` | `/api/state` | Authenticated users | Returns snapshot blob with relational keys stripped (runtime enforcement) |
-| `POST` | `/api/state` | Admin / Mod / Speaker only | Strips relational keys before saving; syncs derived caches only |
+| `POST` | `/api/state` | Admin / Mod / Speaker — see `ALLOWED_STATE_WRITE_ROLES` | Strips relational keys before saving; syncs derived caches only |
 | `GET` | `/api/snapshots` | Admin only | Lists all snapshots |
 | `POST` | `/api/snapshots` | Admin only | Creates named snapshot; relational keys stripped before saving |
-| `POST` | `/api/snapshots/:id/restore` | Admin only | O(1) pointer update; does not touch relational tables |
+| `POST` | `/api/snapshots/:id/restore` | Admin only | Updates pointer + **auto-rebuilds** 5 derived-cache tables; relational tables untouched |
 
 ### Admin maintenance routes
 
@@ -120,6 +120,21 @@ accidentally add a relational-authoritative table without a deliberate edit.
 Defines the top-level JSON keys (`divisions`, `amendments`, `factions`, `politicalState`,
 `finance`) that correspond to relational-authoritative systems.
 
+### `ALLOWED_STATE_WRITE_ROLES` — POST /api/state access control
+
+An explicit `Set` of the staff roles permitted to write the global snapshot via
+`POST /api/state`:
+
+| Role | Justification |
+|---|---|
+| `admin` | Full game administration; manages all snapshot-backed state |
+| `mod` | Game moderation; manages sim control (pause/unpause, dates, economy, polling, government offices, etc.) |
+| `speaker` | Manages parliamentary procedure state (parliament bucket, question time, order of business) via the control panel; has a distinct, documented parliamentary management workflow that legitimately mutates snapshot-backed state |
+
+All other roles must use dedicated feature APIs rather than the global state snapshot.
+The role check in `POST /api/state` now reads from `ALLOWED_STATE_WRITE_ROLES` rather
+than hard-coding the role strings, making the set testable.
+
 ### `stripRelationalKeys()` applied at every write and read point
 
 | Route | Strip applied |
@@ -141,6 +156,19 @@ Each `upsertRows(table, rows)` call now begins with `assertSnapshotDerivedTable(
 This throws a descriptive error with a pointer to `state-contracts.js` if a developer
 accidentally passes a table name that is not in `SNAPSHOT_DERIVED_TABLES`.
 
+### Restore auto-rebuild
+
+`POST /api/snapshots/:id/restore` now:
+1. Fetches the full snapshot data after updating the pointer
+2. Calls `syncObjectTables()` to rebuild the 5 derived-cache tables in the same request
+3. Returns `{ ok, snapshotId, cacheRebuilt, [warning] }` — `cacheRebuilt: true` when
+   rebuild succeeded, `warning` present when it failed so staff know to run
+   `POST /api/admin/rebuild-cache` manually
+4. Logs both the pointer change and the rebuild outcome
+
+Restore is now operationally self-contained.  No manual `rebuild-cache` step is
+required after a normal restore.
+
 ### Tests
 
 `server/state-contracts.test.js` (run with `node --test server/state-contracts.test.js`)
@@ -155,6 +183,9 @@ covers:
 - `stripRelationalKeys` strips all forbidden keys at once
 - `stripRelationalKeys` does not mutate the original data object
 - `stripRelationalKeys` handles null, undefined, non-object, and array inputs gracefully
+- `ALLOWED_STATE_WRITE_ROLES` contains exactly admin, mod, speaker and no non-staff roles
+- Restore+rebuild contract: `stripRelationalKeys` produces a clean payload that is safe for `syncObjectTables()` to rebuild from
+- Restore+rebuild guard: `assertSnapshotDerivedTable` rejects relational tables even if called from the rebuild path
 
 ---
 
@@ -162,8 +193,8 @@ covers:
 
 | Risk | Severity | Notes |
 |---|---|---|
-| `POST /api/snapshots/:id/restore` does not call `syncObjectTables()` | Low | Restoring an old snapshot changes the snapshot pointer but does not refresh the derived-cache tables (`bills` etc.).  Run `POST /api/admin/rebuild-cache` after a restore if consistency is needed. |
+| Restore derived-cache rebuild failure leaves caches stale | Low | The restore response includes `cacheRebuilt: false` and a `warning` when this happens.  Run `POST /api/admin/rebuild-cache` to re-sync. |
 | `GET /api/admin/export-snapshot` exports the full snapshot blob | Low | Admin-only guard is the sole protection.  Consider rate-limiting or IP allowlisting on production for extra defence. |
-| `POST /api/state` is open to mod and speaker roles | Medium | Mods and speakers can create new snapshots and overwrite sim config (gameState, bills, etc.).  This is intentional for game management but worth reviewing as the mod team grows. |
+| `POST /api/state` is open to mod and speaker roles | Low | Access is now governed by `ALLOWED_STATE_WRITE_ROLES` with documented justification for each role.  The set is tested.  Relational domains are still stripped before every write. |
 | `isDevSeedAllowed()` returns `true` when `NODE_ENV` is unset | Medium | If the hosting environment does not set `NODE_ENV=production`, import/clear endpoints become accessible to admins.  Verify `NODE_ENV=production` is always set on the Render service. |
 | Snapshot blob may contain stale division/amendment/faction data from older exports | Mitigated | `stripRelationalKeys()` now removes those keys on every read and write, so legacy snapshot blobs are cleaned at runtime. |
