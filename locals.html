@@ -121,6 +121,12 @@
       <label for="localCountry">Country</label>
       <select id="localCountry" required></select>
 
+      <label for="localTotalCouncillors">Total Councillors</label>
+      <input id="localTotalCouncillors" type="number" min="0">
+
+      <label for="localTotalCouncils">Total Councils</label>
+      <input id="localTotalCouncils" type="number" min="0">
+
             <label for="localNoc">No Overall Control Councils</label>
       <input id="localNoc" type="number" min="0" required>
 
@@ -132,6 +138,7 @@
       <div></div>
       <div class="tile-bottom" style="padding-top:0; margin-top:0;">
         <button class="btn primary" type="submit">Save Country Data</button>
+        <span id="localsSaveStatus" style="font-size:.85em;margin-left:8px;"></span>
       </div>
     </form>
   </section>

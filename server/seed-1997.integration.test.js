@@ -106,6 +106,138 @@ test("GET /api/locals returns England Labour councillors=10840 and NOC=74 after 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// /api/locals: Seeded records include correct totalCouncils and totalCouncillors
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("GET /api/locals returns correct totalCouncils and totalCouncillors for all four countries after seed", async () => {
+  const { status, body } = await adminClient.get("/api/locals");
+  assert.equal(status, 200, `Expected 200, got ${status}: ${JSON.stringify(body)}`);
+  const expected = [
+    { country: "England",          totalCouncils: 386, totalCouncillors: 22580 },
+    { country: "Scotland",         totalCouncils: 32,  totalCouncillors: 1306  },
+    { country: "Wales",            totalCouncils: 22,  totalCouncillors: 1272  },
+    { country: "Northern Ireland", totalCouncils: 26,  totalCouncillors: 582   },
+  ];
+  for (const exp of expected) {
+    const c = (body.countries || []).find((x) => x.country === exp.country);
+    assert.ok(c, `${exp.country} must be present in locals`);
+    assert.equal(c.totalCouncils, exp.totalCouncils,
+      `${exp.country} totalCouncils must be ${exp.totalCouncils}, got ${c.totalCouncils}`);
+    assert.equal(c.totalCouncillors, exp.totalCouncillors,
+      `${exp.country} totalCouncillors must be ${exp.totalCouncillors}, got ${c.totalCouncillors}`);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /api/locals: validation — mismatched totals are rejected
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("PUT /api/locals returns 400 when councillors breakdown does not sum to totalCouncillors", async () => {
+  const payload = {
+    countries: [
+      {
+        country: "Scotland",
+        totalCouncillors: 9999, // wrong total
+        totalCouncils: null,
+        noOverallControlCouncils: 3,
+        partyBreakdown: [
+          { party: "Labour", councillors: 621, councilsControlled: 21 },
+          { party: "Conservative", councillors: 82, councilsControlled: 0 },
+        ],
+      },
+    ],
+  };
+  const { status, body } = await adminClient.put("/api/locals", payload);
+  assert.equal(status, 400, `Expected 400 for mismatched councillors, got ${status}: ${JSON.stringify(body)}`);
+  assert.ok(body.error, "Response must have an error message");
+  assert.ok(body.error.includes("Scotland"), `Error must mention country name; got: ${body.error}`);
+  assert.ok(body.error.includes("councillors"), `Error must mention councillors; got: ${body.error}`);
+});
+
+test("PUT /api/locals returns 400 when councils breakdown does not sum to totalCouncils", async () => {
+  const payload = {
+    countries: [
+      {
+        country: "Wales",
+        totalCouncillors: null,
+        totalCouncils: 999, // wrong total
+        noOverallControlCouncils: 3,
+        partyBreakdown: [
+          { party: "Labour", councillors: 726, councilsControlled: 14 },
+          { party: "Conservative", councillors: 42, councilsControlled: 0 },
+        ],
+      },
+    ],
+  };
+  const { status, body } = await adminClient.put("/api/locals", payload);
+  assert.equal(status, 400, `Expected 400 for mismatched councils, got ${status}: ${JSON.stringify(body)}`);
+  assert.ok(body.error, "Response must have an error message");
+  assert.ok(body.error.includes("Wales"), `Error must mention country name; got: ${body.error}`);
+  assert.ok(body.error.includes("councils"), `Error must mention councils; got: ${body.error}`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /api/locals: validation — matching totals succeed
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("PUT /api/locals succeeds when councillors breakdown sums to totalCouncillors", async () => {
+  const payload = {
+    countries: [
+      {
+        country: "Scotland",
+        totalCouncillors: 703, // 621 + 82 = 703
+        totalCouncils: null,
+        noOverallControlCouncils: 3,
+        partyBreakdown: [
+          { party: "Labour", councillors: 621, councilsControlled: 21 },
+          { party: "Conservative", councillors: 82, councilsControlled: 0 },
+        ],
+      },
+    ],
+  };
+  const { status, body } = await adminClient.put("/api/locals", payload);
+  assert.equal(status, 200, `Expected 200 for matching councillors, got ${status}: ${JSON.stringify(body)}`);
+  assert.equal(body.ok, true, "ok flag must be true");
+});
+
+test("PUT /api/locals succeeds when councils breakdown (including NOC) sums to totalCouncils", async () => {
+  const payload = {
+    countries: [
+      {
+        country: "Wales",
+        totalCouncillors: null,
+        totalCouncils: 17, // 14 + 0 + 3 NOC = 17
+        noOverallControlCouncils: 3,
+        partyBreakdown: [
+          { party: "Labour", councillors: 726, councilsControlled: 14 },
+          { party: "Conservative", councillors: 42, councilsControlled: 0 },
+        ],
+      },
+    ],
+  };
+  const { status, body } = await adminClient.put("/api/locals", payload);
+  assert.equal(status, 200, `Expected 200 for matching councils, got ${status}: ${JSON.stringify(body)}`);
+  assert.equal(body.ok, true, "ok flag must be true");
+});
+
+test("PUT /api/locals succeeds when totals are not set (backwards compatibility)", async () => {
+  const payload = {
+    countries: [
+      {
+        country: "Wales",
+        noOverallControlCouncils: 3,
+        partyBreakdown: [
+          { party: "Labour", councillors: 726, councilsControlled: 14 },
+        ],
+      },
+    ],
+  };
+  const { status, body } = await adminClient.put("/api/locals", payload);
+  assert.equal(status, 200, `Expected 200 when totals not set, got ${status}: ${JSON.stringify(body)}`);
+  assert.equal(body.ok, true, "ok flag must be true");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // /api/admin/other-officials/arenas-totals includes europarl + all locals arenas
 // ─────────────────────────────────────────────────────────────────────────────
 

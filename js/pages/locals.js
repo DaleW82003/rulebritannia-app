@@ -12,6 +12,8 @@ function ensureLocals(data) {
     if (!data.locals.countries.find((c) => c.country === countryName)) {
       data.locals.countries.push({
         country: countryName,
+        totalCouncils: null,
+        totalCouncillors: null,
         noOverallControlCouncils: 0,
         partyBreakdown: []
       });
@@ -51,15 +53,17 @@ function renderCouncilRows(country) {
 }
 
 function renderCountryTile(country) {
-  const totalCouncillors = sumBy(country, "councillors");
-  const totalControlled = sumBy(country, "councilsControlled");
+  const computedCouncillors = sumBy(country, "councillors");
+  const computedControlled = sumBy(country, "councilsControlled");
+  const displayTotalCouncillors = country.totalCouncillors != null ? Number(country.totalCouncillors) : computedCouncillors;
+  const displayTotalCouncils = country.totalCouncils != null ? Number(country.totalCouncils) : (computedControlled + Number(country.noOverallControlCouncils || 0));
   return `
     <article class="tile" style="margin-bottom:14px;width:100%;">
       <h3 style="margin-top:0;margin-bottom:10px;">${esc(country.country)}</h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div>
           <div class="wgo-kicker" style="margin-bottom:6px;">Councillors</div>
-          <div class="muted" style="margin-bottom:6px;">Total: <b>${totalCouncillors.toLocaleString("en-GB")}</b></div>
+          <div class="muted" style="margin-bottom:6px;">Total: <b>${displayTotalCouncillors.toLocaleString("en-GB")}</b></div>
           <table style="width:100%;border-collapse:collapse;font-size:0.92em;">
             <thead>
               <tr>
@@ -72,7 +76,7 @@ function renderCountryTile(country) {
         </div>
         <div>
           <div class="wgo-kicker" style="margin-bottom:6px;">Councils</div>
-          <div class="muted" style="margin-bottom:6px;">Controlled: <b>${totalControlled.toLocaleString("en-GB")}</b></div>
+          <div class="muted" style="margin-bottom:6px;">Total: <b>${displayTotalCouncils.toLocaleString("en-GB")}</b></div>
           <table style="width:100%;border-collapse:collapse;font-size:0.92em;">
             <thead>
               <tr>
@@ -184,6 +188,10 @@ function bindEditor(data) {
   const loadForm = () => {
     const c = getCountry();
     if (!c) return;
+    const totalCouncillorsEl = form.querySelector("#localTotalCouncillors");
+    const totalCouncilsEl = form.querySelector("#localTotalCouncils");
+    if (totalCouncillorsEl) totalCouncillorsEl.value = c.totalCouncillors != null ? Number(c.totalCouncillors) : "";
+    if (totalCouncilsEl) totalCouncilsEl.value = c.totalCouncils != null ? Number(c.totalCouncils) : "";
     form.querySelector("#localNoc").value = Number(c.noOverallControlCouncils || 0);
     renderPartyInputs(c);
   };
@@ -195,17 +203,29 @@ function bindEditor(data) {
 
   select.addEventListener("change", loadForm);
 
-  form.addEventListener("submit", (ev) => {
+  form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const c = getCountry();
     if (!c) return;
+    const totalCouncillorsEl = form.querySelector("#localTotalCouncillors");
+    const totalCouncilsEl = form.querySelector("#localTotalCouncils");
+    if (totalCouncillorsEl) c.totalCouncillors = totalCouncillorsEl.value !== "" ? Number(totalCouncillorsEl.value) : null;
+    if (totalCouncilsEl) c.totalCouncils = totalCouncilsEl.value !== "" ? Number(totalCouncilsEl.value) : null;
     c.noOverallControlCouncils = Number(form.querySelector("#localNoc").value || 0);
     c.partyBreakdown = (c.partyBreakdown || []).map((p) => ({
       party: p.party,
       councillors: Number(form.querySelector(`[name='councillors-${p.party}']`)?.value || 0),
       councilsControlled: Number(form.querySelector(`[name='councils-${p.party}']`)?.value || 0)
     }));
-    apiSaveLocals(data.locals).catch((err) => console.error("[locals] save failed:", err)); // UI_ONLY_OK: autosave of local election data; no simulation-outcome consequence
+    const saveStatusEl = form.querySelector("#localsSaveStatus");
+    if (saveStatusEl) { saveStatusEl.style.color = ""; saveStatusEl.textContent = "Saving…"; }
+    try {
+      await apiSaveLocals(data.locals);
+      if (saveStatusEl) { saveStatusEl.style.color = "var(--success,green)"; saveStatusEl.textContent = "✓ Saved."; }
+    } catch (err) {
+      if (saveStatusEl) { saveStatusEl.style.color = "var(--danger,#c00)"; saveStatusEl.textContent = `✗ ${err.message}`; }
+      return;
+    }
     refreshLocals(data);
     loadForm();
   });
