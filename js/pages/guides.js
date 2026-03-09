@@ -30,12 +30,19 @@ function renderGuideRows(data, adminMode) {
 
   return guides
     .map((guide) => `
-      <details class="panel" style="margin-bottom:12px;overflow:hidden;">
-        <summary style="display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;">
-          <span style="flex:1;">${esc(guide.title)}</span>
+      <article class="panel" style="margin-bottom:12px;overflow:hidden;">
+        <button
+          type="button"
+          data-action="toggle"
+          data-guide-id="${guide.id}"
+          aria-expanded="false"
+          class="tile"
+          style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:none;border:0;cursor:pointer;"
+        >
+          <span style="flex:1;font-weight:700;">${esc(guide.title)}</span>
           <span data-oc-label class="muted">Open</span>
-        </summary>
-        <div class="tile" style="display:grid;gap:8px;padding:12px 14px;border-top:1px solid #eef0f5;">
+        </button>
+        <div data-guide-body="${guide.id}" class="tile" hidden style="display:grid;gap:8px;padding-top:0;">
           <div style="white-space:pre-wrap;line-height:1.45;">${esc(guide.body)}</div>
           ${adminMode ? `
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -44,22 +51,23 @@ function renderGuideRows(data, adminMode) {
             </div>
           ` : ""}
         </div>
-      </details>
+      </article>
     `)
     .join("");
 }
 
-function attachGuideToggleLabels(host) {
-  host.querySelectorAll("details.panel").forEach((details) => {
-    const label = details.querySelector("[data-oc-label]");
-    if (!label) return;
-
-    const syncLabel = () => {
-      label.textContent = details.open ? "Close" : "Open";
-    };
-
-    syncLabel();
-    details.addEventListener("toggle", syncLabel);
+function attachGuideToggles(host) {
+  host.querySelectorAll('[data-action="toggle"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.guideId;
+      const body = host.querySelector(`[data-guide-body="${id}"]`);
+      const label = btn.querySelector("[data-oc-label]");
+      if (!body || !label) return;
+      const isOpen = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!isOpen));
+      body.hidden = isOpen;
+      label.textContent = isOpen ? "Open" : "Close";
+    });
   });
 }
 
@@ -175,7 +183,7 @@ function render(data, state) {
     });
   }
 
-  attachGuideToggleLabels(host);
+  attachGuideToggles(host);
 }
 
 export async function initGuidesPage(data) {

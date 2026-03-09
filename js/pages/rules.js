@@ -30,9 +30,19 @@ function renderRuleRows(data, adminMode) {
 
   return rules
     .map((rule) => `
-      <article class="panel" style="margin-bottom:12px;">
-        <div class="tile" style="display:grid;gap:8px;">
-          <h2 style="margin:0;">${esc(rule.title)}</h2>
+      <article class="panel" style="margin-bottom:12px;overflow:hidden;">
+        <button
+          type="button"
+          data-action="toggle"
+          data-rule-id="${rule.id}"
+          aria-expanded="false"
+          class="tile"
+          style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:none;border:0;cursor:pointer;"
+        >
+          <span style="flex:1;font-weight:700;">${esc(rule.title)}</span>
+          <span data-oc-label class="muted">Open</span>
+        </button>
+        <div data-rule-body="${rule.id}" class="tile" hidden style="display:grid;gap:8px;padding-top:0;">
           <div style="white-space:pre-wrap;line-height:1.45;">${esc(rule.body)}</div>
           ${adminMode ? `
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -44,6 +54,21 @@ function renderRuleRows(data, adminMode) {
       </article>
     `)
     .join("");
+}
+
+function attachRuleToggles(host) {
+  host.querySelectorAll('[data-action="toggle"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.ruleId;
+      const body = host.querySelector(`[data-rule-body="${id}"]`);
+      const label = btn.querySelector("[data-oc-label]");
+      if (!body || !label) return;
+      const isOpen = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!isOpen));
+      body.hidden = isOpen;
+      label.textContent = isOpen ? "Open" : "Close";
+    });
+  });
 }
 
 function renderEditor(data, state) {
@@ -157,6 +182,8 @@ function render(data, state) {
       render(data, state);
     });
   }
+
+  attachRuleToggles(host);
 }
 
 export async function initRulesPage(data) {
