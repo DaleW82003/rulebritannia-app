@@ -358,3 +358,60 @@ test("force overwrite is idempotent: second run gives same lords totalSeats and 
   assert.ok(labour, "lords Labour row must still be present after second force seed");
   assert.equal(labour.seats, 182, `lords Labour seats must still be 182, got ${labour.seats}`);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lords compositionBreakdown: Crossbenchers, Lords Spiritual, Law Lords
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("GET /api/bodies lords compositionBreakdown has Crossbenchers, Lords Spiritual and Law Lords after force seed", async () => {
+  const { status, body } = await adminClient.get("/api/bodies");
+  assert.equal(status, 200, `Expected 200, got ${status}: ${JSON.stringify(body)}`);
+  const lords = (body.bodies || []).find((b) => b.id === "lords");
+  assert.ok(lords, "lords body must be present");
+  const cb = lords.compositionBreakdown || [];
+  assert.ok(cb.length > 0, "lords compositionBreakdown must not be empty after force seed");
+  const crossbenchers = cb.find((r) => r.name === "Crossbenchers");
+  assert.ok(crossbenchers, "lords compositionBreakdown must contain Crossbenchers");
+  assert.equal(crossbenchers.seats, 351, `Crossbenchers seats must be 351, got ${crossbenchers.seats}`);
+  const spiritual = cb.find((r) => r.name === "Lords Spiritual");
+  assert.ok(spiritual, "lords compositionBreakdown must contain Lords Spiritual");
+  assert.equal(spiritual.seats, 26, `Lords Spiritual seats must be 26, got ${spiritual.seats}`);
+  const lawLords = cb.find((r) => r.name === "Law Lords");
+  assert.ok(lawLords, "lords compositionBreakdown must contain Law Lords");
+  assert.equal(lawLords.seats, 26, `Law Lords seats must be 26, got ${lawLords.seats}`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Control fields must be absent for lords and europarl
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("GET /api/bodies lords has no controlType or controlParty after force seed", async () => {
+  const { status, body } = await adminClient.get("/api/bodies");
+  assert.equal(status, 200, `Expected 200, got ${status}: ${JSON.stringify(body)}`);
+  const lords = (body.bodies || []).find((b) => b.id === "lords");
+  assert.ok(lords, "lords body must be present");
+  assert.equal(lords.controlType, undefined, `lords must not have controlType, got ${lords.controlType}`);
+  assert.equal(lords.controlParty, undefined, `lords must not have controlParty, got ${lords.controlParty}`);
+});
+
+test("GET /api/bodies europarl has no controlType or controlParty after force seed", async () => {
+  const { status, body } = await adminClient.get("/api/bodies");
+  assert.equal(status, 200, `Expected 200, got ${status}: ${JSON.stringify(body)}`);
+  const europarl = (body.bodies || []).find((b) => b.id === "europarl");
+  assert.ok(europarl, "europarl body must be present");
+  assert.equal(europarl.controlType, undefined, `europarl must not have controlType, got ${europarl.controlType}`);
+  assert.equal(europarl.controlParty, undefined, `europarl must not have controlParty, got ${europarl.controlParty}`);
+});
+
+test("PUT /api/bodies/lords strips controlType and controlParty from stored data", async () => {
+  // Attempt to persist control fields via PUT — they must be silently removed.
+  const payload = { id: "lords", type: "standard", visible: true, totalSeats: 1265, controlType: "majority", controlParty: "Labour" };
+  const putRes = await adminClient.put("/api/bodies/lords", payload);
+  assert.equal(putRes.status, 200, `PUT /api/bodies/lords should succeed, got ${putRes.status}`);
+
+  const { body } = await adminClient.get("/api/bodies");
+  const lords = (body.bodies || []).find((b) => b.id === "lords");
+  assert.ok(lords, "lords must be present after PUT");
+  assert.equal(lords.controlType, undefined, `lords controlType must be stripped on PUT, got ${lords.controlType}`);
+  assert.equal(lords.controlParty, undefined, `lords controlParty must be stripped on PUT, got ${lords.controlParty}`);
+});

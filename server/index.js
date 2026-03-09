@@ -20436,18 +20436,28 @@ app.patch("/api/online/:id", crudWriteLimit, async (req, res) => {
 // GET /api/bodies      — authenticated
 // PUT /api/bodies/:id  — admin/mod/speaker: update a body
 
+// Bodies for which "Control" is not applicable (always hung / supra-national).
+// controlType and controlParty must never be persisted or returned for these bodies.
+const NO_CONTROL_BODY_IDS = new Set(["lords", "europarl"]);
+
+function stripControlFields(bodyObj) {
+  if (!bodyObj || !NO_CONTROL_BODY_IDS.has(String(bodyObj.id || ""))) return bodyObj;
+  const { controlType: _ct, controlParty: _cp, ...rest } = bodyObj;
+  return rest;
+}
+
 app.get("/api/bodies", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query("SELECT id, data FROM bodies_data ORDER BY sort_order ASC, id ASC");
-    res.json({ bodies: rows.map((r) => ({ id: r.id, ...r.data })) });
+    res.json({ bodies: rows.map((r) => stripControlFields({ id: r.id, ...r.data })) });
   } catch (e) { console.error("[GET /api/bodies]", e); res.status(500).json({ error: "Server error" }); }
 });
 
 app.put("/api/bodies/:id", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const body = req.body || {};
+    const body = stripControlFields(req.body || {});
     const { rows } = await pool.query(
       `INSERT INTO bodies_data (id, data, sort_order)
        VALUES ($1, $2::jsonb, COALESCE((SELECT sort_order FROM bodies_data WHERE id=$1), 0))
