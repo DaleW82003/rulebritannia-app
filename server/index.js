@@ -20936,11 +20936,13 @@ function validate1997SeedParties(canonicalParties) {
   for (const row of BODIES_1997_SEED.lords.partyBreakdown) uses.push(row.party);
   for (const row of BODIES_1997_SEED.europarl.partyBreakdown) uses.push(row.party);
   for (const c of LOCALS_1997_SEED.countries) for (const row of c.partyBreakdown) uses.push(row.party);
+  const missing = [];
   for (const party of uses) {
     if (party !== "Others" && !canonicalSet.has(party)) {
-      throw new Error(`Seed references non-canonical party: ${party}`);
+      missing.push(party);
     }
   }
+  return Array.from(new Set(missing));
 }
 
 function validate1997SeedTotals() {
@@ -20956,14 +20958,33 @@ function validate1997SeedTotals() {
 }
 
 app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, async (req, res) => {
-  const force = String(req.query?.force || req.body?.force || "").toLowerCase() === "true";
   try {
     if (!requireAdminOrMod(req, res)) return;
+    if (!isDevSeedAllowed()) {
+      return res.status(403).json({ error: "Seeding is disabled in this environment" });
+    }
+
+    const queryForce = String(req.query?.force || "").toLowerCase() === "true";
+    const bodyForce = req.body?.force === true || String(req.body?.force || "").toLowerCase() === "true";
+    const force = queryForce || bodyForce;
+
     validate1997SeedTotals();
 
     await withTx(async (client) => {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS bodies_data (
+          id          TEXT        PRIMARY KEY,
+          data        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+          sort_order  INTEGER     NOT NULL DEFAULT 0,
+          updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+
       const canonicalParties = await getCanonicalConstituencyParties(client);
-      validate1997SeedParties(canonicalParties);
+      const nonCanonicalParties = validate1997SeedParties(canonicalParties);
+      if (nonCanonicalParties.length) {
+        console.warn("[seed-1997-bodies-locals] Seed includes parties not present in constituency baseline:", nonCanonicalParties);
+      }
 
       const { rows: bodyRows } = await client.query("SELECT id, data, sort_order FROM bodies_data");
       const bodyMap = new Map(bodyRows.map((r) => [r.id, r]));
@@ -21020,8 +21041,8 @@ app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, 
 
     res.json({ ok: true, force });
   } catch (e) {
-    console.error("[POST /api/admin/seed-1997-bodies-locals]", e);
-    res.status(500).json({ error: "Server error" });
+    console.error("[seed-1997-bodies-locals]", e);
+    res.status(500).json({ error: "seed-1997-bodies-locals failed", details: e?.message || "Unknown error" });
   }
 });
 
@@ -21286,14 +21307,18 @@ async function getOtherOfficialsTotalsForPlayableParties() {
 
   for (const row of bodyRowsResult.rows) {
     const body = row?.data || {};
-    if (!body?.visible) continue;
     const bodyId = String(row?.id || body?.id || "").trim();
     if (!bodyId) continue;
+
+    const mayors = Array.isArray(body?.mayors) ? body.mayors : [];
+    const includeBody = Boolean(
+      body?.visible || (bodyId === "directly-elected-mayors" && mayors.length > 0)
+    );
+    if (!includeBody) continue;
 
     let totals = emptyPlayablePartyTotals();
     if (bodyId === "directly-elected-mayors") {
       // for DEM each mayor is exactly one official
-      const mayors = Array.isArray(body?.mayors) ? body.mayors : [];
       totals = emptyPlayablePartyTotals();
       for (const mayor of mayors) {
         const party = String(mayor?.party || "");
@@ -21316,7 +21341,10 @@ async function getOtherOfficialsTotalsForPlayableParties() {
 
   const localsData = localsResult.rows[0]?.value || {};
   const countries = Array.isArray(localsData?.countries) ? localsData.countries : [];
-  for (const countryRow of countries) {
+  const localsByCountry = new Map(countries.map((row) => [String(row?.country || "").trim(), row]));
+  const fallbackCountries = ["England", "Scotland", "Wales", "Northern Ireland"];
+  for (const countryName of fallbackCountries) {
+    const countryRow = localsByCountry.get(countryName) || { country: countryName, partyBreakdown: [] };
     const country = String(countryRow?.country || "").trim();
     if (!country) continue;
     const totals = buildPlayablePartyTotalsFromRows(countryRow?.partyBreakdown, "councillors");

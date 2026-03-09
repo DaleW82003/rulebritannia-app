@@ -1,6 +1,6 @@
 import { setHTML, esc } from "../ui.js";
 import { canManage } from "../permissions.js";
-import { apiAdminSeed1997BodiesLocals, apiGetBodies, apiUpdateBody } from "../api.js";
+import { apiAdminSeed1997BodiesLocals, apiGetBodies, apiGetLocals, apiUpdateBody } from "../api.js";
 
 const BODY_ORDER = [
   "lords",
@@ -353,15 +353,9 @@ function bindControlPanelEvents(data, state) {
     try {
       await apiAdminSeed1997BodiesLocals(false);
       if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (merge)."; }
-      const r = await apiGetBodies();
-      if (r.bodies && r.bodies.length) {
-        data.bodies = data.bodies || { list: [] };
-        for (const b of r.bodies) {
-          const idx = data.bodies.list.findIndex((x) => x.id === b.id);
-          if (idx >= 0) Object.assign(data.bodies.list[idx], b);
-          else data.bodies.list.push(b);
-        }
-      }
+      const [bodiesRes, localsRes] = await Promise.all([apiGetBodies(), apiGetLocals()]);
+      data.bodies = { list: Array.isArray(bodiesRes?.bodies) ? bodiesRes.bodies : [] };
+      data.locals = localsRes || { countries: [] };
       normalizeAllStandardBodies(data);
       refreshBodies(data);
       renderControlPanel(data, state);
@@ -382,15 +376,9 @@ function bindControlPanelEvents(data, state) {
     try {
       await apiAdminSeed1997BodiesLocals(true);
       if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (force overwrite)."; }
-      const r = await apiGetBodies();
-      if (r.bodies && r.bodies.length) {
-        data.bodies = data.bodies || { list: [] };
-        for (const b of r.bodies) {
-          const idx = data.bodies.list.findIndex((x) => x.id === b.id);
-          if (idx >= 0) Object.assign(data.bodies.list[idx], b);
-          else data.bodies.list.push(b);
-        }
-      }
+      const [bodiesRes, localsRes] = await Promise.all([apiGetBodies(), apiGetLocals()]);
+      data.bodies = { list: Array.isArray(bodiesRes?.bodies) ? bodiesRes.bodies : [] };
+      data.locals = localsRes || { countries: [] };
       normalizeAllStandardBodies(data);
       refreshBodies(data);
       renderControlPanel(data, state);
