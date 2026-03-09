@@ -1,4 +1,4 @@
-import { apiAdminSeed1997BodiesLocals, apiSaveLocals } from "../api.js";
+import { apiAdminSeed1997BodiesLocals, apiGetBodies, apiGetLocals, apiSaveLocals } from "../api.js";
 import { setHTML, esc } from "../ui.js";
 import { canManage } from "../permissions.js";
 
@@ -133,7 +133,12 @@ function bindEditor(data) {
     if (statusEl) { statusEl.style.color = ""; statusEl.textContent = "Seeding (merge)…"; }
     try {
       await apiAdminSeed1997BodiesLocals(false);
-      if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (merge). Reload page to view body updates."; }
+      const [localsRes, bodiesRes] = await Promise.all([apiGetLocals(), apiGetBodies()]);
+      data.locals = localsRes || { countries: [] };
+      data.bodies = { list: Array.isArray(bodiesRes?.bodies) ? bodiesRes.bodies : [] };
+      refreshLocals(data);
+      loadForm();
+      if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (merge)."; }
     } catch (err) {
       if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = `✗ ${err.message}`; }
       if (mergeBtn) mergeBtn.disabled = false;
@@ -150,7 +155,12 @@ function bindEditor(data) {
     if (statusEl) { statusEl.style.color = ""; statusEl.textContent = "Seeding (force overwrite)…"; }
     try {
       await apiAdminSeed1997BodiesLocals(true);
-      if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (force overwrite). Reload page to view body updates."; }
+      const [localsRes, bodiesRes] = await Promise.all([apiGetLocals(), apiGetBodies()]);
+      data.locals = localsRes || { countries: [] };
+      data.bodies = { list: Array.isArray(bodiesRes?.bodies) ? bodiesRes.bodies : [] };
+      refreshLocals(data);
+      loadForm();
+      if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (force overwrite)."; }
     } catch (err) {
       if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = `✗ ${err.message}`; }
       if (mergeBtn) mergeBtn.disabled = false;
