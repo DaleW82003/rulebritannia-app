@@ -20970,7 +20970,10 @@ app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, 
 
     validate1997SeedTotals();
 
-    await withTx(async (client) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
       await client.query(`
         CREATE TABLE IF NOT EXISTS bodies_data (
           id          TEXT        PRIMARY KEY,
@@ -21001,7 +21004,7 @@ app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, 
       }
 
       const { rows: localsRows } = await client.query("SELECT value FROM app_config WHERE key = 'locals_data'");
-      const existingLocals = localsRows.length ? localsRows[0].value : {};
+      const existingLocals = localsRows.length ? JSON.parse(localsRows[0].value) : {};
       let mergedLocals;
       if (force) {
         mergedLocals = deepClone(LOCALS_1997_SEED);
@@ -21037,7 +21040,14 @@ app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, 
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
         [JSON.stringify(mergedLocals)]
       );
-    });
+
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
 
     res.json({ ok: true, force });
   } catch (e) {
@@ -21339,7 +21349,7 @@ async function getOtherOfficialsTotalsForPlayableParties() {
     });
   }
 
-  const localsData = localsResult.rows[0]?.value || {};
+  const localsData = localsResult.rows[0]?.value ? JSON.parse(localsResult.rows[0].value) : {};
   const countries = Array.isArray(localsData?.countries) ? localsData.countries : [];
   const localsByCountry = new Map(countries.map((row) => [String(row?.country || "").trim(), row]));
   const fallbackCountries = ["England", "Scotland", "Wales", "Northern Ireland"];
