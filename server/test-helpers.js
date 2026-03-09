@@ -299,6 +299,7 @@ export async function createTestSchema() {
       treasury                 JSONB NOT NULL DEFAULT '{}',
       membership_fee_annual    NUMERIC NOT NULL DEFAULT 0,
       last_members_update_sim_index INT,
+      last_membership_intake_sim_year INT,
       hq_url                   TEXT,
       updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -512,14 +513,29 @@ export async function createTestSchema() {
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS party_donations (
-      id         UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
-      party_slug TEXT    NOT NULL,
-      from_name  TEXT    NOT NULL DEFAULT '',
-      amount     NUMERIC NOT NULL DEFAULT 0,
-      note       TEXT    NOT NULL DEFAULT '',
-      sim_month  INT,
-      sim_year   INT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id          UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+      party_slug  TEXT    NOT NULL,
+      from_name   TEXT    NOT NULL DEFAULT '',
+      amount      NUMERIC NOT NULL DEFAULT 0,
+      note        TEXT    NOT NULL DEFAULT '',
+      sim_month   INT,
+      sim_year    INT,
+      source_type TEXT    NOT NULL DEFAULT 'donation',
+      source_ref  TEXT,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS party_donations_idempotent_idx
+      ON party_donations (party_slug, source_type, source_ref)
+      WHERE source_ref IS NOT NULL;
+  `);
+
+  // ── Fundraising items ─────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS fundraising_items (
+      id         TEXT PRIMARY KEY,
+      data       JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
 
@@ -592,6 +608,7 @@ export async function dropTestSchema() {
       support_messages,
       support_tickets,
       parliament_status,
+      fundraising_items,
       party_donations,
       finance_config,
       character_positions,

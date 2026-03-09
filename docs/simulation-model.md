@@ -578,11 +578,15 @@ Salary bands and starting balances are configured globally via `finance_config` 
 
 ### Party finance
 
-Parties maintain a treasury balance and multiple finance streams:
+Parties maintain a treasury balance (DB-backed, authoritative) across multiple finance streams. The `parties.treasury` JSONB column stores `cash`, `debt`, and `members` and is never overwritten by snapshot or reset operations.
 
-- **Membership fees** — configurable per-party fee schedule
-- **Donations** — logged via donation API routes
-- **Fundraising** — events managed through `fundraising_items`; proceeds credited to the party treasury
+**Income streams logged in the Party Income Ledger (`party_donations` table):**
+
+- **Donations** (`source_type = 'donation'`) — logged via `POST /api/parties/:id/donations`; each entry records `from_name`, `amount`, `note`, and sim date.
+- **Fundraising allocations** (`source_type = 'fundraising'`) — when a fundraiser is approved and revenue is credited to a party via `POST /api/fundraising/:id/credit-party`, a ledger entry is created atomically alongside the treasury credit. This operation is **idempotent**: repeated calls for the same fundraiser + party are detected via a unique constraint on `(party_slug, source_type, source_ref)` and return `alreadyCredited: true` without double-crediting.
+- **Annual membership fee intake** (`source_type = 'membership'`) — each January (sim month 1), the clock tick automatically credits each party's treasury with `members × membership_fee_annual`. This is **idempotent** per sim year via `last_membership_intake_sim_year` tracking and a unique ledger constraint (`source_ref = 'annual_fee_YYYY'`).
+
+The Party Income Ledger is fetched via `GET /api/parties/:id/donations` and includes a `sourceType` field for each entry so the UI can distinguish income types. Party treasury data is rendered from the DB-authoritative `state.dbState.party.treasury` on the Party page, ensuring values survive page reloads and wipe/reset operations.
 
 Party finance is visible to party members and managed by party leaders, admins, and mods.
 

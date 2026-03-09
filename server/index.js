@@ -1645,6 +1645,23 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS party_donations_slug_idx ON party_donations(party_slug);
   `);
 
+  // ── Party income ledger: source_type + source_ref columns for unified ledger ─
+  // source_type: 'donation' | 'fundraising' | 'membership'
+  // source_ref:  null for donations; fundraising item UUID for fundraising entries;
+  //              'annual_fee_YYYY' for membership intake entries.
+  // Unique constraint on (party_slug, source_type, source_ref) prevents double-credits
+  // from fundraising and membership intake (idempotent on re-run).
+  await pool.query(`
+    ALTER TABLE party_donations
+      ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'donation',
+      ADD COLUMN IF NOT EXISTS source_ref  TEXT;
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS party_donations_idempotent_idx
+      ON party_donations (party_slug, source_type, source_ref)
+      WHERE source_ref IS NOT NULL;
+  `);
+
   // ── Expand press_items type constraint to include comment / speech / letter ─
   await pool.query(`
     DO $$
@@ -3039,9 +3056,10 @@ async function runMembershipIntake(month, year) {
         [credit, year, party.id]
       );
       await pool.query(
-        `INSERT INTO party_donations (party_slug, from_name, amount, note, sim_month, sim_year)
-         VALUES ($1, 'Membership Intake', $2, $3, 1, $4)`,
-        [party.slug, credit, `Annual membership fee intake: ${members.toLocaleString("en-GB")} members × £${fee.toLocaleString("en-GB")}`, year]
+        `INSERT INTO party_donations (party_slug, from_name, amount, note, sim_month, sim_year, source_type, source_ref)
+         VALUES ($1, 'Membership Intake', $2, $3, 1, $4, 'membership', $5)
+         ON CONFLICT (party_slug, source_type, source_ref) WHERE source_ref IS NOT NULL DO NOTHING`,
+        [party.slug, credit, `Annual membership fee intake: ${members.toLocaleString("en-GB")} members × £${fee.toLocaleString("en-GB")}`, year, `annual_fee_${year}`]
       );
       console.log(`[intake] ${party.slug}: credited £${credit} (${members} × £${fee}) for ${year}`);
     }
@@ -12205,7 +12223,7 @@ app.get("/api/parties/:partyId/donations", partyReadLimit, async (req, res) => {
 
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit || "100", 10)));
     const { rows } = await pool.query(
-      `SELECT id, party_slug, from_name, amount, note, sim_month, sim_year, created_at
+      `SELECT id, party_slug, from_name, amount, note, sim_month, sim_year, source_type, source_ref, created_at
          FROM party_donations WHERE party_slug = $1
         ORDER BY created_at DESC LIMIT $2`,
       [req.params.partyId, limit]
@@ -12218,6 +12236,8 @@ app.get("/api/parties/:partyId/donations", partyReadLimit, async (req, res) => {
         note:      d.note,
         simMonth:  d.sim_month,
         simYear:   d.sim_year,
+        sourceType: d.source_type || "donation",
+        sourceRef:  d.source_ref  || null,
         createdAt: d.created_at,
       })),
     });
@@ -12263,8 +12283,8 @@ app.post("/api/parties/:partyId/donations", partyWriteLimit, async (req, res) =>
       [amount, req.params.partyId]
     );
     const { rows: donation } = await client.query(
-      `INSERT INTO party_donations (party_slug, from_name, amount, note, sim_month, sim_year)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      `INSERT INTO party_donations (party_slug, from_name, amount, note, sim_month, sim_year, source_type)
+       VALUES ($1, $2, $3, $4, $5, $6, 'donation') RETURNING *`,
       [req.params.partyId, fromName, amount, note, simMonth, simYear]
     );
     await client.query("COMMIT");
@@ -12282,6 +12302,8 @@ app.post("/api/parties/:partyId/donations", partyWriteLimit, async (req, res) =>
         simMonth:  donation[0].sim_month,
         simYear:   donation[0].sim_year,
         createdAt: donation[0].created_at,
+        sourceType: donation[0].source_type || "donation",
+        sourceRef:  donation[0].source_ref  || null,
       },
     });
   } catch (e) {
@@ -19758,6 +19780,35 @@ app.post("/api/fundraising/:id/credit-party", crudWriteLimit, async (req, res) =
       return res.status(404).json({ error: "Party not found" });
     }
 
+    // Check idempotency: if a ledger entry for this fundraising item + party already exists,
+    // return success without double-crediting treasury.
+    const sourceRef = `${req.params.id}:${partySlug}`;
+    const { rows: existingRows } = await client.query(
+      `SELECT id, from_name, amount, note, sim_month, sim_year, created_at
+         FROM party_donations
+        WHERE party_slug = $1 AND source_type = 'fundraising' AND source_ref = $2`,
+      [partySlug, sourceRef]
+    );
+    if (existingRows.length) {
+      await client.query("ROLLBACK");
+      const existing = existingRows[0];
+      return res.json({
+        ok: true,
+        alreadyCredited: true,
+        donation: {
+          id:        existing.id,
+          fromName:  existing.from_name,
+          amount:    Number(existing.amount),
+          note:      existing.note,
+          simMonth:  existing.sim_month,
+          simYear:   existing.sim_year,
+          createdAt: existing.created_at,
+          sourceType: "fundraising",
+          sourceRef,
+        },
+      });
+    }
+
     await client.query(
       `UPDATE parties
           SET treasury = jsonb_set(COALESCE(treasury,'{}'), '{cash}',
@@ -19767,25 +19818,29 @@ app.post("/api/fundraising/:id/credit-party", crudWriteLimit, async (req, res) =
       [amount, partySlug]
     );
     const { rows: donation } = await client.query(
-      `INSERT INTO party_donations (party_slug, from_name, amount, note, sim_month, sim_year)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [partySlug, campaignName, amount, note || `Fundraising revenue: ${campaignName}`, simMonth, simYear]
+      `INSERT INTO party_donations (party_slug, from_name, amount, note, sim_month, sim_year, source_type, source_ref)
+       VALUES ($1, $2, $3, $4, $5, $6, 'fundraising', $7)
+       ON CONFLICT (party_slug, source_type, source_ref) WHERE source_ref IS NOT NULL DO NOTHING
+       RETURNING *`,
+      [partySlug, campaignName, amount, note || `Fundraising revenue: ${campaignName}`, simMonth, simYear, sourceRef]
     );
     await client.query("COMMIT");
 
-    await writeAuditLog(req.session.userId, "party.donation.fundraising", "party_donations", donation[0].id, null,
-      { partySlug, campaignName, amount, fundraisingItemId: req.params.id });
+    await writeAuditLog(req.session.userId, "party.donation.fundraising", "party_donations", donation[0]?.id, null,
+      { partySlug, campaignName, amount, fundraisingItemId: req.params.id, sourceRef });
 
     res.json({
       ok: true,
       donation: {
-        id:        donation[0].id,
-        fromName:  donation[0].from_name,
-        amount:    Number(donation[0].amount),
-        note:      donation[0].note,
-        simMonth:  donation[0].sim_month,
-        simYear:   donation[0].sim_year,
-        createdAt: donation[0].created_at,
+        id:        donation[0]?.id,
+        fromName:  donation[0]?.from_name,
+        amount:    Number(donation[0]?.amount ?? amount),
+        note:      donation[0]?.note,
+        simMonth:  donation[0]?.sim_month,
+        simYear:   donation[0]?.sim_year,
+        createdAt: donation[0]?.created_at,
+        sourceType: "fundraising",
+        sourceRef,
       },
     });
   } catch (e) {
