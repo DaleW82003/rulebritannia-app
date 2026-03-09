@@ -349,7 +349,8 @@ export async function initControlPanelPage(data) {
         <p class="muted" style="margin:0 0 12px;font-size:.9em;">
           These messages appear on the dropon landing pages. The <b>Player Message</b> is shown on
           <code>player-dropon.html</code>. The <b>Staff Message</b> is shown on <code>staff-dropon.html</code>.
-          Leave blank to hide the box.
+          The <b>Starter Pack HTML</b> is shown only on player dropon when a user has no active character.
+          Leave blank to hide optional boxes.
         </p>
         <form id="cp-mods-message-form">
           <div style="margin-bottom:12px;">
@@ -363,6 +364,13 @@ export async function initControlPanelPage(data) {
             <textarea id="cp-mods-staff-msg" name="staffMessage" rows="4"
                       class="input" style="width:100%;resize:vertical;font-family:inherit;"
                       placeholder="e.g. Reminder: character approvals need processing by…"></textarea>
+          </div>
+
+          <div style="margin-bottom:12px;">
+            <label class="label" for="cp-mods-player-starter-pack">Player no-character Starter Pack HTML (advanced: supports HTML)</label>
+            <textarea id="cp-mods-player-starter-pack" name="playerStarterPackHtml" rows="14"
+                      class="input" style="width:100%;resize:vertical;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;"
+                      placeholder="e.g. Starter pack section HTML"></textarea>
           </div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <button type="submit" class="btn primary">Save Messages</button>
@@ -925,12 +933,14 @@ export async function initControlPanelPage(data) {
   const modsMessageStatus = rolePanels.querySelector("#cp-mods-message-status");
   const modsPlayerInput   = rolePanels.querySelector("#cp-mods-player-msg");
   const modsStaffInput    = rolePanels.querySelector("#cp-mods-staff-msg");
+  const modsStarterInput  = rolePanels.querySelector("#cp-mods-player-starter-pack");
 
   // Load current messages into the form
   if (modsMessageForm) {
     apiGetModsMessage().then((msg) => {
       if (modsPlayerInput) modsPlayerInput.value = msg?.playerMessage ?? "";
       if (modsStaffInput)  modsStaffInput.value  = msg?.staffMessage  ?? "";
+      if (modsStarterInput) modsStarterInput.value = msg?.playerStarterPackHtml ?? "";
     }).catch((err) => {
       console.warn("[control-panel] could not load mods message:", err);
     });
@@ -940,11 +950,12 @@ export async function initControlPanelPage(data) {
       const fd = new FormData(modsMessageForm);
       const playerMessage = String(fd.get("playerMessage") ?? "");
       const staffMessage  = String(fd.get("staffMessage")  ?? "");
+      const playerStarterPackHtml = String(fd.get("playerStarterPackHtml") ?? "");
       const btn = modsMessageForm.querySelector('button[type="submit"]');
       if (btn) btn.disabled = true;
       if (modsMessageStatus) modsMessageStatus.textContent = "";
       try {
-        await apiSetModsMessage(playerMessage, staffMessage);
+        await apiSetModsMessage(playerMessage, staffMessage, playerStarterPackHtml);
         logAction({ action: "admin.mods-message.update", details: {} });
         if (modsMessageStatus) {
           modsMessageStatus.style.color = "#1a7a1a";
