@@ -1,7 +1,7 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection, apiGetPartyFactions, apiGetPartyFactionClimate } from "../api.js";
+import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection, apiGetPartyFactions, apiGetPartyFactionClimate, apiGetMyFaction } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { logAction } from "../audit.js";
 import { isLoggedIn } from "../core.js";
@@ -1073,23 +1073,58 @@ function render(data, state) {
 
     ${state.factions.length > 0 ? `
     <section class="panel" style="margin-bottom:12px;">
-      <h2 style="margin-top:0;">Parliamentary Factions</h2>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;">
-        ${state.factions.map((f) => `
-          <article class="tile" style="border-left:4px solid ${esc(f.colour || "#888")};padding:10px 14px;">
-            <div style="font-weight:600;font-size:1.05em;">${esc(f.name)}</div>
-            ${f.ideologyTags?.length ? `<div class="muted" style="font-size:.8em;margin-top:2px;">${f.ideologyTags.map((t) => esc(String(t))).join(" · ")}</div>` : ""}
-            ${f.description ? `<div style="font-size:.85em;margin-top:4px;">${esc(f.description)}</div>` : ""}
-            <div style="margin-top:8px;font-size:.9em;">
-              <b>${esc(String(f.mpCount ?? 0))}</b> <span class="muted">MPs</span>
-            </div>
-          </article>
-        `).join("")}
-      </div>
+      <h2 style="margin-top:0;">Factions</h2>
+      <p class="muted" style="margin-top:0;">Factions represent internal groups within the party.<br>Party climate is affected by how much aligned support and hostile pressure exists across factions.</p>
+      <div class="muted" style="font-size:.88em;margin-bottom:8px;">Total Seats: <b>${Math.round(Number(state.factionSeatTotal ?? 0))}</b> · Allocated MPs: <b>${Math.round(Number(state.factionAllocatedMPs ?? 0))}</b> · Remaining / Unallocated MPs: <b>${Math.round(Number(state.factionRemainingMPs ?? 0))}</b></div>
+      ${(() => {
+        const showNpcCol = state.factions.some((f) => Number(f.memberNpcCountActive ?? 0) > 0);
+        return `
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:.88em;">
+          <thead>
+            <tr style="border-bottom:2px solid #ccc;">
+              <th style="text-align:left;padding:6px;">Faction</th>
+              <th style="text-align:left;padding:6px;">Alignment</th>
+              <th style="text-align:right;padding:6px;">Allocated MPs</th>
+              <th style="text-align:right;padding:6px;">Internal power</th>
+              <th style="text-align:left;padding:6px;">Momentum</th>
+              <th style="text-align:right;padding:6px;">Cohesion</th>
+              <th style="text-align:right;padding:6px;">Leadership pressure</th>
+              <th style="text-align:right;padding:6px;">Members (active)</th>
+              ${showNpcCol ? `<th style="text-align:right;padding:6px;">NPCs (active)</th>` : ""}
+            </tr>
+          </thead>
+          <tbody>
+            ${state.factions.map((f) => `
+              <tr style="border-bottom:1px solid #eee;">
+                <td style="padding:6px;white-space:nowrap;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${esc(f.colour || "#888")};margin-right:6px;"></span><b>${esc(f.name)}</b></td>
+                <td style="padding:6px;text-transform:capitalize;">${esc(String(f.leadershipAlignment || "neutral"))}</td>
+                <td style="padding:6px;text-align:right;">${Math.round(Number(f.mpCount ?? 0))}</td>
+                <td style="padding:6px;text-align:right;">${Math.round(Number(f.internalPower ?? 0))}</td>
+                <td style="padding:6px;text-transform:capitalize;">${esc(String(f.momentum || "stable"))}</td>
+                <td style="padding:6px;text-align:right;">${Math.round(Number(f.cohesion ?? 0))}</td>
+                <td style="padding:6px;text-align:right;">${Math.round(Number(f.leadershipPressure ?? 0))}</td>
+                <td style="padding:6px;text-align:right;">${Math.round(Number(f.memberCharacterCountActive ?? 0))}</td>
+                ${showNpcCol ? `<td style="padding:6px;text-align:right;">${Math.round(Number(f.memberNpcCountActive ?? 0))}</td>` : ""}
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>`;
+      })()}
+      <p class="muted" style="font-size:.82em;margin-top:8px;">Allocated MPs are staff-managed to model the parliamentary party. Members are characters currently assigned to the faction.</p>
     </section>
     ` : ""}
 
-    ${state.factionClimate ? (() => {
+    ${(String(data?.currentCharacter?.party || "") === String(state.activeParty || "") && state.factions.length > 0) ? `
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Your Faction</h2>
+      <a class="btn" href="personal.html">Manage your faction on your Personal page</a>
+      <p class="muted" style="margin-top:8px;">Switching is limited to once per sim year and is blocked for Leader/Chairman/Whips.</p>
+      ${state.factionSwitchMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.factionSwitchMessage)}</p>` : ""}
+    </section>
+    ` : ""}
+        ${state.factionClimate ? (() => {
       const c = state.factionClimate;
       const CLIMATE_COLOURS = { unified: "#2e7d32", stable: "#1565c0", tense: "#e65100", fractious: "#b71c1c" };
       const climateColour = CLIMATE_COLOURS[c.climateLabel] || "#555";
@@ -1097,8 +1132,9 @@ function render(data, state) {
       return `
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Internal Party Climate</h2>
+      <p class="muted" style="margin-top:0;">This reflects internal alignment vs opposition — it’s not just who holds the top jobs.</p>
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
-        <span style="font-size:1.2em;font-weight:700;color:${climateColour};">${esc(c.climateLabel.charAt(0).toUpperCase() + c.climateLabel.slice(1))}</span>
+        <span style="font-size:1.2em;font-weight:700;color:${climateColour};">Climate: ${esc(c.climateLabel.charAt(0).toUpperCase() + c.climateLabel.slice(1))}</span>
         <span class="muted" style="font-size:.85em;">Climate score: ${c.climateScore > 0 ? "+" : ""}${Math.round(c.climateScore)}</span>
       </div>
       <div style="background:var(--bg-alt,#f0f0f0);border-radius:4px;height:10px;margin-bottom:10px;position:relative;overflow:hidden;">
@@ -1128,6 +1164,8 @@ function render(data, state) {
     })() : ""}
   `;
 
+
+
   root.querySelector("#party-switch")?.addEventListener("change", async (e) => {
     const next = String(e.currentTarget.value || "");
     if (!next) return;
@@ -1137,7 +1175,7 @@ function render(data, state) {
     state.donationMessage = "";
     // Reload DB party data for the newly selected party
     try {
-      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult, climateResult] = await Promise.all([
+      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult, climateResult, myFactionResult] = await Promise.all([
         apiGetParty(next).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
         apiGetPartyStructure(next).catch(() => ({ structure: {}, treasuryOverspend: false })),
@@ -1145,6 +1183,7 @@ function render(data, state) {
         apiGetWhipRequests(next, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(next).catch(() => ({ factions: [] })),
         apiGetPartyFactionClimate(next).catch(() => ({ climate: null })),
+        apiGetMyFaction().catch(() => ({ faction: null })),
       ]);
       if (partyResult?.party) state.dbState = { ...state.dbState, party: partyResult.party };
       const partyNameLower = next.toLowerCase();
@@ -1157,6 +1196,10 @@ function render(data, state) {
       state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
       state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
       state.factionClimate = climateResult.climate ?? null;
+      state.myFaction = myFactionResult.faction ?? null;
+      state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
+      state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
+      state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);
     } catch (e) {
       console.warn("[party-switch] DB reload failed:", e.message);
     }
@@ -1873,6 +1916,11 @@ export async function initPartyPage(data) {
     priceIndex: 1.0,
     factions: [],
     factionClimate: null,
+    myFaction: null,
+    factionSeatTotal: 0,
+    factionAllocatedMPs: 0,
+    factionRemainingMPs: 0,
+    factionSwitchMessage: "",
     dbState: { party: null, partyCharacters: [], sessionCharId: "", partyStructure: null, treasuryOverspend: false }
   };
 
@@ -1929,12 +1977,13 @@ export async function initPartyPage(data) {
       state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
 
       // Load governance data: elections, pending expulsions, whip requests, and factions
-      const [electionsResult, expulsionsResult, whipReqResult, factionsResult, climateResult] = await Promise.all([
+      const [electionsResult, expulsionsResult, whipReqResult, factionsResult, climateResult, myFactionResult] = await Promise.all([
         apiGetPartyElections(partyId).catch(() => ({ elections: [] })),
         apiGetExpulsions("pending").catch(() => ({ expulsions: [] })),
         apiGetWhipRequests(partyId, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(partyId).catch(() => ({ factions: [] })),
         apiGetPartyFactionClimate(partyId).catch(() => ({ climate: null })),
+        apiGetMyFaction().catch(() => ({ faction: null })),
       ]);
       state.elections = electionsResult.elections || [];
       const openStatuses = ["nominations", "voting", "runoff"];
@@ -1945,6 +1994,10 @@ export async function initPartyPage(data) {
       state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
       state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
       state.factionClimate = climateResult.climate ?? null;
+      state.myFaction = myFactionResult.faction ?? null;
+      state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
+      state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
+      state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);
     } catch (e) {
       console.warn("[initPartyPage] DB load failed:", e.message);
     }

@@ -566,3 +566,105 @@ test("SEED 1997: admin can seed 1997 factions idempotently", async () => {
   assert.equal(b2.inserted.length, 0,        "second seed call must insert 0 factions");
   assert.ok(b2.skipped.length > 0,           "second seed call must report skipped factions");
 });
+
+test("APPLICATION: applying without faction_id fails with 400", async () => {
+  const applicant = await seedUserAndCharacter({ roles: [], party: "Labour" });
+  await pool.query("UPDATE characters SET is_active = FALSE WHERE id = $1", [applicant.charId]);
+  await pool.query("UPDATE users SET active_character_id = NULL WHERE id = $1", [applicant.userId]);
+
+  const client = new TestClient(baseUrl);
+  await client.login(applicant.email, applicant.password);
+
+  const { status } = await client.post("/api/characters/apply", {
+    name: "Applicant No Faction",
+    party: "Labour",
+    constituency: "Test Seat No Faction",
+    date_of_birth: "1970-01-01",
+    education: "University",
+    career_background: "Law",
+    family: "Married",
+    year_first_elected: "1997",
+    bio: "Bio",
+    financial_background_level: 5,
+    avatar_attribution: "Tester",
+  });
+  assert.equal(status, 400);
+});
+
+test("APPLICATION: applying with inactive faction fails with 400", async () => {
+  const applicant = await seedUserAndCharacter({ roles: [], party: "Labour" });
+  await pool.query("UPDATE characters SET is_active = FALSE WHERE id = $1", [applicant.charId]);
+  await pool.query("UPDATE users SET active_character_id = NULL WHERE id = $1", [applicant.userId]);
+  await seedConstituencies("Labour", 1);
+
+  const { factionId } = await seedFaction({ partySlug: "Labour" });
+  await pool.query("UPDATE party_factions SET active = FALSE WHERE id = $1", [factionId]);
+
+  const client = new TestClient(baseUrl);
+  await client.login(applicant.email, applicant.password);
+
+  const { status } = await client.post("/api/characters/apply", {
+    name: "Applicant Inactive Faction",
+    party: "Labour",
+    constituency: "Test Seat Inactive Faction",
+    faction_id: factionId,
+    date_of_birth: "1970-01-01",
+    education: "University",
+    career_background: "Law",
+    family: "Married",
+    year_first_elected: "1997",
+    bio: "Bio",
+    financial_background_level: 5,
+    avatar_attribution: "Tester",
+  });
+  assert.equal(status, 400);
+});
+
+test("FACTION SWITCH: once per sim year, leadership block, and audit logging", async () => {
+  const actor = await seedUserAndCharacter({ roles: [], party: "Labour" });
+  const client = new TestClient(baseUrl);
+  await client.login(actor.email, actor.password);
+
+  const { factionId: fromFaction } = await seedFaction({ partySlug: "Labour", slug: `from-${Date.now()}` });
+  const { factionId: toFaction } = await seedFaction({ partySlug: "Labour", slug: `to-${Date.now()}` });
+
+  await pool.query(
+    `INSERT INTO character_faction_membership (character_id, faction_id, joined_at, updated_at)
+     VALUES ($1, $2, NOW(), NOW())
+     ON CONFLICT (character_id) DO UPDATE SET faction_id = EXCLUDED.faction_id, updated_at = NOW()`,
+    [actor.charId, fromFaction]
+  );
+
+  await pool.query("UPDATE sim_clock SET sim_current_year = 2000 WHERE id = 'main'");
+
+  const first = await client.post("/api/me/faction/switch", { faction_id: toFaction });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+
+  const second = await client.post("/api/me/faction/switch", { faction_id: fromFaction });
+  assert.equal(second.status, 400, "second switch in same sim year must fail");
+
+  await pool.query("UPDATE sim_clock SET sim_current_year = 2001 WHERE id = 'main'");
+  const third = await client.post("/api/me/faction/switch", { faction_id: fromFaction });
+  assert.equal(third.status, 200, "switch should succeed in new sim year");
+
+  await pool.query(
+    `INSERT INTO parties (slug, name, treasury, leader_character_id)
+     VALUES ('labour', 'Labour', '{}'::jsonb, $1)
+     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, leader_character_id = EXCLUDED.leader_character_id`,
+    [actor.charId]
+  );
+
+  await pool.query("UPDATE sim_clock SET sim_current_year = 2002 WHERE id = 'main'");
+  const blocked = await client.post("/api/me/faction/switch", { faction_id: toFaction });
+  assert.equal(blocked.status, 403, "leader/chairman/whip roles should block switching");
+
+  const { rows: auditRows } = await pool.query(
+    `SELECT action, details
+       FROM audit_log
+      WHERE action = 'faction.switch' AND target = $1
+      ORDER BY id DESC LIMIT 1`,
+    [`character:${actor.charId}`]
+  );
+  assert.equal(auditRows.length, 1, "switch action should be logged in audit_log");
+  assert.equal(auditRows[0].action, "faction.switch");
+});

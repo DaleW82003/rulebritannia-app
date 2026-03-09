@@ -438,7 +438,8 @@ The demo dataset establishes the shape of the live game state for frontend devel
 
 Factions are intra-party ideological groupings that exist within playable parties (Labour, Conservative, Liberal Democrat). Each faction has:
 
-- **Slug and name** — a machine-readable identifier and display name (e.g., `faction_1922` / "Conservative 1922 Committee").
+- **Slug and name** — a machine-readable identifier and display name (e.g., `new-labour-blairite` / "New Labour / Blairite").
+- **Not paid affiliations** — factions are first-class live party membership, separate from paid affiliations and their monthly fees.
 - **Alignment** — `aligned` (supportive of current party leadership), `hostile` (in opposition to leadership), or `neutral`.
 - **Rebellion bias** — a numeric indicator of how prone the faction's members are to vote against the whip.
 - **MP count** — the number of MPs associated with the faction (editable by admins/mods without code changes).

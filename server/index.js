@@ -1003,7 +1003,7 @@ async function ensureSchema() {
 
   // Seed/upsert the catalog (idempotent). monthly_fee is per-affiliation £/month membership fee.
   // Category defaults: Trade Unions £25, Think Tanks £50, Advocacy £15, Business £75,
-  //   Professional £30, Faith £10, International £20, Party Factions £5, Pressure £10, Soft £5
+  //   Professional £30, Faith £10, International £20, Pressure £10, Soft £5
   await pool.query(`
     INSERT INTO affiliations_catalog (id, category, name, monthly_fee) VALUES
       ('trade_unions_unite',       'Trade Unions (Major UK)',        'Unite the Union',                                 25),
@@ -1054,13 +1054,6 @@ async function ensureSchema() {
       ('intl_council_europe',      'International',                 'Council of Europe',                               20),
       ('intl_cpa',                 'International',                 'Commonwealth Parliamentary Association',           20),
       ('intl_wef',                 'International',                 'World Economic Forum',                            20),
-      ('faction_1922',             'Party Factions (Internal Groups)', 'Conservative 1922 Committee',                  5),
-      ('faction_labour_campaign',  'Party Factions (Internal Groups)', 'Labour Campaign Group',                        5),
-      ('faction_labour_first',     'Party Factions (Internal Groups)', 'Labour First',                                 5),
-      ('faction_blue_labour',      'Party Factions (Internal Groups)', 'Blue Labour',                                  5),
-      ('faction_tory_reform',      'Party Factions (Internal Groups)', 'Tory Reform Group',                            5),
-      ('faction_erg',              'Party Factions (Internal Groups)', 'European Research Group',                      5),
-      ('faction_libdem_fed',       'Party Factions (Internal Groups)', 'Liberal Democrat Federalist Group',            5),
       ('pressure_migwatch',        'Pressure Groups',               'Migration Watch UK',                              10),
       ('pressure_brit_future',     'Pressure Groups',               'British Future',                                  10),
       ('pressure_ifs',             'Pressure Groups',               'Institute of Fiscal Studies',                     10),
@@ -1070,6 +1063,13 @@ async function ensureSchema() {
       ('soft_local_biz',           'Soft Affiliations',             'Local Business Network',                          5),
       ('soft_alumni',              'Soft Affiliations',             'University Alumni Association',                   5)
     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, monthly_fee = EXCLUDED.monthly_fee;
+  `);
+
+  // Hide legacy faction-like affiliations from paid-affiliation workflow (non-destructive).
+  await pool.query(`
+    UPDATE affiliations_catalog
+       SET active = FALSE
+     WHERE id LIKE 'faction\_%' ESCAPE '\\';
   `);
 
   // character_affiliations: per-character affiliation status
@@ -2141,6 +2141,45 @@ async function ensureSchema() {
       updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  // ── Character live faction membership (separate from affiliations) ───────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS character_faction_membership (
+      character_id          UUID PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+      faction_id            UUID NOT NULL REFERENCES party_factions(id) ON DELETE RESTRICT,
+      joined_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_switch_sim_year  INT,
+      updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS cfm_faction_idx ON character_faction_membership (faction_id);
+  `);
+
+  await pool.query(`
+    ALTER TABLE pending_character_applications
+      ADD COLUMN IF NOT EXISTS faction_id UUID REFERENCES party_factions(id) ON DELETE SET NULL;
+  `);
+
+  // Ensure each playable party always has an active neutral Unaligned faction (idempotent).
+  for (const partySlug of FACTION_PLAYABLE_PARTIES) {
+    const { rows: uRows } = await pool.query(
+      `INSERT INTO party_factions
+         (party_slug, slug, name, description, colour, ideology_tags, leadership_alignment, display_order, active)
+       VALUES ($1, 'unaligned', 'Unaligned', 'Members not aligned to any organised parliamentary faction.', '#777777', '[]'::jsonb, 'neutral', 9999, TRUE)
+       ON CONFLICT (party_slug, slug) DO UPDATE
+         SET active = TRUE, leadership_alignment = 'neutral', updated_at = NOW()
+       RETURNING id`,
+      [partySlug]
+    );
+    const unalignedId = uRows[0]?.id;
+    if (unalignedId) {
+      await pool.query(
+        `INSERT INTO party_faction_allocations (faction_id, mp_count, influence_bonus, notes, updated_by)
+         VALUES ($1, 0, 0, 'System default faction', 'system')
+         ON CONFLICT (faction_id) DO NOTHING`,
+        [unalignedId]
+      );
+    }
+  }
 
   // ── Faction computed state ────────────────────────────────────────────────
   await pool.query(`
@@ -9352,7 +9391,7 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
       year_first_elected, personal_background, bio,
       financial_background_level = 1,
       avatar = "", avatar_attribution = "", twitter_handle = "",
-      home = {}, rentals = []
+      home = {}, rentals = [], faction_id = ""
     } = req.body || {};
 
     if (!name || typeof name !== "string" || !name.trim()) {
@@ -9395,6 +9434,28 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
       return res.status(409).json({ error: "You already have a pending application." });
     }
 
+    // Faction selection is mandatory and must be an active faction for the selected party.
+    if (!faction_id || typeof faction_id !== "string") {
+      return res.status(400).json({ error: "faction_id is required" });
+    }
+    if (!party) {
+      return res.status(400).json({ error: "party is required" });
+    }
+    await getOrCreateUnalignedFaction(party);
+    const { rows: factionRows } = await pool.query(
+      `SELECT id, party_slug, slug, active FROM party_factions WHERE id = $1 LIMIT 1`,
+      [String(faction_id).trim()]
+    );
+    if (!factionRows.length) {
+      return res.status(400).json({ error: "Invalid faction_id" });
+    }
+    if (!factionRows[0].active) {
+      return res.status(400).json({ error: "Selected faction is inactive" });
+    }
+    if (String(factionRows[0].party_slug) !== party) {
+      return res.status(400).json({ error: "Selected faction does not belong to the chosen party" });
+    }
+
     // Check constituency not already taken by an active character
     if (constituency) {
       const { rows: taken } = await pool.query(
@@ -9414,8 +9475,8 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
       `INSERT INTO pending_character_applications
          (applicant_user_id, applicant_username, name, party, constituency,
           date_of_birth, education, career_background, family, year_first_elected,
-          personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb)
+          personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle, home, rentals, faction_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19)
        RETURNING *`,
       [
         req.session.userId, applicantUsername, name.trim(), party, constituency,
@@ -9425,7 +9486,7 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
         String(avatar || "").trim(),
         String(avatar_attribution || "").trim(),
         String(twitter_handle || "").trim().replace(/^@+/, ""),
-        JSON.stringify(home), JSON.stringify(rentals)
+        JSON.stringify(home), JSON.stringify(rentals), String(faction_id).trim()
       ]
     );
     await writeAuditLog(req.session.userId, "character.apply", "pending_character_application", rows[0].id, null, rows[0]);
@@ -9627,6 +9688,22 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
 
     const isNpcApp = app_.application_type === "npc";
 
+    await getOrCreateUnalignedFaction(app_.party);
+    const { rows: factionChoiceRows } = await client.query(
+      `SELECT id
+         FROM party_factions
+        WHERE party_slug = $1
+          AND active = TRUE
+          AND (id = $2 OR slug = 'unaligned')
+        ORDER BY CASE WHEN id = $2 THEN 0 ELSE 1 END
+        LIMIT 1`,
+      [app_.party, app_.faction_id || null]
+    );
+    if (!factionChoiceRows.length) {
+      return res.status(400).json({ error: "No valid active faction found for application party" });
+    }
+    const approvedFactionId = factionChoiceRows[0].id;
+
     // Server-side constituency check
     if (app_.constituency) {
       const { rows: taken } = await client.query(
@@ -9661,6 +9738,15 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
         ]
       );
       const character = charRows[0];
+
+      // Seed live faction membership from application selection
+      await client.query(
+        `INSERT INTO character_faction_membership (character_id, faction_id, joined_at, updated_at)
+         VALUES ($1, $2, NOW(), NOW())
+         ON CONFLICT (character_id) DO UPDATE
+           SET faction_id = EXCLUDED.faction_id, updated_at = NOW()`,
+        [character.id, approvedFactionId]
+      );
 
       // Mark application approved
       await client.query(
@@ -9730,6 +9816,15 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
         ]
       );
       const character = charRows[0];
+
+      // Seed live faction membership from application selection
+      await client.query(
+        `INSERT INTO character_faction_membership (character_id, faction_id, joined_at, updated_at)
+         VALUES ($1, $2, NOW(), NOW())
+         ON CONFLICT (character_id) DO UPDATE
+           SET faction_id = EXCLUDED.faction_id, updated_at = NOW()`,
+        [character.id, approvedFactionId]
+      );
 
       // Set DB-canonical active character pointer on the user
       await client.query(
@@ -20768,6 +20863,129 @@ app.put("/api/shadowcabinet/headline", crudWriteLimit, async (req, res) => {
 });
 
 
+// GET /api/me/faction — active character's live faction membership
+app.get("/api/me/faction", charAppReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const characterId = await getActiveCharacterId(req);
+    if (!characterId) return res.json({ faction: null });
+
+    const { rows } = await pool.query(
+      `SELECT f.id, f.slug, f.name, f.party_slug, f.colour
+         FROM character_faction_membership cfm
+         JOIN party_factions f ON f.id = cfm.faction_id
+        WHERE cfm.character_id = $1
+        LIMIT 1`,
+      [characterId]
+    );
+    if (!rows.length) return res.json({ faction: null });
+    res.json({ faction: rows[0] });
+  } catch (e) {
+    console.error("[GET /api/me/faction]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/me/faction/switch — switch active character faction (once per sim year)
+app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAuth(req, res)) return;
+    const characterId = await getActiveCharacterId(req);
+    if (!characterId) return res.status(400).json({ error: "No active character selected" });
+
+    const newFactionId = String(req.body?.faction_id || "").trim();
+    if (!newFactionId) return res.status(400).json({ error: "faction_id is required" });
+
+    await client.query("BEGIN");
+
+    const { rows: charRows } = await client.query(
+      `SELECT id, name, party, is_active FROM characters WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+      [characterId]
+    );
+    if (!charRows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Active character not found" });
+    }
+    const character = charRows[0];
+
+    await getOrCreateUnalignedFaction(character.party);
+
+    const { rows: newFactionRows } = await client.query(
+      `SELECT id, slug, name, party_slug, active FROM party_factions WHERE id = $1 LIMIT 1`,
+      [newFactionId]
+    );
+    if (!newFactionRows.length || !newFactionRows[0].active) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Selected faction is invalid or inactive" });
+    }
+    const newFaction = newFactionRows[0];
+    if (String(newFaction.party_slug) !== String(character.party)) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Selected faction must belong to your party" });
+    }
+
+    if (await characterHasBlockedFactionRole(character.id, character.party)) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Party leaders/chairmen/whips cannot switch faction while in office" });
+    }
+
+    const simYear = await getCurrentSimYear();
+
+    const { rows: currentRows } = await client.query(
+      `SELECT cfm.character_id, cfm.faction_id, cfm.last_switch_sim_year, f.slug AS from_slug
+         FROM character_faction_membership cfm
+         JOIN party_factions f ON f.id = cfm.faction_id
+        WHERE cfm.character_id = $1
+        FOR UPDATE`,
+      [character.id]
+    );
+    if (!currentRows.length) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "No current faction membership found" });
+    }
+    const current = currentRows[0];
+
+    if (String(current.faction_id) === String(newFaction.id)) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "You are already in that faction" });
+    }
+    if (current.last_switch_sim_year != null && Number(current.last_switch_sim_year) === simYear) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Faction can only be switched once per sim year" });
+    }
+
+    await client.query(
+      `UPDATE character_faction_membership
+          SET faction_id = $2, last_switch_sim_year = $3, updated_at = NOW()
+        WHERE character_id = $1`,
+      [character.id, newFaction.id, simYear]
+    );
+
+    await client.query("COMMIT");
+
+    await writeAuditLog(req.session.userId, "faction.switch", "character", character.id, null, null, {
+      target: character.name || character.id,
+      partySlug: character.party,
+      fromFactionId: current.faction_id,
+      fromFactionSlug: current.from_slug,
+      toFactionId: newFaction.id,
+      toFactionSlug: newFaction.slug,
+      simYear,
+    });
+
+    fireRecompute("character-political-state", "faction.switch", () => recomputeCharacterPoliticalState(character.id), character.id);
+
+    return res.json({ ok: true, faction: { id: newFaction.id, slug: newFaction.slug, name: newFaction.name, party_slug: newFaction.party_slug } });
+  } catch (e) {
+    try { await client.query("ROLLBACK"); } catch {}
+    console.error("[POST /api/me/faction/switch]", e);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
+  }
+});
+
 // ── Party Faction API ─────────────────────────────────────────────────────────
 
 // FACTION_PLAYABLE_PARTIES imported from political-state-service.js
@@ -20790,6 +21008,64 @@ function normaliseFactionSlug(s) {
  * system (slug === name for playable parties).
  * Uses the canonical constituencies table as the source of truth.
  */
+async function getOrCreateUnalignedFaction(partySlug) {
+  if (!FACTION_PLAYABLE_PARTIES.includes(partySlug)) return null;
+  const { rows: existing } = await pool.query(
+    `SELECT id, slug FROM party_factions
+      WHERE party_slug = $1 AND slug = 'unaligned'
+      LIMIT 1`,
+    [partySlug]
+  );
+  if (existing.length) {
+    if (existing[0].slug === 'unaligned') {
+      await pool.query(`UPDATE party_factions SET active = TRUE, leadership_alignment = 'neutral', updated_at = NOW() WHERE id = $1`, [existing[0].id]);
+    }
+    return existing[0].id;
+  }
+  const { rows: created } = await pool.query(
+    `INSERT INTO party_factions
+       (party_slug, slug, name, description, colour, ideology_tags, leadership_alignment, display_order, active)
+     VALUES ($1, 'unaligned', 'Unaligned', 'Members not aligned to any organised parliamentary faction.', '#777777', '[]'::jsonb, 'neutral', 9999, TRUE)
+     RETURNING id`,
+    [partySlug]
+  );
+  await pool.query(
+    `INSERT INTO party_faction_allocations (faction_id, mp_count, influence_bonus, notes, updated_by)
+     VALUES ($1, 0, 0, 'System default faction', 'system')
+     ON CONFLICT (faction_id) DO NOTHING`,
+    [created[0].id]
+  );
+  return created[0].id;
+}
+
+async function ensureUnalignedFactionsForPlayableParties() {
+  for (const partySlug of FACTION_PLAYABLE_PARTIES) {
+    await getOrCreateUnalignedFaction(partySlug);
+  }
+}
+
+async function getCurrentSimYear() {
+  const { rows } = await pool.query("SELECT sim_current_year FROM sim_clock WHERE id = 'main'");
+  return Number(rows[0]?.sim_current_year ?? 1997);
+}
+
+async function characterHasBlockedFactionRole(characterId, partyName) {
+  const { rows } = await pool.query(
+    `SELECT 1
+       FROM parties
+      WHERE name = $2 AND (
+        leader_character_id = $1 OR
+        chairman_character_id = $1 OR
+        chief_whip_character_id = $1 OR
+        deputy_whip_character_id = $1 OR
+        whip_character_id = $1
+      )
+      LIMIT 1`,
+    [characterId, partyName]
+  );
+  return rows.length > 0;
+}
+
 async function getPartyConstituencyMPs(partyName) {
   const { rows } = await pool.query(
     `SELECT COUNT(*) AS total FROM constituencies WHERE party = $1`,
@@ -20806,6 +21082,7 @@ app.get("/api/admin/parties/:slug/factions", crudReadLimit, async (req, res) => 
     if (!FACTION_PLAYABLE_PARTIES.includes(slug)) {
       return res.status(400).json({ error: `Factions only supported for: ${FACTION_PLAYABLE_PARTIES.join(", ")}` });
     }
+    await getOrCreateUnalignedFaction(slug);
     const [factionsResult, totalMPs] = await Promise.all([
       pool.query(
         `SELECT f.*, a.mp_count, a.influence_bonus, a.notes, a.updated_by, a.updated_at AS allocation_updated_at
@@ -21022,28 +21299,76 @@ app.get("/api/parties/:slug/factions", crudReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { slug } = req.params;
-    const { rows } = await pool.query(
-      `SELECT f.id, f.name, f.slug, f.description, f.colour, f.ideology_tags,
-              f.display_order, f.active,
-              COALESCE(a.mp_count, 0) AS mp_count
-         FROM party_factions f
-         LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
-        WHERE f.party_slug = $1 AND f.active = TRUE
-        ORDER BY f.display_order ASC, f.name ASC`,
-      [slug]
-    );
-    const factions = rows.map((r) => ({
-      id:           r.id,
-      name:         r.name,
-      slug:         r.slug,
-      description:  r.description,
-      colour:       r.colour,
+    await getOrCreateUnalignedFaction(slug);
+    const [fRows, totalsRows] = await Promise.all([
+      pool.query(
+        `SELECT f.id, f.name, f.slug, f.description, f.colour, f.ideology_tags,
+                f.display_order, f.active,
+                COALESCE(a.mp_count, 0) AS mp_count,
+                COALESCE(a.influence_bonus, 0) AS influence_bonus,
+                COALESCE(ps.internal_power, 0) AS internal_power,
+                COALESCE(ps.momentum, 'stable') AS momentum,
+                COALESCE(ps.cohesion, 0) AS cohesion,
+                COALESCE(ps.leadership_pressure, 0) AS leadership_pressure,
+                f.leadership_alignment AS leadership_alignment,
+                COALESCE(mc.member_character_count_active, 0) AS member_character_count_active,
+                COALESCE(mn.member_npc_count_active, 0) AS member_npc_count_active
+           FROM party_factions f
+           LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
+           LEFT JOIN faction_political_state ps ON ps.faction_id = f.id
+           LEFT JOIN (
+             SELECT cfm.faction_id, COUNT(*)::INT AS member_character_count_active
+               FROM character_faction_membership cfm
+               JOIN characters c ON c.id = cfm.character_id
+              WHERE c.is_active = TRUE AND c.is_npc = FALSE
+              GROUP BY cfm.faction_id
+           ) mc ON mc.faction_id = f.id
+           LEFT JOIN (
+             SELECT cfm.faction_id, COUNT(*)::INT AS member_npc_count_active
+               FROM character_faction_membership cfm
+               JOIN characters c ON c.id = cfm.character_id
+              WHERE c.is_active = TRUE AND c.is_npc = TRUE
+              GROUP BY cfm.faction_id
+           ) mn ON mn.faction_id = f.id
+          WHERE f.party_slug = $1 AND f.active = TRUE
+          ORDER BY f.display_order ASC, f.name ASC`,
+        [slug]
+      ),
+      pool.query(
+        `SELECT
+            (SELECT COUNT(*)::INT FROM constituencies WHERE party = $1) AS party_seat_total,
+            COALESCE((
+              SELECT SUM(a.mp_count)::INT
+                FROM party_factions f
+                JOIN party_faction_allocations a ON a.faction_id = f.id
+               WHERE f.party_slug = $1 AND f.active = TRUE
+            ), 0) AS allocated_mps`,
+        [slug]
+      ),
+    ]);
+
+    const factions = fRows.rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      slug: r.slug,
+      description: r.description,
+      colour: r.colour,
       ideologyTags: Array.isArray(r.ideology_tags) ? r.ideology_tags : [],
       displayOrder: Number(r.display_order),
-      active:       Boolean(r.active),
-      mpCount:      Number(r.mp_count),
+      active: Boolean(r.active),
+      mpCount: Number(r.mp_count),
+      influenceBonus: Number(r.influence_bonus),
+      internalPower: Number(r.internal_power),
+      momentum: r.momentum,
+      cohesion: Number(r.cohesion),
+      leadershipAlignment: String(r.leadership_alignment || "neutral"),
+      leadershipPressure: Number(r.leadership_pressure),
+      memberCharacterCountActive: Number(r.member_character_count_active),
+      memberNpcCountActive: Number(r.member_npc_count_active),
     }));
-    res.json({ factions });
+    const partySeatTotal = Number(totalsRows.rows[0]?.party_seat_total ?? 0);
+    const allocatedMPs = Number(totalsRows.rows[0]?.allocated_mps ?? 0);
+    res.json({ factions, partySeatTotal, allocatedMPs, remainingMPs: partySeatTotal - allocatedMPs });
   } catch (e) {
     console.error("[GET /api/parties/:slug/factions]", e);
     res.status(500).json({ error: "Server error" });
@@ -21071,6 +21396,7 @@ app.post("/api/admin/seed-1997-factions", verifyCsrfToken, crudWriteLimit, async
   try {
     if (!requireAdminOrMod(req, res)) return;
     const results = await seed1997Factions(req.session.userId || "");
+    await ensureUnalignedFactionsForPlayableParties();
     res.json({ ok: true, inserted: results.inserted, skipped: results.skipped });
   } catch (e) {
     console.error("[POST /api/admin/seed-1997-factions]", e);

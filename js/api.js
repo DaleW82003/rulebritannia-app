@@ -3466,6 +3466,24 @@ export async function apiUpdatePartyFactionAllocation(id, payload) {
   return body;
 }
 
+export async function apiGetMyFaction() {
+  const res = await _fetch(`${API_BASE}/api/me/faction`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiGetMyFaction failed (${res.status})`); }
+  return res.json();
+}
+
+export async function apiSwitchMyFaction(faction_id) {
+  const res = await _fetch(`${API_BASE}/api/me/faction/switch`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ faction_id }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSwitchMyFaction failed (${res.status})`);
+  return body;
+}
+
 /** Player-facing: list active factions for a party */
 export async function apiGetPartyFactions(slug) {
   const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(slug)}/factions`, { credentials: "include" });
