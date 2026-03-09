@@ -1165,6 +1165,9 @@ function render(data, state) {
         <b>&#9888; Pending freeze:</b> ${state.factionPendingFreezeCount} faction(s) have metadata changes not yet applied to derived stats (internal power, cohesion, leadership pressure). Use <b>Control Panel &rarr; Factions &rarr; Trigger Freeze</b> to publish updated values.
       </div>
       ` : ""}
+      ${viewerRole !== "staff" && state.factionLastFreezeAt ? `
+      <p class="muted" style="font-size:.84em;margin-top:0;margin-bottom:10px;">&#128336; Faction stats are updated every Sunday. Last updated: <b>${new Date(state.factionLastFreezeAt).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</b>.</p>
+      ` : ""}
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
         <span style="font-size:1.2em;font-weight:700;color:${climateColour};">Climate: ${esc(c.climateLabel.charAt(0).toUpperCase() + c.climateLabel.slice(1))}</span>
         ${isWhipOrAbove ? `<span class="muted" style="font-size:.85em;">Climate score: ${c.climateScore > 0 ? "+" : ""}${Math.round(c.climateScore)}</span>` : ""}
@@ -1271,6 +1274,7 @@ function render(data, state) {
       state.factionClimate = climateResult.climate ?? null;
       state.factionViewerRole = climateResult.viewerRole ?? "member";
       state.factionPendingFreezeCount = Number(climateResult.pendingFreezeCount ?? 0);
+      state.factionLastFreezeAt = climateResult.lastFreezeAt ?? null;
       state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
       state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
       state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);
@@ -2006,6 +2010,7 @@ export async function initPartyPage(data) {
     factionClimate: null,
     factionViewerRole: "member",
     factionPendingFreezeCount: 0,
+    factionLastFreezeAt: null,
     factionSeatTotal: 0,
     factionAllocatedMPs: 0,
     factionRemainingMPs: 0,
@@ -2084,6 +2089,7 @@ export async function initPartyPage(data) {
       state.factionClimate = climateResult.climate ?? null;
       state.factionViewerRole = climateResult.viewerRole ?? "member";
       state.factionPendingFreezeCount = Number(climateResult.pendingFreezeCount ?? 0);
+      state.factionLastFreezeAt = climateResult.lastFreezeAt ?? null;
       state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
       state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
       state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);

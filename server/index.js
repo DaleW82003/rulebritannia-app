@@ -22030,26 +22030,45 @@ app.patch("/api/admin/factions/:id/allocation", verifyCsrfToken, crudWriteLimit,
   }
 });
 
-// POST /api/admin/factions/trigger-freeze — recompute derived political state for all active factions
-// This is the "Sunday freeze" equivalent: triggers computeFactionPoliticalState for every active faction.
-// Mods/admins call this to publish the effects of any alignment/momentum/allocation changes made since the last freeze.
+/**
+ * runFactionFreeze(db) — recomputes derived political state for every active faction across
+ * all playable parties.  This is the single source of truth for the "Sunday freeze" step.
+ *
+ * It is called from two places:
+ *   1. The Sunday scheduler (when integrated) — automated, no HTTP request involved.
+ *   2. POST /api/admin/factions/trigger-freeze — manual "run now" for admins/mods only.
+ *
+ * Keeping the logic here (not inlined in the route) means the scheduler and the manual
+ * endpoint are guaranteed to do exactly the same work.
+ *
+ * @param {import('pg').Pool} db  pg Pool (or compatible client with .query())
+ * @returns {{ recomputed: string[], failed: Array<{id:string,error:string}> }}
+ */
+async function runFactionFreeze(db) {
+  const { rows: factionRows } = await db.query(
+    `SELECT f.id FROM party_factions f WHERE f.active = TRUE AND f.party_slug = ANY($1::text[])`,
+    [FACTION_PLAYABLE_PARTIES]
+  );
+  const results = { recomputed: [], failed: [] };
+  for (const row of factionRows) {
+    try {
+      await computeFactionPoliticalState(row.id);
+      results.recomputed.push(row.id);
+    } catch (e) {
+      console.error(`[runFactionFreeze] faction ${row.id} failed:`, e.message);
+      results.failed.push({ id: row.id, error: e.message });
+    }
+  }
+  return results;
+}
+
+// POST /api/admin/factions/trigger-freeze — admin/mod-only manual trigger for the faction freeze.
+// Calls runFactionFreeze(), the same function used by the Sunday scheduler, so there is only
+// one "freeze" concept.  This endpoint is the "run now" button; the scheduler is the automated path.
 app.post("/api/admin/factions/trigger-freeze", verifyCsrfToken, crudWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { rows: factionRows } = await pool.query(
-      `SELECT f.id FROM party_factions f WHERE f.active = TRUE AND f.party_slug = ANY($1::text[])`,
-      [FACTION_PLAYABLE_PARTIES]
-    );
-    const results = { recomputed: [], failed: [] };
-    for (const row of factionRows) {
-      try {
-        await computeFactionPoliticalState(row.id);
-        results.recomputed.push(row.id);
-      } catch (e) {
-        console.error(`[trigger-freeze] faction ${row.id} failed:`, e.message);
-        results.failed.push({ id: row.id, error: e.message });
-      }
-    }
+    const results = await runFactionFreeze(pool);
     await writeAuditLog(req.session.userId, "faction.freeze.trigger", "faction_political_state", null, null, null, {
       recomputedCount: results.recomputed.length,
       failedCount: results.failed.length,
@@ -22192,22 +22211,26 @@ app.get("/api/parties/:slug/faction-climate", crudReadLimit, async (req, res) =>
       }
     }
 
-    // For staff: count factions with pending changes (party_factions updated after last faction_political_state freeze).
-    let pendingFreezeCount = 0;
-    if (viewerRole === "staff") {
-      const { rows: pendingRows } = await pool.query(
-        `SELECT COUNT(*)::INT AS cnt
-           FROM party_factions f
-           LEFT JOIN faction_political_state fps ON fps.faction_id = f.id
-          WHERE f.party_slug = $1
-            AND f.active = TRUE
-            AND (fps.faction_id IS NULL OR f.updated_at > fps.updated_at)`,
-        [slug]
-      );
-      pendingFreezeCount = Number(pendingRows[0]?.cnt ?? 0);
-    }
+    // Query freeze metadata in one pass:
+    //   - pendingFreezeCount (staff-only): factions whose metadata was saved after the last freeze.
+    //   - lastFreezeAt (all viewers): when the freeze last ran, so players understand why changes
+    //     aren't instant ("Last updated: Sunday").
+    const { rows: freezeRows } = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (
+           WHERE fps.faction_id IS NULL OR f.updated_at > fps.updated_at
+         )::INT AS pending_count,
+         MAX(fps.updated_at) AS last_freeze_at
+         FROM party_factions f
+         LEFT JOIN faction_political_state fps ON fps.faction_id = f.id
+        WHERE f.party_slug = $1
+          AND f.active = TRUE`,
+      [slug]
+    );
+    const pendingFreezeCount = viewerRole === "staff" ? Number(freezeRows[0]?.pending_count ?? 0) : undefined;
+    const lastFreezeAt = freezeRows[0]?.last_freeze_at ?? null;
 
-    res.json({ ok: true, climate, viewerRole, pendingFreezeCount });
+    res.json({ ok: true, climate, viewerRole, pendingFreezeCount, lastFreezeAt });
   } catch (e) {
     console.error("[GET /api/parties/:slug/faction-climate]", e);
     res.status(500).json({ error: "Server error" });
