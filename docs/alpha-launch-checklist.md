@@ -95,16 +95,17 @@ The server calls `ensureSchema()` on startup. It creates all tables if they do n
 | `characters` UUID PK migration | Same as above for `characters` |
 | Faction slug backfill | Sets `slug = name` for any faction with a NULL slug |
 | Salary position backfill (`backfillSalaryPositions`) | Seeds backbencher salary position for any character without one |
+| Predefined guides seed (`seedPredefinedGuides`) | Inserts the 15 canonical onboarding guide entries into `guides_items` if absent; updates `sort_order` to enforce stable ordering on re-run |
 
 ### Tables at launch
 
 | Category | Tables |
 |---|---|
 | Parliamentary content (snapshot-derived) | `bills`, `motions`, `statements`, `regulations`, `questiontime_questions` |
-| Relational-authoritative | `divisions`, `division_votes`, `party_factions`, `party_faction_allocations`, `faction_political_state`, `character_political_state`, `character_finance`, `office_assignments`, `parties`, `support_tickets`, `support_messages` |
+| Relational-authoritative | `divisions`, `division_votes`, `party_factions`, `party_faction_allocations`, `faction_political_state`, `character_political_state`, `character_finance`, `office_assignments`, `parties`, `support_tickets`, `support_messages`, `other_officials_faction_allocations`, `party_donations`, `guides_items` |
 | User management | `users`, `pending_registrations`, `characters` |
 | Simulation state | `state_snapshots`, `app_state_current`, `game_state` |
-| Configuration | `app_config`, `finance_config` |
+| Configuration | `app_config` (includes `bodies_data`, `locals_data`, `starter_pack_html` stored as JSON values), `finance_config` |
 | Audit | `audit_log` |
 | Sessions | `session` (managed by `connect-pg-simple`) |
 
@@ -152,7 +153,7 @@ The `seed1997Factions()` function seeds the initial faction political state for 
 2. Confirm the action
 3. The server calls `seed1997Factions()` which inserts baseline rows into `party_factions`, `party_faction_allocations`, and `faction_political_state`
 
-> **Note:** This endpoint is protected by `isDevSeedAllowed()` and requires `admin` role. It is **production-disabled** unless `ENABLE_DEV_SEED=true` is set. For a fresh production database, run this once before inviting users — either via the admin panel on a staging instance and exporting a snapshot, or by temporarily enabling `ENABLE_DEV_SEED` on the production server, running the seed, then immediately removing the flag.
+> **Note:** `POST /api/admin/seed-1997-factions` is protected by `requireAdminOrMod` and has **no** `isDevSeedAllowed()` guard — it is accessible in production. Run this once on a fresh production database before inviting users. The operation is idempotent: re-running it will skip factions that already exist.
 
 ### Faction seed checklist
 
@@ -191,7 +192,7 @@ This returns counts of records still using legacy name-based identity:
 
 ### How to backfill
 
-If any counts are non-zero, run the repair endpoint (requires admin, `isDevSeedAllowed()` guard):
+If any counts are non-zero, run the repair endpoint (requires `admin` or `mod` role — no `isDevSeedAllowed()` guard; accessible in production):
 
 ```
 POST /api/admin/repair/backfill-author-ids
@@ -260,7 +261,7 @@ node scripts/audit/feature-manifest.js
 
 ```bash
 # All unit test files (clock, discourse SSO, roles, state-contracts,
-# service-modules, identity-hardening)
+# service-modules, identity-hardening, recompute-helpers, rbac-helpers)
 cd server && node --test *.test.js
 ```
 
@@ -272,8 +273,11 @@ node --test clock.test.js
 node --test discourse.test.js
 node --test roles.test.js
 node --test state-contracts.test.js
-node --test service-modules.test.js        # political-state-service + division-helpers
-node --test identity-hardening.test.js     # immutable identity authority (21 tests)
+node --test service-modules.test.js            # political-state-service + division-helpers
+node --test identity-hardening.test.js         # immutable identity authority (21 tests)
+node --test recompute-helpers.test.js          # fireRecompute / awaitedRecompute helpers
+node --test rbac-helpers.test.js               # RBAC guard helpers
+node --test parliamentary-political-state.integration.test.js  # pure (no DB) political-state tests
 ```
 
 ### Integration tests (requires a test PostgreSQL database)
@@ -291,6 +295,18 @@ NODE_ENV=test node --test factions.integration.test.js
 
 # Finance + parliament integration tests
 NODE_ENV=test node --test finance-parliament.integration.test.js
+
+# Party treasury integration tests
+NODE_ENV=test node --test party-treasury.integration.test.js
+
+# Guides seed idempotency and ordering tests
+NODE_ENV=test node --test guides-seed.test.js
+
+# Bodies / locals 1997 seed integration tests
+NODE_ENV=test node --test seed-1997.integration.test.js
+
+# Support ticketing integration tests
+NODE_ENV=test node --test support.integration.test.js
 ```
 
 ### Expected outcomes before launch

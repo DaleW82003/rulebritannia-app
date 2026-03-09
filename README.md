@@ -27,6 +27,8 @@ Rule Britannia recreates the mechanics of British parliamentary democracy as an 
 - **Press & media** — players submit press releases; coverage is modelled with character-level impact modifiers.
 - **Discourse forum** — debates and motions are automatically threaded as topics on a linked Discourse instance with SSO.
 - **In-app support ticketing** — players raise support tickets from `support.html`; staff (admin/mod) manage them from a dedicated staff queue with status transitions, label tagging, per-side unread tracking, and 25-second polling.
+- **Onboarding Guides** — 15 predefined guides are seeded server-side on startup (`server/guides-seed.js`) and displayed as collapsible panels on `guides.html`; staff can edit, reorder, or add guides through the Control Panel.
+- **Starter Pack** — a short "5 first-week actions" guide displayed to new players on the player dropon; editable by staff via the Control Panel without code changes.
 
 The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mon–Wed = 1 month, Thu–Sat = 1 month; Sunday frozen). The default starting point is August 1997 (shortly after the Labour landslide).
 
@@ -128,6 +130,13 @@ rulebritannia-app/
 │   ├── discourseClient.js  # Stateless positional-arg Discourse HTTP client
 │   ├── clock.js            # Server-side sim clock (mirrors js/clock.js)
 │   ├── roles.js            # Role assignment helpers + Discourse group mapping
+│   ├── guides-seed.js      # 15 predefined guide entries + seedPredefinedGuides() startup seeder
+│   ├── political-state-service.js  # FACTION_PLAYABLE_PARTIES, faction/character political-state compute
+│   ├── division-helpers.js         # Vote weight helpers, SPEAKER/SINN_FEIN regex, tally logic
+│   ├── finance-service.js          # resolveActiveSalaryScale, computeCharacterAnnualSalary
+│   ├── recompute-helpers.js        # fireRecompute / awaitedRecompute with observability
+│   ├── rbac-helpers.js             # RBAC guard utilities
+│   ├── state-contracts.js          # State-ownership boundary enforcement
 │   ├── .env.example        # Environment variable reference
 │   ├── package.json        # Node dependencies
 │   ├── *.test.js           # Unit tests (Node native test runner)
@@ -492,6 +501,12 @@ Located in `server/`:
 | `server/clock.test.js` | Unit tests for `computeSimDateFromGameState` — covers null input, sim-not-started, paused, and running states. |
 | `server/discourse.test.js` | Unit tests for DiscourseConnect SSO helpers — `buildSsoPayload`, `verifySsoPayload`, `verifyConsumerRequest`, `buildConsumerResponse`, group management. |
 | `server/roles.test.js` | Unit tests for `computeDiscourseGroups`, `partyRoleForPartyName`, `computeApprovalRolesToAdd`, `officeRoleFromSpecId`. |
+| `server/state-contracts.test.js` | Unit tests for `assertSnapshotDerivedTable()`, `stripRelationalKeys()` — state-ownership boundary enforcement. |
+| `server/service-modules.test.js` | Unit tests for `political-state-service.js` and `division-helpers.js` (34 tests). |
+| `server/identity-hardening.test.js` | Unit tests for immutable identity authority checks (21 tests). |
+| `server/recompute-helpers.test.js` | Unit tests for `fireRecompute`/`awaitedRecompute` observability helpers. |
+| `server/rbac-helpers.test.js` | Unit tests for RBAC guard helper utilities. |
+| `server/parliamentary-political-state.integration.test.js` | Pure (no-DB) political-state tests. |
 
 Run all unit tests:
 
@@ -634,4 +649,8 @@ The following systems are partially implemented or planned for the next developm
 | **Polling** | Implemented (entry recording) | Polling entries can be created and archived. A live polling engine driven by gameplay events (legislation, scandal, economic conditions) is upcoming. |
 | **Support ticketing** | Implemented | Players open tickets from `support.html`; staff (admin/mod) manage the queue with status transitions (`open → finished → closed`), label tagging, per-side unread tracking, and 25-second auto-polling. Future: email notification on new staff reply, real-time push, support ticket pagination in the staff view. |
 | **House of Lords** | Body tracked | The Lords exist as a tracked parliamentary body but do not participate in bill passage. A Lords stage is a planned extension. |
+| **Onboarding Guides** | Implemented | 15 predefined guides seeded on startup. Collapsible panels on `guides.html`. Staff-editable via Control Panel. |
+| **Starter Pack** | Implemented | "5 first-week actions" guide shown to new players with no active character. Staff-editable from Control Panel. |
+| **Bodies / Locals admin** | Implemented | Parliamentary bodies and local authority data editable via Control Panel. 1997 seed via `POST /api/admin/seed-1997-bodies-locals` (dev/staging only). House of Lords uses `compositionBreakdown`; Lords and EuroParl have no Control fields. |
+| **Other Officials allocations** | Implemented | `other_officials_faction_allocations` table tracks non-Commons official slots per party and faction. Admin UI in Control Panel. |
 | **Elections** | Seed data only | The 1997 result is seeded at setup. A general election mechanism allowing seat redistribution mid-simulation is a planned extension. |

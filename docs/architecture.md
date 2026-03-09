@@ -213,13 +213,15 @@ Verification emails are sent via SendGrid (`@sendgrid/mail`). If `SENDGRID_API_K
 | Online status | `GET/POST /api/online`, `DELETE /api/online/:id`, `PATCH /api/online/settings`, `PATCH /api/online/:id` |
 | Fundraising | `GET/POST /api/fundraising`, `PUT/DELETE /api/fundraising/:id`, `POST /api/fundraising/:id/credit-party`, `POST /api/fundraising/:id/credit-character` |
 | News | `GET/POST /api/news`, `PATCH/DELETE /api/news/:id`, comments (CRUD, report), reply-requests |
-| Rules / Guides | `GET/POST/PATCH/DELETE /api/rules`, `GET/POST/PATCH/DELETE /api/guides` |
+| Rules / Guides | `GET/POST/PATCH/DELETE /api/rules`, `GET/POST/PATCH/DELETE /api/guides` (15 predefined guides seeded on startup) |
 | Civil service | Briefings (GET/POST/PATCH/DELETE), cases (GET/POST/PATCH/DELETE) |
-| Bodies | `GET /api/bodies`, `PUT /api/bodies/:id` |
+| Bodies | `GET /api/bodies`, `PUT /api/bodies/:id` (`NO_CONTROL_BODY_IDS` strips control fields for lords/europarl) |
+| Locals | `GET/PUT /api/locals` (four-nation council/councillor breakdown; hard-validated totals) |
+| Other officials | `GET /api/admin/other-officials/arenas-totals`, `GET/POST/PATCH/DELETE /api/admin/other-officials/faction-allocations` |
+| Admin – seed / repair | `POST /api/admin/seed-1997-bodies-locals` (dev/staging only, `isDevSeedAllowed()` guarded), `POST /api/admin/seed-1997-factions` (production-accessible, admin/mod only, NO `isDevSeedAllowed()` guard), `POST /api/admin/repair/backfill-author-ids` (production-accessible, admin/mod only, NO `isDevSeedAllowed()` guard) |
 | Papers | `GET /api/papers`, articles CRUD, comments, submissions (full lifecycle) |
 | Cabinet / Shadow cabinet | `GET/PUT /api/cabinet/headline`, `GET/PUT /api/shadowcabinet/headline`, `/drafts` endpoints, opposition reshuffle |
 | Privy council | `GET /api/privy-council`, `GET/POST /api/privy-council/posts`, `DELETE /api/privy-council/posts/:id` |
-| Locals | `GET/PUT /api/locals` |
 | Support (player) | `GET /api/support/tickets`, `POST /api/support/tickets`, `GET /api/support/tickets/:id`, `POST /api/support/tickets/:id/messages`, `PATCH /api/support/tickets/:id` |
 | Support (staff) | `GET /api/support/staff/tickets` (paginated, filterable by status/label), `GET /api/support/staff/tickets/:id`, `POST /api/support/staff/tickets/:id/messages`, `PATCH /api/support/staff/tickets/:id` |
 
@@ -229,11 +231,12 @@ High-value business logic has been extracted from `server/index.js` into focused
 
 | Module | Exports | Purpose |
 |---|---|---|
-| `server/political-state-service.js` | `FACTION_PLAYABLE_PARTIES`, `clamp100`, `pressureLabel`, `recomputeCharacterPoliticalState`, `computeFactionStrength`, `computeFactionCohesion`, `computeLeadershipPressure`, `computeFactionPoliticalState`, `getPartyFactionClimate`, `seed1997Factions` | All character and faction political-state computation. Formula weights are documented inline. |
+| `server/political-state-service.js` | `FACTION_PLAYABLE_PARTIES`, `clamp100`, `pressureLabel`, `recomputeCharacterPoliticalState`, `computeFactionStrength`, `computeFactionCohesion`, `computeLeadershipPressure`, `computeFactionPoliticalState`, `getPartyFactionClimate`, `seed1997Factions`, `DOMINANCE_STABILISER` | All character and faction political-state computation, including the dominance stabiliser for faction climate. Formula weights are documented inline. |
 | `server/division-helpers.js` | `SPEAKER_PARTY_RE`, `SINN_FEIN_PARTY_RE`, `RH_QUALIFYING_SPEC_IDS`, `PC_QUALIFYING_SPEC_IDS`, `getPartySeatsFromConstituencies`, `getPartiesRankedBySeats`, `getThirdPartySlug`, `getCharacterParliamentaryMeta`, `formatParliamentaryName`, `getCharacterDisplayName`, `batchGetCharacterDisplayNames`, `enrichCharacterRowWithDisplay`, `batchEnrichCharacterRows`, `computeAllPlayerWeights`, `computeCharacterWeight`, `computeDivisionTallyFromDb` | Division vote-weight computation, parliamentary display-name enrichment, and seat helpers. |
 | `server/finance-service.js` | `resolveActiveSalaryScale`, `computeCharacterAnnualSalary`, `resolvedAnnualSalary` | Salary scale resolution and per-character annual salary computation (override-first). |
 | `server/rbac-helpers.js` | `getSessionRoles`, `hasAdminOrMod`, `hasAdminModOrSpeaker` | RBAC helpers replacing inline `Array.isArray(req.session.roles)` patterns. |
 | `server/recompute-helpers.js` | `fireRecompute`, `awaitedRecompute` | Structured logging wrapper for political-state and salary recompute triggers; accepts optional `entityId` for per-entity log correlation. |
+| `server/guides-seed.js` | `PREDEFINED_GUIDES`, `seedPredefinedGuides` | 15 predefined onboarding guide entries. Called from `ensureSchema()` on startup — idempotently inserts guides and corrects `sort_order` values. |
 | `server/roles.js` | `ALL_VALID_ROLES`, `PARTY_ROLES`, `PERMISSION_MAP`, and Discourse group helpers | Role constants, PERMISSION_MAP, and Discourse group mapping. |
 | `server/state-contracts.js` | `SNAPSHOT_DERIVED_TABLES`, `assertSnapshotDerivedTable`, `stripRelationalKeys` | Runtime source of truth for state-ownership boundaries. |
 
@@ -286,7 +289,7 @@ Exports a single `pool` instance (node-postgres `Pool`) shared across all route 
 | Users | `users`, `user_roles`, `pending_registrations` |
 | Characters | `characters`, `offices`, `office_assignments`, `office_assignment_history`, `pending_character_applications`, `pending_bio_changes`, `pending_avatar_changes`, `pending_profile_changes`, `character_affiliations`, `affiliations_catalog`, `character_work_plans` |
 | Parliament | `bills`, `bill_amendments`, `bill_amendment_supporters`, `bill_stage_reports`, `bill_opposition_quota`, `motions`, `statements`, `regulations`, `questiontime_questions`, `qt_questions`, `qt_answers`, `qt_followups`, `divisions`, `division_votes`, `division_party_instructions`, `division_rebellion_log`, `division_rebel_requests`, `parliament_status` |
-| Parties | `parties`, `whip_withdrawal_requests`, `party_leader_elections`, `party_leader_election_nominations`, `party_leader_election_votes`, `party_expulsion_requests`, `party_donations`, `party_shop_purchases`, `frontbench_reshuffles`, `group_drafts` |
+| Parties | `parties`, `whip_withdrawal_requests`, `party_leader_elections`, `party_leader_election_nominations`, `party_leader_election_votes`, `party_expulsion_requests`, `party_donations` (with `source_type`, `source_ref`, partial unique index for idempotency), `party_shop_purchases`, `frontbench_reshuffles`, `group_drafts`, `party_factions`, `party_faction_allocations`, `faction_political_state`, `character_faction_membership`, `other_officials_faction_allocations` |
 | Clock | `sim_clock`, `sim_state` |
 | Press / Media | `press_items`, `news_stories`, `news_story_comments`, `news_reply_requests`, `newspaper_articles`, `paper_article_comments`, `paper_submissions` |
 | Finance | `character_finance`, `character_positions`, `character_additional_revenue`, `character_shop_purchases`, `character_shop_revenue_payouts`, `salary_scales`, `salary_scale_roles`, `fundraising_items`, `finance_config`, `finance_applied`, `budget_data` |

@@ -97,6 +97,13 @@ The simulation maintains a registry of democratic institutions beyond the Common
 
 Each body has a control type (Majority, Coalition, or Minority), a controlling party, and a party-by-party breakdown. Bodies may be hidden or visible in the public interface.
 
+**Special handling:**
+
+- **`NO_CONTROL_BODY_IDS`** — `["lords", "europarl"]`. For these two bodies, `controlType` and `controlParty` fields are stripped on all reads and writes. They do not have a controlling party.
+- **House of Lords composition** — the Lords body uses a `compositionBreakdown` (Crossbenchers ~351, Lords Spiritual 26, Law Lords 26) in addition to a standard `partyBreakdown` for its seat allocation.
+- **`BODY_PARTY_SCHEMA`** — each body type has a canonical party list defined in `js/pages/bodies.js` (`BODY_PARTY_SCHEMA`). Parties such as `Others` (`OTHERS_PARTY`) are always included in the seat breakdown editor; `ALWAYS_INCLUDE_COMMONS` parties appear in all elected-body breakdowns.
+- **Directly Elected Mayors** — structured editor using `parseLegacyMayorLines` and `normalizeMayorData` to handle legacy freeform entries and convert them to structured format.
+
 ### Cabinet
 
 Fifteen full cabinet offices exist:
@@ -471,6 +478,29 @@ For each faction the system computes and persists a `faction_political_state` re
 - **`partyPressureModifier`** — added to `party_pressure` for every character in the party when political state is recomputed.
 - **`capitalResilienceBonus`** — added to `capital_current` for every character in the party (from aligned faction support).
 
+**Dominance stabiliser:** When a party's dominant-Commons faction is `aligned` and controls more than 50% of the effective share, a `dominanceScore` (0–1) is applied to dampen hostile pressure and boost resilience. This prevents runaway hostile climate when a party genuinely dominates. The stabiliser considers holdings across all arenas (bodies, locals, DEMs) via the `other_officials_faction_allocations` system. Three multipliers are applied:
+- `hostilePressureMultiplier` — reduces hostile pressure contribution (up to `DOMINANCE_STABILISER.hostilePressureReductionMax`)
+- `partyPressureMultiplier` — reduces party pressure modifier
+- `resilienceMultiplier` — boosts capital resilience bonus
+
+### Faction freeze and `lastFreezeAt`
+
+`runFactionFreeze(db)` is the shared function that recomputes derived political state for every active faction across all playable parties. It is called:
+- By `POST /api/admin/trigger-freeze` (admin/mod action from the Control Panel)
+- Intended to be called by a future Sunday scheduler without any code changes
+
+The `GET /api/parties/:slug/faction-climate` endpoint returns `lastFreezeAt` — the timestamp of when `runFactionFreeze` last completed — for all viewers (staff and players alike). Players can use this to understand why their faction state may appear stale.
+
+### Other officials faction allocations
+
+The `other_officials_faction_allocations` table tracks non-Commons official positions (body seats, local councillors, directly elected mayors) allocated per party and faction. It enforces:
+- Allocations are bounded by live totals from the bodies and locals registries.
+- Only playable parties (`Labour`, `Conservative`, `Liberal Democrat`) have allocations.
+
+Admin endpoints:
+- `GET /api/admin/other-officials/arenas-totals` — totals extracted from all visible bodies and all four locals nations
+- `GET/POST/PATCH/DELETE /api/admin/other-officials/faction-allocations` — manage allocations
+
 ### Seeded factions
 
 `seed1997Factions()` creates an initial set of factions reflecting the post-1997 landscape:
@@ -592,7 +622,91 @@ Party finance is visible to party members and managed by party leaders, admins, 
 
 ---
 
-## 15. Role of Staff Scenarios (Civil Service Briefings)
+## 15. Local Authority Data
+
+The simulation tracks local government across the four UK nations as a separate system from parliamentary bodies.
+
+### Data structure
+
+The `locals_data` key in `app_config` stores a JSON object with a `countries` array containing one record per nation:
+
+| Field | Description |
+|---|---|
+| `country` | `"England"`, `"Scotland"`, `"Wales"`, or `"Northern Ireland"` |
+| `totalCouncils` | Declared total number of councils in the nation |
+| `totalCouncillors` | Declared total number of councillors in the nation |
+| `noOverallControlCouncils` | Councils with no overall control |
+| `partyBreakdown` | Array of `{ party, councillors, councils }` records |
+
+**Hard validation:** When saving locals data, the server validates that each nation's `partyBreakdown.councillors` sum equals `totalCouncillors` and the `councils` sum equals `totalCouncils`. Mismatches return a `400` error.
+
+### 1997 seed data
+
+`LOCALS_1997_SEED` in `server/index.js` contains the 1997 baseline:
+
+| Nation | Councils | Councillors |
+|---|---|---|
+| England | 386 | 22,580 |
+| Scotland | 32 | 1,306 |
+| Wales | 22 | 1,272 |
+| Northern Ireland | 26 | 582 |
+
+The seed endpoint `POST /api/admin/seed-1997-bodies-locals` (protected by `isDevSeedAllowed()` — dev/staging only) applies this data. The merge path propagates `totalCouncils` and `totalCouncillors` only when the existing record has `null`/`undefined`, preserving staff edits.
+
+---
+
+## 16. Guides and Starter Pack
+
+### Guides system
+
+The Guides system provides staff-managed onboarding articles for players.
+
+**Database table (`guides_items`):**
+
+```sql
+guides_items (
+  id         SERIAL PRIMARY KEY,
+  title      TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
+```
+
+**Server-side seeding (`server/guides-seed.js`):**
+
+`seedPredefinedGuides(pool)` is called automatically on startup as part of `ensureSchema()`. It inserts the 15 canonical onboarding guides if absent and corrects `sort_order` values to enforce stable ordering. The 15 predefined guide titles include:
+
+1. Getting Started with a Character
+2. Your First Week in Parliament
+3. How Divisions Work
+4. Using the Faction System
+5. Press and Media Strategy
+6. How Political Capital Works
+7. The Civil Service System
+8. Cabinet and Shadow Cabinet
+9. Drafting Legislation
+10. Parliamentary Motions and EDMs
+11. Constituency Work
+12. Managing Party Finances
+13. The Scandal System
+14. Discourse Forum Guide
+15. Advanced Political Strategy
+
+Staff can add, edit, and reorder guides via Control Panel → Guides. Guides are displayed as collapsible panels on `guides.html`.
+
+### Starter Pack
+
+The Starter Pack is a short "5 first-week actions" guide displayed to new players with no active character on the player dropon page (`js/pages/player-dropon.js`).
+
+- `DEFAULT_STARTER_PACK_HTML` — hardcoded fallback content.
+- `starterPackHTML(playerStarterPackHtml)` — returns the staff-edited value from `app_config` if set, otherwise falls back to the default.
+- Staff can edit the Starter Pack from Control Panel → Starter Pack without code changes.
+
+---
+
+## 17. Role of Staff Scenarios (Civil Service Briefings)
 
 Civil service departments issue briefings to the relevant cabinet minister. Each briefing may present a branching scenario with multiple policy choices. Staff (admins/mods acting as the civil service) create briefings; cabinet ministers respond with their policy decision.
 
@@ -607,7 +721,7 @@ This system gives the civil service (staff) a mechanism to inject structured pol
 
 ---
 
-## 16. Simulation Constraints
+## 18. Simulation Constraints
 
 The following limitations apply to the current implementation.
 
@@ -637,7 +751,7 @@ Only the House of Commons participates in divisions.
 
 ---
 
-## 17. Planned Simulation Extensions
+## 19. Planned Simulation Extensions
 
 The following extensions are planned or natural candidates for the next development phase:
 
