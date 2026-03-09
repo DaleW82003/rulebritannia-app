@@ -2,7 +2,7 @@
 
 ## 1. What This Repository Is
 
-Rule Britannia is a browser-based UK parliamentary political simulation set in the post-1997 landslide era. The repository contains the full application: a multi-page browser frontend (53 HTML pages + vanilla ES modules), a Node.js/Express backend API server, a Cloudflare Worker edge proxy, a Cloudflare Pages Function fallback proxy, supporting datasets (1997 election results, constituency data, demo snapshot), developer scripts, and project documentation.
+Rule Britannia is a browser-based UK parliamentary political simulation set in the post-1997 landslide era. The repository contains the full application: a multi-page browser frontend (54 HTML pages + vanilla ES modules), a Node.js/Express backend API server, a Cloudflare Worker edge proxy, a Cloudflare Pages Function fallback proxy, supporting datasets (1997 election results, constituency data, demo snapshot), developer scripts, and project documentation.
 
 The backend is server-authoritative: all simulation state, roles, and domain logic live in PostgreSQL and are enforced on the server. Browser pages are thin UI clients that call the API and render the result. There is no frontend build step or bundler; pages use native ES module imports directly.
 
@@ -47,6 +47,7 @@ A Cloudflare Worker (and a Cloudflare Pages Function backup) proxies all `/api/*
 - **Staff governance tools**
   - admin and moderator systems
   - Speaker NPC role and powers
+  - in-app support ticketing (player queue + staff management queue)
 
 - **State tooling**
   - relational DB authoritative model
@@ -76,7 +77,7 @@ Users / Admins / Moderators
  Cloudflare Pages Function  ──(www.rulebritannia.org/api/*)
          │  Proxy (forward with cookies)
          ▼
- Express API Server  (server/index.js, ~21 k lines, 373 routes)
+ Express API Server  (server/index.js, ~21 k lines, ~392 routes)
          │
          ├── Auth & Session (express-session + PostgreSQL sessions table)
          ├── CSRF Protection (double-submit cookie)
@@ -88,12 +89,14 @@ Users / Admins / Moderators
          │       Civil Service / Budget / Economy
          │       Parties / Elections / Polling
          │       Press / Debates / News
+         │       Support Ticketing (support_tickets / support_messages)
          ├── Simulation Clock (server/clock.js)
          │
-         ├── PostgreSQL  (~92 tables, bootstrapped on startup)
+         ├── PostgreSQL  (~94 tables, bootstrapped on startup)
          │       State snapshots, sessions, users, characters,
          │       constituencies, parties, bills, motions,
-         │       divisions, audit logs, ...
+         │       divisions, audit logs,
+         │       support_tickets, support_messages, ...
          │
          └── Discourse Forum  (server/discourse.js + discourseClient.js)
                  DiscourseConnect SSO
@@ -107,12 +110,12 @@ Users / Admins / Moderators
 
 | Component | Location | Responsibility | Key Files |
 |---|---|---|---|
-| **Browser UI pages** | `/*.html` | Static multi-page app; 53 pages covering every simulation domain | `dashboard.html`, `bill.html`, `admin-panel.html`, `budget.html`, `cabinet.html`, `civilservice.html`, `bodies.html`, … |
+| **Browser UI pages** | `/*.html` | Static multi-page app; 54 pages covering every simulation domain | `dashboard.html`, `bill.html`, `admin-panel.html`, `budget.html`, `cabinet.html`, `civilservice.html`, `bodies.html`, `support.html`, … |
 | **Frontend JS modules** | `js/` | API communication, auth guards, permission checks, UI logic, simulation engines | `js/api.js`, `js/auth.js`, `js/core.js`, `js/permissions.js`, `js/clock.js`, `js/divisions.js`, `js/bill-drafting.js`, `js/audit.js` |
 | **Page initialisation** | `js/pages/` | Per-page boot scripts wired to HTML | `js/pages/bills.js`, `js/pages/motions.js`, `js/pages/bodies.js`, … |
 | **UI components** | `js/components/` | Reusable UI widgets | Various component modules |
 | **Simulation engines** | `js/engines/` | Client-side permission engine and helpers | `js/engines/permission-engine.js` |
-| **API server** | `server/index.js` | Express app: all 373 HTTP routes, domain logic, middleware | `server/index.js` (~21 k lines) |
+| **API server** | `server/index.js` | Express app: all 392 HTTP routes, domain logic, middleware | `server/index.js` (~21 k lines) |
 | **Database layer** | `server/db.js` | PostgreSQL connection pool; schema auto-bootstrapped (~92 tables) | `server/db.js` |
 | **Simulation clock** | `server/clock.js`, `js/clock.js` | Maps real calendar days to simulated parliamentary months (2 sim-months/week) | Both files implement identical algorithm |
 | **Role & permission map** | `server/roles.js` | Canonical role constants, Discourse group mapping, `PERMISSION_MAP` | `server/roles.js` |
@@ -187,6 +190,7 @@ The simulation models UK parliamentary government circa 1997. The core concepts 
 | **Simulation Clock** | Accelerated time: Mon–Wed = one sim-month, Thu–Sat = one sim-month, Sunday frozen. Starting point: August 1997. |
 | **Speaker NPC** | The Speaker of the House holds a special role: no vote weight in divisions (tie-break only), manages legislative procedure, assigned by admins/mods. |
 | **Snapshot / state tooling** | Versioned `state_snapshots` JSONB blobs with `app_state_current` pointer provide bulk-object snapshots for bills, motions, and other derived-cache tables. Relational gameplay systems (divisions, factions, political state, finance) are excluded from snapshot flows. |
+| **Support ticketing** | Players open support tickets from `support.html`. Each ticket has a subject, category, status (`open` → `finished` → `closed`), staff labels, and a chronological message thread. Staff (admin/mod) access a separate queue showing all players' tickets with status/label filters, per-side unread tracking, and a 25-second polling loop. Two PostgreSQL tables: `support_tickets` and `support_messages`. |
 
 ---
 
@@ -336,3 +340,4 @@ Bot-protection on the registration form when `TURNSTILE_ENABLED=true`. Verificat
 | **Discourse credential encryption** | Discourse credentials are encrypted with AES-256-GCM. The key is derived from `SESSION_SECRET` via `scryptSync` (salt `"rb-discourse-v1"`) unless `DISCOURSE_ENCRYPTION_KEY` is provided as a 64-char hex string. |
 | **`data/demo.json` freshness** | The demo snapshot is a static file. It must be manually regenerated using the export-snapshot endpoint and committed when the live world changes significantly. |
 | **Economy modelling** | Economic indicators (GDP, inflation, unemployment) are admin-editable fields. A dynamic model linking policy choices to economic outcomes is not yet implemented. |
+| **Support ticket notifications** | Staff and players are not sent an email when a new message arrives in a support ticket. The frontend polls every 25 seconds and shows a toast notification for new unreads, but there is no push or email channel for support updates. |

@@ -8,8 +8,8 @@ This document describes how to run live trials and ongoing simulation sessions: 
 
 | Role | Admin Panel assignment | Responsibilities during trial |
 |---|---|---|
-| **Admin** | `admin` role | Full access; approves registrations; manages wipe/seed; triggers clock ticks; assigns roles; monitors admin dashboard |
-| **Moderator** | `mod` role | Manages content moderation; can manage bills, motions, statements; edits civil service briefings and cases; approves press items |
+| **Admin** | `admin` role | Full access; approves registrations; manages wipe/seed; triggers clock ticks; assigns roles; monitors admin dashboard; monitors support ticket queue |
+| **Moderator** | `mod` role | Manages content moderation; can manage bills, motions, statements; edits civil service briefings and cases; approves press items; responds to support tickets |
 | **Speaker** | `speaker` role | Controls legislative procedure from the chamber; manages divisions; can advance bills; no vote weight in divisions |
 | **Staff / Civil Service** | Admin or Mod with relevant dept. access | Creates civil service briefings and cases; responds to ministerial choices |
 
@@ -46,6 +46,7 @@ For alpha/staging environments only:
 - [ ] Discourse SSO readiness checked if forum will be used (Admin Panel → SSO Readiness)
 - [ ] Discourse group syncing confirmed **off** unless explicitly tested (do not press "Sync Groups Now" until ready)
 - [ ] Admin dashboard checked for stale open divisions (Admin Panel → Dashboard → Open Divisions)
+- [ ] Support ticket queue checked — open any unread player tickets before the session begins (`/support.html` → staff view)
 
 ---
 
@@ -162,6 +163,7 @@ The Admin Panel includes a **Danger Zone** section (red-bordered, clearly labell
 - Audit log
 - Discourse credentials
 - App configuration
+- **Support tickets and messages** (`support_tickets`, `support_messages`) — these persist across wipes
 
 ### How to perform a wipe
 
@@ -201,6 +203,40 @@ Discourse group sync is manual. If role assignments have changed and Discourse g
 2. Review the preview, then apply if correct.
 
 Do not sync Discourse groups unless you have confirmed the group mappings are correct.
+
+---
+
+## Support Ticket Handling
+
+All staff (admin and mod) access the same support queue at `/support.html`. The page auto-detects the staff role and renders the staff view.
+
+### Staff workflow
+
+| Step | Action |
+|---|---|
+| **Open queue** | Navigate to `/support.html`. Tickets with unread messages are highlighted with an unread dot. |
+| **Review** | Click (or press Enter/Space) on a ticket to open the thread panel. |
+| **Reply** | Type a response and press **Send**. The ticket's `last_message_at` is updated; the player sees it as unread on their next page refresh or poll. |
+| **Label** | Use the inline label buttons to tag tickets (`bug`, `rules`, `appeal`, `billing`, `urgent`, `wontfix`, `duplicate`). Labels are staff-only. |
+| **Close** | When the issue is resolved, click **Close Ticket**. Closed tickets cannot receive new messages from either side. |
+| **Reopen** | If a player or staff member needs to continue a closed ticket, click **Reopen**. |
+| **Filter** | Use the status and label dropdowns at the top of the list to filter the queue. |
+
+### Status transitions
+
+| From | To | Who |
+|---|---|---|
+| `open` | `finished` | Player (marks their issue done) |
+| `finished` | `open` | Player (reopens) or staff |
+| `finished` | `closed` | Staff |
+| `closed` | `open` | Staff |
+| `open` | `closed` | Staff (direct close) |
+
+### Notes for alpha
+
+- Staff are notified of new replies only by the 25-second polling toast. Check the queue regularly during active sessions.
+- There is no email notification when a new message arrives. Players will see a toast only if they have `/support.html` open.
+- Support ticket data is **not** cleared by the content wipe (`Wipe Content` / `Wipe + Seed`). Tickets persist across trial rounds unless manually deleted from the database.
 
 ---
 
@@ -336,3 +372,6 @@ Unauthenticated user clicks "Discourse Forum"
 | SSO login redirects back to login page with an error | Read the error message. Common causes: SSO secret not set, UI base URL not configured, or the `return_sso_url` doesn't match the configured Discourse domain. |
 | Login page shows "SSO session expired" | The user's browser session cookie was cleared between starting and completing the SSO flow. Return to the Discourse forum and try logging in again. |
 | `UI base URL not configured` error | Set `ui_base_url` in Admin Panel → App Config to the app's public backend HTTPS URL. |
+| Player cannot see support tickets they created | Confirm the player is logged in as the same user account that created the tickets. Players can only see their own tickets. |
+| Staff cannot see any tickets in the queue | Confirm the staff account has the `admin` or `mod` role assigned in Admin Panel → User Permissions. |
+| Support ticket reply button is disabled | The ticket is closed. Staff can reopen it via **Reopen**; players cannot post to closed tickets. |
