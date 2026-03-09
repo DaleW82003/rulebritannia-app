@@ -22,6 +22,7 @@ import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_RO
 import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-helpers.js";
 import { fireRecompute, awaitedRecompute } from "./recompute-helpers.js";
 import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, seed1997Factions } from "./political-state-service.js";
+import { seedPredefinedGuides } from "./guides-seed.js";
 import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb } from "./division-helpers.js";
 import { resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary } from "./finance-service.js";
 
@@ -1776,6 +1777,11 @@ async function ensureSchema() {
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  const guidesSeedResult = await seedPredefinedGuides(pool);
+  if (guidesSeedResult.inserted || guidesSeedResult.updated) {
+    console.log(`[seedPredefinedGuides] inserted=${guidesSeedResult.inserted} updated=${guidesSeedResult.updated}`);
+  }
 
   // ── Civil Service ─────────────────────────────────────────────────────────────
   await pool.query(`
