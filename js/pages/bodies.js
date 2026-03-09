@@ -20,6 +20,18 @@ const BODY_DEFAULTS = [
   { id: "directly-elected-mayors", name: "Directly Elected Mayors", type: "mayors", desc: "Directly elected mayoralties relevant to the simulation period.", visible: true, mayors: [] }
 ];
 
+const OTHERS_PARTY = "Others";
+const ALWAYS_INCLUDE_COMMONS = ["Conservative", "Labour", "Liberal Democrat"];
+const SPEAKER_PARTIES = new Set(["Speaker", "The Speaker"]);
+
+const BODY_PARTY_SCHEMA = {
+  lords: { mode: "fixed", parties: ["Conservative", "Labour", "Liberal Democrat", "SNP", "Plaid Cymru", "Green", "UKIP", "DUP", "Sinn Fein", "SDLP", "Alliance", "TP", "UUP", "Independents"] },
+  europarl: { mode: "fixed", parties: ["Conservative", "Labour", "Liberal Democrat", "SNP", "Plaid Cymru", "Green", "UKIP", "DUP", "Sinn Fein", "SDLP", "Alliance", "TP", "UUP", "Independents"] },
+  "scottish-parliament": { mode: "fixed", parties: ["Conservative", "Labour", "Liberal Democrat", "SNP", "Green", "UKIP", "Independents"] },
+  "welsh-assembly": { mode: "fixed", parties: ["Conservative", "Labour", "Liberal Democrat", "Plaid Cymru", "Green", "UKIP", "Independents"] },
+  "ni-assembly": { mode: "fixed", parties: ["DUP", "Sinn Fein", "SDLP", "Alliance", "TP", "UUP", "Independents"] }
+};
+
 function labelControl(control) {
   if (control === "coalition") return "Coalition";
   if (control === "minority") return "Minority";
@@ -34,6 +46,75 @@ function ensureBodyDefaults(data) {
     if (!existingIds.has(def.id)) {
       data.bodies.list.push({ ...def, parties: [...(def.parties || [])], mayors: [...(def.mayors || [])] });
     }
+  }
+}
+
+function parseLegacyPartyText(text) {
+  return String(text || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const idx = l.indexOf("=");
+      const name = idx >= 0 ? l.slice(0, idx).trim() : l.trim();
+      const seats = idx >= 0 ? Number(l.slice(idx + 1).trim()) : 0;
+      return { name, seats: Number.isFinite(seats) ? Math.max(0, seats) : 0 };
+    })
+    .filter((p) => p.name);
+}
+
+function getCommonsParties(data) {
+  const counts = new Map();
+  for (const c of (data?.constituencies || [])) {
+    const party = String(c?.party || "").trim();
+    if (!party || SPEAKER_PARTIES.has(party)) continue;
+    counts.set(party, (counts.get(party) || 0) + 1);
+  }
+  for (const party of ALWAYS_INCLUDE_COMMONS) {
+    if (!counts.has(party)) counts.set(party, 0);
+  }
+  return Array.from(counts.entries())
+    .sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    })
+    .map(([party]) => party);
+}
+
+function getBodyPartyList(bodyId, commonsParties) {
+  const schema = BODY_PARTY_SCHEMA[bodyId];
+  if (!schema || schema.mode === "commons") return commonsParties;
+  return [...(schema.parties || [])];
+}
+
+function normalizeBodyParties(body, canonicalParties) {
+  const canonical = new Set(canonicalParties);
+  const sourceParties = Array.isArray(body?.parties)
+    ? body.parties
+    : typeof body?.parties === "string"
+      ? parseLegacyPartyText(body.parties)
+      : [];
+  const totals = new Map(canonicalParties.map((name) => [name, 0]));
+  let others = 0;
+
+  for (const p of sourceParties) {
+    const name = String(p?.name || "").trim();
+    const seats = Number(p?.seats || 0);
+    const cleanSeats = Number.isFinite(seats) ? Math.max(0, seats) : 0;
+    if (!name || cleanSeats <= 0) continue;
+    if (canonical.has(name)) totals.set(name, (totals.get(name) || 0) + cleanSeats);
+    else others += cleanSeats;
+  }
+
+  body.parties = canonicalParties.map((name) => ({ name, seats: totals.get(name) || 0 }));
+  body.othersSeats = others;
+}
+
+function normalizeAllStandardBodies(data) {
+  const commonsParties = getCommonsParties(data);
+  for (const body of (data?.bodies?.list || [])) {
+    if (body?.type !== "standard") continue;
+    normalizeBodyParties(body, getBodyPartyList(body.id, commonsParties));
   }
 }
 
@@ -67,7 +148,10 @@ function renderBodyTile(body) {
     `;
   }
 
-  const partyRows = (body.parties || []).map((p) => `<div class="kv"><span>${esc(p.name)}</span><b>${Number(p.seats || 0)} seats</b></div>`).join("");
+  const partyRows = [
+    ...(body.parties || []),
+    { name: OTHERS_PARTY, seats: Number(body.othersSeats || 0) }
+  ].map((p) => `<div class="kv"><span>${esc(p.name)}</span><b>${Number(p.seats || 0)} seats</b></div>`).join("");
 
   return `
     <article class="body-tile" style="margin-bottom:12px;${body.visible === false ? "opacity:.55;" : ""}">
@@ -128,7 +212,13 @@ function renderBodyEditorRow(body, editingId) {
     `;
   }
 
-  const partyLines = (body.parties || []).map((p) => `${p.name}=${p.seats}`).join("\n");
+  const rows = [
+    ...(body.parties || []),
+    { name: OTHERS_PARTY, seats: Number(body.othersSeats || 0) }
+  ];
+  const allocatedSeats = rows.reduce((sum, p) => sum + Math.max(0, Number(p.seats || 0)), 0);
+  const unallocatedSeats = Math.max(0, Number(body.totalSeats || 0) - allocatedSeats);
+
   return `
     <div class="tile" style="margin-bottom:12px;">
       <h3 style="margin-top:0;">${esc(body.name)}</h3>
@@ -149,8 +239,18 @@ function renderBodyEditorRow(body, editingId) {
         <label>Governing Party/Parties</label>
         <input type="text" name="controlParty" value="${esc(body.controlParty || "")}" placeholder="Party name(s)">
 
-        <label>Seat Breakdown<br><span class="small">One per line:<br>Party=Seats</span></label>
-        <textarea name="parties" rows="8" placeholder="Labour=25&#10;Conservative=20">${esc(partyLines)}</textarea>
+        <label>Seat Breakdown</label>
+        <div>
+          ${(rows || []).map((p) => `
+            <div class="docket-item" style="margin-bottom:6px;">
+              <div class="docket-left"><div class="docket-title">${esc(p.name)}</div></div>
+              <label class="label" style="min-width:160px;">Seats
+                <input class="input" type="number" min="0" step="1" name="party-seats-${esc(p.name)}" value="${Number(p.seats || 0)}">
+              </label>
+            </div>
+          `).join("")}
+          ${unallocatedSeats > 0 ? `<div class="small muted">Unallocated seats: <b>${unallocatedSeats}</b></div>` : ""}
+        </div>
 
         <div></div>
         <div class="tile-bottom" style="padding-top:0;margin-top:0;">
@@ -212,16 +312,25 @@ function bindControlPanelEvents(data, state) {
         body.totalSeats = Number(fd.get("totalSeats") || 0);
         body.controlType = String(fd.get("controlType") || "majority");
         body.controlParty = String(fd.get("controlParty") || "").trim();
-        const partyText = String(fd.get("parties") || "");
-        body.parties = partyText.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
-          const idx = l.indexOf("="); // split on first '=' so party names cannot contain '='
-          const name = idx >= 0 ? l.slice(0, idx).trim() : l.trim();
-          const seats = idx >= 0 ? Number(l.slice(idx + 1).trim()) : 0;
-          return { name, seats: Number.isFinite(seats) ? seats : 0 };
-        }).filter((p) => p.name);
+        const rows = [
+          ...(body.parties || []),
+          { name: OTHERS_PARTY, seats: Number(body.othersSeats || 0) }
+        ].map((p) => {
+          const raw = Number(fd.get(`party-seats-${p.name}`) || 0);
+          return { name: p.name, seats: Number.isFinite(raw) ? Math.max(0, raw) : 0 };
+        });
+
+        const totalAllocated = rows.reduce((sum, p) => sum + Number(p.seats || 0), 0);
+        if (totalAllocated > body.totalSeats) {
+          window.alert(`Seat breakdown exceeds total seats by ${totalAllocated - body.totalSeats}.`);
+          return;
+        }
+
+        body.parties = rows.filter((p) => p.name !== OTHERS_PARTY);
+        body.othersSeats = rows.find((p) => p.name === OTHERS_PARTY)?.seats || 0;
       }
 
-      apiUpdateBody(bodyId, body).catch(err => console.error("[bodies] save failed:", err)); // UI_ONLY_OK: admin config update; non-simulation-critical body data
+      apiUpdateBody(bodyId, body).catch((err) => console.error("[bodies] save failed:", err)); // UI_ONLY_OK: admin config update; non-simulation-critical body data
       state.editingBodyId = null;
       refreshBodies(data);
       renderControlPanel(data, state);
@@ -254,7 +363,7 @@ export async function initBodiesPage(data) {
     if (r.bodies && r.bodies.length) {
       data.bodies = data.bodies || { list: [] };
       for (const b of r.bodies) {
-        const idx = data.bodies.list.findIndex(x => x.id === b.id);
+        const idx = data.bodies.list.findIndex((x) => x.id === b.id);
         if (idx >= 0) Object.assign(data.bodies.list[idx], b);
         else data.bodies.list.push(b);
       }
@@ -262,6 +371,7 @@ export async function initBodiesPage(data) {
   } catch (err) {
     console.error("[bodies] load failed:", err);
   }
+  normalizeAllStandardBodies(data);
   const state = { editingBodyId: null };
   refreshBodies(data);
   bindEditor(data, state);
