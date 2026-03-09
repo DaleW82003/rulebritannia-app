@@ -1056,9 +1056,9 @@ function render(data, state) {
           const unaligned = factions.find((f) => String(f.slug || "") === "unaligned");
           factionSelect.innerHTML = factions.length
             ? `<option value="">Select faction</option>${factions.map((f) => `<option value="${esc(String(f.id))}" ${unaligned && String(unaligned.id) === String(f.id) ? "selected" : ""}>${esc(f.name)}</option>`).join("")}`
-            : `<option value="">Factions aren’t enabled for this party (Unaligned only)</option>`;
+            : `<option value="">Unable to load factions. Please try again.</option>`;
         } catch {
-          factionSelect.innerHTML = `<option value="">Factions aren’t enabled for this party (Unaligned only)</option>`;
+          factionSelect.innerHTML = `<option value="">Unable to load factions. Please try again.</option>`;
         }
       });
     }
@@ -1202,54 +1202,54 @@ function render(data, state) {
       </section>
     ` : ""}
 
+    ${!data?.currentCharacter?.id || !factionsEnabledForParty ? "" : `
     <section class="panel" style="margin-bottom:12px;" id="party-faction-tile">
       <h2 style="margin-top:0;">Party Faction</h2>
-      ${!data?.currentCharacter?.id ? `<div class="muted-block">No active character selected.</div>` : !factionsEnabledForParty ? `<div class="muted-block">Factions aren’t enabled for your party.</div>` : `
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-          <span class="muted">Your faction:</span>
-          <span style="display:inline-flex;align-items:center;gap:6px;font-weight:700;">
-            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${esc(String(currentFaction?.colour || "#777"))};"></span>
-            ${esc(String(currentFaction?.name || "Unaligned"))}
-          </span>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <span class="muted">Your faction:</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;font-weight:700;">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${esc(String(currentFaction?.colour || "#777"))};"></span>
+          ${esc(String(currentFaction?.name || "Unaligned"))}
+        </span>
+      </div>
+      <div class="muted" style="font-size:.86em;margin-bottom:8px;">Your faction affects party climate and can influence political pressure and resilience.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px 14px;font-size:.9em;margin-bottom:10px;">
+        <div><span class="muted">Internal power</span><br><b>${Math.round(Number(currentFaction?.internalPower ?? 0))}</b></div>
+        <div><span class="muted">Momentum</span><br><b style="text-transform:capitalize;">${esc(String(currentFaction?.momentum || "stable"))}</b></div>
+        <div><span class="muted">Leadership alignment</span><br><b style="text-transform:capitalize;">${esc(String(currentFaction?.leadershipAlignment || "neutral"))}</b></div>
+        <div><span class="muted">Leadership pressure</span><br><b>${Math.round(Number(currentFaction?.leadershipPressure ?? 0))}</b></div>
+        <div><span class="muted">Cohesion</span><br><b>${Math.round(Number(currentFaction?.cohesion ?? 0))}</b></div>
+        <div><span class="muted">Members (active characters)</span><br><b>${Math.round(Number(currentFaction?.memberCharacterCountActive ?? 0))}</b></div>
+        ${Number(currentFaction?.memberNpcCountActive ?? 0) > 0 ? `<div><span class="muted">NPC members (active)</span><br><b>${Math.round(Number(currentFaction?.memberNpcCountActive ?? 0))}</b></div>` : ""}
         </div>
-        <div class="muted" style="font-size:.86em;margin-bottom:8px;">Your faction affects party climate and can influence political pressure and resilience.</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px 14px;font-size:.9em;margin-bottom:10px;">
-          <div><span class="muted">Internal power</span><br><b>${Math.round(Number(currentFaction?.internalPower ?? 0))}</b></div>
-          <div><span class="muted">Momentum</span><br><b style="text-transform:capitalize;">${esc(String(currentFaction?.momentum || "stable"))}</b></div>
-          <div><span class="muted">Leadership alignment</span><br><b style="text-transform:capitalize;">${esc(String(currentFaction?.leadershipAlignment || "neutral"))}</b></div>
-          <div><span class="muted">Leadership pressure</span><br><b>${Math.round(Number(currentFaction?.leadershipPressure ?? 0))}</b></div>
-          <div><span class="muted">Cohesion</span><br><b>${Math.round(Number(currentFaction?.cohesion ?? 0))}</b></div>
-          <div><span class="muted">Members (active characters)</span><br><b>${Math.round(Number(currentFaction?.memberCharacterCountActive ?? 0))}</b></div>
-          ${Number(currentFaction?.memberNpcCountActive ?? 0) > 0 ? `<div><span class="muted">NPC members (active)</span><br><b>${Math.round(Number(currentFaction?.memberNpcCountActive ?? 0))}</b></div>` : ""}
-          </div>
-        <div style="border-top:1px solid #eee;padding-top:8px;margin-top:2px;">
-          <div style="font-weight:600;margin-bottom:4px;">Commons allocation (party-wide)</div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px 14px;font-size:.9em;">
-            <div><span class="muted">Total seats</span><br><b>${Math.round(Number(state.partyFaction?.partySeatTotal ?? 0))}</b></div>
-            <div><span class="muted">Allocated MPs</span><br><b>${Math.round(Number(state.partyFaction?.allocatedMPs ?? 0))}</b></div>
-            <div><span class="muted">Unallocated MPs</span><br><b>${Math.round(Number(state.partyFaction?.remainingMPs ?? 0))}</b></div>
-          </div>
-          <div class="muted" style="font-size:.82em;margin-top:6px;">“Allocated MPs” are set by staff to represent the parliamentary party’s internal balance.<br>“Members” are the characters currently assigned to the faction.</div>
+      <div style="border-top:1px solid #eee;padding-top:8px;margin-top:2px;">
+        <div style="font-weight:600;margin-bottom:4px;">Commons allocation (party-wide)</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px 14px;font-size:.9em;">
+          <div><span class="muted">Total seats</span><br><b>${Math.round(Number(state.partyFaction?.partySeatTotal ?? 0))}</b></div>
+          <div><span class="muted">Allocated MPs</span><br><b>${Math.round(Number(state.partyFaction?.allocatedMPs ?? 0))}</b></div>
+          <div><span class="muted">Unallocated MPs</span><br><b>${Math.round(Number(state.partyFaction?.remainingMPs ?? 0))}</b></div>
         </div>
-        <div style="border-top:1px solid #eee;padding-top:8px;margin-top:8px;">
-        </div>
-        ${isOwnProfile ? `
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
-            <div style="min-width:220px;flex:1;">
-              <label class="label" for="personal-faction-switch">Change faction</label>
-              <div class="muted" style="font-size:.82em;margin:4px 0 6px;">You can switch faction once per sim year.<br>You cannot switch while you are Leader, Chairman, or a Whip.</div>
-              <select class="input" id="personal-faction-switch">
-                <option value="">Select faction</option>
-                ${factionList.filter((f) => f.active !== false).map((f) => `<option value="${esc(String(f.id))}" ${currentFaction && String(currentFaction.id) === String(f.id) ? "selected" : ""}>${esc(f.name)}</option>`).join("")}
-              </select>
-            </div>
-            <button type="button" class="btn" id="personal-faction-switch-btn">Switch faction</button>
+        <div class="muted" style="font-size:.82em;margin-top:6px;">“Allocated MPs” are set by staff to represent the parliamentary party’s internal balance.<br>“Members” are the characters currently assigned to the faction.</div>
+      </div>
+      <div style="border-top:1px solid #eee;padding-top:8px;margin-top:8px;">
+      </div>
+      ${isOwnProfile ? `
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+          <div style="min-width:220px;flex:1;">
+            <label class="label" for="personal-faction-switch">Change faction</label>
+            <div class="muted" style="font-size:.82em;margin:4px 0 6px;">You can switch faction once per sim year.<br>You cannot switch while you are Leader, Chairman, or a Whip.</div>
+            <select class="input" id="personal-faction-switch">
+              <option value="">Select faction</option>
+              ${factionList.filter((f) => f.active !== false).map((f) => `<option value="${esc(String(f.id))}" ${currentFaction && String(currentFaction.id) === String(f.id) ? "selected" : ""}>${esc(f.name)}</option>`).join("")}
+            </select>
           </div>
-        ` : `<div class="muted">Faction switching is only available on your active character.</div>`}
-        ${state.partyFaction?.message ? `<div class="muted" style="margin-top:8px;">${esc(state.partyFaction.message)}</div>` : ""}
-        ${manager ? `<div class="muted" style="font-size:.82em;margin-top:8px;">Staff note: if legacy <code>affiliations_catalog</code> still contains faction-like IDs, remove them via approved admin maintenance workflow; Personal UI now suppresses them.</div>` : ""}
-      `}
+          <button type="button" class="btn" id="personal-faction-switch-btn">Switch faction</button>
+        </div>
+      ` : `<div class="muted">Faction switching is only available on your active character.</div>`}
+      ${state.partyFaction?.message ? `<div class="muted" style="margin-top:8px;">${esc(state.partyFaction.message)}</div>` : ""}
+      ${manager ? `<div class="muted" style="font-size:.82em;margin-top:8px;">Staff note: if legacy <code>affiliations_catalog</code> still contains faction-like IDs, remove them via approved admin maintenance workflow; Personal UI now suppresses them.</div>` : ""}
     </section>
+    `}
 
     <section class="panel" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
       <article class="tile">
