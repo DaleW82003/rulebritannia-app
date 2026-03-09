@@ -567,6 +567,105 @@ test("SEED 1997: admin can seed 1997 factions idempotently", async () => {
   assert.ok(b2.skipped.length > 0,           "second seed call must report skipped factions");
 });
 
+
+test("APPLICATION: applying for NPC-only party fails with 400", async () => {
+  const applicant = await seedUserAndCharacter({ roles: [], party: "Labour" });
+  await pool.query("UPDATE characters SET is_active = FALSE WHERE id = $1", [applicant.charId]);
+  await pool.query("UPDATE users SET active_character_id = NULL WHERE id = $1", [applicant.userId]);
+
+  const client = new TestClient(baseUrl);
+  await client.login(applicant.email, applicant.password);
+
+  const { status, body } = await client.post("/api/characters/apply", {
+    name: "Applicant NPC Party",
+    party: "Green",
+    constituency: "Test Seat NPC Party",
+    date_of_birth: "1970-01-01",
+    education: "University",
+    career_background: "Law",
+    family: "Married",
+    year_first_elected: "1997",
+    bio: "Bio",
+    financial_background_level: 5,
+    avatar_attribution: "Tester",
+    faction_id: "11111111-1111-1111-1111-111111111111",
+  });
+
+  assert.equal(status, 400);
+  assert.equal(body.error, "You can only create characters for Labour, Conservative, or Liberal Democrat.");
+});
+
+test("ME FACTION: NPC-only party character returns null faction", async () => {
+  const user = await seedUserAndCharacter({ roles: [], party: "Labour" });
+  const { rows: npcPartyCharRows } = await pool.query(
+    `INSERT INTO characters (user_id, name, party, constituency, is_active, roles, offices)
+     VALUES ($1, $2, $3, $4, TRUE, '[]'::jsonb, '[]'::jsonb)
+     RETURNING id`,
+    [user.userId, `npc-party-${Date.now()}`, "Green", `Green Seat ${Date.now()}`]
+  );
+  const npcPartyCharId = npcPartyCharRows[0].id;
+  await pool.query("UPDATE characters SET is_active = FALSE WHERE id = $1", [user.charId]);
+  await pool.query("UPDATE users SET active_character_id = $1 WHERE id = $2", [npcPartyCharId, user.userId]);
+
+  const client = new TestClient(baseUrl);
+  await client.login(user.email, user.password);
+  const { status, body } = await client.get("/api/me/faction");
+
+  assert.equal(status, 200);
+  assert.equal(body.faction, null);
+});
+
+test("APPROVE NPC APPLICATION: NPC-only party does not require faction and creates no faction membership", async () => {
+  const requester = await seedUserAndCharacter({ roles: ["admin"], party: "Labour" });
+  const constituency = `NPC Approval Seat ${Date.now()}`;
+  await pool.query(
+    `INSERT INTO constituencies (name, party, mp_name, mp_type)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (name) DO UPDATE SET party = EXCLUDED.party`,
+    [constituency, "Green", "", "npc"]
+  );
+
+  const { rows: appRows } = await pool.query(
+    `INSERT INTO pending_character_applications
+      (applicant_user_id, applicant_username, name, party, constituency,
+       date_of_birth, education, career_background, family, year_first_elected,
+       personal_background, bio, financial_background_level, avatar, avatar_attribution, twitter_handle,
+       home, rentals, application_type, npc_reason, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb, $18::jsonb, 'npc', $19, 'pending')
+     RETURNING id`,
+    [
+      requester.userId,
+      requester.username,
+      `NPC Approve ${Date.now()}`,
+      "Green",
+      constituency,
+      "1970-01-01",
+      "University",
+      "Law",
+      "Married",
+      "1997",
+      "Background",
+      "Bio",
+      5,
+      "",
+      "Tester",
+      "",
+      JSON.stringify({}),
+      JSON.stringify([]),
+      "Needed for coverage",
+    ]
+  );
+
+  const { status, body } = await adminClient.post(`/api/admin/characters/applications/${appRows[0].id}/approve`, {});
+  assert.equal(status, 200, JSON.stringify(body));
+
+  const { rows: membershipRows } = await pool.query(
+    "SELECT id FROM character_faction_membership WHERE character_id = $1",
+    [body.character.id]
+  );
+  assert.equal(membershipRows.length, 0);
+});
+
 test("APPLICATION: applying without faction_id fails with 400", async () => {
   const applicant = await seedUserAndCharacter({ roles: [], party: "Labour" });
   await pool.query("UPDATE characters SET is_active = FALSE WHERE id = $1", [applicant.charId]);

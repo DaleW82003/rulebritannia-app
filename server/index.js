@@ -2989,8 +2989,6 @@ async function runRevenuePayouts(simMonth, simYear) {
     console.error("[runRevenuePayouts] error:", e.message);
   }
 }
-const PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
-
 // ── Fixed HQ baseline monthly upkeep (1997 values) ────────────────────────
 const HQ_BASELINE_UPKEEP_1997 = {
   Conservative:     12000,
@@ -9404,9 +9402,9 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
     // Enforce bio max length
     const bioValue = bio != null ? String(bio).slice(0, 2000) : (personal_background ?? null);
 
-    // Only the three canonical playable parties are accepted.
-    if (party && !PLAYABLE_PARTIES.includes(party)) {
-      return res.status(400).json({ error: `party must be one of: ${PLAYABLE_PARTIES.join(", ")}` });
+    // Player applications are only allowed for the playable-party set.
+    if (!FACTION_PLAYABLE_PARTIES.includes(String(party || ""))) {
+      return res.status(400).json({ error: "You can only create characters for Labour, Conservative, or Liberal Democrat." });
     }
 
     // Check applicant has no active character (DB-canonical pointer or any active character)
@@ -9687,22 +9685,26 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
     if (app_.status !== "pending") return res.status(409).json({ error: `Application is already ${app_.status}` });
 
     const isNpcApp = app_.application_type === "npc";
-
-    await getOrCreateUnalignedFaction(app_.party);
-    const { rows: factionChoiceRows } = await client.query(
-      `SELECT id
-         FROM party_factions
-        WHERE party_slug = $1
-          AND active = TRUE
-          AND (id = $2 OR slug = 'unaligned')
-        ORDER BY CASE WHEN id = $2 THEN 0 ELSE 1 END
-        LIMIT 1`,
-      [app_.party, app_.faction_id || null]
-    );
-    if (!factionChoiceRows.length) {
-      return res.status(400).json({ error: "No valid active faction found for application party" });
+    const isNpcOnlyParty = !FACTION_PLAYABLE_PARTIES.includes(String(app_.party || ""));
+    const useFactionMembership = !isNpcApp && !isNpcOnlyParty;
+    let approvedFactionId = null;
+    if (useFactionMembership) {
+      await getOrCreateUnalignedFaction(app_.party, client);
+      const { rows: factionChoiceRows } = await client.query(
+        `SELECT id
+           FROM party_factions
+          WHERE party_slug = $1
+            AND active = TRUE
+            AND (id = $2 OR slug = 'unaligned')
+          ORDER BY CASE WHEN id = $2 THEN 0 ELSE 1 END
+          LIMIT 1`,
+        [app_.party, app_.faction_id || null]
+      );
+      if (!factionChoiceRows.length) {
+        return res.status(400).json({ error: "No valid active faction found for application party" });
+      }
+      approvedFactionId = factionChoiceRows[0].id;
     }
-    const approvedFactionId = factionChoiceRows[0].id;
 
     // Server-side constituency check
     if (app_.constituency) {
@@ -9738,15 +9740,6 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
         ]
       );
       const character = charRows[0];
-
-      // Seed live faction membership from application selection
-      await client.query(
-        `INSERT INTO character_faction_membership (character_id, faction_id, joined_at, updated_at)
-         VALUES ($1, $2, NOW(), NOW())
-         ON CONFLICT (character_id) DO UPDATE
-           SET faction_id = EXCLUDED.faction_id, updated_at = NOW()`,
-        [character.id, approvedFactionId]
-      );
 
       // Mark application approved
       await client.query(
@@ -20877,7 +20870,8 @@ app.get("/api/me/faction", charAppReadLimit, async (req, res) => {
     if (!charRows.length) return res.json({ faction: null });
     const character = charRows[0];
 
-    await ensureCharacterFactionMembership(pool, character);
+    const membership = await ensureCharacterFactionMembership(pool, character);
+    if (!membership) return res.json({ faction: null });
 
     const { rows } = await pool.query(
       `SELECT f.id, f.slug, f.name, f.party_slug, f.colour
@@ -20917,6 +20911,11 @@ app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (re
       return res.status(404).json({ error: "Active character not found" });
     }
     const character = charRows[0];
+
+    if (!FACTION_PLAYABLE_PARTIES.includes(String(character.party || ""))) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Faction membership is not available for this party" });
+    }
 
     await getOrCreateUnalignedFaction(character.party, client);
 
