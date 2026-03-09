@@ -467,6 +467,12 @@ function render(data, state) {
 
   // DB-backed party leadership data
   const dbParty = state.dbState?.party || null;
+  // Party Treasury: prefer DB-authoritative values from dbParty.treasury when available,
+  // falling back to in-memory party.treasury (which is synced from DB on init and after saves).
+  const dbTreasury = dbParty?.treasury || null;
+  const treasuryCash    = Number(dbTreasury?.cash    ?? party.treasury?.cash    ?? 0);
+  const treasuryDebt    = Number(dbTreasury?.debt    ?? party.treasury?.debt    ?? 0);
+  const treasuryMembers = Number(dbTreasury?.members ?? party.treasury?.members ?? 0);
   const dbLeaderName    = dbParty?.leader_name      || party.leader?.name    || "";
   const dbLeaderAvatar  = dbParty?.leader_avatar    || party.leader?.avatar  || "";
   const dbChairmanName  = dbParty?.chairman_name    || "";
@@ -520,12 +526,12 @@ function render(data, state) {
         <article class="tile" style="min-height:110px;display:flex;flex-direction:column;">
           <h2 style="margin-top:0;">Party Treasury</h2>
           <div style="flex:1;">
-            <div><b>Cash on hand:</b> ${esc(formatMoney(party.treasury?.cash))}</div>
-            <div><b>Debt:</b> ${esc(formatMoney(party.treasury?.debt))}</div>
-            <div><b>Members:</b> ${esc(Number(party.treasury?.members || 0).toLocaleString("en-GB"))}</div>
+            <div><b>Cash on hand:</b> ${esc(formatMoney(treasuryCash))}</div>
+            <div><b>Debt:</b> ${esc(formatMoney(treasuryDebt))}</div>
+            <div><b>Members:</b> ${esc(Number(treasuryMembers).toLocaleString("en-GB"))}</div>
             ${(() => {
               const fee = Number(dbParty?.membershipFeeAnnual || dbParty?.membership_fee_annual || 0);
-              const members = Number(party.treasury?.members || 0);
+              const members = treasuryMembers;
               const estimate = Math.round(fee * members);
               return `<div style="margin-top:4px;border-top:1px solid #e0e0e0;padding-top:4px;">
                 <div><b>Annual membership fee:</b> ${fee > 0 ? esc(formatMoney(fee)) : '<span class="muted">Not set</span>'}</div>
@@ -793,15 +799,15 @@ function render(data, state) {
             </div>
             <div>
               <label class="label" for="party-cash">Treasury Cash (£)</label>
-              <input id="party-cash" name="cash" type="number" class="input" value="${esc(String(Number(party.treasury?.cash || 0)))}">
+              <input id="party-cash" name="cash" type="number" class="input" value="${esc(String(treasuryCash))}">
             </div>
             <div>
               <label class="label" for="party-debt">Debt (£)</label>
-              <input id="party-debt" name="debt" type="number" class="input" value="${esc(String(Number(party.treasury?.debt || 0)))}">
+              <input id="party-debt" name="debt" type="number" class="input" value="${esc(String(treasuryDebt))}">
             </div>
             <div>
               <label class="label" for="party-members">Members</label>
-              <input id="party-members" name="members" type="number" class="input" value="${esc(String(Number(party.treasury?.members || 0)))}">
+              <input id="party-members" name="members" type="number" class="input" value="${esc(String(treasuryMembers))}">
             </div>
           </div>
           <button type="submit" class="btn">Save Party Settings</button>
@@ -835,7 +841,7 @@ function render(data, state) {
                 const ownedCount = purchases.filter((p) => p.itemId === item.id).length;
                 const maxOwned = item.caps?.maxOwned;
                 const atCap = maxOwned != null && ownedCount >= maxOwned;
-                const treasury = Number(party.treasury?.cash || 0);
+                const treasury = treasuryCash;
                 const canAfford = treasury >= price;
                 const effectTags = item.effects.map((e) => {
                   if (e.type === "orgCapacity")        return `🏛️ org capacity +${e.value}`;
@@ -945,7 +951,7 @@ function render(data, state) {
                 ${hqBaseline > 0 ? `<div><b>HQ Baseline Upkeep:</b> ${formatMoney(hqBaseline)}/month</div>` : ""}
                 ${shopMonthlyUpkeep > 0 ? `<div><b>Shop Upkeep:</b> ${formatMoney(shopMonthlyUpkeep)}/month</div>` : ""}
                 <div><b>Total Monthly:</b> ${formatMoney(Math.round(overhead) + hqBaseline + shopMonthlyUpkeep)}</div>
-                <div><b>Party Treasury:</b> ${formatMoney(Number(party.treasury?.cash || 0))}</div>
+                <div><b>Party Treasury:</b> ${formatMoney(treasuryCash)}</div>
                 ${state.dbState?.treasuryOverspend ? `<div style="color:#c00;">⚠️ Treasury in deficit — risk of emergency fundraising scandal</div>` : ""}
               </div>
             </article>
@@ -1047,6 +1053,7 @@ function render(data, state) {
           <table style="width:100%;border-collapse:collapse;font-size:.9em;">
             <thead>
               <tr style="border-bottom:2px solid #ccc;">
+                <th style="text-align:left;padding:4px 8px;">Type</th>
                 <th style="text-align:left;padding:4px 8px;">From</th>
                 <th style="text-align:right;padding:4px 8px;">Amount</th>
                 <th style="text-align:left;padding:4px 8px;">Note</th>
@@ -1055,15 +1062,23 @@ function render(data, state) {
               </tr>
             </thead>
             <tbody>
-              ${(state.ledger || []).map((d) => `
+              ${(state.ledger || []).map((d) => {
+                const typeLabel = d.sourceType === "fundraising" ? "Fundraising"
+                  : d.sourceType === "membership" ? "Membership"
+                  : "Donation";
+                const typeCls = d.sourceType === "fundraising" ? "color:#7a4a00;"
+                  : d.sourceType === "membership" ? "color:#1a1a8a;"
+                  : "";
+                return `
                 <tr style="border-bottom:1px solid #eee;">
+                  <td style="padding:4px 8px;white-space:nowrap;${typeCls}"><b>${esc(typeLabel)}</b></td>
                   <td style="padding:4px 8px;">${esc(d.fromName)}</td>
                   <td style="padding:4px 8px;text-align:right;color:#1a6a1a;"><b>${esc(formatMoney(d.amount))}</b></td>
                   <td style="padding:4px 8px;" class="muted">${esc(d.note || "")}</td>
                   <td style="padding:4px 8px;" class="muted">${d.simMonth ? `${esc(String(d.simMonth))}/${esc(String(d.simYear))}` : "—"}</td>
                   <td style="padding:4px 8px;" class="muted">${esc(typeof d.createdAt === "string" ? new Date(d.createdAt).toLocaleString("en-GB") : "—")}</td>
                 </tr>
-              `).join("")}
+              `;}).join("")}
             </tbody>
           </table>
         </div>
@@ -1354,20 +1369,34 @@ function render(data, state) {
       console.warn("[party-control-form] treasury save failed:", err.message);
     }
 
-    // Re-fetch party from DB to sync leader info
+    // Re-fetch party from DB to sync leader info and treasury (DB is authoritative)
     try {
       const { party: updated } = await apiGetParty(partyId);
       state.dbState = { ...state.dbState, party: updated };
       party.leader.name        = updated.leader_name  || "";
       party.leader.avatar      = updated.leader_avatar || "";
       party.leader.characterId = updated.leader_id    || "";
+      // Sync treasury from DB response (authoritative) — overrides form values
+      // in case the server applied rate-limiting or partial update.
+      if (updated.treasury) {
+        party.treasury = {
+          cash:    Number(updated.treasury.cash    ?? newCash),
+          debt:    Number(updated.treasury.debt    ?? newDebt),
+          members: Number(updated.treasury.members ?? newMembers),
+        };
+      } else {
+        party.treasury.cash    = newCash;
+        party.treasury.debt    = newDebt;
+        party.treasury.members = newMembers;
+      }
     } catch (err) {
       console.warn("[party-control-form] re-fetch party failed:", err.message);
+      // Fallback to form values if re-fetch fails
+      party.treasury.cash    = newCash;
+      party.treasury.debt    = newDebt;
+      party.treasury.members = newMembers;
     }
 
-    party.treasury.cash    = newCash;
-    party.treasury.debt    = newDebt;
-    party.treasury.members = newMembers;
     render(data, state);
   });
 
