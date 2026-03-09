@@ -113,7 +113,7 @@ function getBodyPartyList(bodyId, commonsParties) {
 
 function normalizeBodyParties(body, canonicalParties) {
   const canonical = new Set(canonicalParties);
-  const sourceParties = Array.isArray(body?.parties)
+  const sourceParties = Array.isArray(body?.parties) && body.parties.length > 0
     ? body.parties
     : Array.isArray(body?.partyBreakdown)
       ? body.partyBreakdown.map((p) => ({ name: p?.name || p?.party || "", seats: p?.seats || 0 }))
@@ -354,7 +354,12 @@ function bindControlPanelEvents(data, state) {
       await apiAdminSeed1997BodiesLocals(false);
       if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (merge)."; }
       const [bodiesRes, localsRes] = await Promise.all([apiGetBodies(), apiGetLocals()]);
-      data.bodies = { list: Array.isArray(bodiesRes?.bodies) ? bodiesRes.bodies : [] };
+      ensureBodyDefaults(data);
+      for (const b of (bodiesRes?.bodies || [])) {
+        const idx = data.bodies.list.findIndex((x) => x.id === b.id);
+        if (idx >= 0) Object.assign(data.bodies.list[idx], b);
+        else data.bodies.list.push(b);
+      }
       data.locals = localsRes || { countries: [] };
       normalizeAllStandardBodies(data);
       refreshBodies(data);
@@ -377,7 +382,12 @@ function bindControlPanelEvents(data, state) {
       await apiAdminSeed1997BodiesLocals(true);
       if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (force overwrite)."; }
       const [bodiesRes, localsRes] = await Promise.all([apiGetBodies(), apiGetLocals()]);
-      data.bodies = { list: Array.isArray(bodiesRes?.bodies) ? bodiesRes.bodies : [] };
+      ensureBodyDefaults(data);
+      for (const b of (bodiesRes?.bodies || [])) {
+        const idx = data.bodies.list.findIndex((x) => x.id === b.id);
+        if (idx >= 0) Object.assign(data.bodies.list[idx], b);
+        else data.bodies.list.push(b);
+      }
       data.locals = localsRes || { countries: [] };
       normalizeAllStandardBodies(data);
       refreshBodies(data);

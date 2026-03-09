@@ -20841,6 +20841,7 @@ async function getCanonicalConstituencyParties(client = pool) {
 const BODIES_1997_SEED = {
   lords: {
     id: "lords",
+    type: "standard",
     visible: true,
     totalSeats: 1265,
     compositionBreakdown: [
@@ -20857,6 +20858,7 @@ const BODIES_1997_SEED = {
   },
   europarl: {
     id: "europarl",
+    type: "standard",
     visible: true,
     totalSeats: 87,
     partyBreakdown: [
@@ -20869,10 +20871,10 @@ const BODIES_1997_SEED = {
       { party: "UUP", seats: 1 },
     ],
   },
-  "scottish-parliament": { id: "scottish-parliament", visible: false },
-  "welsh-assembly": { id: "welsh-assembly", visible: false },
-  "ni-assembly": { id: "ni-assembly", visible: false },
-  "directly-elected-mayors": { id: "directly-elected-mayors", visible: false, mayors: [] },
+  "scottish-parliament": { id: "scottish-parliament", type: "standard", visible: false },
+  "welsh-assembly": { id: "welsh-assembly", type: "standard", visible: false },
+  "ni-assembly": { id: "ni-assembly", type: "standard", visible: false },
+  "directly-elected-mayors": { id: "directly-elected-mayors", type: "mayors", visible: false, mayors: [] },
 };
 
 const LOCALS_1997_SEED = {
