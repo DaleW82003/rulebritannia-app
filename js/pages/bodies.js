@@ -202,7 +202,7 @@ function refreshBodies(data) {
   setHTML("bodies-root", visibleBodies.length ? visibleBodies.map(renderBodyTile).join("") : `<div class="muted-block">No visible bodies configured.</div>`);
 }
 
-function renderBodyEditorRow(body, editingId) {
+function renderBodyEditorRow(body, editingId, data) {
   const isEditing = editingId === body.id;
 
   if (!isEditing) {
@@ -333,7 +333,7 @@ function renderControlPanel(data, state) {
         <span id="bodies-seed-1997-status" style="font-size:.85em;"></span>
       </div>
     </div>
-    ${ordered.map((body) => renderBodyEditorRow(body, state.editingBodyId)).join("")}
+    ${ordered.map((body) => renderBodyEditorRow(body, state.editingBodyId, data)).join("")}
   `;
   bindControlPanelEvents(data, state);
 }
