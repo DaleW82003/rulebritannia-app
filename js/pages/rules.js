@@ -42,7 +42,7 @@ function renderRuleRows(data, adminMode) {
           <span style="flex:1;font-weight:700;">${esc(rule.title)}</span>
           <span data-oc-label class="muted">Open</span>
         </button>
-        <div data-rule-body="${rule.id}" class="tile" hidden style="display:grid;gap:8px;padding-top:0;">
+        <div data-rule-body="${rule.id}" class="tile" hidden style="gap:8px;padding-top:0;">
           <div style="white-space:pre-wrap;line-height:1.45;">${esc(rule.body)}</div>
           ${adminMode ? `
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
