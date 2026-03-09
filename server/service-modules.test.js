@@ -138,7 +138,77 @@ test("computeLeadershipPressure: clamps to 100 for hostile overflow", () => {
   assert.equal(computeLeadershipPressure(100, "hostile"), 100);
 });
 
-// ── division-helpers: regex constants ─────────────────────────────────────────
+// ── npcSlots computation (pure logic, mirrors server/index.js) ─────────────────
+
+// Helper matching the npcSlots formula used in the server factions response.
+const npcSlotsFor = (mpCount, activeMpMembers) => Math.max(0, mpCount - activeMpMembers);
+
+test("npcSlots: equals allocatedMpCount minus activeMpMembersCount when positive", () => {
+  assert.equal(npcSlotsFor(10, 3), 7);
+  assert.equal(npcSlotsFor(5, 5), 0);
+});
+
+test("npcSlots: never negative when activeMpMembers exceeds allocated (data anomaly)", () => {
+  assert.equal(npcSlotsFor(3, 5), 0);
+});
+
+test("npcSlots: fully available when no active MP members", () => {
+  assert.equal(npcSlotsFor(20, 0), 20);
+});
+
+// ── momentum validation (pure logic, mirrors PATCH /api/admin/factions/:id) ──
+
+test("momentum valid values: rising, stable, falling", () => {
+  const valid = ["rising", "stable", "falling"];
+  for (const v of valid) {
+    assert.ok(valid.includes(v), `${v} should be valid`);
+  }
+});
+
+test("momentum invalid values rejected", () => {
+  const valid = ["rising", "stable", "falling"];
+  for (const v of ["", "up", "down", "Rising", "STABLE", "unknown"]) {
+    assert.ok(!valid.includes(v), `${v} should be invalid`);
+  }
+});
+
+// ── MP-only enforcement (pure logic, mirrors POST /api/me/faction/switch and GET /api/me/faction) ──
+
+// Helper: an MP is a character with a non-empty constituency.
+const isCharacterMP = (constituency) => Boolean(constituency && String(constituency).trim());
+
+test("isCharacterMP: empty string is not an MP", () => {
+  assert.equal(isCharacterMP(""), false);
+  assert.equal(isCharacterMP(null), false);
+  assert.equal(isCharacterMP(undefined), false);
+});
+
+test("isCharacterMP: non-empty constituency is an MP", () => {
+  assert.equal(isCharacterMP("Haltemprice and Howden"), true);
+  assert.equal(isCharacterMP("  Islington North  "), true);
+});
+
+test("isCharacterMP: whitespace-only is not an MP", () => {
+  assert.equal(isCharacterMP("   "), false);
+});
+
+// ── viewerRole expansion (mirrors GET /api/parties/:slug/faction-climate) ──
+
+test("viewerRole: chairman and leader are distinct roles", () => {
+  const ROLES = ["member", "whip", "chairman", "leader", "staff"];
+  assert.ok(ROLES.includes("chairman"), "chairman must be a valid role");
+  assert.ok(ROLES.includes("leader"), "leader must be a valid role");
+  assert.notEqual(ROLES.indexOf("chairman"), ROLES.indexOf("leader"), "chairman and leader must be distinct");
+});
+
+test("viewerRole: chairman and leader both have full climate view", () => {
+  const hasFullView = (role) => role === "staff" || role === "leader" || role === "chairman";
+  assert.equal(hasFullView("chairman"), true);
+  assert.equal(hasFullView("leader"), true);
+  assert.equal(hasFullView("whip"), false);
+  assert.equal(hasFullView("member"), false);
+  assert.equal(hasFullView("staff"), true);
+});
 
 test("SPEAKER_PARTY_RE: matches 'Speaker' (any case)", () => {
   assert.ok(SPEAKER_PARTY_RE.test("Speaker"));

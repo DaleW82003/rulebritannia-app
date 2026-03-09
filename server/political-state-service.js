@@ -570,7 +570,8 @@ export function computeLeadershipPressure(internalPower, leadershipAlignment) {
 export async function computeFactionPoliticalState(factionId) {
   const { rows } = await pool.query(
     `SELECT f.id, f.leadership_alignment, f.rebellion_bias,
-            COALESCE(a.mp_count, 0)       AS mp_count,
+            COALESCE(f.momentum, 'stable') AS momentum,
+            COALESCE(a.mp_count, 0)        AS mp_count,
             COALESCE(a.influence_bonus, 0) AS influence_bonus
        FROM party_factions f
        LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
@@ -580,28 +581,23 @@ export async function computeFactionPoliticalState(factionId) {
   if (!rows.length) throw new Error(`Faction ${factionId} not found`);
   const f = rows[0];
 
-  const internalPower     = computeFactionStrength({ mpCount: Number(f.mp_count), influenceBonus: Number(f.influence_bonus) });
-  const cohesion          = computeFactionCohesion(Number(f.rebellion_bias));
+  const internalPower      = computeFactionStrength({ mpCount: Number(f.mp_count), influenceBonus: Number(f.influence_bonus) });
+  const cohesion           = computeFactionCohesion(Number(f.rebellion_bias));
   const leadershipPressure = computeLeadershipPressure(internalPower, f.leadership_alignment);
 
-  // Momentum: check previous state for trend
-  const { rows: prevRows } = await pool.query(
-    "SELECT internal_power FROM faction_political_state WHERE faction_id = $1",
-    [factionId]
-  );
-  const prevPower = prevRows.length ? Number(prevRows[0].internal_power) : null;
-  const trend = prevPower !== null ? internalPower - prevPower : 0;
-  const momentum = trend >= 3 ? "rising" : trend <= -3 ? "falling" : "stable";
+  // Momentum is mod-set on party_factions; internal_power/cohesion/pressure are derived.
+  const momentum = f.momentum || "stable";
 
   const breakdown = {
     mp_count:             Number(f.mp_count),
     influence_bonus:      Number(f.influence_bonus),
     leadership_alignment: f.leadership_alignment,
     rebellion_bias:       Number(f.rebellion_bias),
+    momentum,
     internal_power_raw:   internalPower,
     cohesion_raw:         cohesion,
     leadership_pressure_raw: leadershipPressure,
-    note: "Weights: mp×0.8 + influence×10; cohesion=70-(rebellion_bias×40); see computeFactionStrength/computeFactionCohesion in server/political-state-service.js",
+    note: "Weights: mp×0.8 + influence×10; cohesion=70-(rebellion_bias×40); momentum is mod-set. See computeFactionStrength/computeFactionCohesion in server/political-state-service.js",
   };
 
   await pool.query(
@@ -637,9 +633,10 @@ export async function computeFactionPoliticalState(factionId) {
 export async function getPartyFactionClimate(partySlug) {
   const { rows } = await pool.query(
     `SELECT f.id, f.name, f.slug, f.colour, f.leadership_alignment, f.rebellion_bias,
+            COALESCE(f.momentum, 'stable')  AS momentum,
             COALESCE(a.mp_count, 0)        AS mp_count,
             COALESCE(a.influence_bonus, 0) AS influence_bonus,
-            fps.internal_power, fps.momentum, fps.leadership_pressure, fps.cohesion
+            fps.internal_power, fps.leadership_pressure, fps.cohesion
        FROM party_factions f
        LEFT JOIN party_faction_allocations a   ON a.faction_id   = f.id
        LEFT JOIN faction_political_state fps   ON fps.faction_id = f.id
