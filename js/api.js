@@ -3510,6 +3510,34 @@ export async function apiAdminSeed1997Factions() {
   return body;
 }
 
+/** Admin/mod: totals for other-official arenas (visible bodies + all locals). */
+export async function apiGetOtherOfficialsArenasTotals() {
+  const res = await _fetch(`${API_BASE}/api/admin/other-officials/arenas-totals`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiGetOtherOfficialsArenasTotals failed (${res.status})`); }
+  return res.json();
+}
+
+/** Admin/mod: get current faction allocations for one arena+party. */
+export async function apiGetOtherOfficialsFactionAllocations(arena_type, arena_id, party_slug) {
+  const q = new URLSearchParams({ arena_type: String(arena_type || ""), arena_id: String(arena_id || ""), party_slug: String(party_slug || "") });
+  const res = await _fetch(`${API_BASE}/api/admin/other-officials/faction-allocations?${q.toString()}`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiGetOtherOfficialsFactionAllocations failed (${res.status})`); }
+  return res.json();
+}
+
+/** Admin/mod: replace faction allocations for one arena+party. */
+export async function apiPutOtherOfficialsFactionAllocations(payload) {
+  const res = await _fetch(`${API_BASE}/api/admin/other-officials/faction-allocations`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiPutOtherOfficialsFactionAllocations failed (${res.status})`);
+  return body;
+}
+
 /** Fetch the active character's political capital state from the server. */
 export async function apiGetMyPoliticalState() {
   const res = await _fetch(`${API_BASE}/api/me/political-state`, { credentials: "include" });
