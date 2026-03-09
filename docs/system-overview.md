@@ -33,7 +33,8 @@ A Cloudflare Worker (and a Cloudflare Pages Function backup) proxies all `/api/*
 - **Party systems**
   - factions
   - faction allocations
-  - faction climate
+  - faction climate (with dominance stabiliser)
+  - other-officials faction allocations
 
 - **Political state**
   - political capital
@@ -42,12 +43,22 @@ A Cloudflare Worker (and a Cloudflare Pages Function backup) proxies all `/api/*
 
 - **Finance**
   - personal finance
-  - party finance
+  - party finance (DB-authoritative treasury, unified income ledger with source types)
+
+- **Bodies and Locals**
+  - parliamentary bodies registry (with BODY_PARTY_SCHEMA, NO_CONTROL_BODY_IDS)
+  - Directly Elected Mayors structured editor
+  - Local authority data (totalCouncils / totalCouncillors per country with validation)
+  - other-officials faction allocations across all arenas
 
 - **Staff governance tools**
   - admin and moderator systems
   - Speaker NPC role and powers
   - in-app support ticketing (player queue + staff management queue)
+
+- **Player onboarding**
+  - Guides system (15 predefined guides, seeded on startup, collapsible UI, staff-editable)
+  - Starter Pack (staff-editable first-week guide shown on player dropon)
 
 - **State tooling**
   - relational DB authoritative model
@@ -110,13 +121,18 @@ Users / Admins / Moderators
 
 | Component | Location | Responsibility | Key Files |
 |---|---|---|---|
-| **Browser UI pages** | `/*.html` | Static multi-page app; 54 pages covering every simulation domain | `dashboard.html`, `bill.html`, `admin-panel.html`, `budget.html`, `cabinet.html`, `civilservice.html`, `bodies.html`, `support.html`, … |
+| **Browser UI pages** | `/*.html` | Static multi-page app; 54 pages covering every simulation domain | `dashboard.html`, `bill.html`, `admin-panel.html`, `budget.html`, `cabinet.html`, `civilservice.html`, `bodies.html`, `support.html`, `guides.html`, … |
 | **Frontend JS modules** | `js/` | API communication, auth guards, permission checks, UI logic, simulation engines | `js/api.js`, `js/auth.js`, `js/core.js`, `js/permissions.js`, `js/clock.js`, `js/divisions.js`, `js/bill-drafting.js`, `js/audit.js` |
-| **Page initialisation** | `js/pages/` | Per-page boot scripts wired to HTML | `js/pages/bills.js`, `js/pages/motions.js`, `js/pages/bodies.js`, … |
+| **Page initialisation** | `js/pages/` | Per-page boot scripts wired to HTML | `js/pages/bills.js`, `js/pages/motions.js`, `js/pages/bodies.js`, `js/pages/guides.js`, `js/pages/player-dropon.js`, … |
 | **UI components** | `js/components/` | Reusable UI widgets | Various component modules |
 | **Simulation engines** | `js/engines/` | Client-side permission engine and helpers | `js/engines/permission-engine.js` |
-| **API server** | `server/index.js` | Express app: all 392 HTTP routes, domain logic, middleware | `server/index.js` (~21 k lines) |
+| **API server** | `server/index.js` | Express app: all ~392 HTTP routes, domain logic, middleware | `server/index.js` (~21 k lines) |
 | **Database layer** | `server/db.js` | PostgreSQL connection pool; schema auto-bootstrapped (~95 tables) | `server/db.js` |
+| **Guides seeder** | `server/guides-seed.js` | 15 predefined onboarding guides + `seedPredefinedGuides()` called on startup | `server/guides-seed.js` |
+| **Political-state service** | `server/political-state-service.js` | `FACTION_PLAYABLE_PARTIES`, `computeFactionPoliticalState`, `getPartyFactionClimate`, dominance stabiliser | `server/political-state-service.js` |
+| **Division helpers** | `server/division-helpers.js` | Vote weight calculation, SPEAKER/SINN_FEIN regex, tally helpers | `server/division-helpers.js` |
+| **Finance service** | `server/finance-service.js` | `resolveActiveSalaryScale`, `computeCharacterAnnualSalary` | `server/finance-service.js` |
+| **Recompute helpers** | `server/recompute-helpers.js` | `fireRecompute`/`awaitedRecompute` with observability (`entity=<id>` logging) | `server/recompute-helpers.js` |
 | **Simulation clock** | `server/clock.js`, `js/clock.js` | Maps real calendar days to simulated parliamentary months (2 sim-months/week) | Both files implement identical algorithm |
 | **Role & permission map** | `server/roles.js` | Canonical role constants, Discourse group mapping, `PERMISSION_MAP` | `server/roles.js` |
 | **Edge proxy (Worker)** | `worker/index.js` | Cloudflare Worker: proxies `rulebritannia.org/api/*` to Render backend; bare-domain redirect | `worker/index.js`, `wrangler.toml` |
@@ -126,7 +142,7 @@ Users / Admins / Moderators
 | **RBAC audit** | `scripts/audit/` | Feature manifest scanner + RBAC matrix drift detection | `scripts/audit/feature-manifest.js`, `scripts/audit/rbac-matrix.json` |
 | **Static datasets** | `data/` | 1997 election CSV, 650-constituency JSON, read-only demo snapshot | `data/1997_structured.csv`, `data/constituencies_1997.json`, `data/demo.json` |
 | **Documentation** | `docs/` | Architecture, dev guide, simulation model, audit reports, runbook | See §11 |
-| **Tests** | `server/tests/` | Server-side unit tests (Node built-in test runner) | `server/discourse.test.js`, … |
+| **Tests** | `server/*.test.js` | Server-side unit and integration tests (Node built-in test runner) | `server/guides-seed.test.js`, `server/service-modules.test.js`, `server/factions.integration.test.js`, … |
 | **CI** | `.github/workflows/` | Static checks + manifest on every push/PR | `static-checks.yml` |
 
 ---
@@ -178,17 +194,22 @@ The simulation models UK parliamentary government circa 1997. The core concepts 
 | **Statements & Regulations** | Ministerial statements and secondary legislation routes. |
 | **Divisions/Votes** | Formal votes in the chamber. Each character votes Aye/No/Abstain (one vote each, whipped). Bill divisions use proportional seat-weight counting. |
 | **Question Time** | Parliamentary question-and-answer sessions with scheduling and transcript recording. |
-| **Factions** | Intra-party ideological groupings (e.g., Labour Campaign Group, Conservative 1922 Committee, ERG). Each faction has an `internal_power`, `momentum`, `leadership_pressure`, and `cohesion` score computed server-side. |
+| **Factions** | Intra-party ideological groupings (e.g., Labour Campaign Group, Conservative 1922 Committee, ERG). Each faction has an `internal_power`, `momentum`, `leadership_pressure`, and `cohesion` score computed server-side by `runFactionFreeze()`. A `lastFreezeAt` timestamp is exposed to all viewers so players can see when faction stats were last published. |
+| **Faction climate** | Party-level climate derived from its factions' aggregate `leadership_pressure` scores, adjusted by a **dominance stabiliser** that considers holdings across all arenas (bodies, locals, DEMs) when the dominant-Commons faction is aligned. A hostile climate increases party pressure on all characters; an aligned climate provides a capital resilience bonus. |
+| **Other officials allocations** | `other_officials_faction_allocations` table tracks non-Commons official positions (body seats, local councillors, DEMs) per party and faction, bounded by live totals from the bodies and locals registries. Admin UI in the Control Panel. |
 | **Political capital** | Per-character accumulated influence score computed from office, press coverage, party roles, work plans, and scandal exposure. Stored in `character_political_state`. |
 | **Political pressure** | Per-character pressure channels (party, constituency, media, group, institutional, rebellion risk) computed at the same time as capital. Influences character behaviour and resilience. |
-| **Faction climate** | Party-level climate derived from its factions' aggregate `leadership_pressure` scores. A hostile climate increases party pressure on all characters; an aligned climate provides a capital resilience bonus. |
 | **Personal finance** | Per-character salary bands, bank balances, additional revenue, property costs, and purchase history. Computed server-side from `finance_config` and stored in `character_finance`. |
-| **Party finance** | Party treasury (`cash`, `debt`, `members`) is DB-backed and authoritative — persists across page reloads, wipes, and resets. Income is tracked in a unified Party Income Ledger (`party_donations`) with entries for donations (`source_type='donation'`), fundraising allocations (`source_type='fundraising'`, idempotent per fundraiser+party), and annual membership fee intake (`source_type='membership'`, idempotent per sim year). |
+| **Party finance** | Party treasury (`cash`, `debt`, `members`) is DB-backed and authoritative. Income is tracked in a unified Party Income Ledger (`party_donations`) with entries for donations (`source_type='donation'`), fundraising allocations (`source_type='fundraising'`, idempotent per fundraiser+party via `source_ref`), and annual membership fee intake (`source_type='membership'`, idempotent per sim year). |
 | **Budget** | Government fiscal controls: seven revenue lines, fifteen expenditure lines, aggregate fiscal metrics (deficit, debt, GDP ratios). The Chancellor drafts; admins/mods approve or reject. |
 | **Economy** | Admin-editable economic indicators (GDP growth, inflation, unemployment). Partial implementation; dynamic modelling is a planned extension. |
 | **Press & Debates** | Press releases, newspaper articles, and Discourse-backed debate threads linked to legislative items. |
 | **Simulation Clock** | Accelerated time: Mon–Wed = one sim-month, Thu–Sat = one sim-month, Sunday frozen. Starting point: August 1997. |
 | **Speaker NPC** | The Speaker of the House holds a special role: no vote weight in divisions (tie-break only), manages legislative procedure, assigned by admins/mods. |
+| **Parliamentary bodies** | Registry of democratic institutions beyond the Commons (House of Lords, European Parliament, devolved legislatures, Directly Elected Mayors). Bodies have a `BODY_PARTY_SCHEMA` defining canonical party lists; `NO_CONTROL_BODY_IDS` (lords, europarl) strips `controlType`/`controlParty` fields. The House of Lords uses a `compositionBreakdown` (Crossbenchers, Lords Spiritual, Law Lords) instead of a standard party breakdown. |
+| **Local authorities** | Four-nation local authority dataset (England, Scotland, Wales, Northern Ireland) with `totalCouncils`, `totalCouncillors`, `noOverallControlCouncils`, and a party breakdown per country. Validation enforces that party sums match totals. Editable via Control Panel; 1997 baseline seeded via `POST /api/admin/seed-1997-bodies-locals` (dev/staging only). |
+| **Guides** | 15 predefined onboarding guides (`server/guides-seed.js`) seeded at startup into `guides_items`. Displayed as collapsible panels on `guides.html`. Staff can add, edit, and reorder guides via the Control Panel. |
+| **Starter Pack** | A "5 first-week actions" summary displayed to new players with no active character on the player dropon page. Stored as HTML in `app_config` and editable by staff via the Control Panel. Falls back to `DEFAULT_STARTER_PACK_HTML` if not set. |
 | **Snapshot / state tooling** | Versioned `state_snapshots` JSONB blobs with `app_state_current` pointer provide bulk-object snapshots for bills, motions, and other derived-cache tables. Relational gameplay systems (divisions, factions, political state, finance) are excluded from snapshot flows. |
 | **Support ticketing** | Players open support tickets from `support.html`. Each ticket has a subject, category, status (`open` → `finished` → `closed`), staff labels, and a chronological message thread. Staff (admin/mod) access a separate queue showing all players' tickets with status/label filters, per-side unread tracking, and a 25-second polling loop. Two PostgreSQL tables: `support_tickets` and `support_messages`. |
 
@@ -336,8 +357,11 @@ Bot-protection on the registration form when `TURNSTILE_ENABLED=true`. Verificat
 | **Worker vs Pages Function precedence** | Both `worker/index.js` and `functions/api/[[path]].js` proxy `/api/*`. The Pages Function is the always-on fallback; the Worker handles the bare domain. Exact failover order is controlled by Cloudflare routing, not verifiable from the repository alone. |
 | **Clock tick trigger** | The simulation clock is advanced only by explicit `POST /api/clock/tick` calls. This is a **manual admin action**; there is no automated cron scheduler. See `docs/dev-guide.md §14`. |
 | **Recompute timing** | `recomputeCharacterPoliticalState()` is called non-blocking (fire-and-forget). Political state values may briefly show stale data immediately after a triggering action. |
+| **Faction freeze timing** | `runFactionFreeze()` is called on demand from Control Panel → Trigger Freeze (admin/mod). There is no automated Sunday scheduler yet. `lastFreezeAt` is visible to all viewers so players know when faction stats were last published. |
 | **Email delivery in dev** | SendGrid integration is skipped when `SENDGRID_API_KEY` is absent. Email verification is not enforced as a hard gate in development. |
 | **Discourse credential encryption** | Discourse credentials are encrypted with AES-256-GCM. The key is derived from `SESSION_SECRET` via `scryptSync` (salt `"rb-discourse-v1"`) unless `DISCOURSE_ENCRYPTION_KEY` is provided as a 64-char hex string. |
 | **`data/demo.json` freshness** | The demo snapshot is a static file. It must be manually regenerated using the export-snapshot endpoint and committed when the live world changes significantly. |
 | **Economy modelling** | Economic indicators (GDP, inflation, unemployment) are admin-editable fields. A dynamic model linking policy choices to economic outcomes is not yet implemented. |
 | **Support ticket notifications** | Staff and players are not sent an email when a new message arrives in a support ticket. The frontend polls every 25 seconds and shows a toast notification for new unreads, but there is no push or email channel for support updates. |
+| **`seed-1997-factions` production guard** | `POST /api/admin/seed-1997-factions` is **not** guarded by `isDevSeedAllowed()` — it is accessible in production (protected only by `requireAdminOrMod`). This is intentional; the operation is idempotent and safe to run on a live database. |
+| **`backfill-author-ids` production guard** | `POST /api/admin/repair/backfill-author-ids` is **not** guarded by `isDevSeedAllowed()` — it is accessible in production (protected only by `requireAdminOrMod`). This is intentional; the repair is idempotent and only fills NULL fields. |

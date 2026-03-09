@@ -155,6 +155,15 @@ Auth guards used throughout:
 | `/api/elections/*` | Election management and seat totals |
 | `/api/constituencies/*` | Constituency data |
 | `/api/budget/*` | Budget drafting and approval |
+| `/api/bodies` + `/api/bodies/:id` | Parliamentary bodies registry (with `NO_CONTROL_BODY_IDS` stripping) |
+| `/api/locals` | Local authority data (four-nation council/councillor breakdown) |
+| `/api/parties/:slug/factions` | Party factions: CRUD, allocation, climate, trigger-freeze |
+| `/api/parties/:slug/faction-climate` | Party climate (includes `lastFreezeAt`, `viewerRole`, `pendingFreezeCount`) |
+| `/api/admin/other-officials/*` | Other-officials faction allocations and arena totals |
+| `/api/admin/seed-1997-bodies-locals` | 1997 bodies/locals seed (dev/staging only, `isDevSeedAllowed()` guarded) |
+| `/api/admin/seed-1997-factions` | 1997 faction seed (admin/mod only, production-accessible) |
+| `/api/guides` + `/api/guides/:id` | Guides CRUD (staff-managed; public read) |
+| `/api/support/*` | Support ticketing (player and staff queues) |
 | `/api/discourse/*` | SSO, group sync, test |
 | `/api/admin/*` | Admin panel operations |
 | `/api/civil-service/*` | Civil service briefings and cases |
@@ -193,7 +202,21 @@ try {
 
 Session storage also uses the same `pool` via `connect-pg-simple`, which creates a `session` table automatically.
 
-**Known tables (from audit inventory):** `users`, `characters`, `bills`, `motions`, `statements`, `regulations`, `divisions`, `division_votes`, `press_items`, `polling_entries`, `questiontime_questions`, `constituencies`, `pending_registrations`, `privy_council_members`, `app_config`, and others.
+**Known tables (from audit inventory):** `users`, `characters`, `bills`, `motions`, `statements`, `regulations`, `divisions`, `division_votes`, `press_items`, `polling_entries`, `questiontime_questions`, `constituencies`, `pending_registrations`, `privy_council_members`, `app_config`, `finance_config`, `party_factions`, `party_faction_allocations`, `faction_political_state`, `character_political_state`, `character_finance`, `party_donations`, `other_officials_faction_allocations`, `guides_items`, `support_tickets`, `support_messages`, and others.
+
+### Extracted Service Modules
+
+Several service-layer modules have been extracted from `server/index.js` for testability and reuse:
+
+| Module | Exports | Purpose |
+|--------|---------|---------|
+| `server/political-state-service.js` | `FACTION_PLAYABLE_PARTIES`, `clamp100`, `computeFactionPoliticalState`, `getPartyFactionClimate`, `DOMINANCE_STABILISER` | Faction political state computation; party climate with dominance stabiliser |
+| `server/division-helpers.js` | `SPEAKER_REGEX`, `SINN_FEIN_REGEX`, vote weight helpers, tally | Vote weight calculation and tallying logic |
+| `server/finance-service.js` | `resolveActiveSalaryScale`, `computeCharacterAnnualSalary`, `resolvedAnnualSalary` | Salary band resolution and character annual salary computation |
+| `server/recompute-helpers.js` | `fireRecompute`, `awaitedRecompute` | Non-blocking and awaited recompute wrappers with observability (`entity=<id>` logging) |
+| `server/rbac-helpers.js` | RBAC guard utilities | Role-based access helpers used across routes |
+| `server/state-contracts.js` | `assertSnapshotDerivedTable`, `stripRelationalKeys` | Enforces the state-ownership boundary at runtime |
+| `server/guides-seed.js` | `PREDEFINED_GUIDES`, `seedPredefinedGuides` | 15 predefined onboarding guides; called during `ensureSchema()` on startup |
 
 ### Simulation Clock (`server/clock.js`)
 
@@ -347,6 +370,12 @@ There are ~50 HTML pages in the root directory. Key pages include:
 
 `GET /api/bodies` returns the current parliamentary bodies from the game state. Bodies are tracked as part of the overall state snapshot managed via `POST /api/state` (admin/mod only). The `GET /api/parliament/status` endpoint returns whether Parliament is open, dissolved, or prorogued, controlling which actions are permitted.
 
+**Key implementation details:**
+- `NO_CONTROL_BODY_IDS = new Set(["lords", "europarl"])` — `controlType`/`controlParty` fields are stripped via `stripControlFields()` in `GET /api/bodies` and `PUT /api/bodies/:id`.
+- `BODY_PARTY_SCHEMA` in `js/pages/bodies.js` defines the canonical party list for each body type, ensuring seat breakdowns are consistent and include an explicit `Others` bucket.
+- `compositionBreakdown` is used for the House of Lords (Crossbenchers, Lords Spiritual, Law Lords); `partyBreakdown` is used for standard elected bodies.
+- Directly Elected Mayors use a structured editor (`parseLegacyMayorLines` / `normalizeMayorData`) rather than freeform text.
+
 ### Legislation
 
 Bills follow a lifecycle managed entirely through the backend:
@@ -490,6 +519,35 @@ support_messages (
 ```
 
 Both tables are bootstrapped by `ensureSchema()` and are **relational-authoritative** (not subject to snapshot flows).
+
+### Guides
+
+The Guides system stores staff-managed onboarding articles for players.
+
+- `GET /api/guides` — public read (no auth required)
+- `POST /api/guides` — create a guide (admin/mod)
+- `PATCH /api/guides/:id` — update a guide (admin/mod)
+- `DELETE /api/guides/:id` — delete a guide (admin/mod)
+
+On startup, `seedPredefinedGuides(pool)` (from `server/guides-seed.js`) inserts any of the 15 predefined guides that are absent and corrects `sort_order` values. This ensures the default onboarding content is always present without requiring an explicit seeding step.
+
+**Frontend (`js/pages/guides.js`):** Displays guides as collapsible panels. Uses the HTML `hidden` attribute (not inline `display` style) so collapsing works correctly even when the panel has `display:grid` set. **Never** set `element.style.display = 'none'` for show/hide in this page — use `element.hidden = bool` instead.
+
+### Local Authorities
+
+Local authority data (`GET/PUT /api/locals`) is stored as a JSON object in `app_config` with a `countries` array. Each country entry includes `totalCouncils`, `totalCouncillors`, `noOverallControlCouncils`, and a `partyBreakdown`.
+
+The server validates that party sums match declared totals on every PUT. The 1997 seed (England: 386 councils / 22,580 councillors; Scotland: 32/1,306; Wales: 22/1,272; Northern Ireland: 26/582) is applied via `POST /api/admin/seed-1997-bodies-locals` (protected by `isDevSeedAllowed()`, dev/staging only).
+
+### Other Officials Faction Allocations
+
+The `other_officials_faction_allocations` table tracks how non-Commons official positions (body seats, councillors, DEMs) are allocated across parties and factions. Only `FACTION_PLAYABLE_PARTIES` (Labour, Conservative, Lib Dem) have rows; other parties have no allocations.
+
+- `GET /api/admin/other-officials/arenas-totals` — derives arena totals from the current bodies and locals data
+- `GET /api/admin/other-officials/faction-allocations?arena_type=&arena_id=&party_slug=` — read allocations
+- `POST /api/admin/other-officials/faction-allocations` — create an allocation
+- `PATCH /api/admin/other-officials/faction-allocations/:id` — update an allocation
+- `DELETE /api/admin/other-officials/faction-allocations/:id` — remove an allocation
 
 ---
 
@@ -808,7 +866,7 @@ Node's built-in test runner is used:
 node --test server/*.test.js
 ```
 
-Three unit test files cover core server-side modules without requiring a live database or Discourse instance:
+Unit test files cover core server-side modules without requiring a live database or Discourse instance:
 
 | File | Coverage |
 |------|---------|
@@ -816,6 +874,11 @@ Three unit test files cover core server-side modules without requiring a live da
 | `server/discourse.test.js` | DiscourseConnect SSO helpers — HMAC verification, payload building, group management |
 | `server/roles.test.js` | `computeDiscourseGroups`, `partyRoleForPartyName`, `computeApprovalRolesToAdd`, `officeRoleFromSpecId` |
 | `server/state-contracts.test.js` | `assertSnapshotDerivedTable()`, `stripRelationalKeys()` — state-ownership boundary enforcement |
+| `server/service-modules.test.js` | `political-state-service.js` and `division-helpers.js` (34 tests) |
+| `server/identity-hardening.test.js` | Immutable identity authority checks (21 tests) |
+| `server/recompute-helpers.test.js` | `fireRecompute`/`awaitedRecompute` observability helpers |
+| `server/rbac-helpers.test.js` | RBAC guard helper utilities |
+| `server/parliamentary-political-state.integration.test.js` | Pure (no-DB) political-state correctness tests |
 
 ### Integration Tests
 
@@ -823,9 +886,13 @@ Integration tests require a live PostgreSQL test database. They run against a de
 
 ```bash
 # Must be run SEPARATELY — each file calls pool.end() in after()
-node --test server/parliamentary.integration.test.js
-node --test server/factions.integration.test.js
-node --test server/finance-parliament.integration.test.js
+NODE_ENV=test node --test server/parliamentary.integration.test.js
+NODE_ENV=test node --test server/factions.integration.test.js
+NODE_ENV=test node --test server/finance-parliament.integration.test.js
+NODE_ENV=test node --test server/party-treasury.integration.test.js
+NODE_ENV=test node --test server/guides-seed.test.js
+NODE_ENV=test node --test server/seed-1997.integration.test.js
+NODE_ENV=test node --test server/support.integration.test.js
 ```
 
 **Do not run multiple integration test files in a single `node --test` invocation.** Each file calls `pool.end()` in its `after()` hook, which terminates the shared connection pool and causes cross-contamination.
@@ -835,6 +902,10 @@ node --test server/finance-parliament.integration.test.js
 | `server/parliamentary.integration.test.js` | Bill lifecycle, amendments, divisions, whipping, rebellions, political state triggers |
 | `server/factions.integration.test.js` | Faction CRUD, allocation guards, `computeFactionPoliticalState()`, `getPartyFactionClimate()` |
 | `server/finance-parliament.integration.test.js` | Finance config, salary bands, character finance, party finance |
+| `server/party-treasury.integration.test.js` | Party treasury, `party_donations` ledger, idempotent fundraising/membership credits |
+| `server/guides-seed.test.js` | `seedPredefinedGuides()` idempotency, ordering, insert/update behaviour |
+| `server/seed-1997.integration.test.js` | Bodies and locals 1997 seed endpoint, merge vs force behaviour, validation |
+| `server/support.integration.test.js` | Support ticket and message lifecycle, status transitions, unread tracking |
 
 **Test schema note:** `createTestSchema()` creates a minimal subset of the production schema. Some production-only constraints (e.g., `CHECK (momentum IN ('rising','stable','falling'))` on `faction_political_state`) are not replicated. Tests and production schemas are not identical.
 
@@ -879,7 +950,7 @@ node --test tests/api/*.spec.js
 Runs on every push and pull request:
 1. `node scripts/static-checks.js` — static analysis
 2. `node scripts/audit/feature-manifest.js` — RBAC/write-path audit
-3. `node --test server/clock.test.js server/discourse.test.js server/roles.test.js server/state-contracts.test.js` — server unit tests
+3. `node --test server/clock.test.js server/discourse.test.js server/roles.test.js server/state-contracts.test.js server/service-modules.test.js server/identity-hardening.test.js server/recompute-helpers.test.js server/rbac-helpers.test.js` — server unit tests
 4. Uploads `scripts/audit/rbac-matrix.json` as a workflow artefact (retained 30 days)
 
 Integration tests are not run in CI (require a live database). Run them manually before significant releases.
@@ -1129,7 +1200,7 @@ A content wipe clears: `bills`, `motions`, `statements`, `regulations`, `questio
 
 - **No real-time push.** There is no WebSocket or SSE layer. Pages must be manually refreshed to see new content from other players.
 - **Single-process server.** The Express server is stateless per request but uses in-memory state for the Discourse sync debounce timer and CSRF tokens. Running multiple instances without a shared store would break these.
-- **Monolithic `server/index.js`.** At ~20,000+ lines, the file is difficult to navigate. There is no internal module decomposition beyond the imported helper files.
+- **Monolithic `server/index.js`.** At ~21,000+ lines, the file is large. Several service modules have been extracted (`political-state-service.js`, `division-helpers.js`, `finance-service.js`, `recompute-helpers.js`, `guides-seed.js`) but the majority of routes remain in the main file.
 - **Manual sim clock ticking.** The sim clock does not advance automatically. An admin must trigger ticks via the Admin Panel or API.
 - **`parsePaginationParams` NaN edge case (untracked bug).** When a non-numeric string is passed as `?limit` or `?offset`, `parseInt("abc", 10)` returns `NaN`, which propagates through `Math.min`/`Math.max`. This affects `GET /api/admin/characters/applications`, `GET /api/civil-service/briefings`, and `GET /api/civil-service/cases`. A fix would add explicit `isNaN` guards in `parsePaginationParams` before the min/max clamp.
 - **Concurrent discourse sync race.** The manual `POST /api/admin/discourse-sync-groups` endpoint uses `setImmediate` (not the debounce timer), which can cause concurrent sync jobs if `enqueueDiscourseGroupSync()` fires while that job is queued.
