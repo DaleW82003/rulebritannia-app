@@ -5,7 +5,7 @@ import { countdownToSimMonth } from "../clock.js";
 import { errorTileHTML } from "../errors.js";
 import { apiGetBills } from "../api.js";
 import { apiGetMotions, apiGetStatements, apiGetRegulations, apiGetPressItems, apiGetEvents } from "../api.js";
-import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData, apiGetQtLegacyQuestions, apiGetGovernmentEvents, apiGetElections, apiGetMyPoliticalState } from "../api.js";
+import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData, apiGetQtLegacyQuestions, apiGetGovernmentEvents, apiGetElections } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 
 // js/pages/dashboard.js
@@ -636,63 +636,6 @@ function getDebateUrl(bill) {
   return bill?.debate?.topicUrl || bill?.discourse_topic_url || bill?.discourseTopicUrl || bill?.debateUrl || bill?.discourseUrl || null;
 }
 
-function renderPoliticalCapitalSummary(ps) {
-  const root = $("political-capital-summary");
-  if (!root) return;
-
-  if (!ps) {
-    root.innerHTML = `<div class="muted-block">No active character — political capital unavailable.</div>`;
-    return;
-  }
-
-  const momentumIcon = ps.momentum === "rising" ? "📈" : ps.momentum === "falling" ? "📉" : "➡️";
-  const momentumColor = ps.momentum === "rising" ? "#0a7f2e" : ps.momentum === "falling" ? "#c00" : "inherit";
-  const repColors = { excellent: "#0a5a8a", good: "#0a7f2e", neutral: "inherit", poor: "#b06000", damaged: "#c00" };
-  const repColor = repColors[ps.reputation] || "inherit";
-  const repLabel = { excellent: "Excellent", good: "Good", neutral: "Neutral", poor: "Poor", damaged: "Damaged" }[ps.reputation] || (ps.reputation || "—");
-
-  const capital = Math.round(Number(ps.capital_current ?? 0));
-  const trend   = Number(ps.capital_trend ?? 0);
-  const majorDrop = trend <= -10;
-
-  // Identify the highest pressure channel for the warning alert
-  const channels = [
-    { label: "Party",         value: Number(ps.party_pressure        ?? 0) },
-    { label: "Constituency",  value: Number(ps.constituency_pressure ?? 0) },
-    { label: "Media",         value: Number(ps.media_pressure        ?? 0) },
-    { label: "Group",         value: Number(ps.group_pressure        ?? 0) },
-    { label: "Institutional", value: Number(ps.institutional_pressure ?? 0) },
-  ];
-  const topChannel = channels.reduce((a, b) => a.value >= b.value ? a : b, { label: "", value: 0 });
-  const showPressureAlert = topChannel.value >= 50;
-  const pressureAlertColor = topChannel.value >= 75 ? "#8b0000" : "#c00";
-
-  // Rebellion / scandal risk alerts
-  const rebellionRisk = Math.round(Number(ps.rebellion_risk ?? 0));
-  const scandalRisk   = Math.round(Number(ps.scandal_risk   ?? 0));
-
-  root.innerHTML = `
-    <div style="display:flex;flex-wrap:wrap;gap:14px 24px;align-items:center;">
-      <div><b>Capital:</b> <span style="font-size:1.1em;font-weight:600;">${capital}</span></div>
-      <div><b>Trend:</b> <span style="color:${momentumColor};">${momentumIcon} ${trend >= 0 ? "+" : ""}${Math.round(trend)}</span></div>
-      <div><b>Momentum:</b> <span style="color:${momentumColor};text-transform:capitalize;">${esc(ps.momentum)}</span></div>
-      <div><b>Reputation:</b> <span style="color:${repColor};">${esc(repLabel)}</span></div>
-      <div><a class="btn" href="personal.html">Full breakdown</a></div>
-    </div>
-    ${majorDrop ? `<div style="color:#c00;margin-top:8px;font-weight:500;">⚠️ Major recent drop in political capital (${Math.round(trend)} this period).</div>` : ""}
-    ${showPressureAlert ? `<div style="color:${pressureAlertColor};margin-top:8px;font-weight:500;">⚠️ ${esc(topChannel.label)} pressure is ${topChannel.value >= 75 ? "critical" : "high"} (${Math.round(topChannel.value)}/100) — <a href="personal.html">view full pressure profile</a>.</div>` : ""}
-    ${rebellionRisk >= 50 ? `<div style="color:#c00;margin-top:6px;font-size:.9em;">🔴 Rebellion risk elevated (${rebellionRisk}/100).</div>` : ""}
-    ${scandalRisk >= 50 ? `<div style="color:#c00;margin-top:6px;font-size:.9em;">🔴 Scandal risk elevated (${scandalRisk}/100).</div>` : ""}
-    ${ps.faction_climate && ps.faction_climate.climateLabel !== "stable" && ps.faction_climate.climateLabel !== "unified" ? (() => {
-      const fc = ps.faction_climate;
-      const CLIMATE_COLOURS = { tense: "#e65100", fractious: "#b71c1c" };
-      const col = CLIMATE_COLOURS[fc.climateLabel] || "#555";
-      const label = fc.climateLabel.charAt(0).toUpperCase() + fc.climateLabel.slice(1);
-      return `<div style="color:${col};margin-top:6px;font-size:.9em;">⚠️ Party climate is <b>${esc(label)}</b> — hostile factions adding +${fc.partyPressureModifier.toFixed(1)} to party pressure. <a href="party.html">View party page</a>.</div>`;
-    })() : ""}
-  `;
-}
-
 function renderOrderPaper(data) {
   const root = $("order-paper");
   if (!root) return;
@@ -854,22 +797,4 @@ export async function initDashboardPage(data) {
       root.innerHTML = errorTileHTML(err, `Could not load ${label}`);
     }
   });
-
-  // Political capital summary — loaded independently, non-blocking
-  if (isLoggedIn()) {
-    apiGetMyPoliticalState().then(({ politicalState }) => {
-      try {
-        renderPoliticalCapitalSummary(politicalState ?? null);
-      } catch (err) {
-        console.error("[dashboard:political-capital]", err);
-      }
-    }).catch((err) => {
-      console.error("[dashboard] political-capital load failed", err);
-      const root = $("political-capital-summary");
-      if (root) root.innerHTML = `<div class="muted-block">Political capital unavailable.</div>`;
-    });
-  } else {
-    const root = $("political-capital-summary");
-    if (root) root.innerHTML = `<div class="muted-block">Log in to see your political capital.</div>`;
-  }
 }
