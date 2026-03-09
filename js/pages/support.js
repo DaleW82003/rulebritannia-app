@@ -39,6 +39,7 @@ export async function initSupportPage(_data, _user) {
   let selectedTicketId = null;
   let pollTimer = null;
   let lastKnownUnreadIds = new Set();
+  let hasLoaded = false; // true after the first ticket-list fetch completes
 
   // ── Render shell ───────────────────────────────────────────────────────────
   root.innerHTML = `
@@ -132,6 +133,7 @@ export async function initSupportPage(_data, _user) {
       tickets = result.tickets || [];
       renderTicketList();
       checkForNewUnreads();
+      hasLoaded = true;
     } catch (err) {
       root.querySelector("#support-ticket-list").innerHTML =
         `<li class="support-error">Failed to load tickets: ${esc(err.message)}</li>`;
@@ -154,6 +156,12 @@ export async function initSupportPage(_data, _user) {
     list.innerHTML = tickets.map((t) => renderTicketListItem(t)).join("");
     list.querySelectorAll(".support-ticket-item").forEach((item) => {
       item.addEventListener("click", () => selectTicket(item.dataset.id));
+      item.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          selectTicket(item.dataset.id);
+        }
+      });
     });
   }
 
@@ -345,9 +353,12 @@ export async function initSupportPage(_data, _user) {
 
   function checkForNewUnreads() {
     const unreadIds = new Set(tickets.filter((t) => t.unread).map((t) => t.id));
-    const newOnes = [...unreadIds].filter((id) => !lastKnownUnreadIds.has(id));
-    if (newOnes.length && lastKnownUnreadIds.size > 0) {
-      // Only show notification after first load (so we don't spam on page open)
+    // Exclude the ticket the user is currently reading — it's already visible.
+    const newOnes = [...unreadIds].filter(
+      (id) => !lastKnownUnreadIds.has(id) && id !== selectedTicketId
+    );
+    // Only notify after the first load so we don't spam on page open.
+    if (hasLoaded && newOnes.length) {
       toast(`You have ${newOnes.length} new unread message${newOnes.length > 1 ? "s" : ""} in Support.`, "info");
     }
     lastKnownUnreadIds = unreadIds;
