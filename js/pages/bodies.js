@@ -12,8 +12,8 @@ const BODY_ORDER = [
 ];
 
 const BODY_DEFAULTS = [
-  { id: "lords", name: "House of Lords", type: "standard", desc: "The upper chamber of the UK Parliament.", visible: true, totalSeats: 800, parties: [], controlType: "majority", controlParty: "" },
-  { id: "europarl", name: "European Parliament", type: "standard", desc: "The directly elected legislature of the European Union.", visible: true, totalSeats: 87, parties: [], controlType: "majority", controlParty: "" },
+  { id: "lords", name: "House of Lords", type: "standard", desc: "The upper chamber of the UK Parliament.", visible: true, totalSeats: 800, parties: [] },
+  { id: "europarl", name: "European Parliament", type: "standard", desc: "The directly elected legislature of the European Union.", visible: true, totalSeats: 87, parties: [] },
   { id: "scottish-parliament", name: "Scottish Parliament", type: "standard", desc: "The devolved legislature for Scotland.", visible: true, totalSeats: 129, parties: [], controlType: "majority", controlParty: "" },
   { id: "welsh-assembly", name: "Welsh Assembly (Senedd)", type: "standard", desc: "The devolved legislature for Wales.", visible: true, totalSeats: 60, parties: [], controlType: "majority", controlParty: "" },
   { id: "ni-assembly", name: "Northern Irish Assembly", type: "standard", desc: "The devolved legislature for Northern Ireland.", visible: true, totalSeats: 108, parties: [], controlType: "minority", controlParty: "" },
@@ -23,8 +23,13 @@ const BODY_DEFAULTS = [
 const OTHERS_PARTY = "Others";
 const MAYOR_OTHER_VALUE = "__OTHER__";
 
+// Bodies for which "Control" (controlling party / control type) is not applicable.
+// Control is only relevant to devolved legislatures; these bodies are always hung
+// or are supra-national (European Parliament) and must never show a Control row.
+const NO_CONTROL_BODIES = new Set(["lords", "europarl"]);
+
 const BODY_PARTY_SCHEMA = {
-  lords: { mode: "fixed", parties: ["Conservative", "Labour", "Liberal Democrat", "SNP", "Plaid Cymru", "Green", "UKIP", "DUP", "Sinn Fein", "SDLP", "Alliance", "TP", "UUP", "Independents"] },
+  lords: { mode: "fixed", parties: ["Conservative", "Labour", "Liberal Democrat", "Crossbenchers", "Lords Spiritual", "Law Lords", "Independents"] },
   europarl: { mode: "fixed", parties: ["Conservative", "Labour", "Liberal Democrat", "SNP", "Plaid Cymru", "Green", "UKIP", "DUP", "Sinn Fein", "SDLP", "Alliance", "TP", "UUP", "Independents"] },
   "scottish-parliament": { mode: "fixed", parties: ["Conservative", "Labour", "Liberal Democrat", "SNP", "Green", "UKIP", "Independents"] },
   "welsh-assembly": { mode: "fixed", parties: ["Conservative", "Labour", "Liberal Democrat", "Plaid Cymru", "Green", "UKIP", "Independents"] },
@@ -113,13 +118,25 @@ function getBodyPartyList(bodyId, commonsParties) {
 
 function normalizeBodyParties(body, canonicalParties) {
   const canonical = new Set(canonicalParties);
-  const sourceParties = Array.isArray(body?.parties) && body.parties.length > 0
-    ? body.parties
-    : Array.isArray(body?.partyBreakdown)
+  let sourceParties;
+  if (Array.isArray(body?.parties) && body.parties.length > 0) {
+    // Use existing normalized parties (e.g. right after an in-memory editor edit).
+    sourceParties = body.parties;
+  } else if (Array.isArray(body?.partyBreakdown) || Array.isArray(body?.compositionBreakdown)) {
+    // Rebuild from server breakdown data. Composition entries (e.g. Lords Spiritual,
+    // Law Lords, Crossbenchers) come first so party entries can override if names clash.
+    const compositionEntries = Array.isArray(body?.compositionBreakdown)
+      ? body.compositionBreakdown.map((p) => ({ name: p?.name || "", seats: p?.seats || 0 }))
+      : [];
+    const partyEntries = Array.isArray(body?.partyBreakdown)
       ? body.partyBreakdown.map((p) => ({ name: p?.name || p?.party || "", seats: p?.seats || 0 }))
-      : typeof body?.parties === "string"
-        ? parseLegacyPartyText(body.parties)
-        : [];
+      : [];
+    sourceParties = [...compositionEntries, ...partyEntries];
+  } else if (typeof body?.parties === "string") {
+    sourceParties = parseLegacyPartyText(body.parties);
+  } else {
+    sourceParties = [];
+  }
   const totals = new Map(canonicalParties.map((name) => [name, 0]));
   let others = 0;
 
@@ -189,7 +206,7 @@ function renderBodyTile(body) {
       <div class="body-desc">${esc(body.desc || "")}</div>
       <div class="muted-block" style="margin-top:10px;">
         <div class="kv"><span>Total Seats</span><b>${Number(body.totalSeats || 0)}</b></div>
-        <div class="kv"><span>Control</span><b>${esc(labelControl(body.controlType))} — ${esc(body.controlParty || "—")}</b></div>
+        ${!NO_CONTROL_BODIES.has(body.id) ? `<div class="kv"><span>Control</span><b>${esc(labelControl(body.controlType))} — ${esc(body.controlParty || "—")}</b></div>` : ""}
         ${partyRows || `<div class="muted">No seat breakdown configured.</div>`}
       </div>
     </article>
@@ -284,6 +301,7 @@ function renderBodyEditorRow(body, editingId, data) {
         <label>Total Seats</label>
         <input type="number" name="totalSeats" value="${esc(String(body.totalSeats || 0))}" min="0" max="9999">
 
+        ${!NO_CONTROL_BODIES.has(body.id) ? `
         <label>Control Type</label>
         <select name="controlType">
           <option value="majority" ${body.controlType === "majority" ? "selected" : ""}>Majority</option>
@@ -293,6 +311,7 @@ function renderBodyEditorRow(body, editingId, data) {
 
         <label>Governing Party/Parties</label>
         <input type="text" name="controlParty" value="${esc(body.controlParty || "")}" placeholder="Party name(s)">
+        ` : ""}
 
         <label>Seat Breakdown</label>
         <div>
@@ -357,8 +376,13 @@ function bindControlPanelEvents(data, state) {
       ensureBodyDefaults(data);
       for (const b of (bodiesRes?.bodies || [])) {
         const idx = data.bodies.list.findIndex((x) => x.id === b.id);
-        if (idx >= 0) Object.assign(data.bodies.list[idx], b);
-        else data.bodies.list.push(b);
+        if (idx >= 0) {
+          Object.assign(data.bodies.list[idx], b);
+          // Clear stale normalized parties so normalization uses fresh server breakdown.
+          data.bodies.list[idx].parties = [];
+        } else {
+          data.bodies.list.push(b);
+        }
       }
       data.locals = localsRes || { countries: [] };
       normalizeAllStandardBodies(data);
@@ -385,8 +409,13 @@ function bindControlPanelEvents(data, state) {
       ensureBodyDefaults(data);
       for (const b of (bodiesRes?.bodies || [])) {
         const idx = data.bodies.list.findIndex((x) => x.id === b.id);
-        if (idx >= 0) Object.assign(data.bodies.list[idx], b);
-        else data.bodies.list.push(b);
+        if (idx >= 0) {
+          Object.assign(data.bodies.list[idx], b);
+          // Clear stale normalized parties so normalization uses fresh server breakdown.
+          data.bodies.list[idx].parties = [];
+        } else {
+          data.bodies.list.push(b);
+        }
       }
       data.locals = localsRes || { countries: [] };
       normalizeAllStandardBodies(data);
@@ -456,8 +485,13 @@ function bindControlPanelEvents(data, state) {
         }).filter((m) => m.mayoralty || m.name || m.party);
       } else {
         body.totalSeats = Number(fd.get("totalSeats") || 0);
-        body.controlType = String(fd.get("controlType") || "majority");
-        body.controlParty = String(fd.get("controlParty") || "").trim();
+        if (NO_CONTROL_BODIES.has(bodyId)) {
+          delete body.controlType;
+          delete body.controlParty;
+        } else {
+          body.controlType = String(fd.get("controlType") || "majority");
+          body.controlParty = String(fd.get("controlParty") || "").trim();
+        }
         const rows = [
           ...(body.parties || []),
           { name: OTHERS_PARTY, seats: Number(body.othersSeats || 0) }
@@ -510,8 +544,13 @@ export async function initBodiesPage(data) {
       data.bodies = data.bodies || { list: [] };
       for (const b of r.bodies) {
         const idx = data.bodies.list.findIndex((x) => x.id === b.id);
-        if (idx >= 0) Object.assign(data.bodies.list[idx], b);
-        else data.bodies.list.push(b);
+        if (idx >= 0) {
+          Object.assign(data.bodies.list[idx], b);
+          // Clear stale normalized parties so normalization uses fresh server breakdown.
+          data.bodies.list[idx].parties = [];
+        } else {
+          data.bodies.list.push(b);
+        }
       }
     }
   } catch (err) {
