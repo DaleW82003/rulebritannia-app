@@ -17,6 +17,7 @@ import {
   apiGetModsMessage, apiSetModsMessage,
   apiGetAdminPartyFactions, apiCreatePartyFaction, apiUpdatePartyFaction, apiUpdatePartyFactionAllocation,
   apiAdminSeed1997Factions,
+  apiGetOtherOfficialsArenasTotals, apiGetOtherOfficialsFactionAllocations, apiPutOtherOfficialsFactionAllocations,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -385,6 +386,13 @@ export async function initControlPanelPage(data) {
       <summary style="cursor:pointer;"><b>Party Faction Management <span class="mod-badge">Mod / Admin</span></b></summary>
       <div style="margin-top:10px;" id="cp-factions-root">
         <div class="muted-block">Loading faction data…</div>
+      </div>
+    </details>
+
+    <details class="tile" style="margin-bottom:10px;">
+      <summary style="cursor:pointer;"><b>Other Officials Faction Allocations <span class="mod-badge">Mod / Admin</span></b></summary>
+      <div style="margin-top:10px;" id="cp-other-officials-root">
+        <div class="muted-block">Loading arena totals…</div>
       </div>
     </details>
     ` : ""}
@@ -1189,4 +1197,132 @@ export async function initControlPanelPage(data) {
       }
     });
   }
+  // ── Other Officials Faction Allocations ───────────────────────────────────
+  const otherOfficialsRoot = canEdit ? rolePanels.querySelector("#cp-other-officials-root") : null;
+  if (otherOfficialsRoot) {
+    const PLAYABLE_PARTIES = ["Labour", "Conservative", "Liberal Democrat"];
+
+    let arenaOptions = [];
+    let selectedArenaKey = "";
+    let selectedParty = PLAYABLE_PARTIES[0];
+
+    function renderOtherOfficialsShell() {
+      const optionsHtml = arenaOptions.map((a) => {
+        const key = `${a.arenaType}:${a.arenaId}`;
+        return `<option value="${esc(key)}">${esc(a.label)} (${esc(a.arenaType)})</option>`;
+      }).join("");
+      otherOfficialsRoot.innerHTML = `
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+          <label style="min-width:280px;display:flex;flex-direction:column;gap:4px;">
+            <span class="label" style="font-size:.85em;">Arena</span>
+            <select class="input" id="cp-other-officials-arena">${optionsHtml}</select>
+          </label>
+          <label style="min-width:220px;display:flex;flex-direction:column;gap:4px;">
+            <span class="label" style="font-size:.85em;">Party</span>
+            <select class="input" id="cp-other-officials-party">
+              ${PLAYABLE_PARTIES.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("")}
+            </select>
+          </label>
+          <button class="btn" type="button" id="cp-other-officials-load">Load</button>
+          <span id="cp-other-officials-status" style="font-size:.85em;"></span>
+        </div>
+        <div id="cp-other-officials-form" style="margin-top:10px;"></div>
+      `;
+
+      const arenaSel = otherOfficialsRoot.querySelector("#cp-other-officials-arena");
+      const partySel = otherOfficialsRoot.querySelector("#cp-other-officials-party");
+      if (arenaSel && selectedArenaKey) arenaSel.value = selectedArenaKey;
+      if (partySel) partySel.value = selectedParty;
+
+      otherOfficialsRoot.querySelector("#cp-other-officials-load")?.addEventListener("click", () => loadOtherOfficialsAllocations());
+    }
+
+    async function loadOtherOfficialsAllocations() {
+      const statusEl = otherOfficialsRoot.querySelector("#cp-other-officials-status");
+      const formEl = otherOfficialsRoot.querySelector("#cp-other-officials-form");
+      const arenaSel = otherOfficialsRoot.querySelector("#cp-other-officials-arena");
+      const partySel = otherOfficialsRoot.querySelector("#cp-other-officials-party");
+      selectedArenaKey = String(arenaSel?.value || "");
+      selectedParty = String(partySel?.value || PLAYABLE_PARTIES[0]);
+      if (!selectedArenaKey) return;
+      const [arena_type, ...rest] = selectedArenaKey.split(":");
+      const arena_id = rest.join(":");
+
+      if (statusEl) { statusEl.style.color = ""; statusEl.textContent = "Loading…"; }
+      if (formEl) formEl.innerHTML = '<div class="muted-block">Loading allocations…</div>';
+      try {
+        const data = await apiGetOtherOfficialsFactionAllocations(arena_type, arena_id, selectedParty);
+        const rows = (data.factions || []).map((f) => `
+          <div class="tile" data-faction-id="${esc(f.id)}" style="padding:8px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <div><b>${esc(f.name)}</b> <span class="muted">(${esc(f.slug)})</span></div>
+            <input class="input" type="number" min="0" step="1" data-field="officialCount" value="${esc(String(f.officialCount ?? 0))}" style="width:110px;">
+          </div>
+        `).join("");
+        if (formEl) {
+          formEl.innerHTML = `
+            <div class="muted" style="margin-bottom:8px;">
+              Party total in arena: <b>${esc(String(data.partyTotalInArena || 0))}</b> ·
+              Allocated: <b id="cp-other-officials-allocated">${esc(String(data.allocatedOfficials || 0))}</b> ·
+              Unallocated remainder: <b id="cp-other-officials-remainder">${esc(String(data.unallocatedOfficials || 0))}</b>
+            </div>
+            <div id="cp-other-officials-rows">${rows || '<div class="muted-block">No active factions found for this party.</div>'}</div>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+              <button class="btn primary" type="button" id="cp-other-officials-save">Save allocations</button>
+              <span id="cp-other-officials-save-status" style="font-size:.85em;"></span>
+            </div>
+          `;
+        }
+
+        const recalc = () => {
+          const inputs = Array.from(otherOfficialsRoot.querySelectorAll('[data-field="officialCount"]'));
+          const total = inputs.reduce((s, el) => s + Math.max(0, Number(el.value || 0)), 0);
+          const rem = Math.max(0, Number(data.partyTotalInArena || 0) - total);
+          const allocatedEl = otherOfficialsRoot.querySelector("#cp-other-officials-allocated");
+          const remEl = otherOfficialsRoot.querySelector("#cp-other-officials-remainder");
+          if (allocatedEl) allocatedEl.textContent = String(total);
+          if (remEl) remEl.textContent = String(rem);
+        };
+        otherOfficialsRoot.querySelectorAll('[data-field="officialCount"]').forEach((i) => i.addEventListener("input", recalc));
+
+        otherOfficialsRoot.querySelector("#cp-other-officials-save")?.addEventListener("click", async () => {
+          const saveStatus = otherOfficialsRoot.querySelector("#cp-other-officials-save-status");
+          const payloadRows = Array.from(otherOfficialsRoot.querySelectorAll('[data-faction-id]')).map((row) => ({
+            faction_id: row.getAttribute("data-faction-id"),
+            official_count: Math.max(0, Number(row.querySelector('[data-field="officialCount"]')?.value || 0)),
+          }));
+          const sum = payloadRows.reduce((s, r) => s + r.official_count, 0);
+          if (sum > Number(data.partyTotalInArena || 0)) {
+            if (saveStatus) { saveStatus.style.color = "var(--danger,#c00)"; saveStatus.textContent = `✗ Allocation exceeds total (${data.partyTotalInArena}).`; }
+            return;
+          }
+          try {
+            if (saveStatus) { saveStatus.style.color = ""; saveStatus.textContent = "Saving…"; }
+            await apiPutOtherOfficialsFactionAllocations({ arena_type, arena_id, party_slug: selectedParty, allocations: payloadRows });
+            if (saveStatus) { saveStatus.style.color = "var(--success,green)"; saveStatus.textContent = "✓ Saved."; }
+            await loadOtherOfficialsAllocations();
+          } catch (err) {
+            if (saveStatus) { saveStatus.style.color = "var(--danger,#c00)"; saveStatus.textContent = `✗ ${err.message}`; }
+          }
+        });
+
+        if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "Loaded."; }
+      } catch (err) {
+        if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = `Error: ${err.message}`; }
+        if (formEl) formEl.innerHTML = '<div class="muted-block">Failed to load allocations.</div>';
+      }
+    }
+
+    (async () => {
+      try {
+        const totals = await apiGetOtherOfficialsArenasTotals();
+        arenaOptions = Array.isArray(totals.contributingArenas) ? totals.contributingArenas : [];
+        selectedArenaKey = arenaOptions[0] ? `${arenaOptions[0].arenaType}:${arenaOptions[0].arenaId}` : "";
+        renderOtherOfficialsShell();
+        if (selectedArenaKey) await loadOtherOfficialsAllocations();
+      } catch (err) {
+        otherOfficialsRoot.innerHTML = `<div class="muted-block">Could not load other-official arenas: ${esc(err.message)}</div>`;
+      }
+    })();
+  }
+
 }

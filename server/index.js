@@ -2140,6 +2140,21 @@ async function ensureSchema() {
       updated_by      TEXT NOT NULL DEFAULT '',
       updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS other_officials_faction_allocations (
+      arena_type     TEXT NOT NULL CHECK (arena_type IN ('body','locals')),
+      arena_id       TEXT NOT NULL,
+      party_slug     TEXT NOT NULL CHECK (party_slug IN ('Labour','Conservative','Liberal Democrat')),
+      faction_id     UUID NOT NULL REFERENCES party_factions(id) ON DELETE CASCADE,
+      official_count INTEGER NOT NULL DEFAULT 0 CHECK (official_count >= 0),
+      updated_by     TEXT NOT NULL DEFAULT '',
+      updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (arena_type, arena_id, party_slug, faction_id)
+    );
+    CREATE INDEX IF NOT EXISTS other_officials_faction_allocations_party_idx
+      ON other_officials_faction_allocations (party_slug);
+    CREATE INDEX IF NOT EXISTS other_officials_faction_allocations_arena_idx
+      ON other_officials_faction_allocations (arena_type, arena_id);
   `);
 
   // ── Character live faction membership (separate from affiliations) ───────
@@ -21242,6 +21257,82 @@ async function ensureUnalignedFactionsForPlayableParties() {
   }
 }
 
+const OTHER_OFFICIALS_ARENA_TYPES = new Set(["body", "locals"]);
+
+function emptyPlayablePartyTotals() {
+  return { Labour: 0, Conservative: 0, "Liberal Democrat": 0 };
+}
+
+function buildPlayablePartyTotalsFromRows(rows, fieldName) {
+  const totals = emptyPlayablePartyTotals();
+  const safeRows = Array.isArray(rows) ? rows : [];
+  for (const row of safeRows) {
+    const party = String(row?.party || "");
+    if (!FACTION_PLAYABLE_PARTIES.includes(party)) continue;
+    const parsed = Number(row?.[fieldName]);
+    totals[party] = Number.isFinite(parsed) ? parsed : 0;
+  }
+  return totals;
+}
+
+async function getOtherOfficialsTotalsForPlayableParties() {
+  const [bodyRowsResult, localsResult] = await Promise.all([
+    pool.query("SELECT id, data FROM bodies_data ORDER BY sort_order ASC, id ASC"),
+    pool.query("SELECT value FROM app_config WHERE key = 'locals_data'"),
+  ]);
+
+  const totalsByArena = {};
+  const contributingArenas = [];
+
+  for (const row of bodyRowsResult.rows) {
+    const body = row?.data || {};
+    if (!body?.visible) continue;
+    const bodyId = String(row?.id || body?.id || "").trim();
+    if (!bodyId) continue;
+
+    let totals = emptyPlayablePartyTotals();
+    if (bodyId === "directly-elected-mayors") {
+      // for DEM each mayor is exactly one official
+      const mayors = Array.isArray(body?.mayors) ? body.mayors : [];
+      totals = emptyPlayablePartyTotals();
+      for (const mayor of mayors) {
+        const party = String(mayor?.party || "");
+        if (!FACTION_PLAYABLE_PARTIES.includes(party)) continue;
+        totals[party] += 1;
+      }
+    } else {
+      totals = buildPlayablePartyTotalsFromRows(body?.partyBreakdown, "seats");
+    }
+
+    const arenaKey = `body:${bodyId}`;
+    totalsByArena[arenaKey] = totals;
+    contributingArenas.push({
+      arenaType: "body",
+      arenaId: bodyId,
+      label: body?.title || body?.name || bodyId,
+      visible: true,
+    });
+  }
+
+  const localsData = localsResult.rows[0]?.value || {};
+  const countries = Array.isArray(localsData?.countries) ? localsData.countries : [];
+  for (const countryRow of countries) {
+    const country = String(countryRow?.country || "").trim();
+    if (!country) continue;
+    const totals = buildPlayablePartyTotalsFromRows(countryRow?.partyBreakdown, "councillors");
+    const arenaKey = `locals:${country}`;
+    totalsByArena[arenaKey] = totals;
+    contributingArenas.push({
+      arenaType: "locals",
+      arenaId: country,
+      label: country,
+      visible: true,
+    });
+  }
+
+  return { totalsByArena, contributingArenas };
+}
+
 async function getCurrentSimYear() {
   const { rows } = await pool.query("SELECT sim_current_year FROM sim_clock WHERE id = 'main'");
   return Number(rows[0]?.sim_current_year ?? 1997);
@@ -21370,6 +21461,189 @@ app.get("/api/admin/parties/:slug/factions", crudReadLimit, async (req, res) => 
   } catch (e) {
     console.error("[GET /api/admin/parties/:slug/factions]", e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/admin/other-officials/arenas-totals
+app.get("/api/admin/other-officials/arenas-totals", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const totals = await getOtherOfficialsTotalsForPlayableParties();
+    res.json({ ok: true, ...totals });
+  } catch (e) {
+    console.error("[GET /api/admin/other-officials/arenas-totals]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/admin/other-officials/faction-allocations?arena_type=...&arena_id=...&party_slug=...
+app.get("/api/admin/other-officials/faction-allocations", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const arenaType = String(req.query?.arena_type || "").trim();
+    const arenaId = String(req.query?.arena_id || "").trim();
+    const partySlug = String(req.query?.party_slug || "").trim();
+
+    if (!OTHER_OFFICIALS_ARENA_TYPES.has(arenaType)) {
+      return res.status(400).json({ error: "arena_type must be body or locals" });
+    }
+    if (!arenaId) return res.status(400).json({ error: "arena_id is required" });
+    if (!FACTION_PLAYABLE_PARTIES.includes(partySlug)) {
+      return res.status(400).json({ error: `party_slug must be one of: ${FACTION_PLAYABLE_PARTIES.join(", ")}` });
+    }
+
+    await getOrCreateUnalignedFaction(partySlug);
+    const { totalsByArena } = await getOtherOfficialsTotalsForPlayableParties();
+    const partyTotalInArena = Number(totalsByArena[`${arenaType}:${arenaId}`]?.[partySlug] ?? 0);
+
+    const [factionsResult, existingResult] = await Promise.all([
+      pool.query(
+        `SELECT id, slug, name, party_slug, active, display_order
+           FROM party_factions
+          WHERE party_slug = $1 AND active = TRUE
+          ORDER BY display_order ASC, name ASC`,
+        [partySlug]
+      ),
+      pool.query(
+        `SELECT faction_id, official_count, updated_by, updated_at
+           FROM other_officials_faction_allocations
+          WHERE arena_type = $1 AND arena_id = $2 AND party_slug = $3`,
+        [arenaType, arenaId, partySlug]
+      ),
+    ]);
+
+    const existingByFaction = new Map(existingResult.rows.map((r) => [r.faction_id, r]));
+    const factions = factionsResult.rows.map((f) => {
+      const existing = existingByFaction.get(f.id);
+      return {
+        id: f.id,
+        slug: f.slug,
+        name: f.name,
+        partySlug: f.party_slug,
+        active: Boolean(f.active),
+        officialCount: Number(existing?.official_count ?? 0),
+        updatedBy: String(existing?.updated_by || ""),
+        updatedAt: existing?.updated_at || null,
+      };
+    });
+    const allocatedOfficials = factions.reduce((sum, f) => sum + Number(f.officialCount || 0), 0);
+
+    res.json({
+      ok: true,
+      arenaType,
+      arenaId,
+      partySlug,
+      partyTotalInArena,
+      allocatedOfficials,
+      unallocatedOfficials: Math.max(0, partyTotalInArena - allocatedOfficials),
+      factions,
+    });
+  } catch (e) {
+    console.error("[GET /api/admin/other-officials/faction-allocations]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PUT /api/admin/other-officials/faction-allocations
+app.put("/api/admin/other-officials/faction-allocations", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const arenaType = String(req.body?.arena_type || "").trim();
+    const arenaId = String(req.body?.arena_id || "").trim();
+    const partySlug = String(req.body?.party_slug || "").trim();
+    const allocations = Array.isArray(req.body?.allocations) ? req.body.allocations : null;
+
+    if (!OTHER_OFFICIALS_ARENA_TYPES.has(arenaType)) {
+      return res.status(400).json({ error: "arena_type must be body or locals" });
+    }
+    if (!arenaId) return res.status(400).json({ error: "arena_id is required" });
+    if (!FACTION_PLAYABLE_PARTIES.includes(partySlug)) {
+      return res.status(400).json({ error: `party_slug must be one of: ${FACTION_PLAYABLE_PARTIES.join(", ")}` });
+    }
+    if (!allocations) {
+      return res.status(400).json({ error: "allocations must be an array" });
+    }
+
+    await getOrCreateUnalignedFaction(partySlug, client);
+
+    const { totalsByArena } = await getOtherOfficialsTotalsForPlayableParties();
+    const partyTotalInArena = Number(totalsByArena[`${arenaType}:${arenaId}`]?.[partySlug] ?? 0);
+
+    const factionIds = allocations.map((a) => String(a?.faction_id || "").trim()).filter(Boolean);
+    const uniqueFactionIds = Array.from(new Set(factionIds));
+    if (uniqueFactionIds.length !== allocations.length) {
+      return res.status(400).json({ error: "allocations contains duplicate faction_id values" });
+    }
+
+    const parsedAllocations = allocations.map((a) => ({
+      factionId: String(a?.faction_id || "").trim(),
+      officialCount: Number(a?.official_count),
+    }));
+    for (const item of parsedAllocations) {
+      if (!item.factionId) return res.status(400).json({ error: "Each allocation requires faction_id" });
+      if (!Number.isInteger(item.officialCount) || item.officialCount < 0) {
+        return res.status(400).json({ error: "Each official_count must be an integer >= 0" });
+      }
+    }
+    const allocationSum = parsedAllocations.reduce((sum, a) => sum + a.officialCount, 0);
+    if (allocationSum > partyTotalInArena) {
+      return res.status(400).json({ error: `Allocation sum (${allocationSum}) exceeds party total in arena (${partyTotalInArena})` });
+    }
+
+    const { rows: factionRows } = uniqueFactionIds.length
+      ? await client.query(
+          `SELECT id, party_slug, active FROM party_factions WHERE id = ANY($1::uuid[])`,
+          [uniqueFactionIds]
+        )
+      : { rows: [] };
+    if (factionRows.length !== uniqueFactionIds.length) {
+      return res.status(400).json({ error: "One or more faction_id values do not exist" });
+    }
+    for (const row of factionRows) {
+      if (String(row.party_slug) !== partySlug) {
+        return res.status(400).json({ error: "All faction_id values must belong to the selected party" });
+      }
+      if (!row.active) {
+        return res.status(400).json({ error: "All faction_id values must be active" });
+      }
+    }
+
+    await client.query("BEGIN");
+    await client.query(
+      `DELETE FROM other_officials_faction_allocations
+        WHERE arena_type = $1 AND arena_id = $2 AND party_slug = $3`,
+      [arenaType, arenaId, partySlug]
+    );
+    for (const item of parsedAllocations) {
+      await client.query(
+        `INSERT INTO other_officials_faction_allocations
+           (arena_type, arena_id, party_slug, faction_id, official_count, updated_by, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         ON CONFLICT (arena_type, arena_id, party_slug, faction_id)
+         DO UPDATE SET official_count = EXCLUDED.official_count,
+                       updated_by = EXCLUDED.updated_by,
+                       updated_at = NOW()`,
+        [arenaType, arenaId, partySlug, item.factionId, item.officialCount, req.session.userId || ""]
+      );
+    }
+    await client.query("COMMIT");
+
+    res.json({
+      ok: true,
+      arenaType,
+      arenaId,
+      partySlug,
+      partyTotalInArena,
+      allocatedOfficials: allocationSum,
+      unallocatedOfficials: Math.max(0, partyTotalInArena - allocationSum),
+    });
+  } catch (e) {
+    try { await client.query("ROLLBACK"); } catch {}
+    console.error("[PUT /api/admin/other-officials/faction-allocations]", e);
+    res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
   }
 });
 
