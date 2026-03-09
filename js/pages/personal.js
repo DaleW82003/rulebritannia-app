@@ -995,10 +995,6 @@ function render(data, state) {
 
     host.innerHTML = `
       <div class="bbc-masthead"><div class="bbc-title">Your Character</div></div>
-      <section class="panel" style="margin-bottom:12px;">
-        <h2 style="margin-top:0;">Party Faction</h2>
-        <div class="muted-block">No active character selected.</div>
-      </section>
       <section class="panel">
         <h2 style="margin-top:0;">Create Character</h2>
         ${(hasActiveOwned || pendingByCurrent.length > 0) ? `
@@ -1060,9 +1056,9 @@ function render(data, state) {
           const unaligned = factions.find((f) => String(f.slug || "") === "unaligned");
           factionSelect.innerHTML = factions.length
             ? `<option value="">Select faction</option>${factions.map((f) => `<option value="${esc(String(f.id))}" ${unaligned && String(unaligned.id) === String(f.id) ? "selected" : ""}>${esc(f.name)}</option>`).join("")}`
-            : `<option value="">No active factions for ${esc(party)}</option>`;
+            : `<option value="">Factions aren’t enabled for this party (Unaligned only)</option>`;
         } catch {
-          factionSelect.innerHTML = `<option value="">Unable to load factions</option>`;
+          factionSelect.innerHTML = `<option value="">Factions aren’t enabled for this party (Unaligned only)</option>`;
         }
       });
     }

@@ -628,12 +628,9 @@ test("FACTION SWITCH: once per sim year, leadership block, and audit logging", a
   const { factionId: fromFaction } = await seedFaction({ partySlug: "Labour", slug: `from-${Date.now()}` });
   const { factionId: toFaction } = await seedFaction({ partySlug: "Labour", slug: `to-${Date.now()}` });
 
-  await pool.query(
-    `INSERT INTO character_faction_membership (character_id, faction_id, joined_at, updated_at)
-     VALUES ($1, $2, NOW(), NOW())
-     ON CONFLICT (character_id) DO UPDATE SET faction_id = EXCLUDED.faction_id, updated_at = NOW()`,
-    [actor.charId, fromFaction]
-  );
+  const initialFaction = await client.get("/api/me/faction");
+  assert.equal(initialFaction.status, 200, JSON.stringify(initialFaction.body));
+  assert.equal(String(initialFaction.body?.faction?.slug || ""), "unaligned", "missing memberships should auto-seed to Unaligned");
 
   await pool.query("UPDATE sim_clock SET sim_current_year = 2000 WHERE id = 'main'");
 
@@ -649,7 +646,7 @@ test("FACTION SWITCH: once per sim year, leadership block, and audit logging", a
 
   await pool.query(
     `INSERT INTO parties (slug, name, treasury, leader_character_id)
-     VALUES ('labour', 'Labour', '{}'::jsonb, $1)
+     VALUES ('labour', 'Labour Party', '{}'::jsonb, $1)
      ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, leader_character_id = EXCLUDED.leader_character_id`,
     [actor.charId]
   );
