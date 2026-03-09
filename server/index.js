@@ -9849,14 +9849,17 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
       );
       const character = charRows[0];
 
-      // Seed live faction membership from application selection
-      await client.query(
-        `INSERT INTO character_faction_membership (character_id, faction_id, joined_at, updated_at)
-         VALUES ($1, $2, NOW(), NOW())
-         ON CONFLICT (character_id) DO UPDATE
-           SET faction_id = EXCLUDED.faction_id, updated_at = NOW()`,
-        [character.id, approvedFactionId]
-      );
+      // Seed live faction membership only for Commons MPs (characters with a constituency).
+      // Non-MP characters do not participate in the faction system.
+      if (character.constituency && approvedFactionId) {
+        await client.query(
+          `INSERT INTO character_faction_membership (character_id, faction_id, joined_at, updated_at)
+           VALUES ($1, $2, NOW(), NOW())
+           ON CONFLICT (character_id) DO UPDATE
+             SET faction_id = EXCLUDED.faction_id, updated_at = NOW()`,
+          [character.id, approvedFactionId]
+        );
+      }
 
       // Set DB-canonical active character pointer on the user
       await client.query(
@@ -21218,11 +21221,16 @@ app.get("/api/me/faction", charAppReadLimit, async (req, res) => {
     if (!characterId) return res.json({ faction: null });
 
     const { rows: charRows } = await pool.query(
-      `SELECT id, party, is_active FROM characters WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+      `SELECT id, party, is_active, COALESCE(constituency, '') AS constituency FROM characters WHERE id = $1 AND is_active = TRUE LIMIT 1`,
       [characterId]
     );
     if (!charRows.length) return res.json({ faction: null });
     const character = charRows[0];
+
+    // Faction membership is only for Commons MPs (characters with a constituency).
+    // Non-MP characters have no faction and we must not auto-create a membership row.
+    // mpOnly: true signals to clients that faction access is restricted to MPs for this party.
+    if (!character.constituency) return res.json({ faction: null, mpOnly: true });
 
     const membership = await ensureCharacterFactionMembership(pool, character);
     if (!membership) return res.json({ faction: null });
@@ -21271,6 +21279,12 @@ app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (re
       return res.status(400).json({ error: "Faction membership is not available for this party" });
     }
 
+    // Only Commons MPs (characters with a constituency) may join party factions.
+    if (!character.constituency) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: "Only Commons MPs can join party factions." });
+    }
+
     await getOrCreateUnalignedFaction(character.party, client);
 
     const { rows: newFactionRows } = await client.query(
@@ -21309,36 +21323,34 @@ app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (re
       return res.status(400).json({ error: "Faction can only be switched once per sim year" });
     }
 
-    // If character is an MP, enforce that target faction has an available MP slot.
-    const characterIsMP = Boolean(character.constituency && String(character.constituency).trim());
-    if (characterIsMP) {
-      const { rows: slotRows } = await client.query(
-        `SELECT COALESCE(a.mp_count, 0)::INT AS allocated_mp_count,
-                COALESCE(mp_members.active_mp_count, 0)::INT AS active_mp_count
-           FROM party_factions f
-           LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
-           LEFT JOIN (
-             SELECT cfm.faction_id, COUNT(*)::INT AS active_mp_count
-               FROM character_faction_membership cfm
-               JOIN characters c ON c.id = cfm.character_id
-              WHERE cfm.faction_id = $1
-                AND c.is_active = TRUE
-                AND c.is_npc = FALSE
-                AND COALESCE(c.constituency, '') != ''
-           ) mp_members ON mp_members.faction_id = f.id
-          WHERE f.id = $1`,
-        [newFaction.id]
-      );
-      const allocatedMpCount = Number(slotRows[0]?.allocated_mp_count ?? 0);
-      const activeMpCount    = Number(slotRows[0]?.active_mp_count    ?? 0);
-      if (activeMpCount >= allocatedMpCount) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({
-          error: "This faction has no available MP slots. All allocated MP slots are currently occupied by active MP characters.",
-          allocatedMpCount,
-          activeMpCount,
-        });
-      }
+    // Enforce that the target faction has an available MP slot.
+    // (All faction members are MPs — enforced by the check above.)
+    const { rows: slotRows } = await client.query(
+      `SELECT COALESCE(a.mp_count, 0)::INT AS allocated_mp_count,
+              COALESCE(mp_members.active_mp_count, 0)::INT AS active_mp_count
+         FROM party_factions f
+         LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
+         LEFT JOIN (
+           SELECT cfm.faction_id, COUNT(*)::INT AS active_mp_count
+             FROM character_faction_membership cfm
+             JOIN characters c ON c.id = cfm.character_id
+            WHERE cfm.faction_id = $1
+              AND c.is_active = TRUE
+              AND c.is_npc = FALSE
+              AND COALESCE(c.constituency, '') != ''
+         ) mp_members ON mp_members.faction_id = f.id
+        WHERE f.id = $1`,
+      [newFaction.id]
+    );
+    const allocatedMpCount = Number(slotRows[0]?.allocated_mp_count ?? 0);
+    const activeMpCount    = Number(slotRows[0]?.active_mp_count    ?? 0);
+    if (activeMpCount >= allocatedMpCount) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        error: "This faction has no available MP slots. All allocated MP slots are currently occupied by active MP characters.",
+        allocatedMpCount,
+        activeMpCount,
+      });
     }
 
     await client.query(
@@ -21919,13 +21931,11 @@ app.patch("/api/admin/factions/:id", verifyCsrfToken, crudWriteLimit, async (req
     sets.push(`updated_at = NOW()`);
     vals.push(id);
     await pool.query(`UPDATE party_factions SET ${sets.join(", ")} WHERE id = $${vals.length}`, vals);
-    res.json({ ok: true });
+    res.json({ ok: true, pendingFreeze: true });
 
-    // Non-blocking: if leadership_alignment, rebellion_bias, or momentum changed, faction political state may be stale
-    const factionStateFieldsChanged = body.leadershipAlignment !== undefined || body.rebellionBias !== undefined || body.momentum !== undefined;
-    if (factionStateFieldsChanged) {
-      fireRecompute("faction-political-state", "faction.metadata.update", () => computeFactionPoliticalState(id), id);
-    }
+    // Recompute is deferred to the Sunday freeze (POST /api/admin/factions/trigger-freeze).
+    // Alignment, momentum, and other metadata changes are stored immediately but
+    // derived stats (internal_power, cohesion, leadership_pressure) update only on freeze.
   } catch (e) {
     if (e.code === "23505") {
       return res.status(409).json({ error: "A faction with that slug already exists for this party." });
@@ -22010,12 +22020,43 @@ app.patch("/api/admin/factions/:id/allocation", verifyCsrfToken, crudWriteLimit,
         req.session.userId || "",
       ]
     );
-    res.json({ ok: true, totalMPs, allocatedMPs: proposedTotal, remainingMPs: totalMPs - proposedTotal });
+    res.json({ ok: true, totalMPs, allocatedMPs: proposedTotal, remainingMPs: totalMPs - proposedTotal, pendingFreeze: true });
 
-    // Non-blocking: recompute faction political state now that allocation has changed
-    fireRecompute("faction-political-state", "faction.allocation.update", () => computeFactionPoliticalState(id), id);
+    // Recompute is deferred to the Sunday freeze (POST /api/admin/factions/trigger-freeze).
+    // Allocation changes are stored immediately but derived stats update only on freeze.
   } catch (e) {
     console.error("[PATCH /api/admin/factions/:id/allocation]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/factions/trigger-freeze — recompute derived political state for all active factions
+// This is the "Sunday freeze" equivalent: triggers computeFactionPoliticalState for every active faction.
+// Mods/admins call this to publish the effects of any alignment/momentum/allocation changes made since the last freeze.
+app.post("/api/admin/factions/trigger-freeze", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { rows: factionRows } = await pool.query(
+      `SELECT f.id FROM party_factions f WHERE f.active = TRUE AND f.party_slug = ANY($1::text[])`,
+      [FACTION_PLAYABLE_PARTIES]
+    );
+    const results = { recomputed: [], failed: [] };
+    for (const row of factionRows) {
+      try {
+        await computeFactionPoliticalState(row.id);
+        results.recomputed.push(row.id);
+      } catch (e) {
+        console.error(`[trigger-freeze] faction ${row.id} failed:`, e.message);
+        results.failed.push({ id: row.id, error: e.message });
+      }
+    }
+    await writeAuditLog(req.session.userId, "faction.freeze.trigger", "faction_political_state", null, null, null, {
+      recomputedCount: results.recomputed.length,
+      failedCount: results.failed.length,
+    });
+    res.json({ ok: true, recomputedCount: results.recomputed.length, failedCount: results.failed.length, failed: results.failed });
+  } catch (e) {
+    console.error("[POST /api/admin/factions/trigger-freeze]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -22139,10 +22180,11 @@ app.get("/api/parties/:slug/faction-climate", crudReadLimit, async (req, res) =>
         if (partyRows.length) {
           const p = partyRows[0];
           const charId = String(characterId);
-          const leaderIds = [p.leader_character_id, p.chairman_character_id].filter(Boolean).map(String);
-          const whipIds   = [p.whip_character_id, p.chief_whip_character_id, p.deputy_whip_character_id].filter(Boolean).map(String);
-          if (leaderIds.includes(charId)) {
+          const whipIds = [p.whip_character_id, p.chief_whip_character_id, p.deputy_whip_character_id].filter(Boolean).map(String);
+          if (p.leader_character_id && String(p.leader_character_id) === charId) {
             viewerRole = "leader";
+          } else if (p.chairman_character_id && String(p.chairman_character_id) === charId) {
+            viewerRole = "chairman";
           } else if (whipIds.includes(charId)) {
             viewerRole = "whip";
           }
@@ -22150,7 +22192,22 @@ app.get("/api/parties/:slug/faction-climate", crudReadLimit, async (req, res) =>
       }
     }
 
-    res.json({ ok: true, climate, viewerRole });
+    // For staff: count factions with pending changes (party_factions updated after last faction_political_state freeze).
+    let pendingFreezeCount = 0;
+    if (viewerRole === "staff") {
+      const { rows: pendingRows } = await pool.query(
+        `SELECT COUNT(*)::INT AS cnt
+           FROM party_factions f
+           LEFT JOIN faction_political_state fps ON fps.faction_id = f.id
+          WHERE f.party_slug = $1
+            AND f.active = TRUE
+            AND (fps.faction_id IS NULL OR f.updated_at > fps.updated_at)`,
+        [slug]
+      );
+      pendingFreezeCount = Number(pendingRows[0]?.cnt ?? 0);
+    }
+
+    res.json({ ok: true, climate, viewerRole, pendingFreezeCount });
   } catch (e) {
     console.error("[GET /api/parties/:slug/faction-climate]", e);
     res.status(500).json({ error: "Server error" });

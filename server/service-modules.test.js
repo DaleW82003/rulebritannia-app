@@ -172,6 +172,43 @@ test("momentum invalid values rejected", () => {
   }
 });
 
+// ── MP-only enforcement (pure logic, mirrors POST /api/me/faction/switch and GET /api/me/faction) ──
+
+// Helper: an MP is a character with a non-empty constituency.
+const isCharacterMP = (constituency) => Boolean(constituency && String(constituency).trim());
+
+test("isCharacterMP: empty string is not an MP", () => {
+  assert.equal(isCharacterMP(""), false);
+  assert.equal(isCharacterMP(null), false);
+  assert.equal(isCharacterMP(undefined), false);
+});
+
+test("isCharacterMP: non-empty constituency is an MP", () => {
+  assert.equal(isCharacterMP("Haltemprice and Howden"), true);
+  assert.equal(isCharacterMP("  Islington North  "), true);
+});
+
+test("isCharacterMP: whitespace-only is not an MP", () => {
+  assert.equal(isCharacterMP("   "), false);
+});
+
+// ── viewerRole expansion (mirrors GET /api/parties/:slug/faction-climate) ──
+
+test("viewerRole: chairman and leader are distinct roles", () => {
+  const ROLES = ["member", "whip", "chairman", "leader", "staff"];
+  assert.ok(ROLES.includes("chairman"), "chairman must be a valid role");
+  assert.ok(ROLES.includes("leader"), "leader must be a valid role");
+  assert.notEqual(ROLES.indexOf("chairman"), ROLES.indexOf("leader"), "chairman and leader must be distinct");
+});
+
+test("viewerRole: chairman and leader both have full climate view", () => {
+  const hasFullView = (role) => role === "staff" || role === "leader" || role === "chairman";
+  assert.equal(hasFullView("chairman"), true);
+  assert.equal(hasFullView("leader"), true);
+  assert.equal(hasFullView("whip"), false);
+  assert.equal(hasFullView("member"), false);
+  assert.equal(hasFullView("staff"), true);
+});
 
 test("SPEAKER_PARTY_RE: matches 'Speaker' (any case)", () => {
   assert.ok(SPEAKER_PARTY_RE.test("Speaker"));

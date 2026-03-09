@@ -1093,8 +1093,8 @@ function render(data, state) {
       <div class="muted" style="font-size:.88em;margin-bottom:8px;">Total Seats: <b>${Math.round(Number(state.factionSeatTotal ?? 0))}</b> · Allocated MPs: <b>${Math.round(Number(state.factionAllocatedMPs ?? 0))}</b> · Remaining / Unallocated MPs: <b>${Math.round(Number(state.factionRemainingMPs ?? 0))}</b></div>
       ${(() => {
         const viewerRole = state.factionViewerRole || "member";
-        const showDerivedStats = viewerRole === "staff" || viewerRole === "leader";
-        const showNpcSlots = viewerRole === "staff" || viewerRole === "leader";
+        const showDerivedStats = viewerRole === "staff" || viewerRole === "leader" || viewerRole === "chairman";
+        const showNpcSlots = viewerRole === "staff" || viewerRole === "leader" || viewerRole === "chairman";
         const showNpcCol = state.factions.some((f) => Number(f.memberNpcCountActive ?? 0) > 0);
         return `
       <div style="overflow-x:auto;">
@@ -1151,8 +1151,8 @@ function render(data, state) {
         ${state.factionClimate ? (() => {
       const c = state.factionClimate;
       const viewerRole = state.factionViewerRole || "member";
-      const isStaffOrLeader = viewerRole === "staff" || viewerRole === "leader";
-      const isWhipOrAbove = viewerRole === "staff" || viewerRole === "leader" || viewerRole === "whip";
+      const isStaffOrLeader = viewerRole === "staff" || viewerRole === "leader" || viewerRole === "chairman";
+      const isWhipOrAbove = viewerRole === "staff" || viewerRole === "leader" || viewerRole === "chairman" || viewerRole === "whip";
       const CLIMATE_COLOURS = { unified: "#2e7d32", stable: "#1565c0", tense: "#e65100", fractious: "#b71c1c" };
       const climateColour = CLIMATE_COLOURS[c.climateLabel] || "#555";
       const scoreBarWidth = Math.round(((c.climateScore + 100) / 200) * 100);
@@ -1160,6 +1160,11 @@ function render(data, state) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Internal Party Climate</h2>
       <p class="muted" style="margin-top:0;">This reflects internal alignment vs opposition — it's not just who holds the top jobs.</p>
+      ${viewerRole === "staff" && Number(state.factionPendingFreezeCount ?? 0) > 0 ? `
+      <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:4px;padding:8px 12px;margin-bottom:10px;font-size:.88em;">
+        <b>&#9888; Pending freeze:</b> ${state.factionPendingFreezeCount} faction(s) have metadata changes not yet applied to derived stats (internal power, cohesion, leadership pressure). Use <b>Control Panel &rarr; Factions &rarr; Trigger Freeze</b> to publish updated values.
+      </div>
+      ` : ""}
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
         <span style="font-size:1.2em;font-weight:700;color:${climateColour};">Climate: ${esc(c.climateLabel.charAt(0).toUpperCase() + c.climateLabel.slice(1))}</span>
         ${isWhipOrAbove ? `<span class="muted" style="font-size:.85em;">Climate score: ${c.climateScore > 0 ? "+" : ""}${Math.round(c.climateScore)}</span>` : ""}
@@ -1265,6 +1270,7 @@ function render(data, state) {
       state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
       state.factionClimate = climateResult.climate ?? null;
       state.factionViewerRole = climateResult.viewerRole ?? "member";
+      state.factionPendingFreezeCount = Number(climateResult.pendingFreezeCount ?? 0);
       state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
       state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
       state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);
@@ -1999,6 +2005,7 @@ export async function initPartyPage(data) {
     factions: [],
     factionClimate: null,
     factionViewerRole: "member",
+    factionPendingFreezeCount: 0,
     factionSeatTotal: 0,
     factionAllocatedMPs: 0,
     factionRemainingMPs: 0,
@@ -2076,6 +2083,7 @@ export async function initPartyPage(data) {
       state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
       state.factionClimate = climateResult.climate ?? null;
       state.factionViewerRole = climateResult.viewerRole ?? "member";
+      state.factionPendingFreezeCount = Number(climateResult.pendingFreezeCount ?? 0);
       state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
       state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
       state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);
