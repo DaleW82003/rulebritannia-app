@@ -4,7 +4,7 @@ import { canManage } from "../permissions.js";
 import { getSimDate } from "../clock.js";
 import { getEducationOptions, getCareerOptions, getFamilyOptions } from "../character-enums.js";
 import { seatTaken, allConstituenciesForPartyWithStatus, renderConstituencyOptions } from "../constituency-utils.js";
-import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetCharacterOfficesHeld, apiGetConstituencies, apiGetMyCharacters, apiGetMyApplications, apiApplyCharacter, apiGetMyPoliticalState, apiGetPartyFactionClimate } from "../api.js";
+import { apiSubmitBioChange, apiSubmitAvatarChange, apiGetShopPriceIndex, apiUpdateCharacterShopUpkeep, apiGetCharacterAffiliations, apiSubmitCharacterAffiliations, apiGetMyFinance, apiGetCharacterFinance, apiSubmitProfileChange, apiAddShopPurchase, apiRemoveShopPurchase, apiSellShopPurchase, apiDismissShopPurchase, apiAddAdditionalRevenue, apiRemoveAdditionalRevenue, apiAdminUpdateCharacterProfile, apiGetCharacters, apiGetEnums, apiGetCharacterOfficesHeld, apiGetConstituencies, apiGetMyCharacters, apiGetMyApplications, apiApplyCharacter, apiGetMyPoliticalState, apiGetPartyFactionClimate, apiGetPartyFactions, apiGetMyFaction, apiSwitchMyFaction } from "../api.js";
 import { logAction } from "../audit.js";
 
 // ── Affiliations catalogue ────────────────────────────────────────────────────
@@ -71,15 +71,6 @@ const AFFILIATIONS_CATALOG = [
     { id: "intl_cpa",            name: "Commonwealth Parliamentary Association", monthly_fee: 20 },
     { id: "intl_wef",            name: "World Economic Forum",                  monthly_fee: 20 },
   ]},
-  { category: "Party Factions (Internal Groups)", items: [
-    { id: "faction_1922",            name: "Conservative 1922 Committee",       monthly_fee: 5 },
-    { id: "faction_labour_campaign", name: "Labour Campaign Group",             monthly_fee: 5 },
-    { id: "faction_labour_first",    name: "Labour First",                      monthly_fee: 5 },
-    { id: "faction_blue_labour",     name: "Blue Labour",                       monthly_fee: 5 },
-    { id: "faction_tory_reform",     name: "Tory Reform Group",                 monthly_fee: 5 },
-    { id: "faction_erg",             name: "European Research Group",           monthly_fee: 5 },
-    { id: "faction_libdem_fed",      name: "Liberal Democrat Federalist Group", monthly_fee: 5 },
-  ]},
   { category: "Pressure Groups", items: [
     { id: "pressure_migwatch",    name: "Migration Watch UK",                   monthly_fee: 10 },
     { id: "pressure_brit_future", name: "British Future",                       monthly_fee: 10 },
@@ -93,6 +84,8 @@ const AFFILIATIONS_CATALOG = [
     { id: "soft_alumni",    name: "University Alumni Association",              monthly_fee: 5 },
   ]},
 ];
+
+const PLAYABLE_FACTION_PARTIES = new Set(["Conservative", "Labour", "Liberal Democrat"]);
 
 const PROFILE_FIELDS = [
   { key: "dateOfBirth", label: "Date of birth" },
@@ -1002,6 +995,10 @@ function render(data, state) {
 
     host.innerHTML = `
       <div class="bbc-masthead"><div class="bbc-title">Your Character</div></div>
+      <section class="panel" style="margin-bottom:12px;">
+        <h2 style="margin-top:0;">Party Faction</h2>
+        <div class="muted-block">No active character selected.</div>
+      </section>
       <section class="panel">
         <h2 style="margin-top:0;">Create Character</h2>
         ${(hasActiveOwned || pendingByCurrent.length > 0) ? `
@@ -1024,6 +1021,7 @@ function render(data, state) {
             <option value="">Select party</option><option value="Conservative">Conservative</option><option value="Labour">Labour</option>${!data.adminSettings.libDemClosedToNewChars ? `<option value="Liberal Democrat">Liberal Democrat</option>` : ""}
           </select>
           <select class="input" name="constituency" id="char-constituency-select" required><option value="">Select party first</option></select>
+          <select class="input" name="faction_id" id="char-faction-select" required><option value="">Select party first</option></select>
           <input class="input" name="twitter_handle" placeholder="Twitter handle (without @, optional)">
           <input class="input" name="avatar" placeholder="Avatar URL (optional)">
           <input class="input" name="avatar_attribution" placeholder="Who is your avatar? (required, e.g. Alan Rickman)" required>
@@ -1043,14 +1041,29 @@ function render(data, state) {
 
     const partySelect = host.querySelector("#char-party-select");
     const constSelect = host.querySelector("#char-constituency-select");
-    if (partySelect && constSelect) {
-      partySelect.addEventListener("change", () => {
+    const factionSelect = host.querySelector("#char-faction-select");
+    if (partySelect && constSelect && factionSelect) {
+      partySelect.addEventListener("change", async () => {
         const party = partySelect.value;
-        if (!party) return void (constSelect.innerHTML = `<option value="">Select party first</option>`);
+        if (!party) {
+          constSelect.innerHTML = `<option value="">Select party first</option>`;
+          factionSelect.innerHTML = `<option value="">Select party first</option>`;
+          return;
+        }
         const opts = allConstituenciesForPartyWithStatus(data, dbMyApps, party);
         constSelect.innerHTML = opts.length
           ? renderConstituencyOptions(opts, `No constituencies for ${party}`)
           : `<option value="">No constituencies for ${esc(party)}</option>`;
+        try {
+          const factionResult = await apiGetPartyFactions(party);
+          const factions = Array.isArray(factionResult?.factions) ? factionResult.factions : [];
+          const unaligned = factions.find((f) => String(f.slug || "") === "unaligned");
+          factionSelect.innerHTML = factions.length
+            ? `<option value="">Select faction</option>${factions.map((f) => `<option value="${esc(String(f.id))}" ${unaligned && String(unaligned.id) === String(f.id) ? "selected" : ""}>${esc(f.name)}</option>`).join("")}`
+            : `<option value="">No active factions for ${esc(party)}</option>`;
+        } catch {
+          factionSelect.innerHTML = `<option value="">Unable to load factions</option>`;
+        }
       });
     }
 
@@ -1093,6 +1106,7 @@ function render(data, state) {
         name: String(fd.get("name") || "").trim(),
         party: String(fd.get("party") || "").trim(),
         constituency: String(fd.get("constituency") || "").trim(),
+        faction_id: String(fd.get("faction_id") || "").trim(),
         date_of_birth: String(fd.get("date_of_birth") || "").trim(),
         education: String(fd.get("education") || "").trim(),
         career_background: String(fd.get("career_background") || "").trim(),
@@ -1141,6 +1155,12 @@ function render(data, state) {
   const biMonthlyCredit = biMonthlyCreditAmount(profile, mods);
   const isOwnProfile = activeName === name;
   const canShop = isOwnProfile || manager;
+  const activeParty = String(data?.currentCharacter?.party || "").trim();
+  const factionsEnabledForParty = PLAYABLE_FACTION_PARTIES.has(activeParty);
+  const factionList = Array.isArray(state.partyFaction?.factions) ? state.partyFaction.factions : [];
+  const currentFaction = state.partyFaction?.currentFaction
+    || factionList.find((f) => String(f.slug || "") === "unaligned")
+    || null;
 
   // Monthly upkeep: prefer server-side total (totalMonthlyUpkeep = shop + property) for the
   // viewed character; fall back to computing from shopPurchases for other profiles
@@ -1185,6 +1205,55 @@ function render(data, state) {
         </select>
       </section>
     ` : ""}
+
+    <section class="panel" style="margin-bottom:12px;" id="party-faction-tile">
+      <h2 style="margin-top:0;">Party Faction</h2>
+      ${!data?.currentCharacter?.id ? `<div class="muted-block">No active character selected.</div>` : !factionsEnabledForParty ? `<div class="muted-block">Factions aren’t enabled for your party.</div>` : `
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <span class="muted">Your faction:</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;font-weight:700;">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${esc(String(currentFaction?.colour || "#777"))};"></span>
+            ${esc(String(currentFaction?.name || "Unaligned"))}
+          </span>
+        </div>
+        <div class="muted" style="font-size:.86em;margin-bottom:8px;">Your faction affects party climate and can influence political pressure and resilience.</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px 14px;font-size:.9em;margin-bottom:10px;">
+          <div><span class="muted">Internal power</span><br><b>${Math.round(Number(currentFaction?.internalPower ?? 0))}</b></div>
+          <div><span class="muted">Momentum</span><br><b style="text-transform:capitalize;">${esc(String(currentFaction?.momentum || "stable"))}</b></div>
+          <div><span class="muted">Leadership alignment</span><br><b style="text-transform:capitalize;">${esc(String(currentFaction?.leadershipAlignment || "neutral"))}</b></div>
+          <div><span class="muted">Leadership pressure</span><br><b>${Math.round(Number(currentFaction?.leadershipPressure ?? 0))}</b></div>
+          <div><span class="muted">Cohesion</span><br><b>${Math.round(Number(currentFaction?.cohesion ?? 0))}</b></div>
+          <div><span class="muted">Members (active characters)</span><br><b>${Math.round(Number(currentFaction?.memberCharacterCountActive ?? 0))}</b></div>
+          ${Number(currentFaction?.memberNpcCountActive ?? 0) > 0 ? `<div><span class="muted">NPC members (active)</span><br><b>${Math.round(Number(currentFaction?.memberNpcCountActive ?? 0))}</b></div>` : ""}
+          </div>
+        <div style="border-top:1px solid #eee;padding-top:8px;margin-top:2px;">
+          <div style="font-weight:600;margin-bottom:4px;">Commons allocation (party-wide)</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px 14px;font-size:.9em;">
+            <div><span class="muted">Total seats</span><br><b>${Math.round(Number(state.partyFaction?.partySeatTotal ?? 0))}</b></div>
+            <div><span class="muted">Allocated MPs</span><br><b>${Math.round(Number(state.partyFaction?.allocatedMPs ?? 0))}</b></div>
+            <div><span class="muted">Unallocated MPs</span><br><b>${Math.round(Number(state.partyFaction?.remainingMPs ?? 0))}</b></div>
+          </div>
+          <div class="muted" style="font-size:.82em;margin-top:6px;">“Allocated MPs” are set by staff to represent the parliamentary party’s internal balance.<br>“Members” are the characters currently assigned to the faction.</div>
+        </div>
+        <div style="border-top:1px solid #eee;padding-top:8px;margin-top:8px;">
+        </div>
+        ${isOwnProfile ? `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+            <div style="min-width:220px;flex:1;">
+              <label class="label" for="personal-faction-switch">Change faction</label>
+              <div class="muted" style="font-size:.82em;margin:4px 0 6px;">You can switch faction once per sim year.<br>You cannot switch while you are Leader, Chairman, or a Whip.</div>
+              <select class="input" id="personal-faction-switch">
+                <option value="">Select faction</option>
+                ${factionList.filter((f) => f.active !== false).map((f) => `<option value="${esc(String(f.id))}" ${currentFaction && String(currentFaction.id) === String(f.id) ? "selected" : ""}>${esc(f.name)}</option>`).join("")}
+              </select>
+            </div>
+            <button type="button" class="btn" id="personal-faction-switch-btn">Switch faction</button>
+          </div>
+        ` : `<div class="muted">Faction switching is only available on your active character.</div>`}
+        ${state.partyFaction?.message ? `<div class="muted" style="margin-top:8px;">${esc(state.partyFaction.message)}</div>` : ""}
+        ${manager ? `<div class="muted" style="font-size:.82em;margin-top:8px;">Staff note: if legacy <code>affiliations_catalog</code> still contains faction-like IDs, remove them via approved admin maintenance workflow; Personal UI now suppresses them.</div>` : ""}
+      `}
+    </section>
 
     <section class="panel" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
       <article class="tile">
@@ -1356,7 +1425,7 @@ function render(data, state) {
           return `
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 20px;margin-bottom:12px;">
               <div><b>Capital:</b> <span style="font-size:1.15em;font-weight:600;">${Math.round(Number(ps.capital_current ?? 0))}</span></div>
-              <div><b>Trend:</b> <span style="color:${momentumColor};">${momentumIcon} ${Number(ps.capital_trend) >= 0 ? "+" : ""}${Math.round(Number(ps.capital_trend ?? 0))}</span></div>
+              <div><b>Change since last update:</b> <span style="color:${momentumColor};">${momentumIcon} ${Number(ps.capital_trend) >= 0 ? "+" : ""}${Math.round(Number(ps.capital_trend ?? 0))}</span></div>
               <div><b>Momentum:</b> <span style="color:${momentumColor};text-transform:capitalize;">${esc(ps.momentum)}</span></div>
               <div><b>Reputation:</b> <span style="color:${repColor};">${esc(repLabel)}</span></div>
             </div>
@@ -1474,7 +1543,7 @@ function render(data, state) {
       </article>
 
       <article class="tile" id="affiliations-tile">
-        <h2 style="margin-top:0;">Affiliations</h2>
+        <h2 style="margin-top:0;">Paid Affiliations</h2>
         <div id="affiliations-display"><div class="muted-block" style="font-size:.9em;">Loading affiliations…</div></div>
         ${isOwnProfile ? `<button type="button" class="btn" style="margin-top:10px;" id="affiliations-edit-btn">Edit Affiliations</button>` : ""}
       </article>
@@ -2116,9 +2185,10 @@ function render(data, state) {
       affiliationsDisplay.innerHTML = '<div class="muted-block" style="font-size:.9em;">No affiliations recorded.</div>';
       return;
     }
-    const approved = affiliations.filter((a) => a.status === "approved");
-    const pendingAdd = affiliations.filter((a) => a.status === "pending_add");
-    const pendingRemove = affiliations.filter((a) => a.status === "pending_remove");
+    const visible = affiliations.filter((a) => !String(a.affiliation_id || "").startsWith("faction_"));
+    const approved = visible.filter((a) => a.status === "approved");
+    const pendingAdd = visible.filter((a) => a.status === "pending_add");
+    const pendingRemove = visible.filter((a) => a.status === "pending_remove");
     let html = "";
     if (approved.length) {
       // Look up monthly fees from catalog
@@ -2170,7 +2240,7 @@ function render(data, state) {
         // IDs that are currently "ticked" = approved + pending_add (pending_remove = still showing, so remain ticked)
         const tickedIds = new Set(
           affiliations
-            .filter((a) => a.status === "approved" || a.status === "pending_add")
+            .filter((a) => !String(a.affiliation_id || "").startsWith("faction_") && (a.status === "approved" || a.status === "pending_add"))
             .map((a) => a.affiliation_id)
         );
 
@@ -2241,6 +2311,55 @@ function render(data, state) {
       }).catch(() => { alert("Could not load affiliations. Please try again."); });
     });
   }
+
+  host.querySelector("#personal-faction-switch-btn")?.addEventListener("click", async () => {
+    const nextFactionId = String(host.querySelector("#personal-faction-switch")?.value || "").trim();
+    if (!nextFactionId) {
+      state.partyFaction = { ...(state.partyFaction || {}), message: "Please choose a faction." };
+      render(data, state);
+      return;
+    }
+    try {
+      await apiSwitchMyFaction(nextFactionId);
+      const partySlug = String(data?.currentCharacter?.party || "").trim();
+      const [factionResult, climateResult, meFactionResult, politicalStateResult] = await Promise.all([
+        apiGetPartyFactions(partySlug).catch(() => ({ factions: [] })),
+        apiGetPartyFactionClimate(partySlug).catch(() => ({ climate: null })),
+        apiGetMyFaction().catch(() => ({ faction: null })),
+        apiGetMyPoliticalState().catch(() => ({ politicalState: null })),
+      ]);
+      const factions = Array.isArray(factionResult?.factions) ? factionResult.factions : [];
+      let currentFaction = meFactionResult?.faction ?? null;
+      if (!currentFaction) currentFaction = factions.find((f) => String(f.slug || "") === "unaligned") || null;
+      if (currentFaction?.id) {
+        const full = factions.find((f) => String(f.id) === String(currentFaction.id));
+        if (full) currentFaction = full;
+      }
+      state.partyFaction = {
+        ...state.partyFaction,
+        factions,
+        currentFaction,
+        climate: climateResult?.climate ?? null,
+        partySeatTotal: Number(factionResult?.partySeatTotal ?? 0),
+        allocatedMPs: Number(factionResult?.allocatedMPs ?? 0),
+        remainingMPs: Number(factionResult?.remainingMPs ?? 0),
+        message: "Faction updated. Staff can see this change in the log.",
+      };
+      state.politicalState = politicalStateResult?.politicalState ?? state.politicalState;
+    } catch (err) {
+      const msg = String(err?.message || "Faction switch failed.");
+      let friendly = "Couldn’t switch faction. Please try again.";
+      if (/leaders|chairmen|whips/i.test(msg)) {
+        friendly = "You can’t switch faction while you are Leader, Chairman, or a Whip.";
+      } else if (/once per sim year/i.test(msg)) {
+        const year = data?.gameState?.year || "this year";
+        friendly = "You can only switch faction once per sim year. Try again next sim year.";
+      }
+      state.partyFaction = { ...(state.partyFaction || {}), message: friendly };
+    }
+    render(data, state);
+  });
+
 }
 
 /**
@@ -2299,7 +2418,7 @@ function syncFinanceIntoProfile(profile, fin, data, profileName, state) {
 
 export async function initPersonalPage(data) {
   normalisePersonal(data);
-  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined, affiliationsMonthlyFees: undefined, affiliationsMonthlyFeesItems: undefined, enums: null, officeHistory: null, politicalState: null, dbState: { myCharacters: [], myApplications: [] } };
+  const state = { selectedName: getCharacterName(data), message: "", priceIndex: 1.0, profileChangeMessage: "", shopMonthlyUpkeep: undefined, financeOverspend: false, totalMonthlyUpkeep: undefined, propertyMonthlyUpkeep: undefined, homeLivingCostsMonthly: undefined, rentalIncomeMonthly: undefined, rentalCostsMonthly: undefined, affiliationsMonthlyFees: undefined, affiliationsMonthlyFeesItems: undefined, enums: null, officeHistory: null, politicalState: null, partyFaction: { factions: [], currentFaction: null, partySeatTotal: 0, allocatedMPs: 0, remainingMPs: 0, message: "" }, dbState: { myCharacters: [], myApplications: [] } };
 
   if (!isLoggedIn()) {
     render(data, state);
@@ -2413,6 +2532,33 @@ export async function initPersonalPage(data) {
     state.politicalState = politicalState ?? null;
     render(data, state);
   }).catch(() => {});
+
+  const partySlug = String(data?.currentCharacter?.party || "").trim();
+  if (partySlug && PLAYABLE_FACTION_PARTIES.has(partySlug)) {
+    Promise.all([
+      apiGetPartyFactions(partySlug).catch(() => ({ factions: [], partySeatTotal: 0, allocatedMPs: 0, remainingMPs: 0 })),
+      apiGetPartyFactionClimate(partySlug).catch(() => ({ climate: null })),
+      apiGetMyFaction().catch(() => ({ faction: null })),
+    ]).then(([factionResult, climateResult, meFactionResult]) => {
+      const factions = Array.isArray(factionResult?.factions) ? factionResult.factions : [];
+      let currentFaction = meFactionResult?.faction ?? null;
+      if (!currentFaction) currentFaction = factions.find((f) => String(f.slug || "") === "unaligned") || null;
+      if (currentFaction?.id) {
+        const full = factions.find((f) => String(f.id) === String(currentFaction.id));
+        if (full) currentFaction = full;
+      }
+      state.partyFaction = {
+        ...state.partyFaction,
+        factions,
+        currentFaction,
+        partySeatTotal: Number(factionResult?.partySeatTotal ?? 0),
+        allocatedMPs: Number(factionResult?.allocatedMPs ?? 0),
+        remainingMPs: Number(factionResult?.remainingMPs ?? 0),
+        climate: climateResult?.climate ?? null,
+      };
+      render(data, state);
+    }).catch(() => {});
+  }
 
   render(data, state);
 }

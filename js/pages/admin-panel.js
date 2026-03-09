@@ -438,7 +438,7 @@ export async function initAdminPanelPage(data) {
     const actionOptions = [
       "", "config-saved", "snapshot-saved", "snapshot-restored",
       "economy-saved", "question-answered", "question-closed", "speaker-demand",
-      "poll-published", "bill-stage-changed", "office-assigned",
+      "poll-published", "bill-stage-changed", "office-assigned", "faction.switch",
     ];
 
     const pageCount = Math.max(1, Math.ceil(auditTotal / auditFilters.limit));
