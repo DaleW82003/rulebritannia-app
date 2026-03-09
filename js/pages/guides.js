@@ -42,7 +42,7 @@ function renderGuideRows(data, adminMode) {
           <span style="flex:1;font-weight:700;">${esc(guide.title)}</span>
           <span data-oc-label class="muted">Open</span>
         </button>
-        <div data-guide-body="${guide.id}" class="tile" hidden style="display:grid;gap:8px;padding-top:0;">
+        <div data-guide-body="${guide.id}" class="tile" hidden aria-hidden="true" style="display:none;gap:8px;padding-top:0;">
           <div style="white-space:pre-wrap;line-height:1.45;">${esc(guide.body)}</div>
           ${adminMode ? `
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -65,8 +65,11 @@ function attachGuideToggles(host) {
       if (!body || !label) return;
       const isOpen = btn.getAttribute("aria-expanded") === "true";
       btn.setAttribute("aria-expanded", String(!isOpen));
-      body.hidden = isOpen;
-      label.textContent = isOpen ? "Open" : "Close";
+      const willOpen = !isOpen;
+      body.hidden = !willOpen;
+      body.setAttribute("aria-hidden", String(!willOpen));
+      body.style.display = willOpen ? "grid" : "none";
+      label.textContent = willOpen ? "Close" : "Open";
     });
   });
 }
