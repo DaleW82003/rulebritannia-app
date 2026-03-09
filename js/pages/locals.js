@@ -1,4 +1,4 @@
-import { apiSaveLocals } from "../api.js";
+import { apiAdminSeed1997BodiesLocals, apiSaveLocals } from "../api.js";
 import { setHTML, esc } from "../ui.js";
 import { canManage } from "../permissions.js";
 
@@ -111,6 +111,52 @@ function bindEditor(data) {
   const allowed = canManage(data);
   btn.style.display = allowed ? "" : "none";
   if (!allowed) return;
+
+  panel.insertAdjacentHTML("afterbegin", `
+    <div class="muted-block" style="margin-bottom:12px;">
+      <b style="font-size:.9em;">Seed May 1997 Bodies/Locals</b>
+      <p style="margin:6px 0 8px;">Seed baseline bodies and locals data. Merge is non-destructive; force overwrite replaces existing seeded fields.</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button class="btn" type="button" id="locals-seed-1997-merge">Seed (merge)</button>
+        <button class="btn danger" type="button" id="locals-seed-1997-force">Seed (force overwrite)</button>
+        <span id="locals-seed-1997-status" style="font-size:.85em;"></span>
+      </div>
+    </div>
+  `);
+
+  panel.querySelector("#locals-seed-1997-merge")?.addEventListener("click", async () => {
+    const mergeBtn = panel.querySelector("#locals-seed-1997-merge");
+    const forceBtn = panel.querySelector("#locals-seed-1997-force");
+    const statusEl = panel.querySelector("#locals-seed-1997-status");
+    if (mergeBtn) mergeBtn.disabled = true;
+    if (forceBtn) forceBtn.disabled = true;
+    if (statusEl) { statusEl.style.color = ""; statusEl.textContent = "Seeding (merge)…"; }
+    try {
+      await apiAdminSeed1997BodiesLocals(false);
+      if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (merge). Reload page to view body updates."; }
+    } catch (err) {
+      if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = `✗ ${err.message}`; }
+      if (mergeBtn) mergeBtn.disabled = false;
+      if (forceBtn) forceBtn.disabled = false;
+    }
+  });
+
+  panel.querySelector("#locals-seed-1997-force")?.addEventListener("click", async () => {
+    const mergeBtn = panel.querySelector("#locals-seed-1997-merge");
+    const forceBtn = panel.querySelector("#locals-seed-1997-force");
+    const statusEl = panel.querySelector("#locals-seed-1997-status");
+    if (mergeBtn) mergeBtn.disabled = true;
+    if (forceBtn) forceBtn.disabled = true;
+    if (statusEl) { statusEl.style.color = ""; statusEl.textContent = "Seeding (force overwrite)…"; }
+    try {
+      await apiAdminSeed1997BodiesLocals(true);
+      if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (force overwrite). Reload page to view body updates."; }
+    } catch (err) {
+      if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = `✗ ${err.message}`; }
+      if (mergeBtn) mergeBtn.disabled = false;
+      if (forceBtn) forceBtn.disabled = false;
+    }
+  });
 
   const getCountry = () => (data.locals?.countries || []).find((x) => x.country === select.value);
   const renderPartyInputs = (country) => {

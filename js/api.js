@@ -3510,6 +3510,20 @@ export async function apiAdminSeed1997Factions() {
   return body;
 }
 
+/** Admin/mod: seed 1997 bodies + locals baseline data (merge by default, force optional). */
+export async function apiAdminSeed1997BodiesLocals(force = false) {
+  const query = force ? "?force=true" : "";
+  const res = await _fetch(`${API_BASE}/api/admin/seed-1997-bodies-locals${query}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ force: !!force }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAdminSeed1997BodiesLocals failed (${res.status})`);
+  return body;
+}
+
 /** Admin/mod: totals for other-official arenas (visible bodies + all locals). */
 export async function apiGetOtherOfficialsArenasTotals() {
   const res = await _fetch(`${API_BASE}/api/admin/other-officials/arenas-totals`, { credentials: "include" });

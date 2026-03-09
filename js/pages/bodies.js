@@ -1,6 +1,6 @@
 import { setHTML, esc } from "../ui.js";
 import { canManage } from "../permissions.js";
-import { apiGetBodies, apiUpdateBody } from "../api.js";
+import { apiAdminSeed1997BodiesLocals, apiGetBodies, apiUpdateBody } from "../api.js";
 
 const BODY_ORDER = [
   "lords",
@@ -324,6 +324,15 @@ function renderControlPanel(data, state) {
   panel.innerHTML = `
     <h2>Bodies Control Panel</h2>
     <div class="muted-block" style="margin-bottom:12px;">Set visibility and edit seat data for each elected body.</div>
+    <div class="muted-block" style="margin-bottom:12px;">
+      <b style="font-size:.9em;">Seed May 1997 Bodies/Locals</b>
+      <p style="margin:6px 0 8px;">Seed baseline bodies and locals data. Merge is non-destructive; force overwrite replaces existing seeded fields.</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button class="btn" type="button" id="bodies-seed-1997-merge">Seed (merge)</button>
+        <button class="btn danger" type="button" id="bodies-seed-1997-force">Seed (force overwrite)</button>
+        <span id="bodies-seed-1997-status" style="font-size:.85em;"></span>
+      </div>
+    </div>
     ${ordered.map((body) => renderBodyEditorRow(body, state.editingBodyId)).join("")}
   `;
   bindControlPanelEvents(data, state);
@@ -332,6 +341,65 @@ function renderControlPanel(data, state) {
 function bindControlPanelEvents(data, state) {
   const panel = document.getElementById("bodiesEditorPanel");
   if (!panel) return;
+
+
+  panel.querySelector("#bodies-seed-1997-merge")?.addEventListener("click", async () => {
+    const mergeBtn = panel.querySelector("#bodies-seed-1997-merge");
+    const forceBtn = panel.querySelector("#bodies-seed-1997-force");
+    const statusEl = panel.querySelector("#bodies-seed-1997-status");
+    if (mergeBtn) mergeBtn.disabled = true;
+    if (forceBtn) forceBtn.disabled = true;
+    if (statusEl) { statusEl.style.color = ""; statusEl.textContent = "Seeding (merge)…"; }
+    try {
+      await apiAdminSeed1997BodiesLocals(false);
+      if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (merge)."; }
+      const r = await apiGetBodies();
+      if (r.bodies && r.bodies.length) {
+        data.bodies = data.bodies || { list: [] };
+        for (const b of r.bodies) {
+          const idx = data.bodies.list.findIndex((x) => x.id === b.id);
+          if (idx >= 0) Object.assign(data.bodies.list[idx], b);
+          else data.bodies.list.push(b);
+        }
+      }
+      normalizeAllStandardBodies(data);
+      refreshBodies(data);
+      renderControlPanel(data, state);
+    } catch (err) {
+      if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = `✗ ${err.message}`; }
+      if (mergeBtn) mergeBtn.disabled = false;
+      if (forceBtn) forceBtn.disabled = false;
+    }
+  });
+
+  panel.querySelector("#bodies-seed-1997-force")?.addEventListener("click", async () => {
+    const mergeBtn = panel.querySelector("#bodies-seed-1997-merge");
+    const forceBtn = panel.querySelector("#bodies-seed-1997-force");
+    const statusEl = panel.querySelector("#bodies-seed-1997-status");
+    if (mergeBtn) mergeBtn.disabled = true;
+    if (forceBtn) forceBtn.disabled = true;
+    if (statusEl) { statusEl.style.color = ""; statusEl.textContent = "Seeding (force overwrite)…"; }
+    try {
+      await apiAdminSeed1997BodiesLocals(true);
+      if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (force overwrite)."; }
+      const r = await apiGetBodies();
+      if (r.bodies && r.bodies.length) {
+        data.bodies = data.bodies || { list: [] };
+        for (const b of r.bodies) {
+          const idx = data.bodies.list.findIndex((x) => x.id === b.id);
+          if (idx >= 0) Object.assign(data.bodies.list[idx], b);
+          else data.bodies.list.push(b);
+        }
+      }
+      normalizeAllStandardBodies(data);
+      refreshBodies(data);
+      renderControlPanel(data, state);
+    } catch (err) {
+      if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = `✗ ${err.message}`; }
+      if (mergeBtn) mergeBtn.disabled = false;
+      if (forceBtn) forceBtn.disabled = false;
+    }
+  });
 
   panel.querySelectorAll("[data-edit-body]").forEach((btn) => {
     btn.addEventListener("click", () => {
