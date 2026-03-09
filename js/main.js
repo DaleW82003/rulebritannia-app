@@ -59,6 +59,7 @@ import { initPlayerDroponPage } from "./pages/player-dropon.js";
 import { initLandingPage } from "./pages/landing.js";
 import { initRegisterPage } from "./pages/register.js";
 import { initVerifyEmailPage } from "./pages/verify-email.js";
+import { initSupportPage } from "./pages/support.js";
 
 function showBootError(err) {
   console.error(err);
@@ -205,6 +206,8 @@ function renderDataSourcePanel(sources) {
       "privacy":         null,
       "terms":           null,
       "report":          null,
+
+      support: initSupportPage,
     };
 
     const init = routes[page];

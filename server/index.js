@@ -2175,6 +2175,36 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS rebellion_risk        NUMERIC(5,2) NOT NULL DEFAULT 0,
       ADD COLUMN IF NOT EXISTS scandal_risk          NUMERIC(5,2) NOT NULL DEFAULT 0;
   `);
+
+  // ── Support ticketing system ───────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      created_by_user_id    UUID NOT NULL REFERENCES users(id),
+      created_by_character_id UUID REFERENCES characters(id),
+      subject               TEXT NOT NULL,
+      status                TEXT NOT NULL DEFAULT 'open'
+                            CHECK (status IN ('open','finished','closed')),
+      category              TEXT,
+      staff_labels          TEXT[] NOT NULL DEFAULT '{}',
+      last_message_at       TIMESTAMPTZ,
+      player_last_read_at   TIMESTAMPTZ,
+      staff_last_read_at    TIMESTAMPTZ,
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_messages (
+      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      ticket_id      UUID NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+      author_user_id UUID NOT NULL REFERENCES users(id),
+      author_role    TEXT NOT NULL CHECK (author_role IN ('player','staff')),
+      body           TEXT NOT NULL,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
 }
 
 // ── Property / Finance model constants ────────────────────────────────────────
@@ -21260,6 +21290,372 @@ app.post("/api/admin/repair/backfill-author-ids", crudWriteLimit, async (req, re
     });
   } catch (e) {
     console.error("[POST /api/admin/repair/backfill-author-ids]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Support ticketing system
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Player: list my tickets ───────────────────────────────────────────────────
+app.get("/api/support/tickets", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const userId = req.session.userId;
+    const { rows } = await pool.query(
+      `SELECT t.id, t.subject, t.status, t.category, t.staff_labels,
+              t.last_message_at, t.created_at, t.updated_at,
+              CASE
+                WHEN t.last_message_at IS NOT NULL
+                     AND (t.player_last_read_at IS NULL
+                          OR t.last_message_at > t.player_last_read_at)
+                THEN TRUE ELSE FALSE
+              END AS unread
+         FROM support_tickets t
+        WHERE t.created_by_user_id = $1
+        ORDER BY t.updated_at DESC`,
+      [userId]
+    );
+    res.json({ tickets: rows });
+  } catch (e) {
+    console.error("[GET /api/support/tickets]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Player: create ticket ─────────────────────────────────────────────────────
+app.post("/api/support/tickets", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const userId = req.session.userId;
+    const { subject, category, message } = req.body || {};
+    if (!subject || typeof subject !== "string" || !subject.trim()) {
+      return res.status(400).json({ error: "subject is required" });
+    }
+    if (!message || typeof message !== "string" || !message.trim()) {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    // Look up active character for the user (nullable)
+    const { rows: userRows } = await pool.query(
+      `SELECT active_character_id FROM users WHERE id = $1`, [userId]
+    );
+    const characterId = userRows[0]?.active_character_id || null;
+
+    const now = new Date();
+    const { rows: ticketRows } = await pool.query(
+      `INSERT INTO support_tickets
+         (created_by_user_id, created_by_character_id, subject, category, last_message_at, player_last_read_at)
+       VALUES ($1, $2, $3, $4, $5, $5)
+       RETURNING id`,
+      [userId, characterId, subject.trim(), category?.trim() || null, now]
+    );
+    const ticketId = ticketRows[0].id;
+
+    await pool.query(
+      `INSERT INTO support_messages (ticket_id, author_user_id, author_role, body)
+       VALUES ($1, $2, 'player', $3)`,
+      [ticketId, userId, message.trim()]
+    );
+
+    res.status(201).json({ ok: true, id: ticketId });
+  } catch (e) {
+    console.error("[POST /api/support/tickets]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Player: get ticket + messages ─────────────────────────────────────────────
+app.get("/api/support/tickets/:id", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const userId = req.session.userId;
+    const { id } = req.params;
+
+    const { rows: ticketRows } = await pool.query(
+      `SELECT t.*, u.username AS created_by_username
+         FROM support_tickets t
+         JOIN users u ON u.id = t.created_by_user_id
+        WHERE t.id = $1`,
+      [id]
+    );
+    if (!ticketRows.length) return res.status(404).json({ error: "Not found" });
+    const ticket = ticketRows[0];
+    if (ticket.created_by_user_id !== userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { rows: messages } = await pool.query(
+      `SELECT m.id, m.author_user_id, m.author_role, m.body, m.created_at,
+              u.username AS author_username
+         FROM support_messages m
+         JOIN users u ON u.id = m.author_user_id
+        WHERE m.ticket_id = $1
+        ORDER BY m.created_at ASC`,
+      [id]
+    );
+
+    // Mark player read
+    await pool.query(
+      `UPDATE support_tickets SET player_last_read_at = NOW() WHERE id = $1`,
+      [id]
+    );
+
+    res.json({ ticket, messages });
+  } catch (e) {
+    console.error("[GET /api/support/tickets/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Player: post message ──────────────────────────────────────────────────────
+app.post("/api/support/tickets/:id/messages", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const userId = req.session.userId;
+    const { id } = req.params;
+    const { message } = req.body || {};
+    if (!message || typeof message !== "string" || !message.trim()) {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    const { rows: ticketRows } = await pool.query(
+      `SELECT id, created_by_user_id, status FROM support_tickets WHERE id = $1`, [id]
+    );
+    if (!ticketRows.length) return res.status(404).json({ error: "Not found" });
+    const ticket = ticketRows[0];
+    if (ticket.created_by_user_id !== userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (ticket.status === "closed") {
+      return res.status(400).json({ error: "Ticket is closed" });
+    }
+
+    const now = new Date();
+    const { rows: msgRows } = await pool.query(
+      `INSERT INTO support_messages (ticket_id, author_user_id, author_role, body)
+       VALUES ($1, $2, 'player', $3)
+       RETURNING id, created_at`,
+      [id, userId, message.trim()]
+    );
+    await pool.query(
+      `UPDATE support_tickets
+          SET last_message_at = $1, updated_at = $1, player_last_read_at = $1
+        WHERE id = $2`,
+      [now, id]
+    );
+
+    res.status(201).json({ ok: true, message: msgRows[0] });
+  } catch (e) {
+    console.error("[POST /api/support/tickets/:id/messages]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Player: patch ticket status (finish / reopen) ─────────────────────────────
+app.patch("/api/support/tickets/:id", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const userId = req.session.userId;
+    const { id } = req.params;
+    const { status } = req.body || {};
+
+    const { rows: ticketRows } = await pool.query(
+      `SELECT id, created_by_user_id, status FROM support_tickets WHERE id = $1`, [id]
+    );
+    if (!ticketRows.length) return res.status(404).json({ error: "Not found" });
+    const ticket = ticketRows[0];
+    if (ticket.created_by_user_id !== userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    // Player may only finish (open→finished) or reopen (finished→open)
+    const allowed = {
+      open:     ["finished"],
+      finished: ["open"],
+      closed:   ["open"],
+    };
+    if (!status || !allowed[ticket.status]?.includes(status)) {
+      return res.status(400).json({ error: `Cannot transition from '${ticket.status}' to '${status}'` });
+    }
+
+    await pool.query(
+      `UPDATE support_tickets SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [status, id]
+    );
+    res.json({ ok: true, status });
+  } catch (e) {
+    console.error("[PATCH /api/support/tickets/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Staff: list all tickets ────────────────────────────────────────────────────
+app.get("/api/support/staff/tickets", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { status, label } = req.query;
+
+    let query = `
+      SELECT t.id, t.subject, t.status, t.category, t.staff_labels,
+             t.last_message_at, t.created_at, t.updated_at,
+             u.username AS created_by_username,
+             CASE
+               WHEN t.last_message_at IS NOT NULL
+                    AND (t.staff_last_read_at IS NULL
+                         OR t.last_message_at > t.staff_last_read_at)
+               THEN TRUE ELSE FALSE
+             END AS unread
+        FROM support_tickets t
+        JOIN users u ON u.id = t.created_by_user_id
+       WHERE 1=1`;
+    const params = [];
+
+    if (status) {
+      params.push(status);
+      query += ` AND t.status = $${params.length}`;
+    }
+    if (label) {
+      params.push(label);
+      query += ` AND $${params.length} = ANY(t.staff_labels)`;
+    }
+    query += ` ORDER BY COALESCE(t.last_message_at, t.created_at) DESC`;
+
+    const { rows } = await pool.query(query, params);
+    res.json({ tickets: rows });
+  } catch (e) {
+    console.error("[GET /api/support/staff/tickets]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Staff: get ticket + messages ──────────────────────────────────────────────
+app.get("/api/support/staff/tickets/:id", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { id } = req.params;
+
+    const { rows: ticketRows } = await pool.query(
+      `SELECT t.*, u.username AS created_by_username
+         FROM support_tickets t
+         JOIN users u ON u.id = t.created_by_user_id
+        WHERE t.id = $1`,
+      [id]
+    );
+    if (!ticketRows.length) return res.status(404).json({ error: "Not found" });
+
+    const { rows: messages } = await pool.query(
+      `SELECT m.id, m.author_user_id, m.author_role, m.body, m.created_at,
+              u.username AS author_username
+         FROM support_messages m
+         JOIN users u ON u.id = m.author_user_id
+        WHERE m.ticket_id = $1
+        ORDER BY m.created_at ASC`,
+      [id]
+    );
+
+    // Mark staff read
+    await pool.query(
+      `UPDATE support_tickets SET staff_last_read_at = NOW() WHERE id = $1`,
+      [id]
+    );
+
+    res.json({ ticket: ticketRows[0], messages });
+  } catch (e) {
+    console.error("[GET /api/support/staff/tickets/:id]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Staff: post message ───────────────────────────────────────────────────────
+app.post("/api/support/staff/tickets/:id/messages", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const userId = req.session.userId;
+    const { id } = req.params;
+    const { message } = req.body || {};
+    if (!message || typeof message !== "string" || !message.trim()) {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    const { rows: ticketRows } = await pool.query(
+      `SELECT id, status FROM support_tickets WHERE id = $1`, [id]
+    );
+    if (!ticketRows.length) return res.status(404).json({ error: "Not found" });
+    if (ticketRows[0].status === "closed") {
+      return res.status(400).json({ error: "Ticket is closed" });
+    }
+
+    const now = new Date();
+    const { rows: msgRows } = await pool.query(
+      `INSERT INTO support_messages (ticket_id, author_user_id, author_role, body)
+       VALUES ($1, $2, 'staff', $3)
+       RETURNING id, created_at`,
+      [id, userId, message.trim()]
+    );
+    await pool.query(
+      `UPDATE support_tickets
+          SET last_message_at = $1, updated_at = $1, staff_last_read_at = $1
+        WHERE id = $2`,
+      [now, id]
+    );
+
+    res.status(201).json({ ok: true, message: msgRows[0] });
+  } catch (e) {
+    console.error("[POST /api/support/staff/tickets/:id/messages]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Staff: patch ticket (status, labels) ─────────────────────────────────────
+app.patch("/api/support/staff/tickets/:id", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { id } = req.params;
+    const { status, staff_labels } = req.body || {};
+
+    const { rows: ticketRows } = await pool.query(
+      `SELECT id, status FROM support_tickets WHERE id = $1`, [id]
+    );
+    if (!ticketRows.length) return res.status(404).json({ error: "Not found" });
+    const ticket = ticketRows[0];
+
+    const updates = [];
+    const params = [];
+
+    if (status !== undefined) {
+      const staffAllowed = {
+        open:     ["closed"],
+        finished: ["closed", "open"],
+        closed:   ["open"],
+      };
+      if (!staffAllowed[ticket.status]?.includes(status)) {
+        return res.status(400).json({ error: `Cannot transition from '${ticket.status}' to '${status}'` });
+      }
+      params.push(status);
+      updates.push(`status = $${params.length}`);
+    }
+
+    if (Array.isArray(staff_labels)) {
+      params.push(staff_labels);
+      updates.push(`staff_labels = $${params.length}`);
+    }
+
+    if (!updates.length) {
+      return res.status(400).json({ error: "No fields to update" });
+    }
+
+    updates.push("updated_at = NOW()");
+    params.push(id);
+    await pool.query(
+      `UPDATE support_tickets SET ${updates.join(", ")} WHERE id = $${params.length}`,
+      params
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[PATCH /api/support/staff/tickets/:id]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

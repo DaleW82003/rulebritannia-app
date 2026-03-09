@@ -535,6 +535,35 @@ export async function createTestSchema() {
     );
     INSERT INTO parliament_status (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
   `);
+
+  // ── Support ticketing ─────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      created_by_user_id    UUID NOT NULL REFERENCES users(id),
+      created_by_character_id UUID REFERENCES characters(id),
+      subject               TEXT NOT NULL,
+      status                TEXT NOT NULL DEFAULT 'open'
+                            CHECK (status IN ('open','finished','closed')),
+      category              TEXT,
+      staff_labels          TEXT[] NOT NULL DEFAULT '{}',
+      last_message_at       TIMESTAMPTZ,
+      player_last_read_at   TIMESTAMPTZ,
+      staff_last_read_at    TIMESTAMPTZ,
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_messages (
+      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      ticket_id      UUID NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+      author_user_id UUID NOT NULL REFERENCES users(id),
+      author_role    TEXT NOT NULL CHECK (author_role IN ('player','staff')),
+      body           TEXT NOT NULL,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
 }
 
 /**
@@ -544,6 +573,8 @@ export async function createTestSchema() {
 export async function dropTestSchema() {
   await pool.query(`
     DROP TABLE IF EXISTS
+      support_messages,
+      support_tickets,
       parliament_status,
       party_donations,
       finance_config,
