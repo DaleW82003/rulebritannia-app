@@ -21330,11 +21330,22 @@ app.post("/api/support/tickets", verifyCsrfToken, crudWriteLimit, async (req, re
     if (!requireAuth(req, res)) return;
     const userId = req.session.userId;
     const { subject, category, message } = req.body || {};
+
+    // ── Input validation ──────────────────────────────────────────────────────
     if (!subject || typeof subject !== "string" || !subject.trim()) {
       return res.status(400).json({ error: "subject is required" });
     }
+    if (subject.trim().length > 200) {
+      return res.status(400).json({ error: "subject must be 200 characters or fewer" });
+    }
     if (!message || typeof message !== "string" || !message.trim()) {
       return res.status(400).json({ error: "message is required" });
+    }
+    if (message.trim().length > 10000) {
+      return res.status(400).json({ error: "message must be 10,000 characters or fewer" });
+    }
+    if (category && typeof category === "string" && category.trim().length > 100) {
+      return res.status(400).json({ error: "category must be 100 characters or fewer" });
     }
 
     // Look up active character for the user (nullable)
@@ -21346,8 +21357,9 @@ app.post("/api/support/tickets", verifyCsrfToken, crudWriteLimit, async (req, re
     const now = new Date();
     const { rows: ticketRows } = await pool.query(
       `INSERT INTO support_tickets
-         (created_by_user_id, created_by_character_id, subject, category, last_message_at, player_last_read_at)
-       VALUES ($1, $2, $3, $4, $5, $5)
+         (created_by_user_id, created_by_character_id, subject, category,
+          last_message_at, player_last_read_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $5, $5)
        RETURNING id`,
       [userId, characterId, subject.trim(), category?.trim() || null, now]
     );
@@ -21418,6 +21430,9 @@ app.post("/api/support/tickets/:id/messages", verifyCsrfToken, crudWriteLimit, a
     const { message } = req.body || {};
     if (!message || typeof message !== "string" || !message.trim()) {
       return res.status(400).json({ error: "message is required" });
+    }
+    if (message.trim().length > 10000) {
+      return res.status(400).json({ error: "message must be 10,000 characters or fewer" });
     }
 
     const { rows: ticketRows } = await pool.query(
@@ -21492,12 +21507,37 @@ app.patch("/api/support/tickets/:id", verifyCsrfToken, crudWriteLimit, async (re
 });
 
 // ── Staff: list all tickets ────────────────────────────────────────────────────
+// Supports ?status=, ?label=, ?limit= (max 200, default 50), ?offset=
+// Returns { tickets, total } where total is the unfiltered/filtered count.
 app.get("/api/support/staff/tickets", crudReadLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const { status, label } = req.query;
 
-    let query = `
+    // Pagination: hard cap at 200 rows, default 50
+    const limit  = Math.min(200, Math.max(1, parseInt(req.query.limit,  10) || 50));
+    const offset = Math.max(0,               parseInt(req.query.offset, 10) || 0);
+
+    const whereParams = [];
+    let whereClauses = "WHERE 1=1";
+
+    if (status) {
+      whereParams.push(status);
+      whereClauses += ` AND t.status = $${whereParams.length}`;
+    }
+    if (label) {
+      whereParams.push(label);
+      whereClauses += ` AND $${whereParams.length} = ANY(t.staff_labels)`;
+    }
+
+    // Total count (same filters, no pagination)
+    const countQuery = `SELECT COUNT(*) AS total FROM support_tickets t ${whereClauses}`;
+    const { rows: countRows } = await pool.query(countQuery, whereParams);
+    const total = parseInt(countRows[0].total, 10);
+
+    // Paginated rows
+    const dataParams = [...whereParams, limit, offset];
+    const dataQuery = `
       SELECT t.id, t.subject, t.status, t.category, t.staff_labels,
              t.last_message_at, t.created_at, t.updated_at,
              u.username AS created_by_username,
@@ -21509,21 +21549,12 @@ app.get("/api/support/staff/tickets", crudReadLimit, async (req, res) => {
              END AS unread
         FROM support_tickets t
         JOIN users u ON u.id = t.created_by_user_id
-       WHERE 1=1`;
-    const params = [];
+       ${whereClauses}
+       ORDER BY COALESCE(t.last_message_at, t.created_at) DESC
+       LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`;
 
-    if (status) {
-      params.push(status);
-      query += ` AND t.status = $${params.length}`;
-    }
-    if (label) {
-      params.push(label);
-      query += ` AND $${params.length} = ANY(t.staff_labels)`;
-    }
-    query += ` ORDER BY COALESCE(t.last_message_at, t.created_at) DESC`;
-
-    const { rows } = await pool.query(query, params);
-    res.json({ tickets: rows });
+    const { rows } = await pool.query(dataQuery, dataParams);
+    res.json({ tickets: rows, total, limit, offset });
   } catch (e) {
     console.error("[GET /api/support/staff/tickets]", e);
     res.status(500).json({ error: "Server error" });
@@ -21577,6 +21608,9 @@ app.post("/api/support/staff/tickets/:id/messages", verifyCsrfToken, crudWriteLi
     const { message } = req.body || {};
     if (!message || typeof message !== "string" || !message.trim()) {
       return res.status(400).json({ error: "message is required" });
+    }
+    if (message.trim().length > 10000) {
+      return res.status(400).json({ error: "message must be 10,000 characters or fewer" });
     }
 
     const { rows: ticketRows } = await pool.query(

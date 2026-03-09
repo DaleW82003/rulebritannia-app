@@ -466,3 +466,135 @@ test("STAFF: can filter tickets by status", async () => {
   const { body: openListAfter } = await adminClient.get("/api/support/staff/tickets?status=open");
   assert.ok(!openListAfter.tickets.some((t) => t.id === ticketId), "Should NOT appear in open after closing");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. Input validation (max lengths)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("VALIDATION: subject exceeding 200 chars is rejected", async () => {
+  const longSubject = "x".repeat(201);
+  const { status, body } = await playerClient.post("/api/support/tickets", {
+    subject: longSubject,
+    message: "Valid message.",
+  });
+  assert.equal(status, 400, `Expected 400, got ${status}`);
+  assert.ok(body.error, "error field must be present");
+  assert.ok(body.error.includes("200"), "error must mention limit");
+});
+
+test("VALIDATION: message exceeding 10,000 chars is rejected on ticket creation", async () => {
+  const longMsg = "x".repeat(10001);
+  const { status, body } = await playerClient.post("/api/support/tickets", {
+    subject: "Valid subject",
+    message: longMsg,
+  });
+  assert.equal(status, 400, `Expected 400, got ${status}`);
+  assert.ok(body.error, "error field must be present");
+  assert.ok(body.error.includes("10,000"), "error must mention limit");
+});
+
+test("VALIDATION: message exceeding 10,000 chars is rejected on reply", async () => {
+  const { body: createBody } = await playerClient.post("/api/support/tickets", {
+    subject: "Reply length test",
+    message: "Initial message.",
+  });
+  const ticketId = createBody.id;
+
+  const longMsg = "y".repeat(10001);
+  const { status, body } = await playerClient.post(
+    `/api/support/tickets/${ticketId}/messages`,
+    { message: longMsg }
+  );
+  assert.equal(status, 400, `Expected 400, got ${status}`);
+  assert.ok(body.error.includes("10,000"), "error must mention limit");
+});
+
+test("VALIDATION: staff message exceeding 10,000 chars is rejected", async () => {
+  const { body: createBody } = await playerClient.post("/api/support/tickets", {
+    subject: "Staff reply length test",
+    message: "Initial message.",
+  });
+  const ticketId = createBody.id;
+
+  const longMsg = "z".repeat(10001);
+  const { status, body } = await adminClient.post(
+    `/api/support/staff/tickets/${ticketId}/messages`,
+    { message: longMsg }
+  );
+  assert.equal(status, 400, `Expected 400, got ${status}`);
+  assert.ok(body.error.includes("10,000"), "error must mention limit");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. updated_at set on ticket creation
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("CREATION: updated_at is explicitly set (matches last_message_at) on ticket creation", async () => {
+  const before = new Date();
+  const { body: createBody } = await playerClient.post("/api/support/tickets", {
+    subject: "updated_at test",
+    message: "Checking timestamp.",
+  });
+  const after = new Date();
+  const ticketId = createBody.id;
+
+  const { rows } = await pool.query(
+    "SELECT updated_at, last_message_at FROM support_tickets WHERE id = $1", [ticketId]
+  );
+  const ticket = rows[0];
+  const updatedAt = new Date(ticket.updated_at);
+  const lastMsgAt = new Date(ticket.last_message_at);
+
+  // Both should be within the test window
+  assert.ok(updatedAt >= before, "updated_at must be >= test start");
+  assert.ok(updatedAt <= after,  "updated_at must be <= test end");
+  // updated_at and last_message_at should be the same value (set together in insert)
+  assert.equal(
+    updatedAt.toISOString(),
+    lastMsgAt.toISOString(),
+    "updated_at and last_message_at must match at creation"
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. Pagination on staff list
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("PAGINATION: staff list returns total count and pagination metadata", async () => {
+  // Create at least one ticket so there's something to page through
+  await playerClient.post("/api/support/tickets", {
+    subject: "Pagination test ticket",
+    message: "For pagination.",
+  });
+
+  const { status, body } = await adminClient.get("/api/support/staff/tickets?limit=1&offset=0");
+  assert.equal(status, 200, `Expected 200, got ${status}`);
+  assert.ok(typeof body.total === "number", "total must be a number");
+  assert.ok(typeof body.limit === "number", "limit must be returned");
+  assert.ok(typeof body.offset === "number", "offset must be returned");
+  assert.ok(Array.isArray(body.tickets), "tickets must be an array");
+  assert.ok(body.tickets.length <= 1, "With limit=1, at most 1 ticket returned");
+  assert.ok(body.total >= 1, "total must be >= 1");
+});
+
+test("PAGINATION: hard cap prevents limit > 200", async () => {
+  const { status, body } = await adminClient.get("/api/support/staff/tickets?limit=999");
+  assert.equal(status, 200);
+  assert.equal(body.limit, 200, "limit must be capped at 200");
+});
+
+test("PAGINATION: offset skips rows", async () => {
+  // Create two tickets quickly
+  await playerClient.post("/api/support/tickets", { subject: "Offset A", message: "msg" });
+  await playerClient.post("/api/support/tickets", { subject: "Offset B", message: "msg" });
+
+  const { body: page1 } = await adminClient.get("/api/support/staff/tickets?limit=50&offset=0");
+  const { body: page2 } = await adminClient.get(
+    `/api/support/staff/tickets?limit=50&offset=${page1.tickets.length}`
+  );
+
+  // page2 should have no IDs that also appear in page1
+  const page1Ids = new Set(page1.tickets.map((t) => t.id));
+  const overlap  = page2.tickets.filter((t) => page1Ids.has(t.id));
+  assert.equal(overlap.length, 0, "Pages must not overlap");
+});

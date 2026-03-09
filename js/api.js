@@ -3556,6 +3556,8 @@ export async function apiStaffGetTickets(filters = {}) {
   const params = new URLSearchParams();
   if (filters.status) params.set("status", filters.status);
   if (filters.label)  params.set("label", filters.label);
+  if (filters.limit  != null) params.set("limit",  String(filters.limit));
+  if (filters.offset != null) params.set("offset", String(filters.offset));
   const qs = params.toString() ? `?${params}` : "";
   const res = await _fetch(`${API_BASE}/api/support/staff/tickets${qs}`, { credentials: "include" });
   if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiStaffGetTickets failed (${res.status})`); }
