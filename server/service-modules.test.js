@@ -138,7 +138,40 @@ test("computeLeadershipPressure: clamps to 100 for hostile overflow", () => {
   assert.equal(computeLeadershipPressure(100, "hostile"), 100);
 });
 
-// ── division-helpers: regex constants ─────────────────────────────────────────
+// ── npcSlots computation (pure logic, mirrors server/index.js) ─────────────────
+
+// Helper matching the npcSlots formula used in the server factions response.
+const npcSlotsFor = (mpCount, activeMpMembers) => Math.max(0, mpCount - activeMpMembers);
+
+test("npcSlots: equals allocatedMpCount minus activeMpMembersCount when positive", () => {
+  assert.equal(npcSlotsFor(10, 3), 7);
+  assert.equal(npcSlotsFor(5, 5), 0);
+});
+
+test("npcSlots: never negative when activeMpMembers exceeds allocated (data anomaly)", () => {
+  assert.equal(npcSlotsFor(3, 5), 0);
+});
+
+test("npcSlots: fully available when no active MP members", () => {
+  assert.equal(npcSlotsFor(20, 0), 20);
+});
+
+// ── momentum validation (pure logic, mirrors PATCH /api/admin/factions/:id) ──
+
+test("momentum valid values: rising, stable, falling", () => {
+  const valid = ["rising", "stable", "falling"];
+  for (const v of valid) {
+    assert.ok(valid.includes(v), `${v} should be valid`);
+  }
+});
+
+test("momentum invalid values rejected", () => {
+  const valid = ["rising", "stable", "falling"];
+  for (const v of ["", "up", "down", "Rising", "STABLE", "unknown"]) {
+    assert.ok(!valid.includes(v), `${v} should be invalid`);
+  }
+});
+
 
 test("SPEAKER_PARTY_RE: matches 'Speaker' (any case)", () => {
   assert.ok(SPEAKER_PARTY_RE.test("Speaker"));

@@ -2191,6 +2191,12 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS faction_id UUID REFERENCES party_factions(id) ON DELETE SET NULL;
   `);
 
+  // Add mod-editable momentum field to party_factions (Part B: mods set momentum directly).
+  await pool.query(`
+    ALTER TABLE party_factions
+      ADD COLUMN IF NOT EXISTS momentum TEXT NOT NULL DEFAULT 'stable';
+  `);
+
   // Ensure each playable party always has an active neutral Unaligned faction (idempotent).
   for (const partySlug of FACTION_PLAYABLE_PARTIES) {
     const { rows: uRows } = await pool.query(
@@ -21251,7 +21257,7 @@ app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (re
     await client.query("BEGIN");
 
     const { rows: charRows } = await client.query(
-      `SELECT id, name, party, is_active FROM characters WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+      `SELECT id, name, party, is_active, COALESCE(constituency, '') AS constituency FROM characters WHERE id = $1 AND is_active = TRUE LIMIT 1`,
       [characterId]
     );
     if (!charRows.length) {
@@ -21301,6 +21307,38 @@ app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (re
     if (current.last_switch_sim_year != null && Number(current.last_switch_sim_year) === simYear) {
       await client.query("ROLLBACK");
       return res.status(400).json({ error: "Faction can only be switched once per sim year" });
+    }
+
+    // If character is an MP, enforce that target faction has an available MP slot.
+    const characterIsMP = Boolean(character.constituency && String(character.constituency).trim());
+    if (characterIsMP) {
+      const { rows: slotRows } = await client.query(
+        `SELECT COALESCE(a.mp_count, 0)::INT AS allocated_mp_count,
+                COALESCE(mp_members.active_mp_count, 0)::INT AS active_mp_count
+           FROM party_factions f
+           LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
+           LEFT JOIN (
+             SELECT cfm.faction_id, COUNT(*)::INT AS active_mp_count
+               FROM character_faction_membership cfm
+               JOIN characters c ON c.id = cfm.character_id
+              WHERE cfm.faction_id = $1
+                AND c.is_active = TRUE
+                AND c.is_npc = FALSE
+                AND COALESCE(c.constituency, '') != ''
+           ) mp_members ON mp_members.faction_id = f.id
+          WHERE f.id = $1`,
+        [newFaction.id]
+      );
+      const allocatedMpCount = Number(slotRows[0]?.allocated_mp_count ?? 0);
+      const activeMpCount    = Number(slotRows[0]?.active_mp_count    ?? 0);
+      if (activeMpCount >= allocatedMpCount) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          error: "This faction has no available MP slots. All allocated MP slots are currently occupied by active MP characters.",
+          allocatedMpCount,
+          activeMpCount,
+        });
+      }
     }
 
     await client.query(
@@ -21865,6 +21903,13 @@ app.patch("/api/admin/factions/:id", verifyCsrfToken, crudWriteLimit, async (req
     if (body.colour !== undefined)                { sets.push(`colour = $${vals.push(String(body.colour))}`); }
     if (body.ideologyTags !== undefined)          { sets.push(`ideology_tags = $${vals.push(JSON.stringify(Array.isArray(body.ideologyTags) ? body.ideologyTags : []))}::jsonb`); }
     if (body.leadershipAlignment !== undefined)   { sets.push(`leadership_alignment = $${vals.push(String(body.leadershipAlignment))}`); }
+    if (body.momentum !== undefined) {
+      const validMomentum = ["rising", "stable", "falling"];
+      if (!validMomentum.includes(String(body.momentum))) {
+        return res.status(400).json({ error: "momentum must be one of: rising, stable, falling" });
+      }
+      sets.push(`momentum = $${vals.push(String(body.momentum))}`);
+    }
     if (body.rebellionBias !== undefined)         { sets.push(`rebellion_bias = $${vals.push(Number(body.rebellionBias) || 0)}`); }
     if (body.mediaSensitivity !== undefined)      { sets.push(`media_sensitivity = $${vals.push(Number(body.mediaSensitivity) || 0)}`); }
     if (body.constituencySensitivity !== undefined) { sets.push(`constituency_sensitivity = $${vals.push(Number(body.constituencySensitivity) || 0)}`); }
@@ -21876,8 +21921,8 @@ app.patch("/api/admin/factions/:id", verifyCsrfToken, crudWriteLimit, async (req
     await pool.query(`UPDATE party_factions SET ${sets.join(", ")} WHERE id = $${vals.length}`, vals);
     res.json({ ok: true });
 
-    // Non-blocking: if leadership_alignment or rebellion_bias changed, faction political state may be stale
-    const factionStateFieldsChanged = body.leadershipAlignment !== undefined || body.rebellionBias !== undefined;
+    // Non-blocking: if leadership_alignment, rebellion_bias, or momentum changed, faction political state may be stale
+    const factionStateFieldsChanged = body.leadershipAlignment !== undefined || body.rebellionBias !== undefined || body.momentum !== undefined;
     if (factionStateFieldsChanged) {
       fireRecompute("faction-political-state", "faction.metadata.update", () => computeFactionPoliticalState(id), id);
     }
@@ -21907,6 +21952,24 @@ app.patch("/api/admin/factions/:id/allocation", verifyCsrfToken, crudWriteLimit,
     const newMpCount = Number(mpCount);
     if (!Number.isInteger(newMpCount) || newMpCount < 0) {
       return res.status(400).json({ error: "mp_count must be a non-negative integer" });
+    }
+    // Validate: cannot set mp_count below active MP member count
+    const { rows: mpMembersRows } = await pool.query(
+      `SELECT COUNT(*)::INT AS active_mp_count
+         FROM character_faction_membership cfm
+         JOIN characters c ON c.id = cfm.character_id
+        WHERE cfm.faction_id = $1
+          AND c.is_active = TRUE
+          AND c.is_npc = FALSE
+          AND COALESCE(c.constituency, '') != ''`,
+      [id]
+    );
+    const activeMpMembersCount = Number(mpMembersRows[0]?.active_mp_count ?? 0);
+    if (newMpCount < activeMpMembersCount) {
+      return res.status(400).json({
+        error: `Cannot set MP count below active MP member count. Active MP members in this faction: ${activeMpMembersCount}.`,
+        activeMpMembersCount,
+      });
     }
     // Validate: sum of active faction mp_counts for this party must not exceed total constituency MPs
     const [totalMPs, sumResult] = await Promise.all([
@@ -21970,12 +22033,13 @@ app.get("/api/parties/:slug/factions", crudReadLimit, async (req, res) => {
                 COALESCE(a.mp_count, 0) AS mp_count,
                 COALESCE(a.influence_bonus, 0) AS influence_bonus,
                 COALESCE(ps.internal_power, 0) AS internal_power,
-                COALESCE(ps.momentum, 'stable') AS momentum,
+                COALESCE(f.momentum, 'stable') AS momentum,
                 COALESCE(ps.cohesion, 0) AS cohesion,
                 COALESCE(ps.leadership_pressure, 0) AS leadership_pressure,
                 f.leadership_alignment AS leadership_alignment,
                 COALESCE(mc.member_character_count_active, 0) AS member_character_count_active,
-                COALESCE(mn.member_npc_count_active, 0) AS member_npc_count_active
+                COALESCE(mn.member_npc_count_active, 0) AS member_npc_count_active,
+                COALESCE(mpa.active_mp_count, 0) AS active_mp_members_count
            FROM party_factions f
            LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
            LEFT JOIN faction_political_state ps ON ps.faction_id = f.id
@@ -21993,6 +22057,14 @@ app.get("/api/parties/:slug/factions", crudReadLimit, async (req, res) => {
               WHERE c.is_active = TRUE AND c.is_npc = TRUE
               GROUP BY cfm.faction_id
            ) mn ON mn.faction_id = f.id
+           LEFT JOIN (
+             SELECT cfm.faction_id, COUNT(*)::INT AS active_mp_count
+               FROM character_faction_membership cfm
+               JOIN characters c ON c.id = cfm.character_id
+              WHERE c.is_active = TRUE AND c.is_npc = FALSE
+                AND COALESCE(c.constituency, '') != ''
+              GROUP BY cfm.faction_id
+           ) mpa ON mpa.faction_id = f.id
           WHERE f.party_slug = $1 AND f.active = TRUE
           ORDER BY f.display_order ASC, f.name ASC`,
         [slug]
@@ -22028,6 +22100,8 @@ app.get("/api/parties/:slug/factions", crudReadLimit, async (req, res) => {
       leadershipPressure: Number(r.leadership_pressure),
       memberCharacterCountActive: Number(r.member_character_count_active),
       memberNpcCountActive: Number(r.member_npc_count_active),
+      activeMpMembersCount: Number(r.active_mp_members_count),
+      npcSlots: Math.max(0, Number(r.mp_count) - Number(r.active_mp_members_count)),
     }));
     const partySeatTotal = Number(totalsRows.rows[0]?.party_seat_total ?? 0);
     const allocatedMPs = Number(totalsRows.rows[0]?.allocated_mps ?? 0);
@@ -22047,7 +22121,36 @@ app.get("/api/parties/:slug/faction-climate", crudReadLimit, async (req, res) =>
       return res.status(400).json({ error: `Faction climate only available for: ${FACTION_PLAYABLE_PARTIES.join(", ")}` });
     }
     const climate = await getPartyFactionClimate(slug);
-    res.json({ ok: true, climate });
+
+    // Determine viewer role for role-based UI filtering
+    let viewerRole = "member";
+    const sessionRoles = getSessionRoles(req);
+    if (sessionRoles.includes("admin") || sessionRoles.includes("mod")) {
+      viewerRole = "staff";
+    } else {
+      const characterId = await getActiveCharacterId(req).catch(() => null);
+      if (characterId) {
+        const { rows: partyRows } = await pool.query(
+          `SELECT leader_character_id, chairman_character_id,
+                  whip_character_id, chief_whip_character_id, deputy_whip_character_id
+             FROM parties WHERE slug = $1 LIMIT 1`,
+          [slug]
+        );
+        if (partyRows.length) {
+          const p = partyRows[0];
+          const charId = String(characterId);
+          const leaderIds = [p.leader_character_id, p.chairman_character_id].filter(Boolean).map(String);
+          const whipIds   = [p.whip_character_id, p.chief_whip_character_id, p.deputy_whip_character_id].filter(Boolean).map(String);
+          if (leaderIds.includes(charId)) {
+            viewerRole = "leader";
+          } else if (whipIds.includes(charId)) {
+            viewerRole = "whip";
+          }
+        }
+      }
+    }
+
+    res.json({ ok: true, climate, viewerRole });
   } catch (e) {
     console.error("[GET /api/parties/:slug/faction-climate]", e);
     res.status(500).json({ error: "Server error" });

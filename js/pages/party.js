@@ -1092,6 +1092,9 @@ function render(data, state) {
       <p class="muted" style="margin-top:0;">Factions represent internal groups within the party.<br>Party climate is affected by how much aligned support and hostile pressure exists across factions.</p>
       <div class="muted" style="font-size:.88em;margin-bottom:8px;">Total Seats: <b>${Math.round(Number(state.factionSeatTotal ?? 0))}</b> · Allocated MPs: <b>${Math.round(Number(state.factionAllocatedMPs ?? 0))}</b> · Remaining / Unallocated MPs: <b>${Math.round(Number(state.factionRemainingMPs ?? 0))}</b></div>
       ${(() => {
+        const viewerRole = state.factionViewerRole || "member";
+        const showDerivedStats = viewerRole === "staff" || viewerRole === "leader";
+        const showNpcSlots = viewerRole === "staff" || viewerRole === "leader";
         const showNpcCol = state.factions.some((f) => Number(f.memberNpcCountActive ?? 0) > 0);
         return `
       <div style="overflow-x:auto;">
@@ -1100,12 +1103,15 @@ function render(data, state) {
             <tr style="border-bottom:2px solid #ccc;">
               <th style="text-align:left;padding:6px;">Faction</th>
               <th style="text-align:left;padding:6px;">Alignment</th>
+              <th style="text-align:left;padding:6px;">Momentum</th>
+              ${showDerivedStats ? `
               <th style="text-align:right;padding:6px;">Allocated MPs</th>
               <th style="text-align:right;padding:6px;">Internal power</th>
-              <th style="text-align:left;padding:6px;">Momentum</th>
               <th style="text-align:right;padding:6px;">Cohesion</th>
               <th style="text-align:right;padding:6px;">Leadership pressure</th>
+              ` : ""}
               <th style="text-align:right;padding:6px;">Members (active characters)</th>
+              ${showNpcSlots ? `<th style="text-align:right;padding:6px;" title="Allocated MPs minus active MP members">NPC slots</th>` : ""}
               ${showNpcCol ? `<th style="text-align:right;padding:6px;">NPCs (active)</th>` : ""}
             </tr>
           </thead>
@@ -1114,12 +1120,15 @@ function render(data, state) {
               <tr style="border-bottom:1px solid #eee;">
                 <td style="padding:6px;white-space:nowrap;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${esc(f.colour || "#888")};margin-right:6px;"></span><b>${esc(f.name)}</b></td>
                 <td style="padding:6px;text-transform:capitalize;">${esc(String(f.leadershipAlignment || "neutral"))}</td>
+                <td style="padding:6px;text-transform:capitalize;">${esc(String(f.momentum || "stable"))}</td>
+                ${showDerivedStats ? `
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.mpCount ?? 0))}</td>
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.internalPower ?? 0))}</td>
-                <td style="padding:6px;text-transform:capitalize;">${esc(String(f.momentum || "stable"))}</td>
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.cohesion ?? 0))}</td>
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.leadershipPressure ?? 0))}</td>
+                ` : ""}
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.memberCharacterCountActive ?? 0))}</td>
+                ${showNpcSlots ? `<td style="padding:6px;text-align:right;">${Math.round(Number(f.npcSlots ?? 0))}</td>` : ""}
                 ${showNpcCol ? `<td style="padding:6px;text-align:right;">${Math.round(Number(f.memberNpcCountActive ?? 0))}</td>` : ""}
               </tr>
             `).join("")}
@@ -1127,7 +1136,7 @@ function render(data, state) {
         </table>
       </div>`;
       })()}
-      <p class="muted" style="font-size:.82em;margin-top:8px;">Allocated MPs are staff-managed to model the parliamentary party. Members are characters currently assigned to the faction.</p>
+      <p class="muted" style="font-size:.82em;margin-top:8px;">Allocated MPs are staff-managed to model the parliamentary party. Members are characters currently assigned to the faction. Joining a faction does not add MPs - it changes who occupies existing allocated MP slots.</p>
     </section>
     ` : ""}
 
@@ -1135,27 +1144,31 @@ function render(data, state) {
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Your Faction</h2>
       <a class="btn" href="personal.html">Manage your faction on your Personal page</a>
-      <p class="muted" style="margin-top:8px;">Switching is limited to once per sim year and is blocked for Leader/Chairman/Whips.</p>
+      <p class="muted" style="margin-top:8px;">Switching is limited to once per sim year and is blocked for Leader/Chairman/Whips. MPs can only join factions with available MP slots.</p>
       ${state.factionSwitchMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.factionSwitchMessage)}</p>` : ""}
     </section>
     ` : ""}
         ${state.factionClimate ? (() => {
       const c = state.factionClimate;
+      const viewerRole = state.factionViewerRole || "member";
+      const isStaffOrLeader = viewerRole === "staff" || viewerRole === "leader";
+      const isWhipOrAbove = viewerRole === "staff" || viewerRole === "leader" || viewerRole === "whip";
       const CLIMATE_COLOURS = { unified: "#2e7d32", stable: "#1565c0", tense: "#e65100", fractious: "#b71c1c" };
       const climateColour = CLIMATE_COLOURS[c.climateLabel] || "#555";
       const scoreBarWidth = Math.round(((c.climateScore + 100) / 200) * 100);
       return `
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Internal Party Climate</h2>
-      <p class="muted" style="margin-top:0;">This reflects internal alignment vs opposition — it’s not just who holds the top jobs.</p>
+      <p class="muted" style="margin-top:0;">This reflects internal alignment vs opposition — it's not just who holds the top jobs.</p>
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
         <span style="font-size:1.2em;font-weight:700;color:${climateColour};">Climate: ${esc(c.climateLabel.charAt(0).toUpperCase() + c.climateLabel.slice(1))}</span>
-        <span class="muted" style="font-size:.85em;">Climate score: ${c.climateScore > 0 ? "+" : ""}${Math.round(c.climateScore)}</span>
+        ${isWhipOrAbove ? `<span class="muted" style="font-size:.85em;">Climate score: ${c.climateScore > 0 ? "+" : ""}${Math.round(c.climateScore)}</span>` : ""}
       </div>
       <div style="background:var(--bg-alt,#f0f0f0);border-radius:4px;height:10px;margin-bottom:10px;position:relative;overflow:hidden;">
         <div style="position:absolute;left:0;top:0;height:100%;width:${scoreBarWidth}%;background:${climateColour};border-radius:4px;transition:width .3s;"></div>
         <div style="position:absolute;left:50%;top:0;height:100%;width:1px;background:#999;"></div>
       </div>
+      ${isWhipOrAbove ? `
       <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:.88em;">
         <div>
           <span class="muted">Aligned support</span><br>
@@ -1165,6 +1178,7 @@ function render(data, state) {
           <span class="muted">Hostile pressure</span><br>
           <b>${Math.round(c.hostilePressure)}</b>
         </div>
+        ${isStaffOrLeader ? `
         <div>
           <span class="muted">Capital resilience bonus</span><br>
           <b>+${c.capitalResilienceBonus.toFixed(1)}</b>
@@ -1173,8 +1187,10 @@ function render(data, state) {
           <span class="muted">Party pressure modifier</span><br>
           <b>+${c.partyPressureModifier.toFixed(1)}</b>
         </div>
+        ` : ""}
       </div>
-      ${c.dominance ? (() => {
+      ` : `<p class="muted" style="font-size:.88em;">Detailed climate figures are visible to party whips and leadership.</p>`}
+      ${isStaffOrLeader ? (c.dominance ? (() => {
         const d = c.dominance;
         const fmtPct = (v) => `${(Number(v || 0) * 100).toFixed(1)}%`;
         const domFaction = d.components?.commons?.dominantFaction;
@@ -1211,7 +1227,7 @@ function render(data, state) {
             Multipliers — hostile ${Number(d.appliedMultipliers?.hostilePressureMultiplier ?? 1).toFixed(3)}, pressure ${Number(d.appliedMultipliers?.partyPressureMultiplier ?? 1).toFixed(3)}, resilience ${Number(d.appliedMultipliers?.resilienceMultiplier ?? 1).toFixed(3)}.
           </div>
         `;
-      })() : ""}
+      })() : "") : ""}
     </section>
       `;
     })() : ""}
@@ -1248,6 +1264,7 @@ function render(data, state) {
       state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
       state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
       state.factionClimate = climateResult.climate ?? null;
+      state.factionViewerRole = climateResult.viewerRole ?? "member";
       state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
       state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
       state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);
@@ -1981,6 +1998,7 @@ export async function initPartyPage(data) {
     priceIndex: 1.0,
     factions: [],
     factionClimate: null,
+    factionViewerRole: "member",
     factionSeatTotal: 0,
     factionAllocatedMPs: 0,
     factionRemainingMPs: 0,
@@ -2057,6 +2075,7 @@ export async function initPartyPage(data) {
       state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
       state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
       state.factionClimate = climateResult.climate ?? null;
+      state.factionViewerRole = climateResult.viewerRole ?? "member";
       state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
       state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
       state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);
