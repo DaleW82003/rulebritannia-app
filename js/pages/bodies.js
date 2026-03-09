@@ -113,7 +113,7 @@ function getBodyPartyList(bodyId, commonsParties) {
 
 function normalizeBodyParties(body, canonicalParties) {
   const canonical = new Set(canonicalParties);
-  const sourceParties = Array.isArray(body?.parties)
+  const sourceParties = Array.isArray(body?.parties) && body.parties.length > 0
     ? body.parties
     : Array.isArray(body?.partyBreakdown)
       ? body.partyBreakdown.map((p) => ({ name: p?.name || p?.party || "", seats: p?.seats || 0 }))
@@ -202,7 +202,7 @@ function refreshBodies(data) {
   setHTML("bodies-root", visibleBodies.length ? visibleBodies.map(renderBodyTile).join("") : `<div class="muted-block">No visible bodies configured.</div>`);
 }
 
-function renderBodyEditorRow(body, editingId) {
+function renderBodyEditorRow(body, editingId, data) {
   const isEditing = editingId === body.id;
 
   if (!isEditing) {
@@ -333,7 +333,7 @@ function renderControlPanel(data, state) {
         <span id="bodies-seed-1997-status" style="font-size:.85em;"></span>
       </div>
     </div>
-    ${ordered.map((body) => renderBodyEditorRow(body, state.editingBodyId)).join("")}
+    ${ordered.map((body) => renderBodyEditorRow(body, state.editingBodyId, data)).join("")}
   `;
   bindControlPanelEvents(data, state);
 }
@@ -354,7 +354,12 @@ function bindControlPanelEvents(data, state) {
       await apiAdminSeed1997BodiesLocals(false);
       if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (merge)."; }
       const [bodiesRes, localsRes] = await Promise.all([apiGetBodies(), apiGetLocals()]);
-      data.bodies = { list: Array.isArray(bodiesRes?.bodies) ? bodiesRes.bodies : [] };
+      ensureBodyDefaults(data);
+      for (const b of (bodiesRes?.bodies || [])) {
+        const idx = data.bodies.list.findIndex((x) => x.id === b.id);
+        if (idx >= 0) Object.assign(data.bodies.list[idx], b);
+        else data.bodies.list.push(b);
+      }
       data.locals = localsRes || { countries: [] };
       normalizeAllStandardBodies(data);
       refreshBodies(data);
@@ -377,7 +382,12 @@ function bindControlPanelEvents(data, state) {
       await apiAdminSeed1997BodiesLocals(true);
       if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (force overwrite)."; }
       const [bodiesRes, localsRes] = await Promise.all([apiGetBodies(), apiGetLocals()]);
-      data.bodies = { list: Array.isArray(bodiesRes?.bodies) ? bodiesRes.bodies : [] };
+      ensureBodyDefaults(data);
+      for (const b of (bodiesRes?.bodies || [])) {
+        const idx = data.bodies.list.findIndex((x) => x.id === b.id);
+        if (idx >= 0) Object.assign(data.bodies.list[idx], b);
+        else data.bodies.list.push(b);
+      }
       data.locals = localsRes || { countries: [] };
       normalizeAllStandardBodies(data);
       refreshBodies(data);

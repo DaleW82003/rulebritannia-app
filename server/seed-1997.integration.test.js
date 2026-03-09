@@ -129,3 +129,100 @@ test("GET /api/admin/other-officials/arenas-totals includes europarl and all fou
     `contributingArenas must NOT include body:directly-elected-mayors in 1997`
   );
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression: force overwrite must preserve type and partyBreakdown
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("GET /api/bodies lords has type=standard after force seed", async () => {
+  const { status, body } = await adminClient.get("/api/bodies");
+  assert.equal(status, 200, `Expected 200, got ${status}: ${JSON.stringify(body)}`);
+  const lords = (body.bodies || []).find((b) => b.id === "lords");
+  assert.ok(lords, "lords body must be present");
+  assert.equal(lords.type, "standard", `lords type must be 'standard' after force seed, got ${lords.type}`);
+});
+
+test("GET /api/bodies lords partyBreakdown has correct 1997 allocations after force seed", async () => {
+  const { status, body } = await adminClient.get("/api/bodies");
+  assert.equal(status, 200, `Expected 200, got ${status}: ${JSON.stringify(body)}`);
+  const lords = (body.bodies || []).find((b) => b.id === "lords");
+  assert.ok(lords, "lords body must be present");
+  const pb = lords.partyBreakdown || [];
+  assert.ok(pb.length > 0, "lords partyBreakdown must not be empty after force seed");
+  const labour = pb.find((r) => r.party === "Labour");
+  assert.ok(labour, "lords partyBreakdown must contain a Labour row");
+  assert.equal(labour.seats, 182, `lords Labour seats must be 182, got ${labour.seats}`);
+  const conservative = pb.find((r) => r.party === "Conservative");
+  assert.ok(conservative, "lords partyBreakdown must contain a Conservative row");
+  assert.equal(conservative.seats, 497, `lords Conservative seats must be 497, got ${conservative.seats}`);
+  const libdem = pb.find((r) => r.party === "Liberal Democrat");
+  assert.ok(libdem, "lords partyBreakdown must contain a Liberal Democrat row");
+  assert.equal(libdem.seats, 73, `lords Liberal Democrat seats must be 73, got ${libdem.seats}`);
+});
+
+test("GET /api/bodies europarl has type=standard after force seed", async () => {
+  const { status, body } = await adminClient.get("/api/bodies");
+  assert.equal(status, 200, `Expected 200, got ${status}: ${JSON.stringify(body)}`);
+  const europarl = (body.bodies || []).find((b) => b.id === "europarl");
+  assert.ok(europarl, "europarl body must be present");
+  assert.equal(europarl.type, "standard", `europarl type must be 'standard' after force seed, got ${europarl.type}`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression: force overwrite on a body pre-populated with wrong data
+// This is the exact bug scenario: body has totalSeats set but partyBreakdown
+// wiped. Running force overwrite must restore the correct breakdown.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("force overwrite restores correct lords partyBreakdown even when DB has corrupted state", async () => {
+  // Corrupt the lords body: set totalSeats but clear partyBreakdown
+  const corruptPayload = { id: "lords", type: "standard", visible: true, totalSeats: 1265, partyBreakdown: [] };
+  const putRes = await adminClient.put("/api/bodies/lords", corruptPayload);
+  assert.equal(putRes.status, 200, `PUT /api/bodies/lords should succeed, got ${putRes.status}`);
+
+  // Verify the corruption is in place
+  const { body: beforeBody } = await adminClient.get("/api/bodies");
+  const lordsBefore = (beforeBody.bodies || []).find((b) => b.id === "lords");
+  assert.ok(lordsBefore, "lords must exist before force seed");
+  assert.deepEqual(lordsBefore.partyBreakdown || [], [], "lords partyBreakdown should be empty (corrupted)");
+
+  // Run force overwrite
+  const seedRes = await adminClient.post("/api/admin/seed-1997-bodies-locals?force=true", { force: true });
+  assert.equal(seedRes.status, 200, `Force seed should return 200, got ${seedRes.status}`);
+  assert.equal(seedRes.body.ok, true, "Force seed ok must be true");
+
+  // Verify the breakdown is restored
+  const { body: afterBody } = await adminClient.get("/api/bodies");
+  const lordsAfter = (afterBody.bodies || []).find((b) => b.id === "lords");
+  assert.ok(lordsAfter, "lords must be present after force seed");
+  assert.equal(lordsAfter.type, "standard", "lords type must be 'standard' after force seed");
+  assert.equal(lordsAfter.totalSeats, 1265, `lords totalSeats must be 1265, got ${lordsAfter.totalSeats}`);
+  const pb = lordsAfter.partyBreakdown || [];
+  assert.ok(pb.length > 0, "lords partyBreakdown must not be empty after force seed");
+  const labour = pb.find((r) => r.party === "Labour");
+  assert.ok(labour, "lords partyBreakdown must contain Labour after force seed");
+  assert.equal(labour.seats, 182, `lords Labour seats must be 182 after force seed, got ${labour.seats}`);
+  const pbSum = pb.reduce((s, r) => s + Number(r.seats || 0), 0);
+  assert.ok(pbSum > 0, `lords partyBreakdown seat sum must be > 0 after force seed, got ${pbSum}`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Idempotency: running force overwrite twice yields the same result
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("force overwrite is idempotent: second run gives same lords totalSeats and partyBreakdown", async () => {
+  // Second force overwrite
+  const seedRes = await adminClient.post("/api/admin/seed-1997-bodies-locals?force=true", { force: true });
+  assert.equal(seedRes.status, 200, `Second force seed should return 200, got ${seedRes.status}`);
+
+  const { body } = await adminClient.get("/api/bodies");
+  const lords = (body.bodies || []).find((b) => b.id === "lords");
+  assert.ok(lords, "lords must be present after second force seed");
+  assert.equal(lords.totalSeats, 1265, `lords totalSeats must still be 1265, got ${lords.totalSeats}`);
+  assert.equal(lords.type, "standard", "lords type must still be 'standard'");
+  const pb = lords.partyBreakdown || [];
+  assert.ok(pb.length > 0, "lords partyBreakdown must not be empty after second force seed");
+  const labour = pb.find((r) => r.party === "Labour");
+  assert.ok(labour, "lords Labour row must still be present after second force seed");
+  assert.equal(labour.seats, 182, `lords Labour seats must still be 182, got ${labour.seats}`);
+});
