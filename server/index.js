@@ -20870,6 +20870,15 @@ app.get("/api/me/faction", charAppReadLimit, async (req, res) => {
     const characterId = await getActiveCharacterId(req);
     if (!characterId) return res.json({ faction: null });
 
+    const { rows: charRows } = await pool.query(
+      `SELECT id, party, is_active FROM characters WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+      [characterId]
+    );
+    if (!charRows.length) return res.json({ faction: null });
+    const character = charRows[0];
+
+    await ensureCharacterFactionMembership(pool, character);
+
     const { rows } = await pool.query(
       `SELECT f.id, f.slug, f.name, f.party_slug, f.colour
          FROM character_faction_membership cfm
@@ -20909,7 +20918,7 @@ app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (re
     }
     const character = charRows[0];
 
-    await getOrCreateUnalignedFaction(character.party);
+    await getOrCreateUnalignedFaction(character.party, client);
 
     const { rows: newFactionRows } = await client.query(
       `SELECT id, slug, name, party_slug, active FROM party_factions WHERE id = $1 LIMIT 1`,
@@ -20932,19 +20941,11 @@ app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (re
 
     const simYear = await getCurrentSimYear();
 
-    const { rows: currentRows } = await client.query(
-      `SELECT cfm.character_id, cfm.faction_id, cfm.last_switch_sim_year, f.slug AS from_slug
-         FROM character_faction_membership cfm
-         JOIN party_factions f ON f.id = cfm.faction_id
-        WHERE cfm.character_id = $1
-        FOR UPDATE`,
-      [character.id]
-    );
-    if (!currentRows.length) {
+    const current = await ensureCharacterFactionMembership(client, character);
+    if (!current) {
       await client.query("ROLLBACK");
-      return res.status(400).json({ error: "No current faction membership found" });
+      return res.status(400).json({ error: "Faction membership is not available for this party" });
     }
-    const current = currentRows[0];
 
     if (String(current.faction_id) === String(newFaction.id)) {
       await client.query("ROLLBACK");
@@ -21008,9 +21009,9 @@ function normaliseFactionSlug(s) {
  * system (slug === name for playable parties).
  * Uses the canonical constituencies table as the source of truth.
  */
-async function getOrCreateUnalignedFaction(partySlug) {
+async function getOrCreateUnalignedFaction(partySlug, db = pool) {
   if (!FACTION_PLAYABLE_PARTIES.includes(partySlug)) return null;
-  const { rows: existing } = await pool.query(
+  const { rows: existing } = await db.query(
     `SELECT id, slug FROM party_factions
       WHERE party_slug = $1 AND slug = 'unaligned'
       LIMIT 1`,
@@ -21018,18 +21019,18 @@ async function getOrCreateUnalignedFaction(partySlug) {
   );
   if (existing.length) {
     if (existing[0].slug === 'unaligned') {
-      await pool.query(`UPDATE party_factions SET active = TRUE, leadership_alignment = 'neutral', updated_at = NOW() WHERE id = $1`, [existing[0].id]);
+      await db.query(`UPDATE party_factions SET active = TRUE, leadership_alignment = 'neutral', updated_at = NOW() WHERE id = $1`, [existing[0].id]);
     }
     return existing[0].id;
   }
-  const { rows: created } = await pool.query(
+  const { rows: created } = await db.query(
     `INSERT INTO party_factions
        (party_slug, slug, name, description, colour, ideology_tags, leadership_alignment, display_order, active)
      VALUES ($1, 'unaligned', 'Unaligned', 'Members not aligned to any organised parliamentary faction.', '#777777', '[]'::jsonb, 'neutral', 9999, TRUE)
      RETURNING id`,
     [partySlug]
   );
-  await pool.query(
+  await db.query(
     `INSERT INTO party_faction_allocations (faction_id, mp_count, influence_bonus, notes, updated_by)
      VALUES ($1, 0, 0, 'System default faction', 'system')
      ON CONFLICT (faction_id) DO NOTHING`,
@@ -21049,11 +21050,26 @@ async function getCurrentSimYear() {
   return Number(rows[0]?.sim_current_year ?? 1997);
 }
 
+async function normalisePartySlugFromCharacterParty(partyName, db = pool) {
+  const name = String(partyName || "").trim();
+  if (!name) return "";
+  const { rows } = await db.query(
+    `SELECT slug, name
+       FROM parties
+      WHERE lower(slug) = lower($1) OR lower(name) = lower($1)
+      ORDER BY CASE WHEN lower(slug) = lower($1) THEN 0 ELSE 1 END
+      LIMIT 1`,
+    [name]
+  );
+  return rows[0]?.slug || name;
+}
+
 async function characterHasBlockedFactionRole(characterId, partyName) {
+  const partySlug = await normalisePartySlugFromCharacterParty(partyName);
   const { rows } = await pool.query(
     `SELECT 1
        FROM parties
-      WHERE name = $2 AND (
+      WHERE (slug = $2 OR name = $3) AND (
         leader_character_id = $1 OR
         chairman_character_id = $1 OR
         chief_whip_character_id = $1 OR
@@ -21061,9 +21077,43 @@ async function characterHasBlockedFactionRole(characterId, partyName) {
         whip_character_id = $1
       )
       LIMIT 1`,
-    [characterId, partyName]
+    [characterId, partySlug, partyName]
   );
   return rows.length > 0;
+}
+
+async function ensureCharacterFactionMembership(db, character) {
+  if (!character?.id || !FACTION_PLAYABLE_PARTIES.includes(String(character.party || ""))) return null;
+
+  const { rows: currentRows } = await db.query(
+    `SELECT cfm.character_id, cfm.faction_id, cfm.last_switch_sim_year, f.slug AS from_slug
+       FROM character_faction_membership cfm
+       JOIN party_factions f ON f.id = cfm.faction_id
+      WHERE cfm.character_id = $1
+      FOR UPDATE`,
+    [character.id]
+  );
+  if (currentRows.length) return currentRows[0];
+
+  const unalignedFactionId = await getOrCreateUnalignedFaction(character.party, db);
+  if (!unalignedFactionId) return null;
+
+  await db.query(
+    `INSERT INTO character_faction_membership (character_id, faction_id, joined_at, updated_at)
+     VALUES ($1, $2, NOW(), NOW())
+     ON CONFLICT (character_id) DO NOTHING`,
+    [character.id, unalignedFactionId]
+  );
+
+  const { rows: createdRows } = await db.query(
+    `SELECT cfm.character_id, cfm.faction_id, cfm.last_switch_sim_year, f.slug AS from_slug
+       FROM character_faction_membership cfm
+       JOIN party_factions f ON f.id = cfm.faction_id
+      WHERE cfm.character_id = $1
+      FOR UPDATE`,
+    [character.id]
+  );
+  return createdRows[0] || null;
 }
 
 async function getPartyConstituencyMPs(partyName) {

@@ -1,7 +1,7 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection, apiGetPartyFactions, apiGetPartyFactionClimate, apiGetMyFaction } from "../api.js";
+import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection, apiGetPartyFactions, apiGetPartyFactionClimate } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { logAction } from "../audit.js";
 import { isLoggedIn } from "../core.js";
@@ -1090,7 +1090,7 @@ function render(data, state) {
               <th style="text-align:left;padding:6px;">Momentum</th>
               <th style="text-align:right;padding:6px;">Cohesion</th>
               <th style="text-align:right;padding:6px;">Leadership pressure</th>
-              <th style="text-align:right;padding:6px;">Members (active)</th>
+              <th style="text-align:right;padding:6px;">Members (active characters)</th>
               ${showNpcCol ? `<th style="text-align:right;padding:6px;">NPCs (active)</th>` : ""}
             </tr>
           </thead>
@@ -1175,7 +1175,7 @@ function render(data, state) {
     state.donationMessage = "";
     // Reload DB party data for the newly selected party
     try {
-      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult, climateResult, myFactionResult] = await Promise.all([
+      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult, climateResult] = await Promise.all([
         apiGetParty(next).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
         apiGetPartyStructure(next).catch(() => ({ structure: {}, treasuryOverspend: false })),
@@ -1183,7 +1183,6 @@ function render(data, state) {
         apiGetWhipRequests(next, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(next).catch(() => ({ factions: [] })),
         apiGetPartyFactionClimate(next).catch(() => ({ climate: null })),
-        apiGetMyFaction().catch(() => ({ faction: null })),
       ]);
       if (partyResult?.party) state.dbState = { ...state.dbState, party: partyResult.party };
       const partyNameLower = next.toLowerCase();
@@ -1196,7 +1195,6 @@ function render(data, state) {
       state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
       state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
       state.factionClimate = climateResult.climate ?? null;
-      state.myFaction = myFactionResult.faction ?? null;
       state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
       state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
       state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);
@@ -1916,7 +1914,6 @@ export async function initPartyPage(data) {
     priceIndex: 1.0,
     factions: [],
     factionClimate: null,
-    myFaction: null,
     factionSeatTotal: 0,
     factionAllocatedMPs: 0,
     factionRemainingMPs: 0,
@@ -1977,13 +1974,12 @@ export async function initPartyPage(data) {
       state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
 
       // Load governance data: elections, pending expulsions, whip requests, and factions
-      const [electionsResult, expulsionsResult, whipReqResult, factionsResult, climateResult, myFactionResult] = await Promise.all([
+      const [electionsResult, expulsionsResult, whipReqResult, factionsResult, climateResult] = await Promise.all([
         apiGetPartyElections(partyId).catch(() => ({ elections: [] })),
         apiGetExpulsions("pending").catch(() => ({ expulsions: [] })),
         apiGetWhipRequests(partyId, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(partyId).catch(() => ({ factions: [] })),
         apiGetPartyFactionClimate(partyId).catch(() => ({ climate: null })),
-        apiGetMyFaction().catch(() => ({ faction: null })),
       ]);
       state.elections = electionsResult.elections || [];
       const openStatuses = ["nominations", "voting", "runoff"];
@@ -1994,7 +1990,6 @@ export async function initPartyPage(data) {
       state.dbState.whipRequests = Array.isArray(whipReqResult.requests) ? whipReqResult.requests : [];
       state.factions = Array.isArray(factionsResult.factions) ? factionsResult.factions : [];
       state.factionClimate = climateResult.climate ?? null;
-      state.myFaction = myFactionResult.faction ?? null;
       state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
       state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
       state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);
