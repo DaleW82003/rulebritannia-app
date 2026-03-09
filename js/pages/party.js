@@ -1159,6 +1159,44 @@ function render(data, state) {
           <b>+${c.partyPressureModifier.toFixed(1)}</b>
         </div>
       </div>
+      ${c.dominance ? (() => {
+        const d = c.dominance;
+        const fmtPct = (v) => `${(Number(v || 0) * 100).toFixed(1)}%`;
+        const domFaction = d.components?.commons?.dominantFaction;
+        return `
+          <hr style="margin:12px 0;border:0;border-top:1px solid #ddd;">
+          <h3 style="margin:0 0 8px;">Dominance stabiliser breakdown</h3>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;font-size:.86em;">
+            <div class="tile" style="padding:8px;">
+              <b>Commons</b><br>
+              Total: ${Math.round(Number(d.components?.commons?.total || 0))}<br>
+              Share: ${fmtPct(d.components?.commons?.share)}<br>
+              Dominant: ${domFaction ? esc(`${domFaction.name} (${domFaction.leadershipAlignment})`) : "n/a"}
+            </div>
+            <div class="tile" style="padding:8px;">
+              <b>Other bodies (ex DEM)</b><br>
+              Total: ${Math.round(Number(d.components?.bodies?.total || 0))}<br>
+              Share: ${fmtPct(d.components?.bodies?.share)}<br>
+              Arenas: ${Math.round(Number((d.components?.bodies?.arenasIncluded || []).length))}
+            </div>
+            <div class="tile" style="padding:8px;">
+              <b>Locals</b><br>
+              Total: ${Math.round(Number(d.components?.locals?.total || 0))}<br>
+              Share: ${fmtPct(d.components?.locals?.share)}
+            </div>
+            <div class="tile" style="padding:8px;">
+              <b>Directly elected mayors</b><br>
+              Total: ${Math.round(Number(d.components?.dem?.total || 0))}<br>
+              Share: ${fmtPct(d.components?.dem?.share)}
+            </div>
+          </div>
+          <div style="margin-top:8px;font-size:.84em;" class="muted">
+            Active weights — commons ${d.weights?.active?.commons ?? 0}, bodies ${d.weights?.active?.bodies ?? 0}, locals ${d.weights?.active?.locals ?? 0}, DEM ${d.weights?.active?.dem ?? 0}.<br>
+            Effective share: <b>${fmtPct(d.effectiveShare)}</b>, dominance score: <b>${fmtPct(d.dominanceScore)}</b>, applied: <b>${d.dominanceApplied ? "yes" : "no"}</b>.<br>
+            Multipliers — hostile ${Number(d.appliedMultipliers?.hostilePressureMultiplier ?? 1).toFixed(3)}, pressure ${Number(d.appliedMultipliers?.partyPressureMultiplier ?? 1).toFixed(3)}, resilience ${Number(d.appliedMultipliers?.resilienceMultiplier ?? 1).toFixed(3)}.
+          </div>
+        `;
+      })() : ""}
     </section>
       `;
     })() : ""}

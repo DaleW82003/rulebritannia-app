@@ -35,6 +35,40 @@ import { pool } from "./db.js";
  */
 export const FACTION_PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
 
+const DOMINANCE_COMPONENT_WEIGHTS = {
+  commons: 1.0,
+  bodies: 0.1,
+  locals: 0.1,
+  dem: 0.2,
+};
+
+const DOMINANCE_STABILISER = {
+  hostilePressureReductionMax: 0.4,
+  partyPressureReductionMax: 0.4,
+  resilienceBoostMax: 0.15,
+};
+
+function clamp01(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function emptyPlayablePartyTotals() {
+  return { Labour: 0, Conservative: 0, "Liberal Democrat": 0 };
+}
+
+function buildPlayablePartyTotalsFromRows(rows, fieldName) {
+  const totals = emptyPlayablePartyTotals();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const party = String(row?.party || "");
+    if (!FACTION_PLAYABLE_PARTIES.includes(party)) continue;
+    const parsed = Number(row?.[fieldName]);
+    totals[party] = Number.isFinite(parsed) ? parsed : 0;
+  }
+  return totals;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared utilities
 // ─────────────────────────────────────────────────────────────────────────────
@@ -618,6 +652,8 @@ export async function getPartyFactionClimate(partySlug) {
   let alignedStrength  = 0;
   let totalInternalPower = 0;
   const factionSummaries = [];
+  let dominantCommonsFaction = null;
+  let dominantCommonsCount = 0;
 
   for (const r of rows) {
     // Use cached computed state if available, otherwise compute on the fly
@@ -647,13 +683,137 @@ export async function getPartyFactionClimate(partySlug) {
       cohesion,
       momentum:            r.momentum ?? "stable",
     });
+
+    const mpCount = Number(r.mp_count ?? 0);
+    if (mpCount > dominantCommonsCount) {
+      dominantCommonsCount = mpCount;
+      dominantCommonsFaction = {
+        id: r.id,
+        slug: r.slug,
+        name: r.name,
+        leadershipAlignment: r.leadership_alignment,
+      };
+    }
   }
+
+  const [commonsCountResult, bodyRowsResult, localsResult, officialsResult] = await Promise.all([
+    pool.query("SELECT COUNT(*) AS total FROM constituencies WHERE party = $1", [partySlug]),
+    pool.query("SELECT id, data FROM bodies_data ORDER BY sort_order ASC, id ASC"),
+    pool.query("SELECT value FROM app_config WHERE key = 'locals_data'"),
+    pool.query(
+      `SELECT o.arena_type, o.arena_id, o.faction_id, o.official_count,
+              f.slug AS faction_slug, f.name AS faction_name, f.leadership_alignment
+         FROM other_officials_faction_allocations o
+         JOIN party_factions f ON f.id = o.faction_id
+        WHERE o.party_slug = $1 AND f.active = TRUE`,
+      [partySlug]
+    ),
+  ]);
+
+  const commonsTotal = Number(commonsCountResult.rows[0]?.total ?? 0);
+  const commonsShare = commonsTotal > 0 ? dominantCommonsCount / commonsTotal : 0;
+
+  const allocationsByArena = new Map();
+  for (const row of officialsResult.rows) {
+    const key = `${row.arena_type}:${row.arena_id}`;
+    const count = Number(row.official_count ?? 0);
+    if (!allocationsByArena.has(key)) allocationsByArena.set(key, []);
+    allocationsByArena.get(key).push({
+      factionId: row.faction_id,
+      count: Number.isFinite(count) ? count : 0,
+      slug: row.faction_slug,
+      name: row.faction_name,
+      leadershipAlignment: row.leadership_alignment,
+    });
+  }
+
+  const getDominantArenaCount = (arenaType, arenaId) => {
+    const entries = allocationsByArena.get(`${arenaType}:${arenaId}`) || [];
+    return entries.reduce((max, entry) => Math.max(max, Number(entry.count || 0)), 0);
+  };
+
+  let bodiesTotal = 0;
+  let bodiesWeightedShareSum = 0;
+  const bodiesArenasIncluded = [];
+  let demTotal = 0;
+  let demShare = 0;
+
+  for (const row of bodyRowsResult.rows) {
+    const body = row?.data || {};
+    if (!body?.visible) continue;
+    const bodyId = String(row?.id || body?.id || "").trim();
+    if (!bodyId) continue;
+
+    if (bodyId === "directly-elected-mayors") {
+      const mayors = Array.isArray(body?.mayors) ? body.mayors : [];
+      demTotal = mayors.reduce((sum, mayor) => sum + (String(mayor?.party || "") === partySlug ? 1 : 0), 0);
+      if (demTotal > 0) {
+        demShare = getDominantArenaCount("body", bodyId) / demTotal;
+      }
+      continue;
+    }
+
+    const totals = buildPlayablePartyTotalsFromRows(body?.partyBreakdown, "seats");
+    const partyTotalArena = Number(totals[partySlug] || 0);
+    if (partyTotalArena <= 0) continue;
+    const dominantArenaCount = getDominantArenaCount("body", bodyId);
+    const arenaShare = dominantArenaCount / partyTotalArena;
+    bodiesTotal += partyTotalArena;
+    bodiesWeightedShareSum += arenaShare * partyTotalArena;
+    bodiesArenasIncluded.push({ id: bodyId, label: body?.title || body?.name || bodyId, total: partyTotalArena, share: arenaShare });
+  }
+
+  const bodiesShare = bodiesTotal > 0 ? bodiesWeightedShareSum / bodiesTotal : 0;
+
+  const localsData = localsResult.rows[0]?.value || {};
+  const countries = Array.isArray(localsData?.countries) ? localsData.countries : [];
+  let localsTotal = 0;
+  let localsWeightedShareSum = 0;
+  const localsArenas = [];
+  for (const countryRow of countries) {
+    const country = String(countryRow?.country || "").trim();
+    if (!country) continue;
+    const totals = buildPlayablePartyTotalsFromRows(countryRow?.partyBreakdown, "councillors");
+    const partyTotalArena = Number(totals[partySlug] || 0);
+    if (partyTotalArena <= 0) continue;
+    const dominantArenaCount = getDominantArenaCount("locals", country);
+    const arenaShare = dominantArenaCount / partyTotalArena;
+    localsTotal += partyTotalArena;
+    localsWeightedShareSum += arenaShare * partyTotalArena;
+    localsArenas.push({ id: country, total: partyTotalArena, share: arenaShare });
+  }
+  const localsShare = localsTotal > 0 ? localsWeightedShareSum / localsTotal : 0;
+
+  const activeWeights = {
+    commons: commonsTotal > 0 ? DOMINANCE_COMPONENT_WEIGHTS.commons : 0,
+    bodies: bodiesTotal > 0 ? DOMINANCE_COMPONENT_WEIGHTS.bodies : 0,
+    locals: localsTotal > 0 ? DOMINANCE_COMPONENT_WEIGHTS.locals : 0,
+    dem: demTotal > 0 ? DOMINANCE_COMPONENT_WEIGHTS.dem : 0,
+  };
+  const numerator =
+    (activeWeights.commons * commonsShare) +
+    (activeWeights.bodies * bodiesShare) +
+    (activeWeights.locals * localsShare) +
+    (activeWeights.dem * demShare);
+  const denominator = activeWeights.commons + activeWeights.bodies + activeWeights.locals + activeWeights.dem;
+  const effectiveShare = denominator > 0 ? numerator / denominator : 0;
+
+  const dominanceGateAlignment = dominantCommonsFaction?.leadershipAlignment === "aligned";
+  const dominanceGateThreshold = effectiveShare > 0.5;
+  const dominanceApplied = dominanceGateAlignment && dominanceGateThreshold;
+  const dominanceScore = dominanceApplied ? clamp01((effectiveShare - 0.5) / 0.5) : 0;
 
   hostilePressure  = clamp100(hostilePressure);
   alignedStrength  = clamp100(alignedStrength);
-  const climateScore             = Math.max(-100, Math.min(100, alignedStrength - hostilePressure));
-  const partyPressureModifier    = hostilePressure  * 0.15;
-  const capitalResilienceBonus   = alignedStrength  * 0.10;
+  const hostilePressureMultiplier = 1 - (DOMINANCE_STABILISER.hostilePressureReductionMax * dominanceScore);
+  const partyPressureMultiplier = 1 - (DOMINANCE_STABILISER.partyPressureReductionMax * dominanceScore);
+  const resilienceMultiplier = 1 + (DOMINANCE_STABILISER.resilienceBoostMax * dominanceScore);
+
+  const effectiveHostilePressure = hostilePressure * hostilePressureMultiplier;
+  const effectiveAlignedStrength = alignedStrength;
+  const climateScore             = Math.max(-100, Math.min(100, effectiveAlignedStrength - effectiveHostilePressure));
+  const partyPressureModifier    = effectiveHostilePressure * 0.15 * partyPressureMultiplier;
+  const capitalResilienceBonus   = effectiveAlignedStrength * 0.10 * resilienceMultiplier;
 
   let climateLabel;
   if (climateScore >= 30)       climateLabel = "unified";
@@ -670,6 +830,43 @@ export async function getPartyFactionClimate(partySlug) {
     climateLabel,
     partyPressureModifier,
     capitalResilienceBonus,
+    dominance: {
+      components: {
+        commons: {
+          total: commonsTotal,
+          share: commonsShare,
+          dominantFaction: dominantCommonsFaction,
+        },
+        bodies: {
+          total: bodiesTotal,
+          share: bodiesShare,
+          arenasIncluded: bodiesArenasIncluded,
+        },
+        locals: {
+          total: localsTotal,
+          share: localsShare,
+          arenasIncluded: localsArenas,
+        },
+        dem: {
+          total: demTotal,
+          share: demShare,
+        },
+      },
+      weights: {
+        configured: { ...DOMINANCE_COMPONENT_WEIGHTS },
+        active: activeWeights,
+        numerator,
+        denominator,
+      },
+      effectiveShare,
+      dominanceScore,
+      dominanceApplied,
+      appliedMultipliers: {
+        hostilePressureMultiplier,
+        partyPressureMultiplier,
+        resilienceMultiplier,
+      },
+    },
     totalInternalPower: clamp100(totalInternalPower),
     // Weights documented for developers/admins with code access:
     weights: {
