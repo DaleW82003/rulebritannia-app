@@ -17,7 +17,7 @@ const BODY_DEFAULTS = [
   { id: "scottish-parliament", name: "Scottish Parliament", type: "standard", desc: "The devolved legislature for Scotland.", visible: true, totalSeats: 129, parties: [], controlType: "majority", controlParty: "" },
   { id: "welsh-assembly", name: "Welsh Assembly (Senedd)", type: "standard", desc: "The devolved legislature for Wales.", visible: true, totalSeats: 60, parties: [], controlType: "majority", controlParty: "" },
   { id: "ni-assembly", name: "Northern Irish Assembly", type: "standard", desc: "The devolved legislature for Northern Ireland.", visible: true, totalSeats: 108, parties: [], controlType: "minority", controlParty: "" },
-  { id: "directly-elected-mayors", name: "Directly Elected Mayors", type: "mayors", desc: "Directly Elected Mayoralties across the UK", visible: true, mayors: [] }
+  { id: "directly-elected-mayors", name: "Directly Elected Mayors", type: "mayors", desc: "Directly Elected Mayoralties in the UK", visible: true, mayors: [] }
 ];
 
 const OTHERS_PARTY = "Others";
