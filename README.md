@@ -2,7 +2,7 @@
 
 A browser-based UK parliamentary political simulation — **alpha-ready**.
 
-> **Project status:** Core parliamentary systems, factions, political capital/pressure, character political state, personal and party finance, and the Discourse integration are all implemented and in use. Upcoming: expanded economy model, budget workflow enhancements, and live polling simulation.
+> **Project status:** Core parliamentary systems, factions, political capital/pressure, character political state, personal and party finance, the Discourse integration, and the in-app support ticketing system are all implemented and in use. Upcoming: expanded economy model, budget workflow enhancements, and live polling simulation.
 
 ---
 
@@ -26,6 +26,7 @@ Rule Britannia recreates the mechanics of British parliamentary democracy as an 
 - **Economy & polling** — macroeconomic indicators drive approval ratings tracked through a polling engine.
 - **Press & media** — players submit press releases; coverage is modelled with character-level impact modifiers.
 - **Discourse forum** — debates and motions are automatically threaded as topics on a linked Discourse instance with SSO.
+- **In-app support ticketing** — players raise support tickets from `support.html`; staff (admin/mod) manage them from a dedicated staff queue with status transitions, label tagging, per-side unread tracking, and 25-second polling.
 
 The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mon–Wed = 1 month, Thu–Sat = 1 month; Sunday frozen). The default starting point is August 1997 (shortly after the Labour landslide).
 
@@ -53,7 +54,7 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
 ```
 ┌────────────────────────────────────────────────────────────┐
 │  Browser                                                   │
-│  53 × .html (multi-page)  +  js/  (vanilla ES2020+)       │
+│  54 × .html (multi-page)  +  js/  (vanilla ES2020+)       │
 │  Served by: Cloudflare Pages (www.rulebritannia.org)       │
 └──────────────────┬─────────────────────────────────────────┘
                    │  /api/*  (relative, same-origin)
@@ -69,7 +70,7 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
                    ▼
 ┌────────────────────────────────────────────────────────────┐
 │  Express server  (server/index.js, Node ≥ 18)              │
-│  ~21 000 lines, ~373 REST endpoints                        │
+│  ~21 000 lines, ~392 REST endpoints                        │
 │  Auth / CSRF / Sessions / Rate-limiting / RBAC             │
 │  Email (SendGrid)  ·  Discourse API  ·  Turnstile          │
 └──────────────────┬─────────────────────────────────────────┘
@@ -77,9 +78,10 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
                    ▼
 ┌────────────────────────────────────────────────────────────┐
 │  PostgreSQL (Neon recommended)                             │
-│  ~91 tables: users, bills, motions, divisions, sessions,   │
+│  ~95 tables: users, bills, motions, divisions, sessions,   │
 │  discourse_topics, audit_logs, app_config, finance_config, │
-│  characters, parties, constituencies, …                    │
+│  characters, parties, constituencies,                      │
+│  support_tickets, support_messages, …                      │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -96,7 +98,7 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
 
 ```
 rulebritannia-app/
-├── *.html                  # 53 multi-page HTML routes
+├── *.html                  # 54 multi-page HTML routes
 ├── styles.css              # Global stylesheet (CSS custom properties)
 ├── wrangler.toml           # Cloudflare Worker configuration
 │
@@ -331,6 +333,7 @@ Serve the repo root as a static site. The frontend is pure HTML + vanilla JS; no
 | Dashboard | `dashboard.html` | Works in demo mode unauthenticated |
 | Admin Panel | `admin-panel.html` | Requires `admin` role |
 | Control Panel | `control-panel.html` | Requires `admin` or `mod` role |
+| Support | `support.html` | Requires login; players see own tickets; staff (admin/mod) see all tickets |
 
 ### API communication
 
@@ -629,5 +632,6 @@ The following systems are partially implemented or planned for the next developm
 | **Economy** | Partially implemented | Economy indicators (GDP, inflation, unemployment) exist as admin-editable fields. Dynamic modelling linking policy choices to economic outcomes is not yet implemented. |
 | **Budget** | Implemented (draft/approve flow) | Budget draft, approval, and rejection workflows are live. Automatic effect propagation from budget decisions to economic indicators is upcoming. |
 | **Polling** | Implemented (entry recording) | Polling entries can be created and archived. A live polling engine driven by gameplay events (legislation, scandal, economic conditions) is upcoming. |
+| **Support ticketing** | Implemented | Players open tickets from `support.html`; staff (admin/mod) manage the queue with status transitions (`open → finished → closed`), label tagging, per-side unread tracking, and 25-second auto-polling. Future: email notification on new staff reply, real-time push, support ticket pagination in the staff view. |
 | **House of Lords** | Body tracked | The Lords exist as a tracked parliamentary body but do not participate in bill passage. A Lords stage is a planned extension. |
 | **Elections** | Seed data only | The 1997 result is seeded at setup. A general election mechanism allowing seat redistribution mid-simulation is a planned extension. |

@@ -55,7 +55,7 @@ Rule Britannia is a browser-based UK parliamentary political simulation set in 1
                    ▼
 ┌──────────────────────────────────────────────────────────┐
 │              Express API Server  (Render)                │
-│  server/index.js  — ~373 routes                         │
+│  server/index.js  — ~392 routes                         │
 │  server/db.js     — pg Pool (Neon / Postgres)            │
 │  server/clock.js  — sim-date calculation                 │
 │  server/discourse.js  — Discourse API client (full)      │
@@ -66,7 +66,7 @@ Rule Britannia is a browser-based UK parliamentary political simulation set in 1
                    ▼
 ┌──────────────────────────────────────────────────────────┐
 │              Neon (Postgres)                             │
-│  ~91 tables: users, characters, bills, motions,          │
+│  ~95 tables: users, characters, bills, motions,          │
 │  statements, regulations, divisions, press_items, …      │
 └──────────────────────────────────────────────────────────┘
 
@@ -134,7 +134,7 @@ Auth guards used throughout:
 
 **Error response shape:** All error responses use `{ error: "<string>" }` — this is enforced by `static-checks.js`.
 
-**Route count (from feature manifest):** ~373 endpoints total.
+**Route count (from feature manifest):** ~392 endpoints total.
 
 **Major route groups:**
 
@@ -420,6 +420,76 @@ The scandal system allows mods to create scenario templates and assign them to o
 - `POST /api/scandals/optin` — character opts in to scandal gameplay
 - `POST /api/scandals/situations/:id/respond` — player responds to a scandal situation
 - Mod routes: `/api/mod/scandals/*`
+
+### Support Ticketing
+
+The support ticketing system allows players to raise issues with staff and staff (admin/mod) to manage the queue.
+
+**Player endpoints (requires any authenticated session):**
+- `GET /api/support/tickets` — list the player's own tickets (ordered by `updated_at DESC`)
+- `POST /api/support/tickets` — create a new ticket (`subject` ≤ 200 chars, `category` ≤ 100 chars, `message` ≤ 10,000 chars — all validated before any DB write)
+- `GET /api/support/tickets/:id` — fetch a single ticket and its messages; automatically marks `player_last_read_at`
+- `POST /api/support/tickets/:id/messages` — append a message to a ticket; blocked on `closed` tickets
+- `PATCH /api/support/tickets/:id` — player status transitions (`open ↔ finished`)
+
+**Staff endpoints (requires `admin` or `mod` role):**
+- `GET /api/support/staff/tickets` — paginated list of all tickets; accepts `?status=`, `?label=`, `?limit=` (max 200), `?offset=`; returns `{ tickets, total, limit, offset }`. The `COUNT(*)` uses identical filter parameters to the data query.
+- `GET /api/support/staff/tickets/:id` — fetch any ticket and messages; marks `staff_last_read_at`
+- `POST /api/support/staff/tickets/:id/messages` — staff reply (`message` ≤ 10,000 chars; blocked on `closed` tickets)
+- `PATCH /api/support/staff/tickets/:id` — update `status` (with enforced transition matrix) and/or `staff_labels` array
+
+**Status lifecycle:**
+
+```
+open  ──(player marks finished)──▶  finished  ──(staff closes)──▶  closed
+ ▲                                     │
+ └──────────(player/staff reopens)──────┘
+                                       ▲
+ closed ──(staff reopens)──────────────┘
+```
+
+**Unread tracking:**
+- Player unread: `last_message_at > player_last_read_at` (or `player_last_read_at IS NULL`)
+- Staff unread: `last_message_at > staff_last_read_at` (or `staff_last_read_at IS NULL`)
+- `GET` on a ticket automatically clears the appropriate side's unread flag.
+
+**Frontend (`js/pages/support.js`):**
+- Dual-panel layout: ticket list (left) + thread view (right).
+- Polls every 25 seconds (`setInterval`) when the tab is visible; also re-polls on `visibilitychange`.
+- Keyboard accessibility: list items have `tabindex="0"` and respond to both `click` and `keydown` (Enter / Space).
+- Toast notifications for new unreads use a `hasLoaded` boolean flag to suppress the first-load toast; the currently-open ticket is excluded from unread notifications.
+- Staff view shows status/label filters, ticket owner, and an inline label-toggle editor.
+
+**Database tables:**
+
+```sql
+support_tickets (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_by_user_id    UUID NOT NULL REFERENCES users(id),
+  created_by_character_id UUID REFERENCES characters(id),
+  subject               TEXT NOT NULL,
+  status                TEXT NOT NULL DEFAULT 'open'
+                        CHECK (status IN ('open','finished','closed')),
+  category              TEXT,
+  staff_labels          TEXT[] NOT NULL DEFAULT '{}',
+  last_message_at       TIMESTAMPTZ,
+  player_last_read_at   TIMESTAMPTZ,
+  staff_last_read_at    TIMESTAMPTZ,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+
+support_messages (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id      UUID NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+  author_user_id UUID NOT NULL REFERENCES users(id),
+  author_role    TEXT NOT NULL CHECK (author_role IN ('player','staff')),
+  body           TEXT NOT NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+```
+
+Both tables are bootstrapped by `ensureSchema()` and are **relational-authoritative** (not subject to snapshot flows).
 
 ---
 
@@ -1084,6 +1154,9 @@ Based on the current codebase, the following areas are natural candidates for ex
 - **Pagination UI in frontend.** The `/api/admin/characters/applications`, `/api/civil-service/briefings`, and `/api/civil-service/cases` endpoints support `?limit`/`?offset` pagination, but the frontend clients do not yet pass these parameters.
 - **Comprehensive RBAC E2E test suite.** A full authenticated API test matrix covering all role tiers (backbencher, minister, party leader, chief whip, speaker, mod, admin) would provide ongoing confidence in permission enforcement.
 - **Split `discourse.js` / `discourseClient.js`.** The two coexisting client modules should be consolidated into a single well-tested module to reduce confusion and maintenance overhead.
+- **Support ticket email notifications.** When a staff member posts a reply to a player's ticket, an email notification should be sent via SendGrid to inform the player. Similarly, players could optionally receive a notification when a ticket is closed or reopened.
+- **Real-time support updates.** The current 25-second polling loop in `js/pages/support.js` is a reasonable alpha approach, but a WebSocket or SSE channel would allow instant delivery of new messages without polling overhead.
+- **Support ticket pagination in staff view.** The staff list endpoint (`GET /api/support/staff/tickets`) already supports `?limit` and `?offset`, but the frontend does not yet pass pagination parameters — the staff view loads up to the default page size only.
 
 ---
 

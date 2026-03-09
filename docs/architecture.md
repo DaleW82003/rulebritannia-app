@@ -21,14 +21,14 @@ The diagram below shows the five architectural layers and their relationships. R
 flowchart TD
     subgraph CLIENT["Client / UI Layer"]
         direction TB
-        PAGES["53 × HTML pages\n(Cloudflare Pages)"]
+        PAGES["54 × HTML pages\n(Cloudflare Pages)"]
         JSPAGES["js/pages/* — per-page init modules"]
         APIHELPERS["js/api.js — ~351 API call wrappers\njs/auth.js · js/permissions.js · js/core.js"]
     end
 
     subgraph API["API Layer  (server/index.js)"]
         direction TB
-        ROUTES["~373 Express route handlers"]
+        ROUTES["~392 Express route handlers"]
         RBAC["Auth / CSRF / Rate-limiting / RBAC guards\n(requireAdmin · requireAdminOrMod · requireAdminModOrSpeaker)"]
     end
 
@@ -43,7 +43,7 @@ flowchart TD
 
     subgraph PERSIST["Persistence Layer  ★ authoritative source of truth"]
         direction TB
-        PG[("PostgreSQL  (Neon)\n~92 tables — auto-bootstrapped by ensureSchema()")]
+        PG[("PostgreSQL  (Neon)\n~95 tables — auto-bootstrapped by ensureSchema()")]
         RELTABLES["Relational tables (authoritative)\nbills · amendments · divisions · factions\npolitical_state · finance · characters · parties\nconstituencies · sessions · audit_log · …"]
     end
 
@@ -85,7 +85,7 @@ flowchart TD
 ┌─────────────────────────────────────────────────────────────────┐
 │  Express Server  (server/index.js, Node ≥ 18)                   │
 │  Hosted: Render  (https://rulebritannia-app-backend.onrender.com)│
-│  ~21,000 lines · 373 registered route handlers                  │
+│  ~21,000 lines · 392 registered route handlers                  │
 │  Auth · CSRF · Sessions · Rate-limiting · RBAC                  │
 │  Email (SendGrid) · Discourse API · Cloudflare Turnstile        │
 └────────────────────────┬────────────────────────────────────────┘
@@ -93,7 +93,7 @@ flowchart TD
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  PostgreSQL  (Neon recommended)                                  │
-│  ~92 tables, auto-bootstrapped by ensureSchema() on startup     │
+│  ~95 tables, auto-bootstrapped by ensureSchema() on startup     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -112,7 +112,7 @@ flowchart TD
 ### 3.1 API Server (server/index.js)
 
 **Location:** `server/index.js`  
-**Size:** 21,019 lines, 373 route handlers  
+**Size:** ~21,000 lines, 392 route handlers  
 **Runtime:** Node.js ≥ 18, ES module format (`"type": "module"`)
 
 **Framework and middleware stack (in order):**
@@ -220,6 +220,8 @@ Verification emails are sent via SendGrid (`@sendgrid/mail`). If `SENDGRID_API_K
 | Cabinet / Shadow cabinet | `GET/PUT /api/cabinet/headline`, `GET/PUT /api/shadowcabinet/headline`, `/drafts` endpoints, opposition reshuffle |
 | Privy council | `GET /api/privy-council`, `GET/POST /api/privy-council/posts`, `DELETE /api/privy-council/posts/:id` |
 | Locals | `GET/PUT /api/locals` |
+| Support (player) | `GET /api/support/tickets`, `POST /api/support/tickets`, `GET /api/support/tickets/:id`, `POST /api/support/tickets/:id/messages`, `PATCH /api/support/tickets/:id` |
+| Support (staff) | `GET /api/support/staff/tickets` (paginated, filterable by status/label), `GET /api/support/staff/tickets/:id`, `POST /api/support/staff/tickets/:id/messages`, `PATCH /api/support/staff/tickets/:id` |
 
 ### 3.1a Server-Side Service Modules
 
@@ -276,7 +278,7 @@ Exports a single `pool` instance (node-postgres `Pool`) shared across all route 
 - SSL is enabled when the URL contains an explicit `sslmode` query parameter, or the hostname contains `neon.tech`.
 - Pool: `max: 10`, `idleTimeoutMillis: 30_000`, `connectionTimeoutMillis: 5_000`.
 
-**Database tables** (92 tables, all created by `ensureSchema()`):
+**Database tables** (~95 tables, all created by `ensureSchema()`):
 
 | Category | Tables |
 |---|---|
@@ -294,7 +296,7 @@ Exports a single `pool` instance (node-postgres `Pool`) shared across all route 
 | Scandals | `scandals`, `scandal_templates`, `scandal_situations`, `scandal_player_choices`, `scandal_mod_decisions`, `scandal_opt_in` |
 | Elections | `elections`, `election_party_summary`, `election_constituency_results`, `election_constituency_changes`, `constituency_events`, `app_state_elections` |
 | Constituencies | `constituencies` |
-| Other | `audit_log`, `online_posts`, `redlion_posts` (via `redlion` table), `events` (via `events_list`), `bodies_data`, `rules_items`, `guides_items`, `cs_briefings`, `cs_cases`, `privy_council_members`, `privy_council_posts` |
+| Other | `audit_log`, `online_posts`, `redlion_posts` (via `redlion` table), `events` (via `events_list`), `bodies_data`, `rules_items`, `guides_items`, `cs_briefings`, `cs_cases`, `privy_council_members`, `privy_council_posts`, `support_tickets`, `support_messages` |
 
 ### 3.4 Worker Process (worker/index.js)
 

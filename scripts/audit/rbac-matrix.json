@@ -1664,6 +1664,41 @@
       ],
       "immutable": false,
       "category": "party"
+    },
+    {
+      "method": "POST",
+      "path": "/api/support/tickets",
+      "roles": ["authenticated"],
+      "immutable": false,
+      "category": "support"
+    },
+    {
+      "method": "POST",
+      "path": "/api/support/tickets/:id/messages",
+      "roles": ["authenticated"],
+      "immutable": false,
+      "category": "support"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/support/tickets/:id",
+      "roles": ["authenticated"],
+      "immutable": false,
+      "category": "support"
+    },
+    {
+      "method": "POST",
+      "path": "/api/support/staff/tickets/:id/messages",
+      "roles": ["admin", "mod"],
+      "immutable": false,
+      "category": "support"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/support/staff/tickets/:id",
+      "roles": ["admin", "mod"],
+      "immutable": false,
+      "category": "support"
     }
   ]
 }

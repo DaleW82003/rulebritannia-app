@@ -101,7 +101,7 @@ The server calls `ensureSchema()` on startup. It creates all tables if they do n
 | Category | Tables |
 |---|---|
 | Parliamentary content (snapshot-derived) | `bills`, `motions`, `statements`, `regulations`, `questiontime_questions` |
-| Relational-authoritative | `divisions`, `division_votes`, `party_factions`, `party_faction_allocations`, `faction_political_state`, `character_political_state`, `character_finance`, `office_assignments`, `parties` |
+| Relational-authoritative | `divisions`, `division_votes`, `party_factions`, `party_faction_allocations`, `faction_political_state`, `character_political_state`, `character_finance`, `office_assignments`, `parties`, `support_tickets`, `support_messages` |
 | User management | `users`, `pending_registrations`, `characters` |
 | Simulation state | `state_snapshots`, `app_state_current`, `game_state` |
 | Configuration | `app_config`, `finance_config` |
@@ -396,6 +396,22 @@ Run these in a staging or pre-production environment before inviting the first a
 
 **Expected:** Wipe and seed complete cleanly. Sim clock is at August 1997. User accounts are preserved.
 
+### Flow 10 — Support ticket (player and staff)
+
+1. Log in as a player character.
+2. Navigate to `/support.html`.
+3. Click **+ New Ticket**. Enter a subject, select a category, enter a message body, and submit.
+4. Verify the ticket appears in the list with status `open` and the thread is readable.
+5. Log in as an admin or mod account (separate browser window or incognito).
+6. Navigate to `/support.html`. Confirm the staff view shows the new ticket in the queue.
+7. Open the ticket. Post a reply as staff.
+8. Switch back to the player session (or refresh). Verify the staff reply is visible and the ticket shows as unread.
+9. As the player, post a reply and click **Mark Finished**.
+10. As staff, verify the ticket now shows status `finished`. Close the ticket.
+11. Verify neither the player nor staff can post further messages to the closed ticket.
+
+**Expected:** Full ticket lifecycle works. Player sees own tickets only; staff sees all. Status transitions enforce the allowed-transition matrix. Closed tickets block new messages.
+
 ---
 
 ## 11. Final Operational and Deployment Risks
@@ -429,8 +445,8 @@ These are not code blockers but should be handled before inviting alpha users.
 6. ✅ **Run the legacy identity report** — confirm zero or acceptable legacy records; run backfill if needed
 7. ✅ **Create a named snapshot** before the first session
 8. ✅ **Run all unit and static checks** and confirm they pass
-9. ✅ **Run manual smoke tests** (Flows 1–7 above) in staging
-10. ✅ **Brief all staff** on the trial-runbook, Danger Zone cautions, and Discourse sync policy
+9. ✅ **Run manual smoke tests** (Flows 1–10 above) in staging
+10. ✅ **Brief all staff** on the trial-runbook, Danger Zone cautions, Discourse sync policy, and the support ticket workflow
 
 ### What can wait until after alpha starts
 
@@ -438,6 +454,9 @@ These are not code blockers but should be handled before inviting alpha users.
 - Economy / budget / polling system expansion
 - Automated end-to-end integration tests for faction recompute chaining
 - RBAC matrix alignment for `POST /api/offices/:id/assign` (documented drift, not a bypass)
+- Email notifications on support ticket replies
+- Real-time push (WebSocket/SSE) for support ticket updates
+- Pagination UI in the staff support ticket list
 
 ---
 

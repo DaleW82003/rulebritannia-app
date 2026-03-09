@@ -3498,3 +3498,99 @@ export async function apiGetMyPoliticalState() {
   if (!res.ok) throw new Error(`apiGetMyPoliticalState failed (${res.status})`);
   return res.json();
 }
+
+// ─── Support ticketing system ──────────────────────────────────────────────────
+
+/** Player: list my support tickets */
+export async function apiGetMyTickets() {
+  const res = await _fetch(`${API_BASE}/api/support/tickets`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiGetMyTickets failed (${res.status})`); }
+  return res.json();
+}
+
+/** Player: create a new support ticket */
+export async function apiCreateTicket(subject, category, message) {
+  const res = await _fetch(`${API_BASE}/api/support/tickets`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ subject, category, message }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreateTicket failed (${res.status})`);
+  return body;
+}
+
+/** Player: get a specific ticket + messages */
+export async function apiGetTicket(id) {
+  const res = await _fetch(`${API_BASE}/api/support/tickets/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiGetTicket failed (${res.status})`); }
+  return res.json();
+}
+
+/** Player: post a message to a ticket */
+export async function apiPostTicketMessage(id, message) {
+  const res = await _fetch(`${API_BASE}/api/support/tickets/${encodeURIComponent(id)}/messages`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ message }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiPostTicketMessage failed (${res.status})`);
+  return body;
+}
+
+/** Player: update ticket status (finish / reopen) */
+export async function apiPatchTicket(id, status) {
+  const res = await _fetch(`${API_BASE}/api/support/tickets/${encodeURIComponent(id)}`, {
+    method: "PATCH", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ status }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiPatchTicket failed (${res.status})`);
+  return body;
+}
+
+/** Staff: list all support tickets (optional ?status= and ?label= filters) */
+export async function apiStaffGetTickets(filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.status) params.set("status", filters.status);
+  if (filters.label)  params.set("label", filters.label);
+  if (filters.limit  != null) params.set("limit",  String(filters.limit));
+  if (filters.offset != null) params.set("offset", String(filters.offset));
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await _fetch(`${API_BASE}/api/support/staff/tickets${qs}`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiStaffGetTickets failed (${res.status})`); }
+  return res.json();
+}
+
+/** Staff: get any ticket + messages */
+export async function apiStaffGetTicket(id) {
+  const res = await _fetch(`${API_BASE}/api/support/staff/tickets/${encodeURIComponent(id)}`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiStaffGetTicket failed (${res.status})`); }
+  return res.json();
+}
+
+/** Staff: post a message to any ticket */
+export async function apiStaffPostMessage(id, message) {
+  const res = await _fetch(`${API_BASE}/api/support/staff/tickets/${encodeURIComponent(id)}/messages`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ message }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiStaffPostMessage failed (${res.status})`);
+  return body;
+}
+
+/** Staff: patch ticket status and/or labels */
+export async function apiStaffPatchTicket(id, updates) {
+  const res = await _fetch(`${API_BASE}/api/support/staff/tickets/${encodeURIComponent(id)}`, {
+    method: "PATCH", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(updates),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiStaffPatchTicket failed (${res.status})`);
+  return body;
+}
