@@ -20818,6 +20818,30 @@ app.put("/api/locals", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const data = req.body || {};
+
+    // Validate totals if present (skip if totals not set for backwards compatibility)
+    const countries = Array.isArray(data?.countries) ? data.countries : [];
+    for (const country of countries) {
+      const name = String(country?.country || "unknown");
+      const breakdown = Array.isArray(country?.partyBreakdown) ? country.partyBreakdown : [];
+      if (country.totalCouncillors != null) {
+        const sumCouncillors = breakdown.reduce((s, p) => s + Number(p.councillors || 0), 0);
+        if (sumCouncillors !== Number(country.totalCouncillors)) {
+          return res.status(400).json({
+            error: `${name}: councillors breakdown sums to ${sumCouncillors} but Total Councillors is ${country.totalCouncillors}`
+          });
+        }
+      }
+      if (country.totalCouncils != null) {
+        const sumCouncils = breakdown.reduce((s, p) => s + Number(p.councilsControlled || 0), 0) + Number(country.noOverallControlCouncils || 0);
+        if (sumCouncils !== Number(country.totalCouncils)) {
+          return res.status(400).json({
+            error: `${name}: councils breakdown sums to ${sumCouncils} but Total Councils is ${country.totalCouncils}`
+          });
+        }
+      }
+    }
+
     await pool.query(
       `INSERT INTO app_config (key, value) VALUES ('locals_data', $1::jsonb)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
@@ -20879,27 +20903,27 @@ const BODIES_1997_SEED = {
 
 const LOCALS_1997_SEED = {
   countries: [
-    { country: "England", noOverallControlCouncils: 74, partyBreakdown: [
+    { country: "England", totalCouncils: 386, totalCouncillors: 22580, noOverallControlCouncils: 74, partyBreakdown: [
       { party: "Labour", councillors: 10840, councilsControlled: 187 },
       { party: "Conservative", councillors: 4550, councilsControlled: 21 },
       { party: "Liberal Democrat", councillors: 4960, councilsControlled: 35 },
       { party: "Others", councillors: 2230, councilsControlled: 1 },
     ] },
-    { country: "Scotland", noOverallControlCouncils: 3, partyBreakdown: [
+    { country: "Scotland", totalCouncils: 32, totalCouncillors: 1306, noOverallControlCouncils: 3, partyBreakdown: [
       { party: "Labour", councillors: 621, councilsControlled: 21 },
       { party: "Conservative", councillors: 82, councilsControlled: 0 },
       { party: "Liberal Democrat", councillors: 129, councilsControlled: 0 },
       { party: "SNP", councillors: 181, councilsControlled: 3 },
       { party: "Others", councillors: 293, councilsControlled: 5 },
     ] },
-    { country: "Wales", noOverallControlCouncils: 3, partyBreakdown: [
+    { country: "Wales", totalCouncils: 22, totalCouncillors: 1272, noOverallControlCouncils: 3, partyBreakdown: [
       { party: "Labour", councillors: 726, councilsControlled: 14 },
       { party: "Conservative", councillors: 42, councilsControlled: 0 },
       { party: "Liberal Democrat", councillors: 79, councilsControlled: 0 },
       { party: "Plaid Cymru", councillors: 113, councilsControlled: 1 },
       { party: "Others", councillors: 312, councilsControlled: 4 },
     ] },
-    { country: "Northern Ireland", noOverallControlCouncils: 24, partyBreakdown: [
+    { country: "Northern Ireland", totalCouncils: 26, totalCouncillors: 582, noOverallControlCouncils: 24, partyBreakdown: [
       { party: "UUP", councillors: 185, councilsControlled: 1 },
       { party: "DUP", councillors: 91, councilsControlled: 0 },
       { party: "SDLP", councillors: 120, councilsControlled: 1 },
@@ -21021,6 +21045,12 @@ app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, 
           }
           if (existingCountry.noOverallControlCouncils === undefined || existingCountry.noOverallControlCouncils === null) {
             existingCountry.noOverallControlCouncils = seedCountry.noOverallControlCouncils;
+          }
+          if (existingCountry.totalCouncils === undefined || existingCountry.totalCouncils === null) {
+            existingCountry.totalCouncils = seedCountry.totalCouncils;
+          }
+          if (existingCountry.totalCouncillors === undefined || existingCountry.totalCouncillors === null) {
+            existingCountry.totalCouncillors = seedCountry.totalCouncillors;
           }
           const existingRows = Array.isArray(existingCountry.partyBreakdown) ? existingCountry.partyBreakdown : [];
           const rowMap = new Map(existingRows.map((r) => [String(r?.party || ""), r]));
