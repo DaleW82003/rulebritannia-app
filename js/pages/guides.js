@@ -30,9 +30,12 @@ function renderGuideRows(data, adminMode) {
 
   return guides
     .map((guide) => `
-      <article class="panel" style="margin-bottom:12px;">
-        <div class="tile" style="display:grid;gap:8px;">
-          <h2 style="margin:0;">${esc(guide.title)}</h2>
+      <details class="panel" style="margin-bottom:12px;overflow:hidden;">
+        <summary style="display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none;">
+          <span style="flex:1;">${esc(guide.title)}</span>
+          <span data-oc-label class="muted">Open</span>
+        </summary>
+        <div class="tile" style="display:grid;gap:8px;padding:12px 14px;border-top:1px solid #eef0f5;">
           <div style="white-space:pre-wrap;line-height:1.45;">${esc(guide.body)}</div>
           ${adminMode ? `
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -41,9 +44,23 @@ function renderGuideRows(data, adminMode) {
             </div>
           ` : ""}
         </div>
-      </article>
+      </details>
     `)
     .join("");
+}
+
+function attachGuideToggleLabels(host) {
+  host.querySelectorAll("details.panel").forEach((details) => {
+    const label = details.querySelector("[data-oc-label]");
+    if (!label) return;
+
+    const syncLabel = () => {
+      label.textContent = details.open ? "Close" : "Open";
+    };
+
+    syncLabel();
+    details.addEventListener("toggle", syncLabel);
+  });
 }
 
 function renderEditor(data, state) {
@@ -157,6 +174,8 @@ function render(data, state) {
       render(data, state);
     });
   }
+
+  attachGuideToggleLabels(host);
 }
 
 export async function initGuidesPage(data) {
