@@ -3408,12 +3408,12 @@ export async function apiGetModsMessage() {
   if (!res.ok) throw new Error(`apiGetModsMessage failed (${res.status})`);
   return res.json();
 }
-export async function apiSetModsMessage(playerMessage, staffMessage) {
+export async function apiSetModsMessage(playerMessage, staffMessage, playerStarterPackHtml) {
   const res = await _fetch(`${API_BASE}/api/mods-message`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ playerMessage, staffMessage }),
+    body: JSON.stringify({ playerMessage, staffMessage, playerStarterPackHtml }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiSetModsMessage failed (${res.status})`);

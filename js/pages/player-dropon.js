@@ -50,6 +50,70 @@ const BRIEFING_TILES = [
   },
 ];
 
+
+const DEFAULT_STARTER_PACK_HTML = `
+    <section class="panel" aria-labelledby="starter-pack-heading" style="margin-bottom:24px;">
+      <h2 id="starter-pack-heading" style="margin:0 0 10px;font-size:1.15rem;font-weight:900;color:var(--navy);">
+        ✅ Starter Pack: Your First Week in Rule Britannia
+      </h2>
+
+      <p class="muted" style="margin:0 0 12px;line-height:1.6;">
+        You don’t need to read everything to start. Create a character, then complete these five actions.
+        Each one is designed to generate momentum and give staff something clear to adjudicate.
+      </p>
+
+      <div class="tile" style="display:grid;gap:10px;">
+        <div class="muted-block" style="line-height:1.6;">
+          <b>1) Create your character (5 minutes)</b><br>
+          Choose a constituency, pick a party, and write a short bio. Don’t overthink it—your first week will shape the details.
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;">
+            <a href="personal.html" class="btn primary">Create Your Character →</a>
+            <a href="guides.html" class="btn">Read the Guides</a>
+            <a href="rules.html" class="btn">Read the Rules</a>
+          </div>
+        </div>
+
+        <div class="muted-block" style="line-height:1.6;">
+          <b>2) Post an introduction (5–8 sentences)</b><br>
+          Who are you, what do you believe, and what’s your one priority this week?
+          End with a hook: “If you care about X, reply / work with me / challenge me.”
+        </div>
+
+        <div class="muted-block" style="line-height:1.6;">
+          <b>3) Pick a signature issue + make one concrete promise</b><br>
+          Choose one issue (NHS, housing, crime, jobs, civil liberties, education, etc.).
+          Make a specific pledge you can follow through on: a question, a motion, an event, or a press push.
+        </div>
+
+        <div class="muted-block" style="line-height:1.6;">
+          <b>4) Run one Activity (Event / Fundraiser / Online)</b><br>
+          Write it so staff can adjudicate it:<br>
+          <span class="muted">Objective → Audience → What you did (concrete) → Risk → “Staff: please brief/adjudicate reaction + complications.”</span>
+        </div>
+
+        <div class="muted-block" style="line-height:1.6;">
+          <b>5) Make one Parliament move + build two relationships</b><br>
+          Do one of: ask a Question Time question, join a debate, or support/launch a motion.
+          Then: pick <b>one ally</b> (same party/faction) and <b>one rival or press contact</b> (outside your comfort zone) and interact with them directly.
+        </div>
+      </div>
+
+      <p class="muted" style="margin:12px 0 0;line-height:1.6;">
+        Want staff to pick up your storyline faster? Open a Support ticket with a one-sentence pitch and what you’re trying to achieve this week.
+      </p>
+
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:10px;">
+        <a href="support.html" class="btn">Open Support</a>
+      </div>
+    </section>
+`;
+
+function starterPackHTML(playerStarterPackHtml) {
+  const html = String(playerStarterPackHtml || "").trim();
+  return html || DEFAULT_STARTER_PACK_HTML;
+}
+
+
 function briefingTileHTML(t) {
   return `
     <div class="tile card-flex">
@@ -79,7 +143,7 @@ function modsMessageBoxHTML(message) {
   `;
 }
 
-function renderNoChar(host, name, playerMessage) {
+function renderNoChar(host, name, playerMessage, playerStarterPackHtml) {
   host.innerHTML = `
     <div class="bbc-masthead"><div class="bbc-title">Welcome to Westminster, ${name}</div></div>
 
@@ -106,6 +170,8 @@ function renderNoChar(host, name, playerMessage) {
         <a href="rules.html" class="btn">Read the Rules</a>
       </div>
     </section>
+
+    ${starterPackHTML(playerStarterPackHtml)}
 
     ${modsMessageBoxHTML(playerMessage)}
   `;
@@ -165,9 +231,11 @@ export async function initPlayerDroponPage(data) {
   const name   = esc(user?.username || user?.name || "Member");
 
   let playerMessage = "";
+  let playerStarterPackHtml = "";
   try {
     const msg = await apiGetModsMessage();
     playerMessage = msg?.playerMessage ?? "";
+    playerStarterPackHtml = msg?.playerStarterPackHtml ?? "";
   } catch (err) {
     console.warn("[player-dropon] could not load mods message:", err);
   }
@@ -175,6 +243,6 @@ export async function initPlayerDroponPage(data) {
   if (hasChar) {
     renderWithChar(host, name, char, playerMessage);
   } else {
-    renderNoChar(host, name, playerMessage);
+    renderNoChar(host, name, playerMessage, playerStarterPackHtml);
   }
 }
