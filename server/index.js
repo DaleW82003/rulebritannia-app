@@ -19826,19 +19826,26 @@ app.post("/api/fundraising/:id/credit-party", crudWriteLimit, async (req, res) =
     );
     await client.query("COMMIT");
 
-    await writeAuditLog(req.session.userId, "party.donation.fundraising", "party_donations", donation[0]?.id, null,
+    // ON CONFLICT could suppress the insert under a concurrent race (pre-check passed, then
+    // another request won the lock). Re-fetch if that happened.
+    const donationRow = donation[0] ?? (await pool.query(
+      `SELECT * FROM party_donations WHERE party_slug = $1 AND source_type = 'fundraising' AND source_ref = $2 LIMIT 1`,
+      [partySlug, sourceRef]
+    )).rows[0];
+
+    await writeAuditLog(req.session.userId, "party.donation.fundraising", "party_donations", donationRow?.id, null,
       { partySlug, campaignName, amount, fundraisingItemId: req.params.id, sourceRef });
 
     res.json({
       ok: true,
       donation: {
-        id:        donation[0]?.id,
-        fromName:  donation[0]?.from_name,
-        amount:    Number(donation[0]?.amount ?? amount),
-        note:      donation[0]?.note,
-        simMonth:  donation[0]?.sim_month,
-        simYear:   donation[0]?.sim_year,
-        createdAt: donation[0]?.created_at,
+        id:        donationRow?.id,
+        fromName:  donationRow?.from_name,
+        amount:    Number(donationRow?.amount ?? amount),
+        note:      donationRow?.note,
+        simMonth:  donationRow?.sim_month,
+        simYear:   donationRow?.sim_year,
+        createdAt: donationRow?.created_at,
         sourceType: "fundraising",
         sourceRef,
       },

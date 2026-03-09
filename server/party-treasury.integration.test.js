@@ -13,6 +13,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { pool } from "./db.js";
 import {
   createTestSchema,
@@ -45,7 +46,7 @@ before(async () => {
   await adminClient.login(adminUser.email, adminUser.password);
 
   // Create a test party
-  testPartySlug = "test-party-" + Date.now();
+  testPartySlug = "test-party-" + randomUUID().slice(0, 8);
   await pool.query(
     `INSERT INTO parties (slug, name, treasury, membership_fee_annual)
      VALUES ($1, $2, '{"cash":100000,"debt":0,"members":1000}'::jsonb, 50)`,
@@ -105,7 +106,7 @@ test("E1: POST /api/parties/:id/treasury updates DB and GET returns updated valu
 
 test("E2: Fundraising credit creates ledger entry with source_type=fundraising", async () => {
   // Seed a fundraising item
-  const fundraisingId = "test-fundraiser-" + Date.now();
+  const fundraisingId = "test-fundraiser-" + randomUUID().slice(0, 8);
   await pool.query(
     `INSERT INTO fundraising_items (id, data) VALUES ($1, '{"name":"Summer Gala","type":"event"}'::jsonb)`,
     [fundraisingId]
@@ -148,7 +149,7 @@ test("E2: Fundraising credit creates ledger entry with source_type=fundraising",
 // ─────────────────────────────────────────────────────────────────────────────
 
 test("E3: Fundraising credit is idempotent — repeated call does not double-credit", async () => {
-  const fundraisingId2 = "test-fundraiser-idem-" + Date.now();
+  const fundraisingId2 = "test-fundraiser-idem-" + randomUUID().slice(0, 8);
   await pool.query(
     `INSERT INTO fundraising_items (id, data) VALUES ($1, '{"name":"Autumn Dinner","type":"event"}'::jsonb)`,
     [fundraisingId2]
@@ -208,7 +209,7 @@ test("E3: Fundraising credit is idempotent — repeated call does not double-cre
 
 test("E4: January membership fee intake credits treasury and creates membership ledger entry", async () => {
   // Create a dedicated party for this test
-  const intakeSlug = "intake-test-" + Date.now();
+  const intakeSlug = "intake-test-" + randomUUID().slice(0, 8);
   await pool.query(
     `INSERT INTO parties (slug, name, treasury, membership_fee_annual)
      VALUES ($1, $2, '{"cash":50000,"debt":0,"members":500}'::jsonb, 100)`,
