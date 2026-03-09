@@ -564,6 +564,20 @@ export async function createTestSchema() {
       created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_config (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT '{}'
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bodies_data (
+      id          TEXT        PRIMARY KEY,
+      data        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+      sort_order  INTEGER     NOT NULL DEFAULT 0,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 }
 
 /**
@@ -573,6 +587,8 @@ export async function createTestSchema() {
 export async function dropTestSchema() {
   await pool.query(`
     DROP TABLE IF EXISTS
+      bodies_data,
+      app_config,
       support_messages,
       support_tickets,
       parliament_status,
