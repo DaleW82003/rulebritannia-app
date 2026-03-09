@@ -43,7 +43,7 @@ flowchart TD
 
     subgraph PERSIST["Persistence Layer  ★ authoritative source of truth"]
         direction TB
-        PG[("PostgreSQL  (Neon)\n~92 tables — auto-bootstrapped by ensureSchema()")]
+        PG[("PostgreSQL  (Neon)\n~95 tables — auto-bootstrapped by ensureSchema()")]
         RELTABLES["Relational tables (authoritative)\nbills · amendments · divisions · factions\npolitical_state · finance · characters · parties\nconstituencies · sessions · audit_log · …"]
     end
 
@@ -93,7 +93,7 @@ flowchart TD
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  PostgreSQL  (Neon recommended)                                  │
-│  ~92 tables, auto-bootstrapped by ensureSchema() on startup     │
+│  ~95 tables, auto-bootstrapped by ensureSchema() on startup     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -278,7 +278,7 @@ Exports a single `pool` instance (node-postgres `Pool`) shared across all route 
 - SSL is enabled when the URL contains an explicit `sslmode` query parameter, or the hostname contains `neon.tech`.
 - Pool: `max: 10`, `idleTimeoutMillis: 30_000`, `connectionTimeoutMillis: 5_000`.
 
-**Database tables** (92 tables, all created by `ensureSchema()`):
+**Database tables** (~95 tables, all created by `ensureSchema()`):
 
 | Category | Tables |
 |---|---|

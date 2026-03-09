@@ -78,7 +78,7 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
                    ▼
 ┌────────────────────────────────────────────────────────────┐
 │  PostgreSQL (Neon recommended)                             │
-│  ~91 tables: users, bills, motions, divisions, sessions,   │
+│  ~95 tables: users, bills, motions, divisions, sessions,   │
 │  discourse_topics, audit_logs, app_config, finance_config, │
 │  characters, parties, constituencies,                      │
 │  support_tickets, support_messages, …                      │

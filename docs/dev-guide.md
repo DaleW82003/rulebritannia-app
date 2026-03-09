@@ -66,7 +66,7 @@ Rule Britannia is a browser-based UK parliamentary political simulation set in 1
                    ▼
 ┌──────────────────────────────────────────────────────────┐
 │              Neon (Postgres)                             │
-│  ~94 tables: users, characters, bills, motions,          │
+│  ~95 tables: users, characters, bills, motions,          │
 │  statements, regulations, divisions, press_items, …      │
 └──────────────────────────────────────────────────────────┘
 

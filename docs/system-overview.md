@@ -92,7 +92,7 @@ Users / Admins / Moderators
          │       Support Ticketing (support_tickets / support_messages)
          ├── Simulation Clock (server/clock.js)
          │
-         ├── PostgreSQL  (~94 tables, bootstrapped on startup)
+         ├── PostgreSQL  (~95 tables, bootstrapped on startup)
          │       State snapshots, sessions, users, characters,
          │       constituencies, parties, bills, motions,
          │       divisions, audit logs,
@@ -116,7 +116,7 @@ Users / Admins / Moderators
 | **UI components** | `js/components/` | Reusable UI widgets | Various component modules |
 | **Simulation engines** | `js/engines/` | Client-side permission engine and helpers | `js/engines/permission-engine.js` |
 | **API server** | `server/index.js` | Express app: all 392 HTTP routes, domain logic, middleware | `server/index.js` (~21 k lines) |
-| **Database layer** | `server/db.js` | PostgreSQL connection pool; schema auto-bootstrapped (~92 tables) | `server/db.js` |
+| **Database layer** | `server/db.js` | PostgreSQL connection pool; schema auto-bootstrapped (~95 tables) | `server/db.js` |
 | **Simulation clock** | `server/clock.js`, `js/clock.js` | Maps real calendar days to simulated parliamentary months (2 sim-months/week) | Both files implement identical algorithm |
 | **Role & permission map** | `server/roles.js` | Canonical role constants, Discourse group mapping, `PERMISSION_MAP` | `server/roles.js` |
 | **Edge proxy (Worker)** | `worker/index.js` | Cloudflare Worker: proxies `rulebritannia.org/api/*` to Render backend; bare-domain redirect | `worker/index.js`, `wrangler.toml` |
