@@ -17,12 +17,11 @@ const BODY_DEFAULTS = [
   { id: "scottish-parliament", name: "Scottish Parliament", type: "standard", desc: "The devolved legislature for Scotland.", visible: true, totalSeats: 129, parties: [], controlType: "majority", controlParty: "" },
   { id: "welsh-assembly", name: "Welsh Assembly (Senedd)", type: "standard", desc: "The devolved legislature for Wales.", visible: true, totalSeats: 60, parties: [], controlType: "majority", controlParty: "" },
   { id: "ni-assembly", name: "Northern Irish Assembly", type: "standard", desc: "The devolved legislature for Northern Ireland.", visible: true, totalSeats: 108, parties: [], controlType: "minority", controlParty: "" },
-  { id: "directly-elected-mayors", name: "Directly Elected Mayors", type: "mayors", desc: "Directly elected mayoralties relevant to the simulation period.", visible: true, mayors: [] }
+  { id: "directly-elected-mayors", name: "Directly Elected Mayors", type: "mayors", desc: "Directly Elected Mayoralties across the UK", visible: true, mayors: [] }
 ];
 
 const OTHERS_PARTY = "Others";
-const ALWAYS_INCLUDE_COMMONS = ["Conservative", "Labour", "Liberal Democrat"];
-const SPEAKER_PARTIES = new Set(["Speaker", "The Speaker"]);
+const MAYOR_OTHER_VALUE = "__OTHER__";
 
 const BODY_PARTY_SCHEMA = {
   lords: { mode: "fixed", parties: ["Conservative", "Labour", "Liberal Democrat", "SNP", "Plaid Cymru", "Green", "UKIP", "DUP", "Sinn Fein", "SDLP", "Alliance", "TP", "UUP", "Independents"] },
@@ -67,11 +66,8 @@ function getCommonsParties(data) {
   const counts = new Map();
   for (const c of (data?.constituencies || [])) {
     const party = String(c?.party || "").trim();
-    if (!party || SPEAKER_PARTIES.has(party)) continue;
+    if (!party) continue;
     counts.set(party, (counts.get(party) || 0) + 1);
-  }
-  for (const party of ALWAYS_INCLUDE_COMMONS) {
-    if (!counts.has(party)) counts.set(party, 0);
   }
   return Array.from(counts.entries())
     .sort((a, b) => {
@@ -79,6 +75,34 @@ function getCommonsParties(data) {
       return a[0].localeCompare(b[0]);
     })
     .map(([party]) => party);
+}
+
+function parseLegacyMayorLines(text) {
+  return String(text || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split("|").map((p) => p.trim());
+      return { mayoralty: parts[0] || "", name: parts[1] || "", party: parts[2] || "" };
+    });
+}
+
+function normalizeMayorEntries(body) {
+  if (!body || body.type !== "mayors") return;
+  if (typeof body.mayors === "string") {
+    body.mayors = parseLegacyMayorLines(body.mayors);
+    return;
+  }
+  if (!Array.isArray(body.mayors)) {
+    body.mayors = [];
+    return;
+  }
+  body.mayors = body.mayors.map((m) => ({
+    mayoralty: String(m?.mayoralty || "").trim(),
+    name: String(m?.name || "").trim(),
+    party: String(m?.party || "").trim(),
+  }));
 }
 
 function getBodyPartyList(bodyId, commonsParties) {
@@ -91,9 +115,11 @@ function normalizeBodyParties(body, canonicalParties) {
   const canonical = new Set(canonicalParties);
   const sourceParties = Array.isArray(body?.parties)
     ? body.parties
-    : typeof body?.parties === "string"
-      ? parseLegacyPartyText(body.parties)
-      : [];
+    : Array.isArray(body?.partyBreakdown)
+      ? body.partyBreakdown.map((p) => ({ name: p?.name || p?.party || "", seats: p?.seats || 0 }))
+      : typeof body?.parties === "string"
+        ? parseLegacyPartyText(body.parties)
+        : [];
   const totals = new Map(canonicalParties.map((name) => [name, 0]));
   let others = 0;
 
@@ -116,6 +142,7 @@ function normalizeAllStandardBodies(data) {
     if (body?.type !== "standard") continue;
     normalizeBodyParties(body, getBodyPartyList(body.id, commonsParties));
   }
+  for (const body of (data?.bodies?.list || [])) normalizeMayorEntries(body);
 }
 
 function getOrderedBodies(data) {
@@ -142,7 +169,7 @@ function renderBodyTile(body) {
                 <span>${esc(m.mayoralty)}</span><span>${esc(m.name)}</span><span>${esc(m.party)}</span>
               </div>
             `).join("")}
-          ` : `<span class="muted">No mayor data configured.</span>`}
+          ` : `<span class="muted">No Directly Elected Mayors…yet.</span>`}
         </div>
       </article>
     `;
@@ -191,7 +218,32 @@ function renderBodyEditorRow(body, editingId) {
   }
 
   if (body.type === "mayors") {
-    const mayorLines = (body.mayors || []).map((m) => `${m.mayoralty}|${m.name}|${m.party}`).join("\n");
+    normalizeMayorEntries(body);
+    const canonicalParties = getCommonsParties(data);
+    const mayorRows = (body.mayors || []).map((m, idx) => {
+      const party = String(m?.party || "").trim();
+      const selected = party === OTHERS_PARTY ? MAYOR_OTHER_VALUE : party;
+      return `
+        <div class="tile" style="padding:10px;margin-bottom:8px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;">
+            <label class="label">Mayoralty
+              <input class="input" type="text" name="mayor-mayoralty-${idx}" value="${esc(m.mayoralty || "")}" placeholder="Greater Manchester">
+            </label>
+            <label class="label">Name
+              <input class="input" type="text" name="mayor-name-${idx}" value="${esc(m.name || "")}" placeholder="Mayor name">
+            </label>
+            <label class="label">Party
+              <select class="input" name="mayor-party-${idx}">
+                <option value="">Select party</option>
+                ${canonicalParties.map((p) => `<option value="${esc(p)}" ${selected === p ? "selected" : ""}>${esc(p)}</option>`).join("")}
+                <option value="${MAYOR_OTHER_VALUE}" ${selected === MAYOR_OTHER_VALUE ? "selected" : ""}>Other</option>
+              </select>
+            </label>
+            <button class="btn" type="button" data-remove-mayor-row="${idx}">Remove</button>
+          </div>
+        </div>
+      `;
+    }).join("");
     return `
       <div class="tile" style="margin-bottom:12px;">
         <h3 style="margin-top:0;">${esc(body.name)}</h3>
@@ -199,8 +251,11 @@ function renderBodyEditorRow(body, editingId) {
           <label>Visible</label>
           <div><input type="checkbox" name="visible" style="width:auto;" ${body.visible !== false ? "checked" : ""}> Show this body to users</div>
 
-          <label>Mayors<br><span class="small">One per line:<br>Mayoralty|Name|Party</span></label>
-          <textarea name="mayors" rows="5" placeholder="Greater Manchester|Andy Burnham|Labour">${esc(mayorLines)}</textarea>
+          <label>Mayors</label>
+          <div>
+            ${mayorRows || `<div class="muted">No Directly Elected Mayors…yet.</div>`}
+            <button class="btn" type="button" data-add-mayor-row="1">Add mayor</button>
+          </div>
 
           <div></div>
           <div class="tile-bottom" style="padding-top:0;margin-top:0;">
@@ -292,6 +347,27 @@ function bindControlPanelEvents(data, state) {
     });
   });
 
+  panel.querySelectorAll("[data-add-mayor-row]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const body = (data.bodies?.list || []).find((b) => b.id === state.editingBodyId);
+      if (!body || body.type !== "mayors") return;
+      normalizeMayorEntries(body);
+      body.mayors.push({ mayoralty: "", name: "", party: "" });
+      renderControlPanel(data, state);
+    });
+  });
+
+  panel.querySelectorAll("[data-remove-mayor-row]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.getAttribute("data-remove-mayor-row"));
+      const body = (data.bodies?.list || []).find((b) => b.id === state.editingBodyId);
+      if (!body || body.type !== "mayors") return;
+      normalizeMayorEntries(body);
+      body.mayors = body.mayors.filter((_, i) => i !== idx);
+      renderControlPanel(data, state);
+    });
+  });
+
   panel.querySelectorAll("form[data-save-body]").forEach((form) => {
     form.addEventListener("submit", (ev) => {
       ev.preventDefault();
@@ -303,11 +379,15 @@ function bindControlPanelEvents(data, state) {
       body.visible = form.querySelector('[name="visible"]')?.checked ?? true;
 
       if (body.type === "mayors") {
-        const lines = String(fd.get("mayors") || "").split("\n").map((l) => l.trim()).filter(Boolean);
-        body.mayors = lines.map((l) => {
-          const parts = l.split("|").map((p) => p.trim());
-          return { mayoralty: parts[0] || "", name: parts[1] || "", party: parts[2] || "" };
-        });
+        normalizeMayorEntries(body);
+        body.mayors = body.mayors.map((_, idx) => {
+          const rawParty = String(fd.get(`mayor-party-${idx}`) || "").trim();
+          return {
+            mayoralty: String(fd.get(`mayor-mayoralty-${idx}`) || "").trim(),
+            name: String(fd.get(`mayor-name-${idx}`) || "").trim(),
+            party: rawParty === MAYOR_OTHER_VALUE ? OTHERS_PARTY : rawParty,
+          };
+        }).filter((m) => m.mayoralty || m.name || m.party);
       } else {
         body.totalSeats = Number(fd.get("totalSeats") || 0);
         body.controlType = String(fd.get("controlType") || "majority");

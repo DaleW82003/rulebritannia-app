@@ -20812,6 +20812,204 @@ app.put("/api/locals", crudWriteLimit, async (req, res) => {
   } catch (e) { console.error("[PUT /api/locals]", e); res.status(500).json({ error: "Server error" }); }
 });
 
+async function getCanonicalConstituencyParties(client = pool) {
+  const { rows } = await client.query(
+    `SELECT party, COUNT(*)::INT AS seats
+       FROM constituencies
+      WHERE party IS NOT NULL AND TRIM(party) <> ''
+      GROUP BY party
+      ORDER BY seats DESC, party ASC`
+  );
+  return rows.map((r) => String(r.party).trim()).filter(Boolean);
+}
+
+const BODIES_1997_SEED = {
+  lords: {
+    id: "lords",
+    visible: true,
+    totalSeats: 1265,
+    compositionBreakdown: [
+      { name: "Lords Spiritual", seats: 26 },
+      { name: "Law Lords", seats: 26 },
+      { name: "Crossbenchers", seats: 351 },
+    ],
+    partyBreakdown: [
+      { party: "Labour", seats: 182 },
+      { party: "Conservative", seats: 497 },
+      { party: "Liberal Democrat", seats: 73 },
+      { party: "Others", seats: 110 },
+    ],
+  },
+  europarl: {
+    id: "europarl",
+    visible: true,
+    totalSeats: 87,
+    partyBreakdown: [
+      { party: "Labour", seats: 62 },
+      { party: "Conservative", seats: 18 },
+      { party: "Liberal Democrat", seats: 2 },
+      { party: "SNP", seats: 2 },
+      { party: "DUP", seats: 1 },
+      { party: "SDLP", seats: 1 },
+      { party: "UUP", seats: 1 },
+    ],
+  },
+  "scottish-parliament": { id: "scottish-parliament", visible: false },
+  "welsh-assembly": { id: "welsh-assembly", visible: false },
+  "ni-assembly": { id: "ni-assembly", visible: false },
+  "directly-elected-mayors": { id: "directly-elected-mayors", visible: false, mayors: [] },
+};
+
+const LOCALS_1997_SEED = {
+  countries: [
+    { country: "England", noOverallControlCouncils: 74, partyBreakdown: [
+      { party: "Labour", councillors: 10840, councilsControlled: 187 },
+      { party: "Conservative", councillors: 4550, councilsControlled: 21 },
+      { party: "Liberal Democrat", councillors: 4960, councilsControlled: 35 },
+      { party: "Others", councillors: 2230, councilsControlled: 1 },
+    ] },
+    { country: "Scotland", noOverallControlCouncils: 3, partyBreakdown: [
+      { party: "Labour", councillors: 621, councilsControlled: 21 },
+      { party: "Conservative", councillors: 82, councilsControlled: 0 },
+      { party: "Liberal Democrat", councillors: 129, councilsControlled: 0 },
+      { party: "SNP", councillors: 181, councilsControlled: 3 },
+      { party: "Others", councillors: 293, councilsControlled: 5 },
+    ] },
+    { country: "Wales", noOverallControlCouncils: 3, partyBreakdown: [
+      { party: "Labour", councillors: 726, councilsControlled: 14 },
+      { party: "Conservative", councillors: 42, councilsControlled: 0 },
+      { party: "Liberal Democrat", councillors: 79, councilsControlled: 0 },
+      { party: "Plaid Cymru", councillors: 113, councilsControlled: 1 },
+      { party: "Others", councillors: 312, councilsControlled: 4 },
+    ] },
+    { country: "Northern Ireland", noOverallControlCouncils: 24, partyBreakdown: [
+      { party: "UUP", councillors: 185, councilsControlled: 1 },
+      { party: "DUP", councillors: 91, councilsControlled: 0 },
+      { party: "SDLP", councillors: 120, councilsControlled: 1 },
+      { party: "Sinn Féin", councillors: 74, councilsControlled: 0 },
+      { party: "Alliance", councillors: 41, councilsControlled: 0 },
+      { party: "Others", councillors: 71, councilsControlled: 0 },
+    ] },
+  ],
+};
+
+function deepClone(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeSeedValue(existing, seeded, force = false) {
+  if (force) return deepClone(seeded);
+  if (existing === undefined || existing === null) return deepClone(seeded);
+  if (Array.isArray(seeded)) return existing;
+  if (isPlainObject(seeded)) {
+    const out = isPlainObject(existing) ? { ...existing } : {};
+    for (const [k, v] of Object.entries(seeded)) {
+      out[k] = mergeSeedValue(out[k], v, false);
+    }
+    return out;
+  }
+  return existing;
+}
+
+function validate1997SeedParties(canonicalParties) {
+  const canonicalSet = new Set(canonicalParties);
+  const uses = [];
+  for (const row of BODIES_1997_SEED.lords.partyBreakdown) uses.push(row.party);
+  for (const row of BODIES_1997_SEED.europarl.partyBreakdown) uses.push(row.party);
+  for (const c of LOCALS_1997_SEED.countries) for (const row of c.partyBreakdown) uses.push(row.party);
+  for (const party of uses) {
+    if (party !== "Others" && !canonicalSet.has(party)) {
+      throw new Error(`Seed references non-canonical party: ${party}`);
+    }
+  }
+}
+
+function validate1997SeedTotals() {
+  const lordsComp = BODIES_1997_SEED.lords.compositionBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
+  const lordsParty = BODIES_1997_SEED.lords.partyBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
+  if ((lordsComp + lordsParty) !== BODIES_1997_SEED.lords.totalSeats) {
+    throw new Error("Lords seed total mismatch");
+  }
+  const euroTotal = BODIES_1997_SEED.europarl.partyBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
+  if (euroTotal !== BODIES_1997_SEED.europarl.totalSeats) {
+    throw new Error("Europarl seed total mismatch");
+  }
+}
+
+app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  const force = String(req.query?.force || req.body?.force || "").toLowerCase() === "true";
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    validate1997SeedTotals();
+
+    await withTx(async (client) => {
+      const canonicalParties = await getCanonicalConstituencyParties(client);
+      validate1997SeedParties(canonicalParties);
+
+      const { rows: bodyRows } = await client.query("SELECT id, data, sort_order FROM bodies_data");
+      const bodyMap = new Map(bodyRows.map((r) => [r.id, r]));
+
+      for (const [id, seedData] of Object.entries(BODIES_1997_SEED)) {
+        const existingData = bodyMap.get(id)?.data || { id };
+        const merged = mergeSeedValue(existingData, seedData, force);
+        await client.query(
+          `INSERT INTO bodies_data (id, data, sort_order)
+           VALUES ($1, $2::jsonb, COALESCE((SELECT sort_order FROM bodies_data WHERE id = $1), 0))
+           ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+          [id, JSON.stringify(merged)]
+        );
+      }
+
+      const { rows: localsRows } = await client.query("SELECT value FROM app_config WHERE key = 'locals_data'");
+      const existingLocals = localsRows.length ? localsRows[0].value : {};
+      let mergedLocals;
+      if (force) {
+        mergedLocals = deepClone(LOCALS_1997_SEED);
+      } else {
+        const existingCountries = Array.isArray(existingLocals?.countries) ? existingLocals.countries : [];
+        const countryMap = new Map(existingCountries.map((c) => [String(c?.country || ""), c]));
+        for (const seedCountry of LOCALS_1997_SEED.countries) {
+          const existingCountry = countryMap.get(seedCountry.country);
+          if (!existingCountry) {
+            countryMap.set(seedCountry.country, deepClone(seedCountry));
+            continue;
+          }
+          if (existingCountry.noOverallControlCouncils === undefined || existingCountry.noOverallControlCouncils === null) {
+            existingCountry.noOverallControlCouncils = seedCountry.noOverallControlCouncils;
+          }
+          const existingRows = Array.isArray(existingCountry.partyBreakdown) ? existingCountry.partyBreakdown : [];
+          const rowMap = new Map(existingRows.map((r) => [String(r?.party || ""), r]));
+          for (const seedRow of seedCountry.partyBreakdown) {
+            const existingRow = rowMap.get(seedRow.party);
+            if (!existingRow) {
+              rowMap.set(seedRow.party, deepClone(seedRow));
+              continue;
+            }
+            if (existingRow.councillors === undefined || existingRow.councillors === null) existingRow.councillors = seedRow.councillors;
+            if (existingRow.councilsControlled === undefined || existingRow.councilsControlled === null) existingRow.councilsControlled = seedRow.councilsControlled;
+          }
+          existingCountry.partyBreakdown = Array.from(rowMap.values());
+        }
+        mergedLocals = { ...existingLocals, countries: Array.from(countryMap.values()) };
+      }
+      await client.query(
+        `INSERT INTO app_config (key, value) VALUES ('locals_data', $1::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [JSON.stringify(mergedLocals)]
+      );
+    });
+
+    res.json({ ok: true, force });
+  } catch (e) {
+    console.error("[POST /api/admin/seed-1997-bodies-locals]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ── Cabinet/Shadow Cabinet headline ──────────────────────────────────────────
 app.get("/api/cabinet/headline", crudReadLimit, async (req, res) => {
   try {

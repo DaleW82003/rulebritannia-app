@@ -3,13 +3,6 @@ import { setHTML, esc } from "../ui.js";
 import { canManage } from "../permissions.js";
 
 const COUNTRY_ORDER = ["England", "Scotland", "Wales", "Northern Ireland"];
-const PARTY_SCHEMA = {
-  England: ["Conservative", "Labour", "Liberal Democrat", "Others"],
-  Scotland: ["SNP", "Conservative", "Labour", "Liberal Democrat", "Others"],
-  Wales: ["Plaid Cymru", "Labour", "Conservative", "Liberal Democrat", "Others"],
-  "Northern Ireland": ["UUP", "DUP", "Alliance", "SDLP", "Sinn Fein", "TUV", "UKUP", "Independent", "Other"]
-};
-
 function ensureLocals(data) {
   data.locals ??= { countries: [] };
   data.locals.countries ??= [];
@@ -20,20 +13,13 @@ function ensureLocals(data) {
       data.locals.countries.push({
         country: countryName,
         noOverallControlCouncils: 0,
-        partyBreakdown: (PARTY_SCHEMA[countryName] || []).map((name) => ({ party: name, councillors: 0, councilsControlled: 0 }))
+        partyBreakdown: []
       });
     }
   });
 
   data.locals.countries.forEach((country) => {
-    const schema = PARTY_SCHEMA[country.country] || [];
-    country.partyBreakdown ??= schema.map((name) => ({ party: name, councillors: 0, councilsControlled: 0 }));
-    schema.forEach((name) => {
-      if (!country.partyBreakdown.find((p) => p.party === name)) {
-        country.partyBreakdown.push({ party: name, councillors: 0, councilsControlled: 0 });
-      }
-    });
-    country.partyBreakdown = country.partyBreakdown.filter((p) => schema.includes(p.party));
+    country.partyBreakdown = Array.isArray(country.partyBreakdown) ? country.partyBreakdown : [];
   });
 }
 
