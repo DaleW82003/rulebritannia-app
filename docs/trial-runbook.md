@@ -178,6 +178,47 @@ The Admin Panel includes a **Danger Zone** section (red-bordered, clearly labell
 
 ---
 
+
+## Simulation Freeze (Emergency Staff Control)
+
+Use the simulation freeze when staff need to stabilise alpha operations before troubleshooting, restoring snapshots, or applying a hotfix.
+
+### When to use it
+
+- During incident response (unexpected cascading state changes)
+- Before snapshot restore and immediate post-restore validation
+- Before live hotfixes that touch simulation mutation flows
+
+### What freeze pauses/blocks
+
+When **Simulation Freeze = ACTIVE**:
+
+- Automatic/system-driven tick mutations are blocked (`POST /api/clock/tick`, `POST /api/sim/tick`)
+- Selected player mutation routes are blocked with `423 SIMULATION_FROZEN`:
+  - `POST /api/bills/:id/amendments`
+  - `POST /api/divisions/:id/vote`
+- Read routes continue to work (e.g. `GET /api/clock`, `GET /api/sim`)
+- Staff can still use emergency/admin controls such as sim set operations and freeze toggling
+
+### How to enable/disable
+
+- Control Panel → Sim Status block: set a reason and click **Enable Freeze** or **Disable Freeze**
+- API (admin/mod only):
+  - `GET /api/sim/freeze` (inspect current state)
+  - `POST /api/sim/freeze` with `{ "is_frozen": true|false, "reason": "..." }`
+
+### Unfreeze safely
+
+1. Confirm incident work is complete (restore/hotfix/validation done).
+2. Confirm no further data correction is pending.
+3. Disable freeze.
+4. Perform one controlled tick and verify expected downstream updates.
+5. Monitor logs/audit for 5–10 minutes.
+
+> Freeze/unfreeze actions and blocked mutation attempts are written to `audit_log` for traceability.
+
+---
+
 ## Monitoring Guidance
 
 ### Admin Dashboard

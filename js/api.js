@@ -1613,6 +1613,26 @@ export async function apiGetSim() {
   return res.json();
 }
 
+export async function apiGetSimFreeze() {
+  const res = await _fetch(`${API_BASE}/api/sim/freeze`, { credentials: "include" });
+  if (!res.ok) throw new Error(`apiGetSimFreeze failed (${res.status})`);
+  return res.json();
+}
+
+export async function apiSetSimFreeze(payload) {
+  const res = await _fetch(`${API_BASE}/api/sim/freeze`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload || {}),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiSetSimFreeze failed (${res.status})`);
+  }
+  return res.json();
+}
+
 export async function apiSimTick() {
   const res = await _fetch(`${API_BASE}/api/sim/tick`, {
     method: "POST",
