@@ -96,10 +96,37 @@ export async function createTestSchema() {
       id                 TEXT PRIMARY KEY,
       sim_current_month  INT  NOT NULL DEFAULT 8,
       sim_current_year   INT  NOT NULL DEFAULT 1997,
-      rate               TEXT NOT NULL DEFAULT 'monthly'
+      rate               INT NOT NULL DEFAULT 1
     );
     INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
-    VALUES ('main', 8, 1997, 'monthly')
+    VALUES ('main', 8, 1997, 1)
+    ON CONFLICT (id) DO NOTHING;
+  `);
+
+  // ── sim_state + operational freeze state ─────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sim_state (
+      id           TEXT PRIMARY KEY,
+      year         INTEGER NOT NULL DEFAULT 1997,
+      month        INTEGER NOT NULL DEFAULT 8,
+      is_paused    BOOLEAN NOT NULL DEFAULT FALSE,
+      last_tick_at TIMESTAMPTZ
+    );
+    INSERT INTO sim_state (id, year, month, is_paused)
+    VALUES ('main', 1997, 8, FALSE)
+    ON CONFLICT (id) DO NOTHING;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS simulation_freeze_state (
+      id         TEXT PRIMARY KEY,
+      is_frozen  BOOLEAN NOT NULL DEFAULT FALSE,
+      reason     TEXT,
+      updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    INSERT INTO simulation_freeze_state (id, is_frozen, reason)
+    VALUES ('main', FALSE, NULL)
     ON CONFLICT (id) DO NOTHING;
   `);
 
@@ -647,7 +674,9 @@ export async function dropTestSchema() {
       audit_log,
       sessions,
       users,
-      sim_clock
+      sim_clock,
+      sim_state,
+      simulation_freeze_state
     CASCADE;
   `);
 }

@@ -898,6 +898,23 @@ async function ensureSchema() {
     ON CONFLICT (id) DO NOTHING;
   `);
 
+  // ── Operational simulation freeze state (staff emergency control) ───────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS simulation_freeze_state (
+      id             TEXT PRIMARY KEY,
+      is_frozen      BOOLEAN NOT NULL DEFAULT FALSE,
+      reason         TEXT,
+      updated_by     UUID REFERENCES users(id) ON DELETE SET NULL,
+      updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    INSERT INTO simulation_freeze_state (id, is_frozen, reason)
+    VALUES ('main', FALSE, NULL)
+    ON CONFLICT (id) DO NOTHING;
+  `);
+
   // ── Press items (press releases + press conferences) ─────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS press_items (
@@ -4361,6 +4378,56 @@ function requireAdminModOrSpeaker(req, res) {
   return true;
 }
 
+async function getSimulationFreezeState() {
+  const { rows } = await pool.query(
+    `SELECT id, is_frozen, reason, updated_by, updated_at
+       FROM simulation_freeze_state
+      WHERE id = 'main'`
+  );
+  if (rows.length) return rows[0];
+  const { rows: inserted } = await pool.query(
+    `INSERT INTO simulation_freeze_state (id, is_frozen, reason)
+     VALUES ('main', FALSE, NULL)
+     ON CONFLICT (id) DO UPDATE SET id = simulation_freeze_state.id
+     RETURNING id, is_frozen, reason, updated_by, updated_at`
+  );
+  return inserted[0];
+}
+
+async function enforceSimulationNotFrozen(req, res, options = {}) {
+  const { allowStaff = false, routeLabel = req.path } = options;
+  const freeze = await getSimulationFreezeState();
+  if (!freeze?.is_frozen) return true;
+
+  const roles = getSessionRoles(req);
+  const isStaff = roles.includes("admin") || roles.includes("mod");
+  if (allowStaff && isStaff) return true;
+
+  const details = {
+    route: routeLabel,
+    method: req.method,
+    reason: freeze.reason || null,
+    isFrozen: true,
+    actorRoles: roles,
+  };
+  console.warn("[sim-freeze] blocked mutation", details);
+  await writeAuditLog(req.session?.userId || null, "sim.freeze.blocked", "route", routeLabel, null, null, details);
+
+  const message = freeze.reason
+    ? `Simulation is temporarily frozen: ${freeze.reason}`
+    : "Simulation is temporarily frozen by staff";
+  res.status(423).json({
+    error: message,
+    code: "SIMULATION_FROZEN",
+    freeze: {
+      is_frozen: true,
+      reason: freeze.reason || null,
+      updated_at: freeze.updated_at,
+    },
+  });
+  return false;
+}
+
 /**
  * Returns true if destructive seed/wipe/initialize/import/repair endpoints are allowed.
  * These are only permitted outside production, or when ENABLE_DEV_SEED=true
@@ -6757,6 +6824,8 @@ function amendmentWindowOpen(bill, simMonth, simYear) {
 app.post("/api/bills/:id/amendments", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
+    if (!await enforceSimulationNotFrozen(req, res, { routeLabel: "/api/bills/:id/amendments" })) return;
+
 
     const charId = await getActiveCharacterId(req);
     if (!charId) return res.status(403).json({ error: "No active character" });
@@ -7905,6 +7974,7 @@ app.get("/api/clock", clockReadLimit, async (req, res) => {
 app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
+    if (!await enforceSimulationNotFrozen(req, res, { routeLabel: "/api/clock/tick" })) return;
     const { rows } = await pool.query(
       `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
        VALUES ('main', 8, 1997, 1)
@@ -7962,6 +8032,7 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
     runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
     runDebateAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] debate auto-close failed:", e.message));
     runDivisionAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] division auto-close failed:", e.message));
+    res.json({ ok: true, clock: rows[0], archivedItems: archived });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -15684,6 +15755,8 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
 app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
+    if (!await enforceSimulationNotFrozen(req, res, { routeLabel: "/api/divisions/:id/vote" })) return;
+
     const { vote } = req.body || {};
     if (!vote) return res.status(400).json({ error: "vote is required" });
     const validVotes = ["aye", "no", "abstain"];
@@ -16697,18 +16770,72 @@ app.delete("/api/qt/questions/:id", qtWriteLimit, async (req, res) => {
 const simReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
 const simWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
 
+app.get("/api/sim/freeze", simReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const freeze = await getSimulationFreezeState();
+    res.json({ freeze });
+  } catch (e) {
+    console.error("[GET /api/sim/freeze]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/sim/freeze", simWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const { is_frozen, reason } = req.body || {};
+    if (typeof is_frozen !== "boolean") {
+      return res.status(400).json({ error: "is_frozen boolean is required" });
+    }
+    if (reason != null && typeof reason !== "string") {
+      return res.status(400).json({ error: "reason must be a string when provided" });
+    }
+    const sanitizedReason = typeof reason === "string" ? reason.trim().slice(0, 240) : null;
+
+    const before = await getSimulationFreezeState();
+    const { rows } = await pool.query(
+      `INSERT INTO simulation_freeze_state (id, is_frozen, reason, updated_by, updated_at)
+       VALUES ('main', $1, $2, $3, NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         is_frozen = EXCLUDED.is_frozen,
+         reason = EXCLUDED.reason,
+         updated_by = EXCLUDED.updated_by,
+         updated_at = NOW()
+       RETURNING id, is_frozen, reason, updated_by, updated_at`,
+      [is_frozen, sanitizedReason || null, req.session.userId]
+    );
+
+    await writeAuditLog(
+      req.session.userId,
+      is_frozen ? "sim.freeze.enabled" : "sim.freeze.disabled",
+      "simulation_freeze_state",
+      "main",
+      before,
+      rows[0],
+      { reason: sanitizedReason || null }
+    );
+
+    res.json({ ok: true, freeze: rows[0] });
+  } catch (e) {
+    console.error("[POST /api/sim/freeze]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.get("/api/sim", simReadLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const [stateResult, clockResult] = await Promise.all([
+    const [stateResult, clockResult, freezeResult] = await Promise.all([
       pool.query("SELECT id, year, month, is_paused, last_tick_at FROM sim_state WHERE id = 'main'"),
       pool.query("SELECT rate FROM sim_clock WHERE id = 'main'"),
+      getSimulationFreezeState(),
     ]);
     if (!stateResult.rows.length) return res.status(404).json({ error: "Sim state not found" });
     if (!clockResult.rows.length) {
       console.warn("[GET /api/sim] sim_clock row 'main' not found — rate defaulting to 1");
     }
-    res.json({ sim: { ...stateResult.rows[0], rate: clockResult.rows[0]?.rate ?? 1 } });
+    res.json({ sim: { ...stateResult.rows[0], rate: clockResult.rows[0]?.rate ?? 1, freeze: freezeResult } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -16718,6 +16845,7 @@ app.get("/api/sim", simReadLimit, async (req, res) => {
 app.post("/api/sim/tick", simWriteLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
+    if (!await enforceSimulationNotFrozen(req, res, { routeLabel: "/api/sim/tick" })) return;
     const { rows } = await pool.query(`
       UPDATE sim_state
          SET month        = CASE WHEN month = 12 THEN 1 ELSE month + 1 END,
@@ -16745,6 +16873,7 @@ app.post("/api/sim/tick", simWriteLimit, async (req, res) => {
     fireRecompute("salary-crediting", "sim.tick", () => runSalaryCrediting(rows[0].month, rows[0].year));
     runShopUpkeep(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] shop upkeep failed:", e.message));
     runMembershipIntake(rows[0].month, rows[0].year).catch((e) => console.error("[sim/tick] membership intake failed:", e.message));
+    res.json({ ok: true, sim: rows[0] });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

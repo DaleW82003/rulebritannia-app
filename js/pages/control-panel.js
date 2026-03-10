@@ -14,7 +14,7 @@ import {
   apiGetFinanceConfig, apiUpdateFinanceSalaryBands, apiUpdateFinanceStartingBalances, apiApplyFinanceInflation,
   apiGetAuditLog,
   apiGetAbsenceLog,
-  apiGetSim,
+  apiGetSim, apiGetSimFreeze, apiSetSimFreeze,
   apiGetModsMessage, apiSetModsMessage,
   apiGetAdminPartyFactions, apiCreatePartyFaction, apiUpdatePartyFaction, apiUpdatePartyFactionAllocation,
   apiAdminSeed1997Factions,
@@ -72,20 +72,66 @@ export async function initControlPanelPage(data) {
   if (simBlock) {
     simBlock.innerHTML = `<div class="muted-block">Fetching live sim status…</div>`;
     try {
-      const simResult = await apiGetSim();
+      const [simResult, freezeResult] = await Promise.all([
+        apiGetSim(),
+        canEdit ? apiGetSimFreeze().catch(() => null) : Promise.resolve(null),
+      ]);
       const s = simResult?.sim || {};
+      const freeze = freezeResult?.freeze || s.freeze || { is_frozen: false, reason: null };
       // Sim date and paused state come from gameState — the same source of truth
       // used by the nav bar clock — so both displays always agree.
       const gs = data?.gameState || {};
       const simDateLabel = formatSimMonthYear(gs);
       const isPaused = gs.isPaused ?? s.is_paused;
       const lastTick = s.last_tick_at ? new Date(s.last_tick_at).toLocaleString("en-GB") : "Never";
+      const freezeUpdated = freeze?.updated_at ? new Date(freeze.updated_at).toLocaleString("en-GB") : "Never";
       simBlock.innerHTML = `
         <div class="kv"><span>Sim Date</span><b>${esc(simDateLabel)}</b></div>
         <div class="kv"><span>Paused</span><b>${isPaused ? "Yes — clock stopped" : "No — running"}</b></div>
+        <div class="kv"><span>Simulation Freeze</span><b>${freeze?.is_frozen ? "ACTIVE" : "Off"}</b></div>
+        <div class="kv"><span>Freeze Reason</span><b>${freeze?.reason ? esc(String(freeze.reason)) : "—"}</b></div>
+        <div class="kv"><span>Freeze Updated</span><b>${esc(freezeUpdated)}</b></div>
         <div class="kv"><span>Tick Rate</span><b>2 sim months per real week (Mon–Wed: 1 month, Thu–Sat: 1 month, Sun: frozen)</b></div>
         <div class="kv"><span>Last Tick</span><b>${esc(lastTick)}</b></div>
+        ${canEdit ? `
+          <div style="margin-top:10px;display:grid;gap:8px;">
+            <label>
+              <span class="muted">Freeze reason/message (optional)</span>
+              <input id="cp-freeze-reason" type="text" maxlength="240" value="${freeze?.reason ? esc(String(freeze.reason)) : ""}" placeholder="Emergency maintenance, snapshot restore, hotfix rollout…" />
+            </label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn danger" type="button" id="cp-freeze-enable">Enable Freeze</button>
+              <button class="btn" type="button" id="cp-freeze-disable">Disable Freeze</button>
+              <span id="cp-freeze-status" class="muted"></span>
+            </div>
+          </div>
+        ` : ""}
       `;
+
+      if (canEdit) {
+        const reasonInput = simBlock.querySelector("#cp-freeze-reason");
+        const statusEl = simBlock.querySelector("#cp-freeze-status");
+        simBlock.querySelector("#cp-freeze-enable")?.addEventListener("click", async () => {
+          try {
+            statusEl.textContent = "Applying…";
+            await apiSetSimFreeze({ is_frozen: true, reason: String(reasonInput?.value || "").trim() || null });
+            statusEl.textContent = "Freeze enabled.";
+            window.location.reload();
+          } catch (e) {
+            statusEl.textContent = `Failed: ${e.message}`;
+          }
+        });
+        simBlock.querySelector("#cp-freeze-disable")?.addEventListener("click", async () => {
+          try {
+            statusEl.textContent = "Applying…";
+            await apiSetSimFreeze({ is_frozen: false, reason: String(reasonInput?.value || "").trim() || null });
+            statusEl.textContent = "Freeze disabled.";
+            window.location.reload();
+          } catch (e) {
+            statusEl.textContent = `Failed: ${e.message}`;
+          }
+        });
+      }
     } catch (err) {
       console.error("[control-panel] failed to load sim status", err);
       simBlock.innerHTML = `<div class="muted-block">Could not load sim status: ${esc(err.message)}</div>`;

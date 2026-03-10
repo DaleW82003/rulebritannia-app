@@ -115,6 +115,7 @@ The server calls `ensureSchema()` on startup. It creates all tables if they do n
 - [ ] Neon point-in-time restore is available (required for full database rollback in emergencies)
 - [ ] Schema bootstrapped: server started once and logs show `[schema] ensureSchema complete` (or equivalent) with no errors
 - [ ] At least one named snapshot exists before the first trial session (create via Admin Panel → Snapshots)
+- [ ] Simulation freeze control verified (Admin/Mod can view and toggle; set reason; disable before session start unless incident active)
 
 ---
 
