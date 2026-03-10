@@ -9516,6 +9516,56 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
  * ownership documentation.
  */
 const maintLimit = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: true, legacyHeaders: false });
+const snapshotExportLimit = rateLimit({
+  windowMs: 60_000,
+  max: Math.max(1, Number.parseInt(process.env.SNAPSHOT_EXPORT_RATE_LIMIT_MAX || "12", 10) || 12),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    if (req.session?.userId) return `snapshot-export:user:${req.session.userId}`;
+    if (req.sessionID) return `snapshot-export:session:${req.sessionID}`;
+    return `snapshot-export:ip:${rateLimit.ipKeyGenerator(req.ip || "")}`;
+  },
+  handler: async (req, res) => {
+    const actorId = req.session?.userId ?? null;
+    const actorRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
+    const details = {
+      route: req.originalUrl,
+      action: "admin.export-snapshot",
+      actorId,
+      actorRoles,
+      eventAt: new Date().toISOString(),
+      success: false,
+      reason: "rate_limited",
+    };
+    console.warn("[snapshot-export-audit]", JSON.stringify(details));
+    await writeAuditLog(actorId || "anonymous", "admin.export-snapshot.rate-limited", "state_snapshots", "main", null, null, details);
+    res.status(429).json({ error: "Too many snapshot export requests. Please wait and retry." });
+  },
+});
+
+async function writeSnapshotExportAudit({ req, success, reason = null, snapshot = null, exportSizeBytes = null }) {
+  const actorId = req.session?.userId ?? null;
+  const actorRoles = Array.isArray(req.session?.roles) ? req.session.roles : [];
+  const details = {
+    route: req.originalUrl,
+    action: "admin.export-snapshot",
+    actorId,
+    actorRoles,
+    eventAt: new Date().toISOString(),
+    success,
+    ...(reason ? { reason } : {}),
+    ...(snapshot ? {
+      snapshotId: snapshot.id,
+      snapshotLabel: snapshot.label,
+      snapshotCreatedAt: snapshot.created_at,
+      snapshotCreatedBy: snapshot.created_by,
+    } : {}),
+    ...(Number.isFinite(exportSizeBytes) ? { exportSizeBytes } : {}),
+  };
+  console.info("[snapshot-export-audit]", JSON.stringify(details));
+  await writeAuditLog(actorId || "anonymous", `admin.export-snapshot.${success ? "success" : "failed"}`, "state_snapshots", snapshot?.id || "main", null, null, details);
+}
 
 // Clear object-cache tables
 app.post("/api/admin/clear-cache", maintLimit, async (req, res) => {
@@ -9665,9 +9715,12 @@ app.post("/api/admin/close-orphan-motion-divisions", maintLimit, async (req, res
 });
 
 // Export the current snapshot as a downloadable JSON file
-app.get("/api/admin/export-snapshot", maintLimit, async (req, res) => {
+app.get("/api/admin/export-snapshot", snapshotExportLimit, async (req, res) => {
   try {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdmin(req, res)) {
+      await writeSnapshotExportAudit({ req, success: false, reason: "forbidden" });
+      return;
+    }
     const { rows } = await pool.query(
       `SELECT s.id, s.label, s.created_at, s.created_by, s.data
          FROM app_state_current c
@@ -9675,22 +9728,36 @@ app.get("/api/admin/export-snapshot", maintLimit, async (req, res) => {
         WHERE c.id = 'main'`
     );
     if (!rows.length) {
+      await writeSnapshotExportAudit({ req, success: false, reason: "no_active_snapshot" });
       return res.status(404).json({ error: "No active snapshot to export." });
     }
     const snap = rows[0];
     const filename = `rb-snapshot-${snap.id.slice(0, 8)}-${snap.created_at.toISOString().slice(0, 10)}.json`;
+    const dataJson = JSON.stringify(snap.data);
     const payload = {
       exportedAt: new Date().toISOString(),
       snapshotId: snap.id,
       label:      snap.label,
       createdAt:  snap.created_at,
       createdBy:  snap.created_by,
+      meta: {
+        exportType: "state_snapshot",
+        estimatedDataSizeBytes: Buffer.byteLength(dataJson, "utf8"),
+      },
       data:       snap.data,
     };
+    const payloadJson = JSON.stringify(payload, null, 2);
+    await writeSnapshotExportAudit({
+      req,
+      success: true,
+      snapshot: snap,
+      exportSizeBytes: Buffer.byteLength(payloadJson, "utf8"),
+    });
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.send(JSON.stringify(payload, null, 2));
+    res.send(payloadJson);
   } catch (e) {
+    await writeSnapshotExportAudit({ req, success: false, reason: "server_error" });
     console.error("[admin/export-snapshot]", e);
     res.status(500).json({ error: "Server error" });
   }

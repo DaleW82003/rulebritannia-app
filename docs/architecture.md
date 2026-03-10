@@ -698,6 +698,7 @@ Named limiters applied per endpoint group:
 
 - `isDevSeedAllowed()` gates 12 destructive endpoints; returns `404` unless `NODE_ENV !== "production"` or `ENABLE_DEV_SEED === "true"`.
 - Three admin-only endpoints available in production: `GET /api/admin/export-snapshot`, `POST /api/admin/force-logout-all`, `POST /api/admin/rotate-sessions`.
+- `GET /api/admin/export-snapshot` has a dedicated per-actor limiter (`snapshotExportLimit`, default 12 requests/minute), emits structured `[snapshot-export-audit]` logs, and writes `audit_log` entries for success/failure/rate-limited events without logging full snapshot payload contents.
 
 ### CORS
 
