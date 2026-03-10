@@ -100,6 +100,24 @@ test("E1: POST /api/parties/:id/treasury updates DB and GET returns updated valu
   assert.equal(Number(getBody.party.treasury.members), newMembers, "GET members");
 });
 
+test("E1b: POST /api/parties/:id/treasury allows members no-op update without adminOverride", async () => {
+  const { rows: currentRows } = await pool.query(
+    "SELECT treasury FROM parties WHERE slug = $1",
+    [testPartySlug]
+  );
+  assert.ok(currentRows.length, "Party should exist");
+  const members = Number(currentRows[0]?.treasury?.members ?? 0);
+
+  // Should succeed because members value is unchanged (no-op), even if recent update occurred.
+  const { status, body } = await adminClient.post(
+    `/api/parties/${testPartySlug}/treasury`,
+    { members }
+  );
+  assert.equal(status, 200, `No-op members update should succeed: ${JSON.stringify(body)}`);
+  assert.ok(body.ok, "ok should be true");
+  assert.equal(Number(body.treasury.members), members, "members should remain unchanged");
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // E2. Fundraising credit creates ledger entry
 // ─────────────────────────────────────────────────────────────────────────────
