@@ -28,6 +28,9 @@ jobs:
       - name: Run server unit tests (clock, discourse SSO, roles)
         run: node --test server/clock.test.js server/discourse.test.js server/roles.test.js
 
+      - name: Run server unit tests (service modules, weight computation, static authority checks)
+        run: node --test server/service-modules.test.js
+
       - name: Upload manifest as artefact
         if: always()
         uses: actions/upload-artifact@v4
