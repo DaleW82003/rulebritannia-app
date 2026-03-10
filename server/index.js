@@ -182,6 +182,88 @@ app.set("trust proxy", 1);
 
 app.use(express.json({ limit: "2mb" }));
 
+const AUTHORITATIVE_WRITE_KEYS = new Set([
+  "id",
+  "uuid",
+  "ref",
+  "reference",
+  "serial",
+  "created_at",
+  "updated_at",
+  "deleted_at",
+  "createdat",
+  "updatedat",
+  "deletedat",
+  "timestamp",
+  "created_by",
+  "updated_by",
+  "author",
+  "author_id",
+  "authorid",
+  "author_role",
+  "authorrole",
+  "role",
+  "roles",
+  "score",
+  "computed_score",
+  "derived_state",
+]);
+
+function isAuthoritativeWriteKey(key) {
+  if (typeof key !== "string") return false;
+  const lower = key.toLowerCase().trim();
+  if (!lower) return false;
+  if (AUTHORITATIVE_WRITE_KEYS.has(lower)) return true;
+  if (lower.endsWith("_id")) return true;
+  if (lower.endsWith("_ref") || lower.endsWith("_serial")) return true;
+  if (lower.endsWith("_at") || lower.endsWith("_timestamp")) return true;
+  if (lower.startsWith("computed_") || lower.startsWith("derived_")) return true;
+  return false;
+}
+
+function sanitizeClientWriteBody(value) {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeClientWriteBody);
+  }
+  if (!value || typeof value !== "object") return value;
+  const sanitized = {};
+  for (const [key, nestedValue] of Object.entries(value)) {
+    if (isAuthoritativeWriteKey(key)) continue;
+    sanitized[key] = sanitizeClientWriteBody(nestedValue);
+  }
+  return sanitized;
+}
+
+async function allocateDbGeneratedId(db = pool) {
+  const { rows } = await db.query("SELECT gen_random_uuid()::text AS id");
+  return String(rows[0]?.id || "");
+}
+
+async function withGeneratedIdTransaction(work) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const generatedId = await allocateDbGeneratedId(client);
+    const result = await work(client, generatedId);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    try { await client.query("ROLLBACK"); } catch { /* ignore rollback errors */ }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+app.use((req, _res, next) => {
+  const method = String(req.method || "").toUpperCase();
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return next();
+  if (req.body && typeof req.body === "object") {
+    req.body = sanitizeClientWriteBody(req.body);
+  }
+  next();
+});
+
 /**
  * CORS
  * - credentials:true is REQUIRED for cookies
@@ -6230,24 +6312,34 @@ app.post("/api/bills", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const bill = req.body;
-    if (!bill || typeof bill !== "object" || !bill.id) {
-      return res.status(400).json({ error: "Body must be a bill object with an id" });
+    if (!bill || typeof bill !== "object") {
+      return res.status(400).json({ error: "Body must be a bill object" });
     }
     const { rows: clk } = await pool.query(
       "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
     );
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
-    const enriched = attachLifecycle({ ...bill }, sm, sy);
+    let created;
     // Capture the submitting character ID so the author name can be re-computed dynamically
     const authorCharId = bill.npc ? null : (await getActiveCharacterId(req) || null);
-    const { rows } = await pool.query(
-      `INSERT INTO bills (id, data, author_character_id) VALUES ($1, $2::jsonb, $3)
-       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-       RETURNING id, updated_at`,
-      [enriched.id, JSON.stringify(enriched), authorCharId]
-    );
-    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+    created = await withGeneratedIdTransaction(async (client, billId) => {
+      const enriched = attachLifecycle({ ...bill, id: billId }, sm, sy);
+      const { rows } = await client.query(
+        `INSERT INTO bills (id, data, author_character_id) VALUES ($1, $2::jsonb, $3)
+         RETURNING id, data, author_character_id, updated_at`,
+        [billId, JSON.stringify(enriched), authorCharId]
+      );
+      return rows[0];
+    });
+    res.status(201).json({
+      ok: true,
+      bill: {
+        ...created.data,
+        author_character_id: created.author_character_id || null,
+        _updatedAt: created.updated_at,
+      },
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -6262,11 +6354,18 @@ app.put("/api/bills/:id", crudWriteLimit, async (req, res) => {
       return res.status(400).json({ error: "Body must be a bill object" });
     }
     const { rows } = await pool.query(
-      `UPDATE bills SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at`,
+      `UPDATE bills SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, data, author_character_id, updated_at`,
       [JSON.stringify({ ...bill, id: req.params.id }), req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Bill not found" });
-    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+    res.json({
+      ok: true,
+      bill: {
+        ...rows[0].data,
+        author_character_id: rows[0].author_character_id || null,
+        _updatedAt: rows[0].updated_at,
+      },
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7170,8 +7269,8 @@ app.post("/api/motions", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { motion_type = "house", ...motion } = req.body || {};
-    if (!motion.id) {
-      return res.status(400).json({ error: "Body must be a motion object with an id" });
+    if (!motion || typeof motion !== "object") {
+      return res.status(400).json({ error: "Body must be a motion object" });
     }
     if (motion_type !== "house" && motion_type !== "edm") {
       return res.status(400).json({ error: "motion_type must be 'house' or 'edm'" });
@@ -7181,13 +7280,17 @@ app.post("/api/motions", crudWriteLimit, async (req, res) => {
     );
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
-    const enriched = attachLifecycle({ ...motion }, sm, sy);
-    const { rows } = await pool.query(
-      `INSERT INTO motions (id, motion_type, data) VALUES ($1, $2, $3::jsonb)
-       ON CONFLICT (id) DO UPDATE SET motion_type = EXCLUDED.motion_type, data = EXCLUDED.data, updated_at = NOW()
-       RETURNING id, updated_at`,
-      [enriched.id, motion_type, JSON.stringify(enriched)]
-    );
+    const created = await withGeneratedIdTransaction(async (client, motionId) => {
+      const enriched = attachLifecycle({ ...motion, id: motionId }, sm, sy);
+      const { rows } = await client.query(
+        `INSERT INTO motions (id, motion_type, data) VALUES ($1, $2, $3::jsonb)
+         RETURNING id, motion_type, data, updated_at`,
+        [motionId, motion_type, JSON.stringify(enriched)]
+      );
+      return { row: rows[0] };
+    });
+    const rows = [created.row];
+    const enriched = rows[0].data;
 
     const debate = await ensureEntityDebateTopic({
       table: "motions",
@@ -7197,7 +7300,16 @@ app.post("/api/motions", crudWriteLimit, async (req, res) => {
       tags: ["motion", motion_type].filter(Boolean),
     });
 
-    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at, debateTopicUrl: debate?.topicUrl || null });
+    res.status(201).json({
+      ok: true,
+      motion: normaliseDiscourseFields({
+        ...rows[0].data,
+        id: rows[0].id,
+        _motionType: rows[0].motion_type,
+        _updatedAt: rows[0].updated_at,
+      }),
+      debateTopicUrl: debate?.topicUrl || null,
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7305,7 +7417,7 @@ app.put("/api/motions/:id", crudWriteLimit, async (req, res) => {
     ];
     if (typeClause) params.push(motion_type);
     const { rows } = await pool.query(
-      `UPDATE motions SET data = $1::jsonb, updated_at = NOW()${typeClause} WHERE id = $2 RETURNING id, updated_at`,
+      `UPDATE motions SET data = $1::jsonb, updated_at = NOW()${typeClause} WHERE id = $2 RETURNING id, motion_type, data, updated_at`,
       params
     );
     if (!rows.length) return res.status(404).json({ error: "Motion not found" });
@@ -7318,7 +7430,15 @@ app.put("/api/motions/:id", crudWriteLimit, async (req, res) => {
         [req.params.id]
       );
     }
-    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+    res.json({
+      ok: true,
+      motion: normaliseDiscourseFields({
+        ...rows[0].data,
+        id: rows[0].id,
+        _motionType: rows[0].motion_type,
+        _updatedAt: rows[0].updated_at,
+      }),
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7390,21 +7510,25 @@ app.post("/api/statements", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const stmt = req.body;
-    if (!stmt || typeof stmt !== "object" || !stmt.id) {
-      return res.status(400).json({ error: "Body must be a statement object with an id" });
+    if (!stmt || typeof stmt !== "object") {
+      return res.status(400).json({ error: "Body must be a statement object" });
     }
     const { rows: clk } = await pool.query(
       "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
     );
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
-    const enriched = attachLifecycle({ ...stmt }, sm, sy);
-    const { rows } = await pool.query(
-      `INSERT INTO statements (id, data) VALUES ($1, $2::jsonb)
-       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-       RETURNING id, updated_at`,
-      [enriched.id, JSON.stringify(enriched)]
-    );
+    const created = await withGeneratedIdTransaction(async (client, statementId) => {
+      const enriched = attachLifecycle({ ...stmt, id: statementId }, sm, sy);
+      const { rows } = await client.query(
+        `INSERT INTO statements (id, data) VALUES ($1, $2::jsonb)
+         RETURNING id, data, updated_at`,
+        [statementId, JSON.stringify(enriched)]
+      );
+      return { row: rows[0] };
+    });
+    const rows = [created.row];
+    const enriched = rows[0].data;
 
     const debate = await ensureEntityDebateTopic({
       table: "statements",
@@ -7414,7 +7538,11 @@ app.post("/api/statements", crudWriteLimit, async (req, res) => {
       tags: ["statement"],
     });
 
-    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at, debateTopicUrl: debate?.topicUrl || null });
+    res.status(201).json({
+      ok: true,
+      statement: normaliseDiscourseFields({ ...rows[0].data, _updatedAt: rows[0].updated_at }),
+      debateTopicUrl: debate?.topicUrl || null,
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7429,11 +7557,11 @@ app.put("/api/statements/:id", crudWriteLimit, async (req, res) => {
       return res.status(400).json({ error: "Body must be a statement object" });
     }
     const { rows } = await pool.query(
-      `UPDATE statements SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at`,
+      `UPDATE statements SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, data, updated_at`,
       [JSON.stringify({ ...stmt, id: req.params.id }), req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Statement not found" });
-    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+    res.json({ ok: true, statement: normaliseDiscourseFields({ ...rows[0].data, _updatedAt: rows[0].updated_at }) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7501,22 +7629,26 @@ app.post("/api/regulations", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const reg = req.body;
-    if (!reg || typeof reg !== "object" || !reg.id) {
-      return res.status(400).json({ error: "Body must be a regulation object with an id" });
+    if (!reg || typeof reg !== "object") {
+      return res.status(400).json({ error: "Body must be a regulation object" });
     }
     const { rows: clk } = await pool.query(
       "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
     );
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
-    const enriched = attachLifecycle({ ...reg }, sm, sy);
     const authorCharId = reg.npc ? null : (await getActiveCharacterId(req) || null);
-    const { rows } = await pool.query(
-      `INSERT INTO regulations (id, data, author_character_id) VALUES ($1, $2::jsonb, $3)
-       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-       RETURNING id, updated_at`,
-      [enriched.id, JSON.stringify(enriched), authorCharId]
-    );
+    const created = await withGeneratedIdTransaction(async (client, regulationId) => {
+      const enriched = attachLifecycle({ ...reg, id: regulationId }, sm, sy);
+      const { rows } = await client.query(
+        `INSERT INTO regulations (id, data, author_character_id) VALUES ($1, $2::jsonb, $3)
+         RETURNING id, data, author_character_id, updated_at`,
+        [regulationId, JSON.stringify(enriched), authorCharId]
+      );
+      return { row: rows[0] };
+    });
+    const rows = [created.row];
+    const enriched = rows[0].data;
 
     const debate = await ensureEntityDebateTopic({
       table: "regulations",
@@ -7526,7 +7658,15 @@ app.post("/api/regulations", crudWriteLimit, async (req, res) => {
       tags: ["regulation"],
     });
 
-    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at, debateTopicUrl: debate?.topicUrl || null });
+    res.status(201).json({
+      ok: true,
+      regulation: normaliseDiscourseFields({
+        ...rows[0].data,
+        author_character_id: rows[0].author_character_id || null,
+        _updatedAt: rows[0].updated_at,
+      }),
+      debateTopicUrl: debate?.topicUrl || null,
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7541,11 +7681,18 @@ app.put("/api/regulations/:id", crudWriteLimit, async (req, res) => {
       return res.status(400).json({ error: "Body must be a regulation object" });
     }
     const { rows } = await pool.query(
-      `UPDATE regulations SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at`,
+      `UPDATE regulations SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, data, author_character_id, updated_at`,
       [JSON.stringify({ ...reg, id: req.params.id }), req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Regulation not found" });
-    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+    res.json({
+      ok: true,
+      regulation: normaliseDiscourseFields({
+        ...rows[0].data,
+        author_character_id: rows[0].author_character_id || null,
+        _updatedAt: rows[0].updated_at,
+      }),
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7604,8 +7751,8 @@ app.post("/api/questiontime-questions", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const q = req.body;
-    if (!q || typeof q !== "object" || !q.id) {
-      return res.status(400).json({ error: "Body must be a question object with an id" });
+    if (!q || typeof q !== "object") {
+      return res.status(400).json({ error: "Body must be a question object" });
     }
     // Server-side dedup: reject if same askedBy + office + text was submitted within 10 minutes
     const askedBy = String(q.askedBy || "").trim();
@@ -7630,14 +7777,16 @@ app.post("/api/questiontime-questions", crudWriteLimit, async (req, res) => {
     );
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
-    const enriched = attachLifecycle({ ...q }, sm, sy);
-    const { rows } = await pool.query(
-      `INSERT INTO questiontime_questions (id, data) VALUES ($1, $2::jsonb)
-       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-       RETURNING id, updated_at`,
-      [enriched.id, JSON.stringify(enriched)]
-    );
-    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+    const rows = [await withGeneratedIdTransaction(async (client, questionId) => {
+      const enriched = attachLifecycle({ ...q, id: questionId }, sm, sy);
+      const result = await client.query(
+        `INSERT INTO questiontime_questions (id, data) VALUES ($1, $2::jsonb)
+         RETURNING id, data, updated_at`,
+        [questionId, JSON.stringify(enriched)]
+      );
+      return result.rows[0];
+    })];
+    res.status(201).json({ ok: true, question: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -7652,11 +7801,11 @@ app.put("/api/questiontime-questions/:id", crudWriteLimit, async (req, res) => {
       return res.status(400).json({ error: "Body must be a question object" });
     }
     const { rows } = await pool.query(
-      `UPDATE questiontime_questions SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at`,
+      `UPDATE questiontime_questions SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, data, updated_at`,
       [JSON.stringify({ ...q, id: req.params.id }), req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: "Question not found" });
-    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+    res.json({ ok: true, question: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -8225,22 +8374,24 @@ app.post("/api/polling", pollWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const entry = req.body;
-    if (!entry || typeof entry !== "object" || !entry.id) {
-      return res.status(400).json({ error: "Body must be a polling entry with an id" });
+    if (!entry || typeof entry !== "object") {
+      return res.status(400).json({ error: "Body must be a polling entry object" });
     }
     const { rows: clk } = await pool.query(
       "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
     );
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
-    const enriched = attachLifecycle({ ...entry }, sm, sy);
-    const { rows } = await pool.query(
-      `INSERT INTO polling_entries (id, data) VALUES ($1, $2::jsonb)
-       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
-       RETURNING id, updated_at`,
-      [enriched.id, JSON.stringify(enriched)]
-    );
-    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+    const rows = [await withGeneratedIdTransaction(async (client, pollingEntryId) => {
+      const enriched = attachLifecycle({ ...entry, id: pollingEntryId }, sm, sy);
+      const result = await client.query(
+        `INSERT INTO polling_entries (id, data) VALUES ($1, $2::jsonb)
+         RETURNING id, data, updated_at`,
+        [pollingEntryId, JSON.stringify(enriched)]
+      );
+      return result.rows[0];
+    })];
+    res.status(201).json({ ok: true, entry: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -8258,10 +8409,10 @@ app.put("/api/polling/:id", pollWriteLimit, async (req, res) => {
     if (!before.length) return res.status(404).json({ error: "Polling entry not found" });
     const updated = { ...before[0].data, ...entry, id: req.params.id };
     const { rows } = await pool.query(
-      `UPDATE polling_entries SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at`,
+      `UPDATE polling_entries SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, data, updated_at`,
       [JSON.stringify(updated), req.params.id]
     );
-    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+    res.json({ ok: true, entry: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -20068,12 +20219,16 @@ app.post("/api/redlion", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const post = req.body;
-    if (!post?.id) return res.status(400).json({ error: "id required" });
-    await pool.query(
-      `INSERT INTO red_lion_posts (id, data) VALUES ($1, $2::jsonb) ON CONFLICT (id) DO NOTHING`,
-      [post.id, JSON.stringify(post)]
-    );
-    res.status(201).json({ ok: true, id: post.id });
+    if (!post || typeof post !== "object") return res.status(400).json({ error: "post body required" });
+    const postId = await withGeneratedIdTransaction(async (client, generatedId) => {
+      const payload = { ...post, id: generatedId };
+      const { rows } = await client.query(
+        `INSERT INTO red_lion_posts (id, data) VALUES ($1, $2::jsonb) RETURNING id, data, created_at`,
+        [generatedId, JSON.stringify(payload)]
+      );
+      return rows[0];
+    });
+    res.status(201).json({ ok: true, post: { ...postId.data, _createdAt: postId.created_at } });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -20098,12 +20253,16 @@ app.post("/api/events", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const event = req.body;
-    if (!event?.id) return res.status(400).json({ error: "id required" });
-    await pool.query(
-      `INSERT INTO game_events (id, data) VALUES ($1, $2::jsonb) ON CONFLICT (id) DO NOTHING`,
-      [event.id, JSON.stringify(event)]
-    );
-    res.status(201).json({ ok: true, id: event.id });
+    if (!event || typeof event !== "object") return res.status(400).json({ error: "event body required" });
+    const eventId = await withGeneratedIdTransaction(async (client, generatedId) => {
+      const payload = { ...event, id: generatedId };
+      const { rows } = await client.query(
+        `INSERT INTO game_events (id, data) VALUES ($1, $2::jsonb) RETURNING id, data, created_at, updated_at`,
+        [generatedId, JSON.stringify(payload)]
+      );
+      return rows[0];
+    });
+    res.status(201).json({ ok: true, event: { ...eventId.data, _createdAt: eventId.created_at, _updatedAt: eventId.updated_at } });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -20132,11 +20291,12 @@ app.put("/api/events/:id", crudWriteLimit, async (req, res) => {
     }
 
     const event = req.body;
-    await pool.query(
-      `UPDATE game_events SET data = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+    const { rows } = await pool.query(
+      `UPDATE game_events SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, data, created_at, updated_at`,
       [JSON.stringify(event), req.params.id]
     );
-    res.json({ ok: true });
+    if (!rows.length) return res.status(404).json({ error: "Event not found" });
+    res.json({ ok: true, event: { ...rows[0].data, _createdAt: rows[0].created_at, _updatedAt: rows[0].updated_at } });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -20166,12 +20326,17 @@ app.post("/api/online", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { post_type = "web", ...post } = req.body || {};
-    if (!post?.id) return res.status(400).json({ error: "id required" });
-    await pool.query(
-      `INSERT INTO online_posts (id, post_type, data) VALUES ($1, $2, $3::jsonb) ON CONFLICT (id) DO NOTHING`,
-      [post.id, post_type, JSON.stringify(post)]
-    );
-    res.status(201).json({ ok: true, id: post.id });
+    if (!post || typeof post !== "object") return res.status(400).json({ error: "post body required" });
+    const postId = await withGeneratedIdTransaction(async (client, generatedId) => {
+      const payload = { ...post, id: generatedId };
+      const { rows } = await client.query(
+        `INSERT INTO online_posts (id, post_type, data) VALUES ($1, $2, $3::jsonb)
+         RETURNING id, post_type, data, created_at`,
+        [generatedId, post_type, JSON.stringify(payload)]
+      );
+      return rows[0];
+    });
+    res.status(201).json({ ok: true, post: { ...postId.data, _post_type: postId.post_type, _createdAt: postId.created_at } });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -20198,12 +20363,16 @@ app.post("/api/fundraising", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const item = req.body;
-    if (!item?.id) return res.status(400).json({ error: "id required" });
-    await pool.query(
-      `INSERT INTO fundraising_items (id, data) VALUES ($1, $2::jsonb) ON CONFLICT (id) DO NOTHING`,
-      [item.id, JSON.stringify(item)]
-    );
-    res.status(201).json({ ok: true, id: item.id });
+    if (!item || typeof item !== "object") return res.status(400).json({ error: "item body required" });
+    const itemId = await withGeneratedIdTransaction(async (client, generatedId) => {
+      const payload = { ...item, id: generatedId };
+      const { rows } = await client.query(
+        `INSERT INTO fundraising_items (id, data) VALUES ($1, $2::jsonb) RETURNING id, data, created_at, updated_at`,
+        [generatedId, JSON.stringify(payload)]
+      );
+      return rows[0];
+    });
+    res.status(201).json({ ok: true, item: { ...itemId.data, _createdAt: itemId.created_at, _updatedAt: itemId.updated_at } });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
 });
 
@@ -20211,11 +20380,12 @@ app.put("/api/fundraising/:id", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const item = req.body;
-    await pool.query(
-      `UPDATE fundraising_items SET data = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+    const { rows } = await pool.query(
+      `UPDATE fundraising_items SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, data, created_at, updated_at`,
       [JSON.stringify(item), req.params.id]
     );
-    res.json({ ok: true });
+    if (!rows.length) return res.status(404).json({ error: "Fundraising item not found" });
+    res.json({ ok: true, item: { ...rows[0].data, _createdAt: rows[0].created_at, _updatedAt: rows[0].updated_at } });
   } catch (e) { console.error(e); res.status(500).json({ error: "Server error" }); }
 });
 

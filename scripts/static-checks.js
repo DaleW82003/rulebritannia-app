@@ -436,6 +436,66 @@ if (!doubleReleaseIssues) pass("All pg-pool client.release() calls are inside fi
 // Summary
 // ──────────────────────────────────────────────────────────────────────────────
 
+section("9. Sim write API payloads are client-sanitized (authority fields stripped)");
+
+const UI_ONLY_DRAFT_WRITE_ALLOWLIST = [
+  // UI-only drafting workspaces (cabinet/shadow/party drafts) do not alter
+  // simulation outcomes directly and are explicitly exempt from sim-write payload
+  // authority stripping gates.
+  /\/api\/cabinet\/drafts/,
+  /\/api\/shadowcabinet\/drafts/,
+  /\/api\/parties\/[^/]+\/drafts/,
+  /\/api\/budget\/draft/,
+];
+
+const SIM_WRITE_FUNCTIONS_REQUIRING_CLIENT_SANITIZE = [
+  "apiCreateBill", "apiUpdateBill",
+  "apiCreateMotion", "apiUpdateMotion",
+  "apiCreateStatement", "apiUpdateStatement",
+  "apiCreateRegulation", "apiUpdateRegulation",
+  "apiCreateQtLegacyQuestion", "apiUpdateQtLegacyQuestion",
+  "apiCreatePollingEntry",
+  "apiCreateRedLionPost",
+  "apiCreateEvent", "apiUpdateEvent",
+  "apiCreateOnlinePost",
+  "apiCreateFundraisingItem", "apiUpdateFundraisingItem",
+];
+
+let simClientSanitizeIssues = 0;
+for (const fnName of SIM_WRITE_FUNCTIONS_REQUIRING_CLIENT_SANITIZE) {
+  const fnRe = new RegExp(`export\\s+async\\s+function\\s+${fnName}\\s*\\([^)]*\\)\\s*\\{([\\s\\S]*?)\\n\\}`);
+  const match = apiContent.match(fnRe);
+  if (!match) {
+    fail(`js/api.js: missing required sim write function ${fnName}() for sanitize gate`);
+    simClientSanitizeIssues++;
+    continue;
+  }
+  if (!match[1].includes("sanitizeForSimWrite(")) {
+    fail(`js/api.js: ${fnName}() must sanitize payload with sanitizeForSimWrite()`);
+    simClientSanitizeIssues++;
+  }
+}
+if (!simClientSanitizeIssues) pass("All required sim write API helpers sanitize payloads client-side");
+
+section("10. Server write middleware enforces authoritative field stripping");
+
+let serverAuthorityStripIssues = 0;
+if (!serverContent.includes("function sanitizeClientWriteBody")) {
+  fail("server/index.js: missing sanitizeClientWriteBody() helper");
+  serverAuthorityStripIssues++;
+}
+if (!serverContent.includes("isAuthoritativeWriteKey")) {
+  fail("server/index.js: missing isAuthoritativeWriteKey() helper");
+  serverAuthorityStripIssues++;
+}
+const middlewareIdx = serverContent.indexOf("req.body = sanitizeClientWriteBody(req.body)");
+const firstSimWriteIdx = serverContent.indexOf('app.post("/api/bills"');
+if (middlewareIdx === -1 || firstSimWriteIdx === -1 || middlewareIdx > firstSimWriteIdx) {
+  fail("server/index.js: authoritative body sanitization middleware must run before sim write routes");
+  serverAuthorityStripIssues++;
+}
+if (!serverAuthorityStripIssues) pass("Server authoritative-field stripping middleware is present and ordered before sim writes");
+
 console.log(`\n${"═".repeat(72)}`);
 if (failures === 0) {
   console.log("✅  All static checks passed.");
