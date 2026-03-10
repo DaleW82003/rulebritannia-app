@@ -7,6 +7,7 @@ import { apiGetBills } from "../api.js";
 import { apiGetMotions, apiGetStatements, apiGetRegulations, apiGetPressItems, apiGetEvents } from "../api.js";
 import { apiGetPollingEntries, apiGetNews, apiGetPaperArticles, apiGetEconomyData, apiGetQtLegacyQuestions, apiGetGovernmentEvents, apiGetElections } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
+import { rebuildPressCounters } from "./press.js";
 
 // js/pages/dashboard.js
 // Dashboard (Your Office) — Chunk 1 implementation
@@ -714,6 +715,7 @@ export async function initDashboardPage(data) {
         const key = byType[item._pressType] || "releases";
         data.press[key].push(item);
       }
+      rebuildPressCounters(data);
     }),
     // Events → live docket (DB authoritative — replace entirely)
     apiGetEvents().then((r) => {
