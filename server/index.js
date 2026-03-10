@@ -813,6 +813,18 @@ async function ensureSchema() {
   //   ALTER TABLE ensures existing databases receive the new columns idempotently.
   await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
 
+  // ── Press reference counters (DB-authoritative serial allocation) ─────────
+  // One row per (kind, prefix) pair; next_serial is atomically incremented on
+  // each POST /api/press so references are unique and concurrency-safe.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS press_reference_counters (
+      kind        TEXT NOT NULL,
+      prefix      TEXT NOT NULL,
+      next_serial BIGINT NOT NULL DEFAULT 1,
+      PRIMARY KEY (kind, prefix)
+    )
+  `);
+
   // ── Polling entries ───────────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS polling_entries (
@@ -7874,13 +7886,71 @@ app.get("/api/press/:id", pressReadLimit, async (req, res) => {
   }
 });
 
+// ── Press reference helpers ───────────────────────────────────────────────
+
+/** Tokens never treated as a surname in press reference prefixes. */
+const PRESS_NON_SURNAME_TOKENS = new Set(["mp", "pc", "qc", "kc", "rt", "hon", "the", "right", "honourable", "honorable"]);
+
+/**
+ * Extract the surname from a character's display name for use as a press prefix.
+ * Strips leading honorifics (Rt Hon, The Right Honourable) and trailing post-nominals (MP, PC).
+ */
+function pressSurname(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "MP";
+  while (parts.length > 1 && PRESS_NON_SURNAME_TOKENS.has(parts[parts.length - 1].toLowerCase().replace(/\.$/, ""))) parts.pop();
+  while (parts.length > 1 && PRESS_NON_SURNAME_TOKENS.has(parts[0].toLowerCase().replace(/\.$/, ""))) parts.shift();
+  return parts[parts.length - 1] || "MP";
+}
+
+/** NPC office short prefixes — mirrors js/pages/press.js NPC_OFFICE_PREFIXES. */
+const SERVER_NPC_OFFICE_PREFIXES = {
+  "monarch":         "ROY",
+  "speakers-office": "SPK",
+  "cabinet-office":  "CAB",
+};
+
+/**
+ * Determine the press reference prefix for a new item:
+ * - NPC letters use the office key short code.
+ * - All other items use the session character's surname (looked up from DB).
+ * Falls back to "MP" if no character is active.
+ */
+async function pressPrefixForRequest(pool, req, pressType, officeKey) {
+  if (pressType === "letter" && officeKey && SERVER_NPC_OFFICE_PREFIXES[officeKey]) {
+    return SERVER_NPC_OFFICE_PREFIXES[officeKey];
+  }
+  const charId = req.session.characterId || null;
+  if (!charId) return "MP";
+  const { rows } = await pool.query("SELECT name FROM characters WHERE id = $1 LIMIT 1", [charId]);
+  return rows[0]?.name ? pressSurname(rows[0].name) : "MP";
+}
+
+/** Initial next_serial value when a counter row is first inserted (first call allocates serial 1). */
+const PRESS_COUNTER_INITIAL_NEXT = 2;
+
+/**
+ * Atomically allocate the next serial number for a (kind, prefix) pair.
+ * Uses INSERT … ON CONFLICT … DO UPDATE … RETURNING for concurrency safety.
+ * Returns the allocated serial (1-based integer).
+ */
+async function allocatePressSerial(pool, kind, prefix) {
+  const { rows } = await pool.query(
+    `INSERT INTO press_reference_counters (kind, prefix, next_serial)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (kind, prefix)
+     DO UPDATE SET next_serial = press_reference_counters.next_serial + 1
+     RETURNING next_serial - 1 AS serial`,
+    [kind, prefix, PRESS_COUNTER_INITIAL_NEXT]
+  );
+  if (!rows[0]) throw new Error("Failed to allocate press serial");
+  return Number(rows[0].serial);
+}
+
 app.post("/api/press", pressWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { press_type = "release", ...item } = req.body || {};
-    if (!item.id) {
-      return res.status(400).json({ error: "Body must have an id field" });
-    }
     const VALID_PRESS_TYPES = new Set(["release", "conference", "speech", "comment", "letter"]);
     if (!VALID_PRESS_TYPES.has(press_type)) {
       return res.status(400).json({ error: "press_type must be 'release', 'conference', 'speech', 'comment', or 'letter'" });
@@ -7896,7 +7966,31 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     );
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
-    const enriched = attachLifecycle({ ...item }, sm, sy);
+
+    // Server generates the ID — client-supplied ids are ignored to prevent spoofing/collisions.
+    const serverId = randomUUID();
+
+    // Assign reference server-side for typed items (comments have no reference).
+    // This prevents client-side counter drift, duplicate refs, and concurrency races.
+    // Always start null — never trust or preserve a client-supplied reference.
+    let serverReference = null;
+    const KIND_MAP = { release: "PR", conference: "PC", speech: "SP", letter: "LTR" };
+    const kind = KIND_MAP[press_type];
+    if (kind) {
+      // Compute the prefix from the session character or NPC office key.
+      const prefix = await pressPrefixForRequest(pool, req, press_type, item.officeKey);
+      // Atomically allocate the next serial for this (kind, prefix) pair.
+      const serial = await allocatePressSerial(pool, kind, prefix);
+      serverReference = press_type === "letter"
+        ? `${prefix}-LTR-${serial}`
+        : `${prefix} ${kind}${serial}`;
+    }
+
+    // Strip client-supplied id and reference; use server-assigned values.
+    const { id: _ignoredId, reference: _ignoredRef, ...rest } = item;
+    const payload = { ...rest, id: serverId, ...(serverReference ? { reference: serverReference } : {}) };
+    const enriched = attachLifecycle(payload, sm, sy);
+
     // Store the authoring character ID (null for NPC-authored items)
     const authorCharId = item.npcAuthor ? null : (req.session.characterId || null);
     const { rows } = await pool.query(
@@ -7906,7 +8000,7 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
       [enriched.id, press_type, JSON.stringify(enriched), authorCharId]
     );
     await writeAuditLog(req.session.userId, "press.create", "press_items", enriched.id, null, enriched);
-    res.status(201).json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+    res.status(201).json({ ok: true, id: rows[0].id, ...(serverReference && { reference: serverReference }), updatedAt: rows[0].updated_at });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });

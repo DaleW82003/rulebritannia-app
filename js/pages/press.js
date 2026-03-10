@@ -727,11 +727,8 @@ function render(data, state) {
     const subject = String(fd.get("subject") || "").trim();
     const body = String(fd.get("body") || "").trim();
     if (!subject || !body) return;
-    const prefix = makePrefix(char, "PR", data);
-    const serial = nextSerial(data, "PR", prefix);
+    // id and reference are assigned server-side (DB-authoritative, concurrency-safe).
     const item = {
-      id: `press-${Date.now()}-${data.press.nextId++}`,
-      reference: `${prefix} PR${serial}`,
       subject,
       body,
       author: char?.display_name || char?.name || "MP",
@@ -744,12 +741,12 @@ function render(data, state) {
     if (submitBtn) submitBtn.disabled = true;
     try {
       await apiCreatePressItem({ press_type: "release", ...item });
+      await fetchAndPopulatePressFromDb(data);
     } catch (err) {
       handleApiError(err, "Submit press release");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
-    data.press.releases.push(item);
     render(data, state);
   });
 
@@ -788,12 +785,8 @@ function render(data, state) {
     const subject = String(fd.get("subject") || "").trim();
     const body = String(fd.get("body") || "").trim();
     if (!subject || !body) return;
-    const prefix = makePrefix(char, "PC", data);
-    const serial = nextSerial(data, "PC", prefix);
-    const id = `press-${Date.now()}-${data.press.nextId++}`;
+    // id and reference are assigned server-side (DB-authoritative, concurrency-safe).
     const item = {
-      id,
-      reference: `${prefix} PC${serial}`,
       subject,
       body,
       author: char?.display_name || char?.name || "MP",
@@ -810,12 +803,12 @@ function render(data, state) {
     if (submitBtn) submitBtn.disabled = true;
     try {
       await apiCreatePressItem({ press_type: "conference", ...item });
+      await fetchAndPopulatePressFromDb(data);
     } catch (err) {
       handleApiError(err, "Submit press conference");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
-    data.press.conferences.push(item);
     render(data, state);
   });
 
@@ -955,7 +948,7 @@ function render(data, state) {
     }
 
     const item = {
-      id: `press-${Date.now()}-${data.press.nextId++}`,
+      // id is assigned server-side (DB-authoritative).
       author,
       avatar,
       body,
@@ -966,12 +959,12 @@ function render(data, state) {
     if (submitBtn) submitBtn.disabled = true;
     try {
       await apiCreatePressItem({ press_type: "comment", ...item });
+      await fetchAndPopulatePressFromDb(data);
     } catch (err) {
       handleApiError(err, "Submit comment");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
-    data.press.comments.push(item);
     render(data, state);
   });
 
@@ -1064,11 +1057,8 @@ function render(data, state) {
     const body = String(fd.get("body") || "").trim();
     const picture = String(fd.get("picture") || "");
     if (!title || !audience || !topOfSpeech || !body) return;
-    const prefix = makePrefix(char, "SP", data);
-    const serial = nextSerial(data, "SP", prefix);
+    // id and reference are assigned server-side (DB-authoritative, concurrency-safe).
     const item = {
-      id: `press-${Date.now()}-${data.press.nextId++}`,
-      reference: `${prefix} SP${serial}`,
       title,
       audience,
       topOfSpeech,
@@ -1086,12 +1076,12 @@ function render(data, state) {
     if (submitBtn) submitBtn.disabled = true;
     try {
       await apiCreatePressItem({ press_type: "speech", ...item });
+      await fetchAndPopulatePressFromDb(data);
     } catch (err) {
       handleApiError(err, "Submit speech");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
-    data.press.speeches.push(item);
     render(data, state);
   });
 
@@ -1158,12 +1148,8 @@ function render(data, state) {
     }
 
     const office = officeByKey(officeKey);
-    const prefix = isNpc ? (NPC_OFFICE_PREFIXES[officeKey] || officeKey.toUpperCase().slice(0, 3)) : makePrefix(char, "LTR", data);
-    const serial = nextSerial(data, "LTR", prefix);
-    const autoRef = `${prefix}-LTR-${serial}`;
+    // id and reference are assigned server-side (DB-authoritative, concurrency-safe).
     const item = {
-      id: `press-${Date.now()}-${data.press.nextId++}`,
-      reference: autoRef,
       officeKey,
       officeName: office?.displayName || officeKey,
       recipient,
@@ -1180,12 +1166,12 @@ function render(data, state) {
     if (submitBtn) submitBtn.disabled = true;
     try {
       await apiCreatePressItem({ press_type: "letter", ...item });
+      await fetchAndPopulatePressFromDb(data);
     } catch (err) {
       console.error(err);
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
-    data.press.letters.push(item);
     render(data, state);
   });
 
