@@ -4,6 +4,9 @@
  *   - server/division-helpers.js         (vote weight + tally helpers)
  *   - server/finance-service.js          (no pure exports to unit-test here yet)
  *
+ * Also includes regression tests for server-authoritative weight computation
+ * across EDM signing, bill votes, and formal division votes.
+ *
  * Only pure (non-DB) functions are tested here. DB-dependent functions are
  * covered by the existing integration test suites.
  *
@@ -12,6 +15,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dir = dirname(fileURLToPath(import.meta.url));
+// Server source loaded once for static-authority checks (no DB required).
+const serverSrc = readFileSync(resolve(__dir, "index.js"), "utf8");
 
 // Pure exports from political-state-service (no DB needed)
 import {
@@ -330,4 +340,109 @@ test("computeCharacterWeight: non-NPC missing from player list gets 0", () => {
   const players = [{ name: "Alice", party: "Labour", role: "minister", active: true }];
   const w = computeCharacterWeight(seats, players, "Ghost", "Labour", false);
   assert.equal(w, 0);
+});
+
+// ── EDM signing: server-authoritative weight regression tests ─────────────────
+// Scenario: Conservative 165 seats, Dale Weston (new backbencher, joined yesterday)
+// + Dylan Macmillan (party leader).  Expected: Weston=1, Macmillan=164.
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+const CONSERVATIVE_SEATS = { Conservative: 165 };
+const MACMILLAN = {
+  name: "Dylan Macmillan",
+  party: "Conservative",
+  role: "party-leader-3rd-4th",
+  active: true,
+  partyLeader: true,
+};
+const WESTON_NEW_BB = {
+  name: "Dale Weston",
+  party: "Conservative",
+  role: "backbencher",
+  active: true,
+  // joined 1 day ago — well within the 4-sim-month (14 real-day) settling window
+  joinedAt: new Date(Date.now() - ONE_DAY_MS).toISOString(),
+};
+
+test("computeAllPlayerWeights: Conservative 165 seats — new backbencher gets 1, party leader gets 164", () => {
+  const { effectiveWeights } = computeAllPlayerWeights(CONSERVATIVE_SEATS, [MACMILLAN, WESTON_NEW_BB]);
+  assert.equal(effectiveWeights["Dale Weston"],    1,   "new backbencher must receive weight 1");
+  assert.equal(effectiveWeights["Dylan Macmillan"], 164, "party leader must receive the remainder (165 − 1)");
+});
+
+test("computeCharacterWeight: signing as new backbencher yields 1, not full party allocation", () => {
+  const w = computeCharacterWeight(
+    CONSERVATIVE_SEATS,
+    [MACMILLAN, WESTON_NEW_BB],
+    "Dale Weston",
+    "Conservative",
+    false,
+  );
+  assert.equal(w, 1, "new backbencher weight must be 1 when settled party leader is present in state");
+});
+
+test("computeCharacterWeight: party leader gets remainder when party contains a new backbencher", () => {
+  const w = computeCharacterWeight(
+    CONSERVATIVE_SEATS,
+    [MACMILLAN, WESTON_NEW_BB],
+    "Dylan Macmillan",
+    "Conservative",
+    false,
+  );
+  assert.equal(w, 164, "party leader weight must equal seats minus new-backbencher allocation");
+});
+
+// ── Server-authoritative weight: static endpoint checks ──────────────────────
+// These tests read server/index.js source to verify the EDM sign, bill vote, and
+// formal division vote handlers never accept a client-supplied weight and always
+// delegate computation to the server-side helper.
+
+// 3 000 chars is comfortably larger than all three handlers (~500–1 500 chars each)
+// but smaller than the next unrelated route so the slice stays within bounds.
+const MAX_HANDLER_LEN = 3000;
+
+function extractHandlerSlice(src, routeStr) {
+  const idx = src.indexOf(routeStr);
+  if (idx < 0) return "";
+  return src.slice(idx, idx + MAX_HANDLER_LEN);
+}
+
+test("EDM sign endpoint: server computes weight and never reads req.body.weight", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/motions/:id/sign"');
+  assert.ok(slice.length > 0, "POST /api/motions/:id/sign handler must exist in server/index.js");
+  assert.ok(
+    !slice.includes("req.body.weight") && !slice.includes("req.body?.weight"),
+    "sign endpoint must not read weight from the request body",
+  );
+  assert.ok(
+    slice.includes("computeCharacterWeight") || slice.includes("computeAllPlayerWeights"),
+    "sign endpoint must use server-side weight computation helper",
+  );
+});
+
+test("Formal division vote endpoint: server computes weight and never reads req.body.weight", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/divisions/:id/vote"');
+  assert.ok(slice.length > 0, "POST /api/divisions/:id/vote handler must exist in server/index.js");
+  assert.ok(
+    !slice.includes("req.body.weight") && !slice.includes("req.body?.weight"),
+    "division vote endpoint must not read weight from the request body",
+  );
+  assert.ok(
+    slice.includes("computeCharacterWeight") || slice.includes("computeAllPlayerWeights"),
+    "division vote endpoint must use server-side weight computation helper",
+  );
+});
+
+test("Bill vote endpoint: server computes weight and never reads req.body.weight", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/bills/:id/vote"');
+  assert.ok(slice.length > 0, "PATCH /api/bills/:id/vote handler must exist in server/index.js");
+  assert.ok(
+    !slice.includes("req.body.weight") && !slice.includes("req.body?.weight"),
+    "bill vote endpoint must not read weight from the request body",
+  );
+  assert.ok(
+    slice.includes("computeCharacterWeight") || slice.includes("computeAllPlayerWeights"),
+    "bill vote endpoint must use server-side weight computation helper",
+  );
 });
