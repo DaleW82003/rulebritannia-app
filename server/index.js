@@ -12329,35 +12329,50 @@ app.post("/api/parties/:partyId/treasury", partyWriteLimit, async (req, res) => 
 
     // Members count: rate-limited to once per 6 sim months per party (admin can override)
     if (members !== undefined) {
-      const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
-      const simMonth = clk[0]?.sim_current_month ?? 8;
-      const simYear  = clk[0]?.sim_current_year  ?? 1997;
-      const currentSimIndex = simYear * 12 + (simMonth - 1);
+      const requestedMembers = parseFloat(members);
+      if (!Number.isFinite(requestedMembers)) {
+        return res.status(400).json({ error: "members must be a valid number" });
+      }
 
-      const { rows: partyRow } = await pool.query(
-        "SELECT last_members_update_sim_index FROM parties WHERE slug = $1",
+      const { rows: currentPartyRows } = await pool.query(
+        "SELECT treasury, last_members_update_sim_index FROM parties WHERE slug = $1",
         [req.params.partyId]
       );
-      const lastUpdateSimIndex = partyRow[0]?.last_members_update_sim_index ?? null;
-      const monthsSinceLast = lastUpdateSimIndex != null ? currentSimIndex - lastUpdateSimIndex : Infinity;
+      if (!currentPartyRows.length) return res.status(404).json({ error: "Party not found" });
 
-      if (monthsSinceLast < 6 && !isAdminOrMod) {
-        return res.status(429).json({
-          error: `Members count can only be updated once every 6 sim months. Next update available in ${6 - monthsSinceLast} sim month(s).`
-        });
-      }
-      // Admin override: allowed to bypass, but must be flagged explicitly for audit
-      if (monthsSinceLast < 6 && isAdminOrMod && !adminOverride) {
-        return res.status(409).json({
-          error: `Members count was recently updated. Pass adminOverride: true to force update.`,
-          monthsSinceLast,
-        });
-      }
+      const currentMembers = Number(currentPartyRows[0]?.treasury?.members ?? 0);
+      const membersChanged = currentMembers !== requestedMembers;
 
-      treasuryValues.members = parseFloat(members) ?? 0;
-      // Update last_members_update_sim_index tracking (done in the UPDATE below via extra SET clause)
-      req._updateMembersSimIndex = currentSimIndex;
-      req._membersAdminOverride  = !!adminOverride;
+      if (!membersChanged) {
+        // No-op updates should not be blocked by cooldown/override checks.
+        treasuryValues.members = requestedMembers;
+      } else {
+        const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+        const simMonth = clk[0]?.sim_current_month ?? 8;
+        const simYear  = clk[0]?.sim_current_year  ?? 1997;
+        const currentSimIndex = simYear * 12 + (simMonth - 1);
+
+        const lastUpdateSimIndex = currentPartyRows[0]?.last_members_update_sim_index ?? null;
+        const monthsSinceLast = lastUpdateSimIndex != null ? currentSimIndex - lastUpdateSimIndex : Infinity;
+
+        if (monthsSinceLast < 6 && !isAdminOrMod) {
+          return res.status(429).json({
+            error: `Members count can only be updated once every 6 sim months. Next update available in ${6 - monthsSinceLast} sim month(s).`
+          });
+        }
+        // Admin override: allowed to bypass, but must be flagged explicitly for audit
+        if (monthsSinceLast < 6 && isAdminOrMod && !adminOverride) {
+          return res.status(409).json({
+            error: `Members count was recently updated. Pass adminOverride: true to force update.`,
+            monthsSinceLast,
+          });
+        }
+
+        treasuryValues.members = requestedMembers;
+        // Update last_members_update_sim_index tracking (done in the UPDATE below via extra SET clause)
+        req._updateMembersSimIndex = currentSimIndex;
+        req._membersAdminOverride  = !!adminOverride;
+      }
     }
 
     if (!Object.keys(treasuryValues).length && hqUrl === undefined) {

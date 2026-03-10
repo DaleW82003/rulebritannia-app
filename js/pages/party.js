@@ -811,6 +811,7 @@ function render(data, state) {
             </div>
           </div>
           <button type="submit" class="btn">Save Party Settings</button>
+          ${state.controlMessage ? `<p class="muted" style="margin-top:8px;">${esc(state.controlMessage)}</p>` : ""}
         </form>
       </section>
     ` : ""}
@@ -1559,6 +1560,7 @@ function render(data, state) {
     state.openDraftId = null;
     state.feeMessage = "";
     state.donationMessage = "";
+    state.controlMessage = "";
     // Reload DB party data for the newly selected party
     try {
       const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult, climateResultBase, ipmResult] = await Promise.all([
@@ -1698,10 +1700,14 @@ function render(data, state) {
 
     const partyId = state.activeParty;
 
+    let leaderSaveError = "";
+    let treasurySaveError = "";
+
     // Persist party leader to DB (admin/mod only, authoritative source)
     try {
       await apiSetPartyLeader(partyId, leaderId || null);
     } catch (err) {
+      leaderSaveError = String(err?.message || "Leader update failed.");
       console.warn("[party-control-form] leader save failed:", err.message);
     }
 
@@ -1709,6 +1715,7 @@ function render(data, state) {
     try {
       await apiSetPartyTreasury(partyId, { cash: newCash, debt: newDebt, members: newMembers });
     } catch (err) {
+      treasurySaveError = String(err?.message || "Treasury update failed.");
       console.warn("[party-control-form] treasury save failed:", err.message);
     }
 
@@ -1738,6 +1745,12 @@ function render(data, state) {
       party.treasury.cash    = newCash;
       party.treasury.debt    = newDebt;
       party.treasury.members = newMembers;
+    }
+
+    if (leaderSaveError || treasurySaveError) {
+      state.controlMessage = `Saved with warnings.${leaderSaveError ? ` Leader: ${leaderSaveError}` : ""}${treasurySaveError ? ` Treasury: ${treasurySaveError}` : ""}`;
+    } else {
+      state.controlMessage = "Party settings saved.";
     }
 
     render(data, state);
@@ -2314,6 +2327,7 @@ export async function initPartyPage(data) {
     structureMessage: "",
     feeMessage: "",
     donationMessage: "",
+    controlMessage: "",
     whipMessage: "",
     expulsionMessage: "",
     electionMessage: "",
