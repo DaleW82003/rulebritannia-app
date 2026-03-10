@@ -281,7 +281,9 @@ function render(data, state) {
 export async function initShadowCabinetPage(data) {
   normaliseShadowCabinet(data);
 
-  if (isLoggedIn()) {
+  const canAccess = canAccessShadowCabinet(data);
+
+  if (isLoggedIn() && canAccess) {
     // Load shadow cabinet drafts from DB (authoritative source; accessible to shadow cabinet members)
     try {
       const { drafts } = await apiGetShadowCabinetDrafts();
