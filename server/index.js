@@ -23069,8 +23069,9 @@ app.put("/api/staff/internal-tickets/:id/outcome", verifyCsrfToken, crudWriteLim
                      updated_at = NOW()`,
       [ticketId, outcomeType, summary, JSON.stringify(impactPayload), req.session.userId || null, dueSimYear, dueSimMonth]
     );
-    await pool.query(`UPDATE party_internal_tickets SET status = $2, updated_at = NOW() WHERE id = $1`, [ticketId, IPM_TICKET_STATUS.outcomeRecorded]);
-    res.json({ ok: true, status: IPM_TICKET_STATUS.outcomeRecorded });
+    // Keep ticket queued for freeze. Outcome recording should not publish/apply mid-week.
+    await pool.query(`UPDATE party_internal_tickets SET status = $2, to_role = $3, updated_at = NOW() WHERE id = $1`, [ticketId, IPM_TICKET_STATUS.queuedForFreeze, IPM_TICKET_TO_ROLE.staff]);
+    res.json({ ok: true, status: IPM_TICKET_STATUS.queuedForFreeze });
   } catch (e) {
     console.error("[PUT /api/staff/internal-tickets/:id/outcome]", e);
     res.status(500).json({ error: "Server error" });

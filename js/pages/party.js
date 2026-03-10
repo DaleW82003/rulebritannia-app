@@ -1236,7 +1236,7 @@ function render(data, state) {
               Dominant: ${domFaction ? esc(`${domFaction.name} (${domFaction.leadershipAlignment})`) : "n/a"}
             </div>
             <div class="tile" style="padding:8px;">
-              <b>Other Bodies (Lords + MEPs)</b><br>
+              <b>Lords + MEPs</b><br>
               Total: ${Math.round(Number(d.components?.bodies?.total || 0))}<br>
               Share: ${fmtPct(d.components?.bodies?.share)}<br>
               Arenas: ${Math.round(Number((d.components?.bodies?.arenasIncluded || []).length))}
@@ -1253,7 +1253,7 @@ function render(data, state) {
             </div>
           </div>
           <div style="margin-top:8px;font-size:.84em;" class="muted">
-            Active weights — Commons ${d.weights?.active?.commons ?? 0}, Other Bodies ${d.weights?.active?.bodies ?? 0}, Locals ${d.weights?.active?.locals ?? 0}, DEMs ${d.weights?.active?.dem ?? 0}.<br>
+            Active weights — Commons ${d.weights?.active?.commons ?? 0}, Lords + MEPs ${d.weights?.active?.bodies ?? 0}, Locals ${d.weights?.active?.locals ?? 0}, Directly elected mayors (UK-wide) ${d.weights?.active?.dem ?? 0}.<br>
             Effective share: <b>${fmtPct(d.effectiveShare)}</b>, dominance score: <b>${fmtPct(d.dominanceScore)}</b>, applied: <b>${d.dominanceApplied ? "yes" : "no"}</b>.<br>
             Multipliers — hostile ${Number(d.appliedMultipliers?.hostilePressureMultiplier ?? 1).toFixed(3)}, pressure ${Number(d.appliedMultipliers?.partyPressureMultiplier ?? 1).toFixed(3)}, resilience ${Number(d.appliedMultipliers?.resilienceMultiplier ?? 1).toFixed(3)}.
           </div>
