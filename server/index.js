@@ -9601,10 +9601,68 @@ app.patch("/api/me/absent", charWriteLimit, async (req, res) => {
     const { absent = false, delegatedTo = null } = req.body || {};
     const charId = req.session.activeCharacterId;
     if (!charId) return res.status(400).json({ error: "No active character" });
+
+    // Read current state for logging and validation
+    const { rows: charRows } = await pool.query(
+      `SELECT id, name, party, absent AS old_absent, delegated_to AS old_delegated_to FROM characters WHERE id = $1`,
+      [charId]
+    );
+    if (!charRows.length) return res.status(404).json({ error: "Character not found" });
+    const char = charRows[0];
+
+    // Validate delegatedTo: must be an existing active character in the same party (and not self)
+    const newAbsent = !!absent;
+    let resolvedDelegatedTo = newAbsent ? (String(delegatedTo || "").trim() || null) : null;
+    const attemptedDelegatedTo = resolvedDelegatedTo;
+    let resolvedTargetName = null;
+
+    if (newAbsent && resolvedDelegatedTo) {
+      const { rows: targetRows } = await pool.query(
+        `SELECT id, name FROM characters WHERE name = $1 AND party = $2 AND is_active = TRUE AND id <> $3 LIMIT 1`,
+        [resolvedDelegatedTo, char.party, charId]
+      );
+      if (targetRows.length) {
+        resolvedTargetName = targetRows[0].name;
+      } else {
+        // Invalid target — clear it but record the attempt in the log
+        resolvedDelegatedTo = null;
+      }
+    }
+
     await pool.query(
       `UPDATE characters SET absent = $1, delegated_to = $2 WHERE id = $3`,
-      [!!absent, delegatedTo || null, charId]
+      [newAbsent, resolvedDelegatedTo, charId]
     );
+
+    // Determine human-readable action label for the log
+    let actionLabel;
+    if (newAbsent && resolvedDelegatedTo) {
+      actionLabel = "absence.updated"; // set absent with valid delegation
+    } else if (newAbsent) {
+      actionLabel = "absence.updated"; // set absent (no delegation or invalid delegation cleared)
+    } else {
+      actionLabel = "absence.updated"; // returned active
+    }
+
+    await writeAuditLog(
+      req.session.userId,
+      actionLabel,
+      "absence",
+      charId,
+      { absent: char.old_absent, delegatedTo: char.old_delegated_to },
+      { absent: newAbsent, delegatedTo: resolvedDelegatedTo },
+      {
+        headline: newAbsent
+          ? (resolvedDelegatedTo ? `${char.name} set absent, delegated to ${resolvedDelegatedTo}` : `${char.name} set absent`)
+          : `${char.name} returned active`,
+        characterName: char.name,
+        party: char.party,
+        characterId: charId,
+        attemptedDelegatedTo,
+        resolvedTargetName,
+      }
+    );
+
     res.json({ ok: true });
   } catch (e) { console.error("[PATCH /api/me/absent]", e); res.status(500).json({ error: "Server error" }); }
 });
@@ -18991,6 +19049,81 @@ app.post("/api/control-panel/affiliations/:rid/decide", affiliationsWriteLimit, 
     }
   } catch (e) {
     console.error("[POST /api/control-panel/affiliations/:rid/decide]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONTROL PANEL: Absence / delegation log
+// GET /api/control-panel/absence-log — staff only (admin/mod/speaker)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const absenceLogReadLimit = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+/**
+ * GET /api/control-panel/absence-log
+ *
+ * Query params:
+ *   limit        – max entries returned (default 200, max 1000)
+ *   since        – ISO timestamp filter (inclusive lower bound on created_at)
+ *   party        – filter by actor's party (matched against details.party)
+ *   characterId  – filter by actor's character id
+ *   characterName – filter by actor's character name (case-insensitive substring)
+ *
+ * Response: { entries, currentAbsent }
+ *   entries       – array of absence.updated audit_log rows, newest first
+ *   currentAbsent – array of { id, name, party, delegated_to } for currently absent characters
+ */
+app.get("/api/control-panel/absence-log", absenceLogReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminModOrSpeaker(req, res)) return;
+
+    const { since, party, characterId, characterName } = req.query;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 1000);
+
+    const conditions = [`action = 'absence.updated'`];
+    const params = [];
+
+    if (since) {
+      params.push(since);
+      conditions.push(`created_at >= $${params.length}`);
+    }
+    if (party) {
+      params.push(party);
+      conditions.push(`details->>'party' = $${params.length}`);
+    }
+    if (characterId) {
+      params.push(characterId);
+      conditions.push(`details->>'characterId' = $${params.length}`);
+    }
+    if (characterName) {
+      params.push(`%${characterName}%`);
+      conditions.push(`details->>'characterName' ILIKE $${params.length}`);
+    }
+
+    const where = `WHERE ${conditions.join(" AND ")}`;
+    params.push(limit);
+
+    const { rows: entries } = await pool.query(
+      `SELECT id, actor_id, action, target, details, created_at
+         FROM audit_log
+        ${where}
+        ORDER BY created_at DESC
+        LIMIT $${params.length}`,
+      params
+    );
+
+    // Current status: all characters currently marked absent
+    const { rows: currentAbsent } = await pool.query(
+      `SELECT id, name, party, delegated_to
+         FROM characters
+        WHERE absent = TRUE AND is_active = TRUE
+        ORDER BY party, name`
+    );
+
+    res.json({ entries, currentAbsent });
+  } catch (e) {
+    console.error("[GET /api/control-panel/absence-log]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

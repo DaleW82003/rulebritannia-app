@@ -3217,6 +3217,21 @@ export async function apiUpdateMyAbsent(absent, delegatedTo) {
   return body;
 }
 
+export async function apiGetAbsenceLog(params = {}) {
+  const q = new URLSearchParams();
+  if (params.limit)         q.set("limit",         String(params.limit));
+  if (params.since)         q.set("since",         params.since);
+  if (params.party)         q.set("party",         params.party);
+  if (params.characterId)   q.set("characterId",   params.characterId);
+  if (params.characterName) q.set("characterName", params.characterName);
+  const res = await _fetch(`${API_BASE}/api/control-panel/absence-log?${q}`, { credentials: "include" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `apiGetAbsenceLog failed (${res.status})`);
+  }
+  return res.json();
+}
+
 // ── Economy page data ────────────────────────────────────────────────────────
 export async function apiGetEconomyData() {
   const res = await _fetch(`${API_BASE}/api/admin/economy`, { credentials: "include" });

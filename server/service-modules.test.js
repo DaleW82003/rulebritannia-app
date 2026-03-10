@@ -446,3 +446,43 @@ test("Bill vote endpoint: server computes weight and never reads req.body.weight
     "bill vote endpoint must use server-side weight computation helper",
   );
 });
+
+// ── Absence / delegation log: static-authority checks ────────────────────────
+
+test("PATCH /api/me/absent: handler writes an absence.updated audit log entry", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/me/absent"');
+  assert.ok(slice.length > 0, "PATCH /api/me/absent handler must exist in server/index.js");
+  assert.ok(
+    slice.includes("absence.updated"),
+    "handler must write an audit log entry with action 'absence.updated'",
+  );
+  assert.ok(
+    slice.includes("writeAuditLog"),
+    "handler must call writeAuditLog",
+  );
+});
+
+test("PATCH /api/me/absent: handler validates delegatedTo against same-party characters", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/me/absent"');
+  assert.ok(
+    slice.includes("party") && slice.includes("is_active"),
+    "handler must query party and is_active when validating delegation target",
+  );
+});
+
+test("GET /api/control-panel/absence-log: route exists and is guarded by requireAdminModOrSpeaker", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/control-panel/absence-log"');
+  assert.ok(slice.length > 0, "GET /api/control-panel/absence-log must exist in server/index.js");
+  assert.ok(
+    slice.includes("requireAdminModOrSpeaker"),
+    "absence-log endpoint must be guarded by requireAdminModOrSpeaker",
+  );
+});
+
+test("GET /api/control-panel/absence-log: response includes currentAbsent query", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/control-panel/absence-log"');
+  assert.ok(
+    slice.includes("currentAbsent"),
+    "absence-log endpoint must include a currentAbsent field in its response",
+  );
+});

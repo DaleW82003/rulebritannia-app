@@ -13,6 +13,7 @@ import {
   apiGetAllProfileChanges, apiApproveProfileChange, apiRejectProfileChange,
   apiGetFinanceConfig, apiUpdateFinanceSalaryBands, apiUpdateFinanceStartingBalances, apiApplyFinanceInflation,
   apiGetAuditLog,
+  apiGetAbsenceLog,
   apiGetSim,
   apiGetModsMessage, apiSetModsMessage,
   apiGetAdminPartyFactions, apiCreatePartyFaction, apiUpdatePartyFaction, apiUpdatePartyFactionAllocation,
@@ -344,6 +345,26 @@ export async function initControlPanelPage(data) {
       </div>
     </details>
     ` : ""}
+
+    <details class="tile" style="margin-bottom:10px;">
+      <summary style="cursor:pointer;"><b>Absence / Delegation Log <span class="mod-badge">Mod / Admin / Speaker</span></b></summary>
+      <div style="margin-top:10px;">
+        <p class="muted" style="margin:0 0 10px;font-size:.9em;">Log of when players set themselves absent, return active, or change delegation targets. Newest first.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;" id="cp-absence-filters">
+          <div>
+            <label class="label" style="font-size:.85em;" for="cp-absence-filter-party">Party</label>
+            <input type="text" id="cp-absence-filter-party" class="input" style="width:140px;" placeholder="Any party">
+          </div>
+          <div>
+            <label class="label" style="font-size:.85em;" for="cp-absence-filter-char">Character name</label>
+            <input type="text" id="cp-absence-filter-char" class="input" style="width:160px;" placeholder="Any character">
+          </div>
+          <button class="btn" type="button" id="cp-absence-refresh">Refresh</button>
+        </div>
+        <div id="cp-absence-current" style="margin-bottom:12px;"></div>
+        <div id="cp-absence-log-panel" style="min-height:60px;"><div class="muted-block">Loading…</div></div>
+      </div>
+    </details>
 
     <details class="tile" style="margin-bottom:10px;" open>
       <summary style="cursor:pointer;"><b>Message from the Mods <span class="mod-badge">Mod / Admin / Speaker</span></b></summary>
@@ -947,6 +968,84 @@ export async function initControlPanelPage(data) {
       });
     }
     loadFeed(activeFeedTab);
+  }
+
+  // ── Absence / Delegation Log ───────────────────────────────────────────────
+  {
+    const absencePanel   = rolePanels.querySelector("#cp-absence-log-panel");
+    const absenceCurrent = rolePanels.querySelector("#cp-absence-current");
+    const filterParty    = rolePanels.querySelector("#cp-absence-filter-party");
+    const filterChar     = rolePanels.querySelector("#cp-absence-filter-char");
+    const refreshBtn     = rolePanels.querySelector("#cp-absence-refresh");
+
+    function actionLabel(entry) {
+      const d = entry.details || {};
+      const after = d.after || {};
+      const before = d.before || {};
+      if (after.absent === true && after.delegatedTo) return `Set absent · delegated to ${esc(after.delegatedTo)}`;
+      if (after.absent === true) return "Set absent";
+      if (after.absent === false && before.absent === true) return "Returned active";
+      return "Delegation changed";
+    }
+
+    function renderAbsenceLog(entries, currentAbsent) {
+      if (absenceCurrent) {
+        if (currentAbsent && currentAbsent.length) {
+          absenceCurrent.innerHTML = `
+            <div style="font-size:.88em;font-weight:600;margin-bottom:4px;">Currently absent (${currentAbsent.length}):</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              ${currentAbsent.map((c) => `
+                <span class="tile" style="padding:4px 8px;font-size:.82em;">
+                  <b>${esc(c.name)}</b> <span class="muted">(${esc(c.party)})</span>${c.delegated_to ? ` → <span style="color:#555;">${esc(c.delegated_to)}</span>` : ""}
+                </span>
+              `).join("")}
+            </div>
+          `;
+        } else {
+          absenceCurrent.innerHTML = `<div class="muted-block" style="padding:6px 0;font-size:.88em;">No characters currently absent.</div>`;
+        }
+      }
+      if (!absencePanel) return;
+      if (!entries || !entries.length) {
+        absencePanel.innerHTML = `<div class="muted-block">No absence/delegation events yet.</div>`;
+        return;
+      }
+      absencePanel.innerHTML = entries.map((entry) => {
+        const d = entry.details || {};
+        const ts = entry.created_at ? new Date(entry.created_at).toLocaleString("en-GB") : "—";
+        const label = actionLabel(entry);
+        const invalidNote = (d.after?.absent && d.attemptedDelegatedTo && !d.after?.delegatedTo)
+          ? ` <span style="color:var(--danger,#c00);font-size:.82em;">(invalid target "${esc(d.attemptedDelegatedTo)}" cleared)</span>`
+          : "";
+        return `
+          <article style="border-bottom:1px solid var(--line,#eee);padding:8px 0;">
+            <div style="font-size:.82em;color:#888;">${esc(ts)}</div>
+            <div style="margin:2px 0;font-weight:500;">${label}${invalidNote}</div>
+            <div class="muted" style="font-size:.85em;">
+              Character: <b>${esc(d.characterName || "")}</b>
+              ${d.party ? `· Party: ${esc(d.party)}` : ""}
+              ${d.resolvedTargetName ? `· Delegate: ${esc(d.resolvedTargetName)}` : ""}
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    async function loadAbsenceLog() {
+      if (absencePanel) absencePanel.innerHTML = '<div class="muted-block">Loading…</div>';
+      try {
+        const params = { limit: 200 };
+        if (filterParty?.value?.trim())  params.party         = filterParty.value.trim();
+        if (filterChar?.value?.trim())   params.characterName = filterChar.value.trim();
+        const { entries, currentAbsent } = await apiGetAbsenceLog(params);
+        renderAbsenceLog(entries, currentAbsent);
+      } catch (err) {
+        if (absencePanel) absencePanel.innerHTML = `<div class="muted-block">Could not load log: ${esc(err.message)}</div>`;
+      }
+    }
+
+    if (refreshBtn) refreshBtn.addEventListener("click", loadAbsenceLog);
+    loadAbsenceLog();
   }
 
   // ── Mods Message form ──────────────────────────────────────────────────────
