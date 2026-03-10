@@ -136,6 +136,19 @@ Auth guards used throughout:
 
 **Route count (from feature manifest):** ~422 endpoints total.
 
+**Navigation aid inside `server/index.js`:** The file now includes a maintained top-level "navigation map" comment plus searchable `SECTION:` markers for the highest-traffic domains (core auth/session/csrf, state/snapshots, parliamentary/divisions, discourse integration, finance/economy, factions/political-state, support/internal tickets, staff/admin operations, sim clock/freeze, and bootstrap/schema/startup).
+
+#### Post-alpha extraction roadmap (`server/index.js`)
+
+This pass intentionally avoided broad modularisation and route-file splitting. The next low-risk extraction targets are:
+
+1. **Audit logging helpers** — consolidate repeated `audit_log` write/read patterns (including payload-shaping and guard rails).
+2. **Clock tick runners** — isolate month-rollover orchestration and side-effect sequencing from route handlers.
+3. **Parliamentary authority/eligibility helpers** — centralise remaining permission and eligibility checks still embedded in parliamentary routes.
+4. **Shared admin route utilities** — extract repeated admin guard + response boilerplate used across `/api/admin/*` maintenance endpoints.
+
+These are documentation-first recommendations intended to reduce edit risk during alpha while preserving existing runtime behaviour.
+
 **Major route groups:**
 
 | Prefix | Domain |
