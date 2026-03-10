@@ -332,6 +332,13 @@ test("CLIMATE DEBUG: staff can request debug payload and members cannot", async 
   assert.equal(staffRes.status, 200, `Expected 200: ${JSON.stringify(staffRes.body)}`);
   assert.ok(staffRes.body?.climate?.debug, 'debug payload must be present for staff');
   assert.equal(staffRes.body.climate.debug.computed.locals_total, 20, 'locals total should be UK-wide sum');
+  assert.deepEqual(
+    staffRes.body.climate.debug.arenasIncluded,
+    { commons: ['commons'], bodies: ['lords', 'europarl'], locals: ['locals_uk'], dem: ['dem_uk'] },
+    'debug payload should report canonical included arenas'
+  );
+  assert.equal(staffRes.body.climate.debug.computed.commons_total, 100, 'commons total should be included in debug computed fields');
+  assert.equal(staffRes.body.climate.debug.computed.dominanceApplied, true, 'dominance should apply when aligned faction dominates active arenas');
 
   const memberRes = await regularClient.get('/api/parties/Labour/faction-climate?debug=1');
   assert.equal(memberRes.status, 403, 'non-staff debug request must be forbidden');
