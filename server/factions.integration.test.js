@@ -293,6 +293,50 @@ test("CLIMATE RECOMPUTE: faction climate endpoint rejects non-playable party", a
   assert.equal(status, 400, "non-playable party slug must return 400");
 });
 
+
+test("CLIMATE DEBUG: staff can request debug payload and members cannot", async () => {
+  await pool.query(
+    `INSERT INTO bodies_data (id, data, sort_order)
+     VALUES
+       ('house-of-lords', $1::jsonb, 1),
+       ('european-parliament', $2::jsonb, 2),
+       ('directly-elected-mayors', $3::jsonb, 3)
+     ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
+    [
+      JSON.stringify({ id: 'house-of-lords', title: 'House of Lords', visible: true, partyBreakdown: [{ party: 'Labour', seats: 100 }] }),
+      JSON.stringify({ id: 'european-parliament', title: 'European Parliament', visible: true, partyBreakdown: [{ party: 'Labour', seats: 20 }] }),
+      JSON.stringify({ id: 'directly-elected-mayors', title: 'Directly Elected Mayors', visible: true, mayors: [{ party: 'Labour' }] }),
+    ]
+  );
+  await pool.query(
+    `INSERT INTO app_config (key, value) VALUES ('locals_data', $1::jsonb)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [JSON.stringify({ countries: [
+      { country: 'England', partyBreakdown: [{ party: 'Labour', councillors: 10 }] },
+      { country: 'Scotland', partyBreakdown: [{ party: 'Labour', councillors: 5 }] },
+      { country: 'Wales', partyBreakdown: [{ party: 'Labour', councillors: 3 }] },
+      { country: 'Northern Ireland', partyBreakdown: [{ party: 'Labour', councillors: 2 }] },
+    ] })]
+  );
+
+  const { factionId } = await seedFaction({ partySlug: "Labour", mpCount: 5, leadershipAlignment: "aligned" });
+  await pool.query(
+    `INSERT INTO other_officials_faction_allocations (arena_type, arena_id, party_slug, faction_id, official_count, updated_by)
+     VALUES ('locals', 'locals_uk', 'Labour', $1, 20, 'test')
+     ON CONFLICT (arena_type, arena_id, party_slug, faction_id)
+     DO UPDATE SET official_count = EXCLUDED.official_count`,
+    [factionId]
+  );
+
+  const staffRes = await adminClient.get('/api/parties/Labour/faction-climate?debug=1');
+  assert.equal(staffRes.status, 200, `Expected 200: ${JSON.stringify(staffRes.body)}`);
+  assert.ok(staffRes.body?.climate?.debug, 'debug payload must be present for staff');
+  assert.equal(staffRes.body.climate.debug.computed.locals_total, 20, 'locals total should be UK-wide sum');
+
+  const memberRes = await regularClient.get('/api/parties/Labour/faction-climate?debug=1');
+  assert.equal(memberRes.status, 403, 'non-staff debug request must be forbidden');
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 4. Party-facing faction list
 // ═════════════════════════════════════════════════════════════════════════════

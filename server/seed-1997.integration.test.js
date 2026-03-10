@@ -5,7 +5,7 @@
  *  - force=true via query string seeds the exact May 1997 dataset
  *  - /api/bodies returns Lords totalSeats=1265 and europarl with correct total
  *  - /api/locals returns England Labour councillors=10840 and NOC=74
- *  - /api/admin/other-officials/arenas-totals includes europarl + all four locals arenas
+ *  - /api/admin/other-officials/arenas-totals includes canonical arenas
  *  - Endpoint returns 403 (not 500) when dev-seeding is disabled
  *
  * Run with:
@@ -241,7 +241,7 @@ test("PUT /api/locals succeeds when totals are not set (backwards compatibility)
 // /api/admin/other-officials/arenas-totals includes europarl + all locals arenas
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("GET /api/admin/other-officials/arenas-totals includes europarl and all four locals arenas", async () => {
+test("GET /api/admin/other-officials/arenas-totals includes canonical dominance arenas", async () => {
   const { status, body } = await adminClient.get("/api/admin/other-officials/arenas-totals");
   assert.equal(status, 200, `Expected 200, got ${status}: ${JSON.stringify(body)}`);
   assert.equal(body.ok, true, "ok flag should be true");
@@ -250,16 +250,9 @@ test("GET /api/admin/other-officials/arenas-totals includes europarl and all fou
   const arenaKeys = arenas.map((a) => `${a.arenaType}:${a.arenaId}`);
 
   assert.ok(arenaKeys.includes("body:europarl"), `contributingArenas must include body:europarl; got ${JSON.stringify(arenaKeys)}`);
-  assert.ok(arenaKeys.includes("locals:England"), `contributingArenas must include locals:England`);
-  assert.ok(arenaKeys.includes("locals:Scotland"), `contributingArenas must include locals:Scotland`);
-  assert.ok(arenaKeys.includes("locals:Wales"), `contributingArenas must include locals:Wales`);
-  assert.ok(arenaKeys.includes("locals:Northern Ireland"), `contributingArenas must include locals:Northern Ireland`);
-
-  // DEM must not appear because it is invisible and has no mayors in 1997
-  assert.ok(
-    !arenaKeys.includes("body:directly-elected-mayors"),
-    `contributingArenas must NOT include body:directly-elected-mayors in 1997`
-  );
+  assert.ok(arenaKeys.includes("locals:locals_uk"), `contributingArenas must include locals:locals_uk`);
+  assert.ok(arenaKeys.includes("body:lords"), `contributingArenas must include body:lords`);
+  assert.ok(arenaKeys.includes("body:dem_uk"), `contributingArenas must include body:dem_uk`);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

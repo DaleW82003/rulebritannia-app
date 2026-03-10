@@ -1291,8 +1291,8 @@ export async function initControlPanelPage(data) {
             official_count: Math.max(0, Number(row.querySelector('[data-field="officialCount"]')?.value || 0)),
           }));
           const sum = payloadRows.reduce((s, r) => s + r.official_count, 0);
-          if (sum > Number(data.partyTotalInArena || 0)) {
-            if (saveStatus) { saveStatus.style.color = "var(--danger,#c00)"; saveStatus.textContent = `✗ Allocation exceeds total (${data.partyTotalInArena}).`; }
+          if (sum !== Number(data.partyTotalInArena || 0)) {
+            if (saveStatus) { saveStatus.style.color = "var(--danger,#c00)"; saveStatus.textContent = `✗ Allocation must equal total (${data.partyTotalInArena}).`; }
             return;
           }
           try {
