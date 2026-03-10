@@ -149,14 +149,24 @@ function conferenceStatusChip(c, data) {
   return `<span class="muted">Awaiting Marking</span>`;
 }
 
+/** Tokens that are never a surname: honorific prefixes and post-nominals. */
+const NON_SURNAME_TOKENS = new Set(["mp", "pc", "qc", "kc", "rt", "hon", "the", "right", "honourable", "honorable"]);
+
+/** Normalise a name token for comparison: lowercase and strip trailing period. */
+function normToken(t) { return t.toLowerCase().replace(/\.$/, ""); }
+
 function surname(name) {
-  const parts = String(name || "MP").trim().split(/\s+/).filter(Boolean);
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "MP";
-  const last = parts[parts.length - 1];
-  if (/^(MP|PC|QC|KC|Rt|Hon|The|Right|Honourable)$/i.test(last) && parts.length > 1) {
-    return parts[parts.length - 2];
+  // Strip trailing post-nominals iteratively (e.g. "MP", "PC", "MP PC", "QC MP")
+  while (parts.length > 1 && NON_SURNAME_TOKENS.has(normToken(parts[parts.length - 1]))) {
+    parts.pop();
   }
-  return last;
+  // Strip leading honorific prefixes iteratively (e.g. "The", "Right", "Honourable", "Rt Hon")
+  while (parts.length > 1 && NON_SURNAME_TOKENS.has(normToken(parts[0]))) {
+    parts.shift();
+  }
+  return parts[parts.length - 1] || "MP";
 }
 
 /**
