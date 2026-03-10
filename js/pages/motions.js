@@ -55,19 +55,17 @@ export async function initMotionsPage(data) {
 
   try {
     const r = await apiGetMotions();
-    if (r?.motions?.length) {
-      const seenHouse = new Set(data.motions.house.map((x) => String(x.id)));
-      const seenEdm = new Set(data.motions.edm.map((x) => String(x.id)));
-      for (const item of r.motions) {
-        const type = item._motionType || item.motion_type;
-        if (type === "house" && !seenHouse.has(String(item.id))) data.motions.house.push(item);
-        if (type === "edm" && !seenEdm.has(String(item.id))) data.motions.edm.push(item);
-      }
+    if (Array.isArray(r?.motions)) {
+      // DB is authoritative: replace local collections to prevent stale/deleted
+      // motions from surviving in client memory for non-staff players.
+      data.motions.house = r.motions.filter((m) => (m._motionType || m.motion_type) === "house");
+      data.motions.edm = r.motions.filter((m) => (m._motionType || m.motion_type) === "edm");
+
       // Recalculate next numbers from the max number already in the DB so they never collide
       const maxHouse = data.motions.house.reduce((mx, m) => Math.max(mx, Number(m.number || 0)), 0);
       const maxEdm = data.motions.edm.reduce((mx, m) => Math.max(mx, Number(m.number || 0)), 0);
-      if (maxHouse >= (data.motions.nextHouseNumber || 1)) data.motions.nextHouseNumber = maxHouse + 1;
-      if (maxEdm >= (data.motions.nextEdmNumber || 1)) data.motions.nextEdmNumber = maxEdm + 1;
+      data.motions.nextHouseNumber = Math.max(Number(data.motions.nextHouseNumber || 1), maxHouse + 1);
+      data.motions.nextEdmNumber = Math.max(Number(data.motions.nextEdmNumber || 1), maxEdm + 1);
     }
   } catch (err) {
     console.error("[motions] DB load failed:", err);

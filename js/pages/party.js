@@ -593,6 +593,7 @@ function render(data, state) {
       </section>
     ` : ""}
 
+    ${canManageWhip ? `
     <section class="panel" style="margin-bottom:12px;" id="whip-section">
       <h2 style="margin-top:0;">Parliamentary Whip Status</h2>
       ${partyCharacters.length ? `
@@ -644,7 +645,9 @@ function render(data, state) {
         </div>` : ""}
       ` : `<div class="muted-block">No party members found.</div>`}
     </section>
+    ` : ""}
 
+    ${(canAssignLeadership || manager) ? `
     <section class="panel" style="margin-bottom:12px;" id="expulsion-section">
       <h2 style="margin-top:0;">Expulsion Requests</h2>
       ${(canAssignLeadership && partyCharacters.length) ? `
@@ -685,6 +688,7 @@ function render(data, state) {
       ` : ""}
       ${state.expulsionMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.expulsionMessage)}</p>` : ""}
     </section>
+    ` : ""}
 
     <section class="panel" style="margin-bottom:12px;" id="elections-section">
       <h2 style="margin-top:0;">Party Leader Election</h2>
@@ -1111,6 +1115,7 @@ function render(data, state) {
               <th style="text-align:right;padding:6px;">Cohesion</th>
               <th style="text-align:right;padding:6px;">Leadership pressure</th>
               ` : ""}
+              ${!showDerivedStats ? `<th style="text-align:right;padding:6px;">Allocated MPs</th>` : ""}
               <th style="text-align:right;padding:6px;">Members (active characters)</th>
               ${showNpcSlots ? `<th style="text-align:right;padding:6px;" title="Allocated MPs minus active MP members">NPC slots</th>` : ""}
               ${showNpcCol ? `<th style="text-align:right;padding:6px;">NPCs (active)</th>` : ""}
@@ -1127,7 +1132,7 @@ function render(data, state) {
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.internalPower ?? 0))}</td>
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.cohesion ?? 0))}</td>
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.leadershipPressure ?? 0))}</td>
-                ` : ""}
+                ` : `<td style="padding:6px;text-align:right;">${Math.round(Number(f.mpCount ?? 0))}</td>`}
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.memberCharacterCountActive ?? 0))}</td>
                 ${showNpcSlots ? `<td style="padding:6px;text-align:right;">${Math.round(Number(f.npcSlots ?? 0))}</td>` : ""}
                 ${showNpcCol ? `<td style="padding:6px;text-align:right;">${Math.round(Number(f.memberNpcCountActive ?? 0))}</td>` : ""}
@@ -1275,7 +1280,8 @@ function render(data, state) {
   const selectedTicket = ipmTickets.find((t) => String(t.id) === String(state.ipmSelectedTicketId || "")) || ipmTickets[0] || null;
   if (!state.ipmSelectedTicketId && selectedTicket?.id) state.ipmSelectedTicketId = selectedTicket.id;
 
-  const ipmHtml = `
+  const showIpm = ipmViewerRole !== "member";
+  const ipmHtml = showIpm ? `
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Internal Party Management</h2>
       <div class="muted" style="margin-bottom:8px;font-size:.88em;">Role: <b>${esc(ipmViewerRole)}</b>${state.ipmMessage ? ` · ${esc(state.ipmMessage)}` : ""}</div>
@@ -1369,8 +1375,8 @@ function render(data, state) {
         </div>
       ` : ``}
     </section>
-  `;
-  root.insertAdjacentHTML("beforeend", ipmHtml);
+  ` : "";
+  if (ipmHtml) root.insertAdjacentHTML("beforeend", ipmHtml);
 
   const reloadPartyTickets = async () => {
     try {

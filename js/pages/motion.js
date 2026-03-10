@@ -644,23 +644,26 @@ export async function initMotionPage(data) {
   const { kind, id } = getParams();
   let item = getMotion(data, kind, id);
 
-  // If not found in local state (e.g. newly created by another user or race condition),
-  // try fetching directly from the DB via the API.
-  if (!item && id) {
+  // Always prefer DB-authoritative lookup by URL id when present so stale local
+  // snapshots cannot render deleted motions/EDMs (which then fail actions like Sign).
+  if (id) {
     try {
       const result = await apiGetMotion(id);
       if (result?.motion) {
         item = result.motion;
-        // Merge into local state so subsequent lookups work.
+        // Keep local cache coherent for this id.
         const motionKind = item.motion_type || item._motionType || kind;
-        if (motionKind === "edm") {
-          data.motions.edm.push(item);
-        } else {
-          data.motions.house.push(item);
-        }
+        const list = motionKind === "edm" ? data.motions.edm : data.motions.house;
+        const idx = list.findIndex((m) => String(m.id) === String(item.id));
+        if (idx >= 0) list[idx] = item;
+        else list.push(item);
+      } else {
+        // Explicit DB miss (404) should override any stale in-memory copy.
+        item = null;
       }
     } catch (err) {
-      console.error("[motion] API fallback failed:", err);
+      // Network/transient issue: fall back to local state if available.
+      console.error("[motion] API fetch failed; using local fallback when available:", err);
     }
   }
 
