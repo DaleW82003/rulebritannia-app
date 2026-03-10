@@ -763,6 +763,113 @@ test("APPLICATION: applying with inactive faction fails with 400", async () => {
   assert.equal(status, 400);
 });
 
+
+test("APPROVE APPLICATION: new MP joins chosen faction and rebalances allocation from largest faction", async () => {
+  const applicant = await seedUserAndCharacter({ roles: [], party: "Labour" });
+  await pool.query("UPDATE characters SET is_active = FALSE WHERE id = $1", [applicant.charId]);
+  await pool.query("UPDATE users SET active_character_id = NULL WHERE id = $1", [applicant.userId]);
+
+  const constituency = `Approval Rebalance Seat ${Date.now()}`;
+  await pool.query(
+    `INSERT INTO constituencies (name, party, mp_name, mp_type)
+     VALUES ($1, $2, '', 'npc')
+     ON CONFLICT (name) DO UPDATE SET party = EXCLUDED.party`,
+    [constituency, "Labour"]
+  );
+
+  const { factionId: majorFactionId } = await seedFaction({ partySlug: "Labour", slug: `major-${Date.now()}`, mpCount: 120 });
+  await seedFaction({ partySlug: "Labour", slug: `minor-${Date.now()}`, mpCount: 20 });
+
+  const { rows: beforeRows } = await pool.query(
+    `SELECT COALESCE(a.mp_count, 0)::INT AS mp_count
+       FROM party_faction_allocations a
+      WHERE a.faction_id = $1`,
+    [majorFactionId]
+  );
+  const beforeMajorMpCount = Number(beforeRows[0]?.mp_count || 0);
+
+  const { rows: appRows } = await pool.query(
+    `INSERT INTO pending_character_applications
+      (applicant_user_id, applicant_username, name, party, constituency,
+       date_of_birth, education, career_background, family, year_first_elected,
+       personal_background, bio, financial_background_level, avatar, avatar_attribution,
+       twitter_handle, home, rentals, faction_id, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19,'pending')
+     RETURNING id`,
+    [
+      applicant.userId,
+      applicant.username,
+      `Applicant ${Date.now()}`,
+      "Labour",
+      constituency,
+      "1970-01-01",
+      "University",
+      "Law",
+      "Married",
+      "1997",
+      "Background",
+      "Bio",
+      5,
+      "",
+      "Tester",
+      "",
+      JSON.stringify({}),
+      JSON.stringify([]),
+      majorFactionId,
+    ]
+  );
+
+  const approve = await adminClient.post(`/api/admin/characters/applications/${appRows[0].id}/approve`, {});
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+
+  const { rows: memberRows } = await pool.query(
+    `SELECT cfm.faction_id, f.slug
+       FROM character_faction_membership cfm
+       JOIN party_factions f ON f.id = cfm.faction_id
+      WHERE cfm.character_id = $1`,
+    [approve.body.character.id]
+  );
+  assert.equal(String(memberRows[0]?.faction_id || ""), String(majorFactionId), "approved MPs should join their chosen faction");
+
+  const { rows: afterRows } = await pool.query(
+    `SELECT COALESCE(a.mp_count, 0)::INT AS mp_count
+       FROM party_faction_allocations a
+      WHERE a.faction_id = $1`,
+    [majorFactionId]
+  );
+  const afterMajorMpCount = Number(afterRows[0]?.mp_count || 0);
+  assert.equal(afterMajorMpCount, beforeMajorMpCount + 1, "chosen faction should gain one allocation slot on join");
+});
+
+test("FACTION SWITCH: switch rebalances allocations and is not blocked by zero target slots", async () => {
+  const actor = await seedUserAndCharacter({ roles: [], party: "Labour" });
+  const client = new TestClient(baseUrl);
+  await client.login(actor.email, actor.password);
+
+  const { factionId: fromFaction } = await seedFaction({ partySlug: "Labour", slug: `switch-from-${Date.now()}`, mpCount: 20 });
+  const { factionId: toFaction } = await seedFaction({ partySlug: "Labour", slug: `switch-to-${Date.now()}`, mpCount: 0 });
+
+  await pool.query(
+    `INSERT INTO character_faction_membership (character_id, faction_id, joined_at, updated_at)
+     VALUES ($1, $2, NOW(), NOW())
+     ON CONFLICT (character_id) DO UPDATE SET faction_id = EXCLUDED.faction_id, updated_at = NOW()`,
+    [actor.charId, fromFaction]
+  );
+
+  await pool.query("UPDATE sim_clock SET sim_current_year = 2005 WHERE id = 'main'");
+  const switched = await client.post("/api/me/faction/switch", { faction_id: toFaction });
+  assert.equal(switched.status, 200, JSON.stringify(switched.body));
+
+  const { rows: allocationRows } = await pool.query(
+    `SELECT faction_id, mp_count FROM party_faction_allocations WHERE faction_id = $1 OR faction_id = $2`,
+    [fromFaction, toFaction]
+  );
+  const fromRow = allocationRows.find((r) => String(r.faction_id) === String(fromFaction));
+  const toRow = allocationRows.find((r) => String(r.faction_id) === String(toFaction));
+  assert.equal(Number(fromRow?.mp_count || 0), 19);
+  assert.equal(Number(toRow?.mp_count || 0), 1);
+});
+
 test("FACTION SWITCH: once per sim year, leadership block, and audit logging", async () => {
   const actor = await seedUserAndCharacter({ roles: [], party: "Labour" });
   const client = new TestClient(baseUrl);

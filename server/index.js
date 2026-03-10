@@ -9900,6 +9900,12 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
              SET faction_id = EXCLUDED.faction_id, updated_at = NOW()`,
           [character.id, approvedFactionId]
         );
+
+        await rebalanceFactionAllocationOnJoin(client, {
+          partySlug: app_.party,
+          targetFactionId: approvedFactionId,
+          updatedBy: req.session.userId || "system",
+        });
       }
 
       // Set DB-canonical active character pointer on the user
@@ -21364,35 +21370,6 @@ app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (re
       return res.status(400).json({ error: "Faction can only be switched once per sim year" });
     }
 
-    // Enforce that the target faction has an available MP slot.
-    // (All faction members are MPs — enforced by the check above.)
-    const { rows: slotRows } = await client.query(
-      `SELECT COALESCE(a.mp_count, 0)::INT AS allocated_mp_count,
-              COALESCE(mp_members.active_mp_count, 0)::INT AS active_mp_count
-         FROM party_factions f
-         LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
-         LEFT JOIN (
-           SELECT cfm.faction_id, COUNT(*)::INT AS active_mp_count
-             FROM character_faction_membership cfm
-             JOIN characters c ON c.id = cfm.character_id
-            WHERE cfm.faction_id = $1
-              AND c.is_active = TRUE
-              AND c.is_npc = FALSE
-              AND COALESCE(c.constituency, '') != ''
-         ) mp_members ON mp_members.faction_id = f.id
-        WHERE f.id = $1`,
-      [newFaction.id]
-    );
-    const allocatedMpCount = Number(slotRows[0]?.allocated_mp_count ?? 0);
-    const activeMpCount    = Number(slotRows[0]?.active_mp_count    ?? 0);
-    if (activeMpCount >= allocatedMpCount) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({
-        error: "This faction has no available MP slots. All allocated MP slots are currently occupied by active MP characters.",
-        allocatedMpCount,
-        activeMpCount,
-      });
-    }
 
     await client.query(
       `UPDATE character_faction_membership
@@ -21400,6 +21377,13 @@ app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (re
         WHERE character_id = $1`,
       [character.id, newFaction.id, simYear]
     );
+
+    await rebalanceFactionAllocationOnSwitch(client, {
+      partySlug: character.party,
+      fromFactionId: current.faction_id,
+      toFactionId: newFaction.id,
+      updatedBy: req.session.userId || "system",
+    });
 
     await client.query("COMMIT");
 
@@ -21630,6 +21614,75 @@ async function ensureCharacterFactionMembership(db, character) {
     [character.id]
   );
   return createdRows[0] || null;
+}
+
+async function adjustFactionAllocationByOne(db, factionId, delta, updatedBy = "system") {
+  const change = Number(delta);
+  if (!factionId || !Number.isFinite(change) || change === 0) return;
+  await db.query(
+    `UPDATE party_faction_allocations
+        SET mp_count = GREATEST(0, COALESCE(mp_count, 0) + $2::INT),
+            updated_by = COALESCE(NULLIF($3, ''), updated_by, 'system'),
+            updated_at = NOW()
+      WHERE faction_id = $1`,
+    [factionId, change, String(updatedBy || "system")]
+  );
+}
+
+async function rebalanceFactionAllocationOnJoin(db, { partySlug, targetFactionId, updatedBy = "system" }) {
+  if (!partySlug || !targetFactionId) return;
+  const { rows: donorRows } = await db.query(
+    `SELECT a.faction_id, COALESCE(a.mp_count, 0)::INT AS mp_count
+       FROM party_factions f
+       JOIN party_faction_allocations a ON a.faction_id = f.id
+      WHERE f.party_slug = $1
+        AND f.active = TRUE
+        AND f.id <> $2
+      ORDER BY COALESCE(a.mp_count, 0) DESC, f.display_order ASC, f.name ASC
+      LIMIT 1`,
+    [partySlug, targetFactionId]
+  );
+  const donorFactionId = donorRows[0]?.faction_id || null;
+  const donorMpCount = Number(donorRows[0]?.mp_count ?? 0);
+  if (donorFactionId && donorMpCount > 0) {
+    await adjustFactionAllocationByOne(db, donorFactionId, -1, updatedBy);
+    await adjustFactionAllocationByOne(db, targetFactionId, 1, updatedBy);
+  }
+}
+
+async function rebalanceFactionAllocationOnSwitch(db, { partySlug, fromFactionId, toFactionId, updatedBy = "system" }) {
+  if (!partySlug || !fromFactionId || !toFactionId || String(fromFactionId) === String(toFactionId)) return;
+
+  let donorFactionId = String(fromFactionId);
+  let donorMpCount = 0;
+  const { rows: fromRows } = await db.query(
+    `SELECT COALESCE(a.mp_count, 0)::INT AS mp_count
+       FROM party_faction_allocations a
+      WHERE a.faction_id = $1`,
+    [fromFactionId]
+  );
+  donorMpCount = Number(fromRows[0]?.mp_count ?? 0);
+
+  if (donorMpCount <= 0) {
+    const { rows: donorRows } = await db.query(
+      `SELECT a.faction_id, COALESCE(a.mp_count, 0)::INT AS mp_count
+         FROM party_factions f
+         JOIN party_faction_allocations a ON a.faction_id = f.id
+        WHERE f.party_slug = $1
+          AND f.active = TRUE
+          AND f.id <> $2
+        ORDER BY COALESCE(a.mp_count, 0) DESC, f.display_order ASC, f.name ASC
+        LIMIT 1`,
+      [partySlug, toFactionId]
+    );
+    donorFactionId = donorRows[0]?.faction_id || null;
+    donorMpCount = Number(donorRows[0]?.mp_count ?? 0);
+  }
+
+  if (donorFactionId && donorMpCount > 0) {
+    await adjustFactionAllocationByOne(db, donorFactionId, -1, updatedBy);
+    await adjustFactionAllocationByOne(db, toFactionId, 1, updatedBy);
+  }
 }
 
 async function getPartyConstituencyMPs(partyName) {
