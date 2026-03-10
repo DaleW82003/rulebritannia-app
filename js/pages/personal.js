@@ -2561,7 +2561,7 @@ export async function initPersonalPage(data) {
         allocatedMPs: Number(factionResult?.allocatedMPs ?? 0),
         remainingMPs: Number(factionResult?.remainingMPs ?? 0),
         climate: climateResult?.climate ?? null,
-        viewerRole: String(factionResult?.viewerRole || "member"),
+        viewerRole: String(climateResult?.viewerRole || "member"),
       };
       render(data, state);
     }).catch(() => {});

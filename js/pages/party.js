@@ -1572,6 +1572,8 @@ function render(data, state) {
         apiGetParty(next).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
         apiGetPartyStructure(next).catch(() => ({ structure: {}, treasuryOverspend: false })),
+        apiGetPartyLedger(next).catch(() => ({ donations: [] })),
+        apiGetWhipRequests(next).catch(() => ({ requests: [] })),
         apiGetPartyFactions(next).catch(() => ({ factions: [] })),
         apiGetPartyFactionClimate(next).catch(() => ({ climate: null, viewerRole: "member" })),
         apiGetPartyInternalTickets(next).catch(() => ({ tickets: [], viewerRole: "member" })),
@@ -2427,6 +2429,8 @@ export async function initPartyPage(data) {
       // Load governance data: elections, pending expulsions, whip requests, and factions
       const [electionsResult, expulsionsResult, whipReqResult, factionsResult, climateResultBase, ipmResult] = await Promise.all([
         apiGetPartyElections(partyId).catch(() => ({ elections: [] })),
+        apiGetExpulsions().catch(() => ({ expulsions: [] })),
+        apiGetWhipRequests(partyId).catch(() => ({ requests: [] })),
         apiGetPartyFactions(partyId).catch(() => ({ factions: [] })),
         apiGetPartyFactionClimate(partyId).catch(() => ({ climate: null, viewerRole: "member" })),
         apiGetPartyInternalTickets(partyId).catch(() => ({ tickets: [], viewerRole: "member" })),
