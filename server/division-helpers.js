@@ -290,7 +290,8 @@ export async function batchEnrichCharacterRows(pool, rows) {
  * Compute weighted vote weights for all active players.
  *
  * Formula: each party's constituency seat total is distributed evenly among its
- * active, settled players. New backbenchers (<2 weeks) receive 1 until settled.
+ * active, settled players. New backbenchers receive 1 for their first 4 sim months
+ * (equivalent to 14 real days under the current sim clock) until settled.
  * Absent players' weights delegate to their party leader (or a nominated deputy).
  *
  * Special rules:
@@ -302,14 +303,14 @@ export async function batchEnrichCharacterRows(pool, rows) {
  * @returns {{ effectiveWeights: Object, baseWeights: Object, leaderByParty: Object }}
  */
 export function computeAllPlayerWeights(seatsByParty, players) {
-  const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+  const FOUR_SIM_MONTHS_MS = 14 * 24 * 60 * 60 * 1000;
   const allPlayers = (players || []).filter((p) => p != null && p.active !== false);
 
   function isSettledBackbencher(p) {
     if (!p || p.role !== "backbencher") return true;
     const joined = Date.parse(p.joinedAt || "");
     if (!Number.isFinite(joined)) return true;
-    return (Date.now() - joined) >= TWO_WEEKS_MS;
+    return (Date.now() - joined) >= FOUR_SIM_MONTHS_MS;
   }
 
   function findPartyLeader(members) {
@@ -385,7 +386,7 @@ export function computeAllPlayerWeights(seatsByParty, players) {
     let target = null;
     if (isLeader) {
       const candidate = String(p.delegatedTo || "").trim();
-      if (candidate && playersByName[candidate] && !playersByName[candidate].absent) {
+      if (candidate && playersByName[candidate] && String(playersByName[candidate].party || "Independent") === party && !playersByName[candidate].absent) {
         target = candidate;
       } else {
         target = allPlayers.find(

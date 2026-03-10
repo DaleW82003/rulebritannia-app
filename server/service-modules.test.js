@@ -270,9 +270,9 @@ test("computeAllPlayerWeights: Sinn Féin party gets 0 weight", () => {
   assert.equal(effectiveWeights["Gerry"], 0);
 });
 
-test("computeAllPlayerWeights: new backbencher (<2 weeks) gets weight 1, settled member takes remainder", () => {
+test("computeAllPlayerWeights: new backbencher (<4 sim months) gets weight 1, settled member takes remainder", () => {
   const seats = { Labour: 100 };
-  // joinedAt is yesterday — within the 2-week new-backbencher window
+  // joinedAt is yesterday — within the first 4 sim months (2 real weeks)
   const players = [
     { name: "NewMP",     party: "Labour", role: "backbencher", active: true,
       joinedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() },

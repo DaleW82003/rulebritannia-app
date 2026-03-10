@@ -1,13 +1,13 @@
 import { nowMs } from "./core.js";
 
-const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+const FOUR_SIM_MONTHS_MS = 14 * 24 * 60 * 60 * 1000;
 
 function isSettledBackbencher(player) {
   if (!player) return false;
   if (player.role !== "backbencher") return true;
   const joined = Date.parse(player.joinedAt || "");
   if (!Number.isFinite(joined)) return true;
-  return (nowMs() - joined) >= TWO_WEEKS_MS;
+  return (nowMs() - joined) >= FOUR_SIM_MONTHS_MS;
 }
 
 function findPartyLeader(members) {
