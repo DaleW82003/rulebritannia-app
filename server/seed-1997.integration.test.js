@@ -241,6 +241,28 @@ test("PUT /api/locals succeeds when totals are not set (backwards compatibility)
 // /api/admin/other-officials/arenas-totals includes europarl + all locals arenas
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+
+test("GET /api/admin/other-officials/arenas-totals locals_uk totals are computed from 4 nation locals registry sums", async () => {
+  const customLocals = {
+    countries: [
+      { country: "England", partyBreakdown: [ { party: "Labour", councillors: 10 }, { party: "Conservative", councillors: 4 }, { party: "Liberal Democrat", councillors: 1 } ] },
+      { country: "Scotland", partyBreakdown: [ { party: "Labour", councillors: 3 }, { party: "Conservative", councillors: 2 }, { party: "Liberal Democrat", councillors: 5 } ] },
+      { country: "Wales", partyBreakdown: [ { party: "Labour", councillors: 7 }, { party: "Conservative", councillors: 1 }, { party: "Liberal Democrat", councillors: 0 } ] },
+      { country: "Northern Ireland", partyBreakdown: [ { party: "Labour", councillors: 0 }, { party: "Conservative", councillors: 0 }, { party: "Liberal Democrat", councillors: 2 } ] },
+    ],
+  };
+  const save = await adminClient.put("/api/locals", customLocals);
+  assert.equal(save.status, 200, `Expected 200 saving locals, got ${save.status}: ${JSON.stringify(save.body)}`);
+
+  const { status, body } = await adminClient.get("/api/admin/other-officials/arenas-totals");
+  assert.equal(status, 200, `Expected 200, got ${status}: ${JSON.stringify(body)}`);
+  const localsTotals = body?.totalsByArena?.["locals:locals_uk"] || {};
+  assert.equal(Number(localsTotals["Labour"] || 0), 20, `Labour locals_uk total should equal 10+3+7+0`);
+  assert.equal(Number(localsTotals["Conservative"] || 0), 7, `Conservative locals_uk total should equal 4+2+1+0`);
+  assert.equal(Number(localsTotals["Liberal Democrat"] || 0), 8, `Liberal Democrat locals_uk total should equal 1+5+0+2`);
+});
+
 test("GET /api/admin/other-officials/arenas-totals includes canonical dominance arenas", async () => {
   const { status, body } = await adminClient.get("/api/admin/other-officials/arenas-totals");
   assert.equal(status, 200, `Expected 200, got ${status}: ${JSON.stringify(body)}`);

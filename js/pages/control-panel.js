@@ -18,6 +18,7 @@ import {
   apiGetAdminPartyFactions, apiCreatePartyFaction, apiUpdatePartyFaction, apiUpdatePartyFactionAllocation,
   apiAdminSeed1997Factions,
   apiGetOtherOfficialsArenasTotals, apiGetOtherOfficialsFactionAllocations, apiPutOtherOfficialsFactionAllocations,
+  apiAdminIpcIntegrityCheck, apiAdminTriggerFactionFreeze,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -394,6 +395,18 @@ export async function initControlPanelPage(data) {
       <div style="margin-top:10px;" id="cp-other-officials-root">
         <div class="muted-block">Loading arena totals…</div>
       </div>
+    </details>
+
+
+
+    <details class="tile" style="margin-bottom:10px;">
+      <summary style="cursor:pointer;"><b>IPC Integrity & Freeze <span class="mod-badge">Mod / Admin</span></b></summary>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="btn" type="button" id="cp-ipc-integrity-run">Run IPC integrity check</button>
+        <button class="btn primary" type="button" id="cp-ipc-freeze-now">Apply freeze now</button>
+        <span id="cp-ipc-integrity-status" style="font-size:.85em;"></span>
+      </div>
+      <div id="cp-ipc-integrity-results" style="margin-top:10px;"></div>
     </details>
     ` : ""}
   `;
@@ -1349,7 +1362,9 @@ export async function initControlPanelPage(data) {
     (async () => {
       try {
         const totals = await apiGetOtherOfficialsArenasTotals();
-        arenaOptions = Array.isArray(totals.contributingArenas) ? totals.contributingArenas : [];
+        const CANONICAL_OTHER_OFFICIALS_ARENAS = new Set(["lords", "europarl", "locals_uk", "dem_uk"]);
+        arenaOptions = (Array.isArray(totals.contributingArenas) ? totals.contributingArenas : [])
+          .filter((a) => CANONICAL_OTHER_OFFICIALS_ARENAS.has(String(a?.arenaId || "")));
         selectedArenaKey = arenaOptions[0] ? `${arenaOptions[0].arenaType}:${arenaOptions[0].arenaId}` : "";
         renderOtherOfficialsShell();
         if (selectedArenaKey) await loadOtherOfficialsAllocations();
@@ -1357,6 +1372,54 @@ export async function initControlPanelPage(data) {
         otherOfficialsRoot.innerHTML = `<div class="muted-block">Could not load other-official arenas: ${esc(err.message)}</div>`;
       }
     })();
+  }
+
+
+  // ── IPC integrity diagnostics + freeze now ────────────────────────────────
+  const integrityBtn = canEdit ? rolePanels.querySelector("#cp-ipc-integrity-run") : null;
+  const freezeNowBtn = canEdit ? rolePanels.querySelector("#cp-ipc-freeze-now") : null;
+  const integrityStatusEl = canEdit ? rolePanels.querySelector("#cp-ipc-integrity-status") : null;
+  const integrityResultsEl = canEdit ? rolePanels.querySelector("#cp-ipc-integrity-results") : null;
+
+  if (integrityBtn) {
+    integrityBtn.addEventListener("click", async () => {
+      if (integrityStatusEl) { integrityStatusEl.style.color = ""; integrityStatusEl.textContent = "Running…"; }
+      if (integrityResultsEl) integrityResultsEl.innerHTML = '<div class="muted-block">Checking integrity…</div>';
+      try {
+        const result = await apiAdminIpcIntegrityCheck();
+        const rows = Array.isArray(result.results) ? result.results : [];
+        if (integrityResultsEl) {
+          integrityResultsEl.innerHTML = rows.map((r) => {
+            const checks = Array.isArray(r.checks) ? r.checks : [];
+            const checkHtml = checks.map((c) => `<li style="color:${c.ok ? '#1a6a1a' : '#a00'};">${esc(c.key)} — ${c.ok ? 'OK' : 'FAIL'} (expected ${esc(String(c.expected))}, actual ${esc(String(c.actual))})</li>`).join('');
+            return `<article class="tile" style="padding:8px;margin-bottom:8px;"><b>${esc(r.partySlug || '')}</b> <span class="muted">${r.ok ? '✓ clean' : '⚠ issues found'}</span><ul style="margin:6px 0 0 18px;">${checkHtml}</ul></article>`;
+          }).join('') || '<div class="muted-block">No results.</div>';
+        }
+        if (integrityStatusEl) { integrityStatusEl.style.color = "var(--success,green)"; integrityStatusEl.textContent = "Integrity check complete."; }
+      } catch (err) {
+        if (integrityStatusEl) { integrityStatusEl.style.color = "var(--danger,#c00)"; integrityStatusEl.textContent = `Error: ${err.message}`; }
+        if (integrityResultsEl) integrityResultsEl.innerHTML = '<div class="muted-block">Could not run IPC integrity check.</div>';
+      }
+    });
+  }
+
+  if (freezeNowBtn) {
+    freezeNowBtn.addEventListener("click", async () => {
+      if (!confirm("Run freeze now? This will apply queued outcomes and recompute faction/climate state.")) return;
+      if (integrityStatusEl) { integrityStatusEl.style.color = ""; integrityStatusEl.textContent = "Running freeze…"; }
+      freezeNowBtn.disabled = true;
+      try {
+        const out = await apiAdminTriggerFactionFreeze();
+        if (integrityStatusEl) {
+          integrityStatusEl.style.color = "var(--success,green)";
+          integrityStatusEl.textContent = `Freeze complete: IPM applied ${Number(out?.ipm?.appliedCount || 0)}, faction recomputed ${Number(out?.faction?.recomputedCount || 0)}.`;
+        }
+      } catch (err) {
+        if (integrityStatusEl) { integrityStatusEl.style.color = "var(--danger,#c00)"; integrityStatusEl.textContent = `Freeze failed: ${err.message}`; }
+      } finally {
+        freezeNowBtn.disabled = false;
+      }
+    });
   }
 
 }

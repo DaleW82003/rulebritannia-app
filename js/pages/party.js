@@ -1,7 +1,7 @@
 import { esc } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
-import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection, apiGetPartyFactions, apiGetPartyFactionClimate } from "../api.js";
+import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection, apiGetPartyFactions, apiGetPartyFactionClimate, apiGetPartyInternalTickets, apiCreatePartyInternalTicket, apiApproveOrRejectPartyInternalTicket, apiDismissPartyInternalTicket, apiGetPartyInternalTicketMessages, apiStaffListInternalTickets, apiStaffSetInternalTicketCosting, apiStaffSetInternalTicketOutcome, apiStaffCreateInternalTicketMessage, apiStaffCancelInternalTicket, apiStaffCreateInternalTicket, apiStaffGetInternalTicketMessages } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { logAction } from "../audit.js";
 import { isLoggedIn } from "../core.js";
@@ -1156,6 +1156,23 @@ function render(data, state) {
       const CLIMATE_COLOURS = { unified: "#2e7d32", stable: "#1565c0", tense: "#e65100", fractious: "#b71c1c" };
       const climateColour = CLIMATE_COLOURS[c.climateLabel] || "#555";
       const scoreBarWidth = Math.round(((c.climateScore + 100) / 200) * 100);
+      const debug = c?.debug || null;
+      const allocByArena = debug?.allocationTotalsByFactionByArena || {};
+      const warn = [];
+      if (viewerRole === "staff" && debug) {
+        const localsTotal = Number(debug?.computed?.locals_total || 0);
+        const localsAllocated = Object.values(allocByArena?.locals_uk || {}).reduce((s, v) => s + Number(v || 0), 0);
+        if (localsTotal > 0 && localsAllocated !== localsTotal) warn.push(`Locals allocations incomplete: allocated ${localsAllocated} / total ${localsTotal}.`);
+        const lordsTotal = Number(debug?.totalsByPartyByArena?.lords?.[state.activeParty] || 0);
+        const lordsAllocated = Object.values(allocByArena?.lords || {}).reduce((s, v) => s + Number(v || 0), 0);
+        if (lordsTotal > 0 && lordsAllocated !== lordsTotal) warn.push(`Lords allocations incomplete: allocated ${lordsAllocated} / total ${lordsTotal}.`);
+        const euroTotal = Number(debug?.totalsByPartyByArena?.europarl?.[state.activeParty] || 0);
+        const euroAllocated = Object.values(allocByArena?.europarl || {}).reduce((s, v) => s + Number(v || 0), 0);
+        if (euroTotal > 0 && euroAllocated !== euroTotal) warn.push(`Europarl allocations incomplete: allocated ${euroAllocated} / total ${euroTotal}.`);
+        const demTotal = Number(debug?.computed?.dem_total || 0);
+        const demAllocated = Object.values(allocByArena?.dem_uk || {}).reduce((s, v) => s + Number(v || 0), 0);
+        if (demTotal > 0 && demAllocated !== demTotal) warn.push(`DEM allocations incomplete: allocated ${demAllocated} / total ${demTotal}.`);
+      }
       return `
     <section class="panel" style="margin-bottom:12px;">
       <h2 style="margin-top:0;">Internal Party Climate</h2>
@@ -1163,6 +1180,12 @@ function render(data, state) {
       ${viewerRole === "staff" && Number(state.factionPendingFreezeCount ?? 0) > 0 ? `
       <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:4px;padding:8px 12px;margin-bottom:10px;font-size:.88em;">
         <b>&#9888; Pending freeze:</b> ${state.factionPendingFreezeCount} faction(s) have metadata changes not yet applied to derived stats (internal power, cohesion, leadership pressure). Use <b>Control Panel &rarr; Factions &rarr; Trigger Freeze</b> to publish updated values.
+      </div>
+      ` : ""}
+      ${viewerRole === "staff" && warn.length ? `
+      <div style="background:#ffe9e9;border:1px solid #d33;border-radius:4px;padding:8px 12px;margin-bottom:10px;font-size:.86em;">
+        <b>IPC allocation warnings:</b>
+        <ul style="margin:6px 0 0 18px;">${warn.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>
       </div>
       ` : ""}
       ${viewerRole !== "staff" && state.factionLastFreezeAt ? `
@@ -1230,7 +1253,7 @@ function render(data, state) {
             </div>
           </div>
           <div style="margin-top:8px;font-size:.84em;" class="muted">
-            Active weights — commons ${d.weights?.active?.commons ?? 0}, bodies ${d.weights?.active?.bodies ?? 0}, locals ${d.weights?.active?.locals ?? 0}, DEM ${d.weights?.active?.dem ?? 0}.<br>
+            Active weights — Commons ${d.weights?.active?.commons ?? 0}, Lords + MEPs ${d.weights?.active?.bodies ?? 0}, Locals ${d.weights?.active?.locals ?? 0}, Directly elected mayors (UK-wide) ${d.weights?.active?.dem ?? 0}.<br>
             Effective share: <b>${fmtPct(d.effectiveShare)}</b>, dominance score: <b>${fmtPct(d.dominanceScore)}</b>, applied: <b>${d.dominanceApplied ? "yes" : "no"}</b>.<br>
             Multipliers — hostile ${Number(d.appliedMultipliers?.hostilePressureMultiplier ?? 1).toFixed(3)}, pressure ${Number(d.appliedMultipliers?.partyPressureMultiplier ?? 1).toFixed(3)}, resilience ${Number(d.appliedMultipliers?.resilienceMultiplier ?? 1).toFixed(3)}.
           </div>
@@ -1240,6 +1263,292 @@ function render(data, state) {
       `;
     })() : ""}
   `;
+
+
+  // ── Internal Party Management (IPM) tile ─────────────────────────────────
+  const ipmViewerRole = String(state.ipmViewerRole || "member");
+  const canCreateIpm = ["whip", "chairman", "leader"].includes(ipmViewerRole);
+  const canApproveIpm = ["chairman", "leader"].includes(ipmViewerRole);
+  const canStaffIpm = ipmViewerRole === "staff";
+  const ipmTickets = Array.isArray(state.ipmTickets) ? state.ipmTickets : [];
+  const selectedTicket = ipmTickets.find((t) => String(t.id) === String(state.ipmSelectedTicketId || "")) || ipmTickets[0] || null;
+  if (!state.ipmSelectedTicketId && selectedTicket?.id) state.ipmSelectedTicketId = selectedTicket.id;
+
+  const ipmHtml = `
+    <section class="panel" style="margin-bottom:12px;">
+      <h2 style="margin-top:0;">Internal Party Management</h2>
+      <div class="muted" style="margin-bottom:8px;font-size:.88em;">Role: <b>${esc(ipmViewerRole)}</b>${state.ipmMessage ? ` · ${esc(state.ipmMessage)}` : ""}</div>
+      <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;">
+        <div>
+          <h3 style="margin:0 0 6px;">Docket</h3>
+          <div style="max-height:260px;overflow:auto;border:1px solid #ddd;border-radius:6px;padding:6px;background:#fff;">
+            ${ipmTickets.length ? ipmTickets.map((t) => `
+              <div class="tile" data-ipm-ticket-row="${esc(t.id)}" style="padding:6px;margin-bottom:6px;cursor:pointer;${String(selectedTicket?.id||"")===String(t.id)?"border-color:#0b4ea2;box-shadow:0 0 0 1px #0b4ea2 inset;":""}">
+                <div style="display:flex;justify-content:space-between;gap:8px;">
+                  <b>${esc(t.title || '(untitled)')}</b>
+                  <span class="muted">${esc(t.status || '')}</span>
+                </div>
+                <div class="muted" style="font-size:.82em;">${esc(t.origin || '')} · ${esc(t.ticket_type || '')} · to ${esc(t.to_role || '')}</div>
+              </div>
+            `).join("") : `<div class="muted-block">No tickets yet.</div>`}
+          </div>
+
+          ${canCreateIpm ? `
+            <form id="ipm-create-form" style="margin-top:8px;display:grid;gap:6px;">
+              <div style="font-weight:600;">Create ticket</div>
+              <input class="input" name="title" placeholder="Ticket title" required>
+              <select class="input" name="ticket_type">
+                <option value="policy">Policy</option><option value="operation">Operation</option><option value="staffing">Staffing</option><option value="finance">Finance</option>
+              </select>
+              <textarea class="input" name="body" rows="3" placeholder="What needs to happen?" required></textarea>
+              <button class="btn" type="submit">Create</button>
+            </form>
+          ` : ``}
+        </div>
+
+        <div>
+          <h3 style="margin:0 0 6px;">Selected ticket</h3>
+          ${selectedTicket ? `
+            <div class="tile" style="padding:8px;">
+              <div><b>${esc(selectedTicket.title || '(untitled)')}</b></div>
+              <div class="muted" style="font-size:.84em;">${esc(selectedTicket.status || '')} · ${esc(selectedTicket.origin || '')} · ${esc(selectedTicket.ticket_type || '')}</div>
+              <div style="margin-top:6px;white-space:pre-wrap;">${esc(selectedTicket.body || '')}</div>
+              ${canApproveIpm ? `
+                <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+                  <button class="btn" type="button" data-ipm-action="approve">Approve</button>
+                  <button class="btn" type="button" data-ipm-action="reject">Reject</button>
+                </div>
+              ` : ``}
+              ${canApproveIpm && (selectedTicket.origin === 'staff' || selectedTicket.origin === 'npc') ? `
+                <div style="margin-top:8px;"><button class="btn" type="button" data-ipm-action="dismiss">Ignore / Dismiss</button></div>
+              ` : ``}
+              <div style="margin-top:8px;">
+                <button class="btn" type="button" data-ipm-action="messages">Load messages</button>
+              </div>
+            </div>
+          ` : `<div class="muted-block">Select a ticket from the docket.</div>`}
+
+          <div id="ipm-message-thread" style="margin-top:8px;max-height:200px;overflow:auto;">
+            ${(Array.isArray(state.ipmMessages) ? state.ipmMessages : []).map((m) => `<div class="tile" style="padding:6px;margin-bottom:6px;"><div class="muted" style="font-size:.8em;">${esc(m.author_role || 'member')} · ${esc(new Date(m.created_at).toLocaleString('en-GB'))}</div><div>${esc(m.body || '')}</div></div>`).join('')}
+          </div>
+        </div>
+      </div>
+
+      ${canStaffIpm ? `
+        <hr style="margin:12px 0;border:0;border-top:1px solid #ddd;">
+        <h3 style="margin:0 0 6px;">Staff Panel</h3>
+        <form id="ipm-staff-filter" style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;">
+          <select class="input" name="party_slug"><option value="">All parties</option><option>Labour</option><option>Conservative</option><option>Liberal Democrat</option></select>
+          <select class="input" name="origin"><option value="">All origins</option><option value="player">player</option><option value="staff">staff</option><option value="npc">npc</option></select>
+          <select class="input" name="status"><option value="">All statuses</option><option value="awaiting_staff_costing">awaiting_staff_costing</option><option value="awaiting_chairman_approval">awaiting_chairman_approval</option><option value="awaiting_leader_approval">awaiting_leader_approval</option><option value="queued_for_freeze">queued_for_freeze</option><option value="outcome_recorded">outcome_recorded</option><option value="cancelled">cancelled</option></select>
+          <input class="input" name="q" placeholder="search">
+          <button class="btn" type="submit">Load</button>
+        </form>
+        <div style="margin-top:8px;max-height:220px;overflow:auto;border:1px solid #ddd;padding:6px;border-radius:6px;">
+          ${(Array.isArray(state.ipmStaffTickets) ? state.ipmStaffTickets : []).map((t) => `<div class="tile" data-ipm-staff-row="${esc(t.id)}" style="padding:6px;margin-bottom:6px;cursor:pointer;${String(state.ipmStaffSelectedId||'')===String(t.id)?'border-color:#0b4ea2;box-shadow:0 0 0 1px #0b4ea2 inset;':''}"><b>${esc(t.title||'(untitled)')}</b><div class="muted" style="font-size:.82em;">${esc(t.party_slug||'')} · ${esc(t.status||'')} · ${esc(t.origin||'')}</div></div>`).join('')}
+        </div>
+        <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <form id="ipm-staff-create" class="tile" style="padding:8px;display:grid;gap:6px;">
+            <b>Create staff/NPC ticket</b>
+            <select class="input" name="party_slug"><option>Labour</option><option>Conservative</option><option>Liberal Democrat</option></select>
+            <select class="input" name="origin"><option value="staff">staff</option><option value="npc">npc</option></select>
+            <input class="input" name="title" placeholder="Title" required>
+            <textarea class="input" name="body" rows="2" placeholder="Body"></textarea>
+            <button class="btn" type="submit">Create</button>
+          </form>
+          <div class="tile" style="padding:8px;display:grid;gap:6px;">
+            <b>Costing / outcome / letters</b>
+            <div class="muted" style="font-size:.82em;">Selected: ${esc(String(state.ipmStaffSelectedId || 'none'))}</div>
+            <form id="ipm-staff-cost"><input class="input" name="cost_amount" type="number" step="0.01" placeholder="Cost amount"><input class="input" name="cost_model" placeholder="party_budget|character_pc"><input class="input" name="charge_character_id" placeholder="Character UUID (optional)"><button class="btn" type="submit">Save costing</button></form>
+            <form id="ipm-staff-outcome"><input class="input" name="outcome_type" placeholder="recorded"><input class="input" name="summary" placeholder="Outcome summary"><button class="btn" type="submit">Set outcome</button></form>
+            <form id="ipm-staff-letter"><select class="input" name="author_role"><option value="staff">staff</option><option value="npc">npc</option></select><textarea class="input" name="body" rows="2" placeholder="Letter/message"></textarea><button class="btn" type="submit">Send letter</button></form>
+            <button class="btn" type="button" id="ipm-staff-cancel">Cancel selected ticket</button>
+            <button class="btn" type="button" id="ipm-staff-load-msg">Load selected messages</button>
+          </div>
+        </div>
+      ` : ``}
+    </section>
+  `;
+  root.insertAdjacentHTML("beforeend", ipmHtml);
+
+  const reloadPartyTickets = async () => {
+    try {
+      const r = await apiGetPartyInternalTickets(state.activeParty);
+      state.ipmTickets = Array.isArray(r.tickets) ? r.tickets : [];
+      state.ipmViewerRole = r.viewerRole || state.ipmViewerRole || "member";
+      if (!state.ipmSelectedTicketId && state.ipmTickets[0]?.id) state.ipmSelectedTicketId = state.ipmTickets[0].id;
+    } catch (e) {
+      state.ipmMessage = `IPM load failed: ${e.message}`;
+    }
+  };
+
+  root.querySelectorAll("[data-ipm-ticket-row]").forEach((el) => {
+    el.addEventListener("click", () => {
+      state.ipmSelectedTicketId = el.getAttribute("data-ipm-ticket-row") || "";
+      render(data, state);
+    });
+  });
+
+  root.querySelector("#ipm-create-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    try {
+      await apiCreatePartyInternalTicket(state.activeParty, {
+        title: String(fd.get("title") || ""),
+        body: String(fd.get("body") || ""),
+        ticket_type: String(fd.get("ticket_type") || "policy"),
+      });
+      state.ipmMessage = "Ticket created.";
+      await reloadPartyTickets();
+      render(data, state);
+    } catch (err) {
+      state.ipmMessage = err.message;
+      render(data, state);
+    }
+  });
+
+  root.querySelectorAll("[data-ipm-action]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!selectedTicket) return;
+      const action = btn.getAttribute("data-ipm-action");
+      try {
+        if (action === "approve" || action === "reject") {
+          await apiApproveOrRejectPartyInternalTicket(state.activeParty, selectedTicket.id, action, "");
+          await reloadPartyTickets();
+        } else if (action === "dismiss") {
+          await apiDismissPartyInternalTicket(state.activeParty, selectedTicket.id, "");
+          await reloadPartyTickets();
+        } else if (action === "messages") {
+          const r = await apiGetPartyInternalTicketMessages(state.activeParty, selectedTicket.id);
+          state.ipmMessages = Array.isArray(r.messages) ? r.messages : [];
+        }
+        state.ipmMessage = "Updated.";
+      } catch (err) {
+        state.ipmMessage = err.message;
+      }
+      render(data, state);
+    });
+  });
+
+  root.querySelector("#ipm-staff-filter")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    try {
+      const r = await apiStaffListInternalTickets({
+        party_slug: String(fd.get("party_slug") || ""),
+        origin: String(fd.get("origin") || ""),
+        status: String(fd.get("status") || ""),
+        q: String(fd.get("q") || ""),
+      });
+      state.ipmStaffTickets = Array.isArray(r.tickets) ? r.tickets : [];
+      if (!state.ipmStaffSelectedId && state.ipmStaffTickets[0]?.id) state.ipmStaffSelectedId = state.ipmStaffTickets[0].id;
+      render(data, state);
+    } catch (err) {
+      state.ipmMessage = err.message;
+      render(data, state);
+    }
+  });
+
+  root.querySelectorAll("[data-ipm-staff-row]").forEach((el) => {
+    el.addEventListener("click", () => {
+      state.ipmStaffSelectedId = el.getAttribute("data-ipm-staff-row") || "";
+      render(data, state);
+    });
+  });
+
+  root.querySelector("#ipm-staff-create")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    try {
+      await apiStaffCreateInternalTicket({
+        party_slug: String(fd.get("party_slug") || ""),
+        origin: String(fd.get("origin") || "staff"),
+        title: String(fd.get("title") || ""),
+        body: String(fd.get("body") || ""),
+      });
+      state.ipmMessage = "Staff ticket created.";
+      render(data, state);
+    } catch (err) {
+      state.ipmMessage = err.message;
+      render(data, state);
+    }
+  });
+
+  root.querySelector("#ipm-staff-cost")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!state.ipmStaffSelectedId) return;
+    const fd = new FormData(e.currentTarget);
+    try {
+      await apiStaffSetInternalTicketCosting(state.ipmStaffSelectedId, {
+        cost_amount: Number(fd.get("cost_amount") || 0),
+        cost_model: String(fd.get("cost_model") || "party_budget"),
+        charge_character_id: String(fd.get("charge_character_id") || "") || null,
+      });
+      state.ipmMessage = "Costing saved.";
+      render(data, state);
+    } catch (err) {
+      state.ipmMessage = err.message;
+      render(data, state);
+    }
+  });
+
+  root.querySelector("#ipm-staff-outcome")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!state.ipmStaffSelectedId) return;
+    const fd = new FormData(e.currentTarget);
+    try {
+      await apiStaffSetInternalTicketOutcome(state.ipmStaffSelectedId, {
+        outcome_type: String(fd.get("outcome_type") || "recorded"),
+        summary: String(fd.get("summary") || ""),
+      });
+      state.ipmMessage = "Outcome saved.";
+      render(data, state);
+    } catch (err) {
+      state.ipmMessage = err.message;
+      render(data, state);
+    }
+  });
+
+  root.querySelector("#ipm-staff-letter")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!state.ipmStaffSelectedId) return;
+    const fd = new FormData(e.currentTarget);
+    try {
+      await apiStaffCreateInternalTicketMessage(state.ipmStaffSelectedId, {
+        author_role: String(fd.get("author_role") || "staff"),
+        body: String(fd.get("body") || ""),
+      });
+      state.ipmMessage = "Letter sent.";
+      render(data, state);
+    } catch (err) {
+      state.ipmMessage = err.message;
+      render(data, state);
+    }
+  });
+
+  root.querySelector("#ipm-staff-cancel")?.addEventListener("click", async () => {
+    if (!state.ipmStaffSelectedId) return;
+    try {
+      await apiStaffCancelInternalTicket(state.ipmStaffSelectedId, "Cancelled by staff panel");
+      state.ipmMessage = "Cancelled.";
+      render(data, state);
+    } catch (err) {
+      state.ipmMessage = err.message;
+      render(data, state);
+    }
+  });
+
+  root.querySelector("#ipm-staff-load-msg")?.addEventListener("click", async () => {
+    if (!state.ipmStaffSelectedId) return;
+    try {
+      const r = await apiStaffGetInternalTicketMessages(state.ipmStaffSelectedId);
+      state.ipmMessages = Array.isArray(r.messages) ? r.messages : [];
+      render(data, state);
+    } catch (err) {
+      state.ipmMessage = err.message;
+      render(data, state);
+    }
+  });
 
 
 
@@ -1252,15 +1561,19 @@ function render(data, state) {
     state.donationMessage = "";
     // Reload DB party data for the newly selected party
     try {
-      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult, climateResult] = await Promise.all([
+      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult, climateResultBase, ipmResult] = await Promise.all([
         apiGetParty(next).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
         apiGetPartyStructure(next).catch(() => ({ structure: {}, treasuryOverspend: false })),
         apiGetPartyLedger(next).catch(() => ({ donations: [] })),
         apiGetWhipRequests(next, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(next).catch(() => ({ factions: [] })),
-        apiGetPartyFactionClimate(next).catch(() => ({ climate: null })),
+        apiGetPartyFactionClimate(next).catch(() => ({ climate: null, viewerRole: "member" })),
+        apiGetPartyInternalTickets(next).catch(() => ({ tickets: [], viewerRole: "member" })),
       ]);
+      const climateResult = (climateResultBase?.viewerRole === "staff")
+        ? await apiGetPartyFactionClimate(next, { debug: true }).catch(() => climateResultBase)
+        : climateResultBase;
       if (partyResult?.party) state.dbState = { ...state.dbState, party: partyResult.party };
       const partyNameLower = next.toLowerCase();
       state.dbState.partyCharacters = (charsResult.characters || []).filter(
@@ -1278,6 +1591,9 @@ function render(data, state) {
       state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
       state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
       state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);
+      state.ipmTickets = Array.isArray(ipmResult.tickets) ? ipmResult.tickets : [];
+      state.ipmViewerRole = String(ipmResult.viewerRole || "member");
+      state.ipmSelectedTicketId = state.ipmTickets[0]?.id || "";
     } catch (e) {
       console.warn("[party-switch] DB reload failed:", e.message);
     }
@@ -2015,6 +2331,13 @@ export async function initPartyPage(data) {
     factionAllocatedMPs: 0,
     factionRemainingMPs: 0,
     factionSwitchMessage: "",
+    ipmTickets: [],
+    ipmViewerRole: "member",
+    ipmSelectedTicketId: "",
+    ipmMessages: [],
+    ipmMessage: "",
+    ipmStaffTickets: [],
+    ipmStaffSelectedId: "",
     dbState: { party: null, partyCharacters: [], sessionCharId: "", partyStructure: null, treasuryOverspend: false }
   };
 
@@ -2071,13 +2394,17 @@ export async function initPartyPage(data) {
       state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
 
       // Load governance data: elections, pending expulsions, whip requests, and factions
-      const [electionsResult, expulsionsResult, whipReqResult, factionsResult, climateResult] = await Promise.all([
+      const [electionsResult, expulsionsResult, whipReqResult, factionsResult, climateResultBase, ipmResult] = await Promise.all([
         apiGetPartyElections(partyId).catch(() => ({ elections: [] })),
         apiGetExpulsions("pending").catch(() => ({ expulsions: [] })),
         apiGetWhipRequests(partyId, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(partyId).catch(() => ({ factions: [] })),
-        apiGetPartyFactionClimate(partyId).catch(() => ({ climate: null })),
+        apiGetPartyFactionClimate(partyId).catch(() => ({ climate: null, viewerRole: "member" })),
+        apiGetPartyInternalTickets(partyId).catch(() => ({ tickets: [], viewerRole: "member" })),
       ]);
+      const climateResult = (climateResultBase?.viewerRole === "staff")
+        ? await apiGetPartyFactionClimate(partyId, { debug: true }).catch(() => climateResultBase)
+        : climateResultBase;
       state.elections = electionsResult.elections || [];
       const openStatuses = ["nominations", "voting", "runoff"];
       state.currentElection = state.elections.find((e) => openStatuses.includes(e.status)) || null;
@@ -2093,6 +2420,10 @@ export async function initPartyPage(data) {
       state.factionSeatTotal = Number(factionsResult.partySeatTotal ?? 0);
       state.factionAllocatedMPs = Number(factionsResult.allocatedMPs ?? 0);
       state.factionRemainingMPs = Number(factionsResult.remainingMPs ?? 0);
+      state.ipmTickets = Array.isArray(ipmResult.tickets) ? ipmResult.tickets : [];
+      state.ipmViewerRole = String(ipmResult.viewerRole || "member");
+      state.ipmSelectedTicketId = state.ipmTickets[0]?.id || "";
+      state.ipmMessages = [];
     } catch (e) {
       console.warn("[initPartyPage] DB load failed:", e.message);
     }

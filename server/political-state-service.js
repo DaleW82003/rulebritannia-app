@@ -89,7 +89,7 @@ function mapBodyToDominanceArena(bodyId, body) {
   const title = String(body?.title || body?.name || "").trim().toLowerCase();
   if (id === "house-of-lords" || id === "lords" || title.includes("lords")) return DOMINANCE_ARENA_KEYS.lords;
   if (id === "european-parliament" || id === "europarl" || title.includes("european parliament")) return DOMINANCE_ARENA_KEYS.europarl;
-  if (id === "directly-elected-mayors") return DOMINANCE_ARENA_KEYS.demUk;
+  if (id === "directly-elected-mayors" || id === "dem_uk") return DOMINANCE_ARENA_KEYS.demUk;
   return null;
 }
 
@@ -858,6 +858,7 @@ export async function getPartyFactionClimate(partySlug, { includeDebug = false }
 
   const debugPayload = {
     arenasIncluded: {
+      commons: ["commons"],
       bodies: bodiesArenasIncluded.map((a) => a.id),
       locals: [DOMINANCE_ARENA_KEYS.localsUk],
       dem: [DOMINANCE_ARENA_KEYS.demUk],
@@ -871,6 +872,8 @@ export async function getPartyFactionClimate(partySlug, { includeDebug = false }
       return [arenaKey, byFaction];
     })),
     computed: {
+      commons_total: commonsTotal,
+      commons_share: commonsShare,
       bodies_total: bodiesTotal,
       bodies_share: bodiesShare,
       locals_total: localsTotal,
