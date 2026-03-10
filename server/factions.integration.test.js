@@ -178,6 +178,9 @@ test("ALLOCATION: admin can update faction mp_count within party MP ceiling", as
   assert.ok(body.ok,               "ok flag should be true");
   assert.ok(body.totalMPs  >= 50,  "totalMPs must include seeded constituencies");
   assert.ok(body.allocatedMPs >= 30, "allocatedMPs must reflect the new value");
+  assert.equal(body.recompute?.type, "faction-political-state");
+  assert.equal(body.recompute?.status, "deferred");
+  assert.equal(body.recompute?.staleReadWindow, "until-next-freeze");
 
   const { rows } = await pool.query(
     "SELECT mp_count, influence_bonus FROM party_faction_allocations WHERE faction_id = $1",
@@ -284,6 +287,8 @@ test("CLIMATE RECOMPUTE: faction climate reflects allocation change for Labour",
   );
   assert.ok(typeof climate.partyPressureModifier  === "number", "partyPressureModifier must be numeric");
   assert.ok(typeof climate.capitalResilienceBonus === "number", "capitalResilienceBonus must be numeric");
+  assert.equal(body.recomputeRead?.type, "faction-political-state");
+  assert.equal(body.recomputeRead?.source, "last-completed-freeze");
   assert.ok(climate.hostilePressure > 0,           "hostile faction MPs must produce hostile pressure");
   assert.ok(climate.partyPressureModifier > 0,     "partyPressureModifier must be > 0 after hostile allocation");
 });
@@ -364,6 +369,8 @@ test("PARTY-FACING LIST: authenticated player can list active factions for playa
   assert.ok(f.name,         "name must be present");
   assert.ok(f.slug,         "slug must be present");
   assert.ok(f.mpCount != null, "mpCount must be present");
+  assert.equal(body.recomputeRead?.type, "faction-political-state");
+  assert.ok(typeof body.recomputeRead?.mayBeStale === "boolean", "recomputeRead.mayBeStale should be boolean");
   // Admin-only fields must not appear in the player-facing response
   assert.equal(f.leadershipAlignment, undefined, "leadershipAlignment must NOT be in player-facing list");
   assert.equal(f.rebellionBias,       undefined, "rebellionBias must NOT be in player-facing list");
@@ -577,6 +584,8 @@ test("METADATA UPDATE: admin can update faction name and alignment", async () =>
 
   assert.equal(status, 200, `Expected 200: ${JSON.stringify(body)}`);
   assert.ok(body.ok, "ok flag must be true");
+  assert.equal(body.recompute?.type, "faction-political-state");
+  assert.equal(body.recompute?.status, "deferred");
 
   const { rows } = await pool.query(
     "SELECT name, leadership_alignment, rebellion_bias FROM party_factions WHERE id = $1",
@@ -866,6 +875,8 @@ test("FACTION SWITCH: switch rebalances allocations and is not blocked by zero t
   await pool.query("UPDATE sim_clock SET sim_current_year = 2005 WHERE id = 'main'");
   const switched = await client.post("/api/me/faction/switch", { faction_id: toFaction });
   assert.equal(switched.status, 200, JSON.stringify(switched.body));
+  assert.equal(switched.body?.recompute?.type, "character-political-state");
+  assert.equal(switched.body?.recompute?.status, "queued");
 
   const { rows: allocationRows } = await pool.query(
     `SELECT faction_id, mp_count FROM party_faction_allocations WHERE faction_id = $1 OR faction_id = $2`,

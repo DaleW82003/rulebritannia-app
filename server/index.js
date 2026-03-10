@@ -20,7 +20,7 @@ import { ALL_VALID_ROLES, PARTY_ROLES, computeDiscourseGroups, PERMISSION_MAP, D
 import { computeSimDateFromGameState } from "./clock.js";
 import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_ROLES } from "./state-contracts.js";
 import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-helpers.js";
-import { fireRecompute, awaitedRecompute } from "./recompute-helpers.js";
+import { fireRecompute, awaitedRecompute, createRecomputeContext, buildRecomputeResponseMetadata } from "./recompute-helpers.js";
 import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, seed1997Factions } from "./political-state-service.js";
 import { seedPredefinedGuides } from "./guides-seed.js";
 import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb } from "./division-helpers.js";
@@ -14277,9 +14277,15 @@ app.post("/api/me/work-plan", cwpWriteLimit, async (req, res) => {
       [charId, JSON.stringify(hours), String(secondJobTitleCompany).slice(0, MAX_JOB_TITLE_LENGTH), Number(lastSavedSimIndex) || 0]
     );
     await writeAuditLog(req.session.userId, "work_plan.save", "character_work_plans", charId, null, { lastSavedSimIndex });
+    const recompute = buildQueuedRecomputeMeta({
+      recomputeType: "character-political-state",
+      triggerSource: "work_plan",
+      targetScope: "character",
+      targetId: charId,
+    });
     // Recompute political capital non-blockingly after work plan save
-    fireRecompute("character-political-state", "work_plan", () => recomputeCharacterPoliticalState(charId), charId);
-    res.json({ ok: true });
+    fireRecompute("character-political-state", "work_plan", () => recomputeCharacterPoliticalState(charId), { scope: recompute.target.scope, id: recompute.target.id });
+    res.json({ ok: true, recompute });
   } catch (e) {
     console.error("[POST /api/me/work-plan]", e);
     res.status(500).json({ error: "Server error" });
@@ -14374,6 +14380,21 @@ async function getCurrentSimMonthYear() {
 
 const officeReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
 const officeWriteLimit = rateLimit({ windowMs: 60_000, max: 30,  standardHeaders: true, legacyHeaders: false });
+
+function buildQueuedRecomputeMeta({ recomputeType, triggerSource, targetScope, targetId, note }) {
+  const context = createRecomputeContext({
+    recomputeType,
+    triggerSource,
+    targetScope,
+    targetId,
+    executionMode: "async",
+  });
+  return buildRecomputeResponseMetadata(context, {
+    status: "queued",
+    staleReadWindow: "brief",
+    note: note || "Recently mutated derived values may briefly reflect the last completed recompute.",
+  });
+}
 
 app.get("/api/offices", officeReadLimit, async (req, res) => {
   try {
@@ -15773,12 +15794,19 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
     const tally = { aye: 0, no: 0, abstain: 0 };
     tallyRows.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
 
-    res.json({ ok: true, vote: voteRows[0], tally });
-
+    let recompute;
     // Non-blocking: recompute political state after vote (rebellion may have been logged)
     if (charId) {
-      fireRecompute("character-political-state", "division.vote", () => recomputeCharacterPoliticalState(charId), charId);
+      recompute = buildQueuedRecomputeMeta({
+        recomputeType: "character-political-state",
+        triggerSource: "division.vote",
+        targetScope: "character",
+        targetId: charId,
+      });
+      fireRecompute("character-political-state", "division.vote", () => recomputeCharacterPoliticalState(charId), { scope: recompute.target.scope, id: recompute.target.id });
     }
+
+    res.json({ ok: true, vote: voteRows[0], tally, recompute });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -15971,10 +15999,15 @@ app.post("/api/divisions/:divisionId/rebel-request", divWriteLimit, async (req, 
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [req.params.divisionId, charId, partySlug, requestedVote, message || null]
     );
-    res.status(201).json({ ok: true, request: rows[0] });
-
+    const recompute = buildQueuedRecomputeMeta({
+      recomputeType: "character-political-state",
+      triggerSource: "rebel-request.submit",
+      targetScope: "character",
+      targetId: charId,
+    });
     // Non-blocking: recompute political state (pending rebel request affects party pressure)
-    fireRecompute("character-political-state", "rebel-request.submit", () => recomputeCharacterPoliticalState(charId), charId);
+    fireRecompute("character-political-state", "rebel-request.submit", () => recomputeCharacterPoliticalState(charId), { scope: recompute.target.scope, id: recompute.target.id });
+    res.status(201).json({ ok: true, request: rows[0], recompute });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -16051,13 +16084,21 @@ app.post("/api/divisions/:divisionId/rebel-request/:requestId/decide", divWriteL
         WHERE id = $5 RETURNING *`,
       [decision, deciderId || null, req.session.userId, simStr, req.params.requestId]
     );
-    res.json({ ok: true, request: rows[0] });
 
     // Non-blocking: recompute the requester's political state (refused requests affect party pressure)
     const requesterId = rows[0]?.character_id;
-    if (requesterId) {
-      fireRecompute("character-political-state", "rebel-request.decide", () => recomputeCharacterPoliticalState(requesterId), requesterId);
+    const recompute = requesterId
+      ? buildQueuedRecomputeMeta({
+        recomputeType: "character-political-state",
+        triggerSource: "rebel-request.decide",
+        targetScope: "character",
+        targetId: requesterId,
+      })
+      : undefined;
+    if (requesterId && recompute) {
+      fireRecompute("character-political-state", "rebel-request.decide", () => recomputeCharacterPoliticalState(requesterId), { scope: recompute.target.scope, id: recompute.target.id });
     }
+    res.json({ ok: true, request: rows[0], recompute });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -22244,9 +22285,19 @@ app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (re
       simYear,
     });
 
-    fireRecompute("character-political-state", "faction.switch", () => recomputeCharacterPoliticalState(character.id), character.id);
+    const recompute = buildQueuedRecomputeMeta({
+      recomputeType: "character-political-state",
+      triggerSource: "faction.switch",
+      targetScope: "character",
+      targetId: character.id,
+    });
+    fireRecompute("character-political-state", "faction.switch", () => recomputeCharacterPoliticalState(character.id), { scope: recompute.target.scope, id: recompute.target.id });
 
-    return res.json({ ok: true, faction: { id: newFaction.id, slug: newFaction.slug, name: newFaction.name, party_slug: newFaction.party_slug } });
+    return res.json({
+      ok: true,
+      faction: { id: newFaction.id, slug: newFaction.slug, name: newFaction.name, party_slug: newFaction.party_slug },
+      recompute,
+    });
   } catch (e) {
     try { await client.query("ROLLBACK"); } catch {}
     console.error("[POST /api/me/faction/switch]", e);
@@ -22935,7 +22986,21 @@ app.patch("/api/admin/factions/:id", verifyCsrfToken, crudWriteLimit, async (req
     sets.push(`updated_at = NOW()`);
     vals.push(id);
     await pool.query(`UPDATE party_factions SET ${sets.join(", ")} WHERE id = $${vals.length}`, vals);
-    res.json({ ok: true, pendingFreeze: true });
+    const recompute = buildRecomputeResponseMetadata(
+      createRecomputeContext({
+        recomputeType: "faction-political-state",
+        triggerSource: "admin.factions.patch",
+        targetScope: "faction",
+        targetId: id,
+        executionMode: "scheduled-freeze",
+      }),
+      {
+        status: "deferred",
+        staleReadWindow: "until-next-freeze",
+        note: "Derived faction stats publish on Sunday freeze or POST /api/admin/factions/trigger-freeze.",
+      }
+    );
+    res.json({ ok: true, pendingFreeze: true, recompute });
 
     // Recompute is deferred to the Sunday freeze (POST /api/admin/factions/trigger-freeze).
     // Alignment, momentum, and other metadata changes are stored immediately but
@@ -23024,7 +23089,21 @@ app.patch("/api/admin/factions/:id/allocation", verifyCsrfToken, crudWriteLimit,
         req.session.userId || "",
       ]
     );
-    res.json({ ok: true, totalMPs, allocatedMPs: proposedTotal, remainingMPs: totalMPs - proposedTotal, pendingFreeze: true });
+    const recompute = buildRecomputeResponseMetadata(
+      createRecomputeContext({
+        recomputeType: "faction-political-state",
+        triggerSource: "admin.factions.allocation.patch",
+        targetScope: "faction",
+        targetId: id,
+        executionMode: "scheduled-freeze",
+      }),
+      {
+        status: "deferred",
+        staleReadWindow: "until-next-freeze",
+        note: "Faction climate may still use prior cached faction_political_state until freeze refresh runs.",
+      }
+    );
+    res.json({ ok: true, totalMPs, allocatedMPs: proposedTotal, remainingMPs: totalMPs - proposedTotal, pendingFreeze: true, recompute });
 
     // Recompute is deferred to the Sunday freeze (POST /api/admin/factions/trigger-freeze).
     // Allocation changes are stored immediately but derived stats update only on freeze.
@@ -23253,7 +23332,7 @@ app.get("/api/parties/:slug/factions", crudReadLimit, async (req, res) => {
     if (!requireAuth(req, res)) return;
     const { slug } = req.params;
     await getOrCreateUnalignedFaction(slug);
-    const [fRows, totalsRows] = await Promise.all([
+    const [fRows, totalsRows, freezeRowsResult] = await Promise.all([
       pool.query(
         `SELECT f.id, f.name, f.slug, f.description, f.colour, f.ideology_tags,
                 f.display_order, f.active,
@@ -23307,6 +23386,18 @@ app.get("/api/parties/:slug/factions", crudReadLimit, async (req, res) => {
             ), 0) AS allocated_mps`,
         [slug]
       ),
+      pool.query(
+        `SELECT
+           COUNT(*) FILTER (
+             WHERE fps.faction_id IS NULL OR f.updated_at > fps.updated_at
+           )::INT AS pending_count,
+           MAX(fps.updated_at) AS last_freeze_at
+           FROM party_factions f
+           LEFT JOIN faction_political_state fps ON fps.faction_id = f.id
+          WHERE f.party_slug = $1
+            AND f.active = TRUE`,
+        [slug]
+      ),
     ]);
 
     const factions = fRows.rows.map((r) => ({
@@ -23332,7 +23423,17 @@ app.get("/api/parties/:slug/factions", crudReadLimit, async (req, res) => {
     }));
     const partySeatTotal = Number(totalsRows.rows[0]?.party_seat_total ?? 0);
     const allocatedMPs = Number(totalsRows.rows[0]?.allocated_mps ?? 0);
-    res.json({ factions, partySeatTotal, allocatedMPs, remainingMPs: partySeatTotal - allocatedMPs });
+    const pendingFreezeCount = Number(freezeRowsResult.rows[0]?.pending_count ?? 0);
+    const lastFreezeAt = freezeRowsResult.rows[0]?.last_freeze_at ?? null;
+    const recomputeRead = {
+      type: "faction-political-state",
+      source: "last-completed-freeze",
+      lastFreezeAt,
+      pendingFreezeCount,
+      mayBeStale: pendingFreezeCount > 0,
+      staleReadWindow: "until-next-freeze",
+    };
+    res.json({ factions, partySeatTotal, allocatedMPs, remainingMPs: partySeatTotal - allocatedMPs, recomputeRead });
   } catch (e) {
     console.error("[GET /api/parties/:slug/factions]", e);
     res.status(500).json({ error: "Server error" });
@@ -23402,7 +23503,15 @@ app.get("/api/parties/:slug/faction-climate", crudReadLimit, async (req, res) =>
     const pendingFreezeCount = viewerRole === "staff" ? Number(freezeRows[0]?.pending_count ?? 0) : undefined;
     const lastFreezeAt = freezeRows[0]?.last_freeze_at ?? null;
 
-    res.json({ ok: true, climate, viewerRole, pendingFreezeCount, lastFreezeAt });
+    const recomputeRead = {
+      type: "faction-political-state",
+      source: "last-completed-freeze",
+      lastFreezeAt,
+      pendingFreezeCount: Number(freezeRows[0]?.pending_count ?? 0),
+      mayBeStale: Number(freezeRows[0]?.pending_count ?? 0) > 0,
+      staleReadWindow: "until-next-freeze",
+    };
+    res.json({ ok: true, climate, viewerRole, pendingFreezeCount, lastFreezeAt, recomputeRead });
   } catch (e) {
     console.error("[GET /api/parties/:slug/faction-climate]", e);
     res.status(500).json({ error: "Server error" });
