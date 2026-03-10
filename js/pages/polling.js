@@ -10,9 +10,8 @@ function canPublish(data) {
 }
 
 function ensurePolling(data) {
-  data.polling ??= { polls: [], nextId: 1 };
+  data.polling ??= { polls: [] };
   data.polling.polls ??= [];
-  data.polling.nextId = Number(data.polling.nextId || 1);
 }
 
 function currentSimLabel(data) {
@@ -83,7 +82,11 @@ function render(data) {
 
   ensurePolling(data);
   const isPublisher = canPublish(data);
-  const polls = data.polling.polls.slice().sort((a, b) => Number(b.createdTs || 0) - Number(a.createdTs || 0));
+  const polls = data.polling.polls.slice().sort((a, b) => {
+    const bt = Date.parse(b?._updatedAt || b?.createdAtReal || b?.createdAt || "") || Number(b?.createdTs || 0);
+    const at = Date.parse(a?._updatedAt || a?.createdAtReal || a?.createdAt || "") || Number(a?.createdTs || 0);
+    return bt - at;
+  });
   const latest = polls[0] || null;
   const previous = polls[1] || null;
   const trends = latest ? trendAgainst(previous, latest) : [];
@@ -186,23 +189,20 @@ function render(data) {
 
     if (!results.length) return;
 
-    const poll = {
-      id: data.polling.nextId++,
-      simDate,
-      results,
-      createdAt: simDate,
-      createdTs: Date.now()
-    };
-
-    let persisted = poll;
     try {
-      const resp = await apiCreatePollingEntry(poll);
-      if (resp?.entry) persisted = resp.entry;
+      const resp = await apiCreatePollingEntry({ simDate, results });
+      if (resp?.entry) {
+        data.polling.polls.push(resp.entry);
+      } else {
+        const refreshed = await apiGetPollingEntries();
+        data.polling.polls = Array.isArray(refreshed?.entries) ? refreshed.entries : data.polling.polls;
+      }
     } catch (err) {
       console.error("[polling] Failed to persist poll to DB:", err);
+      return;
     }
-    data.polling.polls.push(persisted);
-    logAction({ action: "poll-published", target: simDate, details: { pollId: persisted.id || poll.id, results } });
+    const newest = data.polling.polls[0] || null;
+    logAction({ action: "poll-published", target: simDate, details: { pollId: newest?.id || null, results } });
     render(data);
   });
 
@@ -210,9 +210,13 @@ function render(data) {
     btn.addEventListener("click", async () => {
       if (!isPublisher) return;
       const id = String(btn.getAttribute("data-id") || "");
-      data.polling.polls = data.polling.polls.filter((p) => String(p.id) !== id);
-      render(data);
-      apiDeletePollingEntry(id).catch((err) => console.error("[polling] delete failed:", err)); // UI_ONLY_OK: admin poll entry deletion; no simulation-outcome consequence
+      try {
+        await apiDeletePollingEntry(id);
+        data.polling.polls = data.polling.polls.filter((p) => String(p.id) !== id);
+        render(data);
+      } catch (err) {
+        console.error("[polling] delete failed:", err);
+      }
     });
   });
 }
@@ -224,7 +228,6 @@ export async function initPollingPage(data) {
       const r = await apiGetPollingEntries();
       if (Array.isArray(r?.entries)) {
         data.polling.polls = r.entries;
-        data.polling.nextId = r.entries.reduce((max, p) => Math.max(max, Number(p.id || 0) + 1), 1);
       }
     } catch (err) {
       console.error("[polling] DB load failed:", err);

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS motions (
   data                JSONB NOT NULL,
   discourse_topic_id  TEXT,
   discourse_topic_url TEXT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS motions_updated_idx ON motions (updated_at DESC);
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS statements (
   data                JSONB NOT NULL,
   discourse_topic_id  TEXT,
   discourse_topic_url TEXT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS statements_updated_idx ON statements (updated_at DESC);
@@ -58,6 +60,7 @@ CREATE TABLE IF NOT EXISTS regulations (
   data                JSONB NOT NULL,
   discourse_topic_id  TEXT,
   discourse_topic_url TEXT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS regulations_updated_idx ON regulations (updated_at DESC);
@@ -66,6 +69,7 @@ CREATE INDEX IF NOT EXISTS regulations_updated_idx ON regulations (updated_at DE
 CREATE TABLE IF NOT EXISTS questiontime_questions (
   id         TEXT PRIMARY KEY,
   data       JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS qt_questions_updated_idx ON questiontime_questions (updated_at DESC);
@@ -74,19 +78,58 @@ CREATE INDEX IF NOT EXISTS qt_questions_updated_idx ON questiontime_questions (u
 CREATE TABLE IF NOT EXISTS press_items (
   id                  TEXT PRIMARY KEY,
   press_type          TEXT NOT NULL DEFAULT 'release'
-                      CHECK (press_type IN ('release','conference')),
+                      CHECK (press_type IN ('release','conference','comment','speech','letter')),
   data                JSONB NOT NULL,
   discourse_topic_id  TEXT,
   discourse_topic_url TEXT,
+  author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+  reference_kind      TEXT,
+  reference_prefix    TEXT,
+  reference_serial    INTEGER,
+  reference_code      TEXT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS press_items_type_idx   ON press_items (press_type);
 CREATE INDEX IF NOT EXISTS press_items_status_idx ON press_items ((data->>'status'));
+CREATE UNIQUE INDEX IF NOT EXISTS press_items_reference_code_uniq
+  ON press_items (reference_code) WHERE reference_code IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS press_items_kind_prefix_serial_uniq
+  ON press_items (reference_kind, reference_prefix, reference_serial)
+  WHERE reference_kind IS NOT NULL AND reference_prefix IS NOT NULL AND reference_serial IS NOT NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'press_items_reference_required_check') THEN
+    ALTER TABLE press_items
+      ADD CONSTRAINT press_items_reference_required_check
+      CHECK (
+        press_type = 'comment'
+        OR (reference_code IS NOT NULL AND reference_kind IS NOT NULL AND reference_prefix IS NOT NULL AND reference_serial IS NOT NULL)
+      );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'press_items_author_required_check') THEN
+    ALTER TABLE press_items
+      ADD CONSTRAINT press_items_author_required_check
+      CHECK (
+        (COALESCE((data->>'npcAuthor')::boolean, false) = true AND author_character_id IS NULL)
+        OR (COALESCE((data->>'npcAuthor')::boolean, false) = false AND author_character_id IS NOT NULL)
+      );
+  END IF;
+END $$;
+
+-- Server-authoritative serial counters for press references.
+CREATE TABLE IF NOT EXISTS serial_counters (
+  kind       TEXT NOT NULL,
+  prefix     TEXT NOT NULL,
+  next_value INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (kind, prefix)
+);
 
 -- Polling entries (weekly Sunday polls)
 CREATE TABLE IF NOT EXISTS polling_entries (
   id         TEXT PRIMARY KEY,
   data       JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS polling_entries_status_idx ON polling_entries ((data->>'status'));

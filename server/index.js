@@ -187,7 +187,16 @@ const AUTHORITATIVE_WRITE_KEYS = new Set([
   "uuid",
   "ref",
   "reference",
+  "prefix",
+  "kind",
   "serial",
+  "createdatsim",
+  "createdatreal",
+  "createdts",
+  "updatedat",
+  "updatedatsim",
+  "updatedatreal",
+  "status",
   "created_at",
   "updated_at",
   "deleted_at",
@@ -218,6 +227,9 @@ function isAuthoritativeWriteKey(key) {
   const lower = key.toLowerCase().trim();
   if (!lower) return false;
   if (AUTHORITATIVE_WRITE_KEYS.has(lower)) return true;
+  if (lower.startsWith("reference")) return true;
+  if (lower.startsWith("author")) return true;
+  if (lower.startsWith("createdat") || lower.startsWith("updatedat")) return true;
   if (lower.endsWith("_id")) return true;
   if (lower.endsWith("_ref") || lower.endsWith("_serial")) return true;
   if (lower.endsWith("_at") || lower.endsWith("_timestamp")) return true;
@@ -259,14 +271,16 @@ async function withGeneratedIdTransaction(work) {
   }
 }
 
-app.use((req, _res, next) => {
+function sanitizeSimWriteBodyMiddleware(req, _res, next) {
   const method = String(req.method || "").toUpperCase();
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return next();
   if (req.body && typeof req.body === "object") {
     req.body = sanitizeClientWriteBody(req.body);
   }
   next();
-});
+}
+
+app.use(sanitizeSimWriteBodyMiddleware);
 
 /**
  * CORS
@@ -639,6 +653,7 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE motions ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS motions_updated_idx ON motions (updated_at DESC)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS motions_type_idx    ON motions (motion_type)`);
+  await pool.query(`ALTER TABLE motions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS statements (
@@ -652,6 +667,7 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE statements ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS statements_updated_idx ON statements (updated_at DESC)`);
+  await pool.query(`ALTER TABLE statements ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS regulations (
@@ -666,6 +682,7 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS regulations_updated_idx ON regulations (updated_at DESC)`);
+  await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS questiontime_questions (
@@ -675,6 +692,7 @@ async function ensureSchema() {
     );
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS qt_questions_updated_idx ON questiontime_questions (updated_at DESC)`);
+  await pool.query(`ALTER TABLE questiontime_questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS sim_clock (
@@ -898,15 +916,43 @@ async function ensureSchema() {
   // ↑ Migration guards: press_items was created in an earlier schema version without these columns;
   //   ALTER TABLE ensures existing databases receive the new columns idempotently.
   await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+  await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS reference_kind TEXT`);
+  await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS reference_prefix TEXT`);
+  await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS reference_serial INTEGER`);
+  await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS reference_code TEXT`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS press_items_reference_code_uniq ON press_items (reference_code) WHERE reference_code IS NOT NULL`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS press_items_kind_prefix_serial_uniq ON press_items (reference_kind, reference_prefix, reference_serial) WHERE reference_kind IS NOT NULL AND reference_prefix IS NOT NULL AND reference_serial IS NOT NULL`);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'press_items_reference_required_check') THEN
+        ALTER TABLE press_items
+          ADD CONSTRAINT press_items_reference_required_check
+          CHECK (
+            press_type = 'comment'
+            OR (reference_code IS NOT NULL AND reference_kind IS NOT NULL AND reference_prefix IS NOT NULL AND reference_serial IS NOT NULL)
+          );
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'press_items_author_required_check') THEN
+        ALTER TABLE press_items
+          ADD CONSTRAINT press_items_author_required_check
+          CHECK (
+            (COALESCE((data->>'npcAuthor')::boolean, false) = true AND author_character_id IS NULL)
+            OR (COALESCE((data->>'npcAuthor')::boolean, false) = false AND author_character_id IS NOT NULL)
+          );
+      END IF;
+    END $$;
+  `);
 
   // ── Press reference counters (DB-authoritative serial allocation) ─────────
-  // One row per (kind, prefix) pair; next_serial is atomically incremented on
+  // One row per (kind, prefix) pair; next_value is atomically incremented on
   // each POST /api/press so references are unique and concurrency-safe.
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS press_reference_counters (
+    CREATE TABLE IF NOT EXISTS serial_counters (
       kind        TEXT NOT NULL,
       prefix      TEXT NOT NULL,
-      next_serial BIGINT NOT NULL DEFAULT 1,
+      next_value  INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (kind, prefix)
     )
   `);
@@ -920,6 +966,7 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS polling_entries_status_idx ON polling_entries ((data->>'status'));
   `);
+  await pool.query(`ALTER TABLE polling_entries ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
 
   // ── Pending Registrations ─────────────────────────────────────────────────
   await pool.query(`
@@ -4418,8 +4465,9 @@ function attachLifecycle(obj, simMonth, simYear, realNow) {
     debate: { topicId: null, topicUrl: null, opensAtSim: null, closesAtSim: null },
   };
   return { ...defaults, ...obj,
-    createdAtSim:  obj.createdAtSim  ?? defaults.createdAtSim,
-    createdAtReal: obj.createdAtReal ?? defaults.createdAtReal,
+    // Server authoritative creation timestamps: never trust client-provided values.
+    createdAtSim:  defaults.createdAtSim,
+    createdAtReal: defaults.createdAtReal,
     status:        obj.status        ?? defaults.status,
     visibility:    obj.visibility    ?? defaults.visibility,
     autoArchiveAfterSimMonths: obj.autoArchiveAfterSimMonths !== undefined
@@ -8063,6 +8111,44 @@ const SERVER_NPC_OFFICE_PREFIXES = {
   "cabinet-office":  "CAB",
 };
 
+const SERVER_NPC_OFFICES = {
+  "monarch": { displayName: "Buckingham Palace / The Crown", authorName: "By Command of the Crown" },
+  "speakers-office": { displayName: "Speaker's Office", authorName: "On behalf of the Speaker of the House of Commons" },
+  "cabinet-office": { displayName: "Cabinet Office", authorName: "Cabinet Office" },
+};
+
+async function pressAuthorFromSession(client, req) {
+  const charId = req.session.characterId || null;
+  if (!charId) return { author: "MP", party: "", authorOffice: "" };
+  const { rows } = await client.query(
+    `SELECT name, party, office, role FROM characters WHERE id = $1 LIMIT 1`,
+    [charId]
+  );
+  const ch = rows[0];
+  if (!ch) return { author: "MP", party: "", authorOffice: "" };
+  return {
+    author: String(ch.name || "MP"),
+    party: String(ch.party || ""),
+    authorOffice: String(ch.office || ch.role || ""),
+  };
+}
+
+async function hydratePressItemRow(client, row) {
+  const isNpc = Boolean(row.data?.npcAuthor);
+  const [displayName] = await batchGetCharacterDisplayNames(client, [{
+    id: (!row.author_character_id || isNpc) ? null : row.author_character_id,
+    fallback: row.data?.author || "",
+  }]);
+  const author_display_name = (!row.author_character_id || isNpc) ? (row.data?.author || "") : displayName;
+  return normaliseDiscourseFields({
+    ...row.data,
+    _pressType: row.press_type,
+    _updatedAt: row.updated_at,
+    author_character_id: row.author_character_id,
+    author_display_name,
+  });
+}
+
 /**
  * Determine the press reference prefix for a new item:
  * - NPC letters use the office key short code.
@@ -8075,34 +8161,59 @@ async function pressPrefixForRequest(pool, req, pressType, officeKey) {
   }
   const charId = req.session.characterId || null;
   if (!charId) return "MP";
-  const { rows } = await pool.query("SELECT name FROM characters WHERE id = $1 LIMIT 1", [charId]);
-  return rows[0]?.name ? pressSurname(rows[0].name) : "MP";
+  const { rows } = await pool.query(
+    `SELECT c.name, c.party, c.role, c.office,
+            EXISTS (
+              SELECT 1
+                FROM office_assignments oa
+                JOIN offices o ON o.id = oa.office_id
+               WHERE oa.character_id = c.id
+                 AND o.type = 'cabinet'
+            ) AS has_cabinet_office,
+            (
+              SELECT p.short_name
+                FROM parties p
+               WHERE p.slug = c.party OR p.name = c.party
+               LIMIT 1
+            ) AS party_short_name
+       FROM characters c
+      WHERE c.id = $1
+      LIMIT 1`,
+    [charId]
+  );
+  const ch = rows[0];
+  if (!ch) return "MP";
+  if (ch.office === "prime-minister") return "PM";
+  if (ch.role === "leader-opposition" || ch.role === "party-leader-3rd-4th") {
+    return String(ch.party_short_name || ch.party || "MP").trim().toUpperCase();
+  }
+  if (ch.has_cabinet_office) return "GOV";
+  return ch.name ? pressSurname(ch.name) : "MP";
 }
-
-/** Initial next_serial value when a counter row is first inserted (first call allocates serial 1). */
-const PRESS_COUNTER_INITIAL_NEXT = 2;
 
 /**
  * Atomically allocate the next serial number for a (kind, prefix) pair.
  * Uses INSERT … ON CONFLICT … DO UPDATE … RETURNING for concurrency safety.
  * Returns the allocated serial (1-based integer).
  */
-async function allocatePressSerial(pool, kind, prefix) {
-  const { rows } = await pool.query(
-    `INSERT INTO press_reference_counters (kind, prefix, next_serial)
-     VALUES ($1, $2, $3)
+async function allocatePressSerial(client, kind, prefix) {
+  const { rows } = await client.query(
+    `INSERT INTO serial_counters (kind, prefix, next_value)
+     VALUES ($1, $2, 1)
      ON CONFLICT (kind, prefix)
-     DO UPDATE SET next_serial = press_reference_counters.next_serial + 1
-     RETURNING next_serial - 1 AS serial`,
-    [kind, prefix, PRESS_COUNTER_INITIAL_NEXT]
+     DO UPDATE SET next_value = serial_counters.next_value + 1
+     RETURNING next_value AS serial`,
+    [kind, prefix]
   );
   if (!rows[0]) throw new Error("Failed to allocate press serial");
   return Number(rows[0].serial);
 }
 
 app.post("/api/press", pressWriteLimit, async (req, res) => {
+  const client = await pool.connect();
   try {
     if (!requireAuth(req, res)) return;
+    await client.query("BEGIN");
     const { press_type = "release", ...item } = req.body || {};
     const VALID_PRESS_TYPES = new Set(["release", "conference", "speech", "comment", "letter"]);
     if (!VALID_PRESS_TYPES.has(press_type)) {
@@ -8114,7 +8225,7 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
         return res.status(403).json({ error: "Only admin, mod, or speaker may post as NPC" });
       }
     }
-    const { rows: clk } = await pool.query(
+    const { rows: clk } = await client.query(
       "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
     );
     const sm = clk[0]?.sim_current_month ?? 8;
@@ -8127,36 +8238,69 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     // This prevents client-side counter drift, duplicate refs, and concurrency races.
     // Always start null — never trust or preserve a client-supplied reference.
     let serverReference = null;
+    let serverPrefix = null;
+    let serverSerial = null;
     const KIND_MAP = { release: "PR", conference: "PC", speech: "SP", letter: "LTR" };
     const kind = KIND_MAP[press_type];
     if (kind) {
       // Compute the prefix from the session character or NPC office key.
-      const prefix = await pressPrefixForRequest(pool, req, press_type, item.officeKey);
+      const prefix = await pressPrefixForRequest(client, req, press_type, item.officeKey);
       // Atomically allocate the next serial for this (kind, prefix) pair.
-      const serial = await allocatePressSerial(pool, kind, prefix);
+      const serial = await allocatePressSerial(client, kind, prefix);
       serverReference = press_type === "letter"
         ? `${prefix}-LTR-${serial}`
         : `${prefix} ${kind}${serial}`;
+      serverPrefix = prefix;
+      serverSerial = serial;
     }
 
-    // Strip client-supplied id and reference; use server-assigned values.
-    const { id: _ignoredId, reference: _ignoredRef, ...rest } = item;
-    const payload = { ...rest, id: serverId, ...(serverReference ? { reference: serverReference } : {}) };
+    // Strip client-supplied id/reference/prefix/kind/serial; use server-assigned values.
+    const { id: _ignoredId, reference: _ignoredRef, prefix: _ignoredPrefix, kind: _ignoredKind, serial: _ignoredSerial, ...rest } = item;
+    const authorFromSession = await pressAuthorFromSession(client, req);
+    const npcOffice = SERVER_NPC_OFFICES[item.officeKey] || null;
+    const authorFields = item.npcAuthor
+      ? {
+          author: npcOffice?.authorName || "NPC",
+          party: "",
+          authorOffice: npcOffice?.displayName || String(item.officeKey || ""),
+        }
+      : authorFromSession;
+
+    const payload = {
+      ...rest,
+      ...authorFields,
+      id: serverId,
+      ...(serverReference ? { reference: serverReference } : {}),
+      ...(kind ? { referenceKind: kind, referencePrefix: serverPrefix, referenceSerial: serverSerial } : {}),
+    };
     const enriched = attachLifecycle(payload, sm, sy);
 
     // Store the authoring character ID (null for NPC-authored items)
     const authorCharId = item.npcAuthor ? null : (req.session.characterId || null);
-    const { rows } = await pool.query(
-      `INSERT INTO press_items (id, press_type, data, author_character_id) VALUES ($1, $2, $3::jsonb, $4)
-       ON CONFLICT (id) DO UPDATE SET press_type = EXCLUDED.press_type, data = EXCLUDED.data, updated_at = NOW()
-       RETURNING id, updated_at`,
-      [enriched.id, press_type, JSON.stringify(enriched), authorCharId]
+    const { rows } = await client.query(
+      `INSERT INTO press_items (id, press_type, data, author_character_id, reference_kind, reference_prefix, reference_serial, reference_code)
+       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8)
+       ON CONFLICT (id) DO UPDATE SET
+         press_type = EXCLUDED.press_type,
+         data = EXCLUDED.data,
+         reference_kind = EXCLUDED.reference_kind,
+         reference_prefix = EXCLUDED.reference_prefix,
+         reference_serial = EXCLUDED.reference_serial,
+         reference_code = EXCLUDED.reference_code,
+         updated_at = NOW()
+       RETURNING id, press_type, data, updated_at, author_character_id`,
+      [enriched.id, press_type, JSON.stringify(enriched), authorCharId, kind, serverPrefix, serverSerial, serverReference]
     );
+    await client.query("COMMIT");
+    const itemHydrated = await hydratePressItemRow(client, rows[0]);
     await writeAuditLog(req.session.userId, "press.create", "press_items", enriched.id, null, enriched);
-    res.status(201).json({ ok: true, id: rows[0].id, ...(serverReference && { reference: serverReference }), updatedAt: rows[0].updated_at });
+    res.status(201).json({ item: itemHydrated });
   } catch (e) {
+    try { await client.query("ROLLBACK"); } catch { /* ignore rollback errors */ }
     console.error(e);
     res.status(500).json({ error: "Server error" });
+  } finally {
+    client.release();
   }
 });
 
@@ -8164,7 +8308,7 @@ app.put("/api/press/:id", pressWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const { press_type, ...item } = req.body || {};
-    const { rows: before } = await pool.query("SELECT data FROM press_items WHERE id = $1", [req.params.id]);
+    const { rows: before } = await pool.query("SELECT data, press_type, author_character_id FROM press_items WHERE id = $1", [req.params.id]);
     if (!before.length) return res.status(404).json({ error: "Press item not found" });
     const updated = { ...before[0].data, ...item, id: req.params.id };
     const ptCols = press_type ? ", press_type = $3" : "";
@@ -8176,7 +8320,14 @@ app.put("/api/press/:id", pressWriteLimit, async (req, res) => {
       params
     );
     await writeAuditLog(req.session.userId, "press.update", "press_items", req.params.id, before[0].data, updated);
-    res.json({ ok: true, id: rows[0].id, updatedAt: rows[0].updated_at });
+    const hydrated = await hydratePressItemRow(pool, {
+      id: rows[0].id,
+      press_type: press_type || before[0].press_type,
+      data: updated,
+      updated_at: rows[0].updated_at,
+      author_character_id: before[0].author_character_id,
+    });
+    res.json({ item: hydrated });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -8186,10 +8337,13 @@ app.put("/api/press/:id", pressWriteLimit, async (req, res) => {
 app.delete("/api/press/:id", pressWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { rowCount } = await pool.query("DELETE FROM press_items WHERE id = $1", [req.params.id]);
-    if (!rowCount) return res.status(404).json({ error: "Press item not found" });
+    const { rows } = await pool.query(
+      "DELETE FROM press_items WHERE id = $1 RETURNING id, press_type, data, updated_at, author_character_id",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Press item not found" });
     await writeAuditLog(req.session.userId, "press.delete", "press_items", req.params.id, null, null);
-    res.json({ ok: true });
+    res.json({ deleted: await hydratePressItemRow(pool, rows[0]) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -8260,10 +8414,10 @@ app.patch("/api/press/:id/transcript", pressWriteLimit, async (req, res) => {
     if (entry.walkOff) item.status = "closed";
 
     const { rows: updated } = await pool.query(
-      "UPDATE press_items SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at",
+      "UPDATE press_items SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, press_type, data, updated_at, author_character_id",
       [JSON.stringify(item), req.params.id]
     );
-    res.json({ ok: true, id: updated[0].id, entryId, updatedAt: updated[0].updated_at });
+    res.json({ item: await hydratePressItemRow(pool, updated[0]), entryId });
   } catch (e) {
     console.error("[PATCH /api/press/:id/transcript]", e);
     res.status(500).json({ error: "Server error" });
@@ -8322,7 +8476,7 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
     }
 
     const { rows: updated } = await pool.query(
-      "UPDATE press_items SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, updated_at",
+      "UPDATE press_items SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, press_type, data, updated_at, author_character_id",
       [JSON.stringify(item), req.params.id]
     );
     await writeAuditLog(req.session.userId, "press.mark", "press_items", req.params.id, prevData, item);
@@ -8330,7 +8484,7 @@ app.post("/api/press/:id/mark", pressWriteLimit, async (req, res) => {
     if (rows[0].author_character_id) {
       fireRecompute("character-political-state", "press.mark", () => recomputeCharacterPoliticalState(rows[0].author_character_id), rows[0].author_character_id);
     }
-    res.json({ ok: true, id: updated[0].id, updatedAt: updated[0].updated_at, item });
+    res.json({ item: await hydratePressItemRow(pool, updated[0]) });
   } catch (e) {
     console.error("[POST /api/press/:id/mark]", e);
     res.status(500).json({ error: "Server error" });
@@ -8395,7 +8549,7 @@ app.post("/api/polling", pollWriteLimit, async (req, res) => {
       );
       return result.rows[0];
     })];
-    res.status(201).json({ ok: true, entry: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
+    res.status(201).json({ entry: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -8416,7 +8570,7 @@ app.put("/api/polling/:id", pollWriteLimit, async (req, res) => {
       `UPDATE polling_entries SET data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING id, data, updated_at`,
       [JSON.stringify(updated), req.params.id]
     );
-    res.json({ ok: true, entry: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
+    res.json({ entry: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -8426,9 +8580,12 @@ app.put("/api/polling/:id", pollWriteLimit, async (req, res) => {
 app.delete("/api/polling/:id", pollWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { rowCount } = await pool.query("DELETE FROM polling_entries WHERE id = $1", [req.params.id]);
-    if (!rowCount) return res.status(404).json({ error: "Polling entry not found" });
-    res.json({ ok: true });
+    const { rows } = await pool.query(
+      "DELETE FROM polling_entries WHERE id = $1 RETURNING id, data, updated_at",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Polling entry not found" });
+    res.json({ deleted: { ...rows[0].data, _updatedAt: rows[0].updated_at } });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
