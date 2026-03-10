@@ -2,7 +2,7 @@
 
 A browser-based UK parliamentary political simulation — **alpha-ready**.
 
-> **Project status:** Core parliamentary systems, factions, political capital/pressure, character political state, personal and party finance, the Discourse integration, and the in-app support ticketing system are all implemented and in use. Upcoming: expanded economy model, budget workflow enhancements, and live polling simulation.
+> **Project status:** Core parliamentary systems, factions, political capital/pressure, character political state, personal and party finance, the scandal system, in-game shop (party and MP modifiers), the Red Lion social channel, news and papers, online activities, events, fundraising, privy council, internal party management tickets, the Discourse integration, and the in-app support ticketing system are all implemented and in use. Upcoming: expanded dynamic economy model, live polling simulation, House of Lords legislative stage, and general election engine.
 
 ---
 
@@ -24,9 +24,19 @@ Rule Britannia recreates the mechanics of British parliamentary democracy as an 
 - **Constituency representation** — each MP holds a 1997-era constituency mapped to a region and historical result.
 - **Civil service** — ministers receive departmental briefings and make policy decisions.
 - **Economy & polling** — macroeconomic indicators drive approval ratings tracked through a polling engine.
-- **Press & media** — players submit press releases; coverage is modelled with character-level impact modifiers.
+- **Press & media** — players submit press releases and press conferences; coverage is modelled with character-level impact modifiers. Multiple press formats: release, conference, comment, speech, letter.
+- **Papers & news** — in-sim newspapers (`papers.html`) publish articles and accept player submissions; a staff-managed news feed (`news.html`) with comments, reply requests, and moderation tools.
+- **Scandals** — an opt-in scandal system where staff create templates and situations; players respond to branching scenario choices, and mods make adjudication decisions with political capital consequences.
+- **Shop system** — a Party Shop and an MP/Character Shop allow strategic purchases of modifiers (e.g., messaging discipline, scandal defence, election prep). A global price index with admin-controlled inflation keeps shop costs realistic over the simulation's life.
+- **Red Lion** — a social channel (`redlion.html`) for informal authenticated player posts; admin/mod can moderate.
+- **Events, Fundraising & Online** — players log in-game events (`events.html`), fundraising activities (`fundraising.html`; revenue can be credited to a party or character), and online campaigns (`online.html`) with player-configurable settings.
+- **Privy Council** — mods appoint characters to the Privy Council; appointees gain the post-nominal "PC". Privy Council members can post to a dedicated channel.
+- **Work Plan** — characters submit a weekly hour-allocation work plan used in political-capital recompute and constituency-pressure calculations.
+- **Constituency work** — players log and track their constituency work activities (`constituency-work.html`).
+- **Internal Party Management (IPM) tickets** — party whip/chairman/leader can raise internal policy modification requests to staff (`party_internal_tickets`). Staff manage costing and outcomes via `/api/staff/internal-tickets`.
 - **Discourse forum** — debates and motions are automatically threaded as topics on a linked Discourse instance with SSO.
 - **In-app support ticketing** — players raise support tickets from `support.html`; staff (admin/mod) manage them from a dedicated staff queue with status transitions, label tagging, per-side unread tracking, and 25-second polling.
+- **Rules management** — staff manage game rules displayed on `rules.html` via a dedicated CRUD API; displayed as collapsible panels with the same UI pattern as Guides.
 - **Onboarding Guides** — 15 predefined guides are seeded server-side on startup (`server/guides-seed.js`) and displayed as collapsible panels on `guides.html`; staff can edit, reorder, or add guides through the Control Panel.
 - **Starter Pack** — a short "5 first-week actions" guide displayed to new players on the player dropon; editable by staff via the Control Panel without code changes.
 
@@ -72,7 +82,7 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
                    ▼
 ┌────────────────────────────────────────────────────────────┐
 │  Express server  (server/index.js, Node ≥ 18)              │
-│  ~21 000 lines, ~392 REST endpoints                        │
+│  ~24 700 lines, ~422 REST endpoints                        │
 │  Auth / CSRF / Sessions / Rate-limiting / RBAC             │
 │  Email (SendGrid)  ·  Discourse API  ·  Turnstile          │
 └──────────────────┬─────────────────────────────────────────┘
@@ -80,9 +90,15 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
                    ▼
 ┌────────────────────────────────────────────────────────────┐
 │  PostgreSQL (Neon recommended)                             │
-│  ~95 tables: users, bills, motions, divisions, sessions,   │
+│  ~100+ tables: users, bills, motions, divisions, sessions, │
 │  discourse_topics, audit_logs, app_config, finance_config, │
 │  characters, parties, constituencies,                      │
+│  scandals, scandal_templates, scandal_situations,          │
+│  party_shop_purchases, character_shop_purchases,           │
+│  red_lion_posts, game_events, fundraising_entries,         │
+│  party_internal_tickets, privy_council_members,            │
+│  character_work_plans, news_items, news_comments,          │
+│  papers, paper_articles, paper_submissions,                │
 │  support_tickets, support_messages, …                      │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -124,7 +140,7 @@ rulebritannia-app/
 │   └── pages/              # Per-page init modules (one file per .html route)
 │
 ├── server/                 # Express backend
-│   ├── index.js            # Main server (~21 000 lines, all routes, schema bootstrap)
+│   ├── index.js            # Main server (~24 700 lines, all routes, schema bootstrap)
 │   ├── db.js               # PostgreSQL connection pool (pg)
 │   ├── discourse.js        # Discourse API client + DiscourseConnect SSO helpers
 │   ├── discourseClient.js  # Stateless positional-arg Discourse HTTP client
@@ -140,7 +156,7 @@ rulebritannia-app/
 │   ├── .env.example        # Environment variable reference
 │   ├── package.json        # Node dependencies
 │   ├── *.test.js           # Unit tests (Node native test runner)
-│   └── README.md           # Server-specific notes (env vars, production guards)
+│   └── README.md           # Server-specific notes (env vars, production guards, whip API)
 │
 ├── worker/
 │   └── index.js            # Cloudflare Worker: API proxy + apex domain redirect
@@ -638,19 +654,62 @@ For the full list of known limitations and future development areas, see **[`doc
 
 ---
 
-## Upcoming Work
+## Implemented Systems at a Glance
 
-The following systems are partially implemented or planned for the next development phase:
-
-| Area | Status | Notes |
+| System | Status | Notes |
 |---|---|---|
-| **Economy** | Partially implemented | Economy indicators (GDP, inflation, unemployment) exist as admin-editable fields. Dynamic modelling linking policy choices to economic outcomes is not yet implemented. |
-| **Budget** | Implemented (draft/approve flow) | Budget draft, approval, and rejection workflows are live. Automatic effect propagation from budget decisions to economic indicators is upcoming. |
-| **Polling** | Implemented (entry recording) | Polling entries can be created and archived. A live polling engine driven by gameplay events (legislation, scandal, economic conditions) is upcoming. |
-| **Support ticketing** | Implemented | Players open tickets from `support.html`; staff (admin/mod) manage the queue with status transitions (`open → finished → closed`), label tagging, per-side unread tracking, and 25-second auto-polling. Future: email notification on new staff reply, real-time push, support ticket pagination in the staff view. |
-| **House of Lords** | Body tracked | The Lords exist as a tracked parliamentary body but do not participate in bill passage. A Lords stage is a planned extension. |
-| **Onboarding Guides** | Implemented | 15 predefined guides seeded on startup. Collapsible panels on `guides.html`. Staff-editable via Control Panel. |
-| **Starter Pack** | Implemented | "5 first-week actions" guide shown to new players with no active character. Staff-editable from Control Panel. |
-| **Bodies / Locals admin** | Implemented | Parliamentary bodies and local authority data editable via Control Panel. 1997 seed via `POST /api/admin/seed-1997-bodies-locals` (dev/staging only). House of Lords uses `compositionBreakdown`; Lords and EuroParl have no Control fields. |
-| **Other Officials allocations** | Implemented | `other_officials_faction_allocations` table tracks non-Commons official slots per party and faction. Admin UI in Control Panel. |
-| **Elections** | Seed data only | The 1997 result is seeded at setup. A general election mechanism allowing seat redistribution mid-simulation is a planned extension. |
+| **Parliamentary legislation** | Implemented | Bills, amendments, divisions, whip system, rebellions. Full lifecycle from First Reading through Royal Assent. |
+| **Motions & EDMs** | Implemented | Procedural motions and Early Day Motions; signature campaigns. |
+| **Statements & Regulations** | Implemented | Ministerial statements and secondary legislation (Statutory Instruments). |
+| **Question Time** | Implemented | Q&A sessions with follow-up questions and transcript recording. |
+| **Government & Opposition** | Implemented | Cabinet (15 offices), Shadow Cabinet (14 positions), reshuffle workflows. |
+| **Civil service** | Implemented | Departmental briefings with branching scenarios; ongoing civil service cases. |
+| **Budget** | Implemented | Draft/approve/reject flow for Chancellor-led fiscal plans. |
+| **Economy** | Partially implemented | Admin-editable indicators (GDP, inflation, unemployment). Dynamic model linking policy to outcomes is upcoming. |
+| **Polling** | Implemented (entry recording) | Polling entries can be created and archived. A live driver engine is upcoming. |
+| **Factions** | Implemented | Per-party factions with internal power, momentum, cohesion, leadership pressure, and freeze cycle. |
+| **Faction climate** | Implemented | Party-level climate derived from faction aggregate pressure; dominance stabiliser; `lastFreezeAt` exposed. |
+| **Political Capital & Pressure** | Implemented | Per-character computed scores: capital (offices, press, scandals, work plan), pressure (party, constituency, media). |
+| **Personal finance** | Implemented | Salaries by office, bank balance, property costs, additional revenue, salary-band uprating. |
+| **Party finance** | Implemented | DB-authoritative treasury; income ledger with donation, fundraising, and membership-fee source types. |
+| **Scandals** | Implemented | Opt-in system; staff create templates and situations; players respond to branching choices; mods adjudicate decisions and close. |
+| **Shop** | Implemented | Party Shop and MP/Character Shop. Purchases give timed modifiers. Global price index with admin-controlled inflation. |
+| **Red Lion** | Implemented | Informal authenticated social channel (`redlion.html`). All logged-in players can post; admin/mod can delete. |
+| **Events** | Implemented | In-game event log for player activities (`events.html`). |
+| **Fundraising** | Implemented | Fundraising activity entries; revenue credited to party treasury or character balance. Idempotent credit with unique constraint. |
+| **Online activities** | Implemented | Online campaign entries (`online.html`) with player-configurable settings. |
+| **Constituency work** | Implemented | Constituency work activity log (`constituency-work.html`); feeds constituency pressure in political-state recompute. |
+| **News** | Implemented | Staff-authored news items (`news.html`); player comments; reply requests; mod tools. |
+| **Papers** | Implemented | In-sim newspapers (`papers.html`); staff-published articles; player comment threads; article submission workflow. |
+| **Press** | Implemented | Press releases, conferences, comments, speeches, letters; reference codes; Discourse topic integration. |
+| **Privy Council** | Implemented | Mod appointment/removal of Privy Council members (post-nominal "PC"); dedicated PC posts channel. |
+| **Work Plan** | Implemented | Character weekly hour-allocation plan; feeds political-capital and constituency-pressure recompute. |
+| **Internal Party Management (IPM)** | Implemented | Party leadership raises policy modification tickets to staff; staff manage costing and outcomes; per-party message threads. |
+| **Support ticketing** | Implemented | Players open support tickets; staff manage status transitions, label tagging, per-side unread tracking, 25-second auto-polling. |
+| **Onboarding Guides** | Implemented | 15 predefined guides seeded on startup; collapsible panels on `guides.html`; staff-editable via Control Panel. |
+| **Rules** | Implemented | Staff-managed game rules on `rules.html`; same collapsible-panel UI as Guides. |
+| **Starter Pack** | Implemented | "5 first-week actions" guide for new players; staff-editable from Control Panel. |
+| **Bodies / Locals admin** | Implemented | Parliamentary bodies registry + local authority data; 1997 seed; Lords/EuroParl have no Control fields. |
+| **Other Officials allocations** | Implemented | `other_officials_faction_allocations` tracks non-Commons official slots per party/faction with arena-total bounds. |
+| **Elections** | Seed data + party elections | 1997 result seeded at setup; party leadership elections fully implemented. A general-election seat-redistribution engine is a planned extension. |
+| **House of Lords** | Body tracked | Lords tracked as a parliamentary body but do not vote on bills. A Lords legislative stage is a planned extension. |
+
+
+---
+
+## Planned Extensions
+
+The following simulation enhancements are on the roadmap for the next development phase:
+
+| Area | Notes |
+|---|---|
+| **Dynamic economy model** | Connect budget spending and policy decisions to live GDP, inflation, and unemployment indicators. |
+| **Live polling engine** | Drive party approval ratings from gameplay events (legislation, scandals, economic conditions). |
+| **House of Lords legislative stage** | Add a Lords reading stage between Commons passage and Royal Assent. |
+| **General election engine** | Compute seat redistribution based on campaign events and polling, replacing the static 1997 baseline. |
+| **NPC behavioural modelling** | Give NPCs ideological profiles and rebellion probabilities so division outcomes are less predictable. |
+| **By-elections** | Allow individual constituency seats to change hands mid-simulation. |
+| **Devolved legislative processes** | Give the Scottish Parliament, Welsh Assembly, and NI Assembly their own bill-stage pipelines. |
+| **Committee stage** | A committee-of-MPs scrutiny stage after Second Reading with quorum-based mini-divisions. |
+| **Email notifications** | Notify players by email on new staff replies to support tickets and IPM messages. |
+| **Real-time push** | WebSocket or SSE layer so pages update without manual refresh. |

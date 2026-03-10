@@ -55,7 +55,7 @@ Rule Britannia is a browser-based UK parliamentary political simulation set in 1
                    ▼
 ┌──────────────────────────────────────────────────────────┐
 │              Express API Server  (Render)                │
-│  server/index.js  — ~392 routes                         │
+│  server/index.js  — ~422 routes                         │
 │  server/db.js     — pg Pool (Neon / Postgres)            │
 │  server/clock.js  — sim-date calculation                 │
 │  server/discourse.js  — Discourse API client (full)      │
@@ -89,7 +89,7 @@ External services:
 
 ### API Server (`server/index.js`)
 
-The server is a monolithic Express.js application (~20,000+ lines) written as an ES module (`"type": "module"` in `server/package.json`). It requires Node.js ≥ 18.
+The server is a monolithic Express.js application (~24,700+ lines) written as an ES module (`"type": "module"` in `server/package.json`). It requires Node.js ≥ 18.
 
 **Start command:**
 ```bash
@@ -134,7 +134,7 @@ Auth guards used throughout:
 
 **Error response shape:** All error responses use `{ error: "<string>" }` — this is enforced by `static-checks.js`.
 
-**Route count (from feature manifest):** ~392 endpoints total.
+**Route count (from feature manifest):** ~422 endpoints total.
 
 **Major route groups:**
 
@@ -149,7 +149,7 @@ Auth guards used throughout:
 | `/api/regulations/*` | Statutory instruments |
 | `/api/divisions/*` | Formal division votes (server-authoritative weight) |
 | `/api/qt/*` | Question Time questions, answers, follow-ups |
-| `/api/press/*` | Press releases and press conferences |
+| `/api/press/*` | Press items (releases, conferences, comments, speeches, letters) |
 | `/api/polling/*` | Polling entries |
 | `/api/debates/*` | Discourse debate topic creation |
 | `/api/elections/*` | Election management and seat totals |
@@ -159,17 +159,33 @@ Auth guards used throughout:
 | `/api/locals` | Local authority data (four-nation council/councillor breakdown) |
 | `/api/parties/:slug/factions` | Party factions: CRUD, allocation, climate, trigger-freeze |
 | `/api/parties/:slug/faction-climate` | Party climate (includes `lastFreezeAt`, `viewerRole`, `pendingFreezeCount`) |
+| `/api/parties/:slug/internal-tickets` | Internal Policy Management tickets (party leadership → staff) |
+| `/api/staff/internal-tickets` | Staff-side IPM ticket management (costing, outcome, messages) |
 | `/api/admin/other-officials/*` | Other-officials faction allocations and arena totals |
 | `/api/admin/seed-1997-bodies-locals` | 1997 bodies/locals seed (dev/staging only, `isDevSeedAllowed()` guarded) |
 | `/api/admin/seed-1997-factions` | 1997 faction seed (admin/mod only, production-accessible) |
 | `/api/guides` + `/api/guides/:id` | Guides CRUD (staff-managed; public read) |
+| `/api/rules` + `/api/rules/:id` | Rules CRUD (staff-managed; authenticated read) |
 | `/api/support/*` | Support ticketing (player and staff queues) |
+| `/api/redlion` + `/api/redlion/:id` | Red Lion social channel (authenticated posts; admin/mod delete) |
+| `/api/events` + `/api/events/:id` | In-game events log |
+| `/api/online` + `/api/online/:id` | Online activity campaigns; `PATCH /api/online/settings` |
+| `/api/fundraising` + `/api/fundraising/:id` | Fundraising activities; credit-party / credit-character |
+| `/api/news` + `/api/news/:id` | Staff-authored news items; comments; reply requests |
+| `/api/papers/*` | In-sim newspapers: articles, comments, player submissions |
+| `/api/scandals/*` | Player scandal lifecycle (opt-in, situations, choices) |
+| `/api/mod/scandals/*` | Mod scandal management (templates, situations, decisions, close) |
+| `/api/privy-council` + `/api/privy-council/posts` | Privy Council membership and posts |
+| `/api/mod/privy-council/*` | Mod privy council appointment/removal |
+| `/api/shop/*` | Shop price index and inflation |
+| `/api/me/character/shop-purchases` | Character shop purchases (buy, sell, dismiss) |
+| `/api/parties/:id/shop-purchases` | Party shop purchases (buy, sell, dismiss) |
+| `/api/me/work-plan` | Character weekly work plan (GET/POST) |
 | `/api/discourse/*` | SSO, group sync, test |
 | `/api/admin/*` | Admin panel operations |
 | `/api/civil-service/*` | Civil service briefings and cases |
-| `/api/scandals/*` + `/api/mod/scandals/*` | Scandal system |
 | `/api/parliament/status` | Parliament open/dissolved/prorogued status |
-| `/api/sim/*` | Sim clock management (alternative to `/api/clock/*`) |
+| `/api/sim/*` | Sim clock management: freeze, tick, set (aliases for `/api/clock/*`) |
 
 ### Database Layer (`server/db.js`)
 
@@ -202,7 +218,7 @@ try {
 
 Session storage also uses the same `pool` via `connect-pg-simple`, which creates a `session` table automatically.
 
-**Known tables (from audit inventory):** `users`, `characters`, `bills`, `motions`, `statements`, `regulations`, `divisions`, `division_votes`, `press_items`, `polling_entries`, `questiontime_questions`, `constituencies`, `pending_registrations`, `privy_council_members`, `app_config`, `finance_config`, `party_factions`, `party_faction_allocations`, `faction_political_state`, `character_political_state`, `character_finance`, `party_donations`, `other_officials_faction_allocations`, `guides_items`, `support_tickets`, `support_messages`, and others.
+**Known tables (from audit inventory):** `users`, `characters`, `bills`, `motions`, `statements`, `regulations`, `divisions`, `division_votes`, `press_items`, `polling_entries`, `questiontime_questions`, `constituencies`, `pending_registrations`, `privy_council_members`, `app_config`, `finance_config`, `party_factions`, `party_faction_allocations`, `faction_political_state`, `character_political_state`, `character_finance`, `party_donations`, `other_officials_faction_allocations`, `guides_items`, `rules_items`, `support_tickets`, `support_messages`, `red_lion_posts`, `game_events`, `fundraising_entries`, `online_entries`, `online_settings`, `news_items`, `news_comments`, `news_reply_requests`, `paper_articles`, `paper_article_comments`, `paper_submissions`, `scandal_templates`, `scandal_situations`, `scandals`, `scandal_player_choices`, `scandal_mod_decisions`, `scandal_opt_in`, `party_shop_purchases`, `character_shop_purchases`, `shop_price_index`, `character_work_plans`, `party_internal_tickets`, `party_internal_ticket_messages`, and others.
 
 ### Extracted Service Modules
 
@@ -445,10 +461,24 @@ Characters represent parliamentary personas. Each user account can have an activ
 ### Scandals
 
 The scandal system allows mods to create scenario templates and assign them to opted-in characters:
-- `GET /api/scandals/mine` — player's active scandal
-- `POST /api/scandals/optin` — character opts in to scandal gameplay
-- `POST /api/scandals/situations/:id/respond` — player responds to a scandal situation
-- Mod routes: `/api/mod/scandals/*`
+- `GET /api/scandals/mine` — player's active scandal state (opt-in status, situations, scandals, player choices)
+- `POST /api/scandals/optin` — toggle opt-in flag for the active character
+- `POST /api/scandals/situations/:id/respond` — player responds to a situation
+- `POST /api/scandals/:id/choose` — player selects a branching choice for an active scandal stage
+
+**Mod routes:**
+- `GET /api/mod/scandal-templates` — list templates
+- `POST /api/mod/scandal-templates` — create a template
+- `GET /api/mod/scandals/opted-in-characters` — list characters who have opted in
+- `POST /api/mod/scandals/situations/create` — create a situation for a character
+- `GET /api/mod/scandals/open` — list open scandals
+- `POST /api/mod/scandals/:id/decision` — record mod decision
+- `POST /api/mod/scandals/:id/close` — close a scandal
+- `DELETE /api/mod/scandals/:id` — delete a scandal
+- `POST /api/mod/scandals/situations/:id/close` — close a situation
+- `DELETE /api/mod/scandals/situations/:id` — delete a situation
+
+**Tables:** `scandal_templates`, `scandal_situations`, `scandals`, `scandal_player_choices`, `scandal_mod_decisions`, `scandal_opt_in`
 
 ### Support Ticketing
 
@@ -533,7 +563,83 @@ On startup, `seedPredefinedGuides(pool)` (from `server/guides-seed.js`) inserts 
 
 **Frontend (`js/pages/guides.js`):** Displays guides as collapsible panels. Uses the HTML `hidden` attribute (not inline `display` style) so collapsing works correctly even when the panel has `display:grid` set. **Never** set `element.style.display = 'none'` for show/hide in this page — use `element.hidden = bool` instead.
 
-### Local Authorities
+### Rules
+
+The Rules system is a staff-managed CMS for game rules, displayed to all authenticated players on `rules.html`.
+
+- `GET /api/rules` — list all rules (authenticated)
+- `POST /api/rules` — create a rule (admin/mod)
+- `PATCH /api/rules/:id` — edit a rule (admin/mod)
+- `DELETE /api/rules/:id` — delete a rule (admin/mod)
+
+**Table:** `rules_items` — same schema as `guides_items` (`id SERIAL PK`, `title TEXT`, `body TEXT`, `sort_order INTEGER`, `created_at`, `updated_at`). Uses the same collapsible-panel UI pattern as `guides.html`.
+
+### Shop System
+
+The Shop system provides strategic modifier purchases for both parties and individual characters.
+
+**Party Shop:**
+- `GET /api/parties/:partyId/shop-purchases` — list party purchases
+- `POST /api/parties/:partyId/shop-purchases` — buy a modifier (deducted from party treasury)
+- `DELETE /api/parties/:partyId/shop-purchases/:id` — cancel a purchase
+- `POST /api/parties/:partyId/shop-purchases/:id/sell` — sell back a purchase
+- `POST /api/parties/:partyId/shop-purchases/:id/dismiss` — dismiss an expired purchase
+
+**Character Shop:**
+- `GET /api/me/character/shop-purchases` — list active character's purchases
+- `POST /api/me/character/shop-purchases` — buy a modifier (deducted from character balance)
+- `DELETE /api/me/character/shop-purchases/:id` — cancel a purchase
+- `POST /api/me/character/shop-purchases/:id/sell` — sell back
+- `POST /api/me/character/shop-purchases/:id/dismiss` — dismiss expired
+
+**Price index:** `GET /api/shop/price-index` returns current price multiplier. `POST /api/shop/apply-inflation` (admin/mod) steps the index up. `POST /api/finance/shop-upkeep` applies periodic maintenance costs to active purchases.
+
+### Red Lion, Events, Fundraising, Online
+
+**Red Lion** (`GET/POST /api/redlion`, `DELETE /api/redlion/:id`): Authenticated social channel for informal player posts. Table: `red_lion_posts`.
+
+**Events** (`GET/POST/PUT/DELETE /api/events`): In-game event log. Table: `game_events`.
+
+**Fundraising** (`GET/POST/PUT/DELETE /api/fundraising`, `POST /api/fundraising/:id/credit-party`, `POST /api/fundraising/:id/credit-character`): Fundraising entries with idempotent party/character credit. Table: `fundraising_entries`.
+
+**Online** (`GET/POST/DELETE /api/online`, `PATCH /api/online/:id`, `PATCH /api/online/settings`): Online campaign entries with per-character settings. Tables: `online_entries`, `online_settings`.
+
+### News and Papers
+
+**News** (`GET/POST/PATCH/DELETE /api/news`): Staff-authored news items with comments (`GET/POST/DELETE /api/news/:id/comments`) and reply requests. Tables: `news_items`, `news_comments`.
+
+**Papers** (`GET /api/papers`): In-sim newspapers. Articles (`POST/PATCH/DELETE /api/papers/:key/articles`), article comments (`GET/POST/DELETE /api/papers/:paperKey/articles/:articleId/comments`), and article submissions (`POST/GET/GET-single/PATCH/DELETE /api/papers/submissions`). Tables: `paper_articles`, `paper_article_comments`, `paper_submissions`.
+
+### Privy Council
+
+- `GET /api/privy-council` — list all members
+- `POST /api/mod/privy-council/appoint` — appoint a character (mod)
+- `POST /api/mod/privy-council/remove` — remove a character (mod)
+- `GET/POST/DELETE /api/privy-council/posts` — Privy Council channel posts
+- **Table:** `privy_council_members`
+
+### Work Plan
+
+- `GET /api/me/work-plan` — retrieve active character's plan
+- `POST /api/me/work-plan` — upsert plan (hours object, optional second job title)
+- **Table:** `character_work_plans`
+- An active plan (saved within 3 sim months) contributes +5 capital. Stale/absent plan raises constituency pressure.
+
+### Internal Party Management (IPM) Tickets
+
+- `POST /api/parties/:slug/internal-tickets` — create a ticket (party leader/whip/chairman)
+- `GET /api/parties/:slug/internal-tickets` — list tickets (role-filtered)
+- `POST /api/parties/:slug/internal-tickets/:id/approval` — party-side approval
+- `GET /api/parties/:slug/internal-tickets/:id/messages` — message thread
+- `POST /api/parties/:slug/internal-tickets/:id/dismiss` — dismiss
+- `GET/POST /api/staff/internal-tickets` — staff-side ticket list / create
+- `PUT /api/staff/internal-tickets/:id/costing` — record costing
+- `PUT /api/staff/internal-tickets/:id/outcome` — record outcome
+- `POST /api/staff/internal-tickets/:id/cancel` — cancel
+- `GET/POST /api/staff/internal-tickets/:id/messages` — staff message thread
+- **Tables:** `party_internal_tickets`, `party_internal_ticket_messages`
+
+
 
 Local authority data (`GET/PUT /api/locals`) is stored as a JSON object in `app_config` with a `countries` array. Each country entry includes `totalCouncils`, `totalCouncillors`, `noOverallControlCouncils`, and a `partyBreakdown`.
 
@@ -1206,7 +1312,7 @@ A content wipe clears: `bills`, `motions`, `statements`, `regulations`, `questio
 
 - **No real-time push.** There is no WebSocket or SSE layer. Pages must be manually refreshed to see new content from other players.
 - **Single-process server.** The Express server is stateless per request but uses in-memory state for the Discourse sync debounce timer and CSRF tokens. Running multiple instances without a shared store would break these.
-- **Monolithic `server/index.js`.** At ~21,000+ lines, the file is large. Several service modules have been extracted (`political-state-service.js`, `division-helpers.js`, `finance-service.js`, `recompute-helpers.js`, `guides-seed.js`) but the majority of routes remain in the main file.
+- **Monolithic `server/index.js`.** At ~24,700+ lines, the file is large. Several service modules have been extracted (`political-state-service.js`, `division-helpers.js`, `finance-service.js`, `recompute-helpers.js`, `guides-seed.js`) but the majority of routes remain in the main file.
 - **Manual sim clock ticking.** The sim clock does not advance automatically. An admin must trigger ticks via the Admin Panel or API.
 - **`parsePaginationParams` NaN edge case (untracked bug).** When a non-numeric string is passed as `?limit` or `?offset`, `parseInt("abc", 10)` returns `NaN`, which propagates through `Math.min`/`Math.max`. This affects `GET /api/admin/characters/applications`, `GET /api/civil-service/briefings`, and `GET /api/civil-service/cases`. A fix would add explicit `isNaN` guards in `parsePaginationParams` before the min/max clamp.
 - **Concurrent discourse sync race.** The manual `POST /api/admin/discourse-sync-groups` endpoint uses `setImmediate` (not the debounce timer), which can cause concurrent sync jobs if `enqueueDiscourseGroupSync()` fires while that job is queued.
