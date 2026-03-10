@@ -984,6 +984,8 @@ export async function initControlPanelPage(data) {
   const factionsRoot = canEdit ? rolePanels.querySelector("#cp-factions-root") : null;
   if (factionsRoot) {
     const PLAYABLE_PARTIES = ["Labour", "Conservative", "Liberal Democrat"];
+    const ALIGNMENT_OPTIONS = ["aligned", "neutral", "hostile"];
+    const MOMENTUM_OPTIONS = ["rising", "stable", "falling"];
 
     /** Render the full faction section from loaded data */
     function renderFactions(partyDataMap) {
@@ -1006,6 +1008,18 @@ export async function initControlPanelPage(data) {
               <div>
                 <label class="label" style="font-size:.8em;">Colour</label>
                 <input class="input" type="color" data-field="colour" value="${esc(f.colour || "#888888")}" style="width:100%;height:36px;padding:2px;">
+              </div>
+              <div>
+                <label class="label" style="font-size:.8em;">Alignment</label>
+                <select class="input" data-field="leadershipAlignment" style="width:100%;">
+                  ${ALIGNMENT_OPTIONS.map((opt) => `<option value="${esc(opt)}" ${(String(f.leadershipAlignment || "neutral") === opt) ? "selected" : ""}>${esc(opt.charAt(0).toUpperCase() + opt.slice(1))}</option>`).join("")}
+                </select>
+              </div>
+              <div>
+                <label class="label" style="font-size:.8em;">Momentum</label>
+                <select class="input" data-field="momentum" style="width:100%;">
+                  ${MOMENTUM_OPTIONS.map((opt) => `<option value="${esc(opt)}" ${(String(f.momentum || "stable") === opt) ? "selected" : ""}>${esc(opt.charAt(0).toUpperCase() + opt.slice(1))}</option>`).join("")}
+                </select>
               </div>
               <div style="display:flex;flex-direction:column;gap:4px;padding-top:18px;">
                 <label style="font-size:.8em;display:flex;align-items:center;gap:4px;">
@@ -1059,6 +1073,18 @@ export async function initControlPanelPage(data) {
                 <label class="label" style="font-size:.8em;">Slug</label>
                 <input class="input" type="text" name="newFactionSlug" placeholder="soft-left" style="width:120px;">
               </div>
+              <div>
+                <label class="label" style="font-size:.8em;">Alignment</label>
+                <select class="input" name="newFactionAlignment" style="width:120px;">
+                  ${ALIGNMENT_OPTIONS.map((opt) => `<option value="${esc(opt)}" ${opt === "neutral" ? "selected" : ""}>${esc(opt.charAt(0).toUpperCase() + opt.slice(1))}</option>`).join("")}
+                </select>
+              </div>
+              <div>
+                <label class="label" style="font-size:.8em;">Momentum</label>
+                <select class="input" name="newFactionMomentum" style="width:120px;">
+                  ${MOMENTUM_OPTIONS.map((opt) => `<option value="${esc(opt)}" ${opt === "stable" ? "selected" : ""}>${esc(opt.charAt(0).toUpperCase() + opt.slice(1))}</option>`).join("")}
+                </select>
+              </div>
               <button class="btn primary" type="submit">Add Faction</button>
               <span class="cp-new-faction-status" style="font-size:.85em;"></span>
             </form>
@@ -1100,6 +1126,8 @@ export async function initControlPanelPage(data) {
           const slug          = article.querySelector('[data-field="slug"]')?.value?.trim();
           const colour        = article.querySelector('[data-field="colour"]')?.value?.trim();
           const description   = article.querySelector('[data-field="description"]')?.value?.trim();
+          const leadershipAlignment = article.querySelector('[data-field="leadershipAlignment"]')?.value || "neutral";
+          const momentum      = article.querySelector('[data-field="momentum"]')?.value || "stable";
           const active        = article.querySelector('[data-field="active"]')?.checked ?? true;
           const mpCount       = Number(article.querySelector('[data-field="mpCount"]')?.value ?? 0);
           const notes         = article.querySelector('[data-field="notes"]')?.value?.trim();
@@ -1125,7 +1153,7 @@ export async function initControlPanelPage(data) {
 
           try {
             await Promise.all([
-              apiUpdatePartyFaction(id, { name, slug, colour, description, active }),
+              apiUpdatePartyFaction(id, { name, slug, colour, description, leadershipAlignment, momentum, active }),
               apiUpdatePartyFactionAllocation(id, { mpCount, notes }),
             ]);
             if (statusEl) { statusEl.style.color = "#1a7a1a"; statusEl.textContent = "✓ Saved."; }
@@ -1145,17 +1173,23 @@ export async function initControlPanelPage(data) {
           const partySlug = form.dataset.party;
           const nameInput = form.querySelector('[name="newFactionName"]');
           const slugInput = form.querySelector('[name="newFactionSlug"]');
+          const alignmentInput = form.querySelector('[name="newFactionAlignment"]');
+          const momentumInput = form.querySelector('[name="newFactionMomentum"]');
           const statusEl  = form.querySelector(".cp-new-faction-status");
           const btn       = form.querySelector('button[type="submit"]');
           const name = nameInput?.value?.trim();
           const slug = slugInput?.value?.trim() || name?.toLowerCase().replace(/\s+/g, "-");
+          const leadershipAlignment = alignmentInput?.value || "neutral";
+          const momentum = momentumInput?.value || "stable";
           if (!name) return;
           if (btn) btn.disabled = true;
           if (statusEl) statusEl.textContent = "";
           try {
-            await apiCreatePartyFaction(partySlug, { name, slug });
+            await apiCreatePartyFaction(partySlug, { name, slug, leadershipAlignment, momentum });
             if (nameInput) nameInput.value = "";
             if (slugInput) slugInput.value = "";
+            if (alignmentInput) alignmentInput.value = "neutral";
+            if (momentumInput) momentumInput.value = "stable";
             await loadAllFactions();
           } catch (err) {
             if (statusEl) { statusEl.style.color = "var(--danger,#c00)"; statusEl.textContent = `✗ ${err.message}`; }

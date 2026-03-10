@@ -21669,6 +21669,7 @@ app.get("/api/admin/parties/:slug/factions", crudReadLimit, async (req, res) => 
       colour:                  r.colour,
       ideologyTags:            Array.isArray(r.ideology_tags) ? r.ideology_tags : [],
       leadershipAlignment:     r.leadership_alignment,
+      momentum:                String(r.momentum || "stable"),
       rebellionBias:           Number(r.rebellion_bias),
       mediaSensitivity:        Number(r.media_sensitivity),
       constituencySensitivity: Number(r.constituency_sensitivity),
@@ -21887,7 +21888,7 @@ app.post("/api/admin/parties/:slug/factions", verifyCsrfToken, crudWriteLimit, a
     }
     const {
       name, slug: factionSlug, description = "", colour = "#888888",
-      ideologyTags = [], leadershipAlignment = "neutral",
+      ideologyTags = [], leadershipAlignment = "neutral", momentum = "stable",
       rebellionBias = 0, mediaSensitivity = 0, constituencySensitivity = 0,
       displayOrder = 0, active = true,
     } = req.body || {};
@@ -21895,17 +21896,22 @@ app.post("/api/admin/parties/:slug/factions", verifyCsrfToken, crudWriteLimit, a
     if (!name || !canonicalFactionSlug) {
       return res.status(400).json({ error: "name and slug are required" });
     }
+    const validMomentum = ["rising", "stable", "falling"];
+    if (!validMomentum.includes(String(momentum))) {
+      return res.status(400).json({ error: "momentum must be one of: rising, stable, falling" });
+    }
     const { rows } = await pool.query(
       `INSERT INTO party_factions
          (party_slug, slug, name, description, colour, ideology_tags, leadership_alignment,
-          rebellion_bias, media_sensitivity, constituency_sensitivity, display_order, active)
-       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12)
+          momentum, rebellion_bias, media_sensitivity, constituency_sensitivity, display_order, active)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13)
        RETURNING id`,
       [
         slug, canonicalFactionSlug,
         String(name), String(description), String(colour),
         JSON.stringify(Array.isArray(ideologyTags) ? ideologyTags : []),
         String(leadershipAlignment),
+        String(momentum),
         Number(rebellionBias) || 0, Number(mediaSensitivity) || 0,
         Number(constituencySensitivity) || 0, Number(displayOrder) || 0,
         active !== false,
