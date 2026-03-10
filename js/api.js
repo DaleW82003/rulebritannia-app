@@ -3492,8 +3492,9 @@ export async function apiGetPartyFactions(slug) {
 }
 
 /** Player-facing: get faction climate (balance, pressure, resilience) for a party */
-export async function apiGetPartyFactionClimate(slug) {
-  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(slug)}/faction-climate`, { credentials: "include" });
+export async function apiGetPartyFactionClimate(slug, { debug = false } = {}) {
+  const q = debug ? "?debug=1" : "";
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(slug)}/faction-climate${q}`, { credentials: "include" });
   if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiGetPartyFactionClimate failed (${res.status})`); }
   return res.json();
 }
@@ -3539,6 +3540,26 @@ export async function apiGetOtherOfficialsFactionAllocations(arena_type, arena_i
   return res.json();
 }
 
+/** Admin/mod: run faction/IPM freeze now. */
+export async function apiAdminTriggerFactionFreeze() {
+  const res = await _fetch(`${API_BASE}/api/admin/factions/trigger-freeze`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({}),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAdminTriggerFactionFreeze failed (${res.status})`);
+  return body;
+}
+
+/** Admin/mod: IPC integrity diagnostics for playable parties. */
+export async function apiAdminIpcIntegrityCheck() {
+  const res = await _fetch(`${API_BASE}/api/admin/ipc-integrity-check`, { credentials: "include" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAdminIpcIntegrityCheck failed (${res.status})`);
+  return body;
+}
+
 /** Admin/mod: replace faction allocations for one arena+party. */
 export async function apiPutOtherOfficialsFactionAllocations(payload) {
   const res = await _fetch(`${API_BASE}/api/admin/other-officials/faction-allocations`, {
@@ -3552,6 +3573,129 @@ export async function apiPutOtherOfficialsFactionAllocations(payload) {
   return body;
 }
 
+
+
+// ─── Internal Party Management (IPM) ───────────────────────────────────────
+
+export async function apiGetPartyInternalTickets(slug) {
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(slug)}/internal-tickets`, { credentials: "include" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiGetPartyInternalTickets failed (${res.status})`);
+  return body;
+}
+
+export async function apiCreatePartyInternalTicket(slug, payload) {
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(slug)}/internal-tickets`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload || {}),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiCreatePartyInternalTicket failed (${res.status})`);
+  return body;
+}
+
+export async function apiApproveOrRejectPartyInternalTicket(slug, id, action, note = "") {
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(slug)}/internal-tickets/${encodeURIComponent(id)}/approval`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ action, note }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiApproveOrRejectPartyInternalTicket failed (${res.status})`);
+  return body;
+}
+
+export async function apiDismissPartyInternalTicket(slug, id, note = "") {
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(slug)}/internal-tickets/${encodeURIComponent(id)}/dismiss`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ note }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiDismissPartyInternalTicket failed (${res.status})`);
+  return body;
+}
+
+export async function apiGetPartyInternalTicketMessages(slug, id) {
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(slug)}/internal-tickets/${encodeURIComponent(id)}/messages`, { credentials: "include" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiGetPartyInternalTicketMessages failed (${res.status})`);
+  return body;
+}
+
+export async function apiStaffListInternalTickets(filters = {}) {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters || {})) {
+    if (v !== undefined && v !== null && String(v).trim() !== "") q.set(k, String(v));
+  }
+  const res = await _fetch(`${API_BASE}/api/staff/internal-tickets${q.toString() ? `?${q.toString()}` : ""}`, { credentials: "include" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiStaffListInternalTickets failed (${res.status})`);
+  return body;
+}
+
+export async function apiStaffCreateInternalTicket(payload) {
+  const res = await _fetch(`${API_BASE}/api/staff/internal-tickets`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload || {}),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiStaffCreateInternalTicket failed (${res.status})`);
+  return body;
+}
+
+export async function apiStaffSetInternalTicketCosting(id, payload) {
+  const res = await _fetch(`${API_BASE}/api/staff/internal-tickets/${encodeURIComponent(id)}/costing`, {
+    method: "PUT", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload || {}),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiStaffSetInternalTicketCosting failed (${res.status})`);
+  return body;
+}
+
+export async function apiStaffSetInternalTicketOutcome(id, payload) {
+  const res = await _fetch(`${API_BASE}/api/staff/internal-tickets/${encodeURIComponent(id)}/outcome`, {
+    method: "PUT", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload || {}),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiStaffSetInternalTicketOutcome failed (${res.status})`);
+  return body;
+}
+
+export async function apiStaffCancelInternalTicket(id, reason = "") {
+  const res = await _fetch(`${API_BASE}/api/staff/internal-tickets/${encodeURIComponent(id)}/cancel`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ reason }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiStaffCancelInternalTicket failed (${res.status})`);
+  return body;
+}
+
+export async function apiStaffCreateInternalTicketMessage(id, payload) {
+  const res = await _fetch(`${API_BASE}/api/staff/internal-tickets/${encodeURIComponent(id)}/messages`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(payload || {}),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiStaffCreateInternalTicketMessage failed (${res.status})`);
+  return body;
+}
+
+export async function apiStaffGetInternalTicketMessages(id) {
+  const res = await _fetch(`${API_BASE}/api/staff/internal-tickets/${encodeURIComponent(id)}/messages`, { credentials: "include" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiStaffGetInternalTicketMessages failed (${res.status})`);
+  return body;
+}
 /** Fetch the active character's political capital state from the server. */
 export async function apiGetMyPoliticalState() {
   const res = await _fetch(`${API_BASE}/api/me/political-state`, { credentials: "include" });
