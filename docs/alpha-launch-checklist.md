@@ -232,6 +232,7 @@ Snapshots capture the **parliamentary content** stored in the JSONB `state_snaps
 3. **Rebuild Cache** (`POST /api/admin/rebuild-cache`) re-derives the five derived-cache tables from the current snapshot pointer. Use this only after a database incident, not as a routine operation.
 4. **Snapshot import** (`POST /api/admin/import-snapshot`) is production-disabled (`isDevSeedAllowed()` guard). Do not plan to use it in production.
 5. **Snapshot export** (`GET /api/admin/export-snapshot`) is admin-only and production-accessible. Use it to back up the current state blob before major changes.
+6. **Snapshot export hardening (alpha):** export requests are rate-limited per actor (default `12/minute` via `SNAPSHOT_EXPORT_RATE_LIMIT_MAX`) and emit structured `snapshot-export-audit` logs plus `audit_log` rows (`admin.export-snapshot.success|failed|rate-limited`).
 
 ### Snapshot checklist
 
@@ -437,7 +438,7 @@ These are not code blockers but should be handled before inviting alpha users.
 | Risk | Severity | Recommended action |
 |---|---|---|
 | `ENABLE_DEV_SEED` not set but `NODE_ENV` also not set — `isDevSeedAllowed()` returns `true` by default | **High** | Always set `NODE_ENV=production` on the production host. Never leave it unset. |
-| `GET /api/admin/export-snapshot` exposes full game state JSON with only admin-role protection | Medium | Consider rate-limiting or IP allowlisting for this endpoint in production. |
+| `GET /api/admin/export-snapshot` exposes full game state JSON to admins | Medium | Mitigated: per-actor export rate limit (default 12/min), structured export audit logs, and `audit_log` entries for success/failure/rate-limit events. Consider IP allowlisting for production if your threat model requires it. |
 | `POST /api/government/reset` and `/api/opposition/reset` are admin/mod-only but destructive to government formation state | Medium | Brief all moderators on when and why these endpoints should be used. |
 | Non-blocking recompute (`fireRecompute`) may cause short-lived stale reads immediately after a political-state mutation | Low | Acceptable for alpha. Log `[recompute]` error lines; investigate any `FAILED` entries promptly. |
 | Snapshot+relational dual-state model — rebuild/sync can drift if a database incident occurs mid-session | Medium | Create named snapshots before each session. Know the Neon point-in-time restore procedure. |

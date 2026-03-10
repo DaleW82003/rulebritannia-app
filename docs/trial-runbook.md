@@ -266,6 +266,16 @@ If the derived-cache tables become out of sync with the snapshot (e.g., after a 
 
 This rebuilds the five derived-cache tables from the current snapshot. It does not affect relational-authoritative tables.
 
+
+### Exporting a snapshot (operator backup)
+
+Use `GET /api/admin/export-snapshot` only from authenticated admin sessions. Operational hardening now applies:
+- Rate limit: per actor/session, default `12` exports per minute (`SNAPSHOT_EXPORT_RATE_LIMIT_MAX`).
+- Audit visibility: each attempt logs structured `snapshot-export-audit` details and writes `audit_log` events (`admin.export-snapshot.success|failed|rate-limited`).
+- Export payload includes lightweight metadata (`meta.exportType`, `meta.estimatedDataSizeBytes`) and still preserves the existing core schema (`exportedAt`, `snapshotId`, `label`, `createdAt`, `createdBy`, `data`).
+
+If a staff member sees HTTP `429`, wait for the next minute window and retry; this is expected abuse resistance, not a workflow failure.
+
 ---
 
 ## Rollback Procedures
