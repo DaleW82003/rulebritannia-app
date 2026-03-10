@@ -1711,12 +1711,26 @@ function render(data, state) {
       console.warn("[party-control-form] leader save failed:", err.message);
     }
 
-    // Persist treasury to DB (authoritative source)
+    // Persist treasury cash/debt first so a members cooldown conflict does not block
+    // cash/debt updates in the same save action.
     try {
-      await apiSetPartyTreasury(partyId, { cash: newCash, debt: newDebt, members: newMembers });
+      await apiSetPartyTreasury(partyId, { cash: newCash, debt: newDebt });
     } catch (err) {
       treasurySaveError = String(err?.message || "Treasury update failed.");
-      console.warn("[party-control-form] treasury save failed:", err.message);
+      console.warn("[party-control-form] treasury (cash/debt) save failed:", err.message);
+    }
+
+    const currentMembers = Number(dbParty?.treasury?.members ?? party.treasury?.members ?? 0);
+    if (newMembers !== currentMembers) {
+      try {
+        await apiSetPartyTreasury(partyId, { members: newMembers });
+      } catch (err) {
+        const membersMessage = String(err?.message || "Members update failed.");
+        treasurySaveError = treasurySaveError
+          ? `${treasurySaveError} Members: ${membersMessage}`
+          : `Members: ${membersMessage}`;
+        console.warn("[party-control-form] treasury (members) save failed:", err.message);
+      }
     }
 
     // Re-fetch party from DB to sync leader info and treasury (DB is authoritative)
