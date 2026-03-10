@@ -676,23 +676,23 @@ guides_items (
 
 **Server-side seeding (`server/guides-seed.js`):**
 
-`seedPredefinedGuides(pool)` is called automatically on startup as part of `ensureSchema()`. It inserts the 15 canonical onboarding guides if absent and corrects `sort_order` values to enforce stable ordering. The 15 predefined guide titles include:
+`seedPredefinedGuides(pool)` is called automatically on startup as part of `ensureSchema()`. It inserts the 15 canonical onboarding guides if absent and corrects `sort_order` values to enforce stable ordering. The 15 predefined guide titles are:
 
 1. Getting Started with a Character
-2. Your First Week in Parliament
-3. How Divisions Work
-4. Using the Faction System
-5. Press and Media Strategy
-6. How Political Capital Works
-7. The Civil Service System
-8. Cabinet and Shadow Cabinet
-9. Drafting Legislation
-10. Parliamentary Motions and EDMs
-11. Constituency Work
-12. Managing Party Finances
-13. The Scandal System
-14. Discourse Forum Guide
-15. Advanced Political Strategy
+2. What to do Day to Day
+3. How Parliament Works in RB
+4. How the Press Works in RB
+5. How Activities Work in RB (Events, Fundraisers, Online)
+6. Phase 1 Breakdown and Next Phases
+7. Staff in RB
+8. Polling
+9. Elections
+10. Economy
+11. Political Capital
+12. Political Pressure
+13. Political Parties (and Their Factions)
+14. Party Shop and Modifiers
+15. MP Shop and Modifiers
 
 Staff can add, edit, and reorder guides via Control Panel → Guides. Guides are displayed as collapsible panels on `guides.html`.
 
@@ -721,7 +721,174 @@ This system gives the civil service (staff) a mechanism to inject structured pol
 
 ---
 
-## 18. Simulation Constraints
+## 18. Scandal System
+
+### What scandals are
+
+The scandal system lets staff inject personalised political risk events into individual characters' stories. Players who opt in signal that they are comfortable receiving scandal situations.
+
+### Lifecycle
+
+1. **Templates** — staff (mod) create `scandal_templates` defining the category (financial, personal, political, professional), severity base, time window (months the player has to respond), and a set of named stages, each with branching choice options.
+2. **Situations** — mods create a `scandal_situation` for a specific character from an existing template. The situation records a title override, expiry sim date, and open/closed status.
+3. **Opt-in** — characters register their consent via `POST /api/scandals/optin`. Their `scandal_opt_in` record is updated; this is displayed to mods when selecting targets.
+4. **Escalation** — mods trigger a live `scandal` from the situation. The scandal advances through configurable stages; at each stage the player may choose a response option via `POST /api/scandals/:id/choose`.
+5. **Mod decision** — after the player's choice (or after the time window expires), the mod records a decision via `POST /api/mod/scandals/:id/decision`, with notes and a severity adjustment.
+6. **Closure** — the mod closes the scandal via `POST /api/mod/scandals/:id/close`. A major resolved scandal (severity > 3) applies a permanent −15 political capital penalty via the next `recomputeCharacterPoliticalState()` call. An active scandal applies a −10 per-scan penalty.
+
+### Scandal tables
+
+| Table | Purpose |
+|---|---|
+| `scandal_templates` | Reusable templates: category, severity_base, stages (JSONB) |
+| `scandal_situations` | Pending situation for a character (pre-escalation) |
+| `scandals` | Live or closed scandal with current stage, severity, status, flags |
+| `scandal_player_choices` | Immutable record of each player response per stage |
+| `scandal_mod_decisions` | Immutable record of each mod decision |
+
+---
+
+## 19. Shop System
+
+### Purpose
+
+The Shop system provides a strategic purchasing layer for both parties (Party Shop) and individual characters (MP/Character Shop). Purchases grant timed political modifiers — buffs and capabilities that amplify well-executed activity without replacing genuine gameplay.
+
+### Party Shop
+
+- **Route:** `GET/POST/DELETE /api/parties/:partyId/shop-purchases`
+- **Table:** `party_shop_purchases`
+- Each purchase has a type, cost (deducted from party treasury), and an optional expiry in sim months.
+- Staff can configure available items and their prices via the admin panel.
+- Party leaders and chief whips may make purchases on behalf of the party.
+
+### MP/Character Shop
+
+- **Route:** `GET/POST/DELETE/sell/dismiss /api/me/character/shop-purchases`
+- **Table:** `character_shop_purchases`
+- Each purchase is deducted from the character's bank balance.
+- Characters may sell back items for a partial refund or dismiss expired items.
+
+### Price index
+
+- **Table:** `shop_price_index` — a single `main` row tracking `price_index` (float) and `last_applied_sim_month`/`sim_year`.
+- **`POST /api/shop/apply-inflation`** (admin/mod) — increases the price index by a step, tying shop costs to the in-simulation economic cycle.
+- **`POST /api/finance/shop-upkeep`** — periodic upkeep cost applied to active character purchases.
+
+---
+
+## 20. News and Papers
+
+### News
+
+The News system (`news.html`) is a staff-authored feed of in-simulation news items.
+
+- **Routes:** `GET/POST/PATCH/DELETE /api/news`, `GET/POST/DELETE /api/news/:id/comments`
+- **Reply requests:** players can request the right to reply to a news item (`POST /api/news/:id/reply-request`); staff approve or deny (`PATCH /api/news/:id/reply-requests/:rid`).
+- **Moderation:** staff can delete comments. `POST /api/news/:id/comments/:cid/report` sends a report to moderation.
+- **Tables:** `news_items`, `news_comments`, `news_reply_requests`
+
+### Papers
+
+Papers (`papers.html`) are in-simulation newspapers, each with a `key` identifier (e.g., `times`, `guardian`, `sun`). Players and staff can engage with them through articles, comments, and submissions.
+
+- **Articles:** staff publish articles for each paper (`POST/PATCH/DELETE /api/papers/:key/articles`).
+- **Comments:** authenticated players add comments to articles (`POST /api/papers/:paperKey/articles/:articleId/comments`).
+- **Submissions:** players submit article pitches (`POST /api/papers/submissions`). Staff manage submissions (approve/reject/edit) via `PATCH /api/papers/submissions/:id`. Approved submissions can be promoted to full articles.
+- **Tables:** `paper_articles`, `paper_article_comments`, `paper_submissions`
+
+---
+
+## 21. Red Lion, Events, Fundraising, and Online Activities
+
+### Red Lion
+
+The Red Lion (`redlion.html`) is an in-character social channel for informal posts between players. It models the informal political networking that happens in the parliamentary equivalent of a pub.
+
+- Any authenticated player may post.
+- Admin/mod may delete any post.
+- **Route:** `GET/POST /api/redlion`, `DELETE /api/redlion/:id`
+- **Table:** `red_lion_posts` (JSONB data column)
+
+### Events
+
+The Events system (`events.html`) allows players to log in-game events — town halls, party meetings, press events, and other player-organised activities.
+
+- **Route:** `GET/POST/PUT/DELETE /api/events`
+- **Table:** `game_events` (JSONB data column)
+
+### Fundraising
+
+The Fundraising system (`fundraising.html`) lets players record fundraising activities and credit the proceeds to a party treasury or character balance.
+
+- **Route:** `GET/POST/PUT/DELETE /api/fundraising`, `POST /api/fundraising/:id/credit-party`, `POST /api/fundraising/:id/credit-character`
+- **Idempotent credit:** crediting a party or character a second time for the same fundraiser returns `alreadyCredited: true` without double-applying.
+- **Table:** `fundraising_entries`; credits logged in `party_donations` with `source_type='fundraising'`
+
+### Online Activities
+
+The Online system (`online.html`) lets players log online campaigns, social media pushes, and digital outreach activities.
+
+- **Route:** `GET/POST/DELETE /api/online`, `PATCH /api/online/:id`, `PATCH /api/online/settings`
+- **Player settings:** `online_settings` per character (preferred platforms, strategy notes).
+- **Table:** `online_entries`, `online_settings`
+
+---
+
+## 22. Privy Council
+
+The Privy Council is a formal constitutional body. In the simulation, mods appoint characters as Privy Counsellors. On appointment the character gains the post-nominal "PC". This is a lifetime appointment and cannot be revoked under normal circumstances.
+
+- **`POST /api/mod/privy-council/appoint`** — appoint a character (mod only).
+- **`POST /api/mod/privy-council/remove`** — remove a character (mod only).
+- **`GET /api/privy-council`** — list all members.
+- **`GET/POST/DELETE /api/privy-council/posts`** — Privy Council members and staff can post to a dedicated channel.
+- **Table:** `privy_council_members`
+
+---
+
+## 23. Work Plan and Constituency Work
+
+### Work Plan
+
+Characters submit a weekly work-plan allocating their time across parliamentary activities, party work, media, and constituency. The plan is stored in `character_work_plans`.
+
+- **`GET /api/me/work-plan`** — retrieve active character's current plan.
+- **`POST /api/me/work-plan`** — upsert the work plan (hours object + optional second job title).
+- A plan submitted within the last 3 simulation months adds +5 to political capital. A stale or absent plan increases constituency pressure.
+
+### Constituency Work
+
+Constituency work activities are logged from `constituency-work.html`. Each entry records what the character did in their constituency (surgeries, visits, campaigns). This feeds the constituency pressure component of political-state recompute.
+
+---
+
+## 24. Internal Party Management (IPM) Tickets
+
+IPM tickets are a structured workflow allowing party leadership to request staff adjudication of internal party decisions (e.g., policy positions, spending approvals, disciplinary matters).
+
+- **Creator roles:** only a party's leader, chief whip, or chairman may create player-origin tickets.
+- **Visibility:** party-side tickets are filtered by the viewer's role (leader sees all; backbencher sees none).
+- **Staff management:** `GET/POST /api/staff/internal-tickets`, `PUT /api/staff/internal-tickets/:id/costing`, `PUT /api/staff/internal-tickets/:id/outcome`, `POST /api/staff/internal-tickets/:id/cancel`.
+- **Messages:** per-ticket message threads on both sides.
+- **Table:** `party_internal_tickets`, `party_internal_ticket_messages`
+
+---
+
+## 25. Rules System
+
+The Rules system provides staff with a CMS for the game's rules and policies, displayed to all authenticated players on `rules.html`.
+
+- **`GET /api/rules`** — list all rules items (authenticated).
+- **`POST /api/rules`** — create a rule (admin/mod only).
+- **`PATCH /api/rules/:id`** — edit a rule (admin/mod only).
+- **`DELETE /api/rules/:id`** — delete a rule (admin/mod only).
+- **Table:** `rules_items` (same schema pattern as `guides_items`)
+- **UI:** collapsible panels using the same component pattern as the Guides page.
+
+---
+
+## 26. Simulation Constraints
 
 The following limitations apply to the current implementation.
 
@@ -751,7 +918,7 @@ Only the House of Commons participates in divisions.
 
 ---
 
-## 19. Planned Simulation Extensions
+## 27. Planned Simulation Extensions
 
 The following extensions are planned or natural candidates for the next development phase:
 
