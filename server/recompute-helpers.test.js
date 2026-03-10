@@ -9,7 +9,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fireRecompute, awaitedRecompute } from "./recompute-helpers.js";
+import { fireRecompute, awaitedRecompute, createRecomputeContext, buildRecomputeResponseMetadata } from "./recompute-helpers.js";
 
 // ── log capture utilities ─────────────────────────────────────────────────────
 
@@ -309,6 +309,71 @@ test("awaitedRecompute: entity= is absent when entityId is omitted", async () =>
     const okLine    = cap.logs.find((l) => l.includes("[recompute] ok"));
     assert.ok(!startLine?.includes("entity="), "entity= should not appear without entityId");
     assert.ok(!okLine?.includes("entity="),    "entity= should not appear without entityId");
+  } finally {
+    cap.restore();
+  }
+});
+
+
+// ── context + response metadata helpers ─────────────────────────────────────
+
+test("createRecomputeContext: normalises stable trigger/type/target fields", () => {
+  const ctx = createRecomputeContext({
+    recomputeType: "character-political-state",
+    triggerSource: "division.vote",
+    targetScope: "character",
+    targetId: 42,
+    executionMode: "async",
+  });
+  assert.deepEqual(ctx, {
+    recomputeType: "character-political-state",
+    triggerSource: "division.vote",
+    targetScope: "character",
+    targetId: "42",
+    executionMode: "async",
+  });
+});
+
+test("buildRecomputeResponseMetadata: returns stable metadata shape", () => {
+  const meta = buildRecomputeResponseMetadata(
+    createRecomputeContext({
+      recomputeType: "faction-political-state",
+      triggerSource: "admin.factions.patch",
+      targetScope: "faction",
+      targetId: "f-1",
+      executionMode: "scheduled-freeze",
+    }),
+    {
+      status: "deferred",
+      staleReadWindow: "until-next-freeze",
+      note: "Derived stats publish on freeze.",
+    }
+  );
+  assert.deepEqual(meta, {
+    type: "faction-political-state",
+    triggerSource: "admin.factions.patch",
+    target: { scope: "faction", id: "f-1" },
+    executionMode: "scheduled-freeze",
+    status: "deferred",
+    staleReadWindow: "until-next-freeze",
+    note: "Derived stats publish on freeze.",
+  });
+});
+
+test("fireRecompute: object target includes target_scope and target_id in logs", async () => {
+  const cap = captureConsoleLogs();
+  try {
+    await new Promise((resolve) => {
+      fireRecompute("char-state", "test.object-target", () => Promise.resolve(), { scope: "character", id: "char-123" });
+      setImmediate(resolve);
+    });
+    await new Promise((r) => setImmediate(r));
+    const startLine = cap.logs.find((l) => l.includes("[recompute] start"));
+    const okLine = cap.logs.find((l) => l.includes("[recompute] ok"));
+    assert.ok(startLine?.includes("target_scope=character"));
+    assert.ok(startLine?.includes("target_id=char-123"));
+    assert.ok(okLine?.includes("target_scope=character"));
+    assert.ok(okLine?.includes("target_id=char-123"));
   } finally {
     cap.restore();
   }

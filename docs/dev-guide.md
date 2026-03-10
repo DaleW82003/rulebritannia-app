@@ -1108,13 +1108,19 @@ Character political state (`character_political_state`) is computed on-demand by
 - Rebel request submitted or decided
 - Constituency work plan updated
 
-**Important:** All calls are non-blocking (`.catch()` wrapped):
-```javascript
-recomputeCharacterPoliticalState(charId).catch(e => console.error("[political-state]", e.message));
-```
-This means the response to the triggering API call is returned **before** the recompute completes. If you need freshly computed political state, issue a separate `GET /api/characters/:id` request after the mutation resolves.
+**Important:** most mutation-triggered calls are intentionally non-blocking (fire-and-forget). The response to the mutation may return before recompute completes, so a follow-up read can briefly show the prior derived values.
 
-**Adding a new recompute trigger:** When adding a route that changes data used in political-state computation, call `recomputeCharacterPoliticalState()` at the end of the handler using the fire-and-forget pattern above.
+The server now standardises these recompute fields via `server/recompute-helpers.js`:
+- `type` (e.g. `character-political-state`, `faction-political-state`)
+- `triggerSource` (e.g. `division.vote`, `admin.factions.allocation.patch`)
+- `target.scope` / `target.id`
+- `executionMode` (`async` or `scheduled-freeze`)
+- `status` (`queued` or `deferred`)
+- `staleReadWindow` (`brief` or `until-next-freeze`)
+
+For user/staff clarity, selected mutation routes now return `recompute` metadata and selected read routes return `recomputeRead` metadata. Treat this as transparency metadata only — it does **not** change recompute semantics.
+
+**Adding a new recompute trigger:** when adding a route that mutates data feeding derived values, call `fireRecompute(...)` (or `awaitedRecompute(...)` when semantically required), and include stable trigger/target context in logs and response metadata.
 
 ---
 

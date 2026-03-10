@@ -100,7 +100,7 @@ Run these manually before or during a trial to verify key paths are working.
 3. Edit a faction's MP count or influence bonus.
 4. Verify `faction_political_state` is updated for that faction (check Admin Panel or via API: `GET /api/parties/:slug/factions`).
 
-**Expected:** Faction state recomputes on save. Party climate score updates accordingly.
+**Expected:** Allocation/metadata saves return immediately with `pendingFreeze` / recompute metadata. Derived faction stats (`internal_power`, `cohesion`, `leadership_pressure`) and some climate-facing reads may remain on last freeze output until Sunday freeze or manual `POST /api/admin/factions/trigger-freeze`.
 
 ### Political-state update
 
@@ -192,7 +192,7 @@ Check this before each session to ensure no stale divisions are blocking gamepla
 ### Server logs (Render)
 
 Access server logs via the Render dashboard → Service → Logs. Look for:
-- `[political-state]` error lines — indicate a recompute failure (non-fatal but worth noting)
+- `[recompute]` lines — structured recompute lifecycle logs (`start`, `ok`, `FAILED`) with `type`, `trigger`, and target fields. Use these to confirm whether a stale read window is expected (queued/deferred) or a recompute failed.
 - `[discourse]` error lines — indicate a Discourse API failure
 - `500` responses — indicate unhandled server errors
 
