@@ -579,7 +579,6 @@ async function ensureSchema() {
   // Add columns to existing bills table if missing (migration)
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
-  await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
 
   // Bill amendments — server-authoritative tracking of amendments per bill
   await pool.query(`
@@ -680,7 +679,6 @@ async function ensureSchema() {
   `);
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
-  await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS regulations_updated_idx ON regulations (updated_at DESC)`);
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
 
@@ -745,6 +743,10 @@ async function ensureSchema() {
     ALTER TABLE characters ADD COLUMN IF NOT EXISTS absent BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE characters ADD COLUMN IF NOT EXISTS delegated_to TEXT;
   `);
+
+  // Add character FK columns to bills/regulations now that characters table exists
+  await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
 
   // ── Offices & Assignments ─────────────────────────────────────────────────
   await pool.query(`
@@ -932,7 +934,7 @@ async function ensureSchema() {
           CHECK (
             press_type = 'comment'
             OR (reference_code IS NOT NULL AND reference_kind IS NOT NULL AND reference_prefix IS NOT NULL AND reference_serial IS NOT NULL)
-          );
+          ) NOT VALID;
       END IF;
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'press_items_author_required_check') THEN
         ALTER TABLE press_items
@@ -940,7 +942,7 @@ async function ensureSchema() {
           CHECK (
             (COALESCE((data->>'npcAuthor')::boolean, false) = true AND author_character_id IS NULL)
             OR (COALESCE((data->>'npcAuthor')::boolean, false) = false AND author_character_id IS NOT NULL)
-          );
+          ) NOT VALID;
       END IF;
     END $$;
   `);

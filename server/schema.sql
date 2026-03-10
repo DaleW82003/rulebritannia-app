@@ -105,7 +105,7 @@ BEGIN
       CHECK (
         press_type = 'comment'
         OR (reference_code IS NOT NULL AND reference_kind IS NOT NULL AND reference_prefix IS NOT NULL AND reference_serial IS NOT NULL)
-      );
+      ) NOT VALID;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'press_items_author_required_check') THEN
     ALTER TABLE press_items
@@ -113,7 +113,7 @@ BEGIN
       CHECK (
         (COALESCE((data->>'npcAuthor')::boolean, false) = true AND author_character_id IS NULL)
         OR (COALESCE((data->>'npcAuthor')::boolean, false) = false AND author_character_id IS NOT NULL)
-      );
+      ) NOT VALID;
   END IF;
 END $$;
 
