@@ -1034,7 +1034,8 @@ export async function initControlPanelPage(data) {
     async function loadAbsenceLog() {
       if (absencePanel) absencePanel.innerHTML = '<div class="muted-block">Loading…</div>';
       try {
-        const params = { limit: 200 };
+        const DEFAULT_ABSENCE_LOG_LIMIT = 200;
+        const params = { limit: DEFAULT_ABSENCE_LOG_LIMIT };
         if (filterParty?.value?.trim())  params.party         = filterParty.value.trim();
         if (filterChar?.value?.trim())   params.characterName = filterChar.value.trim();
         const { entries, currentAbsent } = await apiGetAbsenceLog(params);

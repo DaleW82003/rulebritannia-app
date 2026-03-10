@@ -9634,19 +9634,9 @@ app.patch("/api/me/absent", charWriteLimit, async (req, res) => {
       [newAbsent, resolvedDelegatedTo, charId]
     );
 
-    // Determine human-readable action label for the log
-    let actionLabel;
-    if (newAbsent && resolvedDelegatedTo) {
-      actionLabel = "absence.updated"; // set absent with valid delegation
-    } else if (newAbsent) {
-      actionLabel = "absence.updated"; // set absent (no delegation or invalid delegation cleared)
-    } else {
-      actionLabel = "absence.updated"; // returned active
-    }
-
     await writeAuditLog(
       req.session.userId,
-      actionLabel,
+      "absence.updated",
       "absence",
       charId,
       { absent: char.old_absent, delegatedTo: char.old_delegated_to },
