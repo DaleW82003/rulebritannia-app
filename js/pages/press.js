@@ -7,16 +7,6 @@ import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry, apiMa
 import { getCharacterContext } from "../engines/core-engine.js";
 import { requireLoginForWrite, isLoggedIn } from "../core.js";
 
-const PARTY_CODES = {
-  Conservative: "CON",
-  Labour: "LAB",
-  "Liberal Democrat": "LDM"
-};
-
-const GOV_OFFICES = new Set([
-  "prime-minister", "leader-commons", "chancellor", "home", "foreign", "trade", "defence",
-  "welfare", "education", "env-agri", "health", "eti", "culture", "home-nations"
-]);
 
 /** NPC office keys available for privileged users when issuing official letters. */
 const NPC_OFFICES = {
@@ -159,22 +149,26 @@ function conferenceStatusChip(c, data) {
 }
 
 function surname(name) {
-  const parts = String(name || "MP").trim().split(/\s+/);
-  return parts.length > 1 ? parts[parts.length - 2] || parts[parts.length - 1] : parts[0] || "MP";
-}
-
-function isGovernment(char) {
-  return GOV_OFFICES.has(char?.office);
+  const parts = String(name || "MP").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "MP";
+  const last = parts[parts.length - 1];
+  if (/^(MP|PC|QC|KC|Rt|Hon|The|Right|Honourable)$/i.test(last) && parts.length > 1) {
+    return parts[parts.length - 2];
+  }
+  return last;
 }
 
 function makePrefix(char, kind) {
-  const role = char?.role;
-  if (char?.office === "prime-minister") return "PM";
-  if (role === "leader-opposition" || role === "party-leader-3rd-4th") {
-    return PARTY_CODES[char?.party] || (char?.party || "PARTY").slice(0, 3).toUpperCase();
-  }
-  if (isGovernment(char)) return "GOV";
   return surname(char?.display_name || char?.name || "MP");
+}
+
+function sortChronological(items) {
+  return (items || []).slice().sort((a, b) => {
+    const aTs = Date.parse(a?.createdAt || a?.created_at || a?.updated_at || "") || 0;
+    const bTs = Date.parse(b?.createdAt || b?.created_at || b?.updated_at || "") || 0;
+    if (aTs !== bTs) return aTs - bTs;
+    return String(a?.reference || "").localeCompare(String(b?.reference || ""), undefined, { numeric: true, sensitivity: "base" });
+  });
 }
 
 function nextSerial(data, kind, prefix) {
@@ -326,11 +320,11 @@ function render(data, state) {
   const weekday = getWeekdayName();
   const markToday = canMarkToday(data);
 
-  const releases = data.press.releases.slice().reverse();
-  const conferences = data.press.conferences.slice().reverse();
-  const comments = data.press.comments.slice().reverse();
-  const speeches = data.press.speeches.slice().reverse();
-  const letters = data.press.letters.slice().reverse();
+  const releases = sortChronological(data.press.releases);
+  const conferences = sortChronological(data.press.conferences);
+  const comments = sortChronological(data.press.comments);
+  const speeches = sortChronological(data.press.speeches);
+  const letters = sortChronological(data.press.letters);
 
   root.innerHTML = `
     <section class="tile" style="margin-bottom:12px;">
@@ -648,7 +642,7 @@ function render(data, state) {
     const serial = nextSerial(data, "PR", prefix);
     const item = {
       id: `press-${Date.now()}-${data.press.nextId++}`,
-      reference: `${prefix} PR ${serial}`,
+      reference: `${prefix} PR${serial}`,
       subject,
       body,
       author: char?.display_name || char?.name || "MP",
@@ -710,7 +704,7 @@ function render(data, state) {
     const id = `press-${Date.now()}-${data.press.nextId++}`;
     const item = {
       id,
-      reference: `${prefix} PC ${serial}`,
+      reference: `${prefix} PC${serial}`,
       subject,
       body,
       author: char?.display_name || char?.name || "MP",
@@ -985,7 +979,7 @@ function render(data, state) {
     const serial = nextSerial(data, "SP", prefix);
     const item = {
       id: `press-${Date.now()}-${data.press.nextId++}`,
-      reference: `${prefix} SP ${serial}`,
+      reference: `${prefix} SP${serial}`,
       title,
       audience,
       topOfSpeech,

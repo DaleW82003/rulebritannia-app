@@ -74,8 +74,17 @@ function showBootError(err) {
   document.body.prepend(msg);
 }
 
+function isIgnorableRuntimeNoise(reason) {
+  const text = String(reason?.message || reason || "");
+  return text.includes("No Listener: tabs:outgoing.message.ready");
+}
+
 // Global safety net: any unhandled promise rejection across all pages fires a toast.
 window.addEventListener("unhandledrejection", (event) => {
+  if (isIgnorableRuntimeNoise(event.reason)) {
+    event.preventDefault();
+    return;
+  }
   handleApiError(event.reason, "Unexpected error");
   event.preventDefault(); // suppress duplicate browser console warning
 });

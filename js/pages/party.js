@@ -1,4 +1,4 @@
-import { esc } from "../ui.js";
+import { esc, affiliationBadge } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { parseDraftingForm, renderDraftingBuilder, wireDraftingBuilder } from "../bill-drafting.js";
 import { apiGetParty, apiSetPartyLeader, apiSetPartyLeadership, apiSetChiefWhip, apiGetCharacters, apiGetMyCharacters, apiGetShopPriceIndex, apiGetPartyStructure, apiSavePartyStructure, apiSetPartyTreasury, apiSetPartyMembershipFee, apiGetPartyLedger, apiAddPartyDonation, apiAddPartyShopPurchase, apiRemovePartyShopPurchase, apiSellPartyShopPurchase, apiDismissPartyShopPurchase, apiSavePartyDrafts, apiWithdrawWhip, apiRestoreWhip, apiGetWhipRequests, apiApproveWhipRequest, apiDenyWhipRequest, apiRequestExpulsion, apiGetExpulsions, apiApproveExpulsion, apiDenyExpulsion, apiGetPartyElections, apiStartPartyElection, apiNominateForElection, apiVoteInElection, apiOpenElectionVoting, apiCloseElection, apiRunoffElection, apiGetPartyFactions, apiGetPartyFactionClimate, apiGetPartyInternalTickets, apiCreatePartyInternalTicket, apiApproveOrRejectPartyInternalTicket, apiDismissPartyInternalTicket, apiGetPartyInternalTicketMessages, apiStaffListInternalTickets, apiStaffSetInternalTicketCosting, apiStaffSetInternalTicketOutcome, apiStaffCreateInternalTicketMessage, apiStaffCancelInternalTicket, apiStaffCreateInternalTicket, apiStaffGetInternalTicketMessages } from "../api.js";
@@ -593,6 +593,7 @@ function render(data, state) {
       </section>
     ` : ""}
 
+    ${canManageWhip ? `
     <section class="panel" style="margin-bottom:12px;" id="whip-section">
       <h2 style="margin-top:0;">Parliamentary Whip Status</h2>
       ${partyCharacters.length ? `
@@ -644,7 +645,9 @@ function render(data, state) {
         </div>` : ""}
       ` : `<div class="muted-block">No party members found.</div>`}
     </section>
+    ` : ""}
 
+    ${(canAssignLeadership || manager) ? `
     <section class="panel" style="margin-bottom:12px;" id="expulsion-section">
       <h2 style="margin-top:0;">Expulsion Requests</h2>
       ${(canAssignLeadership && partyCharacters.length) ? `
@@ -685,6 +688,7 @@ function render(data, state) {
       ` : ""}
       ${state.expulsionMessage ? `<p class="muted" style="margin-top:6px;">${esc(state.expulsionMessage)}</p>` : ""}
     </section>
+    ` : ""}
 
     <section class="panel" style="margin-bottom:12px;" id="elections-section">
       <h2 style="margin-top:0;">Party Leader Election</h2>
@@ -811,6 +815,7 @@ function render(data, state) {
             </div>
           </div>
           <button type="submit" class="btn">Save Party Settings</button>
+          ${state.controlMessage ? `<p class="muted" style="margin-top:8px;">${esc(state.controlMessage)}</p>` : ""}
         </form>
       </section>
     ` : ""}
@@ -1110,6 +1115,7 @@ function render(data, state) {
               <th style="text-align:right;padding:6px;">Cohesion</th>
               <th style="text-align:right;padding:6px;">Leadership pressure</th>
               ` : ""}
+              ${!showDerivedStats ? `<th style="text-align:right;padding:6px;">Allocated MPs</th>` : ""}
               <th style="text-align:right;padding:6px;">Members (active characters)</th>
               ${showNpcSlots ? `<th style="text-align:right;padding:6px;" title="Allocated MPs minus active MP members">NPC slots</th>` : ""}
               ${showNpcCol ? `<th style="text-align:right;padding:6px;">NPCs (active)</th>` : ""}
@@ -1126,7 +1132,7 @@ function render(data, state) {
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.internalPower ?? 0))}</td>
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.cohesion ?? 0))}</td>
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.leadershipPressure ?? 0))}</td>
-                ` : ""}
+                ` : `<td style="padding:6px;text-align:right;">${Math.round(Number(f.mpCount ?? 0))}</td>`}
                 <td style="padding:6px;text-align:right;">${Math.round(Number(f.memberCharacterCountActive ?? 0))}</td>
                 ${showNpcSlots ? `<td style="padding:6px;text-align:right;">${Math.round(Number(f.npcSlots ?? 0))}</td>` : ""}
                 ${showNpcCol ? `<td style="padding:6px;text-align:right;">${Math.round(Number(f.memberNpcCountActive ?? 0))}</td>` : ""}
@@ -1559,14 +1565,13 @@ function render(data, state) {
     state.openDraftId = null;
     state.feeMessage = "";
     state.donationMessage = "";
+    state.controlMessage = "";
     // Reload DB party data for the newly selected party
     try {
       const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult, climateResultBase, ipmResult] = await Promise.all([
         apiGetParty(next).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
         apiGetPartyStructure(next).catch(() => ({ structure: {}, treasuryOverspend: false })),
-        apiGetPartyLedger(next).catch(() => ({ donations: [] })),
-        apiGetWhipRequests(next, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(next).catch(() => ({ factions: [] })),
         apiGetPartyFactionClimate(next).catch(() => ({ climate: null, viewerRole: "member" })),
         apiGetPartyInternalTickets(next).catch(() => ({ tickets: [], viewerRole: "member" })),
@@ -1698,18 +1703,37 @@ function render(data, state) {
 
     const partyId = state.activeParty;
 
+    let leaderSaveError = "";
+    let treasurySaveError = "";
+
     // Persist party leader to DB (admin/mod only, authoritative source)
     try {
       await apiSetPartyLeader(partyId, leaderId || null);
     } catch (err) {
+      leaderSaveError = String(err?.message || "Leader update failed.");
       console.warn("[party-control-form] leader save failed:", err.message);
     }
 
-    // Persist treasury to DB (authoritative source)
+    // Persist treasury cash/debt first so a members cooldown conflict does not block
+    // cash/debt updates in the same save action.
     try {
-      await apiSetPartyTreasury(partyId, { cash: newCash, debt: newDebt, members: newMembers });
+      await apiSetPartyTreasury(partyId, { cash: newCash, debt: newDebt });
     } catch (err) {
-      console.warn("[party-control-form] treasury save failed:", err.message);
+      treasurySaveError = String(err?.message || "Treasury update failed.");
+      console.warn("[party-control-form] treasury (cash/debt) save failed:", err.message);
+    }
+
+    const currentMembers = Number(dbParty?.treasury?.members ?? party.treasury?.members ?? 0);
+    if (newMembers !== currentMembers) {
+      try {
+        await apiSetPartyTreasury(partyId, { members: newMembers });
+      } catch (err) {
+        const membersMessage = String(err?.message || "Members update failed.");
+        treasurySaveError = treasurySaveError
+          ? `${treasurySaveError} Members: ${membersMessage}`
+          : `Members: ${membersMessage}`;
+        console.warn("[party-control-form] treasury (members) save failed:", err.message);
+      }
     }
 
     // Re-fetch party from DB to sync leader info and treasury (DB is authoritative)
@@ -1738,6 +1762,12 @@ function render(data, state) {
       party.treasury.cash    = newCash;
       party.treasury.debt    = newDebt;
       party.treasury.members = newMembers;
+    }
+
+    if (leaderSaveError || treasurySaveError) {
+      state.controlMessage = `Saved with warnings.${leaderSaveError ? ` Leader: ${leaderSaveError}` : ""}${treasurySaveError ? ` Treasury: ${treasurySaveError}` : ""}`;
+    } else {
+      state.controlMessage = "Party settings saved.";
     }
 
     render(data, state);
@@ -2314,6 +2344,7 @@ export async function initPartyPage(data) {
     structureMessage: "",
     feeMessage: "",
     donationMessage: "",
+    controlMessage: "",
     whipMessage: "",
     expulsionMessage: "",
     electionMessage: "",
@@ -2396,8 +2427,6 @@ export async function initPartyPage(data) {
       // Load governance data: elections, pending expulsions, whip requests, and factions
       const [electionsResult, expulsionsResult, whipReqResult, factionsResult, climateResultBase, ipmResult] = await Promise.all([
         apiGetPartyElections(partyId).catch(() => ({ elections: [] })),
-        apiGetExpulsions("pending").catch(() => ({ expulsions: [] })),
-        apiGetWhipRequests(partyId, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(partyId).catch(() => ({ factions: [] })),
         apiGetPartyFactionClimate(partyId).catch(() => ({ climate: null, viewerRole: "member" })),
         apiGetPartyInternalTickets(partyId).catch(() => ({ tickets: [], viewerRole: "member" })),
