@@ -123,15 +123,17 @@ function render(data) {
 
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
+    let persisted = null;
     try {
-      await apiCreateRedLionPost(post);
+      const resp = await apiCreateRedLionPost(post);
+      persisted = resp?.post || null;
     } catch (err) {
       handleApiError(err, "Post to Red Lion");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
 
-    data.redLion.posts.push(post);
+    data.redLion.posts.push(persisted || post);
     data.redLion.nextId += 1;
     render(data);
   });

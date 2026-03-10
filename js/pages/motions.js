@@ -244,8 +244,10 @@ export async function initMotionsPage(data) {
       division: { status: "pending", startSim: formatSimDate(debateEndObj), endSim: formatSimDate(divisionEndObj), endSimObj: divisionEndObj, votes: {}, rebelsByParty: {}, npcVotes: {} }
     };
 
+    let persistedMotion = null;
     try {
-      await apiCreateMotion("house", motion);
+      const resp = await apiCreateMotion("house", motion);
+      persistedMotion = resp?.motion || null;
     } catch (err) {
       console.error("[motions] Failed to persist house motion to DB:", err);
       handleApiError(err, "Submit motion");
@@ -253,20 +255,21 @@ export async function initMotionsPage(data) {
       return;
     }
 
-    data.motions.house.push(motion);
+    const createdMotion = persistedMotion || motion;
+    data.motions.house.push(createdMotion);
     data.motions.nextHouseNumber = number + 1;
     apiCreateDebateTopic({
-      entityType: "motion", entityId: id,
+      entityType: "motion", entityId: createdMotion.id,
       title: `Motion ${number}: ${title}`,
-      raw: `**That this House** ${body}\n\n*Submitted by ${motion.author}.*`,
+      raw: `**That this House** ${body}\n\n*Submitted by ${createdMotion.author}.*`,
       categoryId: 9
     }).then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after motion submit; outer .catch() handles failures
-      motion.debate = { ...motion.debate, topicId, topicUrl };
-      motion.discourseTopicId = topicId;
-      motion.discourse_topic_id = topicId;
-      motion.discourse_topic_url = topicUrl;
+      createdMotion.debate = { ...createdMotion.debate, topicId, topicUrl };
+      createdMotion.discourseTopicId = topicId;
+      createdMotion.discourse_topic_id = topicId;
+      createdMotion.discourse_topic_url = topicUrl;
     }).catch((err) => handleApiError(err, "Debate topic")); // UI_ONLY_OK: terminal error handler for the Discourse topic creation chain
-    window.location.href = `motion.html?kind=house&id=${encodeURIComponent(id)}`;
+    window.location.href = `motion.html?kind=house&id=${encodeURIComponent(createdMotion.id)}`;
   });
 
   root.querySelector("#edm-form")?.addEventListener("submit", async (e) => {
@@ -312,8 +315,10 @@ export async function initMotionsPage(data) {
       npcSignatures: {}
     };
 
+    let persistedEdm = null;
     try {
-      await apiCreateMotion("edm", edm);
+      const resp = await apiCreateMotion("edm", edm);
+      persistedEdm = resp?.motion || null;
     } catch (err) {
       console.error("[motions] Failed to persist EDM to DB:", err);
       handleApiError(err, "Submit EDM");
@@ -321,9 +326,10 @@ export async function initMotionsPage(data) {
       return;
     }
 
-    data.motions.edm.push(edm);
+    const createdEdm = persistedEdm || edm;
+    data.motions.edm.push(createdEdm);
     data.motions.nextEdmNumber = number + 1;
-    window.location.href = `motion.html?kind=edm&id=${encodeURIComponent(id)}`;
+    window.location.href = `motion.html?kind=edm&id=${encodeURIComponent(createdEdm.id)}`;
   });
 
   root.querySelectorAll("[data-action='delete-motion']").forEach((btn) => {

@@ -194,13 +194,15 @@ function render(data) {
       createdTs: Date.now()
     };
 
-    data.polling.polls.push(poll);
+    let persisted = poll;
     try {
-      await apiCreatePollingEntry(poll);
+      const resp = await apiCreatePollingEntry(poll);
+      if (resp?.entry) persisted = resp.entry;
     } catch (err) {
       console.error("[polling] Failed to persist poll to DB:", err);
     }
-    logAction({ action: "poll-published", target: simDate, details: { pollId: poll.id, results } });
+    data.polling.polls.push(persisted);
+    logAction({ action: "poll-published", target: simDate, details: { pollId: persisted.id || poll.id, results } });
     render(data);
   });
 

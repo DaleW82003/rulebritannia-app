@@ -5,6 +5,36 @@ function resolveApiBase() {
 }
 const API_BASE = resolveApiBase();
 
+const FORBIDDEN_SIM_AUTHORITY_KEYS = new Set([
+  "id", "uuid", "ref", "reference", "serial",
+  "created_at", "updated_at", "deleted_at", "createdat", "updatedat", "deletedat", "timestamp",
+  "created_by", "updated_by", "author", "author_id", "authorid", "author_role", "authorrole",
+  "npc", "npcauthor", "npcparty", "is_npc",
+  "role", "roles", "score", "computed_score", "derived_state",
+]);
+
+function isForbiddenSimAuthorityKey(key) {
+  if (typeof key !== "string") return false;
+  const k = key.toLowerCase().trim();
+  if (!k) return false;
+  if (FORBIDDEN_SIM_AUTHORITY_KEYS.has(k)) return true;
+  if (k.endsWith("_id") || k.endsWith("_ref") || k.endsWith("_serial")) return true;
+  if (k.endsWith("_at") || k.endsWith("_timestamp")) return true;
+  if (k.startsWith("computed_") || k.startsWith("derived_")) return true;
+  return false;
+}
+
+function sanitizeForSimWrite(value) {
+  if (Array.isArray(value)) return value.map(sanitizeForSimWrite);
+  if (!value || typeof value !== "object") return value;
+  const out = {};
+  for (const [key, nested] of Object.entries(value)) {
+    if (isForbiddenSimAuthorityKey(key)) continue;
+    out[key] = sanitizeForSimWrite(nested);
+  }
+  return out;
+}
+
 let _csrfToken = null;
 export function setCsrfToken(token) { _csrfToken = token; }
 function csrfHeaders() { return _csrfToken ? { "X-CSRF-Token": _csrfToken } : {}; }
@@ -216,7 +246,7 @@ export async function apiCreateBill(bill) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(bill),
+    body: JSON.stringify(sanitizeForSimWrite(bill)),
   });
   if (!res.ok) throw new Error(`apiCreateBill failed (${res.status})`);
   return res.json();
@@ -227,7 +257,7 @@ export async function apiUpdateBill(id, bill) {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(bill),
+    body: JSON.stringify(sanitizeForSimWrite(bill)),
   });
   if (!res.ok) throw new Error(`apiUpdateBill failed (${res.status})`);
   return res.json();
@@ -387,7 +417,7 @@ export async function apiCreateMotion(motionType, motion) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ motion_type: motionType, ...motion }),
+    body: JSON.stringify(sanitizeForSimWrite({ motion_type: motionType, ...motion })),
   });
   if (!res.ok) throw new Error(`apiCreateMotion failed (${res.status})`);
   return res.json();
@@ -398,7 +428,7 @@ export async function apiUpdateMotion(id, motion) {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(motion),
+    body: JSON.stringify(sanitizeForSimWrite(motion)),
   });
   if (!res.ok) throw new Error(`apiUpdateMotion failed (${res.status})`);
   return res.json();
@@ -449,7 +479,7 @@ export async function apiCreateStatement(stmt) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(stmt),
+    body: JSON.stringify(sanitizeForSimWrite(stmt)),
   });
   if (!res.ok) throw new Error(`apiCreateStatement failed (${res.status})`);
   return res.json();
@@ -460,7 +490,7 @@ export async function apiUpdateStatement(id, stmt) {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(stmt),
+    body: JSON.stringify(sanitizeForSimWrite(stmt)),
   });
   if (!res.ok) throw new Error(`apiUpdateStatement failed (${res.status})`);
   return res.json();
@@ -497,7 +527,7 @@ export async function apiCreateRegulation(reg) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(reg),
+    body: JSON.stringify(sanitizeForSimWrite(reg)),
   });
   if (!res.ok) throw new Error(`apiCreateRegulation failed (${res.status})`);
   return res.json();
@@ -508,7 +538,7 @@ export async function apiUpdateRegulation(id, reg) {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(reg),
+    body: JSON.stringify(sanitizeForSimWrite(reg)),
   });
   if (!res.ok) throw new Error(`apiUpdateRegulation failed (${res.status})`);
   return res.json();
@@ -1443,7 +1473,7 @@ export async function apiSubmitQtQuestion(payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiSubmitQtQuestion failed (${res.status})`);
@@ -1467,7 +1497,7 @@ export async function apiAnswerQtQuestion(id, payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiAnswerQtQuestion failed (${res.status})`);
@@ -1479,7 +1509,7 @@ export async function apiFollowupQtQuestion(id, payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiFollowupQtQuestion failed (${res.status})`);
@@ -1491,7 +1521,7 @@ export async function apiAnswerQtFollowup(id, payload) {
     method: "PATCH",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiAnswerQtFollowup failed (${res.status})`);
@@ -1548,7 +1578,7 @@ export async function apiCreateQtLegacyQuestion(question) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(question),
+    body: JSON.stringify(sanitizeForSimWrite(question)),
   });
   if (!res.ok) throw new Error(`apiCreateQtLegacyQuestion failed (${res.status})`);
   return res.json();
@@ -1559,7 +1589,7 @@ export async function apiUpdateQtLegacyQuestion(id, question) {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(question),
+    body: JSON.stringify(sanitizeForSimWrite(question)),
   });
   if (!res.ok) throw new Error(`apiUpdateQtLegacyQuestion failed (${res.status})`);
   return res.json();
@@ -1598,7 +1628,7 @@ export async function apiSimSet(payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   if (!res.ok) throw new Error(`apiSimSet failed (${res.status})`);
   return res.json();
@@ -1664,7 +1694,7 @@ export async function apiCreatePressItem(payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   if (!res.ok) throw new Error(`apiCreatePressItem failed (${res.status})`);
   return res.json();
@@ -1675,7 +1705,7 @@ export async function apiUpdatePressItem(id, payload) {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   if (!res.ok) throw new Error(`apiUpdatePressItem failed (${res.status})`);
   return res.json();
@@ -1708,7 +1738,7 @@ export async function apiMarkPressItem(id, payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiMarkPressItem failed (${res.status})`);
@@ -1728,7 +1758,7 @@ export async function apiCreatePollingEntry(payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   if (!res.ok) throw new Error(`apiCreatePollingEntry failed (${res.status})`);
   return res.json();
@@ -1857,7 +1887,7 @@ export async function apiModScandalSituationCreate(payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   if (!res.ok) throw new Error(`apiModScandalSituationCreate failed (${res.status})`);
   return res.json();
@@ -1874,7 +1904,7 @@ export async function apiModScandalDecision(scandalId, payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   if (!res.ok) throw new Error(`apiModScandalDecision failed (${res.status})`);
   return res.json();
@@ -1937,7 +1967,7 @@ export async function apiModScandalTemplateUpsert(payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   if (!res.ok) throw new Error(`apiModScandalTemplateUpsert failed (${res.status})`);
   return res.json();
@@ -2120,7 +2150,7 @@ export async function apiUpdateParliamentStatus(payload) {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   if (!res.ok) {
     const b = await res.json().catch(() => ({}));
@@ -2154,7 +2184,7 @@ export async function apiCreateElection(payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   return res.json();
 }
@@ -2164,7 +2194,7 @@ export async function apiUpdateElection(id, payload) {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   return res.json();
 }
@@ -2179,7 +2209,7 @@ export async function apiSaveElectionChanges(id, payload) {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   return res.json();
 }
@@ -2219,7 +2249,7 @@ export async function apiSubmitElectionBodyResult(payload) {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   return res.json();
 }
@@ -2229,7 +2259,7 @@ export async function apiUpdateElectionBodyResult(id, payload) {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   if (!res.ok) throw new Error(`apiUpdateElectionBodyResult failed (${res.status})`);
   return res.json();
@@ -2623,7 +2653,7 @@ export async function apiCreateRedLionPost(post) {
   const res = await _fetch(`${API_BASE}/api/redlion`, {
     method: "POST", credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(post),
+    body: JSON.stringify(sanitizeForSimWrite(post)),
   });
   if (!res.ok) throw new Error(`apiCreateRedLionPost failed (${res.status})`);
   return res.json();
@@ -2647,7 +2677,7 @@ export async function apiCreateEvent(event) {
   const res = await _fetch(`${API_BASE}/api/events`, {
     method: "POST", credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(event),
+    body: JSON.stringify(sanitizeForSimWrite(event)),
   });
   if (!res.ok) throw new Error(`apiCreateEvent failed (${res.status})`);
   return res.json();
@@ -2656,7 +2686,7 @@ export async function apiUpdateEvent(id, event) {
   const res = await _fetch(`${API_BASE}/api/events/${encodeURIComponent(id)}`, {
     method: "PUT", credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(event),
+    body: JSON.stringify(sanitizeForSimWrite(event)),
   });
   if (!res.ok) throw new Error(`apiUpdateEvent failed (${res.status})`);
   return res.json();
@@ -2701,7 +2731,7 @@ export async function apiCreateOnlinePost(postType, post) {
   const res = await _fetch(`${API_BASE}/api/online`, {
     method: "POST", credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ post_type: postType, ...post }),
+    body: JSON.stringify(sanitizeForSimWrite({ post_type: postType, ...post })),
   });
   if (!res.ok) throw new Error(`apiCreateOnlinePost failed (${res.status})`);
   return res.json();
@@ -2725,7 +2755,7 @@ export async function apiCreateFundraisingItem(item) {
   const res = await _fetch(`${API_BASE}/api/fundraising`, {
     method: "POST", credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(item),
+    body: JSON.stringify(sanitizeForSimWrite(item)),
   });
   if (!res.ok) throw new Error(`apiCreateFundraisingItem failed (${res.status})`);
   return res.json();
@@ -2734,7 +2764,7 @@ export async function apiUpdateFundraisingItem(id, item) {
   const res = await _fetch(`${API_BASE}/api/fundraising/${encodeURIComponent(id)}`, {
     method: "PUT", credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(item),
+    body: JSON.stringify(sanitizeForSimWrite(item)),
   });
   if (!res.ok) throw new Error(`apiUpdateFundraisingItem failed (${res.status})`);
   return res.json();
@@ -3450,7 +3480,7 @@ export async function apiCreatePartyFaction(slug, payload) {
   const res = await _fetch(`${API_BASE}/api/admin/parties/${encodeURIComponent(slug)}/factions`, {
     method: "POST", credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiCreatePartyFaction failed (${res.status})`);
@@ -3474,7 +3504,7 @@ export async function apiUpdatePartyFactionAllocation(id, payload) {
   const res = await _fetch(`${API_BASE}/api/admin/factions/${encodeURIComponent(id)}/allocation`, {
     method: "PATCH", credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiUpdatePartyFactionAllocation failed (${res.status})`);
@@ -3581,7 +3611,7 @@ export async function apiPutOtherOfficialsFactionAllocations(payload) {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(sanitizeForSimWrite(payload)),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiPutOtherOfficialsFactionAllocations failed (${res.status})`);
