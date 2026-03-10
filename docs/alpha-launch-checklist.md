@@ -229,11 +229,13 @@ Snapshots capture the **parliamentary content** stored in the JSONB `state_snaps
 ### Operational rules
 
 1. **Create a named snapshot before every trial session.** Use Admin Panel → Snapshots → Create Named Snapshot. Name it descriptively (e.g. `pre-session-1-2026-03-10`).
-2. **Never use snapshot restore to fix relational data.** Restoring a snapshot does not touch divisions, faction state, or finance. If those tables are corrupted, use the Neon point-in-time restore (full DB restore) or manual admin API calls.
-3. **Rebuild Cache** (`POST /api/admin/rebuild-cache`) re-derives the five derived-cache tables from the current snapshot pointer. Use this only after a database incident, not as a routine operation.
-4. **Snapshot import** (`POST /api/admin/import-snapshot`) is production-disabled (`isDevSeedAllowed()` guard). Do not plan to use it in production.
-5. **Snapshot export** (`GET /api/admin/export-snapshot`) is admin-only and production-accessible. Use it to back up the current state blob before major changes.
-6. **Snapshot export hardening (alpha):** export requests are rate-limited per actor (default `12/minute` via `SNAPSHOT_EXPORT_RATE_LIMIT_MAX`) and emit structured `snapshot-export-audit` logs plus `audit_log` rows (`admin.export-snapshot.success|failed|rate-limited`).
+2. **Never use snapshot restore to fix relational data.** Restoring a snapshot does not touch divisions, faction state, finance, or political-state. If those tables are corrupted, use the Neon point-in-time restore (full DB restore) or manual admin API calls.
+3. **Restore auto-runs derived-cache rebuild.** Expected operator message is `Derived cache auto-rebuild: OK`; if restore returns a warning, run **Rebuild Cache** immediately.
+4. **Rebuild Cache** (`POST /api/admin/rebuild-cache`) re-derives the five derived-cache tables from the current snapshot pointer only. Use this after incidents, not as routine operation.
+5. **Snapshot import** (`POST /api/admin/import-snapshot`) is production-disabled (`isDevSeedAllowed()` guard). Do not plan to use it in production.
+6. **Snapshot export** (`GET /api/admin/export-snapshot`) is admin-only and production-accessible. Use it to back up the current state blob before major changes.
+7. **Snapshot export hardening (alpha):** export requests are rate-limited per actor (default `12/minute` via `SNAPSHOT_EXPORT_RATE_LIMIT_MAX`) and emit structured `snapshot-export-audit` logs plus `audit_log` rows (`admin.export-snapshot.success|failed|rate-limited`).
+8. **Use snapshot status telemetry during incidents.** Check current snapshot label/ID, last restore result, last rebuild result, and freeze state before unfreezing.
 
 ### Snapshot checklist
 

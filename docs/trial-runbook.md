@@ -323,10 +323,22 @@ If a staff member sees HTTP `429`, wait for the next minute window and retry; th
 
 ### Rollback parliamentary content to a snapshot
 
+**Before restore (live-session safety):**
+1. Enable sim freeze first (Admin Panel → Sim Control → Freeze) and set reason `Snapshot restore`.
+2. Confirm the target snapshot label/ID and current snapshot shown in Admin Panel → State Snapshots.
+3. Notify staff that restore affects snapshot-backed parliamentary content only.
+
+**Restore + immediate follow-up:**
 1. Admin Panel → Snapshots → select the target snapshot.
 2. Click **Restore** and confirm.
-3. The derived-cache tables (`bills`, `motions`, `statements`, `regulations`, `questiontime_questions`) are rebuilt from the snapshot.
-4. Relational data (divisions, factions, political state, finance) is untouched — manual cleanup may be needed for those systems.
+3. Check the restore status message: normal case is `Derived cache auto-rebuild: OK`.
+4. If you see a rebuild warning, run Maintenance → **Rebuild Cache** before resuming live play.
+
+**After restore checks (before unfreeze):**
+1. Verify expected bills/motions/statements/regulations/QT entries are present.
+2. Verify relational-authoritative systems still look correct (divisions, factions, finance, political-state).
+3. Review snapshot status panel fields: current snapshot, last restore, last rebuild, freeze state.
+4. Unfreeze only after checks pass and staff acknowledge go-ahead.
 
 ### Rollback the full database (Neon)
 

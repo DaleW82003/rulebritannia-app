@@ -173,7 +173,7 @@ Verification emails are sent via SendGrid (`@sendgrid/mail`). If `SENDGRID_API_K
 | Auth | `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` |
 | Registration | `POST /api/register`, `GET /api/auth/verify-email`, `POST /api/auth/resend-verification` |
 | Admin – registrations | `GET`, `POST /:id/approve`, `POST /:id/reject` under `/api/admin/registrations` |
-| State / snapshots | `GET /api/state`, `POST /api/state`, `GET/POST /api/snapshots`, `POST /api/snapshots/:id/restore` |
+| State / snapshots | `GET /api/state`, `POST /api/state`, `GET/POST /api/snapshots`, `POST /api/snapshots/:id/restore`, `GET /api/admin/snapshot-status` |
 | Config | `GET/PUT /api/config`, `GET /api/config/enums` |
 | Mods message | `GET/POST /api/mods-message` |
 | Discourse | `GET/PUT /api/discourse/config`, `POST /api/discourse/test`, `GET /api/discourse/sso`, `GET /api/discourse/sso/callback`, `GET /api/discourse/go`, SSO readiness, sync-preview, sync-groups, sync-bills, sync-debates, category IDs |
@@ -198,7 +198,7 @@ Verification emails are sent via SendGrid (`@sendgrid/mail`). If `SENDGRID_API_K
 | Finance (admin) | Set-bank, set-salary-override, set-positions, revenue CRUD, salary-scales uprate, `GET/PATCH /api/admin/finance/config`, salary-bands, starting-balances, apply-inflation |
 | Shop | `GET /api/shop/price-index`, `POST /api/shop/apply-inflation`, `POST /api/finance/shop-upkeep` |
 | Scandals | Opt-in, mine, choose, situation respond |
-| Admin – maintenance | clear-cache, rebuild-cache, rotate-sessions, force-logout-all, close-stale-divisions, close-orphan-motion-divisions, export-snapshot, import-snapshot, reset-baseline, wipe-content, wipe-with-characters, seed, seed-demo, repair/character-owner-pointers |
+| Admin – maintenance | clear-cache, rebuild-cache, rotate-sessions, force-logout-all, close-stale-divisions, close-orphan-motion-divisions, export-snapshot, import-snapshot, snapshot-status, reset-baseline, wipe-content, wipe-with-characters, seed, seed-demo, repair/character-owner-pointers |
 | Admin – elections | `POST /api/admin/elections/seed-1997` |
 | Constituencies | `POST /api/admin/constituencies/initialize-1997`, `DELETE /api/admin/constituencies/clear` |
 | Budget | `GET /api/budget`, `POST /api/admin/budget/seed`, `PUT /api/admin/budget/controls`, `POST /api/budget/draft`, `POST /api/admin/budget/approve`, `POST /api/admin/budget/reject` |
