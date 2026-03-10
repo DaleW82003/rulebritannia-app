@@ -248,75 +248,46 @@ Snapshots capture the **parliamentary content** stored in the JSONB `state_snaps
 
 Run these before every significant deployment or before inviting new alpha users.
 
-### Static checks (no database required)
+Use local DB runs for quick feedback, but treat staging/test DB execution as the confidence gate. Final alpha confidence depends on the DB-backed suite passing in a real environment that mirrors production settings.
+
+### One-command alpha verification (recommended)
 
 ```bash
-# 8 static analysis checks: credential scan, auth patterns, RBAC coverage,
-# CSRF enforcement, session security, immutability, JSON shape, endpoint naming
-node scripts/static-checks.js
-
-# RBAC drift detection: compares live endpoint surface against rbac-matrix.json
-node scripts/audit/feature-manifest.js
+npm run verify:alpha
 ```
 
-### Unit tests (no database required)
+This wrapper runs, in order:
+1. `node scripts/static-checks.js`
+2. `node scripts/audit/feature-manifest.js`
+3. `npm --prefix server run check:static`
+4. `npm --prefix server run test:unit`
+5. `npm --prefix server run test:integration:all`
+
+### DB-backed suite preflight requirements
+
+The integration wrapper is explicit about environment requirements and fails fast with a helpful message if prerequisites are missing.
 
 ```bash
-# All unit test files (clock, discourse SSO, roles, state-contracts,
-# service-modules, identity-hardening, recompute-helpers, rbac-helpers)
-cd server && node --test *.test.js
+DATABASE_URL=postgres://... NODE_ENV=test npm --prefix server run test:integration:all
 ```
 
-Or run individual suites for faster feedback:
+> The integration runner executes each file in a separate `node --test` process to avoid shared `pool.end()` cross-contamination.
+
+### Targeted runs (optional)
 
 ```bash
-cd server
-node --test clock.test.js
-node --test discourse.test.js
-node --test roles.test.js
-node --test state-contracts.test.js
-node --test service-modules.test.js            # political-state-service + division-helpers
-node --test identity-hardening.test.js         # immutable identity authority (21 tests)
-node --test recompute-helpers.test.js          # fireRecompute / awaitedRecompute helpers
-node --test rbac-helpers.test.js               # RBAC guard helpers
-node --test parliamentary-political-state.integration.test.js  # pure (no DB) political-state tests
-```
+# Unit-only pass (no DB)
+npm --prefix server run test:unit
 
-### Integration tests (requires a test PostgreSQL database)
-
-> **Important:** Each integration test file calls `pool.end()` in its `after()` hook. Run files separately to avoid cross-contamination.
-
-```bash
-cd server
-
-# Parliamentary system integration tests
-NODE_ENV=test node --test parliamentary.integration.test.js
-
-# Faction system integration tests
-NODE_ENV=test node --test factions.integration.test.js
-
-# Finance + parliament integration tests
-NODE_ENV=test node --test finance-parliament.integration.test.js
-
-# Party treasury integration tests
-NODE_ENV=test node --test party-treasury.integration.test.js
-
-# Guides seed idempotency and ordering tests
-NODE_ENV=test node --test guides-seed.test.js
-
-# Bodies / locals 1997 seed integration tests
-NODE_ENV=test node --test seed-1997.integration.test.js
-
-# Support ticketing integration tests
-NODE_ENV=test node --test support.integration.test.js
+# Single legacy integration command (kept for backwards compatibility)
+NODE_ENV=test node --test server/parliamentary.integration.test.js
 ```
 
 ### Expected outcomes before launch
 
-- [ ] `node scripts/static-checks.js` — all 8 checks pass, no errors
-- [ ] `node scripts/audit/feature-manifest.js` — `rbacDriftWarnings` is 0 (or all drift is explained and documented)
-- [ ] `node --test *.test.js` — all unit tests pass (no failures)
-- [ ] Integration tests — all pass against a clean test database
+- [ ] `npm run verify:alpha` passes end-to-end
+- [ ] DB-backed integration files pass against a clean staging/test database with production-like config
+- [ ] Any `rbacDriftWarnings` are 0 or explicitly documented as accepted risk
 
 ---
 

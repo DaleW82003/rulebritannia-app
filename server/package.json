@@ -9,8 +9,12 @@
   },
   "scripts": {
     "start": "node index.js",
+    "check:static": "node --check index.js",
     "test": "node --test *.test.js",
-    "test:integration": "NODE_ENV=test node --test parliamentary.integration.test.js"
+    "test:unit": "node ./scripts/run-unit-tests.mjs",
+    "test:integration": "NODE_ENV=test node --test parliamentary.integration.test.js",
+    "test:integration:all": "NODE_ENV=test node ./scripts/require-test-db.mjs && NODE_ENV=test node ./scripts/run-integration-tests.mjs",
+    "verify:alpha": "npm run check:static && npm run test:unit && npm run test:integration:all"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

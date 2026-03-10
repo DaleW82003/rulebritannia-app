@@ -18,6 +18,7 @@ import {
 } from "./discourseClient.js";
 import { ALL_VALID_ROLES, PARTY_ROLES, computeDiscourseGroups, PERMISSION_MAP, DISCOURSE_GROUP_MAP, partyRoleForPartyName, computeApprovalRolesToAdd, officeRoleFromSpecId } from "./roles.js";
 import { computeSimDateFromGameState } from "./clock.js";
+import { addSimMonths, simDeadline, simDeadlineToText, nextSimMonth } from "./lib/sim-date-helpers.js";
 import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_ROLES } from "./state-contracts.js";
 import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-helpers.js";
 import { fireRecompute, awaitedRecompute, createRecomputeContext, buildRecomputeResponseMetadata } from "./recompute-helpers.js";
@@ -45,6 +46,25 @@ import {
 } from "./internal-party-management.js";
 
 const __serverDir = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * ── server/index.js navigation index (maintained) ──────────────────────────
+ * auth / session / csrf
+ * state + snapshot routes
+ * parliamentary routes
+ * factions + political state
+ * finance
+ * support
+ * discourse
+ * staff/admin tools
+ * sim clock / freeze
+ * bootstrap / schema / startup
+ *
+ * Next extraction candidates (post-alpha):
+ * - writeAuditLog + audit helpers
+ * - clock tick runners
+ * - remaining parliamentary authority helpers
+ */
 
 // ── Turnstile config ──────────────────────────────────────────────────────────
 const TURNSTILE_ENABLED    = process.env.TURNSTILE_ENABLED === "true";
@@ -4546,18 +4566,6 @@ function attachLifecycle(obj, simMonth, simYear, realNow) {
 }
 
 /**
- * Add n simulation months to a (year, month) pair, rolling year over.
- * Returns { sim_year, sim_month }.
- */
-function addSimMonths(year, month, n) {
-  const total = (month - 1) + n;
-  return {
-    sim_year:  year + Math.floor(total / 12),
-    sim_month: (total % 12) + 1,
-  };
-}
-
-/**
  * Resolve the active character UUID for the logged-in user.
  * Uses req.session.characterId if set and still valid, otherwise queries the DB.
  * Returns null if none found.
@@ -6565,17 +6573,6 @@ const BILL_STAGE_MONTHS = {
 const BILL_ORDER_PAPER_MONTHS = 4;
 
 /**
- * Compute a { month, year } sim deadline by adding `months` to the current sim time.
- */
-function simDeadline(simMonth, simYear, months) {
-  const total = simMonth + months - 1; // 0-indexed offset
-  return {
-    month: ((total % 12) || 12),
-    year:  simYear + Math.floor(total / 12),
-  };
-}
-
-/**
  * Check whether a sim deadline { month, year } has passed given the current sim time.
  */
 function simDeadlinePassed(deadline, simMonth, simYear) {
@@ -6608,20 +6605,6 @@ async function advanceBillStage(billId, nextStage, simMonth, simYear, extraPatch
     [JSON.stringify(stagePatch), billId]
   );
   return rows[0]?.data || null;
-}
-
-/**
- * Format a sim deadline as a TEXT value for the divisions.closes_at_sim column.
- * e.g. { month: 1, year: 1998 } → "1998-01"
- */
-function simDeadlineToText(month, year) {
-  return `${year}-${String(month).padStart(2, "0")}`;
-}
-
-/** Returns a closes_at_sim TEXT value 1 sim month from now. */
-function nextSimMonth(simMonth, simYear) {
-  const d = simDeadline(simMonth, simYear, 1);
-  return simDeadlineToText(d.month, d.year);
 }
 
 // POST /api/bills/:id/first-reading — PM or Leader of House grants or refuses second reading

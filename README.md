@@ -527,7 +527,13 @@ Located in `server/`:
 Run all unit tests:
 
 ```bash
-node --test server/*.test.js
+npm --prefix server run test:unit
+```
+
+Run full alpha verification (static + RBAC + syntax + unit + DB-backed integration):
+
+```bash
+npm run verify:alpha
 ```
 
 ### Static checks

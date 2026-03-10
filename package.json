@@ -1,0 +1,11 @@
+{
+  "name": "rulebritannia-app",
+  "private": true,
+  "scripts": {
+    "verify:alpha": "node scripts/verify-alpha.mjs",
+    "check:static": "node scripts/static-checks.js",
+    "check:rbac": "node scripts/audit/feature-manifest.js",
+    "test:server:unit": "npm --prefix server run test:unit",
+    "test:server:integration": "npm --prefix server run test:integration:all"
+  }
+}
