@@ -1569,16 +1569,27 @@ function render(data, state) {
     state.controlMessage = "";
     // Reload DB party data for the newly selected party
     try {
-      const [partyResult, charsResult, structureResult, ledgerResult, whipReqResult, factionsResult, climateResultBase, ipmResult] = await Promise.all([
+      const [partyResult, charsResult, structureResult, factionsResult, climateResultBase, ipmResult] = await Promise.all([
         apiGetParty(next).catch(() => null),
         apiGetCharacters({ active: "true" }).catch(() => ({ characters: [] })),
         apiGetPartyStructure(next).catch(() => ({ structure: {}, treasuryOverspend: false })),
-        apiGetPartyLedger(next).catch(() => ({ donations: [] })),
-        apiGetWhipRequests(next, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(next).catch(() => ({ factions: [] })),
         apiGetPartyFactionClimate(next).catch(() => ({ climate: null, viewerRole: "member" })),
         apiGetPartyInternalTickets(next).catch(() => ({ tickets: [], viewerRole: "member" })),
       ]);
+      const dbParty = partyResult?.party || null;
+      const sessionCharId = String(state.dbState?.sessionCharId || "");
+      const isPartyLeader = !!sessionCharId && sessionCharId === String(dbParty?.leader_character_id || "");
+      const isChairman = !!sessionCharId && sessionCharId === String(dbParty?.chairman_character_id || "");
+      const isChiefWhip = !!sessionCharId && sessionCharId === String(dbParty?.chief_whip_character_id || "");
+      const canViewLedger = manager || isPartyLeader || isChairman;
+      const canManageWhip = manager || isPartyLeader || isChiefWhip;
+
+      const [ledgerResult, whipReqResult] = await Promise.all([
+        canViewLedger ? apiGetPartyLedger(next).catch(() => ({ donations: [] })) : Promise.resolve({ donations: [] }),
+        canManageWhip ? apiGetWhipRequests(next, "pending").catch(() => ({ requests: [] })) : Promise.resolve({ requests: [] }),
+      ]);
+
       const climateResult = (climateResultBase?.viewerRole === "staff")
         ? await apiGetPartyFactionClimate(next, { debug: true }).catch(() => climateResultBase)
         : climateResultBase;
@@ -2427,15 +2438,28 @@ export async function initPartyPage(data) {
       state.dbState.treasuryOverspend = !!structureResult.treasuryOverspend;
       state.ledger = Array.isArray(ledgerResult.donations) ? ledgerResult.donations : [];
 
-      // Load governance data: elections, pending expulsions, whip requests, and factions
-      const [electionsResult, expulsionsResult, whipReqResult, factionsResult, climateResultBase, ipmResult] = await Promise.all([
+      // Load governance data with role-aware fetches to avoid noisy 403s for regular members.
+      const manager = canManage(data);
+      const dbParty = partyResult?.party || null;
+      const dbLeaderId = String(dbParty?.leader_character_id || "");
+      const dbChairmanId = String(dbParty?.chairman_character_id || "");
+      const dbChiefWhipId = String(dbParty?.chief_whip_character_id || "");
+      const sessionCharId = String(state.dbState?.sessionCharId || "");
+      const isPartyLeader = !!sessionCharId && sessionCharId === dbLeaderId;
+      const isChairman = !!sessionCharId && sessionCharId === dbChairmanId;
+      const isChiefWhip = !!sessionCharId && sessionCharId === dbChiefWhipId;
+      const canViewLedger = manager || isPartyLeader || isChairman;
+      const canManageWhip = manager || isPartyLeader || isChiefWhip;
+
+      const [electionsResult, factionsResult, climateResultBase, ipmResult, whipReqResult, expulsionsResult] = await Promise.all([
         apiGetPartyElections(partyId).catch(() => ({ elections: [] })),
-        apiGetExpulsions("pending").catch(() => ({ expulsions: [] })),
-        apiGetWhipRequests(partyId, "pending").catch(() => ({ requests: [] })),
         apiGetPartyFactions(partyId).catch(() => ({ factions: [] })),
         apiGetPartyFactionClimate(partyId).catch(() => ({ climate: null, viewerRole: "member" })),
         apiGetPartyInternalTickets(partyId).catch(() => ({ tickets: [], viewerRole: "member" })),
+        canManageWhip ? apiGetWhipRequests(partyId, "pending").catch(() => ({ requests: [] })) : Promise.resolve({ requests: [] }),
+        manager ? apiGetExpulsions("pending").catch(() => ({ expulsions: [] })) : Promise.resolve({ expulsions: [] }),
       ]);
+      if (!canViewLedger) state.ledger = [];
       const climateResult = (climateResultBase?.viewerRole === "staff")
         ? await apiGetPartyFactionClimate(partyId, { debug: true }).catch(() => climateResultBase)
         : climateResultBase;

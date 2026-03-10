@@ -285,7 +285,9 @@ function render(data, state) {
 export async function initCabinetPage(data) {
   normaliseCabinet(data);
 
-  if (isLoggedIn()) {
+  const canAccess = canAccessCabinet(data);
+
+  if (isLoggedIn() && canAccess) {
     // Load cabinet drafts from DB (authoritative source; accessible to cabinet members)
     try {
       const { drafts } = await apiGetCabinetDrafts();
