@@ -97,6 +97,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS press_items_reference_code_uniq
 CREATE UNIQUE INDEX IF NOT EXISTS press_items_kind_prefix_serial_uniq
   ON press_items (reference_kind, reference_prefix, reference_serial)
   WHERE reference_kind IS NOT NULL AND reference_prefix IS NOT NULL AND reference_serial IS NOT NULL;
+-- NOT VALID: these constraints were added after existing rows were already written (pre-reference-code
+-- rows have NULL reference fields). NOT VALID exempts existing rows while enforcing correctness on all
+-- future inserts and updates. Legacy rows without reference codes are historical records left as-is.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'press_items_reference_required_check') THEN
@@ -105,7 +108,7 @@ BEGIN
       CHECK (
         press_type = 'comment'
         OR (reference_code IS NOT NULL AND reference_kind IS NOT NULL AND reference_prefix IS NOT NULL AND reference_serial IS NOT NULL)
-      );
+      ) NOT VALID;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'press_items_author_required_check') THEN
     ALTER TABLE press_items
@@ -113,7 +116,7 @@ BEGIN
       CHECK (
         (COALESCE((data->>'npcAuthor')::boolean, false) = true AND author_character_id IS NULL)
         OR (COALESCE((data->>'npcAuthor')::boolean, false) = false AND author_character_id IS NOT NULL)
-      );
+      ) NOT VALID;
   END IF;
 END $$;
 
