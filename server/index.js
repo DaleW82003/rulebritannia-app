@@ -25,6 +25,24 @@ import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPo
 import { seedPredefinedGuides } from "./guides-seed.js";
 import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb } from "./division-helpers.js";
 import { resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary } from "./finance-service.js";
+import {
+  IPM_TICKET_ORIGIN,
+  IPM_TICKET_STATUS,
+  IPM_TICKET_TO_ROLE,
+  canViewTicket as ipmCanViewTicket,
+  canCreateTicket as ipmCanCreateTicket,
+  canCostTicket as ipmCanCostTicket,
+  applyCosting as ipmApplyCosting,
+  canApproveTicket as ipmCanApproveTicket,
+  applyApproval as ipmApplyApproval,
+  canRejectTicket as ipmCanRejectTicket,
+  applyRejection as ipmApplyRejection,
+  canIgnoreTicket as ipmCanIgnoreTicket,
+  canRecordOutcome as ipmCanRecordOutcome,
+  canCancelTicket as ipmCanCancelTicket,
+  getInitialStatus as ipmGetInitialStatus,
+  getCostChargeTarget as ipmGetCostChargeTarget,
+} from "./internal-party-management.js";
 
 const __serverDir = dirname(fileURLToPath(import.meta.url));
 
@@ -2172,6 +2190,124 @@ async function ensureSchema() {
       ON other_officials_faction_allocations (party_slug);
     CREATE INDEX IF NOT EXISTS other_officials_faction_allocations_arena_idx
       ON other_officials_faction_allocations (arena_type, arena_id);
+
+    -- Internal Party Management (IPM) workflow storage
+    CREATE TABLE IF NOT EXISTS party_internal_tickets (
+      id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      party_slug         TEXT NOT NULL,
+      title              TEXT NOT NULL DEFAULT '',
+      body               TEXT NOT NULL DEFAULT '',
+      origin             TEXT NOT NULL CHECK (origin IN ('player','staff','npc')),
+      ticket_type        TEXT NOT NULL DEFAULT 'policy',
+      status             TEXT NOT NULL CHECK (status IN (
+                           'awaiting_staff_costing',
+                           'awaiting_chairman_approval',
+                           'awaiting_leader_approval',
+                           'queued_for_freeze',
+                           'outcome_recorded',
+                           'ignored',
+                           'cancelled'
+                         )),
+      to_role            TEXT NOT NULL CHECK (to_role IN ('staff','chairman','leader','whip')),
+      created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      created_by_char_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      created_by_role    TEXT NOT NULL DEFAULT 'member',
+      cancel_reason      TEXT NOT NULL DEFAULT '',
+      cancelled_at       TIMESTAMPTZ,
+      cancelled_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      metadata           JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS pit_party_status_idx ON party_internal_tickets (party_slug, status, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS party_internal_ticket_costing (
+      ticket_id          UUID PRIMARY KEY REFERENCES party_internal_tickets(id) ON DELETE CASCADE,
+      costed_by_user_id  UUID REFERENCES users(id) ON DELETE SET NULL,
+      costed_by_char_id  UUID REFERENCES characters(id) ON DELETE SET NULL,
+      cost_amount        NUMERIC(12,2) NOT NULL DEFAULT 0,
+      cost_model         TEXT NOT NULL DEFAULT 'party_budget',
+      charge_character_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      details            JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    ALTER TABLE party_internal_tickets
+      ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS applied_freeze_year INT,
+      ADD COLUMN IF NOT EXISTS applied_freeze_month INT,
+      ADD COLUMN IF NOT EXISTS applied_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL;
+
+    ALTER TABLE party_internal_ticket_costing
+      ADD COLUMN IF NOT EXISTS charged_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS charged_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS charge_status TEXT NOT NULL DEFAULT 'pending';
+
+    CREATE TABLE IF NOT EXISTS party_internal_ticket_approvals (
+      id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      ticket_id          UUID NOT NULL REFERENCES party_internal_tickets(id) ON DELETE CASCADE,
+      approval_role      TEXT NOT NULL CHECK (approval_role IN ('chairman','leader')),
+      approved_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      approved_by_char_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      note               TEXT NOT NULL DEFAULT '',
+      approved_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (ticket_id, approval_role)
+    );
+
+    CREATE TABLE IF NOT EXISTS party_internal_ticket_ignores (
+      id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      ticket_id          UUID NOT NULL REFERENCES party_internal_tickets(id) ON DELETE CASCADE,
+      ignored_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      ignored_by_char_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      ignored_by_role    TEXT NOT NULL CHECK (ignored_by_role IN ('chairman','leader')),
+      note               TEXT NOT NULL DEFAULT '',
+      ignored_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS piti_ticket_idx ON party_internal_ticket_ignores (ticket_id, ignored_at DESC);
+
+    CREATE TABLE IF NOT EXISTS party_internal_ticket_outcomes (
+      ticket_id          UUID PRIMARY KEY REFERENCES party_internal_tickets(id) ON DELETE CASCADE,
+      outcome_type       TEXT NOT NULL DEFAULT 'recorded',
+      summary            TEXT NOT NULL DEFAULT '',
+      impact_payload     JSONB NOT NULL DEFAULT '{}'::jsonb,
+      recorded_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      recorded_by_char_id UUID REFERENCES characters(id) ON DELETE SET NULL,
+      recorded_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    ALTER TABLE party_internal_ticket_outcomes
+      ADD COLUMN IF NOT EXISTS due_sim_year INT,
+      ADD COLUMN IF NOT EXISTS due_sim_month INT,
+      ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS applied_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS apply_status TEXT NOT NULL DEFAULT 'pending',
+      ADD COLUMN IF NOT EXISTS apply_error TEXT NOT NULL DEFAULT '';
+
+    CREATE TABLE IF NOT EXISTS party_internal_messages (
+      id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      ticket_id          UUID NOT NULL REFERENCES party_internal_tickets(id) ON DELETE CASCADE,
+      author_user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+      author_char_id     UUID REFERENCES characters(id) ON DELETE SET NULL,
+      author_role        TEXT NOT NULL DEFAULT 'member',
+      body               TEXT NOT NULL,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS pim_ticket_created_idx ON party_internal_messages (ticket_id, created_at ASC);
+
+    CREATE TABLE IF NOT EXISTS party_internal_freeze_snapshots (
+      id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      sim_year           INT,
+      sim_month          INT,
+      ticket_id          UUID REFERENCES party_internal_tickets(id) ON DELETE SET NULL,
+      snapshot_type      TEXT NOT NULL DEFAULT 'freeze',
+      payload            JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS pifs_ticket_created_idx ON party_internal_freeze_snapshots (ticket_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS pifs_sim_idx ON party_internal_freeze_snapshots (sim_year, sim_month, created_at DESC);
   `);
 
   // Canonicalise legacy other-official arena IDs into stable UK-wide keys.
@@ -4244,6 +4380,54 @@ async function getActiveCharacterId(req) {
  * Load and decrypt Discourse credentials from app_config.
  * Returns { baseUrl, apiKey, apiUsername } or throws if not configured.
  */
+
+
+function mapDbIpmTicket(row) {
+  return {
+    id: row.id,
+    partySlug: row.party_slug,
+    origin: row.origin,
+    ticketType: row.ticket_type,
+    status: row.status,
+    toRole: row.to_role,
+    creatorRole: row.created_by_role,
+    creatorCharacterId: row.created_by_char_id,
+    createdByUserId: row.created_by_user_id,
+  };
+}
+
+function canViewerSeeIpmTicket({ viewerRole, activeCharacterId, ticket }) {
+  const isOwner = Boolean(activeCharacterId) && String(ticket.created_by_char_id || "") === String(activeCharacterId);
+  if (viewerRole === "chairman") {
+    if (isOwner) return ipmCanViewTicket({ viewerRole, isOwner: true });
+    if (ticket.created_by_role === "whip") return true;
+    return ticket.origin === IPM_TICKET_ORIGIN.staff || ticket.origin === IPM_TICKET_ORIGIN.npc;
+  }
+  return ipmCanViewTicket({ viewerRole, isOwner });
+}
+
+async function getIpmViewerContext(req, partySlug) {
+  const sessionRoles = getSessionRoles(req);
+  const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+  const activeCharacterId = await getActiveCharacterId(req).catch(() => null);
+  if (isStaff) return { viewerRole: "staff", activeCharacterId, isStaff: true };
+
+  const { rows } = await pool.query(
+    `SELECT leader_character_id, chairman_character_id,
+            whip_character_id, chief_whip_character_id, deputy_whip_character_id
+       FROM parties WHERE slug = $1 LIMIT 1`,
+    [partySlug]
+  );
+  if (!rows.length || !activeCharacterId) return { viewerRole: "member", activeCharacterId, isStaff: false };
+  const p = rows[0];
+  const cid = String(activeCharacterId);
+  const whipIds = [p.whip_character_id, p.chief_whip_character_id, p.deputy_whip_character_id].filter(Boolean).map(String);
+  if (p.leader_character_id && String(p.leader_character_id) === cid) return { viewerRole: "leader", activeCharacterId, isStaff: false };
+  if (p.chairman_character_id && String(p.chairman_character_id) === cid) return { viewerRole: "chairman", activeCharacterId, isStaff: false };
+  if (whipIds.includes(cid)) return { viewerRole: "whip", activeCharacterId, isStaff: false };
+  return { viewerRole: "member", activeCharacterId, isStaff: false };
+}
+
 async function loadDiscourseCredentials() {
   const { rows } = await pool.query(
     "SELECT key, value FROM app_config WHERE key IN ('discourse_base_url','discourse_api_key','discourse_api_username')"
@@ -21746,6 +21930,66 @@ app.get("/api/admin/parties/:slug/factions", crudReadLimit, async (req, res) => 
   }
 });
 
+// GET /api/admin/ipc-integrity-check
+app.get("/api/admin/ipc-integrity-check", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+
+    const { totalsByArena } = await getOtherOfficialsTotalsForPlayableParties();
+    const results = [];
+    for (const partySlug of FACTION_PLAYABLE_PARTIES) {
+      const [{ rows: seatRows }, { rows: allocRows }] = await Promise.all([
+        pool.query("SELECT COUNT(*)::INT AS party_seat_total FROM constituencies WHERE party = $1", [partySlug]),
+        pool.query(
+          `SELECT COALESCE(SUM(a.mp_count),0)::INT AS allocated_mps
+             FROM party_factions f
+             LEFT JOIN party_faction_allocations a ON a.faction_id = f.id
+            WHERE f.party_slug = $1 AND f.active = TRUE`,
+          [partySlug]
+        ),
+      ]);
+
+      const partySeats = Number(seatRows[0]?.party_seat_total ?? 0);
+      const mpAllocated = Number(allocRows[0]?.allocated_mps ?? 0);
+      const checks = [];
+      checks.push({ key: 'commons_mp_allocations', ok: mpAllocated === partySeats, expected: partySeats, actual: mpAllocated });
+
+      const arenaDefs = [
+        { arena_type: 'body', arena_id: 'lords', key: 'lords_allocations' },
+        { arena_type: 'body', arena_id: 'europarl', key: 'europarl_allocations' },
+        { arena_type: 'locals', arena_id: 'locals_uk', key: 'locals_allocations' },
+        { arena_type: 'body', arena_id: 'dem_uk', key: 'dem_allocations' },
+      ];
+      for (const arena of arenaDefs) {
+        const total = Number(totalsByArena[`${arena.arena_type}:${arena.arena_id}`]?.[partySlug] ?? 0);
+        const { rows: aRows } = await pool.query(
+          `SELECT COALESCE(SUM(official_count),0)::INT AS allocated
+             FROM other_officials_faction_allocations
+            WHERE arena_type = $1 AND arena_id = $2 AND party_slug = $3`,
+          [arena.arena_type, arena.arena_id, partySlug]
+        );
+        const allocated = Number(aRows[0]?.allocated ?? 0);
+        const ok = arena.arena_id === 'dem_uk' ? (total === 0 || allocated === total) : allocated === total;
+        checks.push({ key: arena.key, ok, expected: total, actual: allocated, total });
+      }
+
+      const localsTotal = Number(totalsByArena['locals:locals_uk']?.[partySlug] ?? 0);
+      checks.push({ key: 'locals_total_non_zero', ok: localsTotal > 0, expected: '>0', actual: localsTotal });
+
+      results.push({
+        partySlug,
+        checks,
+        ok: checks.every((c) => c.ok),
+      });
+    }
+
+    res.json({ ok: true, results });
+  } catch (e) {
+    console.error("[GET /api/admin/ipc-integrity-check]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // GET /api/admin/other-officials/arenas-totals
 app.get("/api/admin/other-officials/arenas-totals", crudReadLimit, async (req, res) => {
   try {
@@ -22141,6 +22385,127 @@ app.patch("/api/admin/factions/:id/allocation", verifyCsrfToken, crudWriteLimit,
  * @param {import('pg').Pool} db  pg Pool (or compatible client with .query())
  * @returns {{ recomputed: string[], failed: Array<{id:string,error:string}> }}
  */
+
+async function runInternalPartyFreeze(db, { actorUserId = null } = {}) {
+  const { rows: clockRows } = await db.query("SELECT sim_current_year, sim_current_month FROM sim_clock WHERE id = 'main' LIMIT 1");
+  const simYear = Number(clockRows[0]?.sim_current_year ?? 1997);
+  const simMonth = Number(clockRows[0]?.sim_current_month ?? 1);
+
+  const { rows: dueRows } = await db.query(
+    `SELECT t.id, t.party_slug, t.origin, t.status, t.created_by_char_id, t.created_by_role,
+            c.cost_model, c.charge_character_id, c.cost_amount,
+            o.outcome_type, o.summary, o.impact_payload, o.due_sim_year, o.due_sim_month
+       FROM party_internal_tickets t
+       JOIN party_internal_ticket_outcomes o ON o.ticket_id = t.id
+       LEFT JOIN party_internal_ticket_costing c ON c.ticket_id = t.id
+      WHERE COALESCE(o.apply_status, 'pending') <> 'applied'
+        AND t.status = $1
+        AND (
+          o.due_sim_year IS NULL OR o.due_sim_month IS NULL OR
+          (o.due_sim_year < $2) OR
+          (o.due_sim_year = $2 AND o.due_sim_month <= $3)
+        )
+      ORDER BY t.created_at ASC`,
+    [IPM_TICKET_STATUS.queuedForFreeze, simYear, simMonth]
+  );
+
+  const appliedTicketIds = [];
+  const chargeEvents = [];
+  const failed = [];
+
+  for (const row of dueRows) {
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const ticket = {
+        origin: row.origin,
+        status: row.status,
+        creatorRole: row.created_by_role,
+        creatorCharacterId: row.created_by_char_id,
+      };
+
+      const lockedTarget = ipmGetCostChargeTarget({ ticket });
+      const hasCost = row.cost_amount !== null && row.cost_amount !== undefined;
+      if (hasCost) {
+        if (lockedTarget.locked) {
+          if (String(row.cost_model || '') !== String(lockedTarget.chargeModel || '')) {
+            throw new Error(`Locked cost model mismatch for ticket ${row.id}`);
+          }
+          if (String(row.charge_character_id || '') !== String(lockedTarget.characterId || '')) {
+            throw new Error(`Locked charge character mismatch for ticket ${row.id}`);
+          }
+        }
+
+        await client.query(
+          `UPDATE party_internal_ticket_costing
+              SET charged_at = NOW(), charged_by_user_id = $2, charge_status = 'charged', updated_at = NOW()
+            WHERE ticket_id = $1`,
+          [row.id, actorUserId]
+        );
+        chargeEvents.push({ ticketId: row.id, amount: Number(row.cost_amount || 0), costModel: row.cost_model || 'party_budget' });
+      }
+
+      await client.query(
+        `UPDATE party_internal_ticket_outcomes
+            SET applied_at = NOW(), applied_by_user_id = $2, apply_status = 'applied', apply_error = '', updated_at = NOW()
+          WHERE ticket_id = $1`,
+        [row.id, actorUserId]
+      );
+      await client.query(
+        `UPDATE party_internal_tickets
+            SET status = $2,
+                applied_at = NOW(),
+                applied_freeze_year = $3,
+                applied_freeze_month = $4,
+                applied_by_user_id = $5,
+                updated_at = NOW()
+          WHERE id = $1`,
+        [row.id, IPM_TICKET_STATUS.outcomeRecorded, simYear, simMonth, actorUserId]
+      );
+      await client.query(
+        `INSERT INTO party_internal_freeze_snapshots
+           (sim_year, sim_month, ticket_id, snapshot_type, payload, created_by_user_id, created_at)
+         VALUES ($1, $2, $3, 'freeze', $4::jsonb, $5, NOW())`,
+        [
+          simYear,
+          simMonth,
+          row.id,
+          JSON.stringify({
+            phase: 'ipm_freeze_apply',
+            outcome: {
+              outcome_type: row.outcome_type,
+              summary: row.summary,
+              impact_payload: row.impact_payload || {},
+            },
+            cost: hasCost
+              ? { amount: Number(row.cost_amount || 0), cost_model: row.cost_model || 'party_budget', charge_character_id: row.charge_character_id || null }
+              : null,
+          }),
+          actorUserId,
+        ]
+      );
+
+      await client.query('COMMIT');
+      appliedTicketIds.push(row.id);
+    } catch (e) {
+      try { await client.query('ROLLBACK'); } catch {}
+      failed.push({ ticketId: row.id, error: e.message });
+      try {
+        await db.query(
+          `UPDATE party_internal_ticket_outcomes
+              SET apply_status = 'failed', apply_error = LEFT($2, 1000), updated_at = NOW()
+            WHERE ticket_id = $1`,
+          [row.id, String(e.message || 'apply failed')]
+        );
+      } catch {}
+    } finally {
+      client.release();
+    }
+  }
+
+  return { simYear, simMonth, considered: dueRows.length, appliedTicketIds, chargeEvents, failed };
+}
+
 async function runFactionFreeze(db) {
   const { rows: factionRows } = await db.query(
     `SELECT f.id FROM party_factions f WHERE f.active = TRUE AND f.party_slug = ANY($1::text[])`,
@@ -22165,12 +22530,54 @@ async function runFactionFreeze(db) {
 app.post("/api/admin/factions/trigger-freeze", verifyCsrfToken, crudWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const results = await runFactionFreeze(pool);
+
+    // 1) Apply all due IPM outcomes first (with cost charging + snapshots).
+    const ipmResults = await runInternalPartyFreeze(pool, { actorUserId: req.session.userId || null });
+
+    // 2) Publish faction derived stats once after all outcomes are applied.
+    const factionResults = await runFactionFreeze(pool);
+
+    // 3) Recompute party climate once per playable party after publish.
+    const climateRefresh = [];
+    for (const partySlug of FACTION_PLAYABLE_PARTIES) {
+      try {
+        const climate = await getPartyFactionClimate(partySlug);
+        climateRefresh.push({ partySlug, climateScore: Number(climate?.climateScore ?? 0), climateLabel: String(climate?.climateLabel || '') });
+      } catch (e) {
+        climateRefresh.push({ partySlug, error: e.message });
+      }
+    }
+
     await writeAuditLog(req.session.userId, "faction.freeze.trigger", "faction_political_state", null, null, null, {
-      recomputedCount: results.recomputed.length,
-      failedCount: results.failed.length,
+      ipm: {
+        considered: ipmResults.considered,
+        appliedCount: ipmResults.appliedTicketIds.length,
+        chargedCount: ipmResults.chargeEvents.length,
+        failedCount: ipmResults.failed.length,
+      },
+      faction: {
+        recomputedCount: factionResults.recomputed.length,
+        failedCount: factionResults.failed.length,
+      },
+      climateRefresh,
     });
-    res.json({ ok: true, recomputedCount: results.recomputed.length, failedCount: results.failed.length, failed: results.failed });
+
+    res.json({
+      ok: true,
+      ipm: {
+        considered: ipmResults.considered,
+        appliedCount: ipmResults.appliedTicketIds.length,
+        chargedCount: ipmResults.chargeEvents.length,
+        failedCount: ipmResults.failed.length,
+        failed: ipmResults.failed,
+      },
+      faction: {
+        recomputedCount: factionResults.recomputed.length,
+        failedCount: factionResults.failed.length,
+        failed: factionResults.failed,
+      },
+      climateRefresh,
+    });
   } catch (e) {
     console.error("[POST /api/admin/factions/trigger-freeze]", e);
     res.status(500).json({ error: "Server error" });
@@ -22335,6 +22742,404 @@ app.get("/api/parties/:slug/faction-climate", crudReadLimit, async (req, res) =>
     res.json({ ok: true, climate, viewerRole, pendingFreezeCount, lastFreezeAt });
   } catch (e) {
     console.error("[GET /api/parties/:slug/faction-climate]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+
+// ── Internal Party Management (IPM) API v1 ─────────────────────────────────
+
+// POST /api/parties/:slug/internal-tickets  (player-origin: whip/chair/leader)
+app.post("/api/parties/:slug/internal-tickets", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const partySlug = String(req.params.slug || "").trim();
+    if (!FACTION_PLAYABLE_PARTIES.includes(partySlug)) return res.status(400).json({ error: "Unsupported party" });
+    const ctx = await getIpmViewerContext(req, partySlug);
+    if (!ipmCanCreateTicket({ viewerRole: ctx.viewerRole, origin: IPM_TICKET_ORIGIN.player })) {
+      return res.status(403).json({ error: "Only party whip/chairman/leader can create player-origin tickets" });
+    }
+    const title = String(req.body?.title || "").trim();
+    const body = String(req.body?.body || "").trim();
+    const ticketType = String(req.body?.ticket_type || "policy").trim() || "policy";
+    if (!title) return res.status(400).json({ error: "title is required" });
+
+    const status = ipmGetInitialStatus({ origin: IPM_TICKET_ORIGIN.player });
+    const chargeTarget = ipmGetCostChargeTarget({ ticket: { origin: IPM_TICKET_ORIGIN.player, creatorRole: ctx.viewerRole, creatorCharacterId: ctx.activeCharacterId } });
+    const { rows } = await pool.query(
+      `INSERT INTO party_internal_tickets
+         (party_slug, title, body, origin, ticket_type, status, to_role, created_by_user_id, created_by_char_id, created_by_role, metadata, updated_at)
+       VALUES ($1,$2,$3,'player',$4,$5,$6,$7,$8,$9,$10::jsonb,NOW())
+       RETURNING *`,
+      [partySlug, title, body, ticketType, status, IPM_TICKET_TO_ROLE.staff, req.session.userId || null, ctx.activeCharacterId || null, ctx.viewerRole, JSON.stringify({ chargeTarget })]
+    );
+    res.status(201).json({ ok: true, ticket: rows[0] });
+  } catch (e) {
+    console.error("[POST /api/parties/:slug/internal-tickets]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/parties/:slug/internal-tickets  (role-filtered list)
+app.get("/api/parties/:slug/internal-tickets", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const partySlug = String(req.params.slug || "").trim();
+    if (!FACTION_PLAYABLE_PARTIES.includes(partySlug)) return res.status(400).json({ error: "Unsupported party" });
+    const ctx = await getIpmViewerContext(req, partySlug);
+    const { rows } = await pool.query(
+      `SELECT * FROM party_internal_tickets WHERE party_slug = $1 ORDER BY created_at DESC LIMIT 200`,
+      [partySlug]
+    );
+    const tickets = rows.filter((t) => canViewerSeeIpmTicket({ viewerRole: ctx.viewerRole, activeCharacterId: ctx.activeCharacterId, ticket: t }));
+    res.json({ ok: true, viewerRole: ctx.viewerRole, tickets });
+  } catch (e) {
+    console.error("[GET /api/parties/:slug/internal-tickets]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/parties/:slug/internal-tickets/:id/approval  (approve/reject chair/leader)
+app.post("/api/parties/:slug/internal-tickets/:id/approval", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const partySlug = String(req.params.slug || "").trim();
+    const ticketId = String(req.params.id || "").trim();
+    const action = String(req.body?.action || "approve").trim().toLowerCase();
+    const note = String(req.body?.note || "").trim();
+    const ctx = await getIpmViewerContext(req, partySlug);
+    if (ctx.viewerRole !== "chairman" && ctx.viewerRole !== "leader") {
+      return res.status(403).json({ error: "Only chairman/leader can approve or reject" });
+    }
+
+    const { rows } = await pool.query(`SELECT * FROM party_internal_tickets WHERE id = $1 AND party_slug = $2 LIMIT 1`, [ticketId, partySlug]);
+    if (!rows.length) return res.status(404).json({ error: "Ticket not found" });
+    const dbTicket = rows[0];
+    const ticket = mapDbIpmTicket(dbTicket);
+
+    if (action === "reject") {
+      if (!ipmCanRejectTicket({ viewerRole: ctx.viewerRole, ticket })) return res.status(409).json({ error: "Ticket cannot be rejected in current state" });
+      const next = ipmApplyRejection({ viewerRole: ctx.viewerRole, ticket });
+      await pool.query(
+        `UPDATE party_internal_tickets
+            SET status = $2, to_role = $3, cancel_reason = COALESCE(NULLIF($4,''), cancel_reason), cancelled_at = NOW(), cancelled_by_user_id = $5, updated_at = NOW()
+          WHERE id = $1`,
+        [ticketId, next.status, next.to_role, note, req.session.userId || null]
+      );
+      return res.json({ ok: true, status: next.status });
+    }
+
+    if (!ipmCanApproveTicket({ viewerRole: ctx.viewerRole, ticket })) return res.status(409).json({ error: "Ticket cannot be approved in current state" });
+
+    if (ctx.viewerRole === "leader") {
+      const { rows: priorRows } = await pool.query(
+        `SELECT approved_by_user_id, approved_by_char_id FROM party_internal_ticket_approvals WHERE ticket_id = $1 AND approval_role = 'chairman' LIMIT 1`,
+        [ticketId]
+      );
+      if (!priorRows.length) return res.status(409).json({ error: "Chairman approval required before leader approval" });
+      const prior = priorRows[0];
+      if (
+        (prior.approved_by_char_id && ctx.activeCharacterId && String(prior.approved_by_char_id) === String(ctx.activeCharacterId)) ||
+        (prior.approved_by_user_id && req.session.userId && String(prior.approved_by_user_id) === String(req.session.userId))
+      ) {
+        return res.status(409).json({ error: "Two-person rule: leader approver must differ from chairman approver" });
+      }
+    }
+
+    await pool.query(
+      `INSERT INTO party_internal_ticket_approvals
+         (ticket_id, approval_role, approved_by_user_id, approved_by_char_id, note, approved_at)
+       VALUES ($1,$2,$3,$4,$5,NOW())
+       ON CONFLICT (ticket_id, approval_role)
+       DO UPDATE SET approved_by_user_id = EXCLUDED.approved_by_user_id,
+                     approved_by_char_id = EXCLUDED.approved_by_char_id,
+                     note = EXCLUDED.note,
+                     approved_at = NOW()`,
+      [ticketId, ctx.viewerRole, req.session.userId || null, ctx.activeCharacterId || null, note]
+    );
+
+    const next = ipmApplyApproval({ viewerRole: ctx.viewerRole, ticket });
+    await pool.query(`UPDATE party_internal_tickets SET status = $2, to_role = $3, updated_at = NOW() WHERE id = $1`, [ticketId, next.status, next.to_role]);
+    res.json({ ok: true, status: next.status, toRole: next.to_role });
+  } catch (e) {
+    console.error("[POST /api/parties/:slug/internal-tickets/:id/approval]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/parties/:slug/internal-tickets/:id/messages
+app.get("/api/parties/:slug/internal-tickets/:id/messages", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const partySlug = String(req.params.slug || "").trim();
+    const ticketId = String(req.params.id || "").trim();
+    const ctx = await getIpmViewerContext(req, partySlug);
+    const { rows } = await pool.query(`SELECT * FROM party_internal_tickets WHERE id = $1 AND party_slug = $2 LIMIT 1`, [ticketId, partySlug]);
+    if (!rows.length) return res.status(404).json({ error: "Ticket not found" });
+    if (!canViewerSeeIpmTicket({ viewerRole: ctx.viewerRole, activeCharacterId: ctx.activeCharacterId, ticket: rows[0] })) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const { rows: messages } = await pool.query(`SELECT * FROM party_internal_messages WHERE ticket_id = $1 ORDER BY created_at ASC`, [ticketId]);
+    res.json({ ok: true, ticket: rows[0], messages });
+  } catch (e) {
+    console.error("[GET /api/parties/:slug/internal-tickets/:id/messages]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/parties/:slug/internal-tickets/:id/dismiss  (chair/leader advisory ignore)
+app.post("/api/parties/:slug/internal-tickets/:id/dismiss", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAuth(req, res)) return;
+    const partySlug = String(req.params.slug || "").trim();
+    const ticketId = String(req.params.id || "").trim();
+    const note = String(req.body?.note || "").trim();
+    const ctx = await getIpmViewerContext(req, partySlug);
+
+    const { rows } = await pool.query(`SELECT * FROM party_internal_tickets WHERE id = $1 AND party_slug = $2 LIMIT 1`, [ticketId, partySlug]);
+    if (!rows.length) return res.status(404).json({ error: "Ticket not found" });
+    const ticket = mapDbIpmTicket(rows[0]);
+    if (!ipmCanIgnoreTicket({ viewerRole: ctx.viewerRole, ticket })) {
+      return res.status(403).json({ error: "Only chairman/leader can dismiss staff/NPC tickets" });
+    }
+
+    await pool.query(
+      `INSERT INTO party_internal_ticket_ignores
+         (ticket_id, ignored_by_user_id, ignored_by_char_id, ignored_by_role, note, ignored_at)
+       VALUES ($1,$2,$3,$4,$5,NOW())`,
+      [ticketId, req.session.userId || null, ctx.activeCharacterId || null, ctx.viewerRole, note]
+    );
+    await pool.query(`UPDATE party_internal_tickets SET status = $2, updated_at = NOW() WHERE id = $1`, [ticketId, IPM_TICKET_STATUS.ignored]);
+    res.json({ ok: true, status: IPM_TICKET_STATUS.ignored });
+  } catch (e) {
+    console.error("[POST /api/parties/:slug/internal-tickets/:id/dismiss]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/staff/internal-tickets  (staff ticket list + filters)
+app.get("/api/staff/internal-tickets", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const partySlug = String(req.query?.party_slug || "").trim();
+    const origin = String(req.query?.origin || "").trim();
+    const status = String(req.query?.status || "").trim();
+    const q = String(req.query?.q || "").trim();
+
+    const clauses = [];
+    const vals = [];
+    if (partySlug) clauses.push(`t.party_slug = $${vals.push(partySlug)}`);
+    if (origin) clauses.push(`t.origin = $${vals.push(origin)}`);
+    if (status) clauses.push(`t.status = $${vals.push(status)}`);
+    if (q) clauses.push(`(t.title ILIKE $${vals.push(`%${q}%`)} OR t.body ILIKE $${vals.push(`%${q}%`)})`);
+    const whereSql = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+
+    const { rows } = await pool.query(
+      `SELECT t.*,
+              o.outcome_type, o.summary AS outcome_summary, o.due_sim_year, o.due_sim_month, o.apply_status,
+              c.cost_amount, c.cost_model, c.charge_character_id, c.charge_status
+         FROM party_internal_tickets t
+         LEFT JOIN party_internal_ticket_outcomes o ON o.ticket_id = t.id
+         LEFT JOIN party_internal_ticket_costing c ON c.ticket_id = t.id
+         ${whereSql}
+        ORDER BY t.updated_at DESC, t.created_at DESC
+        LIMIT 500`,
+      vals
+    );
+    res.json({ ok: true, tickets: rows });
+  } catch (e) {
+    console.error("[GET /api/staff/internal-tickets]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/staff/internal-tickets  (staff creates staff/npc ticket)
+app.post("/api/staff/internal-tickets", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const partySlug = String(req.body?.party_slug || "").trim();
+    const origin = String(req.body?.origin || IPM_TICKET_ORIGIN.staff).trim();
+    const title = String(req.body?.title || "").trim();
+    const body = String(req.body?.body || "").trim();
+    const ticketType = String(req.body?.ticket_type || "policy").trim() || "policy";
+    if (!FACTION_PLAYABLE_PARTIES.includes(partySlug)) return res.status(400).json({ error: "party_slug is required and must be playable" });
+    if (!ipmCanCreateTicket({ viewerRole: "staff", origin })) return res.status(400).json({ error: "origin must be staff or npc" });
+    if (!title) return res.status(400).json({ error: "title is required" });
+
+    const status = ipmGetInitialStatus({ origin });
+    const { rows } = await pool.query(
+      `INSERT INTO party_internal_tickets
+         (party_slug, title, body, origin, ticket_type, status, to_role, created_by_user_id, created_by_role, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'staff',NOW())
+       RETURNING *`,
+      [partySlug, title, body, origin, ticketType, status, IPM_TICKET_TO_ROLE.staff, req.session.userId || null]
+    );
+    res.status(201).json({ ok: true, ticket: rows[0] });
+  } catch (e) {
+    console.error("[POST /api/staff/internal-tickets]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PUT /api/staff/internal-tickets/:id/costing
+app.put("/api/staff/internal-tickets/:id/costing", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const ticketId = String(req.params.id || "").trim();
+    const costAmount = Number(req.body?.cost_amount ?? 0);
+    const costModel = String(req.body?.cost_model || "party_budget").trim() || "party_budget";
+    const chargeCharacterId = req.body?.charge_character_id ? String(req.body.charge_character_id) : null;
+    const details = req.body?.details && typeof req.body.details === "object" ? req.body.details : {};
+
+    const { rows } = await pool.query(`SELECT * FROM party_internal_tickets WHERE id = $1 LIMIT 1`, [ticketId]);
+    if (!rows.length) return res.status(404).json({ error: "Ticket not found" });
+    const dbTicket = rows[0];
+    const ticket = mapDbIpmTicket(dbTicket);
+    if (!ipmCanCostTicket({ viewerRole: "staff", ticket })) return res.status(409).json({ error: "Ticket not eligible for costing" });
+
+    const lockedTarget = ipmGetCostChargeTarget({ ticket });
+    if (lockedTarget.locked) {
+      if (costModel !== lockedTarget.chargeModel) return res.status(400).json({ error: `cost_model must be ${lockedTarget.chargeModel} for whip-created tickets` });
+      if (String(chargeCharacterId || "") !== String(lockedTarget.characterId || "")) {
+        return res.status(400).json({ error: "charge_character_id must match creating whip character" });
+      }
+    }
+
+    await pool.query(
+      `INSERT INTO party_internal_ticket_costing
+         (ticket_id, costed_by_user_id, cost_amount, cost_model, charge_character_id, details, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,NOW())
+       ON CONFLICT (ticket_id)
+       DO UPDATE SET costed_by_user_id = EXCLUDED.costed_by_user_id,
+                     cost_amount = EXCLUDED.cost_amount,
+                     cost_model = EXCLUDED.cost_model,
+                     charge_character_id = EXCLUDED.charge_character_id,
+                     details = EXCLUDED.details,
+                     updated_at = NOW()`,
+      [ticketId, req.session.userId || null, Number.isFinite(costAmount) ? costAmount : 0, costModel, chargeCharacterId, JSON.stringify(details)]
+    );
+
+    const next = ipmApplyCosting({ ticket });
+    await pool.query(`UPDATE party_internal_tickets SET status = $2, to_role = $3, updated_at = NOW() WHERE id = $1`, [ticketId, next.status, next.to_role]);
+    res.json({ ok: true, status: next.status, toRole: next.to_role });
+  } catch (e) {
+    console.error("[PUT /api/staff/internal-tickets/:id/costing]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// PUT /api/staff/internal-tickets/:id/outcome
+app.put("/api/staff/internal-tickets/:id/outcome", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const ticketId = String(req.params.id || "").trim();
+    const outcomeType = String(req.body?.outcome_type || "recorded").trim() || "recorded";
+    const summary = String(req.body?.summary || "").trim();
+    const impactPayload = req.body?.impact_payload && typeof req.body.impact_payload === "object" ? req.body.impact_payload : {};
+    const dueYearInput = Number(req.body?.due_sim_year);
+    const dueMonthInput = Number(req.body?.due_sim_month);
+
+    const { rows: clockRows } = await pool.query("SELECT sim_current_year, sim_current_month FROM sim_clock WHERE id = 'main' LIMIT 1");
+    const defaultDueYear = Number(clockRows[0]?.sim_current_year ?? 1997);
+    const defaultDueMonth = Number(clockRows[0]?.sim_current_month ?? 1);
+    const dueSimYear = Number.isInteger(dueYearInput) ? dueYearInput : defaultDueYear;
+    const dueSimMonth = Number.isInteger(dueMonthInput) ? dueMonthInput : defaultDueMonth;
+
+    const { rows } = await pool.query(`SELECT * FROM party_internal_tickets WHERE id = $1 LIMIT 1`, [ticketId]);
+    if (!rows.length) return res.status(404).json({ error: "Ticket not found" });
+    const ticket = mapDbIpmTicket(rows[0]);
+    if (!ipmCanRecordOutcome({ viewerRole: "staff", ticket })) return res.status(409).json({ error: "Ticket is not queued for outcome" });
+
+    await pool.query(
+      `INSERT INTO party_internal_ticket_outcomes
+         (ticket_id, outcome_type, summary, impact_payload, recorded_by_user_id, due_sim_year, due_sim_month, apply_status, apply_error, recorded_at, updated_at)
+       VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,'pending','',NOW(),NOW())
+       ON CONFLICT (ticket_id)
+       DO UPDATE SET outcome_type = EXCLUDED.outcome_type,
+                     summary = EXCLUDED.summary,
+                     impact_payload = EXCLUDED.impact_payload,
+                     recorded_by_user_id = EXCLUDED.recorded_by_user_id,
+                     due_sim_year = EXCLUDED.due_sim_year,
+                     due_sim_month = EXCLUDED.due_sim_month,
+                     apply_status = 'pending',
+                     apply_error = '',
+                     applied_at = NULL,
+                     applied_by_user_id = NULL,
+                     recorded_at = NOW(),
+                     updated_at = NOW()`,
+      [ticketId, outcomeType, summary, JSON.stringify(impactPayload), req.session.userId || null, dueSimYear, dueSimMonth]
+    );
+    // Keep ticket queued for freeze. Outcome recording should not publish/apply mid-week.
+    await pool.query(`UPDATE party_internal_tickets SET status = $2, to_role = $3, updated_at = NOW() WHERE id = $1`, [ticketId, IPM_TICKET_STATUS.queuedForFreeze, IPM_TICKET_TO_ROLE.staff]);
+    res.json({ ok: true, status: IPM_TICKET_STATUS.queuedForFreeze });
+  } catch (e) {
+    console.error("[PUT /api/staff/internal-tickets/:id/outcome]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/staff/internal-tickets/:id/cancel
+app.post("/api/staff/internal-tickets/:id/cancel", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const ticketId = String(req.params.id || "").trim();
+    const reason = String(req.body?.reason || "").trim();
+    const { rows } = await pool.query(`SELECT * FROM party_internal_tickets WHERE id = $1 LIMIT 1`, [ticketId]);
+    if (!rows.length) return res.status(404).json({ error: "Ticket not found" });
+    const ticket = mapDbIpmTicket(rows[0]);
+    if (!ipmCanCancelTicket({ viewerRole: "staff", ticket, isOwner: false })) return res.status(409).json({ error: "Ticket cannot be cancelled" });
+
+    await pool.query(
+      `UPDATE party_internal_tickets
+          SET status = $2, to_role = $3, cancel_reason = $4, cancelled_at = NOW(), cancelled_by_user_id = $5, updated_at = NOW()
+        WHERE id = $1`,
+      [ticketId, IPM_TICKET_STATUS.cancelled, IPM_TICKET_TO_ROLE.staff, reason, req.session.userId || null]
+    );
+    res.json({ ok: true, status: IPM_TICKET_STATUS.cancelled });
+  } catch (e) {
+    console.error("[POST /api/staff/internal-tickets/:id/cancel]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/staff/internal-tickets/:id/messages
+app.get("/api/staff/internal-tickets/:id/messages", crudReadLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const ticketId = String(req.params.id || "").trim();
+    const { rows: ticketRows } = await pool.query(`SELECT * FROM party_internal_tickets WHERE id = $1 LIMIT 1`, [ticketId]);
+    if (!ticketRows.length) return res.status(404).json({ error: "Ticket not found" });
+    const { rows: messages } = await pool.query(`SELECT * FROM party_internal_messages WHERE ticket_id = $1 ORDER BY created_at ASC`, [ticketId]);
+    res.json({ ok: true, ticket: ticketRows[0], messages });
+  } catch (e) {
+    console.error("[GET /api/staff/internal-tickets/:id/messages]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/staff/internal-tickets/:id/messages  (staff/npc letters)
+app.post("/api/staff/internal-tickets/:id/messages", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdminOrMod(req, res)) return;
+    const ticketId = String(req.params.id || "").trim();
+    const authorRole = String(req.body?.author_role || "staff").trim();
+    const body = String(req.body?.body || "").trim();
+    if (!body) return res.status(400).json({ error: "body is required" });
+    if (!["staff", "npc"].includes(authorRole)) return res.status(400).json({ error: "author_role must be staff or npc" });
+
+    const { rows } = await pool.query(`SELECT * FROM party_internal_tickets WHERE id = $1 LIMIT 1`, [ticketId]);
+    if (!rows.length) return res.status(404).json({ error: "Ticket not found" });
+    if (!ipmCanViewTicket({ viewerRole: "staff", isOwner: false })) return res.status(403).json({ error: "Forbidden" });
+
+    const { rows: msgRows } = await pool.query(
+      `INSERT INTO party_internal_messages (ticket_id, author_user_id, author_role, body, created_at)
+       VALUES ($1,$2,$3,$4,NOW())
+       RETURNING *`,
+      [ticketId, req.session.userId || null, authorRole, body]
+    );
+    res.status(201).json({ ok: true, message: msgRows[0] });
+  } catch (e) {
+    console.error("[POST /api/staff/internal-tickets/:id/messages]", e);
     res.status(500).json({ error: "Server error" });
   }
 });
