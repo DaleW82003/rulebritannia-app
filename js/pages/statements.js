@@ -159,8 +159,10 @@ function render(data) {
 
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
+    let persisted = null;
     try {
-      await apiCreateStatement(statement);
+      const resp = await apiCreateStatement(statement);
+      persisted = resp?.statement || null;
     } catch (err) {
       console.error(err);
       handleApiError(err, "Statement");
@@ -168,7 +170,7 @@ function render(data) {
       return;
     }
 
-    data.statements.items.push(statement);
+    data.statements.items.push(persisted || statement);
     data.statements.nextNumber = number + 1;
 
     toastSuccess(`MS${number}: "${title}" submitted.`);

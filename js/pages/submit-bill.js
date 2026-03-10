@@ -379,8 +379,10 @@ export function initSubmitBillPage(data) {
     const submitBtn = form.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
 
+    let createdBill = null;
     try {
-      await apiCreateBill(bill);
+      const resp = await apiCreateBill(bill);
+      createdBill = resp?.bill || null;
     } catch (err) {
       console.error("[submit-bill] Failed to persist bill to DB:", err);
       handleApiError(err, "Submit bill");
@@ -388,21 +390,22 @@ export function initSubmitBillPage(data) {
       return;
     }
 
+    const persistedBill = createdBill || bill;
     data.orderPaperCommons ??= [];
-    data.orderPaperCommons.unshift(bill);
+    data.orderPaperCommons.unshift(persistedBill);
 
     if (stage === "First Reading") {
-      pushAgendaDocketItem(data, bill);
+      pushAgendaDocketItem(data, persistedBill);
     }
 
     if (stage === "Second Reading") {
-      const raw = `**${bill.title}**\nIntroduced by ${bill.author || "Unknown"}${department ? ` (${department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
-      apiCreateDebateTopic({ entityType: "bill", entityId: bill.id, title: `Second Reading: ${bill.title}`, raw, categoryId: 9 })
+      const raw = `**${persistedBill.title}**\nIntroduced by ${persistedBill.author || "Unknown"}${department ? ` (${department})` : ""}.\n\n*This is the Second Reading debate thread for this bill.*`;
+      apiCreateDebateTopic({ entityType: "bill", entityId: persistedBill.id, title: `Second Reading: ${persistedBill.title}`, raw, categoryId: 9 })
         .then(({ topicId, topicUrl }) => { // UI_ONLY_OK: Discourse side-write after bill submit; outer .catch() handles failures
-          bill.debate = { ...bill.debate, topicId, topicUrl };
-          bill.discourseTopicId = topicId;
-          const idx = data.orderPaperCommons.findIndex((b) => b.id === bill.id);
-          if (idx >= 0) data.orderPaperCommons[idx] = bill;
+          persistedBill.debate = { ...persistedBill.debate, topicId, topicUrl };
+          persistedBill.discourseTopicId = topicId;
+          const idx = data.orderPaperCommons.findIndex((b) => b.id === persistedBill.id);
+          if (idx >= 0) data.orderPaperCommons[idx] = persistedBill;
         })
         .catch((err) => handleApiError(err, "Debate topic")); // UI_ONLY_OK: terminal error handler for the Discourse topic creation chain
     }

@@ -194,8 +194,10 @@ export async function initRegulationsPage(data) {
 
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
+    let persisted = null;
     try {
-      await apiCreateRegulation(regulation);
+      const resp = await apiCreateRegulation(regulation);
+      persisted = resp?.regulation || null;
     } catch (err) {
       console.error(err);
       handleApiError(err, "Regulation");
@@ -203,7 +205,7 @@ export async function initRegulationsPage(data) {
       return;
     }
 
-    data.regulations.items.push(regulation);
+    data.regulations.items.push(persisted || regulation);
     data.regulations.nextId += 1;
     apiCreateDebateTopic({
       entityType: "regulation", entityId: regulation.id,

@@ -316,15 +316,17 @@ function render(data, state) {
 
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
+    let persisted = null;
     try {
-      await apiCreateFundraisingItem(item);
+      const resp = await apiCreateFundraisingItem(item);
+      persisted = resp?.item || null;
     } catch (err) {
       console.error(err);
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
 
-    data.fundraising.items.push(item);
+    data.fundraising.items.push(persisted || item);
     state.showForm = false;
     toastSuccess(`${spec.title} submitted for approval.`);
     render(data, state);

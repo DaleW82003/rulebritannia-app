@@ -489,10 +489,33 @@ if (!serverContent.includes("isAuthoritativeWriteKey")) {
   serverAuthorityStripIssues++;
 }
 const middlewareIdx = serverContent.indexOf("req.body = sanitizeClientWriteBody(req.body)");
-const firstSimWriteIdx = serverContent.indexOf('app.post("/api/bills"');
-if (middlewareIdx === -1 || firstSimWriteIdx === -1 || middlewareIdx > firstSimWriteIdx) {
-  fail("server/index.js: authoritative body sanitization middleware must run before sim write routes");
-  serverAuthorityStripIssues++;
+const simWriteRouteMarkers = [
+  'app.post("/api/bills"',
+  'app.put("/api/bills/:id"',
+  'app.post("/api/motions"',
+  'app.put("/api/motions/:id"',
+  'app.post("/api/statements"',
+  'app.put("/api/statements/:id"',
+  'app.post("/api/regulations"',
+  'app.put("/api/regulations/:id"',
+  'app.post("/api/questiontime-questions"',
+  'app.put("/api/questiontime-questions/:id"',
+  'app.post("/api/polling"',
+  'app.put("/api/polling/:id"',
+  'app.post("/api/redlion"',
+  'app.post("/api/events"',
+  'app.put("/api/events/:id"',
+  'app.post("/api/online"',
+  'app.post("/api/fundraising"',
+  'app.put("/api/fundraising/:id"',
+];
+for (const marker of simWriteRouteMarkers) {
+  const routeIdx = serverContent.indexOf(marker);
+  if (routeIdx === -1) continue;
+  if (middlewareIdx === -1 || middlewareIdx > routeIdx) {
+    fail(`server/index.js: authoritative body sanitization middleware must run before ${marker}`);
+    serverAuthorityStripIssues++;
+  }
 }
 if (!serverAuthorityStripIssues) pass("Server authoritative-field stripping middleware is present and ordered before sim writes");
 

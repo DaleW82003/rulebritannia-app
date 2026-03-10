@@ -9,6 +9,7 @@ const FORBIDDEN_SIM_AUTHORITY_KEYS = new Set([
   "id", "uuid", "ref", "reference", "serial",
   "created_at", "updated_at", "deleted_at", "createdat", "updatedat", "deletedat", "timestamp",
   "created_by", "updated_by", "author", "author_id", "authorid", "author_role", "authorrole",
+  "npc", "npcauthor", "npcparty", "is_npc",
   "role", "roles", "score", "computed_score", "derived_state",
 ]);
 

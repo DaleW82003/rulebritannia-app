@@ -202,6 +202,10 @@ const AUTHORITATIVE_WRITE_KEYS = new Set([
   "authorid",
   "author_role",
   "authorrole",
+  "npc",
+  "npcauthor",
+  "npcparty",
+  "is_npc",
   "role",
   "roles",
   "score",
@@ -6322,7 +6326,7 @@ app.post("/api/bills", crudWriteLimit, async (req, res) => {
     const sy = clk[0]?.sim_current_year  ?? 1997;
     let created;
     // Capture the submitting character ID so the author name can be re-computed dynamically
-    const authorCharId = bill.npc ? null : (await getActiveCharacterId(req) || null);
+    const authorCharId = await getActiveCharacterId(req) || null;
     created = await withGeneratedIdTransaction(async (client, billId) => {
       const enriched = attachLifecycle({ ...bill, id: billId }, sm, sy);
       const { rows } = await client.query(
@@ -7637,7 +7641,7 @@ app.post("/api/regulations", crudWriteLimit, async (req, res) => {
     );
     const sm = clk[0]?.sim_current_month ?? 8;
     const sy = clk[0]?.sim_current_year  ?? 1997;
-    const authorCharId = reg.npc ? null : (await getActiveCharacterId(req) || null);
+    const authorCharId = await getActiveCharacterId(req) || null;
     const created = await withGeneratedIdTransaction(async (client, regulationId) => {
       const enriched = attachLifecycle({ ...reg, id: regulationId }, sm, sy);
       const { rows } = await client.query(

@@ -265,14 +265,16 @@ function render(data, state) {
     };
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
+    let persisted = null;
     try {
-      await apiCreateOnlinePost("web", post);
+      const resp = await apiCreateOnlinePost("web", post);
+      persisted = resp?.post || null;
     } catch (err) {
       handleApiError(err, "Post to web");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
-    data.online.webPosts.push(post);
+    data.online.webPosts.push(persisted || post);
     state.view = "webHistory";
     render(data, state);
   });
@@ -296,14 +298,16 @@ function render(data, state) {
     };
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
+    let persisted = null;
     try {
-      await apiCreateOnlinePost("facebook", post);
+      const resp = await apiCreateOnlinePost("facebook", post);
+      persisted = resp?.post || null;
     } catch (err) {
       handleApiError(err, "Post to Facebook");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
-    data.online.facebookPosts.push(post);
+    data.online.facebookPosts.push(persisted || post);
     render(data, state);
   });
 
@@ -335,14 +339,16 @@ function render(data, state) {
     };
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;
+    let persisted = null;
     try {
-      await apiCreateOnlinePost("twitter", post);
+      const resp = await apiCreateOnlinePost("twitter", post);
+      persisted = resp?.post || null;
     } catch (err) {
       handleApiError(err, "Post to Twitter");
       if (submitBtn) submitBtn.disabled = false;
       return;
     }
-    data.online.twitterPosts.push(post);
+    data.online.twitterPosts.push(persisted || post);
     render(data, state);
   });
 
