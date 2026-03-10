@@ -48,22 +48,25 @@ import {
 const __serverDir = dirname(fileURLToPath(import.meta.url));
 
 /**
- * ── server/index.js navigation index (maintained) ──────────────────────────
- * auth / session / csrf
- * state + snapshot routes
- * parliamentary routes
- * factions + political state
- * finance
- * support
- * discourse
- * staff/admin tools
- * sim clock / freeze
- * bootstrap / schema / startup
+ * ── server/index.js navigation map (maintained) ────────────────────────────
+ * Use these SECTION markers with search (e.g. "SECTION: parliamentary"):
  *
- * Next extraction candidates (post-alpha):
- * - writeAuditLog + audit helpers
- * - clock tick runners
- * - remaining parliamentary authority helpers
+ * - SECTION: core auth/session/csrf
+ * - SECTION: state + snapshots
+ * - SECTION: parliamentary + divisions
+ * - SECTION: factions + political state
+ * - SECTION: finance + economy
+ * - SECTION: discourse integration
+ * - SECTION: support + internal tickets
+ * - SECTION: staff/admin operations
+ * - SECTION: sim clock + freeze
+ * - SECTION: bootstrap/schema/startup
+ *
+ * Post-alpha extraction roadmap (documentation-first in this pass):
+ * - audit logging helpers (writeAuditLog call-sites + query helpers)
+ * - clock tick runners / month-rollover orchestration
+ * - remaining parliamentary authority/eligibility helpers
+ * - repeated admin guard + response utilities used across admin routes
  */
 
 // ── Turnstile config ──────────────────────────────────────────────────────────
@@ -380,6 +383,10 @@ app.use((req, res, next) => {
 /**
  * Boot-time schema
  */
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION: bootstrap/schema/startup
+// ═════════════════════════════════════════════════════════════════════════════
+
 async function ensureSchema() {
   // Ensure pgcrypto extension is available for gen_random_uuid() on Postgres < 13
   await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
@@ -4812,6 +4819,10 @@ async function syncObjectTables(data) {
   }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION: core auth/session/csrf
+// ═════════════════════════════════════════════════════════════════════════════
+
 /**
  * Health
  */
@@ -5344,6 +5355,10 @@ app.post("/api/admin/registrations/:id/reject", regAdminLimit, verifyCsrfToken, 
   }
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION: state + snapshots
+// ═════════════════════════════════════════════════════════════════════════════
+
 /**
  * STATE
  *
@@ -5822,6 +5837,10 @@ app.get("/api/config/enums", enumsReadLimit, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION: discourse integration
+// ═════════════════════════════════════════════════════════════════════════════
 
 /**
  * DISCOURSE INTEGRATION
@@ -6380,6 +6399,11 @@ app.get("/api/admin/sso-readiness", discourseReadLimit, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION: parliamentary + divisions
+// (starts with audit trail + legislative workflows)
+// ═════════════════════════════════════════════════════════════════════════════
 
 /**
  * AUDIT LOG
@@ -8013,6 +8037,10 @@ app.delete("/api/questiontime-questions/:id", crudWriteLimit, async (req, res) =
 const clockReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
 const clockWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION: sim clock + freeze
+// ═════════════════════════════════════════════════════════════════════════════
+
 app.get("/api/clock", clockReadLimit, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -9467,6 +9495,10 @@ const bootstrapCatch = (name) => (err) => {
   console.error(`[bootstrap] ${name} query failed:`, err.message);
   return [];
 };
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION: staff/admin operations
+// ═════════════════════════════════════════════════════════════════════════════
 
 app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
   try {
@@ -11884,6 +11916,10 @@ app.post("/api/parties/:partyId/chief-whip", partyWriteLimit, async (req, res) =
     res.status(500).json({ error: "Server error" });
   }
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION: finance + economy
+// ═════════════════════════════════════════════════════════════════════════════
 
 // ── Shop price index ─────────────────────────────────────────────────────────
 // GET  /api/shop/price-index          — authenticated: read current price index
@@ -22501,6 +22537,10 @@ app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (re
   }
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION: factions + political state
+// ═════════════════════════════════════════════════════════════════════════════
+
 // ── Party Faction API ─────────────────────────────────────────────────────────
 
 // FACTION_PLAYABLE_PARTIES imported from political-state-service.js
@@ -23712,6 +23752,10 @@ app.get("/api/parties/:slug/faction-climate", crudReadLimit, async (req, res) =>
   }
 });
 
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION: support + internal tickets
+// ═════════════════════════════════════════════════════════════════════════════
 
 // ── Internal Party Management (IPM) API v1 ─────────────────────────────────
 
