@@ -5,7 +5,7 @@ import { handleApiError } from "../errors.js";
 import { toastSuccess, toastError } from "../components/toast.js";
 import { apiCreatePressItem, apiGetPressItems, apiAddPressTranscriptEntry, apiMarkPressItem, apiUpdatePressItem, apiDeletePressItem } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
-import { requireLoginForWrite, isLoggedIn } from "../core.js";
+import { requireLoginForWrite, isLoggedIn, sortChronological, addPressLabels } from "../core.js";
 
 
 /** NPC office keys available for privileged users when issuing official letters. */
@@ -293,10 +293,10 @@ function render(data, state) {
   const weekday = getWeekdayName();
   const markToday = canMarkToday(data);
 
-  const releases = sortChronological(data.press.releases);
-  const conferences = sortChronological(data.press.conferences);
+  const releases = addPressLabels(sortChronological(data.press.releases), "PR");
+  const conferences = addPressLabels(sortChronological(data.press.conferences), "PC");
   const comments = sortChronological(data.press.comments);
-  const speeches = sortChronological(data.press.speeches);
+  const speeches = addPressLabels(sortChronological(data.press.speeches), "SP");
   const letters = sortChronological(data.press.letters);
 
   root.innerHTML = `
@@ -355,7 +355,7 @@ function render(data, state) {
       ${releases.length ? releases.map((r) => `
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-            <div><b>${esc(r.reference)}</b> — ${esc(r.subject)}</div>
+            <div><b>${esc(r._categoryLabel)}</b> — <b>${esc(r.reference)}</b> — ${esc(r.subject)}</div>
           </div>
           <div class="muted">By ${esc(r.author_display_name || r.author)}${affiliationBadge({ party: r.party }) ? ` ${affiliationBadge({ party: r.party })}` : ""} • ${esc(r.createdAtSim)}</div>
           ${renderMarkingResult(r)}
@@ -395,7 +395,7 @@ function render(data, state) {
         return `
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-            <div><b>${esc(c.reference)}</b> — ${esc(c.subject)}</div>
+            <div><b>${esc(c._categoryLabel)}</b> — <b>${esc(c.reference)}</b> — ${esc(c.subject)}</div>
             <div>${conferenceStatusChip(c, data)}</div>
           </div>
           <div class="muted">By ${esc(c.author_display_name || c.author)}${affiliationBadge({ party: c.party }) ? ` ${affiliationBadge({ party: c.party })}` : ""} • Opens ${esc(c.createdAtSim)} • Closes ${esc(c.closesAtSim)}</div>
@@ -513,7 +513,7 @@ function render(data, state) {
       ${speeches.length ? speeches.map((s) => `
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-            <div><b>${esc(s.reference)}</b> — ${esc(s.title)}</div>
+            <div><b>${esc(s._categoryLabel)}</b> — <b>${esc(s.reference)}</b> — ${esc(s.title)}</div>
           </div>
           <div class="muted">By ${esc(s.author_display_name || s.author)}${affiliationBadge({ party: s.party }) ? ` ${affiliationBadge({ party: s.party })}` : ""} • ${esc(s.audience)} • ${esc(s.createdAtSim)}</div>
           ${renderMarkingResult(s)}

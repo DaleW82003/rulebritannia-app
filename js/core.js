@@ -352,3 +352,47 @@ export function qs(sel, root = document) {
 export function qsa(sel, root = document) {
   return Array.from(root.querySelectorAll(sel));
 }
+
+/**
+ * Extract a numeric timestamp from a data item.
+ * Tries multiple candidate keys in order; returns -Infinity for non-sortable items.
+ * @param {object} item
+ * @returns {number}
+ */
+function _tsFromItem(item) {
+  for (const key of ["createdAtReal", "createdAt", "createdTs", "ts", "timestamp", "created", "date"]) {
+    const v = item?.[key];
+    if (v == null) continue;
+    const n = typeof v === "number" ? v : Date.parse(v);
+    if (!Number.isNaN(n) && Number.isFinite(n)) return n;
+  }
+  return -Infinity;
+}
+
+/**
+ * Sort an array of items newest-first by their best-available timestamp field.
+ * Handles values that are numbers (ms epoch) or ISO strings.
+ * Non-sortable items (no recognised timestamp) sink to the bottom.
+ * Returns a new array; does not mutate the input.
+ * @param {Array} items
+ * @returns {Array}
+ */
+export function sortChronological(items) {
+  if (!Array.isArray(items)) return [];
+  return items.slice().sort((a, b) => _tsFromItem(b) - _tsFromItem(a));
+}
+
+/**
+ * Assign a sequential category label to each item in a sorted-newest-first array.
+ * Oldest item (last) is labelled `${prefix}1`; newest (first) is labelled `${prefix}N`.
+ * Each item is shallow-cloned so the original array is not mutated.
+ * Returns a new array with `_categoryLabel` added to each cloned item.
+ * @param {Array} items  Already sorted newest-first.
+ * @param {string} prefix  e.g. "PR", "PC", "SP"
+ * @returns {Array}
+ */
+export function addPressLabels(items, prefix) {
+  if (!Array.isArray(items)) return [];
+  const n = items.length;
+  return items.map((item, i) => ({ ...item, _categoryLabel: `${prefix}${n - i}` }));
+}
