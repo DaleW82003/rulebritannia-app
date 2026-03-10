@@ -134,6 +134,25 @@ function parseSimLabel(label) {
   return { month: m, year: y };
 }
 
+/** Number of sim months after which a press item is auto-archived. */
+const PRESS_ARCHIVE_MONTHS = 4;
+
+/**
+ * Returns true if a press item should be treated as archived.
+ * An item is archived when an explicit `archived` flag is set, OR when its
+ * creation sim-date is ≥ PRESS_ARCHIVE_MONTHS behind the current sim date.
+ * @param {object} item  Press item with at least a `createdAtSim` string.
+ * @param {object} data  Root game data (used to read current sim date).
+ * @returns {boolean}
+ */
+function isItemArchived(item, data) {
+  if (item.archived === true) return true;
+  const created = parseSimLabel(item.createdAtSim);
+  if (!created) return false;
+  const now = simDateToObj(getSimDate(data?.gameState || {}));
+  return compareSimDates(now, created) >= PRESS_ARCHIVE_MONTHS;
+}
+
 /** Conference status chip: shows Ongoing if close date is in the future, else Awaiting Marking (or numeric score). */
 function conferenceStatusChip(c, data) {
   if (c.score !== null && c.score !== undefined) {
@@ -293,11 +312,27 @@ function render(data, state) {
   const weekday = getWeekdayName();
   const markToday = canMarkToday(data);
 
-  const releases = addPressLabels(sortChronological(data.press.releases), "PR");
-  const conferences = addPressLabels(sortChronological(data.press.conferences), "PC");
-  const comments = sortChronological(data.press.comments);
-  const speeches = addPressLabels(sortChronological(data.press.speeches), "SP");
-  const letters = sortChronological(data.press.letters);
+  // Labels are assigned to ALL items (including archived) so archiving never renumbers.
+  // Items are then split: active list vs. archive section.
+  const allReleases    = addPressLabels(sortChronological(data.press.releases), "PR");
+  const releases       = allReleases.filter((r) => !isItemArchived(r, data));
+  const relArchived    = allReleases.filter((r) => isItemArchived(r, data));
+
+  const allConferences = addPressLabels(sortChronological(data.press.conferences), "PC");
+  const conferences    = allConferences.filter((c) => !isItemArchived(c, data));
+  const confArchived   = allConferences.filter((c) => isItemArchived(c, data));
+
+  const allComments    = sortChronological(data.press.comments);
+  const comments       = allComments.filter((c) => !isItemArchived(c, data));
+  const commArchived   = allComments.filter((c) => isItemArchived(c, data));
+
+  const allSpeeches    = addPressLabels(sortChronological(data.press.speeches), "SP");
+  const speeches       = allSpeeches.filter((s) => !isItemArchived(s, data));
+  const spArchived     = allSpeeches.filter((s) => isItemArchived(s, data));
+
+  const allLetters     = sortChronological(data.press.letters);
+  const letters        = allLetters.filter((l) => !isItemArchived(l, data));
+  const letArchived    = allLetters.filter((l) => isItemArchived(l, data));
 
   root.innerHTML = `
     <section class="tile" style="margin-bottom:12px;">
@@ -368,6 +403,29 @@ function render(data, state) {
           ${markToday && r.score === null ? renderMarkingForm(r.id, "mark-release", r.party || char?.party || "", "Apply Mark") : ""}
         </article>
       `).join("") : `<p class="muted">No releases yet.</p>`}
+
+      ${relArchived.length ? `
+        <details style="margin-top:16px;">
+          <summary style="cursor:pointer;font-weight:600;padding:6px 0;">📁 Archive (${relArchived.length})</summary>
+          <div style="margin-top:8px;">
+            ${relArchived.map((r) => `
+              <article class="tile" style="margin-bottom:10px;opacity:0.85;">
+                <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                  <div><b>${esc(r._categoryLabel)}</b> — <b>${esc(r.reference)}</b> — ${esc(r.subject)} <span class="muted" style="font-size:0.85em;">[Archived]</span></div>
+                </div>
+                <div class="muted">By ${esc(r.author_display_name || r.author)}${affiliationBadge({ party: r.party }) ? ` ${affiliationBadge({ party: r.party })}` : ""} • ${esc(r.createdAtSim)}</div>
+                ${renderMarkingResult(r)}
+                <div class="tile-bottom"><button class="btn" data-action="toggle-release" data-id="${esc(r.id)}" type="button">${state.openRelease === r.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-release" data-id="${esc(r.id)}" type="button">Delete</button>` : ""}</div>
+                ${state.openRelease === r.id ? (
+                  state.editPressId === r.id
+                    ? `<form class="tile" data-action="save-edit-press" data-id="${esc(r.id)}" style="margin-top:8px;"><textarea class="input" name="body" rows="6" required>${esc(r.body)}</textarea><div style="display:flex;gap:6px;margin-top:4px;"><button class="btn" type="submit">Save</button><button class="btn" type="button" data-action="cancel-edit-press">Cancel</button></div></form>`
+                    : `<div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(r.body)}</div>${marker ? `<button class="btn" type="button" data-action="edit-press" data-id="${esc(r.id)}" style="margin-top:4px;">Edit (Mod)</button>` : ""}`
+                ) : ""}
+              </article>
+            `).join("")}
+          </div>
+        </details>
+      ` : ""}
     `;
   }
 
@@ -443,6 +501,38 @@ function render(data, state) {
         </article>
       `;
       }).join("") : `<p class="muted">No conferences yet.</p>`}
+
+      ${confArchived.length ? `
+        <details style="margin-top:16px;">
+          <summary style="cursor:pointer;font-weight:600;padding:6px 0;">📁 Archive (${confArchived.length})</summary>
+          <div style="margin-top:8px;">
+            ${confArchived.map((c) => {
+              const transcript = Array.isArray(c.transcript) ? c.transcript : [];
+              return `
+              <article class="tile" style="margin-bottom:10px;opacity:0.85;">
+                <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                  <div><b>${esc(c._categoryLabel)}</b> — <b>${esc(c.reference)}</b> — ${esc(c.subject)} <span class="muted" style="font-size:0.85em;">[Archived]</span></div>
+                  <div>${conferenceStatusChip(c, data)}</div>
+                </div>
+                <div class="muted">By ${esc(c.author_display_name || c.author)}${affiliationBadge({ party: c.party }) ? ` ${affiliationBadge({ party: c.party })}` : ""} • Opens ${esc(c.createdAtSim)} • Closes ${esc(c.closesAtSim)}</div>
+                <div class="tile-bottom"><button class="btn" data-action="toggle-conference" data-id="${esc(c.id)}" type="button">${state.openConference === c.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-conference" data-id="${esc(c.id)}" type="button">Delete</button>` : ""}</div>
+                ${state.openConference === c.id ? `
+                  <div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(c.body)}</div>
+                  <div class="tile" style="margin-top:8px;">
+                    <h4 style="margin-top:0;">Transcript</h4>
+                    ${transcript.length ? transcript.map((t) => {
+                      if (t.isQuestion) return `<p style="margin:6px 0;padding:6px 10px;background:#f0f4ff;border-left:3px solid #4466bb;"><b>Q — ${esc(t.from)}:</b> ${esc(t.text)}</p>`;
+                      if (t.walkOff) return `<p style="margin:6px 0;" class="muted"><em>${esc(t.text)}</em></p>`;
+                      return `<p style="margin:6px 0;padding:6px 10px;background:#f6fff6;border-left:3px solid #4a904a;"><b>A — ${esc(t.from)}:</b> ${esc(t.text)}</p>`;
+                    }).join("") : `<p class="muted">No questions.</p>`}
+                    ${c.score !== null && c.score !== undefined ? renderMarkingResult(c) : ""}
+                  </div>
+                ` : ""}
+              </article>
+            `}).join("")}
+          </div>
+        </details>
+      ` : ""}
     `;
   }
 
@@ -487,6 +577,26 @@ function render(data, state) {
           </div>
         </article>
       `).join("") : `<p class="muted">No comments yet.</p>`}
+
+      ${commArchived.length ? `
+        <details style="margin-top:16px;">
+          <summary style="cursor:pointer;font-weight:600;padding:6px 0;">📁 Archive (${commArchived.length})</summary>
+          <div style="margin-top:8px;">
+            ${commArchived.map((c) => `
+              <article class="tile" style="margin-bottom:10px;display:flex;gap:10px;align-items:flex-start;opacity:0.85;">
+                <img src="${esc(findCharacterAvatar(data, c.author, c.avatar))}" alt="${esc(c.author)} avatar" width="44" height="44" style="border-radius:999px;object-fit:cover;">
+                <div style="flex:1;">
+                  <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                    <div><b>${esc(c.author_display_name || c.author)}</b>${affiliationBadge({ party: c.party, isModAffiliation: !!c.npcAuthor }) ? ` ${affiliationBadge({ party: c.party, isModAffiliation: !!c.npcAuthor })}` : ""} <span class="muted" style="font-size:0.85em;">[Archived]</span></div><div class="muted">${esc(c.createdAtSim)}</div>
+                  </div>
+                  <p style="white-space:pre-wrap;">${esc(c.body)}</p>
+                  ${marker ? `<button class="btn" data-action="delete-comment" data-id="${esc(c.id)}" type="button">Delete</button>` : ""}
+                </div>
+              </article>
+            `).join("")}
+          </div>
+        </details>
+      ` : ""}
     `;
   }
 
@@ -530,6 +640,31 @@ function render(data, state) {
           ${markToday && s.score === null ? renderMarkingForm(s.id, "mark-speech", s.party || char?.party || "", "Apply Mark") : ""}
         </article>
       `).join("") : `<p class="muted">No speeches yet.</p>`}
+
+      ${spArchived.length ? `
+        <details style="margin-top:16px;">
+          <summary style="cursor:pointer;font-weight:600;padding:6px 0;">📁 Archive (${spArchived.length})</summary>
+          <div style="margin-top:8px;">
+            ${spArchived.map((s) => `
+              <article class="tile" style="margin-bottom:10px;opacity:0.85;">
+                <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                  <div><b>${esc(s._categoryLabel)}</b> — <b>${esc(s.reference)}</b> — ${esc(s.title)} <span class="muted" style="font-size:0.85em;">[Archived]</span></div>
+                </div>
+                <div class="muted">By ${esc(s.author_display_name || s.author)}${affiliationBadge({ party: s.party }) ? ` ${affiliationBadge({ party: s.party })}` : ""} • ${esc(s.audience)} • ${esc(s.createdAtSim)}</div>
+                ${renderMarkingResult(s)}
+                <div class="tile-bottom"><button class="btn" data-action="toggle-speech" data-id="${esc(s.id)}" type="button">${state.openSpeech === s.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-speech" data-id="${esc(s.id)}" type="button">Delete</button>` : ""}</div>
+                ${state.openSpeech === s.id ? `
+                  <div class="tile" style="margin-top:8px;">
+                    ${s.picture ? `<img src="${esc(s.picture)}" alt="Speech image" style="max-width:100%;margin-bottom:8px;display:block;" onerror="this.style.display='none'">` : ""}
+                    <div style="font-weight:600;margin-bottom:4px;">${esc(s.topOfSpeech)}</div>
+                    <div style="white-space:pre-wrap;">${esc(s.body)}</div>
+                  </div>
+                ` : ""}
+              </article>
+            `).join("")}
+          </div>
+        </details>
+      ` : ""}
     `;
   }
 
@@ -595,6 +730,38 @@ function render(data, state) {
         </article>
         `;
       }).join("") : `<p class="muted">No official letters yet.</p>`}
+
+      ${letArchived.length ? `
+        <details style="margin-top:16px;">
+          <summary style="cursor:pointer;font-weight:600;padding:6px 0;">📁 Archive (${letArchived.length})</summary>
+          <div style="margin-top:8px;">
+            ${letArchived.map((l) => {
+              const office = officeByKey(l.officeKey);
+              return `
+              <article class="tile" style="margin-bottom:10px;opacity:0.85;">
+                <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                  <div><b>${esc(l.reference)}</b> — ${esc(l.subject)} <span class="muted" style="font-size:0.85em;">[Archived]</span></div>
+                </div>
+                <div class="muted">From ${esc(office?.displayName || l.officeKey)} • To: ${esc(l.recipient)} • ${esc(l.createdAtSim)}</div>
+                ${renderMarkingResult(l)}
+                <div class="tile-bottom"><button class="btn" data-action="toggle-letter" data-id="${esc(l.id)}" type="button">${state.openLetter === l.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-letter" data-id="${esc(l.id)}" type="button">Delete</button>` : ""}</div>
+                ${state.openLetter === l.id ? `
+                  <div class="tile" style="margin-top:8px;">
+                    <div style="border:2px solid #1a3050;padding:16px;background:#f8f8f4;margin-bottom:12px;text-align:center;">
+                      <div style="font-size:1.15em;font-weight:700;">${esc(office?.displayName || l.officeKey)}</div>
+                      ${office?.address ? `<div class="muted" style="font-size:0.9em;">${esc(office.address)}</div>` : ""}
+                    </div>
+                    <p><b>To:</b> ${esc(l.recipient)}</p>
+                    <p><b>Subject:</b> ${esc(l.subject)}</p>
+                    <div style="white-space:pre-wrap;margin-top:8px;">${esc(l.body)}</div>
+                    ${office?.signatory ? `<p style="margin-top:12px;" class="muted"><i>${esc(npcSignatory(l.officeKey, data) || office.signatory)}</i></p>` : ""}
+                  </div>
+                ` : ""}
+              </article>
+            `}).join("")}
+          </div>
+        </details>
+      ` : ""}
     `;
   }
 
