@@ -1694,13 +1694,6 @@ async function ensureSchema() {
     INSERT INTO shop_price_index (id) VALUES ('main') ON CONFLICT (id) DO NOTHING;
   `);
 
-  // ── Party structure + treasury overspend ──────────────────────────────────
-  await pool.query(`
-    ALTER TABLE parties
-      ADD COLUMN IF NOT EXISTS party_structure    JSONB   NOT NULL DEFAULT '{}'::jsonb,
-      ADD COLUMN IF NOT EXISTS treasury_overspend BOOLEAN NOT NULL DEFAULT false;
-  `);
-
   // ── Character finance: monthly shop upkeep + overspend flag ──────────────
   await pool.query(`
     ALTER TABLE character_finance
@@ -3559,9 +3552,11 @@ const ALL_CANONICAL_PARTIES = [
  * Idempotent upsert of all canonical parties.
  */
 async function seedPlayableParties() {
-  // Add playable column if not present (migration safety).
+  // Add columns if not present (migration safety — must come before any UPDATE that references them).
   await pool.query(`
-    ALTER TABLE parties ADD COLUMN IF NOT EXISTS playable BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE parties ADD COLUMN IF NOT EXISTS playable          BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE parties ADD COLUMN IF NOT EXISTS party_structure   JSONB   NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE parties ADD COLUMN IF NOT EXISTS treasury_overspend BOOLEAN NOT NULL DEFAULT false;
   `);
   const values = ALL_CANONICAL_PARTIES.map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`).join(", ");
   const params = ALL_CANONICAL_PARTIES.flatMap(({ slug, name, short_name, playable }) => [slug, name, short_name, playable]);
