@@ -464,7 +464,7 @@ function bindControlPanelEvents(data, state) {
   });
 
   panel.querySelectorAll("form[data-save-body]").forEach((form) => {
-    form.addEventListener("submit", (ev) => {
+    form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const bodyId = form.getAttribute("data-save-body");
       const body = (data.bodies?.list || []).find((b) => b.id === bodyId);
@@ -510,10 +510,28 @@ function bindControlPanelEvents(data, state) {
         body.othersSeats = rows.find((p) => p.name === OTHERS_PARTY)?.seats || 0;
       }
 
-      apiUpdateBody(bodyId, body).catch((err) => console.error("[bodies] save failed:", err)); // UI_ONLY_OK: admin config update; non-simulation-critical body data
-      state.editingBodyId = null;
-      refreshBodies(data);
-      renderControlPanel(data, state);
+      try {
+        await apiUpdateBody(bodyId, body);
+        const refreshed = await apiGetBodies();
+        if (Array.isArray(refreshed?.bodies)) {
+          for (const b of refreshed.bodies) {
+            const idx = data.bodies.list.findIndex((x) => x.id === b.id);
+            if (idx >= 0) {
+              Object.assign(data.bodies.list[idx], b);
+              data.bodies.list[idx].parties = [];
+            } else {
+              data.bodies.list.push(b);
+            }
+          }
+        }
+        normalizeAllStandardBodies(data);
+        state.editingBodyId = null;
+        refreshBodies(data);
+        renderControlPanel(data, state);
+      } catch (err) {
+        console.error("[bodies] save failed:", err);
+        window.alert(`Failed to save body data: ${err.message}`);
+      }
     });
   });
 }
