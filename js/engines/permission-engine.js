@@ -45,6 +45,9 @@ export function canVoteDivision(data) {
 export function canSeeAudienceItem(data, audience = {}) {
   if (!audience || !Object.keys(audience).length) return true;
 
+  // Admin and mod can always see every audience-gated item for monitoring purposes.
+  if (canManageAsAdmin(data) || canManageAsMod(data)) return true;
+
   if (audience.speakerOnly) return canManageAsSpeaker(data);
 
   const c = getCharacterContext(data);
