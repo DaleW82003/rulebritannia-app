@@ -10,8 +10,25 @@ jobs:
   static-checks:
     name: Static analysis (no secrets needed)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rulebritannia_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d rulebritannia_ci"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     permissions:
       contents: read
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/rulebritannia_ci
+      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
 
@@ -19,17 +36,20 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install server dependencies (needed for static checks + drift audit)
+        run: npm ci --prefix server
+
       - name: Run static checks (credentials, auth, immutability, JSON shape)
         run: node scripts/static-checks.js
+
+      - name: Run effective schema drift audit (ephemeral Postgres)
+        run: node server/schema-drift-audit.mjs
 
       - name: Run feature manifest (RBAC + write-path audit)
         run: node scripts/audit/feature-manifest.js
 
       - name: Run server unit tests (clock, discourse SSO, roles)
         run: node --test server/clock.test.js server/discourse.test.js server/roles.test.js
-
-      - name: Install server dependencies (needed for service-modules test)
-        run: npm ci --prefix server
 
       - name: Run server unit tests (service modules, weight computation, static authority checks)
         run: node --test server/service-modules.test.js

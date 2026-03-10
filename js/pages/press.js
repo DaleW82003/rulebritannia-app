@@ -37,8 +37,6 @@ function ensurePress(data) {
   data.press.comments ??= [];
   data.press.speeches ??= [];
   data.press.letters ??= [];
-  data.press.counters ??= {};
-  data.press.nextId ??= 1;
 }
 
 /** Re-fetches all press items from DB and updates data.press in place. Silently ignores errors. */
@@ -67,7 +65,6 @@ async function fetchAndPopulatePressFromDb(data) {
   for (const key of Object.keys(fresh)) {
     data.press[key] = fresh[key];
   }
-  rebuildPressCounters(data);
 }
 
 /**
@@ -80,12 +77,6 @@ function getPlayerLetterOffice(data) {
   return PLAYER_LETTER_OFFICES[char?.office] || PLAYER_ROLE_LETTER_OFFICES[char?.role] || null;
 }
 
-/** Explicit short prefixes for NPC office reference codes. */
-const NPC_OFFICE_PREFIXES = {
-  "monarch":         "ROY",
-  "speakers-office": "SPK",
-  "cabinet-office":  "CAB"
-};
 
 /** Render a letter-office selector HTML for privileged users. */
 function npcOfficeOptions() {
@@ -157,91 +148,6 @@ function conferenceStatusChip(c, data) {
     if (compareSimDates(now, closes) < 0) return `<span class="muted" style="color:#0a5a8a;">Ongoing</span>`;
   }
   return `<span class="muted">Awaiting Marking</span>`;
-}
-
-/** Tokens that are never a surname: honorific prefixes and post-nominals. */
-const NON_SURNAME_TOKENS = new Set(["mp", "pc", "qc", "kc", "rt", "hon", "the", "right", "honourable", "honorable"]);
-
-/** Normalise a name token for comparison: lowercase and strip trailing period. */
-function normToken(t) { return t.toLowerCase().replace(/\.$/, ""); }
-
-function surname(name) {
-  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "MP";
-  // Strip trailing post-nominals iteratively (e.g. "MP", "PC", "MP PC", "QC MP")
-  while (parts.length > 1 && NON_SURNAME_TOKENS.has(normToken(parts[parts.length - 1]))) {
-    parts.pop();
-  }
-  // Strip leading honorific prefixes iteratively (e.g. "The", "Right", "Honourable", "Rt Hon")
-  while (parts.length > 1 && NON_SURNAME_TOKENS.has(normToken(parts[0]))) {
-    parts.shift();
-  }
-  return parts[parts.length - 1] || "MP";
-}
-
-/**
- * Parse a press reference string and return {kind, prefix, serial} or null.
- * Supports:
- *   Releases/Conferences/Speeches: "<PREFIX> PR<N>", "<PREFIX> PC<N>", "<PREFIX> SP<N>"
- *   Letters: "<PREFIX>-LTR-<N>"
- */
-function parseReference(ref) {
-  if (!ref) return null;
-  const s = String(ref).trim();
-  // Releases / Conferences / Speeches — allow optional space between kind and number
-  let m = s.match(/^(.+?)\s+(PR|PC|SP)\s*(\d+)$/i);
-  if (m) return { prefix: m[1].trim(), kind: m[2].toUpperCase(), serial: Number(m[3]) };
-  // Letters: PREFIX-LTR-N
-  m = s.match(/^(.+?)-LTR-(\d+)$/i);
-  if (m) return { prefix: m[1].trim(), kind: "LTR", serial: Number(m[2]) };
-  return null;
-}
-
-/**
- * Rebuild data.press.counters from the max serial observed in each loaded press item.
- * Call this after any DB load that repopulates data.press arrays so nextSerial() picks
- * up from the correct next number rather than restarting at 1 each session.
- */
-export function rebuildPressCounters(data) {
-  ensurePress(data);
-  data.press.counters = {};
-  const allItems = [
-    ...(data.press.releases || []),
-    ...(data.press.conferences || []),
-    ...(data.press.speeches || []),
-    ...(data.press.letters || []),
-    ...(data.press.comments || []),
-  ];
-  for (const item of allItems) {
-    const parsed = parseReference(item?.reference);
-    if (!parsed) continue;
-    const key = `${parsed.kind}:${parsed.prefix}`;
-    if (!data.press.counters[key] || parsed.serial > data.press.counters[key]) {
-      data.press.counters[key] = parsed.serial;
-    }
-  }
-}
-
-function makePrefix(char, kind, data) {
-  const name = char?.display_name || char?.name
-    || data?.currentPlayer?.activeCharacter
-    || "MP";
-  return surname(name);
-}
-
-function sortChronological(items) {
-  return (items || []).slice().sort((a, b) => {
-    const aTs = Date.parse(a?.createdAt || a?.created_at || a?.updated_at || "") || 0;
-    const bTs = Date.parse(b?.createdAt || b?.created_at || b?.updated_at || "") || 0;
-    if (aTs !== bTs) return aTs - bTs;
-    return String(a?.reference || "").localeCompare(String(b?.reference || ""), undefined, { numeric: true, sensitivity: "base" });
-  });
-}
-
-function nextSerial(data, kind, prefix) {
-  const key = `${kind}:${prefix}`;
-  data.press.counters[key] = Number(data.press.counters[key] || 0) + 1;
-  return data.press.counters[key];
 }
 
 function canMark(data) {
@@ -702,14 +608,12 @@ function render(data, state) {
   // Admin/mod only: purge any lingering in-memory legacy press state and repopulate from DB.
   if (canAdminOrMod(data)) {
     root.querySelector("[data-action='clear-legacy-press-cache']")?.addEventListener("click", async () => {
-      // Reset all in-memory press arrays and counters so no legacy items survive the reload.
+      // Reset all in-memory press arrays so no legacy items survive the reload.
       data.press.releases = [];
       data.press.conferences = [];
       data.press.comments = [];
       data.press.speeches = [];
       data.press.letters = [];
-      data.press.counters = {};
-      data.press.nextId = 1;
       try {
         await fetchAndPopulatePressFromDb(data);
         toastSuccess("Legacy press cache cleared. Press data reloaded from DB.");

@@ -21,6 +21,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { spawnSync } from "child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -53,6 +54,7 @@ section("1. All POST/PUT/PATCH/DELETE fetch calls use credentials:\"include\"");
 
 const apiContent = read("js/api.js");
 const apiLines   = apiContent.split("\n");
+const schemaContent = read("server/schema.sql");
 
 let mutatingMissingCreds = 0;
 for (let i = 0; i < apiLines.length; i++) {
@@ -518,6 +520,111 @@ for (const marker of simWriteRouteMarkers) {
   }
 }
 if (!serverAuthorityStripIssues) pass("Server authoritative-field stripping middleware is present and ordered before sim writes");
+
+section("11. Route-registration sanitizer coverage audit");
+
+const audit = spawnSync(
+  process.execPath,
+  ["--test", "server/sanitize-middleware-coverage.test.js"],
+  { cwd: ROOT, encoding: "utf8", env: { ...process.env, NODE_ENV: "test" } }
+);
+if (audit.status !== 0) {
+  fail("Route sanitizer coverage audit failed. Run: node --test server/sanitize-middleware-coverage.test.js");
+  if (audit.stdout?.trim()) console.error(audit.stdout.trim());
+  if (audit.stderr?.trim()) console.error(audit.stderr.trim());
+} else {
+  pass("All audited sim-write /api routes are covered by sanitizeSimWriteBodyMiddleware ordering");
+}
+
+section("12. DB-level timestamp/reference constraints for core sim domains");
+
+let dbInvariantIssues = 0;
+const DB_INVARIANT_REGEXES = [
+  [/CREATE TABLE IF NOT EXISTS motions[\s\S]*created_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\([\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "motions created_at/updated_at NOT NULL DEFAULT NOW()"],
+  [/CREATE TABLE IF NOT EXISTS statements[\s\S]*created_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\([\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "statements created_at/updated_at NOT NULL DEFAULT NOW()"],
+  [/CREATE TABLE IF NOT EXISTS regulations[\s\S]*created_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\([\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "regulations created_at/updated_at NOT NULL DEFAULT NOW()"],
+  [/CREATE TABLE IF NOT EXISTS questiontime_questions[\s\S]*created_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\([\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "questiontime_questions created_at/updated_at NOT NULL DEFAULT NOW()"],
+  [/CREATE TABLE IF NOT EXISTS polling_entries[\s\S]*created_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\([\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "polling_entries created_at/updated_at NOT NULL DEFAULT NOW()"],
+  [/CREATE TABLE IF NOT EXISTS press_items[\s\S]*created_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\([\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "press_items created_at/updated_at NOT NULL DEFAULT NOW()"],
+  [/CREATE TABLE IF NOT EXISTS motions[\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "motions.updated_at NOT NULL DEFAULT NOW()"],
+  [/CREATE TABLE IF NOT EXISTS statements[\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "statements.updated_at NOT NULL DEFAULT NOW()"],
+  [/CREATE TABLE IF NOT EXISTS regulations[\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "regulations.updated_at NOT NULL DEFAULT NOW()"],
+  [/CREATE TABLE IF NOT EXISTS questiontime_questions[\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "questiontime_questions.updated_at NOT NULL DEFAULT NOW()"],
+  [/CREATE TABLE IF NOT EXISTS polling_entries[\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "polling_entries.updated_at NOT NULL DEFAULT NOW()"],
+  [/CREATE TABLE IF NOT EXISTS press_items[\s\S]*updated_at\s+TIMESTAMPTZ\s+NOT NULL\s+DEFAULT NOW\(\)/, "press_items.updated_at NOT NULL DEFAULT NOW()"],
+  [/press_items_reference_code_uniq/, "press reference_code unique index exists"],
+  [/press_items_kind_prefix_serial_uniq/, "press (reference_kind,reference_prefix,reference_serial) unique index exists"],
+  [/press_items_author_required_check/, "press author/NPC consistency check exists"],
+];
+for (const [rx, label] of DB_INVARIANT_REGEXES) {
+  if (!rx.test(schemaContent)) {
+    fail(`server/schema.sql: missing DB invariant -> ${label}`);
+    dbInvariantIssues++;
+  }
+}
+if (!dbInvariantIssues) pass("Core sim-domain DB timestamp/reference invariants detected in canonical schema (server/schema.sql)");
+
+section("13. Lifecycle create/update paths are server timestamp authoritative");
+
+let lifecyclePathIssues = 0;
+const LIFECYCLE_CREATE_MARKERS = [
+  'app.post("/api/motions"',
+  'app.post("/api/statements"',
+  'app.post("/api/regulations"',
+  'app.post("/api/polling"',
+  'app.post("/api/press"',
+];
+for (const marker of LIFECYCLE_CREATE_MARKERS) {
+  const idx = serverContent.indexOf(marker);
+  if (idx === -1) continue;
+  const ctx = serverContent.slice(idx, idx + 6000);
+  const usesAttachLifecycle = ctx.includes("attachLifecycle(");
+  const usesDbTimestampInsert = /INSERT\s+INTO[\s\S]{0,3000}(created_at|updated_at)/i.test(ctx);
+  if (!usesAttachLifecycle && !usesDbTimestampInsert) {
+    fail(`server/index.js: ${marker} should either call attachLifecycle() or use DB insert timestamps (created_at/updated_at) with sanitizer stripping client timestamps`);
+    lifecyclePathIssues++;
+  }
+}
+
+const UPDATE_MARKERS_REQUIRING_UPDATED_AT_NOW = [
+  'app.put("/api/motions/:id"',
+  'app.put("/api/statements/:id"',
+  'app.put("/api/regulations/:id"',
+  'app.put("/api/polling/:id"',
+  'app.put("/api/press/:id"',
+  'app.patch("/api/press/:id/transcript"',
+  'app.post("/api/press/:id/mark"',
+];
+for (const marker of UPDATE_MARKERS_REQUIRING_UPDATED_AT_NOW) {
+  const idx = serverContent.indexOf(marker);
+  if (idx === -1) continue;
+  const ctx = serverContent.slice(idx, idx + 6000);
+  if (!/updated_at\s*=\s*NOW\(\)|updated_at\s+\=\s+NOW\(\)|RETURNING[\s\S]*updated_at/.test(ctx)) {
+    fail(`server/index.js: ${marker} should advance/read updated_at server-side`);
+    lifecyclePathIssues++;
+  }
+}
+if (!lifecyclePathIssues) pass("Lifecycle-backed create/update paths enforce server-owned timestamps");
+
+section("14. Optional DB drift detector (effective schema audit)");
+
+const driftAudit = spawnSync(
+  process.execPath,
+  ["server/schema-drift-audit.mjs"],
+  { cwd: ROOT, encoding: "utf8", env: { ...process.env, NODE_ENV: "test" } }
+);
+if (driftAudit.status !== 0) {
+  fail("DB drift detector failed. Run: node server/schema-drift-audit.mjs (with DATABASE_URL set)");
+  if (driftAudit.stdout?.trim()) console.error(driftAudit.stdout.trim());
+  if (driftAudit.stderr?.trim()) console.error(driftAudit.stderr.trim());
+} else {
+  const out = (driftAudit.stdout || "").trim();
+  if (out.includes("SKIP: DATABASE_URL not set")) {
+    pass("DB drift detector skipped (DATABASE_URL not set); enable in CI with ephemeral DB");
+  } else {
+    pass("DB drift detector passed against effective schema");
+  }
+}
 
 console.log(`\n${"═".repeat(72)}`);
 if (failures === 0) {
