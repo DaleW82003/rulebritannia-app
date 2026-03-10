@@ -362,7 +362,7 @@ export async function initControlPanelPage(data) {
           <button class="btn" type="button" id="cp-absence-refresh">Refresh</button>
         </div>
         <div id="cp-absence-current" style="margin-bottom:12px;"></div>
-        <div id="cp-absence-log-panel" style="min-height:60px;"><div class="muted-block">Loading…</div></div>
+        <div id="cp-absence-log-panel" style="max-height:360px;overflow-y:auto;border:1px solid var(--line,#eee);border-radius:4px;padding:0 8px;"><div class="muted-block">Loading…</div></div>
       </div>
     </details>
 
