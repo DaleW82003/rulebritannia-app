@@ -393,6 +393,59 @@ test("computeCharacterWeight: party leader gets remainder when party contains a 
   assert.equal(w, 164, "party leader weight must equal seats minus new-backbencher allocation");
 });
 
+// ── Delegation: voting flows, EDM signing does not ───────────────────────────
+// Scenario: Macmillan is absent and delegates to Weston.
+// Voting (applyDelegation=true): Weston receives 1 (base) + 164 (delegated) = 165.
+// EDM signing (applyDelegation=false): Weston receives only his own base weight = 1.
+
+const MACMILLAN_ABSENT_DELEGATING = {
+  ...MACMILLAN,
+  absent: true,
+  delegatedTo: "Dale Weston",
+};
+
+test("computeAllPlayerWeights: absent leader delegates to backbencher — voting weight flows (applyDelegation=true)", () => {
+  const { effectiveWeights } = computeAllPlayerWeights(
+    CONSERVATIVE_SEATS,
+    [MACMILLAN_ABSENT_DELEGATING, WESTON_NEW_BB],
+  );
+  assert.equal(effectiveWeights["Dale Weston"],    165, "delegation must flow leader's 164 onto Weston (total 165)");
+  assert.equal(effectiveWeights["Dylan Macmillan"],  0, "absent delegating leader must have 0 effective weight");
+});
+
+test("computeAllPlayerWeights: absent leader delegates — EDM signing weight does NOT flow (applyDelegation=false)", () => {
+  const { effectiveWeights } = computeAllPlayerWeights(
+    CONSERVATIVE_SEATS,
+    [MACMILLAN_ABSENT_DELEGATING, WESTON_NEW_BB],
+    { applyDelegation: false },
+  );
+  assert.equal(effectiveWeights["Dale Weston"],    1,   "without delegation, new backbencher base weight is 1");
+  assert.equal(effectiveWeights["Dylan Macmillan"], 164, "without delegation, absent leader retains base weight 164");
+});
+
+test("computeCharacterWeight: applyDelegation=false — EDM signer gets base weight, not delegated effective weight", () => {
+  const w = computeCharacterWeight(
+    CONSERVATIVE_SEATS,
+    [MACMILLAN_ABSENT_DELEGATING, WESTON_NEW_BB],
+    "Dale Weston",
+    "Conservative",
+    false,
+    { applyDelegation: false },
+  );
+  assert.equal(w, 1, "EDM signature weight must be 1 (own base), not 165 (delegated effective)");
+});
+
+test("computeCharacterWeight: applyDelegation=true (default) — voter gets full delegated weight", () => {
+  const w = computeCharacterWeight(
+    CONSERVATIVE_SEATS,
+    [MACMILLAN_ABSENT_DELEGATING, WESTON_NEW_BB],
+    "Dale Weston",
+    "Conservative",
+    false,
+  );
+  assert.equal(w, 165, "division vote weight must include delegated weight (165)");
+});
+
 // ── Server-authoritative weight: static endpoint checks ──────────────────────
 // These tests read server/index.js source to verify the EDM sign, bill vote, and
 // formal division vote handlers never accept a client-supplied weight and always
@@ -418,6 +471,10 @@ test("EDM sign endpoint: server computes weight and never reads req.body.weight"
   assert.ok(
     slice.includes("computeCharacterWeight") || slice.includes("computeAllPlayerWeights"),
     "sign endpoint must use server-side weight computation helper",
+  );
+  assert.ok(
+    slice.includes("applyDelegation: false"),
+    "sign endpoint must pass applyDelegation:false to exclude delegated weight from EDM signatures",
   );
 });
 

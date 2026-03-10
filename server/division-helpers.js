@@ -292,17 +292,22 @@ export async function batchEnrichCharacterRows(pool, rows) {
  * Formula: each party's constituency seat total is distributed evenly among its
  * active, settled players. New backbenchers receive 1 for their first 4 sim months
  * (equivalent to 14 real days under the current sim clock) until settled.
- * Absent players' weights delegate to their party leader (or a nominated deputy).
+ * Absent players' weights delegate to their party leader (or a nominated deputy)
+ * **unless** `applyDelegation` is false — use that flag for EDM signing where a
+ * member cannot sign on someone else's behalf.
  *
  * Special rules:
  * - Speaker party members receive 0 weight (Speaker does not vote; tie-break only).
  * - Sinn Féin members receive 0 weight (do not take their seats).
  *
- * @param {Object} seatsByParty - { partyName: seatCount } from constituencies DB
- * @param {Array}  players      - active players from game state (with absent/delegatedTo/joinedAt/role)
+ * @param {Object}  seatsByParty             - { partyName: seatCount } from constituencies DB
+ * @param {Array}   players                  - active players from game state (with absent/delegatedTo/joinedAt/role)
+ * @param {Object}  [opts]
+ * @param {boolean} [opts.applyDelegation=true] - when false, absent members' weights are NOT
+ *   routed to their delegation target; use for EDM signature weight computation.
  * @returns {{ effectiveWeights: Object, baseWeights: Object, leaderByParty: Object }}
  */
-export function computeAllPlayerWeights(seatsByParty, players) {
+export function computeAllPlayerWeights(seatsByParty, players, { applyDelegation = true } = {}) {
   const FOUR_SIM_MONTHS_MS = 14 * 24 * 60 * 60 * 1000;
   const allPlayers = (players || []).filter((p) => p != null && p.active !== false);
 
@@ -369,39 +374,44 @@ export function computeAllPlayerWeights(seatsByParty, players) {
     }
   });
 
-  // Delegation: absent players' weights route to their party leader (or deputy)
+  // Delegation: absent players' weights route to their party leader (or deputy).
+  // Skipped when applyDelegation=false (e.g. EDM signature weight: you cannot sign on
+  // someone else's behalf, so absent members' weight must not flow to the signer).
   const effectiveWeights = { ...baseWeights };
-  const playersByName = Object.fromEntries(allPlayers.map((p) => [String(p.name || ""), p]));
 
-  allPlayers.forEach((p) => {
-    if (!p?.absent) return;
-    const from = String(p.name || "");
-    const amount = Number(effectiveWeights[from] || 0);
-    if (amount <= 0) return;
+  if (applyDelegation) {
+    const playersByName = Object.fromEntries(allPlayers.map((p) => [String(p.name || ""), p]));
 
-    const party = String(p.party || "Independent");
-    const leaderName = leaderByParty[party] || null;
-    const isLeader = leaderName && from === leaderName;
+    allPlayers.forEach((p) => {
+      if (!p?.absent) return;
+      const from = String(p.name || "");
+      const amount = Number(effectiveWeights[from] || 0);
+      if (amount <= 0) return;
 
-    let target = null;
-    if (isLeader) {
-      const candidate = String(p.delegatedTo || "").trim();
-      if (candidate && playersByName[candidate] && String(playersByName[candidate].party || "Independent") === party && !playersByName[candidate].absent) {
-        target = candidate;
-      } else {
-        target = allPlayers.find(
-          (q) => String(q.party || "Independent") === party && q.name !== from && !q.absent
-        )?.name || null;
+      const party = String(p.party || "Independent");
+      const leaderName = leaderByParty[party] || null;
+      const isLeader = leaderName && from === leaderName;
+
+      let target = null;
+      if (isLeader) {
+        const candidate = String(p.delegatedTo || "").trim();
+        if (candidate && playersByName[candidate] && String(playersByName[candidate].party || "Independent") === party && !playersByName[candidate].absent) {
+          target = candidate;
+        } else {
+          target = allPlayers.find(
+            (q) => String(q.party || "Independent") === party && q.name !== from && !q.absent
+          )?.name || null;
+        }
+      } else if (leaderName && playersByName[leaderName] && !playersByName[leaderName].absent) {
+        target = leaderName;
       }
-    } else if (leaderName && playersByName[leaderName] && !playersByName[leaderName].absent) {
-      target = leaderName;
-    }
 
-    effectiveWeights[from] = 0;
-    if (target && target !== from) {
-      effectiveWeights[target] = (Number(effectiveWeights[target] || 0)) + amount;
-    }
-  });
+      effectiveWeights[from] = 0;
+      if (target && target !== from) {
+        effectiveWeights[target] = (Number(effectiveWeights[target] || 0)) + amount;
+      }
+    });
+  }
 
   return { effectiveWeights, baseWeights, leaderByParty };
 }
@@ -422,11 +432,14 @@ export function computeAllPlayerWeights(seatsByParty, players) {
  * @param {string}   charName      - character name to look up
  * @param {string|null} charParty  - character party
  * @param {boolean}  isNpc         - true if the character has is_npc = true
+ * @param {Object}   [opts]
+ * @param {boolean}  [opts.applyDelegation=true] - set false for EDM signatures so that
+ *   absent members' delegated weight does not inflate the signer's share.
  * @returns {number}
  */
-export function computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc) {
+export function computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc, { applyDelegation = true } = {}) {
   const nameStr = String(charName || "");
-  const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers);
+  const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers, { applyDelegation });
   const w = Number(effectiveWeights[nameStr] || 0);
   if (w > 0) return w;
 
@@ -440,7 +453,7 @@ export function computeCharacterWeight(seatsByParty, statePlayers, charName, cha
     ...statePlayers,
     { name: nameStr, party: charParty, role: "backbencher", active: true },
   ];
-  const { effectiveWeights: ew2 } = computeAllPlayerWeights(seatsByParty, augmented);
+  const { effectiveWeights: ew2 } = computeAllPlayerWeights(seatsByParty, augmented, { applyDelegation });
   return Number(ew2[nameStr] || 0);
 }
 

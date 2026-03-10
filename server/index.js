@@ -7218,8 +7218,9 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
     const already = edm.signatures.some((sig) => String(sig.name || "") === String(char.name || ""));
     if (already) return res.status(409).json({ error: "Already signed" });
 
-    // Compute signature weight using the same model as division votes.
-    // NPC characters not present in state are injected synthetically to receive their party share.
+    // Compute signature weight using the DB-authoritative party split, but without
+    // absent/delegation flows. EDM signing is personal — you sign for yourself only.
+    // NPC characters not present in state are injected synthetically.
     let weight = 1;
     try {
       const seatsByParty = await getPartySeatsFromConstituencies(pool);
@@ -7229,7 +7230,11 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
           WHERE asc2.id = 'main'`
       );
       const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-      const computed = computeCharacterWeight(seatsByParty, statePlayers, char.name, char.party, Boolean(char.is_npc));
+      // Compute signature weight using base (non-delegated) party split.
+      // EDM signing must NOT apply absent/delegation flows — a signer cannot
+      // sign on behalf of an absent party colleague.  Pass applyDelegation:false
+      // so the weight reflects only the signer's own proportional share.
+      const computed = computeCharacterWeight(seatsByParty, statePlayers, char.name, char.party, Boolean(char.is_npc), { applyDelegation: false });
       if (computed > 0) weight = computed;
     } catch (wErr) {
       console.error("[edm.sign weight-calc]", wErr.message);
