@@ -728,6 +728,14 @@ export const apiAdminForceLogoutAll      = maintPost("/api/admin/force-logout-al
 export const apiAdminCloseStaleDiv       = maintPost("/api/admin/close-stale-divisions");
 export const apiAdminCloseOrphanMotionDivisions = maintPost("/api/admin/close-orphan-motion-divisions");
 
+export async function apiGetAdminSnapshotStatus() {
+  const res = await _fetch(`${API_BASE}/api/admin/snapshot-status`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`apiGetAdminSnapshotStatus failed (${res.status})`);
+  return res.json();
+}
+
 export async function apiAdminExportSnapshot() {
   const res = await _fetch(`${API_BASE}/api/admin/export-snapshot`, {
     credentials: "include",

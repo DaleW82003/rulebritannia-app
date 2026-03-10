@@ -20,6 +20,7 @@ import {
   apiAdminAssignCharacterOwner, apiAdminSetUserActiveCharacter,
   apiAdminAssignNpcManager,
   apiGetHealth,
+  apiGetAdminSnapshotStatus,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
@@ -53,6 +54,7 @@ export async function initAdminPanelPage(data) {
   let currentConfig = {};
   let snapshots = [];
   let currentSnapshotId = null;
+  let snapshotStatus = null;
   let auditEntries = [];
   let auditTotal = 0;
   let auditFilters = { action: "", target: "", limit: 50, offset: 0 };
@@ -270,6 +272,15 @@ export async function initAdminPanelPage(data) {
     }
   }
 
+  async function loadSnapshotStatus() {
+    try {
+      snapshotStatus = await apiGetAdminSnapshotStatus();
+    } catch (err) {
+      console.error("Failed to load snapshot status:", err);
+      snapshotStatus = null;
+    }
+  }
+
   async function loadAuditLog() {
     try {
       const result = await apiGetAuditLog(auditFilters);
@@ -399,6 +410,29 @@ export async function initAdminPanelPage(data) {
         </form>
         ${catSaveResult ? `<div id="disc-cat-status" style="margin-top:10px;font-size:13px;">${esc(catSaveResult)}</div>` : ""}
       </section>`;
+  }
+
+  function renderSnapshotStatusSummary() {
+    const st = snapshotStatus;
+    if (!st) {
+      return `<p class="muted-block" style="margin-bottom:10px;">Snapshot status unavailable.</p>`;
+    }
+    const freezeText = st.freeze?.isFrozen
+      ? `Frozen${st.freeze?.reason ? ` — ${esc(st.freeze.reason)}` : ""}`
+      : "Not frozen";
+    const lastRestoreText = st.lastRestore?.at
+      ? `${new Date(st.lastRestore.at).toLocaleString()}${st.lastRestore.snapshotId ? ` (${esc(String(st.lastRestore.snapshotId).slice(0, 8))}…)` : ""}`
+      : "Never";
+    const lastRebuildText = st.lastRebuild?.at
+      ? `${new Date(st.lastRebuild.at).toLocaleString()}${st.lastRebuild?.status ? ` (${esc(st.lastRebuild.status)})` : ""}`
+      : "Never";
+    return `
+      <div class="muted-block" style="margin-bottom:10px;font-size:12px;line-height:1.4;">
+        <div><b>Current snapshot:</b> ${st.currentSnapshot?.label ? esc(st.currentSnapshot.label) : "—"} ${st.currentSnapshot?.id ? `<span style="font-family:monospace;">(${esc(String(st.currentSnapshot.id).slice(0, 8))}…)</span>` : ""}</div>
+        <div><b>Last restore:</b> ${lastRestoreText}</div>
+        <div><b>Last rebuild:</b> ${lastRebuildText}</div>
+        <div><b>Freeze state:</b> ${freezeText}</div>
+      </div>`;
   }
 
   function renderSnapshotsList() {
@@ -681,8 +715,8 @@ export async function initAdminPanelPage(data) {
             <div>
               <b>Rebuild Derived State</b>
               <p style="margin:4px 0 0;font-size:13px;color:#555;">
-                Re-syncs the object-cache tables from the current active snapshot.
-                Run this if the cache is out of sync.
+                Re-syncs only derived object-cache tables from the current active snapshot.
+                It does not overwrite relational-authoritative gameplay tables.
               </p>
             </div>
             <button class="btn" id="btn-rebuild-cache" type="button">Rebuild Cache</button>
@@ -1044,6 +1078,10 @@ export async function initAdminPanelPage(data) {
 
       <section class="panel" style="max-width:700px;margin-top:12px;">
         <h2 style="margin-top:0;">State Snapshots</h2>
+        <p style="font-size:12px;color:#555;margin:6px 0 10px;">Snapshots cover snapshot-backed state only. Divisions, amendments, factions, finance, and political-state stay relational-authoritative.</p>
+        <p style="font-size:12px;color:#555;margin:0 0 10px;">Restore switches the active snapshot and auto-rebuilds derived caches. Rebuild cache repopulates derived tables only.</p>
+
+        ${renderSnapshotStatusSummary()}
 
         <form id="snapshot-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
           <input id="snapshot-label" type="text" placeholder="Snapshot label…"
@@ -1188,15 +1226,18 @@ export async function initAdminPanelPage(data) {
       btn.addEventListener("click", async () => {
         const id = btn.dataset.id;
         if (!id) return;
-        if (!confirm("Restore this snapshot? The current state will change immediately.")) return;
+        if (!confirm("Restore this snapshot now? This only changes snapshot-backed state and will auto-rebuild derived caches. Relational-authoritative gameplay systems are unchanged.")) return;
         try {
-          await apiRestoreSnapshot(id);
-          logAction({ action: "snapshot-restored", target: id });
+          const restoreResult = await apiRestoreSnapshot(id);
+          logAction({ action: "snapshot-restored", target: id, details: restoreResult || {} });
           // Reload state data into the shared data object
           const result = await apiGetState();
           if (result?.data) Object.assign(data, result.data);
-          await loadSnapshots();
-          render("snap:Snapshot restored.");
+          await Promise.all([loadSnapshots(), loadSnapshotStatus()]);
+          const statusMsg = restoreResult?.cacheRebuilt
+            ? "Snapshot restored. Derived cache auto-rebuild: OK."
+            : `Snapshot restored with warning: ${restoreResult?.warning || "derived cache rebuild failed; run Rebuild Cache now."}`;
+          render(`snap:${statusMsg}`);
         } catch (err) {
           toastError(`Restore snapshot: ${err.message}`);
           render(`snap:Error restoring snapshot: ${err.message}`);
@@ -1483,6 +1524,8 @@ export async function initAdminPanelPage(data) {
       try {
         const result = await apiAdminClearCache();
         logAction({ action: "admin-clear-cache" });
+        await loadSnapshotStatus();
+        render("snap:Object cache cleared. Snapshot-backed relational-authoritative systems were not changed.");
         toastSuccess(result.message || "Cache cleared.");
       } catch (err) {
         toastError(`Clear cache: ${err.message}`);
@@ -1490,9 +1533,12 @@ export async function initAdminPanelPage(data) {
     });
 
     host.querySelector("#btn-rebuild-cache")?.addEventListener("click", async () => {
+      if (!confirm("Rebuild derived cache now from the current snapshot? This does not overwrite relational-authoritative gameplay systems.")) return;
       try {
         const result = await apiAdminRebuildCache();
         logAction({ action: "admin-rebuild-cache" });
+        await loadSnapshotStatus();
+        render("snap:Derived cache rebuilt from current snapshot.");
         toastSuccess(result.message || "Cache rebuilt.");
       } catch (err) {
         toastError(`Rebuild cache: ${err.message}`);
@@ -1879,7 +1925,7 @@ export async function initAdminPanelPage(data) {
     }
   }
 
-  await Promise.all([loadConfig(), loadDiscourseConfig(), loadDiscourseCategoryIds(), loadSnapshots(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard(), loadPendingRegistrations()]);
+  await Promise.all([loadConfig(), loadDiscourseConfig(), loadDiscourseCategoryIds(), loadSnapshots(), loadSnapshotStatus(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard(), loadPendingRegistrations()]);
   render("");
 
   // Event delegation for pending registration approve/reject buttons

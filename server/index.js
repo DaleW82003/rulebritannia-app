@@ -5505,6 +5505,74 @@ app.get("/api/snapshots", async (req, res) => {
   }
 });
 
+app.get("/api/admin/snapshot-status", async (req, res) => {
+  try {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Not logged in" });
+    }
+    if (!Array.isArray(req.session.roles) || !req.session.roles.includes("admin")) {
+      return res.status(403).json({ error: "Forbidden: admin role required" });
+    }
+
+    const [currentSnap, lastRestore, lastRebuild, freeze] = await Promise.all([
+      pool.query(
+        `SELECT s.id, s.label, s.created_at
+           FROM app_state_current c
+           JOIN state_snapshots s ON s.id = c.snapshot_id
+          WHERE c.id = 'main'`
+      ),
+      pool.query(
+        `SELECT created_at, actor_id, details
+           FROM audit_log
+          WHERE action = 'snapshot.restore'
+          ORDER BY created_at DESC
+          LIMIT 1`
+      ),
+      pool.query(
+        `SELECT created_at, actor_id, details
+           FROM audit_log
+          WHERE action = 'admin.rebuild-cache'
+          ORDER BY created_at DESC
+          LIMIT 1`
+      ),
+      getSimulationFreezeState(),
+    ]);
+
+    const restoreDetails = lastRestore.rows[0]?.details || {};
+    const rebuildDetails = lastRebuild.rows[0]?.details || {};
+    const current = currentSnap.rows[0] || null;
+
+    res.json({
+      currentSnapshot: current ? {
+        id: current.id,
+        label: current.label,
+        createdAt: current.created_at,
+      } : null,
+      lastRestore: lastRestore.rows[0] ? {
+        at: lastRestore.rows[0].created_at,
+        actorId: lastRestore.rows[0].actor_id,
+        snapshotId: restoreDetails.snapshotId || null,
+        cacheRebuilt: restoreDetails.cacheRebuilt === true,
+        warning: restoreDetails.cacheWarning || null,
+      } : null,
+      lastRebuild: lastRebuild.rows[0] ? {
+        at: lastRebuild.rows[0].created_at,
+        actorId: lastRebuild.rows[0].actor_id,
+        status: rebuildDetails.status || null,
+        message: rebuildDetails.message || null,
+      } : null,
+      freeze: {
+        isFrozen: Boolean(freeze?.is_frozen),
+        reason: freeze?.reason || null,
+        updatedAt: freeze?.updated_at || null,
+      },
+    });
+  } catch (e) {
+    console.error("[GET /api/admin/snapshot-status]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.post("/api/snapshots", async (req, res) => {
   try {
     if (!req.session?.userId) {
@@ -5592,6 +5660,12 @@ app.post("/api/snapshots/:id/restore", async (req, res) => {
       console.error(`[restore] derived-cache rebuild FAILED for snapshot ${snapshotId}:`, syncErr);
       cacheWarning = "Snapshot restored but derived-cache rebuild failed. Run POST /api/admin/rebuild-cache manually to re-sync object tables.";
     }
+
+    await writeAuditLog(req.session.userId, "snapshot.restore", "state_snapshots", snapshotId, null, null, {
+      snapshotId,
+      cacheRebuilt,
+      ...(cacheWarning ? { cacheWarning } : {}),
+    });
 
     res.json({
       ok: true,
@@ -9661,9 +9735,17 @@ app.post("/api/admin/rebuild-cache", maintLimit, async (req, res) => {
       return res.status(404).json({ error: "No active snapshot to rebuild from." });
     }
     await syncObjectTables(rows[0].data);
+    await writeAuditLog(req.session.userId, "admin.rebuild-cache", "state_snapshots", "main", null, null, {
+      status: "ok",
+      message: "Derived cache rebuilt from current snapshot.",
+    });
     console.log(`[admin] rebuild-cache by user ${req.session.userId}`);
     res.json({ ok: true, message: "Object cache rebuilt from current snapshot." });
   } catch (e) {
+    await writeAuditLog(req.session?.userId || "unknown", "admin.rebuild-cache", "state_snapshots", "main", null, null, {
+      status: "failed",
+      message: String(e?.message || "Server error"),
+    }).catch(() => {});
     console.error("[admin/rebuild-cache]", e);
     res.status(500).json({ error: "Server error" });
   }

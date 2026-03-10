@@ -72,7 +72,8 @@ source of truth for live gameplay systems.
 | `POST` | `/api/state` | Admin / Mod / Speaker — see `ALLOWED_STATE_WRITE_ROLES` | Strips relational keys before saving; syncs derived caches only |
 | `GET` | `/api/snapshots` | Admin only | Lists all snapshots |
 | `POST` | `/api/snapshots` | Admin only | Creates named snapshot; relational keys stripped before saving |
-| `POST` | `/api/snapshots/:id/restore` | Admin only | Updates pointer + **auto-rebuilds** 5 derived-cache tables; relational tables untouched |
+| `POST` | `/api/snapshots/:id/restore` | Admin only | Updates pointer + **auto-rebuilds** 5 derived-cache tables; relational tables untouched. Returns `cacheRebuilt` and optional `warning` for partial success. |
+| `GET` | `/api/admin/snapshot-status` | Admin only | Staff telemetry: current snapshot label/id, last restore result, last rebuild result, and current freeze state |
 
 ### Admin maintenance routes
 
@@ -164,7 +165,7 @@ accidentally passes a table name that is not in `SNAPSHOT_DERIVED_TABLES`.
 3. Returns `{ ok, snapshotId, cacheRebuilt, [warning] }` — `cacheRebuilt: true` when
    rebuild succeeded, `warning` present when it failed so staff know to run
    `POST /api/admin/rebuild-cache` manually
-4. Logs both the pointer change and the rebuild outcome
+4. Logs both the pointer change and the rebuild outcome (`snapshot.restore` audit details include `cacheRebuilt` + optional warning)
 
 Restore is now operationally self-contained.  No manual `rebuild-cache` step is
 required after a normal restore.
