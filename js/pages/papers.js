@@ -654,9 +654,10 @@ export async function initPapersPage(data) {
     const r = await apiGetPaperArticles();
     if (r.byPaper) {
       for (const paper of (data.papers?.papers || [])) {
-        if (r.byPaper[paper.key]) {
-          paper.issues = r.byPaper[paper.key].map(a => ({ ...a, createdAt: new Date(a.createdAt).getTime() }));
-        }
+        const fromDb = Array.isArray(r.byPaper[paper.key]) ? r.byPaper[paper.key] : [];
+        // Always replace local issues with DB rows (including empty arrays) so
+        // deleted articles cannot survive in client memory and cause stale UI/actions.
+        paper.issues = fromDb.map((a) => ({ ...a, createdAt: new Date(a.createdAt).getTime() }));
       }
     }
   } catch (err) {

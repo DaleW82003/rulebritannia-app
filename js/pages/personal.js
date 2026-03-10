@@ -1157,6 +1157,8 @@ function render(data, state) {
   const currentFaction = state.partyFaction?.currentFaction
     || factionList.find((f) => String(f.slug || "") === "unaligned")
     || null;
+  const factionViewerRole = String(state.partyFaction?.viewerRole || "member");
+  const isPartyLeadershipView = ["staff", "leader", "chairman", "whip"].includes(factionViewerRole);
 
   // Monthly upkeep: prefer server-side total (totalMonthlyUpkeep = shop + property) for the
   // viewed character; fall back to computing from shopPurchases for other profiles
@@ -1212,16 +1214,14 @@ function render(data, state) {
           ${esc(String(currentFaction?.name || "Unaligned"))}
         </span>
       </div>
-      <div class="muted" style="font-size:.86em;margin-bottom:8px;">Your faction affects party climate and can influence political pressure and resilience.</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px 14px;font-size:.9em;margin-bottom:10px;">
-        <div><span class="muted">Internal power</span><br><b>${Math.round(Number(currentFaction?.internalPower ?? 0))}</b></div>
+        ${isPartyLeadershipView ? `<div><span class="muted">Internal power</span><br><b>${Math.round(Number(currentFaction?.internalPower ?? 0))}</b></div>` : ""}
         <div><span class="muted">Momentum</span><br><b style="text-transform:capitalize;">${esc(String(currentFaction?.momentum || "stable"))}</b></div>
         <div><span class="muted">Leadership alignment</span><br><b style="text-transform:capitalize;">${esc(String(currentFaction?.leadershipAlignment || "neutral"))}</b></div>
-        <div><span class="muted">Leadership pressure</span><br><b>${Math.round(Number(currentFaction?.leadershipPressure ?? 0))}</b></div>
-        <div><span class="muted">Cohesion</span><br><b>${Math.round(Number(currentFaction?.cohesion ?? 0))}</b></div>
+        ${isPartyLeadershipView ? `<div><span class="muted">Leadership pressure</span><br><b>${Math.round(Number(currentFaction?.leadershipPressure ?? 0))}</b></div>` : ""}
+        ${isPartyLeadershipView ? `<div><span class="muted">Cohesion</span><br><b>${Math.round(Number(currentFaction?.cohesion ?? 0))}</b></div>` : ""}
         <div><span class="muted">Members (active characters)</span><br><b>${Math.round(Number(currentFaction?.memberCharacterCountActive ?? 0))}</b></div>
-        ${Number(currentFaction?.memberNpcCountActive ?? 0) > 0 ? `<div><span class="muted">NPC members (active)</span><br><b>${Math.round(Number(currentFaction?.memberNpcCountActive ?? 0))}</b></div>` : ""}
-        </div>
+      </div>
       <div style="border-top:1px solid #eee;padding-top:8px;margin-top:2px;">
         <div style="font-weight:600;margin-bottom:4px;">Commons allocation (party-wide)</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px 14px;font-size:.9em;">
@@ -1388,7 +1388,9 @@ function render(data, state) {
           const repColors = { excellent: "#0a5a8a", good: "#0a7f2e", neutral: "inherit", poor: "#b06000", damaged: "#c00" };
           const repColor = repColors[ps.reputation] || "inherit";
           const repLabel = { excellent: "Excellent", good: "Good", neutral: "Neutral", poor: "Poor", damaged: "Damaged" }[ps.reputation] || ps.reputation;
-          const breakdown = Array.isArray(ps.breakdown) ? ps.breakdown : [];
+          const breakdownRaw = Array.isArray(ps.breakdown) ? ps.breakdown : [];
+          const isAlignedFaction = String(currentFaction?.leadershipAlignment || "").toLowerCase() === "aligned";
+          const breakdown = breakdownRaw.filter((b) => isAlignedFaction || !/aligned faction support/i.test(String(b?.label || "")));
 
           // Pressure channel helpers
           function pressureColor(v) {
@@ -1469,7 +1471,7 @@ function render(data, state) {
               }).join("")}
             </div>
 
-            ${breakdown.length ? `
+            ${isPartyLeadershipView && breakdown.length ? `
               <details>
                 <summary style="cursor:pointer;font-weight:500;font-size:.9em;">Capital score breakdown</summary>
                 <div style="margin-top:6px;display:grid;gap:4px;font-size:.88em;line-height:1.7;">
@@ -1483,7 +1485,7 @@ function render(data, state) {
               </details>
             ` : ""}
 
-            ${ps.faction_climate ? (() => {
+            ${isPartyLeadershipView && ps.faction_climate ? (() => {
               const fc = ps.faction_climate;
               const CLIMATE_COLOURS = { unified: "#2e7d32", stable: "#1565c0", tense: "#e65100", fractious: "#b71c1c" };
               const col = CLIMATE_COLOURS[fc.climateLabel] || "#555";
@@ -2566,6 +2568,7 @@ export async function initPersonalPage(data) {
         allocatedMPs: Number(factionResult?.allocatedMPs ?? 0),
         remainingMPs: Number(factionResult?.remainingMPs ?? 0),
         climate: climateResult?.climate ?? null,
+        viewerRole: String(factionResult?.viewerRole || "member"),
       };
       render(data, state);
     }).catch(() => {});

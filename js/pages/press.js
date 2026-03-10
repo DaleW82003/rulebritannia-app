@@ -159,8 +159,13 @@ function conferenceStatusChip(c, data) {
 }
 
 function surname(name) {
-  const parts = String(name || "MP").trim().split(/\s+/);
-  return parts.length > 1 ? parts[parts.length - 2] || parts[parts.length - 1] : parts[0] || "MP";
+  const parts = String(name || "MP").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "MP";
+  const last = parts[parts.length - 1];
+  if (/^(MP|PC|QC|KC|Rt|Hon|The|Right|Honourable)$/i.test(last) && parts.length > 1) {
+    return parts[parts.length - 2];
+  }
+  return last;
 }
 
 function isGovernment(char) {
