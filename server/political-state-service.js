@@ -48,6 +48,13 @@ const DOMINANCE_STABILISER = {
   resilienceBoostMax: 0.15,
 };
 
+const DOMINANCE_ARENA_KEYS = {
+  lords: "lords",
+  europarl: "europarl",
+  localsUk: "locals_uk",
+  demUk: "dem_uk",
+};
+
 function clamp01(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
@@ -67,6 +74,23 @@ function buildPlayablePartyTotalsFromRows(rows, fieldName) {
     totals[party] = Number.isFinite(parsed) ? parsed : 0;
   }
   return totals;
+}
+
+function parseJsonConfigValue(raw) {
+  if (!raw) return {};
+  if (typeof raw === "string") {
+    try { return JSON.parse(raw); } catch { return {}; }
+  }
+  return raw;
+}
+
+function mapBodyToDominanceArena(bodyId, body) {
+  const id = String(bodyId || "").trim().toLowerCase();
+  const title = String(body?.title || body?.name || "").trim().toLowerCase();
+  if (id === "house-of-lords" || id === "lords" || title.includes("lords")) return DOMINANCE_ARENA_KEYS.lords;
+  if (id === "european-parliament" || id === "europarl" || title.includes("european parliament")) return DOMINANCE_ARENA_KEYS.europarl;
+  if (id === "directly-elected-mayors") return DOMINANCE_ARENA_KEYS.demUk;
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -630,7 +654,7 @@ export async function computeFactionPoliticalState(factionId) {
  *   party_pressure_modifier   = hostile_pressure × 0.15   (adds 0–15 pts to party_pressure)
  *   capital_resilience_bonus  = aligned_strength × 0.10   (adds 0–10 pts to capital)
  */
-export async function getPartyFactionClimate(partySlug) {
+export async function getPartyFactionClimate(partySlug, { includeDebug = false } = {}) {
   const { rows } = await pool.query(
     `SELECT f.id, f.name, f.slug, f.colour, f.leadership_alignment, f.rebellion_bias,
             COALESCE(f.momentum, 'stable')  AS momentum,
@@ -710,12 +734,25 @@ export async function getPartyFactionClimate(partySlug) {
   const commonsTotal = Number(commonsCountResult.rows[0]?.total ?? 0);
   const commonsShare = commonsTotal > 0 ? dominantCommonsCount / commonsTotal : 0;
 
+  const officialsRows = Array.isArray(officialsResult.rows) ? officialsResult.rows : [];
   const allocationsByArena = new Map();
-  for (const row of officialsResult.rows) {
-    const key = `${row.arena_type}:${row.arena_id}`;
+  for (const row of officialsRows) {
+    const arenaTypeRaw = String(row.arena_type || "").trim();
+    const arenaIdRaw = String(row.arena_id || "").trim();
+    let canonicalArena = "";
+    if (arenaTypeRaw === "body") {
+      if (arenaIdRaw === "house-of-lords" || arenaIdRaw === "lords") canonicalArena = DOMINANCE_ARENA_KEYS.lords;
+      else if (arenaIdRaw === "european-parliament" || arenaIdRaw === "europarl") canonicalArena = DOMINANCE_ARENA_KEYS.europarl;
+      else if (arenaIdRaw === "directly-elected-mayors" || arenaIdRaw === "dem_uk") canonicalArena = DOMINANCE_ARENA_KEYS.demUk;
+    } else if (arenaTypeRaw === "locals") {
+      canonicalArena = DOMINANCE_ARENA_KEYS.localsUk;
+    } else if (Object.values(DOMINANCE_ARENA_KEYS).includes(arenaIdRaw)) {
+      canonicalArena = arenaIdRaw;
+    }
+    if (!canonicalArena) continue;
     const count = Number(row.official_count ?? 0);
-    if (!allocationsByArena.has(key)) allocationsByArena.set(key, []);
-    allocationsByArena.get(key).push({
+    if (!allocationsByArena.has(canonicalArena)) allocationsByArena.set(canonicalArena, []);
+    allocationsByArena.get(canonicalArena).push({
       factionId: row.faction_id,
       count: Number.isFinite(count) ? count : 0,
       slug: row.faction_slug,
@@ -724,62 +761,81 @@ export async function getPartyFactionClimate(partySlug) {
     });
   }
 
-  const getDominantArenaCount = (arenaType, arenaId) => {
-    const entries = allocationsByArena.get(`${arenaType}:${arenaId}`) || [];
+  const getDominantArenaCount = (arenaKey) => {
+    const entries = allocationsByArena.get(arenaKey) || [];
     return entries.reduce((max, entry) => Math.max(max, Number(entry.count || 0)), 0);
   };
 
-  let bodiesTotal = 0;
-  let bodiesWeightedShareSum = 0;
-  const bodiesArenasIncluded = [];
-  let demTotal = 0;
-  let demShare = 0;
+  const totalsByPartyByArena = {
+    [DOMINANCE_ARENA_KEYS.lords]: emptyPlayablePartyTotals(),
+    [DOMINANCE_ARENA_KEYS.europarl]: emptyPlayablePartyTotals(),
+    [DOMINANCE_ARENA_KEYS.localsUk]: emptyPlayablePartyTotals(),
+    [DOMINANCE_ARENA_KEYS.demUk]: emptyPlayablePartyTotals(),
+  };
 
   for (const row of bodyRowsResult.rows) {
     const body = row?.data || {};
-    if (!body?.visible) continue;
     const bodyId = String(row?.id || body?.id || "").trim();
-    if (!bodyId) continue;
-
-    if (bodyId === "directly-elected-mayors") {
+    const arenaKey = mapBodyToDominanceArena(bodyId, body);
+    if (!arenaKey) continue;
+    if (arenaKey === DOMINANCE_ARENA_KEYS.demUk) {
       const mayors = Array.isArray(body?.mayors) ? body.mayors : [];
-      demTotal = mayors.reduce((sum, mayor) => sum + (String(mayor?.party || "") === partySlug ? 1 : 0), 0);
-      if (demTotal > 0) {
-        demShare = getDominantArenaCount("body", bodyId) / demTotal;
+      for (const mayor of mayors) {
+        const party = String(mayor?.party || "");
+        if (!FACTION_PLAYABLE_PARTIES.includes(party)) continue;
+        totalsByPartyByArena[arenaKey][party] += 1;
       }
       continue;
     }
-
+    if (!body?.visible) continue;
     const totals = buildPlayablePartyTotalsFromRows(body?.partyBreakdown, "seats");
-    const partyTotalArena = Number(totals[partySlug] || 0);
+    totalsByPartyByArena[arenaKey] = totals;
+  }
+
+  const localsData = parseJsonConfigValue(localsResult.rows[0]?.value);
+  const countries = Array.isArray(localsData?.countries) ? localsData.countries : [];
+  const fallbackCountries = ["England", "Scotland", "Wales", "Northern Ireland"];
+  for (const country of fallbackCountries) {
+    const countryRow = countries.find((r) => String(r?.country || "").trim() === country) || { partyBreakdown: [] };
+    const countryTotals = buildPlayablePartyTotalsFromRows(countryRow?.partyBreakdown, "councillors");
+    for (const partySlugKey of FACTION_PLAYABLE_PARTIES) {
+      totalsByPartyByArena[DOMINANCE_ARENA_KEYS.localsUk][partySlugKey] += Number(countryTotals[partySlugKey] || 0);
+    }
+  }
+
+  const bodiesArenasIncluded = [
+    {
+      id: DOMINANCE_ARENA_KEYS.lords,
+      label: "House of Lords",
+      total: Number(totalsByPartyByArena[DOMINANCE_ARENA_KEYS.lords][partySlug] || 0),
+      share: 0,
+    },
+    {
+      id: DOMINANCE_ARENA_KEYS.europarl,
+      label: "European Parliament",
+      total: Number(totalsByPartyByArena[DOMINANCE_ARENA_KEYS.europarl][partySlug] || 0),
+      share: 0,
+    },
+  ];
+  let bodiesTotal = 0;
+  let bodiesWeightedShareSum = 0;
+  for (const arena of bodiesArenasIncluded) {
+    const partyTotalArena = Number(arena.total || 0);
     if (partyTotalArena <= 0) continue;
-    const dominantArenaCount = getDominantArenaCount("body", bodyId);
-    const arenaShare = dominantArenaCount / partyTotalArena;
+    const arenaShare = getDominantArenaCount(arena.id) / partyTotalArena;
+    arena.share = arenaShare;
     bodiesTotal += partyTotalArena;
     bodiesWeightedShareSum += arenaShare * partyTotalArena;
-    bodiesArenasIncluded.push({ id: bodyId, label: body?.title || body?.name || bodyId, total: partyTotalArena, share: arenaShare });
   }
-
   const bodiesShare = bodiesTotal > 0 ? bodiesWeightedShareSum / bodiesTotal : 0;
 
-  const localsData = localsResult.rows[0]?.value || {};
-  const countries = Array.isArray(localsData?.countries) ? localsData.countries : [];
-  let localsTotal = 0;
-  let localsWeightedShareSum = 0;
-  const localsArenas = [];
-  for (const countryRow of countries) {
-    const country = String(countryRow?.country || "").trim();
-    if (!country) continue;
-    const totals = buildPlayablePartyTotalsFromRows(countryRow?.partyBreakdown, "councillors");
-    const partyTotalArena = Number(totals[partySlug] || 0);
-    if (partyTotalArena <= 0) continue;
-    const dominantArenaCount = getDominantArenaCount("locals", country);
-    const arenaShare = dominantArenaCount / partyTotalArena;
-    localsTotal += partyTotalArena;
-    localsWeightedShareSum += arenaShare * partyTotalArena;
-    localsArenas.push({ id: country, total: partyTotalArena, share: arenaShare });
-  }
-  const localsShare = localsTotal > 0 ? localsWeightedShareSum / localsTotal : 0;
+  const localsTotal = Number(totalsByPartyByArena[DOMINANCE_ARENA_KEYS.localsUk][partySlug] || 0);
+  const localsDominant = getDominantArenaCount(DOMINANCE_ARENA_KEYS.localsUk);
+  const localsShare = localsTotal > 0 ? localsDominant / localsTotal : 0;
+  const localsArenas = [{ id: DOMINANCE_ARENA_KEYS.localsUk, label: "UK-wide councillors", total: localsTotal, share: localsShare }];
+
+  const demTotal = Number(totalsByPartyByArena[DOMINANCE_ARENA_KEYS.demUk][partySlug] || 0);
+  const demShare = demTotal > 0 ? getDominantArenaCount(DOMINANCE_ARENA_KEYS.demUk) / demTotal : 0;
 
   const activeWeights = {
     commons: commonsTotal > 0 ? DOMINANCE_COMPONENT_WEIGHTS.commons : 0,
@@ -799,6 +855,33 @@ export async function getPartyFactionClimate(partySlug) {
   const dominanceGateThreshold = effectiveShare > 0.5;
   const dominanceApplied = dominanceGateAlignment && dominanceGateThreshold;
   const dominanceScore = dominanceApplied ? clamp01((effectiveShare - 0.5) / 0.5) : 0;
+
+  const debugPayload = {
+    arenasIncluded: {
+      bodies: bodiesArenasIncluded.map((a) => a.id),
+      locals: [DOMINANCE_ARENA_KEYS.localsUk],
+      dem: [DOMINANCE_ARENA_KEYS.demUk],
+    },
+    totalsByPartyByArena,
+    allocationTotalsByFactionByArena: Object.fromEntries(Array.from(allocationsByArena.entries()).map(([arenaKey, entries]) => {
+      const byFaction = {};
+      for (const e of entries) {
+        byFaction[e.slug] = (byFaction[e.slug] || 0) + Number(e.count || 0);
+      }
+      return [arenaKey, byFaction];
+    })),
+    computed: {
+      bodies_total: bodiesTotal,
+      bodies_share: bodiesShare,
+      locals_total: localsTotal,
+      locals_share: localsShare,
+      dem_total: demTotal,
+      dem_share: demShare,
+      effectiveShare,
+      dominanceApplied,
+    },
+    notes: localsTotal > 0 && localsDominant === 0 ? ["locals allocations missing"] : [],
+  };
 
   hostilePressure  = clamp100(hostilePressure);
   alignedStrength  = clamp100(alignedStrength);
@@ -865,6 +948,7 @@ export async function getPartyFactionClimate(partySlug) {
       },
     },
     totalInternalPower: clamp100(totalInternalPower),
+    ...(includeDebug ? { debug: debugPayload } : {}),
     // Weights documented for developers/admins with code access:
     weights: {
       mp_count_weight:           0.8,

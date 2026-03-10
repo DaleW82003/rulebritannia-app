@@ -1207,24 +1207,24 @@ function render(data, state) {
           <h3 style="margin:0 0 8px;">Dominance stabiliser breakdown</h3>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;font-size:.86em;">
             <div class="tile" style="padding:8px;">
-              <b>Commons</b><br>
+              <b>Commons (MPs)</b><br>
               Total: ${Math.round(Number(d.components?.commons?.total || 0))}<br>
               Share: ${fmtPct(d.components?.commons?.share)}<br>
               Dominant: ${domFaction ? esc(`${domFaction.name} (${domFaction.leadershipAlignment})`) : "n/a"}
             </div>
             <div class="tile" style="padding:8px;">
-              <b>Other bodies (ex DEM)</b><br>
+              <b>Lords + MEPs</b><br>
               Total: ${Math.round(Number(d.components?.bodies?.total || 0))}<br>
               Share: ${fmtPct(d.components?.bodies?.share)}<br>
               Arenas: ${Math.round(Number((d.components?.bodies?.arenasIncluded || []).length))}
             </div>
             <div class="tile" style="padding:8px;">
-              <b>Locals</b><br>
+              <b>Councillors (UK-wide)</b><br>
               Total: ${Math.round(Number(d.components?.locals?.total || 0))}<br>
               Share: ${fmtPct(d.components?.locals?.share)}
             </div>
             <div class="tile" style="padding:8px;">
-              <b>Directly elected mayors</b><br>
+              <b>Directly elected mayors (UK-wide)</b><br>
               Total: ${Math.round(Number(d.components?.dem?.total || 0))}<br>
               Share: ${fmtPct(d.components?.dem?.share)}
             </div>

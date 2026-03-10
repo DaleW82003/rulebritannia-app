@@ -2174,6 +2174,47 @@ async function ensureSchema() {
       ON other_officials_faction_allocations (arena_type, arena_id);
   `);
 
+  // Canonicalise legacy other-official arena IDs into stable UK-wide keys.
+  await pool.query(`
+    INSERT INTO other_officials_faction_allocations
+      (arena_type, arena_id, party_slug, faction_id, official_count, updated_by, updated_at)
+    SELECT 'locals', 'locals_uk', party_slug, faction_id, SUM(official_count)::INT,
+           MAX(updated_by), MAX(updated_at)
+      FROM other_officials_faction_allocations
+     WHERE arena_type = 'locals'
+     GROUP BY party_slug, faction_id
+    ON CONFLICT (arena_type, arena_id, party_slug, faction_id)
+    DO UPDATE SET official_count = EXCLUDED.official_count,
+                  updated_by = EXCLUDED.updated_by,
+                  updated_at = EXCLUDED.updated_at;
+  `);
+  await pool.query(`DELETE FROM other_officials_faction_allocations WHERE arena_type = 'locals' AND arena_id <> 'locals_uk';`);
+
+  await pool.query(`
+    INSERT INTO other_officials_faction_allocations
+      (arena_type, arena_id, party_slug, faction_id, official_count, updated_by, updated_at)
+    SELECT arena_type,
+           CASE
+             WHEN arena_id IN ('house-of-lords', 'house-of-lords(body)', 'lords') THEN 'lords'
+             WHEN arena_id IN ('european-parliament', 'europarl', 'european-parliament(body)') THEN 'europarl'
+             WHEN arena_id IN ('directly-elected-mayors', 'dem_uk') THEN 'dem_uk'
+             ELSE arena_id
+           END AS arena_id,
+           party_slug, faction_id, official_count, updated_by, updated_at
+      FROM other_officials_faction_allocations
+     WHERE arena_type = 'body'
+       AND arena_id IN ('house-of-lords', 'house-of-lords(body)', 'european-parliament', 'european-parliament(body)', 'directly-elected-mayors', 'europarl', 'lords')
+    ON CONFLICT (arena_type, arena_id, party_slug, faction_id)
+    DO UPDATE SET official_count = EXCLUDED.official_count,
+                  updated_by = EXCLUDED.updated_by,
+                  updated_at = EXCLUDED.updated_at;
+  `);
+  await pool.query(`
+    DELETE FROM other_officials_faction_allocations
+     WHERE arena_type = 'body'
+       AND arena_id IN ('house-of-lords', 'house-of-lords(body)', 'european-parliament', 'european-parliament(body)', 'directly-elected-mayors');
+  `);
+
   // ── Character live faction membership (separate from affiliations) ───────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS character_faction_membership (
@@ -21443,6 +21484,7 @@ async function ensureUnalignedFactionsForPlayableParties() {
 }
 
 const OTHER_OFFICIALS_ARENA_TYPES = new Set(["body", "locals"]);
+const OTHER_OFFICIALS_CANONICAL_ARENA_IDS = new Set(["lords", "europarl", "locals_uk", "dem_uk"]);
 
 function emptyPlayablePartyTotals() {
   return { Labour: 0, Conservative: 0, "Liberal Democrat": 0 };
@@ -21466,60 +21508,54 @@ async function getOtherOfficialsTotalsForPlayableParties() {
     pool.query("SELECT value FROM app_config WHERE key = 'locals_data'"),
   ]);
 
-  const totalsByArena = {};
-  const contributingArenas = [];
+  const totalsByArena = {
+    "body:lords": emptyPlayablePartyTotals(),
+    "body:europarl": emptyPlayablePartyTotals(),
+    "locals:locals_uk": emptyPlayablePartyTotals(),
+    "body:dem_uk": emptyPlayablePartyTotals(),
+  };
+  const contributingArenas = [
+    { arenaType: "body", arenaId: "lords", label: "House of Lords", visible: true },
+    { arenaType: "body", arenaId: "europarl", label: "European Parliament", visible: true },
+    { arenaType: "locals", arenaId: "locals_uk", label: "Councillors (UK-wide)", visible: true },
+    { arenaType: "body", arenaId: "dem_uk", label: "Directly elected mayors (UK-wide)", visible: true },
+  ];
 
   for (const row of bodyRowsResult.rows) {
     const body = row?.data || {};
     const bodyId = String(row?.id || body?.id || "").trim();
     if (!bodyId) continue;
 
-    const mayors = Array.isArray(body?.mayors) ? body.mayors : [];
-    const includeBody = Boolean(
-      body?.visible || (bodyId === "directly-elected-mayors" && mayors.length > 0)
-    );
-    if (!includeBody) continue;
-
-    let totals = emptyPlayablePartyTotals();
+    if (bodyId === "house-of-lords") {
+      totalsByArena["body:lords"] = buildPlayablePartyTotalsFromRows(body?.partyBreakdown, "seats");
+      continue;
+    }
+    if (bodyId === "european-parliament") {
+      totalsByArena["body:europarl"] = buildPlayablePartyTotalsFromRows(body?.partyBreakdown, "seats");
+      continue;
+    }
     if (bodyId === "directly-elected-mayors") {
-      // for DEM each mayor is exactly one official
-      totals = emptyPlayablePartyTotals();
+      const mayors = Array.isArray(body?.mayors) ? body.mayors : [];
+      const totals = emptyPlayablePartyTotals();
       for (const mayor of mayors) {
         const party = String(mayor?.party || "");
         if (!FACTION_PLAYABLE_PARTIES.includes(party)) continue;
         totals[party] += 1;
       }
-    } else {
-      totals = buildPlayablePartyTotalsFromRows(body?.partyBreakdown, "seats");
+      totalsByArena["body:dem_uk"] = totals;
     }
-
-    const arenaKey = `body:${bodyId}`;
-    totalsByArena[arenaKey] = totals;
-    contributingArenas.push({
-      arenaType: "body",
-      arenaId: bodyId,
-      label: body?.title || body?.name || bodyId,
-      visible: true,
-    });
   }
 
-  const localsData = localsResult.rows[0]?.value ? JSON.parse(localsResult.rows[0].value) : {};
+  const rawLocalsData = localsResult.rows[0]?.value;
+  const localsData = typeof rawLocalsData === "string" ? JSON.parse(rawLocalsData) : (rawLocalsData || {});
   const countries = Array.isArray(localsData?.countries) ? localsData.countries : [];
-  const localsByCountry = new Map(countries.map((row) => [String(row?.country || "").trim(), row]));
   const fallbackCountries = ["England", "Scotland", "Wales", "Northern Ireland"];
   for (const countryName of fallbackCountries) {
-    const countryRow = localsByCountry.get(countryName) || { country: countryName, partyBreakdown: [] };
-    const country = String(countryRow?.country || "").trim();
-    if (!country) continue;
+    const countryRow = countries.find((r) => String(r?.country || "").trim() === countryName) || { partyBreakdown: [] };
     const totals = buildPlayablePartyTotalsFromRows(countryRow?.partyBreakdown, "councillors");
-    const arenaKey = `locals:${country}`;
-    totalsByArena[arenaKey] = totals;
-    contributingArenas.push({
-      arenaType: "locals",
-      arenaId: country,
-      label: country,
-      visible: true,
-    });
+    for (const partySlug of FACTION_PLAYABLE_PARTIES) {
+      totalsByArena["locals:locals_uk"][partySlug] += Number(totals[partySlug] || 0);
+    }
   }
 
   return { totalsByArena, contributingArenas };
@@ -21680,6 +21716,7 @@ app.get("/api/admin/other-officials/faction-allocations", crudReadLimit, async (
       return res.status(400).json({ error: "arena_type must be body or locals" });
     }
     if (!arenaId) return res.status(400).json({ error: "arena_id is required" });
+    if (!OTHER_OFFICIALS_CANONICAL_ARENA_IDS.has(arenaId)) return res.status(400).json({ error: "arena_id must be one of: lords, europarl, locals_uk, dem_uk" });
     if (!FACTION_PLAYABLE_PARTIES.includes(partySlug)) {
       return res.status(400).json({ error: `party_slug must be one of: ${FACTION_PLAYABLE_PARTIES.join(", ")}` });
     }
@@ -21750,6 +21787,7 @@ app.put("/api/admin/other-officials/faction-allocations", verifyCsrfToken, crudW
       return res.status(400).json({ error: "arena_type must be body or locals" });
     }
     if (!arenaId) return res.status(400).json({ error: "arena_id is required" });
+    if (!OTHER_OFFICIALS_CANONICAL_ARENA_IDS.has(arenaId)) return res.status(400).json({ error: "arena_id must be one of: lords, europarl, locals_uk, dem_uk" });
     if (!FACTION_PLAYABLE_PARTIES.includes(partySlug)) {
       return res.status(400).json({ error: `party_slug must be one of: ${FACTION_PLAYABLE_PARTIES.join(", ")}` });
     }
@@ -21779,8 +21817,8 @@ app.put("/api/admin/other-officials/faction-allocations", verifyCsrfToken, crudW
       }
     }
     const allocationSum = parsedAllocations.reduce((sum, a) => sum + a.officialCount, 0);
-    if (allocationSum > partyTotalInArena) {
-      return res.status(400).json({ error: `Allocation sum (${allocationSum}) exceeds party total in arena (${partyTotalInArena})` });
+    if (allocationSum !== partyTotalInArena) {
+      return res.status(400).json({ error: `Allocation sum (${allocationSum}) must equal party total in arena (${partyTotalInArena})` });
     }
 
     const { rows: factionRows } = uniqueFactionIds.length
@@ -22180,12 +22218,17 @@ app.get("/api/parties/:slug/faction-climate", crudReadLimit, async (req, res) =>
     if (!FACTION_PLAYABLE_PARTIES.includes(slug)) {
       return res.status(400).json({ error: `Faction climate only available for: ${FACTION_PLAYABLE_PARTIES.join(", ")}` });
     }
-    const climate = await getPartyFactionClimate(slug);
+    const includeDebug = String(req.query?.debug || "") === "1";
+    const sessionRoles = getSessionRoles(req);
+    const isStaff = sessionRoles.includes("admin") || sessionRoles.includes("mod");
+    if (includeDebug && !isStaff) {
+      return res.status(403).json({ error: "Staff only" });
+    }
+    const climate = await getPartyFactionClimate(slug, { includeDebug });
 
     // Determine viewer role for role-based UI filtering
     let viewerRole = "member";
-    const sessionRoles = getSessionRoles(req);
-    if (sessionRoles.includes("admin") || sessionRoles.includes("mod")) {
+    if (isStaff) {
       viewerRole = "staff";
     } else {
       const characterId = await getActiveCharacterId(req).catch(() => null);
