@@ -44,20 +44,30 @@ function ensurePress(data) {
 /** Re-fetches all press items from DB and updates data.press in place. Silently ignores errors. */
 async function reloadPressFromDb(data) {
   try {
-    const r = await apiGetPressItems();
-    const byType = { release: "releases", conference: "conferences", comment: "comments", speech: "speeches", letter: "letters" };
-    const fresh = { releases: [], conferences: [], comments: [], speeches: [], letters: [] };
-    for (const item of (r?.items ?? [])) {
-      const key = byType[item._pressType || item.press_type] || "releases";
-      if (fresh[key]) fresh[key].push(item);
-    }
-    for (const key of Object.keys(fresh)) {
-      if (fresh[key].length > 0) data.press[key] = fresh[key];
-    }
-    rebuildPressCounters(data);
+    await fetchAndPopulatePressFromDb(data);
   } catch (err) {
     console.error("[press] reload from DB failed:", err);
   }
+}
+
+/**
+ * Fetches press items from DB and repopulates all data.press categories from the response.
+ * DB is authoritative: every category is unconditionally reset — even if DB returns empty —
+ * so legacy/non-DB press items cannot persist in memory (prevents stale items and DELETE 404s).
+ * Throws on network/API error so callers can choose their own error-handling strategy.
+ */
+async function fetchAndPopulatePressFromDb(data) {
+  const r = await apiGetPressItems();
+  const byType = { release: "releases", conference: "conferences", comment: "comments", speech: "speeches", letter: "letters" };
+  const fresh = { releases: [], conferences: [], comments: [], speeches: [], letters: [] };
+  for (const item of (r?.items ?? [])) {
+    const key = byType[item._pressType || item.press_type] || "releases";
+    if (fresh[key]) fresh[key].push(item);
+  }
+  for (const key of Object.keys(fresh)) {
+    data.press[key] = fresh[key];
+  }
+  rebuildPressCounters(data);
 }
 
 /**
@@ -388,6 +398,7 @@ function render(data, state) {
       <h2 style="margin-top:0;">Press Work</h2>
       <p>Five channels are available: <b>Press Releases &amp; Statements</b>, <b>Press Conferences</b>, <b>Comments to the Press</b>, <b>Speeches</b>, and <b>Official Letters</b>. Once submitted, users cannot edit submissions.</p>
       ${isSpeaker(data) && !canAdminOrMod(data) && !sundayWindow ? `<p class="muted">Press marking opens on Sundays only for Speakers. Today is ${esc(weekday)}.</p>` : ""}
+      ${canAdminOrMod(data) ? `<button class="btn" data-action="clear-legacy-press-cache" type="button" style="margin-top:6px;">Clear Legacy Press Cache</button>` : ""}
     </section>
 
     <section class="tile" style="margin-bottom:12px;">
@@ -687,6 +698,27 @@ function render(data, state) {
       render(data, state);
     });
   });
+
+  // Admin/mod only: purge any lingering in-memory legacy press state and repopulate from DB.
+  if (canAdminOrMod(data)) {
+    root.querySelector("[data-action='clear-legacy-press-cache']")?.addEventListener("click", async () => {
+      // Reset all in-memory press arrays and counters so no legacy items survive the reload.
+      data.press.releases = [];
+      data.press.conferences = [];
+      data.press.comments = [];
+      data.press.speeches = [];
+      data.press.letters = [];
+      data.press.counters = {};
+      data.press.nextId = 1;
+      try {
+        await fetchAndPopulatePressFromDb(data);
+        toastSuccess("Legacy press cache cleared. Press data reloaded from DB.");
+      } catch (err) {
+        toastError(`Failed to reload press from DB: ${err.message}`);
+      }
+      render(data, state);
+    });
+  }
 
   section.querySelector("#release-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1202,18 +1234,9 @@ export async function initPressPage(data) {
 
   if (isLoggedIn()) {
     try {
-      const r = await apiGetPressItems();
-      const byType = { release: "releases", conference: "conferences", comment: "comments", speech: "speeches", letter: "letters" };
-      // Replace DB state as authoritative — prevents stale transcripts/marks after hard refresh
-      const fresh = { releases: [], conferences: [], comments: [], speeches: [], letters: [] };
-      for (const item of (r?.items ?? [])) {
-        const key = byType[item._pressType || item.press_type] || "releases";
-        if (fresh[key]) fresh[key].push(item);
-      }
-      for (const key of Object.keys(fresh)) {
-        if (fresh[key].length > 0) data.press[key] = fresh[key];
-      }
-      rebuildPressCounters(data);
+      // DB is authoritative: unconditionally reset all press categories from DB response
+      // so legacy/non-DB items cannot persist in memory (prevents stale items and DELETE 404s).
+      await fetchAndPopulatePressFromDb(data);
     } catch (err) {
       console.error("[press] DB load failed:", err);
     }
