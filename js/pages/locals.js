@@ -231,7 +231,15 @@ function bindEditor(data) {
   });
 }
 
-export function initLocalsPage(data) {
+export async function initLocalsPage(data) {
+  try {
+    const locals = await apiGetLocals();
+    if (locals && typeof locals === "object") {
+      data.locals = locals;
+    }
+  } catch (err) {
+    console.error("[locals] load failed:", err);
+  }
   ensureLocals(data);
   refreshLocals(data);
   bindEditor(data);

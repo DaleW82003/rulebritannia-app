@@ -20759,14 +20759,18 @@ app.get("/api/bodies", crudReadLimit, async (req, res) => {
 app.put("/api/bodies/:id", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
+    const bodyId = req.params.id;
+    const { rows: beforeRows } = await pool.query("SELECT data FROM bodies_data WHERE id = $1", [bodyId]);
+    const before = beforeRows.length ? { id: bodyId, ...beforeRows[0].data } : null;
     const body = stripControlFields(req.body || {});
     const { rows } = await pool.query(
       `INSERT INTO bodies_data (id, data, sort_order)
        VALUES ($1, $2::jsonb, COALESCE((SELECT sort_order FROM bodies_data WHERE id=$1), 0))
        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
        RETURNING id`,
-      [req.params.id, JSON.stringify(body)]
+      [bodyId, JSON.stringify(body)]
     );
+    await writeAuditLog(req.session.userId, "bodies.update", "bodies_data", bodyId, before, { id: bodyId, ...body });
     res.json({ ok: true, id: rows[0].id });
   } catch (e) { console.error("[PUT /api/bodies/:id]", e); res.status(500).json({ error: "Server error" }); }
 });
@@ -21130,6 +21134,8 @@ app.put("/api/locals", crudWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const data = req.body || {};
+    const { rows: beforeRows } = await pool.query("SELECT value FROM app_config WHERE key = 'locals_data'");
+    const before = beforeRows.length ? JSON.parse(beforeRows[0].value) : null;
 
     // Validate totals if present (skip if totals not set for backwards compatibility)
     const countries = Array.isArray(data?.countries) ? data.countries : [];
@@ -21159,6 +21165,7 @@ app.put("/api/locals", crudWriteLimit, async (req, res) => {
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
       [JSON.stringify(data)]
     );
+    await writeAuditLog(req.session.userId, "locals.update", "app_config", "locals_data", before, data);
     res.json({ ok: true });
   } catch (e) { console.error("[PUT /api/locals]", e); res.status(500).json({ error: "Server error" }); }
 });
@@ -21308,6 +21315,11 @@ app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, 
 
     validate1997SeedTotals();
 
+    const { rows: beforeBodiesRows } = await pool.query("SELECT id, data FROM bodies_data ORDER BY sort_order ASC, id ASC");
+    const { rows: beforeLocalsRows } = await pool.query("SELECT value FROM app_config WHERE key = 'locals_data'");
+    const beforeBodies = beforeBodiesRows.map((r) => ({ id: r.id, ...r.data }));
+    const beforeLocals = beforeLocalsRows.length ? JSON.parse(beforeLocalsRows[0].value) : null;
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -21392,6 +21404,21 @@ app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, 
     } finally {
       client.release();
     }
+
+    const { rows: afterBodiesRows } = await pool.query("SELECT id, data FROM bodies_data ORDER BY sort_order ASC, id ASC");
+    const { rows: afterLocalsRows } = await pool.query("SELECT value FROM app_config WHERE key = 'locals_data'");
+    await writeAuditLog(
+      req.session.userId,
+      "bodies_locals.seed_1997",
+      "seed",
+      "bodies-locals-1997",
+      { force, bodies: beforeBodies, locals: beforeLocals },
+      {
+        force,
+        bodies: afterBodiesRows.map((r) => ({ id: r.id, ...r.data })),
+        locals: afterLocalsRows.length ? JSON.parse(afterLocalsRows[0].value) : null,
+      }
+    );
 
     res.json({ ok: true, force });
   } catch (e) {
