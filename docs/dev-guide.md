@@ -964,12 +964,25 @@ node scripts/test-staging.mjs
 
 ## 11. Testing
 
+For pre-alpha signoff, run the full verification workflow from the repository root:
+
+```bash
+npm run verify:alpha
+```
+
+Database target expectations for this workflow:
+
+- **Local dev DB**: use for quick unit iteration and targeted checks.
+- **Staging/test DB**: required for meaningful `test:integration:all` results; should mirror alpha schema and key config toggles.
+- **Alpha DB**: do **not** run destructive test suites directly; validate on staging/test first, then run manual smoke flows against alpha.
+
+
 ### Unit Tests
 
 Node's built-in test runner is used:
 
 ```bash
-node --test server/*.test.js
+npm --prefix server run test:unit
 ```
 
 Unit test files cover core server-side modules without requiring a live database or Discourse instance:
@@ -991,17 +1004,12 @@ Unit test files cover core server-side modules without requiring a live database
 Integration tests require a live PostgreSQL test database. They run against a dedicated test schema created by `createTestSchema()` within the test DB.
 
 ```bash
-# Must be run SEPARATELY — each file calls pool.end() in after()
-NODE_ENV=test node --test server/parliamentary.integration.test.js
-NODE_ENV=test node --test server/factions.integration.test.js
-NODE_ENV=test node --test server/finance-parliament.integration.test.js
-NODE_ENV=test node --test server/party-treasury.integration.test.js
-NODE_ENV=test node --test server/guides-seed.test.js
-NODE_ENV=test node --test server/seed-1997.integration.test.js
-NODE_ENV=test node --test server/support.integration.test.js
+DATABASE_URL=postgres://... NODE_ENV=test npm --prefix server run test:integration:all
 ```
 
-**Do not run multiple integration test files in a single `node --test` invocation.** Each file calls `pool.end()` in its `after()` hook, which terminates the shared connection pool and causes cross-contamination.
+If `DATABASE_URL` or `NODE_ENV=test` is missing, the preflight check fails with a clear message before test execution.
+
+**Why a wrapper?** The integration runner executes each file in its own `node --test` process. This avoids connection-pool cross-contamination because each file calls `pool.end()` in `after()`.
 
 | File | Coverage |
 |------|---------|
