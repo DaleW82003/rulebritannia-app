@@ -1379,7 +1379,7 @@ function render(data, state) {
         </div>
       </article>
 
-      <article class="tile" style="grid-column:1/-1;">
+      <article class="tile" style="grid-column:1/-1;" id="political-capital-tile">
         <h2 style="margin-top:0;">Political Capital &amp; Pressure Profile</h2>
         ${state.politicalState ? (() => {
           const ps = state.politicalState;
@@ -1561,7 +1561,7 @@ function render(data, state) {
       </article>
     </section>
 
-    <section class="panel" style="margin-top:12px;">
+    <section class="panel" style="margin-top:12px;" id="additional-revenue-tile">
       <h2 style="margin-top:0;">Additional Revenue</h2>
       <p class="muted">Annual additional revenue total: ${money(revenueTotal)}</p>
       ${profile.additionalRevenue.length ? profile.additionalRevenue.map((rev) => `
@@ -1575,7 +1575,7 @@ function render(data, state) {
       `).join("") : '<div class="muted-block">No additional revenue streams recorded.</div>'}
     </section>
 
-    <section class="panel" style="margin-top:12px;">
+    <section class="panel" style="margin-top:12px;" id="mp-shop-tile">
       <h2 style="margin-top:0;">MP Shop</h2>
       <p class="muted">Monthly upkeep is deducted automatically each month.</p>
 
@@ -1793,6 +1793,21 @@ function render(data, state) {
 
     ${state.message ? `<p class="muted" style="margin-top:8px;">${esc(state.message)}</p>` : ""}
   `;
+
+  // Layout tweak: keep Party Faction + Political Capital together between
+  // Additional Revenue and MP Shop for a consistent personal-page flow.
+  const additionalRevenueTile = host.querySelector("#additional-revenue-tile");
+  const mpShopTile = host.querySelector("#mp-shop-tile");
+  const partyFactionTile = host.querySelector("#party-faction-tile");
+  const politicalCapitalTile = host.querySelector("#political-capital-tile");
+  if (additionalRevenueTile && mpShopTile) {
+    if (partyFactionTile) {
+      host.insertBefore(partyFactionTile, mpShopTile);
+    }
+    if (politicalCapitalTile) {
+      host.insertBefore(politicalCapitalTile, mpShopTile);
+    }
+  }
 
   host.querySelector("#personal-profile-select")?.addEventListener("change", async (e) => {
     const newName = String(e.currentTarget.value || "");
