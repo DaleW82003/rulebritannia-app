@@ -566,6 +566,29 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS audit_log_created_idx ON audit_log (created_at DESC);
   `);
 
+  // ── Characters ────────────────────────────────────────────────────────────
+  // Must be created before any table that references characters(id) as a FK.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS characters (
+      id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+      name          TEXT NOT NULL,
+      party         TEXT NOT NULL DEFAULT '',
+      constituency  TEXT NOT NULL DEFAULT '',
+      roles         JSONB NOT NULL DEFAULT '[]'::jsonb,
+      offices       JSONB NOT NULL DEFAULT '[]'::jsonb,
+      is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS characters_user_idx ON characters (user_id);
+    CREATE INDEX IF NOT EXISTS characters_active_idx ON characters (is_active);
+  `);
+
+  await pool.query(`
+    ALTER TABLE characters ADD COLUMN IF NOT EXISTS absent BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE characters ADD COLUMN IF NOT EXISTS delegated_to TEXT;
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bills (
       id                  TEXT PRIMARY KEY,
@@ -579,6 +602,24 @@ async function ensureSchema() {
   // Add columns to existing bills table if missing (migration)
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
+  await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
+
+  // ── Divisions (generic voting engine) ────────────────────────────────────
+  // Must be created before bill_amendments which has an inline REFERENCES divisions(id) FK.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS divisions (
+      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      entity_type TEXT NOT NULL,
+      entity_id   TEXT NOT NULL,
+      title       TEXT NOT NULL DEFAULT '',
+      status      TEXT NOT NULL DEFAULT 'open'
+                  CHECK (status IN ('open','closed')),
+      closes_at   TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS divisions_entity_idx ON divisions (entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS divisions_status_idx ON divisions (status);
+  `);
 
   // Bill amendments — server-authoritative tracking of amendments per bill
   await pool.query(`
@@ -679,6 +720,7 @@ async function ensureSchema() {
   `);
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS discourse_topic_id  TEXT`);
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS discourse_topic_url TEXT`);
+  await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS regulations_updated_idx ON regulations (updated_at DESC)`);
   await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
 
@@ -721,33 +763,6 @@ async function ensureSchema() {
     ON CONFLICT (id) DO NOTHING;
   `);
 
-  // ── Characters ────────────────────────────────────────────────────────────
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS characters (
-      id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
-      name          TEXT NOT NULL,
-      party         TEXT NOT NULL DEFAULT '',
-      constituency  TEXT NOT NULL DEFAULT '',
-      roles         JSONB NOT NULL DEFAULT '[]'::jsonb,
-      offices       JSONB NOT NULL DEFAULT '[]'::jsonb,
-      is_active     BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS characters_user_idx ON characters (user_id);
-    CREATE INDEX IF NOT EXISTS characters_active_idx ON characters (is_active);
-  `);
-
-  // ── Add absent/delegated_to columns to characters if not present ─────────────────
-  await pool.query(`
-    ALTER TABLE characters ADD COLUMN IF NOT EXISTS absent BOOLEAN NOT NULL DEFAULT FALSE;
-    ALTER TABLE characters ADD COLUMN IF NOT EXISTS delegated_to TEXT;
-  `);
-
-  // Add character FK columns to bills/regulations now that characters table exists
-  await pool.query(`ALTER TABLE bills ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
-  await pool.query(`ALTER TABLE regulations ADD COLUMN IF NOT EXISTS author_character_id UUID REFERENCES characters(id) ON DELETE SET NULL`);
-
   // ── Offices & Assignments ─────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS offices (
@@ -785,22 +800,6 @@ async function ensureSchema() {
     );
     CREATE INDEX IF NOT EXISTS oah_char_idx   ON office_assignment_history (character_id);
     CREATE INDEX IF NOT EXISTS oah_office_idx ON office_assignment_history (office_id);
-  `);
-
-  // ── Divisions (generic voting engine) ────────────────────────────────────
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS divisions (
-      id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      entity_type TEXT NOT NULL,
-      entity_id   TEXT NOT NULL,
-      title       TEXT NOT NULL DEFAULT '',
-      status      TEXT NOT NULL DEFAULT 'open'
-                  CHECK (status IN ('open','closed')),
-      closes_at   TIMESTAMPTZ,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS divisions_entity_idx ON divisions (entity_type, entity_id);
-    CREATE INDEX IF NOT EXISTS divisions_status_idx ON divisions (status);
   `);
 
   await pool.query(`
@@ -925,6 +924,11 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE press_items ADD COLUMN IF NOT EXISTS reference_code TEXT`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS press_items_reference_code_uniq ON press_items (reference_code) WHERE reference_code IS NOT NULL`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS press_items_kind_prefix_serial_uniq ON press_items (reference_kind, reference_prefix, reference_serial) WHERE reference_kind IS NOT NULL AND reference_prefix IS NOT NULL AND reference_serial IS NOT NULL`);
+  // NOT VALID: these constraints were introduced after existing rows were already written
+  // (pre-reference-code rows have NULL reference fields). NOT VALID skips the full-table
+  // scan so existing rows are exempt; the constraint still enforces correctness on all
+  // new inserts and updates going forward. No backfill is needed because legacy rows
+  // without reference codes are intentionally left as-is (they are historical records).
   await pool.query(`
     DO $$
     BEGIN
