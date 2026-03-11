@@ -461,6 +461,7 @@ export async function batchEnrichPlayersWithSimJoinDates(pool, players) {
 }
 
 /**
+ * Compute the effective vote weight for a single character.
  *
  * When a character is an NPC assigned as a user's main active character they may
  * not appear in the game-state `statePlayers` list (which is admin-managed).  In
