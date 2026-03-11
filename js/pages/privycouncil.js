@@ -112,7 +112,7 @@ function render(members, posts, data, state, manager) {
         <label class="label" for="pc-reason">Reason (optional)</label>
         <input class="input" id="pc-reason" type="text" maxlength="500" placeholder="e.g. Party leader, PM, etc.">
         <button id="pc-appoint-btn" type="button" class="btn">Appoint</button>
-        <p class="muted" id="pc-appoint-msg">${state.message ? esc(state.message) : ""}</p>
+        <p class="muted" id="pc-appoint-msg"${state.message ? "" : " hidden"}>${state.message ? esc(state.message) : ""}</p>
       </div>
     </section>
     ` : (state.message ? `<p class="muted">${esc(state.message)}</p>` : "")}
@@ -171,7 +171,7 @@ function render(members, posts, data, state, manager) {
       const reason = host.querySelector("#pc-reason")?.value || "";
       if (!charId) {
         const msgEl = host.querySelector("#pc-appoint-msg");
-        if (msgEl) msgEl.textContent = "Please select a character to appoint.";
+        if (msgEl) { msgEl.hidden = false; msgEl.textContent = "Please select a character to appoint."; }
         return;
       }
       try {

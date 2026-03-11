@@ -3446,13 +3446,13 @@ export async function apiGetPrivyCouncil() {
   return res.json();
 }
 export async function apiAppointPrivyCouncillor(characterId, reason = "") {
-  const res = await _fetch(`${API_BASE}/api/mod/privy-council/appoint`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId, reason }) });
+  const res = await _fetch(`${API_BASE}/api/mod/privy-council/appoint/${encodeURIComponent(characterId)}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ reason }) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiAppointPrivyCouncillor failed (${res.status})`);
   return body;
 }
 export async function apiRemovePrivyCouncillor(characterId, { force = false } = {}) {
-  const res = await _fetch(`${API_BASE}/api/mod/privy-council/remove`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId, force }) });
+  const res = await _fetch(`${API_BASE}/api/mod/privy-council/remove/${encodeURIComponent(characterId)}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ force }) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiRemovePrivyCouncillor failed (${res.status})`);
   return body;

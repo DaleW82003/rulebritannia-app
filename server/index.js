@@ -14095,10 +14095,11 @@ app.get("/api/privy-council", privyReadLimit, async (req, res) => {
   }
 });
 
-app.post("/api/mod/privy-council/appoint", privyWriteLimit, async (req, res) => {
+app.post("/api/mod/privy-council/appoint/:characterId", privyWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { character_id, reason = "" } = req.body || {};
+    const character_id = req.params.characterId;
+    const { reason = "" } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
 
     const { rows: charRows } = await pool.query(
@@ -14126,10 +14127,11 @@ app.post("/api/mod/privy-council/appoint", privyWriteLimit, async (req, res) => 
   }
 });
 
-app.post("/api/mod/privy-council/remove", privyWriteLimit, async (req, res) => {
+app.post("/api/mod/privy-council/remove/:characterId", privyWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { character_id, force = false } = req.body || {};
+    const character_id = req.params.characterId;
+    const { force = false } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
 
     // Guard: block removal of characters who currently hold a permanent qualifying office
