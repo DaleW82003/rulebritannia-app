@@ -427,7 +427,40 @@ export function computeAllPlayerWeights(seatsByParty, players, { applyDelegation
 }
 
 /**
- * Compute the effective vote weight for a single character.
+ * Enrich a player list with joined_sim_month/joined_sim_year from the characters table.
+ * This lets isSettledBackbencher use sim-clock comparison instead of wall-clock fallback.
+ *
+ * @param {import('pg').Pool} pool
+ * @param {Array} players - state players (each has at least a name field)
+ * @returns {Promise<Array>} - same array with joinedSimMonth/joinedSimYear added where available
+ */
+export async function batchEnrichPlayersWithSimJoinDates(pool, players) {
+  if (!players?.length) return players;
+  const names = players.map((p) => String(p.name || "")).filter(Boolean);
+  if (!names.length) return players;
+  try {
+    const { rows } = await pool.query(
+      `SELECT name, joined_sim_month, joined_sim_year
+         FROM characters
+        WHERE name = ANY($1::text[]) AND is_active = TRUE`,
+      [names]
+    );
+    const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
+    return players.map((p) => {
+      const char = byName[String(p.name || "")];
+      if (!char || (char.joined_sim_month == null && char.joined_sim_year == null)) return p;
+      return {
+        ...p,
+        joinedSimMonth: char.joined_sim_month ?? null,
+        joinedSimYear:  char.joined_sim_year  ?? null,
+      };
+    });
+  } catch {
+    return players; // best-effort: fall back to un-enriched list
+  }
+}
+
+/**
  *
  * When a character is an NPC assigned as a user's main active character they may
  * not appear in the game-state `statePlayers` list (which is admin-managed).  In
@@ -447,7 +480,7 @@ export function computeAllPlayerWeights(seatsByParty, players, { applyDelegation
  *   absent members' delegated weight does not inflate the signer's share.
  * @returns {number}
  */
-export function computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc, { applyDelegation = true, currentSimMonth = null, currentSimYear = null } = {}) {
+export function computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc, { applyDelegation = true, currentSimMonth = null, currentSimYear = null, joinedSimMonth = null, joinedSimYear = null } = {}) {
   const nameStr = String(charName || "");
   const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers, { applyDelegation, currentSimMonth, currentSimYear });
   const w = Number(effectiveWeights[nameStr] || 0);
@@ -461,7 +494,7 @@ export function computeCharacterWeight(seatsByParty, statePlayers, charName, cha
 
   const augmented = [
     ...statePlayers,
-    { name: nameStr, party: charParty, role: "backbencher", active: true },
+    { name: nameStr, party: charParty, role: "backbencher", active: true, joinedSimMonth, joinedSimYear },
   ];
   const { effectiveWeights: ew2 } = computeAllPlayerWeights(seatsByParty, augmented, { applyDelegation, currentSimMonth, currentSimYear });
   return Number(ew2[nameStr] || 0);

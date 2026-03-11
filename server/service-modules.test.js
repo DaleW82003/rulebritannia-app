@@ -393,7 +393,70 @@ test("computeCharacterWeight: party leader gets remainder when party contains a 
   assert.equal(w, 164, "party leader weight must equal seats minus new-backbencher allocation");
 });
 
-// ── Delegation: voting flows, EDM signing does not ───────────────────────────
+// ── Sim-clock-based settled backbencher threshold ─────────────────────────────
+
+test("computeAllPlayerWeights: backbencher with joinedSimMonth 2 months ago (currentSim given) is unsettled → weight 1", () => {
+  const seats = { Labour: 100 };
+  const players = [
+    { name: "NewBB",  party: "Labour", role: "backbencher", active: true,
+      joinedSimMonth: 5, joinedSimYear: 1997 },
+    { name: "Leader", party: "Labour", role: "prime-minister", active: true,
+      joinedSimMonth: 1, joinedSimYear: 1997 },
+  ];
+  // Current sim: July 1997 (month 7, year 1997) — NewBB joined May 1997, only 2 months ago
+  const { effectiveWeights } = computeAllPlayerWeights(seats, players, { currentSimMonth: 7, currentSimYear: 1997 });
+  assert.equal(effectiveWeights["NewBB"],  1,  "backbencher with 2 sim months must get weight 1");
+  assert.equal(effectiveWeights["Leader"], 99, "leader absorbs seats minus unsettled allocation");
+});
+
+test("computeAllPlayerWeights: backbencher with joinedSimMonth 4+ sim months ago is settled → full share", () => {
+  const seats = { Labour: 100 };
+  const players = [
+    { name: "SettledBB", party: "Labour", role: "backbencher", active: true,
+      joinedSimMonth: 1, joinedSimYear: 1997 },
+    { name: "Leader",    party: "Labour", role: "prime-minister", active: true,
+      joinedSimMonth: 1, joinedSimYear: 1997 },
+  ];
+  // Current sim: May 1997 (month 5, year 1997) — SettledBB joined Jan 1997, 4 months ago → settled
+  const { effectiveWeights } = computeAllPlayerWeights(seats, players, { currentSimMonth: 5, currentSimYear: 1997 });
+  assert.equal(effectiveWeights["SettledBB"] + effectiveWeights["Leader"], 100, "settled members split all seats");
+  assert.ok(effectiveWeights["SettledBB"] > 1, "settled backbencher must get more than 1");
+});
+
+test("computeAllPlayerWeights: non-backbencher (minister) always settled regardless of sim join date", () => {
+  const seats = { Labour: 100 };
+  const players = [
+    { name: "NewMinister", party: "Labour", role: "minister", active: true,
+      joinedSimMonth: 8, joinedSimYear: 1997 },
+  ];
+  // Current sim: Aug 1997 — just joined this month, but role is minister not backbencher
+  const { effectiveWeights } = computeAllPlayerWeights(seats, players, { currentSimMonth: 8, currentSimYear: 1997 });
+  assert.equal(effectiveWeights["NewMinister"], 100, "minister must always get full seats regardless of active time");
+});
+
+test("computeAllPlayerWeights: backbencher exactly at 4-month boundary (joinedSimMonth==currentMonth-4) is settled", () => {
+  const seats = { Conservative: 165 };
+  const players = [
+    { name: "MP", party: "Conservative", role: "backbencher", active: true,
+      joinedSimMonth: 1, joinedSimYear: 1997 },
+  ];
+  // Current sim month 5 year 1997 → elapsed = (1997-1997)*12 + (5-1) = 4 → settled
+  const { effectiveWeights } = computeAllPlayerWeights(seats, players, { currentSimMonth: 5, currentSimYear: 1997 });
+  assert.equal(effectiveWeights["MP"], 165, "backbencher at exactly 4 months is settled");
+});
+
+test("computeAllPlayerWeights: backbencher at 3 months (just under threshold) is unsettled", () => {
+  const seats = { Conservative: 165 };
+  const players = [
+    { name: "MP", party: "Conservative", role: "backbencher", active: true,
+      joinedSimMonth: 2, joinedSimYear: 1997 },
+    { name: "Leader", party: "Conservative", role: "party-leader-3rd-4th", active: true,
+      partyLeader: true, joinedSimMonth: 1, joinedSimYear: 1990 },
+  ];
+  // Current sim month 5 year 1997 → elapsed = (1997-1997)*12 + (5-2) = 3 → unsettled
+  const { effectiveWeights } = computeAllPlayerWeights(seats, players, { currentSimMonth: 5, currentSimYear: 1997 });
+  assert.equal(effectiveWeights["MP"], 1, "backbencher at 3 months (under threshold) must get weight 1");
+});
 // Scenario: Macmillan is absent and delegates to Weston.
 // Voting (applyDelegation=true): Weston receives 1 (base) + 164 (delegated) = 165.
 // EDM signing (applyDelegation=false): Weston receives only his own base weight = 1.

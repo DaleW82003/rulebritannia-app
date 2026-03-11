@@ -24,7 +24,7 @@ import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-hel
 import { fireRecompute, awaitedRecompute, createRecomputeContext, buildRecomputeResponseMetadata } from "./recompute-helpers.js";
 import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, seed1997Factions } from "./political-state-service.js";
 import { seedPredefinedGuides } from "./guides-seed.js";
-import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb } from "./division-helpers.js";
+import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb, batchEnrichPlayersWithSimJoinDates } from "./division-helpers.js";
 import { resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary } from "./finance-service.js";
 import {
   IPM_TICKET_ORIGIN,
@@ -3534,10 +3534,46 @@ async function runDebateAutoClose(month, year) {
       }
     }
   }
-}
 
-/**
- * Called on every clock tick. Closes any open divisions whose closes_at_sim
+  // Bills: close Discourse topic when Report Debate deadline has passed
+  // (the debate window ends → Final Division stage begins)
+  try {
+    const { rows: billRows } = await pool.query(
+      `SELECT id, discourse_topic_id
+         FROM bills
+        WHERE discourse_topic_id IS NOT NULL
+          AND (data->>'status') NOT IN ('archived','closed','failed','withdrawn')
+          AND (data->>'stage') = 'Report Debate'
+          AND data->'stageDeadlineSim'->>'month' IS NOT NULL
+          AND data->'stageDeadlineSim'->>'year' IS NOT NULL
+          AND (
+            (data->'stageDeadlineSim'->>'year')::int < $1
+            OR (
+              (data->'stageDeadlineSim'->>'year')::int = $1
+              AND (data->'stageDeadlineSim'->>'month')::int <= $2
+            )
+          )`,
+      [year, month]
+    );
+    for (const row of billRows) {
+      const topicId = Number(row.discourse_topic_id);
+      if (!topicId) continue;
+      try {
+        await closeDiscTopic({ baseUrl, apiKey, apiUsername, topicId });
+        console.log(`[debate/auto-close] closed Discourse topic ${topicId} for bill ${row.id} (report debate ended)`);
+      } catch (closeErr) {
+        console.warn(`[debate/auto-close] closeTopic failed for bill ${row.id} (topic ${topicId}): ${closeErr.message} — falling back to closure post`);
+        try {
+          await createPost({ baseUrl, apiKey, apiUsername, topicId, raw: "**Debate closed.** The Report Debate has ended. The Final Division stage will begin shortly." });
+        } catch (postErr) {
+          console.error(`[debate/auto-close] fallback post also failed for bill ${row.id}:`, postErr.message);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[debate/auto-close] bill query failed:", err.message);
+  }
+}
  * deadline has been reached or passed. Sets outcome = 'expired'.
  * closes_at_sim is stored as TEXT in "YYYY-MM" format.
  *
@@ -7391,30 +7427,38 @@ app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
 
     // Get current active character from DB
     const { rows: charRows } = await pool.query(
-      "SELECT name, party, is_npc FROM characters WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at DESC LIMIT 1",
+      "SELECT name, party, is_npc, joined_sim_month, joined_sim_year FROM characters WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at DESC LIMIT 1",
       [req.session.userId]
     );
     if (!charRows.length) return res.status(400).json({ error: "No active character found" });
     const { name: charName, party: charParty, is_npc: isNpc } = charRows[0];
 
-    // Seat totals from constituencies DB (authoritative source — constituencies page)
-    const seatsByParty = await getPartySeatsFromConstituencies(pool);
+    // Fetch seats + sim clock in parallel
+    const [seatsByParty, clkResult, stateResult] = await Promise.all([
+      getPartySeatsFromConstituencies(pool),
+      pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"),
+      pool.query(`SELECT ss.data
+                    FROM state_snapshots ss
+                    JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+                   WHERE asc2.id = 'main'`),
+    ]);
+    const simMonth = clkResult.rows[0]?.sim_current_month ?? null;
+    const simYear  = clkResult.rows[0]?.sim_current_year  ?? null;
+    const stateData = stateResult.rows[0]?.data ?? {};
+    const rawPlayers = Array.isArray(stateData?.players) ? stateData.players : [];
 
-    // Load current game state for player list (absence/delegation info)
-    const { rows: stateRows } = await pool.query(
-      `SELECT ss.data
-         FROM state_snapshots ss
-         JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
-        WHERE asc2.id = 'main'`
-    );
-    const stateData = stateRows[0]?.data ?? {};
-    const players = Array.isArray(stateData?.players) ? stateData.players : [];
+    // Enrich all players with sim join dates from DB for accurate 4-sim-month threshold
+    const players = await batchEnrichPlayersWithSimJoinDates(pool, rawPlayers);
 
     // Compute effective weight server-side (seats from constituencies DB, players from state).
     // NPC characters not present in state are injected synthetically to receive their party share.
-    const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, players);
+    const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, players, { currentSimMonth: simMonth, currentSimYear: simYear });
     const effectiveWeight = isNpc
-      ? computeCharacterWeight(seatsByParty, players, charName, charParty, true)
+      ? computeCharacterWeight(seatsByParty, players, charName, charParty, true, {
+          currentSimMonth: simMonth, currentSimYear: simYear,
+          joinedSimMonth: charRows[0].joined_sim_month ?? null,
+          joinedSimYear:  charRows[0].joined_sim_year  ?? null,
+        })
       : Number(effectiveWeights[charName] || 0);
 
     // Initialise division if this is the first vote
@@ -16199,7 +16243,7 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
       // Compute the caller's current effective weight from constituencies DB, minus rebels for their party
       try {
         const { rows: charRows } = await pool.query(
-          "SELECT name, party, whip_status FROM characters WHERE id = $1", [charId]
+          "SELECT name, party, whip_status, joined_sim_month, joined_sim_year FROM characters WHERE id = $1", [charId]
         );
         const charName = charRows[0]?.name || "";
         const charParty = charRows[0]?.party || "";
@@ -16207,14 +16251,18 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
         if (whipWithdrawn) {
           myWeight = 1;
         } else {
-          const seatsByPartyFresh = await getPartySeatsFromConstituencies(pool);
-          const { rows: stateRows } = await pool.query(
-            `SELECT ss.data FROM state_snapshots ss
-               JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
-              WHERE asc2.id = 'main'`
-          );
-          const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-          const { effectiveWeights } = computeAllPlayerWeights(seatsByPartyFresh, statePlayers);
+          const [seatsByPartyFresh, stateResult, clockResult] = await Promise.all([
+            getPartySeatsFromConstituencies(pool),
+            pool.query(`SELECT ss.data FROM state_snapshots ss
+                          JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+                         WHERE asc2.id = 'main'`),
+            pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"),
+          ]);
+          const rawStatePlayers = Array.isArray(stateResult.rows[0]?.data?.players) ? stateResult.rows[0].data.players : [];
+          const simMonthFE = clockResult.rows[0]?.sim_current_month ?? null;
+          const simYearFE  = clockResult.rows[0]?.sim_current_year  ?? null;
+          const statePlayers = await batchEnrichPlayersWithSimJoinDates(pool, rawStatePlayers);
+          const { effectiveWeights } = computeAllPlayerWeights(seatsByPartyFresh, statePlayers, { currentSimMonth: simMonthFE, currentSimYear: simYearFE });
           const rawWeight = Number(effectiveWeights[charName] || 0);
           // Deduct rebel fraction from myWeight display
           const partyRebels = Number(division.rebels_by_party?.[charParty] ?? 0);
@@ -16294,14 +16342,13 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
         const { rows: clockRows } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
         const simMonth = clockRows[0]?.sim_current_month ?? null;
         const simYear  = clockRows[0]?.sim_current_year  ?? null;
-        const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-        const enrichedPlayers = statePlayers.map((p) => {
-          if (String(p.name || "") === String(charName || "")) {
-            return { ...p, joinedSimMonth: charRows[0].joined_sim_month ?? null, joinedSimYear: charRows[0].joined_sim_year ?? null };
-          }
-          return p;
+        const rawStatePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
+        const enrichedPlayers = await batchEnrichPlayersWithSimJoinDates(pool, rawStatePlayers);
+        effectiveWeight = computeCharacterWeight(seatsByParty, enrichedPlayers, charName, charParty, isNpc, {
+          currentSimMonth: simMonth, currentSimYear: simYear,
+          joinedSimMonth: charRows[0].joined_sim_month ?? null,
+          joinedSimYear:  charRows[0].joined_sim_year  ?? null,
         });
-        effectiveWeight = computeCharacterWeight(seatsByParty, enrichedPlayers, charName, charParty, isNpc, { currentSimMonth: simMonth, currentSimYear: simYear });
       }
       // whipWithdrawn: effectiveWeight stays 1
     } catch (wErr) {
