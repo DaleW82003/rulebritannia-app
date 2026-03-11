@@ -307,14 +307,24 @@ export async function batchEnrichCharacterRows(pool, rows) {
  *   routed to their delegation target; use for EDM signature weight computation.
  * @returns {{ effectiveWeights: Object, baseWeights: Object, leaderByParty: Object }}
  */
-export function computeAllPlayerWeights(seatsByParty, players, { applyDelegation = true } = {}) {
-  const FOUR_SIM_MONTHS_MS = 14 * 24 * 60 * 60 * 1000;
+export function computeAllPlayerWeights(seatsByParty, players, { applyDelegation = true, currentSimMonth = null, currentSimYear = null } = {}) {
+  const FOUR_SIM_MONTHS = 4;
   const allPlayers = (players || []).filter((p) => p != null && p.active !== false);
+
+  function simMonthsElapsed(joinedMonth, joinedYear) {
+    if (!joinedMonth || !joinedYear || !currentSimMonth || !currentSimYear) return null;
+    return (currentSimYear - joinedYear) * 12 + (currentSimMonth - joinedMonth);
+  }
 
   function isSettledBackbencher(p) {
     if (!p || p.role !== "backbencher") return true;
+    // Prefer sim-clock comparison when joinedSimMonth/joinedSimYear are available
+    const elapsed = simMonthsElapsed(p.joinedSimMonth, p.joinedSimYear);
+    if (elapsed !== null) return elapsed >= FOUR_SIM_MONTHS;
+    // Fall back to wall-clock (14 real days ≈ 4 sim months)
     const joined = Date.parse(p.joinedAt || "");
     if (!Number.isFinite(joined)) return true;
+    const FOUR_SIM_MONTHS_MS = 14 * 24 * 60 * 60 * 1000;
     return (Date.now() - joined) >= FOUR_SIM_MONTHS_MS;
   }
 
@@ -437,9 +447,9 @@ export function computeAllPlayerWeights(seatsByParty, players, { applyDelegation
  *   absent members' delegated weight does not inflate the signer's share.
  * @returns {number}
  */
-export function computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc, { applyDelegation = true } = {}) {
+export function computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc, { applyDelegation = true, currentSimMonth = null, currentSimYear = null } = {}) {
   const nameStr = String(charName || "");
-  const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers, { applyDelegation });
+  const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, statePlayers, { applyDelegation, currentSimMonth, currentSimYear });
   const w = Number(effectiveWeights[nameStr] || 0);
   if (w > 0) return w;
 
@@ -453,7 +463,7 @@ export function computeCharacterWeight(seatsByParty, statePlayers, charName, cha
     ...statePlayers,
     { name: nameStr, party: charParty, role: "backbencher", active: true },
   ];
-  const { effectiveWeights: ew2 } = computeAllPlayerWeights(seatsByParty, augmented, { applyDelegation });
+  const { effectiveWeights: ew2 } = computeAllPlayerWeights(seatsByParty, augmented, { applyDelegation, currentSimMonth, currentSimYear });
   return Number(ew2[nameStr] || 0);
 }
 

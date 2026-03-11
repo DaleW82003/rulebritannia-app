@@ -2323,6 +2323,14 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS characters_managed_by_idx ON characters (managed_by_user_id);
   `);
 
+  // ── Sim-clock join date for vote weight calculation ────────────────────────
+  // joined_sim_month/joined_sim_year: the sim clock values at character creation,
+  // used to determine the 4-sim-month settling period for new backbenchers.
+  await pool.query(`
+    ALTER TABLE characters ADD COLUMN IF NOT EXISTS joined_sim_month INTEGER;
+    ALTER TABLE characters ADD COLUMN IF NOT EXISTS joined_sim_year  INTEGER;
+  `);
+
   // ── NPC application fields on pending_character_applications ─────────────
   // application_type: 'pc' (player character, default) or 'npc'.
   // npc_reason: required note to moderators explaining why the NPC is needed.
@@ -3560,6 +3568,54 @@ async function runDivisionAutoClose(month, year) {
     }
   } catch (err) {
     console.error("[division/auto-close] failed:", err.message);
+  }
+}
+
+/**
+ * Called on every tick AND on Sunday freeze.
+ * Closes polling entries whose autoArchiveAfterSimMonths has elapsed, or whose
+ * explicit closesAtSimObj close date has been reached.
+ */
+async function runPollingAutoClose(month, year) {
+  try {
+    // Archive entries with elapsed autoArchiveAfterSimMonths (same logic as tick auto-archive)
+    const { rowCount: archived } = await pool.query(
+      `UPDATE polling_entries
+          SET data = data || '{"status":"archived"}'::jsonb,
+              updated_at = NOW()
+        WHERE (data->>'status') NOT IN ('archived','closed')
+          AND (data->>'autoArchiveAfterSimMonths') IS NOT NULL
+          AND (data->>'autoArchiveAfterSimMonths')::int > 0
+          AND (
+            (($1 - (data->'createdAtSim'->>'year')::int) * 12
+             + ($2 - (data->'createdAtSim'->>'month')::int))
+            >= (data->>'autoArchiveAfterSimMonths')::int
+          )`,
+      [year, month]
+    );
+
+    // Also close entries with an explicit closesAtSimObj that has been reached
+    const { rowCount: closed } = await pool.query(
+      `UPDATE polling_entries
+          SET data = data || '{"status":"closed"}'::jsonb,
+              updated_at = NOW()
+        WHERE (data->>'status') = 'open'
+          AND data->'closesAtSimObj' IS NOT NULL
+          AND (
+            (data->'closesAtSimObj'->>'year')::int < $1
+            OR (
+              (data->'closesAtSimObj'->>'year')::int = $1
+              AND (data->'closesAtSimObj'->>'month')::int <= $2
+            )
+          )`,
+      [year, month]
+    );
+
+    if (archived || closed) {
+      console.log(`[polling/auto-close] archived=${archived} closed=${closed} at sim ${year}-${month}`);
+    }
+  } catch (e) {
+    console.error("[polling/auto-close]", e.message);
   }
 }
 
@@ -8068,6 +8124,81 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
   }
 });
 
+async function runQTEscalation(month, year) {
+  try {
+    // Step 1: Auto-issue speaker demand for open questions past their due_at_sim
+    // (due_at_sim <= current sim date AND speaker_demanded_at IS NULL)
+    const { rows: overdueRows } = await pool.query(
+      `SELECT id, office_id, asked_by_name
+         FROM qt_questions
+        WHERE status = 'open'
+          AND speaker_demanded_at IS NULL
+          AND due_at_sim IS NOT NULL
+          AND (
+            (due_at_sim::jsonb->>'year')::int < $1
+            OR ((due_at_sim::jsonb->>'year')::int = $1 AND (due_at_sim::jsonb->>'month')::int <= $2)
+          )`,
+      [year, month]
+    );
+
+    for (const q of overdueRows) {
+      // Demand due 1 sim month from now
+      const dueMonth = month === 12 ? 1 : month + 1;
+      const dueYear  = month === 12 ? year + 1 : year;
+      const demandDue = JSON.stringify({ month: dueMonth, year: dueYear });
+      await pool.query(
+        `UPDATE qt_questions
+            SET speaker_demanded_at = NOW(), demand_due_at_sim = $1, updated_at = NOW()
+          WHERE id = $2`,
+        [demandDue, q.id]
+      );
+      console.log(`[qt/auto-demand] issued speaker demand on question ${q.id} (office: ${q.office_id})`);
+    }
+  } catch (e) {
+    console.error("[qt/auto-demand]", e.message);
+  }
+
+  try {
+    // Step 2: Auto-archive questions where speaker demand has expired (demand_due_at_sim passed)
+    const { rows: expiredRows } = await pool.query(
+      `SELECT q.id, q.office_id, q.asked_by_name,
+              oa.character_id AS minister_char_id
+         FROM qt_questions q
+         LEFT JOIN offices o ON o.spec_id = q.office_id
+         LEFT JOIN office_assignments oa ON oa.office_id = o.id
+        WHERE q.status = 'open'
+          AND q.speaker_demanded_at IS NOT NULL
+          AND q.demand_due_at_sim IS NOT NULL
+          AND (
+            (q.demand_due_at_sim::jsonb->>'year')::int < $1
+            OR ((q.demand_due_at_sim::jsonb->>'year')::int = $1 AND (q.demand_due_at_sim::jsonb->>'month')::int <= $2)
+          )`,
+      [year, month]
+    );
+
+    for (const q of expiredRows) {
+      // Archive the question
+      await pool.query(
+        `UPDATE qt_questions SET status = 'archived', updated_at = NOW() WHERE id = $1`,
+        [q.id]
+      );
+      // Record the penalty in the audit log (ministry failed to answer)
+      await writeAuditLog(
+        null,
+        "qt.question.auto-archived-unanswered",
+        "qt_question",
+        q.id,
+        null,
+        { office_id: q.office_id, minister_char_id: q.minister_char_id ?? null },
+        { reason: "Minister failed to answer after Speaker demand", simMonth: month, simYear: year }
+      );
+      console.log(`[qt/auto-expire] archived unanswered question ${q.id} (office: ${q.office_id})`);
+    }
+  } catch (e) {
+    console.error("[qt/auto-expire]", e.message);
+  }
+}
+
 async function performClockTick(userId) {
   const { rows } = await pool.query(
     `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
@@ -8125,6 +8256,8 @@ async function performClockTick(userId) {
   runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
   runDebateAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] debate auto-close failed:", e.message));
   runDivisionAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] division auto-close failed:", e.message));
+  runQTEscalation(newMonth, newYear).catch((e) => console.error("[clock/tick] QT escalation failed:", e.message));
+  runPollingAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] polling auto-close failed:", e.message));
 
   return { clock: rows[0], archivedItems: archived };
 }
@@ -10330,6 +10463,14 @@ app.post("/api/characters/:userId?", charWriteLimit, async (req, res) => {
         [rows[0].id]
       );
     }
+    // Seed sim-clock join date (best-effort)
+    pool.query(
+      `UPDATE characters
+          SET joined_sim_month = (SELECT sim_current_month FROM sim_clock WHERE id = 'main'),
+              joined_sim_year  = (SELECT sim_current_year  FROM sim_clock WHERE id = 'main')
+        WHERE id = $1`,
+      [rows[0].id]
+    ).catch((e) => console.warn("[character.create] sim clock seed failed:", e.message));
     await writeAuditLog(req.session.userId, "character.create", "character", rows[0].id, null, rows[0]);
     res.status(201).json({ ok: true, character: rows[0] });
   } catch (e) {
@@ -10946,6 +11087,15 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
         [character.id]
       ).catch((e) => console.warn("[approve-npc] backbencher seed failed:", e.message));
 
+      // Seed sim-clock join date (best-effort)
+      pool.query(
+        `UPDATE characters
+            SET joined_sim_month = (SELECT sim_current_month FROM sim_clock WHERE id = 'main'),
+                joined_sim_year  = (SELECT sim_current_year  FROM sim_clock WHERE id = 'main')
+          WHERE id = $1`,
+        [character.id]
+      ).catch((e) => console.warn("[approve-npc] sim clock seed failed:", e.message));
+
       // Seed starting bank balance (best-effort)
       const startingBalance = STARTING_BALANCES[Math.min(10, Math.max(1, Number(app_.financial_background_level) || 5))] ?? 25000;
       await pool.query(
@@ -11029,6 +11179,15 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
         "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
         [character.id]
       ).catch((e) => console.warn("[approve] backbencher seed failed:", e.message));
+
+      // Seed sim-clock join date (best-effort)
+      pool.query(
+        `UPDATE characters
+            SET joined_sim_month = (SELECT sim_current_month FROM sim_clock WHERE id = 'main'),
+                joined_sim_year  = (SELECT sim_current_year  FROM sim_clock WHERE id = 'main')
+          WHERE id = $1`,
+        [character.id]
+      ).catch((e) => console.warn("[approve] sim clock seed failed:", e.message));
 
       // Seed starting bank balance from financial background level (one-time, only if no finance row exists)
       const startingBalance = STARTING_BALANCES[Math.min(10, Math.max(1, Number(app_.financial_background_level) || 5))] ?? 25000;
@@ -16111,7 +16270,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 
     // Get character name and party for weight computation and rebellion check
     const { rows: charRows } = await pool.query(
-      "SELECT name, party, whip_status, is_npc FROM characters WHERE id = $1", [charId]
+      "SELECT name, party, whip_status, is_npc, joined_sim_month, joined_sim_year FROM characters WHERE id = $1", [charId]
     );
     const charParty      = charRows[0]?.party       || null;
     const charName       = charRows[0]?.name        || null;
@@ -16132,8 +16291,17 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
              JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
             WHERE asc2.id = 'main'`
         );
+        const { rows: clockRows } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+        const simMonth = clockRows[0]?.sim_current_month ?? null;
+        const simYear  = clockRows[0]?.sim_current_year  ?? null;
         const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-        effectiveWeight = computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc);
+        const enrichedPlayers = statePlayers.map((p) => {
+          if (String(p.name || "") === String(charName || "")) {
+            return { ...p, joinedSimMonth: charRows[0].joined_sim_month ?? null, joinedSimYear: charRows[0].joined_sim_year ?? null };
+          }
+          return p;
+        });
+        effectiveWeight = computeCharacterWeight(seatsByParty, enrichedPlayers, charName, charParty, isNpc, { currentSimMonth: simMonth, currentSimYear: simYear });
       }
       // whipWithdrawn: effectiveWeight stays 1
     } catch (wErr) {
@@ -23752,6 +23920,11 @@ app.post("/api/admin/factions/trigger-freeze", verifyCsrfToken, crudWriteLimit, 
 
     // 2) Publish faction derived stats once after all outcomes are applied.
     const factionResults = await runFactionFreeze(pool);
+
+    // 3b) Close any polls whose debate window or archive threshold has passed.
+    const { rows: clkRows } = await pool.query("SELECT sim_current_month AS month, sim_current_year AS year FROM sim_clock WHERE id = 'main' LIMIT 1");
+    const clk = clkRows[0] || { month: 8, year: 1997 };
+    await runPollingAutoClose(clk.month, clk.year).catch((e) => console.error("[trigger-freeze] polling auto-close failed:", e.message));
 
     // 3) Recompute party climate once per playable party after publish.
     const climateRefresh = [];
