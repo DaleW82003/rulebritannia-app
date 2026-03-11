@@ -263,10 +263,11 @@ export function initNavUI(user, clock, gameState, simFreeze) {
   const topbarInner = document.querySelector(".topbar-inner");
   if (topbarInner) {
     let clockText;
-    if (gameState) {
+    if (clock) {
+      const monthIdx = Math.max(0, Math.min(11, (clock.sim_current_month - 1)));
+      clockText = `${MONTH_NAMES[monthIdx]} ${clock.sim_current_year}`;
+    } else if (gameState) {
       clockText = formatSimMonthYear(gameState);
-    } else if (clock) {
-      clockText = `${MONTH_NAMES[(clock.sim_current_month - 1)]} ${clock.sim_current_year}`;
     } else {
       clockText = "–";
     }
@@ -277,7 +278,8 @@ export function initNavUI(user, clock, gameState, simFreeze) {
 
     // Show a clear status badge when the simulation is paused or frozen so the
     // nav bar (the ultimate source of sim month/year) always reflects the real state.
-    if (gameState?.isPaused) {
+    const isPaused = clock?.is_paused ?? gameState?.isPaused ?? false;
+    if (isPaused) {
       clockEl.classList.add("topbar-clock--paused");
       const badge = document.createElement("span");
       badge.className = "topbar-clock-badge";

@@ -22,6 +22,7 @@ import {
   apiGetHealth,
   apiGetAdminSnapshotStatus,
   apiGetSimFreeze, apiSetSimFreeze,
+  apiClockStart, apiClockPause, apiClockUnpause,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
@@ -68,6 +69,7 @@ export async function initAdminPanelPage(data) {
   let dashboardData = null; // moderator dashboard summary
   let debateSyncResults = {}; // map kind -> last sync result
   let pendingRegistrations = []; // pending registration applications
+  let simFreeze = { is_frozen: false, reason: null, updated_at: null };
 
   // ── User–Character Management state ─────────────────────────────────────
   let charMgmtUsers = [];        // users with active_character info
@@ -1011,6 +1013,22 @@ export async function initAdminPanelPage(data) {
           <div class="kv"><span>Simulation status</span><b>${gs.started ? "Running" : "Not started"}</b></div>
           <div class="kv"><span>Clock anchor (real date)</span><b>${esc(String(gs.startRealDate || "Not set"))}</b></div>
           <div class="kv"><span>Tick Rate</span><b>2 sim months per real week (Mon–Wed: 1 month, Thu–Sat: 1 month, Sun: frozen)</b></div>
+          <div class="kv"><span>Simulation Freeze</span><b>${simFreeze?.is_frozen ? "ACTIVE" : "Off"}</b></div>
+          ${simFreeze?.reason ? `<div class="kv"><span>Freeze Reason</span><b>${esc(String(simFreeze.reason))}</b></div>` : ""}
+          ${simFreeze?.updated_at ? `<div class="kv"><span>Freeze Updated</span><b>${esc(new Date(simFreeze.updated_at).toLocaleString("en-GB"))}</b></div>` : ""}
+          <div style="display:grid;gap:6px;">
+            <label class="label" style="margin:0;">
+              <span class="muted">Freeze reason/message (optional)</span>
+              <input id="sim-freeze-reason" type="text" class="input" maxlength="240"
+                     value="${simFreeze?.reason ? esc(String(simFreeze.reason)) : ""}"
+                     placeholder="Emergency maintenance, snapshot restore, hotfix rollout…" />
+            </label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn danger" type="button" id="sim-freeze-enable">Enable Freeze</button>
+              <button class="btn" type="button" id="sim-freeze-disable">Disable Freeze</button>
+              <span id="sim-freeze-status" class="muted"></span>
+            </div>
+          </div>
           <label class="label" style="margin:0;"><input type="checkbox" id="sim-pause-clock-check" ${gs.isPaused ? "checked" : ""}> Pause game clock (unpause on Sunday only)</label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn" type="button" id="sim-save-pause-clock">Save Pause Setting</button>
@@ -1419,7 +1437,7 @@ export async function initAdminPanelPage(data) {
     });
 
     // ── Simulation Control ────────────────────────────────────────────────────
-    host.querySelector("#sim-save-pause-clock")?.addEventListener("click", () => {
+    host.querySelector("#sim-save-pause-clock")?.addEventListener("click", async () => {
       const wantPaused = !!host.querySelector("#sim-pause-clock-check")?.checked;
       const wasPaused = !!data.gameState.isPaused;
       const statusEl = host.querySelector("#sim-control-status");
@@ -1427,6 +1445,16 @@ export async function initAdminPanelPage(data) {
         if (wantPaused && !wasPaused) {
           data.gameState.isPaused = true;
           data.gameState.pausedAtRealDate = new Date().toISOString();
+          try {
+            await Promise.all([
+              saveState(data),
+              apiClockPause(),
+            ]);
+          } catch (err) {
+            console.error("[admin-panel] pause failed:", err);
+            if (statusEl) statusEl.textContent = `Pause failed: ${err.message}`;
+            return;
+          }
         } else if (!wantPaused && wasPaused) {
           if (!isSundayToday()) {
             if (statusEl) statusEl.textContent = "Cannot unpause: the simulation may only be unpaused on a Sunday.";
@@ -1438,10 +1466,18 @@ export async function initAdminPanelPage(data) {
           data.gameState.startRealDate = new Date(new Date(data.gameState.startRealDate).getTime() + pauseDurationMs).toISOString();
           data.gameState.isPaused = false;
           data.gameState.pausedAtRealDate = "";
+          try {
+            await Promise.all([
+              saveState(data),
+              apiClockUnpause(),
+            ]);
+          } catch (err) {
+            console.error("[admin-panel] unpause failed:", err);
+            if (statusEl) statusEl.textContent = `Unpause failed: ${err.message}`;
+            return;
+          }
         }
         if (statusEl) statusEl.textContent = `Game clock ${data.gameState.isPaused ? "paused" : "unpaused"}.`;
-        // Persist so sim_clock is synced server-side and all content creation uses the correct sim date.
-        saveState(data).catch((err) => console.error("[admin-panel] saveState after pause/unpause failed:", err));
         render();
       }
     });
@@ -1453,16 +1489,53 @@ export async function initAdminPanelPage(data) {
       if (statusEl) statusEl.textContent = "Sunday roll forced.";
     });
 
-    host.querySelector("#sim-start-simulation")?.addEventListener("click", () => {
+    host.querySelector("#sim-start-simulation")?.addEventListener("click", async () => {
       if (data.gameState.started || !isSundayToday()) return;
       const now = new Date();
       now.setHours(0, 0, 0, 0);
       data.gameState.started = true;
       data.gameState.startRealDate = now.toISOString();
       data.gameState.isPaused = false;
-      // Persist so sim_clock is synced server-side and all content creation uses the correct sim date.
-      saveState(data).catch((err) => console.error("[admin-panel] saveState after sim start failed:", err));
+      const statusEl = host.querySelector("#sim-control-status");
+      try {
+        await Promise.all([
+          saveState(data),
+          apiClockStart(),
+        ]);
+      } catch (err) {
+        console.error("[admin-panel] sim start failed:", err);
+        if (statusEl) statusEl.textContent = `Start failed: ${err.message}`;
+        return;
+      }
       render();
+    });
+
+    host.querySelector("#sim-freeze-enable")?.addEventListener("click", async () => {
+      const reasonInput = host.querySelector("#sim-freeze-reason");
+      const statusEl = host.querySelector("#sim-freeze-status");
+      try {
+        if (statusEl) statusEl.textContent = "Applying…";
+        const result = await apiSetSimFreeze({ is_frozen: true, reason: String(reasonInput?.value || "").trim() || null });
+        simFreeze = result?.freeze ?? simFreeze;
+        if (statusEl) statusEl.textContent = "Freeze enabled.";
+        render();
+      } catch (e) {
+        if (statusEl) statusEl.textContent = `Failed: ${e.message}`;
+      }
+    });
+
+    host.querySelector("#sim-freeze-disable")?.addEventListener("click", async () => {
+      const reasonInput = host.querySelector("#sim-freeze-reason");
+      const statusEl = host.querySelector("#sim-freeze-status");
+      try {
+        if (statusEl) statusEl.textContent = "Applying…";
+        const result = await apiSetSimFreeze({ is_frozen: false, reason: String(reasonInput?.value || "").trim() || null });
+        simFreeze = result?.freeze ?? simFreeze;
+        if (statusEl) statusEl.textContent = "Freeze disabled.";
+        render();
+      } catch (e) {
+        if (statusEl) statusEl.textContent = `Failed: ${e.message}`;
+      }
     });
 
     host.querySelector("#sim-monarch-form")?.addEventListener("submit", (e) => {
@@ -1927,7 +2000,16 @@ export async function initAdminPanelPage(data) {
     }
   }
 
-  await Promise.all([loadConfig(), loadDiscourseConfig(), loadDiscourseCategoryIds(), loadSnapshots(), loadSnapshotStatus(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard(), loadPendingRegistrations()]);
+  async function loadSimFreeze() {
+    try {
+      const result = await apiGetSimFreeze();
+      simFreeze = result?.freeze ?? { is_frozen: false, reason: null, updated_at: null };
+    } catch (err) {
+      console.error("Failed to load sim freeze:", err);
+    }
+  }
+
+  await Promise.all([loadConfig(), loadDiscourseConfig(), loadDiscourseCategoryIds(), loadSnapshots(), loadSnapshotStatus(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard(), loadPendingRegistrations(), loadSimFreeze()]);
   render("");
 
   // Event delegation for pending registration approve/reject buttons

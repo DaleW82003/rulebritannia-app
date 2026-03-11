@@ -790,6 +790,10 @@ async function ensureSchema() {
     ON CONFLICT (id) DO NOTHING;
   `);
 
+  await pool.query(`ALTER TABLE sim_clock ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE sim_clock ADD COLUMN IF NOT EXISTS started BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE sim_clock ADD COLUMN IF NOT EXISTS started_real_date TIMESTAMPTZ`);
+
   // ── Offices & Assignments ─────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS offices (
@@ -8040,10 +8044,10 @@ const clockWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders:
 app.get("/api/clock", clockReadLimit, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
+      "SELECT sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started FROM sim_clock WHERE id = 'main'"
     );
     if (!rows.length) {
-      return res.json({ sim_current_month: 8, sim_current_year: 1997, real_last_tick: null, rate: 1 });
+      return res.json({ sim_current_month: 8, sim_current_year: 1997, real_last_tick: null, rate: 1, is_paused: false, started: false });
     }
     res.json(rows[0]);
   } catch (e) {
@@ -8056,69 +8060,74 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
     if (!await enforceSimulationNotFrozen(req, res, { routeLabel: "/api/clock/tick" })) return;
-    const { rows } = await pool.query(
-      `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
-       VALUES ('main', 8, 1997, 1)
-       ON CONFLICT (id) DO UPDATE SET
-         sim_current_year  = sim_clock.sim_current_year + FLOOR((sim_clock.sim_current_month - 1 + sim_clock.rate) / 12),
-         sim_current_month = MOD(sim_clock.sim_current_month - 1 + sim_clock.rate, 12) + 1,
-         real_last_tick    = NOW()
-       RETURNING sim_current_month, sim_current_year, real_last_tick, rate`
-    );
-    const newMonth = rows[0].sim_current_month;
-    const newYear  = rows[0].sim_current_year;
-
-    // Keep sim_state in sync so both clock representations agree.
-    await pool.query(
-      `UPDATE sim_state SET month = $1, year = $2, last_tick_at = NOW() WHERE id = 'main'`,
-      [newMonth, newYear]
-    );
-
-    // Auto-archive content whose autoArchiveAfterSimMonths has elapsed.
-    // We compare createdAtSim against the new sim date.
-    const ARCHIVABLE_TABLES = [
-      "bills", "motions", "statements", "regulations",
-      "questiontime_questions", "press_items", "polling_entries",
-    ];
-    let archived = 0;
-    for (const tbl of ARCHIVABLE_TABLES) {
-      try {
-        const { rowCount } = await pool.query(
-          `UPDATE ${tbl}
-              SET data = data || '{"status":"archived"}'::jsonb,
-                  updated_at = NOW()
-            WHERE (data->>'status') NOT IN ('archived','closed')
-              AND (data->>'autoArchiveAfterSimMonths') IS NOT NULL
-              AND (data->>'autoArchiveAfterSimMonths')::int > 0
-              AND (
-                (($1 - (data->'createdAtSim'->>'year')::int) * 12
-                 + ($2 - (data->'createdAtSim'->>'month')::int))
-                >= (data->>'autoArchiveAfterSimMonths')::int
-              )`,
-          [newYear, newMonth]
-        );
-        archived += rowCount ?? 0;
-      } catch (archiveErr) {
-        // Non-fatal: log and continue
-        console.error(`[clock/tick] auto-archive failed for ${tbl}:`, archiveErr.message);
-      }
-    }
-
-    await writeAuditLog(req.session.userId, "clock.tick", "sim_clock", "main", null, { ...rows[0], archivedItems: archived });
-
-    // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
-    fireRecompute("salary-crediting", "clock.tick", () => runSalaryCrediting(newMonth, newYear));
-    runShopUpkeep(newMonth, newYear).catch((e) => console.error("[clock/tick] shop upkeep failed:", e.message));
-    runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
-    runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
-    runDebateAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] debate auto-close failed:", e.message));
-    runDivisionAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] division auto-close failed:", e.message));
-    res.json({ ok: true, clock: rows[0], archivedItems: archived });
+    const result = await performClockTick(req.session.userId);
+    res.json({ ok: true, clock: result.clock, archivedItems: result.archivedItems });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
   }
 });
+
+async function performClockTick(userId) {
+  const { rows } = await pool.query(
+    `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+     VALUES ('main', 8, 1997, 1)
+     ON CONFLICT (id) DO UPDATE SET
+       sim_current_year  = sim_clock.sim_current_year + FLOOR((sim_clock.sim_current_month - 1 + sim_clock.rate) / 12),
+       sim_current_month = MOD(sim_clock.sim_current_month - 1 + sim_clock.rate, 12) + 1,
+       real_last_tick    = NOW()
+     RETURNING sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started`
+  );
+  const newMonth = rows[0].sim_current_month;
+  const newYear  = rows[0].sim_current_year;
+
+  // Keep sim_state in sync so both clock representations agree.
+  await pool.query(
+    `UPDATE sim_state SET month = $1, year = $2, last_tick_at = NOW() WHERE id = 'main'`,
+    [newMonth, newYear]
+  );
+
+  // Auto-archive content whose autoArchiveAfterSimMonths has elapsed.
+  const ARCHIVABLE_TABLES = [
+    "bills", "motions", "statements", "regulations",
+    "questiontime_questions", "press_items", "polling_entries",
+  ];
+  let archived = 0;
+  for (const tbl of ARCHIVABLE_TABLES) {
+    try {
+      const { rowCount } = await pool.query(
+        `UPDATE ${tbl}
+            SET data = data || '{"status":"archived"}'::jsonb,
+                updated_at = NOW()
+          WHERE (data->>'status') NOT IN ('archived','closed')
+            AND (data->>'autoArchiveAfterSimMonths') IS NOT NULL
+            AND (data->>'autoArchiveAfterSimMonths')::int > 0
+            AND (
+              (($1 - (data->'createdAtSim'->>'year')::int) * 12
+               + ($2 - (data->'createdAtSim'->>'month')::int))
+              >= (data->>'autoArchiveAfterSimMonths')::int
+            )`,
+        [newYear, newMonth]
+      );
+      archived += rowCount ?? 0;
+    } catch (archiveErr) {
+      // Non-fatal: log and continue
+      console.error(`[clock/tick] auto-archive failed for ${tbl}:`, archiveErr.message);
+    }
+  }
+
+  await writeAuditLog(userId ?? "system", "clock.tick", "sim_clock", "main", null, { ...rows[0], archivedItems: archived });
+
+  // Automatic salary crediting — runs on every tick
+  fireRecompute("salary-crediting", "clock.tick", () => runSalaryCrediting(newMonth, newYear));
+  runShopUpkeep(newMonth, newYear).catch((e) => console.error("[clock/tick] shop upkeep failed:", e.message));
+  runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
+  runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
+  runDebateAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] debate auto-close failed:", e.message));
+  runDivisionAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] division auto-close failed:", e.message));
+
+  return { clock: rows[0], archivedItems: archived };
+}
 
 app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
   try {
@@ -8164,6 +8173,134 @@ app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+app.post("/api/clock/start", clockWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    if (!await enforceSimulationNotFrozen(req, res, { routeLabel: "/api/clock/start" })) return;
+
+    // Must be Sunday in UK time
+    const ukDateStr = new Date().toLocaleString("en-US", { timeZone: "Europe/London", weekday: "long" });
+    if (!ukDateStr.startsWith("Sunday")) {
+      return res.status(403).json({ error: "Simulation may only be started on a Sunday (UK time)" });
+    }
+
+    const { rows: existing } = await pool.query(
+      "SELECT started FROM sim_clock WHERE id = 'main'"
+    );
+    if (existing[0]?.started) {
+      return res.status(409).json({ error: "Simulation is already started" });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE sim_clock
+          SET started = TRUE, started_real_date = NOW(), is_paused = FALSE, real_last_tick = NOW()
+        WHERE id = 'main'
+        RETURNING sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started, started_real_date`
+    );
+    await pool.query(
+      `UPDATE sim_state SET is_paused = FALSE WHERE id = 'main'`
+    );
+    res.json({ ok: true, clock: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/clock/pause", clockWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { rows: existing } = await pool.query(
+      "SELECT started, is_paused FROM sim_clock WHERE id = 'main'"
+    );
+    if (!existing[0]?.started) {
+      return res.status(409).json({ error: "Simulation has not been started" });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE sim_clock SET is_paused = TRUE WHERE id = 'main'
+       RETURNING sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started, started_real_date`
+    );
+    await pool.query(`UPDATE sim_state SET is_paused = TRUE WHERE id = 'main'`);
+    res.json({ ok: true, clock: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/clock/unpause", clockWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    // Must be Sunday in UK time
+    const ukDateStr = new Date().toLocaleString("en-US", { timeZone: "Europe/London", weekday: "long" });
+    if (!ukDateStr.startsWith("Sunday")) {
+      return res.status(403).json({ error: "Simulation may only be unpaused on a Sunday (UK time)" });
+    }
+
+    const { rows: existing } = await pool.query(
+      "SELECT started, is_paused FROM sim_clock WHERE id = 'main'"
+    );
+    if (!existing[0]?.started) {
+      return res.status(409).json({ error: "Simulation has not been started" });
+    }
+    if (!existing[0]?.is_paused) {
+      return res.status(409).json({ error: "Simulation is not paused" });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE sim_clock SET is_paused = FALSE WHERE id = 'main'
+       RETURNING sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started, started_real_date`
+    );
+    await pool.query(`UPDATE sim_state SET is_paused = FALSE WHERE id = 'main'`);
+    res.json({ ok: true, clock: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+function startAutoTickScheduler() {
+  async function maybeAutoTick() {
+    try {
+      const { rows: clkRows } = await pool.query(
+        "SELECT started, is_paused, real_last_tick FROM sim_clock WHERE id = 'main'"
+      );
+      const clk = clkRows[0];
+      if (!clk?.started || clk?.is_paused) return;
+
+      // Check freeze state
+      const { rows: freezeRows } = await pool.query(
+        "SELECT is_frozen FROM simulation_freeze_state WHERE id = 'main'"
+      );
+      if (freezeRows[0]?.is_frozen) return;
+
+      // Check UK weekday: Monday=1 or Thursday=4 only
+      const ukDayStr = new Date().toLocaleString("en-US", { timeZone: "Europe/London", weekday: "long" });
+      const isMonday   = ukDayStr.startsWith("Monday");
+      const isThursday = ukDayStr.startsWith("Thursday");
+      if (!isMonday && !isThursday) return;
+
+      // Check if already ticked today (UK date)
+      if (clk.real_last_tick) {
+        const lastTickUkDate = new Date(clk.real_last_tick).toLocaleDateString("en-GB", { timeZone: "Europe/London" });
+        const todayUkDate    = new Date().toLocaleDateString("en-GB", { timeZone: "Europe/London" });
+        if (lastTickUkDate === todayUkDate) return;
+      }
+
+      console.log("[auto-tick] triggering scheduled tick");
+      await performClockTick(null);
+    } catch (e) {
+      console.error("[auto-tick] error:", e.message);
+    }
+  }
+
+  maybeAutoTick();
+  setInterval(maybeAutoTick, 5 * 60 * 1000);
+}
 
 /**
  * PRESS ITEMS
@@ -9577,7 +9714,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     // session-destruction guard from logging out valid users.
     const [clockRows, configRows, userRows, stateRows, charRows, seatTotalRows, canonicalPartyRows, freezeRow] = await Promise.all([
       pool.query(
-        "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
+        "SELECT sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started FROM sim_clock WHERE id = 'main'"
       ).then((r) => r.rows).catch(bootstrapCatch("clock")),
 
       pool.query("SELECT key, value FROM app_config").then((r) => r.rows)
@@ -24917,6 +25054,7 @@ if (process.env.NODE_ENV !== "test") {
   ensureSchema()
     .then(() => {
       app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
+      startAutoTickScheduler();
     })
     .catch((e) => {
       console.error("[server] schema init failed", e);

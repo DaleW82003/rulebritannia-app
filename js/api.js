@@ -583,6 +583,24 @@ export async function apiClockSet({ sim_current_month, sim_current_year, rate } 
   return res.json();
 }
 
+export async function apiClockStart() {
+  const res = await _fetch(`${API_BASE}/api/clock/start`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: "{}" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiClockStart failed (${res.status})`); }
+  return res.json();
+}
+
+export async function apiClockPause() {
+  const res = await _fetch(`${API_BASE}/api/clock/pause`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: "{}" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiClockPause failed (${res.status})`); }
+  return res.json();
+}
+
+export async function apiClockUnpause() {
+  const res = await _fetch(`${API_BASE}/api/clock/unpause`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: "{}" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiClockUnpause failed (${res.status})`); }
+  return res.json();
+}
+
 // ── DISCOURSE INTEGRATION ─────────────────────────────────────────────────────
 
 export async function apiGetDiscourseConfig() {
