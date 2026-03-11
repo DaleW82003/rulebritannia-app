@@ -9405,6 +9405,24 @@ async function recomputeLeaderOfThirdPartyRole(partySlug, oldCharId, newCharId, 
       );
       if (rowCount) changed = true;
     }
+
+    // Auto-grant permanent Privy Council membership for the new third-party leader.
+    // PC status is never auto-removed when leaving the role.
+    try {
+      const { simMonth, simYear } = await getCurrentSimMonthYear();
+      await pool.query(
+        `INSERT INTO privy_council_members (character_id, appointed_by, reason, sim_month, sim_year, removed_at, removed_by, removal_reason)
+         VALUES ($1, $2, $3, $4, $5, NULL, NULL, '')
+         ON CONFLICT (character_id)
+         DO UPDATE SET removed_at = NULL, removed_by = NULL, removal_reason = '',
+                       sim_month = COALESCE(privy_council_members.sim_month, EXCLUDED.sim_month),
+                       sim_year  = COALESCE(privy_council_members.sim_year,  EXCLUDED.sim_year),
+                       appointed_by = EXCLUDED.appointed_by, reason = EXCLUDED.reason`,
+        [newCharId, actingUserId, "Auto-granted on appointment as leader of the third party", simMonth, simYear]
+      );
+    } catch (pcErr) {
+      console.error("[recomputeLeaderOfThirdPartyRole] PC auto-grant failed:", pcErr.message);
+    }
   }
 
   return changed;

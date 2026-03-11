@@ -152,15 +152,15 @@ function render(members, posts, data, state, manager) {
     });
   });
 
-  // Populate character select
+  // Populate character select — show all active characters; mark existing members
   if (manager) {
     const select = host.querySelector("#pc-char-select");
     if (select && Array.isArray(data._dbCharacters)) {
       const alreadyIn = new Set(members.map((m) => m.character_id));
-      for (const c of data._dbCharacters.filter((c) => !alreadyIn.has(c.id)).sort((a, b) => a.name.localeCompare(b.name))) {
+      for (const c of [...data._dbCharacters].sort((a, b) => a.name.localeCompare(b.name))) {
         const opt = document.createElement("option");
         opt.value = c.id;
-        opt.textContent = c.name;
+        opt.textContent = alreadyIn.has(c.id) ? `${c.name} (already a member)` : c.name;
         select.appendChild(opt);
       }
     }
