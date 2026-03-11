@@ -606,3 +606,83 @@ test("GET /api/control-panel/absence-log: response includes currentAbsent query"
     "absence-log endpoint must include a currentAbsent field in its response",
   );
 });
+
+// ── Bill auto-advance: static checks ─────────────────────────────────────────
+
+test("runBillAutoAdvance: function exists and auto-opens divisions for bills at Report Debate", () => {
+  assert.ok(
+    serverSrc.includes("async function runBillAutoAdvance("),
+    "runBillAutoAdvance must be defined in server/index.js",
+  );
+});
+
+test("runBillAutoAdvance: wired into clock tick sequence", () => {
+  const slice = extractHandlerSlice(serverSrc, "runBillAutoAdvance(newMonth, newYear)");
+  assert.ok(
+    slice.length > 0,
+    "runBillAutoAdvance must be called in the clock tick sequence",
+  );
+});
+
+test("runBillAutoAdvance: skips bills with pending amendment divisions", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runBillAutoAdvance("),
+                              serverSrc.indexOf("async function runBillAutoAdvance(") + 4000);
+  assert.ok(
+    src.includes("in-division") && src.includes("proposed"),
+    "runBillAutoAdvance must skip bills with pending amendment divisions or proposed amendments",
+  );
+});
+
+test("runBillAutoAdvance: advances bill stage to Final Division and inserts division row", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runBillAutoAdvance("),
+                              serverSrc.indexOf("async function runBillAutoAdvance(") + 4000);
+  assert.ok(
+    src.includes("Final Division"),
+    "runBillAutoAdvance must advance bill stage to Final Division",
+  );
+  assert.ok(
+    src.includes("INSERT INTO divisions"),
+    "runBillAutoAdvance must INSERT a new division row",
+  );
+  assert.ok(
+    src.includes("formalDivisionId"),
+    "runBillAutoAdvance must record formalDivisionId in bill data",
+  );
+});
+
+// ── Division auto-close: outcome calculation static checks ───────────────────
+
+test("runDivisionAutoClose: computes tally before setting outcome (not just 'expired')", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runDivisionAutoClose("),
+                              serverSrc.indexOf("async function runDivisionAutoClose(") + 5000);
+  assert.ok(
+    src.includes("computeDivisionTallyFromDb"),
+    "runDivisionAutoClose must call computeDivisionTallyFromDb to compute the actual tally",
+  );
+  assert.ok(
+    src.includes('"passed"') && src.includes('"failed"') && src.includes('"tied"'),
+    "runDivisionAutoClose must set outcome to passed/failed/tied based on tally",
+  );
+});
+
+test("runDivisionAutoClose: stores immutable_result snapshot on close", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runDivisionAutoClose("),
+                              serverSrc.indexOf("async function runDivisionAutoClose(") + 5000);
+  assert.ok(
+    src.includes("immutable_result"),
+    "runDivisionAutoClose must store an immutable_result snapshot when closing",
+  );
+});
+
+test("runDivisionAutoClose: advances bill stage when division is for a bill entity", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runDivisionAutoClose("),
+                              serverSrc.indexOf("async function runDivisionAutoClose(") + 5000);
+  assert.ok(
+    src.includes("entity_type") && (src.includes('"bill"') || src.includes("'bill'")),
+    "runDivisionAutoClose must check entity_type to handle bill divisions specially",
+  );
+  assert.ok(
+    src.includes("Passed - Awaiting Assent") && src.includes("Defeated in Division"),
+    "runDivisionAutoClose must advance bill to Passed or Defeated depending on outcome",
+  );
+});

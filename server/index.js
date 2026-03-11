@@ -3534,66 +3534,31 @@ async function runDebateAutoClose(month, year) {
       }
     }
   }
-
-  // Bills: close Discourse topic when Report Debate deadline has passed
-  // (the debate window ends → Final Division stage begins)
-  try {
-    const { rows: billRows } = await pool.query(
-      `SELECT id, discourse_topic_id
-         FROM bills
-        WHERE discourse_topic_id IS NOT NULL
-          AND (data->>'status') NOT IN ('archived','closed','failed','withdrawn')
-          AND (data->>'stage') = 'Report Debate'
-          AND data->'stageDeadlineSim'->>'month' IS NOT NULL
-          AND data->'stageDeadlineSim'->>'year' IS NOT NULL
-          AND (
-            (data->'stageDeadlineSim'->>'year')::int < $1
-            OR (
-              (data->'stageDeadlineSim'->>'year')::int = $1
-              AND (data->'stageDeadlineSim'->>'month')::int <= $2
-            )
-          )`,
-      [year, month]
-    );
-    for (const row of billRows) {
-      const topicId = Number(row.discourse_topic_id);
-      if (!topicId) continue;
-      try {
-        await closeDiscTopic({ baseUrl, apiKey, apiUsername, topicId });
-        console.log(`[debate/auto-close] closed Discourse topic ${topicId} for bill ${row.id} (report debate ended)`);
-      } catch (closeErr) {
-        console.warn(`[debate/auto-close] closeTopic failed for bill ${row.id} (topic ${topicId}): ${closeErr.message} — falling back to closure post`);
-        try {
-          await createPost({ baseUrl, apiKey, apiUsername, topicId, raw: "**Debate closed.** The Report Debate has ended. The Final Division stage will begin shortly." });
-        } catch (postErr) {
-          console.error(`[debate/auto-close] fallback post also failed for bill ${row.id}:`, postErr.message);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("[debate/auto-close] bill query failed:", err.message);
-  }
 }
 
 /**
  * Called on every clock tick. Closes any open divisions whose closes_at_sim
- * deadline has been reached or passed. Sets outcome = 'expired'.
- * closes_at_sim is stored as TEXT in "YYYY-MM" format.
+ * deadline has been reached or passed.  Computes the actual tally from cast
+ * votes, staff-set NPC votes, and staff-set rebel counts; stores the outcome
+ * as "passed", "failed", "tied", or "expired" (no votes recorded).  Stores an
+ * immutable_result snapshot and, for bill divisions, advances the bill to the
+ * appropriate final stage.
  *
- * Also closes any divisions whose real-time closes_at timestamp has passed
- * (these are created via the admin UI with a wall-clock deadline rather than
- * a sim-clock deadline). This covers divisions that have no closes_at_sim value
- * and would otherwise accumulate as permanently-open rows.
+ * Also closes divisions whose real-time closes_at timestamp has passed (admin-UI
+ * wall-clock deadlines).
  *
  * @param {number} month - New sim month (1-12)
  * @param {number} year  - New sim year
  */
 async function runDivisionAutoClose(month, year) {
   const deadline = simDeadlineToText(month, year); // "YYYY-MM"
+
+  // 1. Find all open divisions whose deadline has passed.
+  let expiredRows;
   try {
-    const { rowCount } = await pool.query(
-      `UPDATE divisions
-          SET status = 'closed', outcome = 'expired'
+    const { rows } = await pool.query(
+      `SELECT id, entity_type, entity_id, title, npc_votes, rebels_by_party, rebels_by_party_choice
+         FROM divisions
         WHERE status = 'open'
           AND (
             (closes_at_sim IS NOT NULL AND closes_at_sim <= $1)
@@ -3602,11 +3567,229 @@ async function runDivisionAutoClose(month, year) {
           )`,
       [deadline]
     );
-    if (rowCount) {
-      console.log(`[division/auto-close] closed ${rowCount} expired division(s) at sim ${deadline}`);
-    }
+    expiredRows = rows;
   } catch (err) {
-    console.error("[division/auto-close] failed:", err.message);
+    console.error("[division/auto-close] query failed:", err.message);
+    return;
+  }
+
+  if (!expiredRows.length) return;
+
+  // 2. Fetch seat totals once for all tally computations.
+  let seatsByParty = {};
+  try {
+    seatsByParty = await getPartySeatsFromConstituencies(pool);
+  } catch (seatErr) {
+    console.error("[division/auto-close] seat fetch failed:", seatErr.message);
+    // Continue with empty seats — tallies will still count player votes
+  }
+
+  let closedCount = 0;
+  for (const div of expiredRows) {
+    const npcVotes       = div.npc_votes              || {};
+    const rebelsByPty    = div.rebels_by_party        || {};
+    const rebelChoicePty = div.rebels_by_party_choice || {};
+
+    // Compute tally from player votes + NPC data
+    let tally = { aye: 0, no: 0, abstain: 0 };
+    try {
+      ({ tally } = await computeDivisionTallyFromDb(pool, div.id, npcVotes, rebelsByPty, rebelChoicePty, seatsByParty));
+    } catch (tallyErr) {
+      console.error(`[division/auto-close] tally failed for division ${div.id}:`, tallyErr.message);
+      // Fall through — outcome will be "expired"
+    }
+
+    const totalVotes = tally.aye + tally.no + tally.abstain;
+    let outcome;
+    if (totalVotes === 0) {
+      outcome = "expired";
+    } else if (tally.aye > tally.no) {
+      outcome = "passed";
+    } else if (tally.no > tally.aye) {
+      outcome = "failed";
+    } else {
+      outcome = "tied"; // Speaker tie-break still required for bills; recorded for visibility
+    }
+
+    const immutableResult = { tally, outcome, closedAt: new Date().toISOString(), autoClosedByTick: true };
+
+    try {
+      await pool.query(
+        `UPDATE divisions
+            SET status = 'closed', outcome = $2, immutable_result = $3::jsonb
+          WHERE id = $1`,
+        [div.id, outcome, JSON.stringify(immutableResult)]
+      );
+      closedCount++;
+      console.log(`[division/auto-close] division ${div.id} closed — outcome: ${outcome} (aye ${tally.aye}, no ${tally.no})`);
+    } catch (updateErr) {
+      console.error(`[division/auto-close] update failed for division ${div.id}:`, updateErr.message);
+      continue;
+    }
+
+    // 3. If this is a bill division, advance the bill to the appropriate final stage.
+    if (div.entity_type === "bill" && div.entity_id) {
+      try {
+        if (outcome === "passed") {
+          await pool.query(
+            `UPDATE bills
+                SET data = data || $1::jsonb, updated_at = NOW()
+              WHERE id = $2`,
+            [JSON.stringify({
+              stage:                "Passed - Awaiting Assent",
+              status:               "awaiting-assent",
+              stageStartedAt:       new Date().toISOString(),
+              stageDeadlineSim:     null,
+              divisionOutcome:      "passed",
+              divisionResolvedAt:   new Date().toISOString(),
+            }), div.entity_id]
+          );
+          console.log(`[division/auto-close] bill ${div.entity_id} advanced to Passed - Awaiting Assent`);
+        } else if (outcome === "failed" || outcome === "expired") {
+          await pool.query(
+            `UPDATE bills
+                SET data = data || $1::jsonb, updated_at = NOW()
+              WHERE id = $2`,
+            [JSON.stringify({
+              stage:               "Defeated in Division",
+              status:              "failed",
+              stageStartedAt:      new Date().toISOString(),
+              stageDeadlineSim:    null,
+              divisionOutcome:     outcome,
+              divisionResolvedAt:  new Date().toISOString(),
+            }), div.entity_id]
+          );
+          console.log(`[division/auto-close] bill ${div.entity_id} advanced to Defeated in Division (${outcome})`);
+        }
+        // "tied" outcome: leave bill at Final Division stage — Speaker must cast tie-break manually
+      } catch (billErr) {
+        console.error(`[division/auto-close] bill stage update failed for bill ${div.entity_id}:`, billErr.message);
+      }
+    }
+
+    await writeAuditLog("system", "division.auto-close", "division", div.id, div, { ...div, status: "closed", tally, outcome }).catch(() => {});
+  }
+
+  if (closedCount) {
+    console.log(`[division/auto-close] closed ${closedCount} division(s) at sim ${deadline}`);
+  }
+}
+
+/**
+ * Called on every clock tick. Advances bills from "Report Debate" to "Final Division"
+ * stage when their debate deadline has passed and automatically opens the formal
+ * division in the divisions table (1-sim-month window).
+ *
+ * Bills with pending amendment divisions or proposed amendments awaiting author
+ * decision are skipped — those must be resolved by staff before the final vote opens.
+ *
+ * @param {number} month - New sim month (1-12)
+ * @param {number} year  - New sim year
+ */
+async function runBillAutoAdvance(month, year) {
+  // Find bills at Report Debate whose stage deadline has passed with no blocking amendments.
+  let bills;
+  try {
+    const { rows } = await pool.query(
+      `SELECT b.id, b.data, b.discourse_topic_id
+         FROM bills b
+        WHERE (b.data->>'stage') = 'Report Debate'
+          AND (b.data->>'status') NOT IN ('archived','closed','failed','withdrawn')
+          AND b.data->'stageDeadlineSim'->>'month' IS NOT NULL
+          AND b.data->'stageDeadlineSim'->>'year' IS NOT NULL
+          AND (
+            (b.data->'stageDeadlineSim'->>'year')::int < $1
+            OR (
+              (b.data->'stageDeadlineSim'->>'year')::int = $1
+              AND (b.data->'stageDeadlineSim'->>'month')::int <= $2
+            )
+          )
+          -- Skip if any amendment is in an open division
+          AND NOT EXISTS (
+            SELECT 1 FROM bill_amendments ba
+              JOIN divisions d ON d.id = ba.division_id
+             WHERE ba.bill_id = b.id AND ba.status = 'in-division' AND d.status = 'open'
+          )
+          -- Skip if any amendment is awaiting author decision
+          AND NOT EXISTS (
+            SELECT 1 FROM bill_amendments ba2
+             WHERE ba2.bill_id = b.id AND ba2.status = 'proposed'
+          )
+          -- Skip if a formal division already exists for this bill
+          AND NOT EXISTS (
+            SELECT 1 FROM divisions dv
+             WHERE dv.entity_type = 'bill' AND dv.entity_id = b.id
+          )`,
+      [year, month]
+    );
+    bills = rows;
+  } catch (err) {
+    console.error("[bill/auto-advance] query failed:", err.message);
+    return;
+  }
+
+  if (!bills.length) return;
+
+  const closesAtSim = nextSimMonth(month, year);
+
+  // Load Discourse credentials once for the whole batch (best-effort).
+  let discBaseUrl = null, discApiKey = null, discApiUsername = null;
+  try {
+    ({ baseUrl: discBaseUrl, apiKey: discApiKey, apiUsername: discApiUsername } = await loadDiscourseCredentials());
+  } catch { /* not configured — skip */ }
+
+  for (const bill of bills) {
+    try {
+      const billData = bill.data;
+      const title = billData?.title || bill.id;
+
+      // 1. Advance bill stage to Final Division
+      const stagePatch = {
+        stage:            "Final Division",
+        stageStartedAt:   new Date().toISOString(),
+        stageDeadlineSim: simDeadline(month, year, BILL_STAGE_MONTHS["Final Division"]),
+      };
+      await pool.query(
+        `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+        [JSON.stringify(stagePatch), bill.id]
+      );
+
+      // 2. Open the formal division (1 sim month window)
+      const { rows: divRows } = await pool.query(
+        `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
+         VALUES ('bill', $1, $2, $3)
+         RETURNING id`,
+        [bill.id, `Final Division: ${title}`, closesAtSim]
+      );
+      const divisionId = divRows[0].id;
+
+      // 3. Record division id in bill data
+      await pool.query(
+        `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+        [JSON.stringify({ formalDivisionId: divisionId }), bill.id]
+      );
+
+      await writeAuditLog("system", "bill.final-division.auto-opened", "bill", bill.id, billData, { divisionId, closesAtSim }).catch(() => {});
+      console.log(`[bill/auto-advance] bill ${bill.id} advanced to Final Division — division ${divisionId} opens, closes at sim ${closesAtSim}`);
+
+      // 4. Close Discourse debate topic (non-fatal)
+      const topicId = Number(bill.discourse_topic_id || 0);
+      if (topicId && discBaseUrl) {
+        try {
+          await closeDiscTopic({ baseUrl: discBaseUrl, apiKey: discApiKey, apiUsername: discApiUsername, topicId });
+          console.log(`[bill/auto-advance] closed Discourse topic ${topicId} for bill ${bill.id}`);
+        } catch (discErr) {
+          console.warn(`[bill/auto-advance] closeTopic failed for bill ${bill.id} (topic ${topicId}): ${discErr.message}`);
+          try {
+            await createPost({ baseUrl: discBaseUrl, apiKey: discApiKey, apiUsername: discApiUsername, topicId, raw: "**Debate closed.** The Final Division has opened automatically. Voting is now in progress." });
+          } catch (postErr) {
+            console.warn(`[bill/auto-advance] fallback post failed for bill ${bill.id}:`, postErr.message);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[bill/auto-advance] failed for bill ${bill.id}:`, err.message);
+    }
   }
 }
 
@@ -8302,6 +8485,7 @@ async function performClockTick(userId) {
   runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
   runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
   runDebateAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] debate auto-close failed:", e.message));
+  runBillAutoAdvance(newMonth, newYear).catch((e) => console.error("[clock/tick] bill auto-advance failed:", e.message));
   runDivisionAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] division auto-close failed:", e.message));
   runQTEscalation(newMonth, newYear).catch((e) => console.error("[clock/tick] QT escalation failed:", e.message));
   runPollingAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] polling auto-close failed:", e.message));
