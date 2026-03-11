@@ -1006,9 +1006,10 @@ export async function initAdminPanelPage(data) {
       <section class="panel" style="max-width:700px;margin-top:12px;">
         <h2 style="margin-top:0;">Simulation Control <span class="admin-badge">Admin only</span></h2>
         <div style="display:grid;gap:8px;">
-          <div class="muted">Simulation must be started by an admin on Sunday. The sim clock advances from Monday onward.</div>
+          <div class="muted">Simulation must be started by an admin on Sunday. Sunday is frozen for polls and work; the clock advances Mon–Sat in two blocks (see Tick Rate below).</div>
           <div class="kv"><span>Simulation status</span><b>${gs.started ? "Running" : "Not started"}</b></div>
           <div class="kv"><span>Clock anchor (real date)</span><b>${esc(String(gs.startRealDate || "Not set"))}</b></div>
+          <div class="kv"><span>Tick Rate</span><b>2 sim months per real week (Mon–Wed: 1 month, Thu–Sat: 1 month, Sun: frozen)</b></div>
           <label class="label" style="margin:0;"><input type="checkbox" id="sim-pause-clock-check" ${gs.isPaused ? "checked" : ""}> Pause game clock (unpause on Sunday only)</label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn" type="button" id="sim-save-pause-clock">Save Pause Setting</button>
