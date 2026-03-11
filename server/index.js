@@ -3627,29 +3627,30 @@ async function runDivisionAutoClose(month, year) {
       continue;
     }
 
-    // 3. If this is a bill division, advance the bill to the appropriate final stage.
+    // 3. Entity-specific post-close actions.
     if (div.entity_type === "bill" && div.entity_id) {
+      // Bill final division: advance stage and auto-generate a parliamentary news item.
       try {
+        let billData = null;
+        const { rows: bRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [div.entity_id]);
+        billData = bRows[0]?.data || null;
+
         if (outcome === "passed") {
           await pool.query(
-            `UPDATE bills
-                SET data = data || $1::jsonb, updated_at = NOW()
-              WHERE id = $2`,
+            `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
             [JSON.stringify({
-              stage:                "Passed - Awaiting Assent",
-              status:               "awaiting-assent",
-              stageStartedAt:       new Date().toISOString(),
-              stageDeadlineSim:     null,
-              divisionOutcome:      "passed",
-              divisionResolvedAt:   new Date().toISOString(),
+              stage:               "Passed - Awaiting Assent",
+              status:              "awaiting-assent",
+              stageStartedAt:      new Date().toISOString(),
+              stageDeadlineSim:    null,
+              divisionOutcome:     "passed",
+              divisionResolvedAt:  new Date().toISOString(),
             }), div.entity_id]
           );
           console.log(`[division/auto-close] bill ${div.entity_id} advanced to Passed - Awaiting Assent`);
         } else if (outcome === "failed" || outcome === "expired") {
           await pool.query(
-            `UPDATE bills
-                SET data = data || $1::jsonb, updated_at = NOW()
-              WHERE id = $2`,
+            `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
             [JSON.stringify({
               stage:               "Defeated in Division",
               status:              "failed",
@@ -3661,9 +3662,59 @@ async function runDivisionAutoClose(month, year) {
           );
           console.log(`[division/auto-close] bill ${div.entity_id} advanced to Defeated in Division (${outcome})`);
         }
-        // "tied" outcome: leave bill at Final Division stage — Speaker must cast tie-break manually
+        // "tied": leave at Final Division — Speaker must cast tie-break manually
+
+        // Auto-generate a parliamentary news item for the division result.
+        if (billData && outcome !== "tied") {
+          await autoGenerateBillDivisionNews(pool, div, tally, outcome, billData, month, year).catch((nErr) => {
+            console.error(`[division/auto-close] news generation failed for bill ${div.entity_id}:`, nErr.message);
+          });
+        }
       } catch (billErr) {
         console.error(`[division/auto-close] bill stage update failed for bill ${div.entity_id}:`, billErr.message);
+      }
+
+    } else if (div.entity_type === "bill-amendment" && div.entity_id) {
+      // Amendment division: apply amendment to bill text if passed; mark amendment accordingly.
+      try {
+        const [billId, amendmentId] = div.entity_id.split(":").map((s) => s.trim());
+        if (billId && amendmentId) {
+          if (outcome === "passed") {
+            // Fetch amendment and bill text
+            const { rows: amRows } = await pool.query(
+              "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2",
+              [billId, amendmentId]
+            );
+            const { rows: bRows } = await pool.query("SELECT data FROM bills WHERE id = $1", [billId]);
+            const am = amRows[0];
+            const bill = bRows[0]?.data;
+            if (am && bill) {
+              const updatedText = applyAmendmentToBillText(
+                bill.billText || "", am.article_number, am.amendment_type, am.text || ""
+              );
+              await pool.query(
+                `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+                [JSON.stringify({ billText: updatedText }), billId]
+              );
+              await pool.query(
+                `UPDATE bill_amendments SET status = 'accepted', updated_at = NOW()
+                  WHERE bill_id = $1 AND id = $2`,
+                [billId, amendmentId]
+              );
+              console.log(`[division/auto-close] amendment ${amendmentId} on bill ${billId} PASSED — applied to bill text`);
+            }
+          } else {
+            // failed, expired, tied → amendment refused
+            await pool.query(
+              `UPDATE bill_amendments SET status = 'refused', updated_at = NOW()
+                WHERE bill_id = $1 AND id = $2`,
+              [billId, amendmentId]
+            );
+            console.log(`[division/auto-close] amendment ${amendmentId} on bill ${billId} ${outcome} — marked refused`);
+          }
+        }
+      } catch (amErr) {
+        console.error(`[division/auto-close] amendment update failed for ${div.entity_id}:`, amErr.message);
       }
     }
 
@@ -3673,6 +3724,123 @@ async function runDivisionAutoClose(month, year) {
   if (closedCount) {
     console.log(`[division/auto-close] closed ${closedCount} division(s) at sim ${deadline}`);
   }
+}
+
+/**
+ * Build and insert a parliamentary news press release recording the result of
+ * a bill final division.  Shows the overall outcome, seat-weighted tallies,
+ * per-party breakdown (including NPC parties and rebellions), and any tied
+ * outcome requiring a Speaker tie-break.
+ *
+ * Uses press_type='release' with prefix "PARL" and kind "PR" so the item
+ * appears in the main press feed.  npcAuthor=true so no character ownership
+ * is required (author_character_id is NULL).
+ *
+ * @param {import('pg').Pool} db
+ * @param {object} div   - division row (entity_type, entity_id, title, rebels_by_party, rebels_by_party_choice, npc_votes)
+ * @param {object} tally - { aye, no, abstain }
+ * @param {string} outcome - 'passed'|'failed'|'expired'
+ * @param {object} billData - bill's JSONB data field
+ * @param {number} month  - current sim month
+ * @param {number} year   - current sim year
+ */
+async function autoGenerateBillDivisionNews(db, div, tally, outcome, billData, month, year) {
+  const { rows: pvRows } = await db.query(
+    `SELECT COALESCE(c.party, 'Independent') AS party, dv.vote,
+            SUM(dv.effective_weight) AS weight
+       FROM division_votes dv
+       LEFT JOIN characters c ON c.id = dv.character_id
+      WHERE dv.division_id = $1
+      GROUP BY COALESCE(c.party, 'Independent'), dv.vote
+      ORDER BY party, vote`,
+    [div.id]
+  );
+
+  const billTitle = billData?.title || div.entity_id;
+  const sponsor   = billData?.sponsor || null;
+
+  // Build party-by-party narrative
+  const partyVoteMap = {};
+  for (const pv of pvRows) {
+    if (!partyVoteMap[pv.party]) partyVoteMap[pv.party] = {};
+    partyVoteMap[pv.party][pv.vote] = (partyVoteMap[pv.party][pv.vote] || 0) + Number(pv.weight || 0);
+  }
+
+  const npcVotes   = div.npc_votes              || {};
+  const rebelsByPty = div.rebels_by_party       || {};
+
+  const partyLines = [];
+
+  // Player-party votes
+  for (const [party, votes] of Object.entries(partyVoteMap).sort()) {
+    const ayeW   = Number(votes.aye     || 0);
+    const noW    = Number(votes.no      || 0);
+    const abstW  = Number(votes.abstain || 0);
+    const direction = ayeW > 0 && noW === 0 ? "voted Aye"
+                    : noW  > 0 && ayeW === 0 ? "voted No"
+                    : ayeW > 0 && noW > 0    ? "split vote"
+                    : abstW > 0              ? "abstained"
+                    : "no votes recorded";
+    const rebels = Number(rebelsByPty[party] || 0);
+    const rebelNote = rebels > 0 ? ` (${rebels} rebel${rebels > 1 ? "s" : ""})` : "";
+    partyLines.push(`• **${party}**: ${direction}${rebelNote}`);
+  }
+
+  // NPC-party votes
+  for (const [party, vote] of Object.entries(npcVotes).sort()) {
+    if (partyVoteMap[party]) continue; // already shown above
+    const rebels = Number(rebelsByPty[party] || 0);
+    const rebelNote = rebels > 0 ? ` (${rebels} rebel${rebels > 1 ? "s" : ""})` : "";
+    partyLines.push(`• **${party}**: voted ${vote.charAt(0).toUpperCase() + vote.slice(1)}${rebelNote}`);
+  }
+
+  const outcomeLabel = outcome === "passed" ? "PASSED" : "DEFEATED";
+  const outcomeNote  = outcome === "passed"
+    ? "The bill passes to Awaiting Royal Assent."
+    : "The bill has been defeated and will not proceed further.";
+
+  const body = [
+    `The **${billTitle}**${sponsor ? ` (sponsored by ${sponsor})` : ""} has been put to a Final Division.`,
+    "",
+    `**Result: ${outcomeLabel}** — Ayes: ${tally.aye} | Noes: ${tally.no} | Abstentions: ${tally.abstain}`,
+    "",
+    outcomeNote,
+    "",
+    partyLines.length ? "**Party breakdown:**" : "",
+    ...partyLines,
+  ].filter((l) => l !== undefined).join("\n").trim();
+
+  const headline  = `${billTitle}: ${outcomeLabel} by ${Math.abs(tally.aye - tally.no)} ${tally.aye > tally.no ? "ayes" : "noes"}`;
+  const newsId    = randomUUID();
+
+  // Allocate a serial for PARL PR reference codes
+  const serial = await allocatePressSerial(db, "PR", "PARL");
+  const reference = `PARL PR${serial}`;
+
+  const newsData = attachLifecycle({
+    id:              newsId,
+    title:           `Division Result: ${billTitle}`,
+    headline,
+    body,
+    author:          "Parliamentary Record",
+    party:           "",
+    npcAuthor:       true,
+    referenceKind:   "PR",
+    referencePrefix: "PARL",
+    referenceSerial: serial,
+    reference,
+    autoArchiveAfterSimMonths: 12,
+    divisionId:      div.id,
+    billId:          div.entity_id,
+    divisionOutcome: outcome,
+  }, month, year);
+
+  await db.query(
+    `INSERT INTO press_items (id, press_type, data, author_character_id, reference_kind, reference_prefix, reference_serial, reference_code)
+     VALUES ($1, 'release', $2::jsonb, NULL, 'PR', 'PARL', $3, $4)`,
+    [newsId, JSON.stringify(newsData), serial, reference]
+  );
+  console.log(`[division/auto-close] generated news item ${newsId} (${reference}) for bill ${div.entity_id} — ${outcomeLabel}`);
 }
 
 /**

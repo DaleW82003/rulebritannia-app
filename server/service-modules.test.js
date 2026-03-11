@@ -686,3 +686,78 @@ test("runDivisionAutoClose: advances bill stage when division is for a bill enti
     "runDivisionAutoClose must advance bill to Passed or Defeated depending on outcome",
   );
 });
+
+// ── Amendment auto-apply on division close ────────────────────────────────────
+
+test("runDivisionAutoClose: handles bill-amendment entity — applies amendment when passed", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runDivisionAutoClose("),
+                              serverSrc.indexOf("async function runDivisionAutoClose(") + 8000);
+  assert.ok(
+    src.includes("bill-amendment"),
+    "runDivisionAutoClose must handle bill-amendment entity_type",
+  );
+  assert.ok(
+    src.includes("applyAmendmentToBillText"),
+    "runDivisionAutoClose must call applyAmendmentToBillText when amendment division passes",
+  );
+  assert.ok(
+    src.includes("'accepted'"),
+    "runDivisionAutoClose must mark amendment as accepted when division passes",
+  );
+  assert.ok(
+    src.includes("'refused'"),
+    "runDivisionAutoClose must mark amendment as refused when division fails",
+  );
+});
+
+// ── Auto-generated news after bill final division ────────────────────────────
+
+test("autoGenerateBillDivisionNews: function exists in server/index.js", () => {
+  assert.ok(
+    serverSrc.includes("async function autoGenerateBillDivisionNews("),
+    "autoGenerateBillDivisionNews must be defined in server/index.js",
+  );
+});
+
+test("autoGenerateBillDivisionNews: inserts a press_items row with npcAuthor and PARL reference", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function autoGenerateBillDivisionNews("),
+                              serverSrc.indexOf("async function autoGenerateBillDivisionNews(") + 4000);
+  assert.ok(
+    src.includes("INSERT INTO press_items"),
+    "autoGenerateBillDivisionNews must INSERT into press_items",
+  );
+  assert.ok(
+    src.includes("npcAuthor") && src.includes("true"),
+    "news item must be authored as npcAuthor to avoid character ownership requirement",
+  );
+  assert.ok(
+    src.includes("PARL"),
+    "news item must use PARL reference prefix for parliamentary division results",
+  );
+  assert.ok(
+    src.includes("allocatePressSerial"),
+    "news item must use allocatePressSerial to get a unique reference number",
+  );
+});
+
+test("autoGenerateBillDivisionNews: includes party breakdown and rebellion notes in news body", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function autoGenerateBillDivisionNews("),
+                              serverSrc.indexOf("async function autoGenerateBillDivisionNews(") + 4000);
+  assert.ok(
+    src.includes("Party breakdown") || src.includes("party breakdown"),
+    "news body must include a party-by-party breakdown section",
+  );
+  assert.ok(
+    src.includes("rebel"),
+    "news body must mention rebellions when present",
+  );
+});
+
+test("runDivisionAutoClose: calls autoGenerateBillDivisionNews for bill divisions", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runDivisionAutoClose("),
+                              serverSrc.indexOf("async function runDivisionAutoClose(") + 8000);
+  assert.ok(
+    src.includes("autoGenerateBillDivisionNews"),
+    "runDivisionAutoClose must call autoGenerateBillDivisionNews after closing a bill division",
+  );
+});

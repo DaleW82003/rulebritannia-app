@@ -313,7 +313,8 @@ export function computeAllPlayerWeights(seatsByParty, players, { applyDelegation
 
   function simMonthsElapsed(joinedMonth, joinedYear) {
     if (!joinedMonth || !joinedYear || !currentSimMonth || !currentSimYear) return null;
-    return (currentSimYear - joinedYear) * 12 + (currentSimMonth - joinedMonth);
+    const elapsed = (currentSimYear - joinedYear) * 12 + (currentSimMonth - joinedMonth);
+    return Math.max(0, elapsed); // clamp to 0 — negative means join date is in the future (treat as new)
   }
 
   function isSettledBackbencher(p) {
