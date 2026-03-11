@@ -9575,7 +9575,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     // abort the entire Promise.all. The user query returns null (not []) so that a
     // failure can be distinguished from a genuinely deleted user, preventing the
     // session-destruction guard from logging out valid users.
-    const [clockRows, configRows, userRows, stateRows, charRows, seatTotalRows, canonicalPartyRows] = await Promise.all([
+    const [clockRows, configRows, userRows, stateRows, charRows, seatTotalRows, canonicalPartyRows, freezeRow] = await Promise.all([
       pool.query(
         "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
       ).then((r) => r.rows).catch(bootstrapCatch("clock")),
@@ -9624,10 +9624,19 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
       pool.query(
         `SELECT slug, name, playable FROM parties ORDER BY playable DESC, name`
       ).then((r) => r.rows).catch(bootstrapCatch("parties")),
+
+      // Simulation freeze state — included so the nav bar can show a frozen indicator
+      // without an extra round-trip on every page load.
+      getSimulationFreezeState().catch(() => null),
     ]);
 
     // Clock — fall back to defaults if the table row doesn't exist yet.
     const clock = clockRows[0] ?? { sim_current_month: 8, sim_current_year: 1997, real_last_tick: null, rate: 1 };
+
+    // Simulation freeze — safe minimal shape for the client nav bar indicator.
+    const simFreeze = freezeRow
+      ? { is_frozen: Boolean(freezeRow.is_frozen), reason: freezeRow.reason || null }
+      : { is_frozen: false, reason: null };
 
     // Config — strip sensitive keys.
     const config = Object.fromEntries(
@@ -9648,12 +9657,12 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     if (isLoggedIn && userRows !== null && !userRows.length) {
       // Session references a deleted user; destroy it silently.
       req.session.destroy(() => {});
-      return res.json({ clock, config, user: null, csrfToken: null, state: null, seatTotals, canonicalParties });
+      return res.json({ clock, config, user: null, csrfToken: null, state: null, seatTotals, canonicalParties, simFreeze });
     }
 
     if (!isLoggedIn || userRows === null) {
       // Not logged in, or user query failed transiently — don't destroy the session.
-      return res.json({ clock, config, user: null, csrfToken: null, state: null, is_demo: !isLoggedIn, seatTotals, canonicalParties });
+      return res.json({ clock, config, user: null, csrfToken: null, state: null, is_demo: !isLoggedIn, seatTotals, canonicalParties, simFreeze });
     }
 
     // Lazily generate CSRF token for sessions that pre-date the feature.
@@ -9726,7 +9735,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
       }
     }
 
-    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state, currentCharacter, seatTotals, canonicalParties, is_demo: false });
+    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state, currentCharacter, seatTotals, canonicalParties, simFreeze, is_demo: false });
   } catch (e) {
     console.error("[bootstrap]", e);
     res.status(500).json({ error: "Server error" });

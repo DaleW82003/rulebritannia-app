@@ -142,7 +142,7 @@ function renderDataSourcePanel(sources) {
   document.body.dataset.bootState = "booting";
   try {
     const { data, user, clock, sources, bootWarning } = await bootData();
-    initNavUI(user, clock, data.gameState);
+    initNavUI(user, clock, data.gameState, bootstrap?.simFreeze);
     if (bootWarning) {
       const msg = document.createElement("div");
       msg.style.cssText = "padding:16px;border:2px solid #f90;background:#fffbf0;color:#111;border-radius:12px;margin-bottom:8px";

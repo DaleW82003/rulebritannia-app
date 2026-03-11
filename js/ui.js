@@ -180,7 +180,7 @@ export function skeletonHTML(lines = 3, layout = "tile") {
   return `<div role="status" aria-label="Loading…">${inner}</div>`;
 }
 
-export function initNavUI(user, clock, gameState) {
+export function initNavUI(user, clock, gameState, simFreeze) {
   // Inject skip-to-content link for keyboard / screen-reader users
   if (!document.getElementById("rb-skip-link")) {
     const mainEl = document.querySelector("main");
@@ -274,6 +274,23 @@ export function initNavUI(user, clock, gameState) {
     clockEl.id = "topbar-clock";
     clockEl.className = "topbar-clock";
     clockEl.textContent = clockText;
+
+    // Show a clear status badge when the simulation is paused or frozen so the
+    // nav bar (the ultimate source of sim month/year) always reflects the real state.
+    if (gameState?.isPaused) {
+      clockEl.classList.add("topbar-clock--paused");
+      const badge = document.createElement("span");
+      badge.className = "topbar-clock-badge";
+      badge.textContent = "Paused";
+      clockEl.appendChild(badge);
+    } else if (simFreeze?.is_frozen) {
+      clockEl.classList.add("topbar-clock--frozen");
+      const badge = document.createElement("span");
+      badge.className = "topbar-clock-badge";
+      badge.textContent = "Frozen";
+      clockEl.appendChild(badge);
+    }
+
     const brand = topbarInner.querySelector(".brand");
     if (brand && brand.nextSibling) {
       topbarInner.insertBefore(clockEl, brand.nextSibling);

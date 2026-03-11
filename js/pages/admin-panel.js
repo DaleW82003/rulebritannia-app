@@ -21,6 +21,7 @@ import {
   apiAdminAssignNpcManager,
   apiGetHealth,
   apiGetAdminSnapshotStatus,
+  apiGetSimFreeze, apiSetSimFreeze,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";

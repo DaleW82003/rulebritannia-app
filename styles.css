@@ -255,6 +255,33 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
   border:1px solid rgba(255,255,255,.18);
   white-space:nowrap;
 }
+.topbar-clock--paused{
+  background:rgba(180,100,0,.35);
+  border-color:rgba(255,160,0,.50);
+}
+.topbar-clock--frozen{
+  background:rgba(0,80,160,.35);
+  border-color:rgba(100,160,255,.50);
+}
+.topbar-clock-badge{
+  display:inline-block;
+  font-size:10px;
+  font-weight:700;
+  margin-left:6px;
+  padding:1px 5px;
+  border-radius:999px;
+  vertical-align:middle;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+.topbar-clock--paused .topbar-clock-badge{
+  background:rgba(255,160,0,.30);
+  color:#ffd880;
+}
+.topbar-clock--frozen .topbar-clock-badge{
+  background:rgba(100,160,255,.30);
+  color:#b0d4ff;
+}
 .topbar-logout-btn{
   padding:7px 14px;
   border-radius:999px;
