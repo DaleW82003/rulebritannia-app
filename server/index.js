@@ -6722,12 +6722,7 @@ app.post("/api/bills/:id/first-reading", crudWriteLimit, async (req, res) => {
     if (!canAct) {
       const charId = await getActiveCharacterId(req);
       if (charId) {
-        const { rows: cRows } = await pool.query(
-          "SELECT office, role FROM characters WHERE id = $1", [charId]
-        );
-        const char = cRows[0] || {};
-        canAct = ["prime-minister", "leader-commons"].includes(String(char.office || "")) ||
-                 String(char.role || "") === "prime-minister";
+        canAct = await characterHasOfficeSpec(pool, charId, ["prime-minister", "leader-commons"]);
       }
     }
     if (!canAct) return res.status(403).json({ error: "PM, Leader of the House, admin or mod required" });
@@ -6821,14 +6816,9 @@ app.post("/api/bills/:id/withdraw", crudWriteLimit, async (req, res) => {
     if (!canWithdraw) {
       const charId = await getActiveCharacterId(req);
       if (charId) {
-        const { rows: cRows } = await pool.query(
-          "SELECT office, role FROM characters WHERE id = $1", [charId]
-        );
-        const char = cRows[0] || {};
-        // Author match (immutable character_id) or PM
+        // Author match (immutable character_id) or PM/Leader of the House
         canWithdraw = (billAuthorCharId && String(charId) === String(billAuthorCharId)) ||
-                      ["prime-minister", "leader-commons"].includes(String(char.office || "")) ||
-                      String(char.role || "") === "prime-minister";
+                      await characterHasOfficeSpec(pool, charId, ["prime-minister", "leader-commons"]);
       }
     }
     if (!canWithdraw) return res.status(403).json({ error: "Bill author, PM, admin or mod required" });
@@ -6912,14 +6902,18 @@ app.post("/api/bills/:id/amendments", crudWriteLimit, async (req, res) => {
     if (!charId) return res.status(403).json({ error: "No active character" });
 
     const { rows: cRows } = await pool.query(
-      "SELECT name, party, role, office FROM characters WHERE id = $1", [charId]
+      "SELECT name, party FROM characters WHERE id = $1", [charId]
     );
     if (!cRows.length) return res.status(403).json({ error: "Character not found" });
     const char = cRows[0];
 
-    // Any MP role may submit amendments
-    const mpRoles = ["backbencher", "minister", "shadow", "leader-opposition", "party-leader-3rd-4th", "prime-minister"];
-    if (!mpRoles.includes(String(char.role || ""))) {
+    // Any parliamentary character (has a position entry or office assignment) may submit amendments.
+    // character_positions always contains at least 'backbencher' for player characters.
+    const { rows: posRows } = await pool.query(
+      `SELECT 1 FROM character_positions WHERE character_id = $1 LIMIT 1`,
+      [charId]
+    );
+    if (!posRows.length) {
       return res.status(403).json({ error: "Only MPs may submit amendments" });
     }
 
@@ -7073,12 +7067,14 @@ app.post("/api/bills/:id/amendments/:aid/support", crudWriteLimit, async (req, r
     const charId = await getActiveCharacterId(req);
     if (!charId) return res.status(403).json({ error: "No active character" });
 
-    const { rows: cRows } = await pool.query("SELECT name, party, role FROM characters WHERE id = $1", [charId]);
+    const { rows: cRows } = await pool.query("SELECT name, party FROM characters WHERE id = $1", [charId]);
     if (!cRows.length) return res.status(403).json({ error: "Character not found" });
     const char = cRows[0];
 
-    const leaderRoles = ["prime-minister", "leader-opposition", "party-leader-3rd-4th"];
-    if (!leaderRoles.includes(String(char.role || ""))) {
+    // Party leaders may declare formal support: PM, LoTO, or current third-party leader
+    const isLeader = await characterHasOfficeSpec(pool, charId, ["prime-minister", "leader-opposition"])
+                  || await characterIsThirdPartyLeader(pool, charId);
+    if (!isLeader) {
       return res.status(403).json({ error: "Only party leaders may declare formal support for amendments" });
     }
 
@@ -8274,11 +8270,58 @@ const SERVER_NPC_OFFICES = {
   "cabinet-office": { displayName: "Cabinet Office", authorName: "Cabinet Office" },
 };
 
+/**
+ * Returns true if the character identified by charId holds any of the given office spec_ids.
+ * Uses the pool/client's query method so callers may pass either pool or a transaction client.
+ *
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {string} charId - character UUID
+ * @param {string[]} specIds - list of spec_id values to match
+ * @returns {Promise<boolean>}
+ */
+async function characterHasOfficeSpec(db, charId, specIds) {
+  if (!charId || !specIds.length) return false;
+  const { rows } = await db.query(
+    `SELECT 1 FROM office_assignments oa JOIN offices o ON o.id = oa.office_id
+      WHERE oa.character_id = $1 AND o.spec_id = ANY($2::text[]) LIMIT 1`,
+    [charId, specIds]
+  );
+  return rows.length > 0;
+}
+
+/**
+ * Returns true if the character is the current third-party leader (by seat count).
+ * Checks parties.leader_character_id against the third-ranked party slug.
+ *
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {string} charId - character UUID
+ * @returns {Promise<boolean>}
+ */
+async function characterIsThirdPartyLeader(db, charId) {
+  if (!charId) return false;
+  const thirdPartySlug = await getThirdPartySlug(db);
+  if (!thirdPartySlug) return false;
+  const { rows } = await db.query(
+    "SELECT 1 FROM parties WHERE slug = $1 AND leader_character_id = $2 LIMIT 1",
+    [thirdPartySlug, charId]
+  );
+  return rows.length > 0;
+}
+
 async function pressAuthorFromSession(client, req) {
   const charId = req.session.characterId || null;
   if (!charId) return { author: "MP", party: "", authorOffice: "" };
   const { rows } = await client.query(
-    `SELECT name, party, office, role FROM characters WHERE id = $1 LIMIT 1`,
+    `SELECT c.name, c.party,
+            (SELECT o.spec_id
+               FROM office_assignments oa
+               JOIN offices o ON o.id = oa.office_id
+              WHERE oa.character_id = c.id
+              ORDER BY (o.type = 'cabinet') DESC, o.type
+              LIMIT 1
+            ) AS primary_spec_id
+       FROM characters c
+      WHERE c.id = $1 LIMIT 1`,
     [charId]
   );
   const ch = rows[0];
@@ -8286,7 +8329,7 @@ async function pressAuthorFromSession(client, req) {
   return {
     author: String(ch.name || "MP"),
     party: String(ch.party || ""),
-    authorOffice: String(ch.office || ch.role || ""),
+    authorOffice: String(ch.primary_spec_id || ""),
   };
 }
 
@@ -8319,7 +8362,7 @@ async function pressPrefixForRequest(pool, req, pressType, officeKey) {
   const charId = req.session.characterId || null;
   if (!charId) return "MP";
   const { rows } = await pool.query(
-    `SELECT c.name, c.party, c.role, c.office,
+    `SELECT c.name, c.party,
             EXISTS (
               SELECT 1
                 FROM office_assignments oa
@@ -8340,8 +8383,12 @@ async function pressPrefixForRequest(pool, req, pressType, officeKey) {
   );
   const ch = rows[0];
   if (!ch) return "MP";
-  if (ch.office === "prime-minister") return "PM";
-  if (ch.role === "leader-opposition" || ch.role === "party-leader-3rd-4th") {
+  if (await characterHasOfficeSpec(pool, charId, ["prime-minister"])) return "PM";
+  if (await characterHasOfficeSpec(pool, charId, ["leader-opposition"])) {
+    return String(ch.party_short_name || ch.party || "MP").trim().toUpperCase();
+  }
+  // Third-party leader: check if this character is leader of the current third party
+  if (await characterIsThirdPartyLeader(pool, charId)) {
     return String(ch.party_short_name || ch.party || "MP").trim().toUpperCase();
   }
   if (ch.has_cabinet_office) return "GOV";
@@ -9647,6 +9694,17 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
         currentCharacter.office_type   = primaryRow.office_type || null;
         currentCharacter.offices       = offRows.map((r) => r.spec_id).filter(Boolean);
         currentCharacter.office_types  = offRows.map((r) => r.office_type).filter(Boolean);
+      }
+      // Compute canonical `role` for client-side use (e.g. letter-office permission checks).
+      // Values match the keys in PLAYER_ROLE_LETTER_OFFICES (press.js) and the role identifiers
+      // used in pressPrefixForRequest: "prime-minister", "leader-opposition", "party-leader-3rd-4th".
+      const allSpecIds = offRows.map((r) => r.spec_id).filter(Boolean);
+      if (allSpecIds.includes("prime-minister")) {
+        currentCharacter.role = "prime-minister";
+      } else if (allSpecIds.includes("leader-opposition")) {
+        currentCharacter.role = "leader-opposition";
+      } else if (await characterIsThirdPartyLeader(pool, c.id)) {
+        currentCharacter.role = "party-leader-3rd-4th";
       }
     }
 
