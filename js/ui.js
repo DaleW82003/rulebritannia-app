@@ -257,9 +257,9 @@ export function initNavUI(user, clock, gameState, simFreeze) {
   setActiveNav();
 
   // Topbar clock display — inserted into topbar-inner after the brand.
-  // Derive the displayed month/year from gameState (single source of truth) so
-  // that changes to sim_start_date are reflected immediately. Fall back to the
-  // legacy clock object if gameState is not yet available.
+  // The DB-backed sim_clock is the single source of truth (returned as `clock`
+  // in the bootstrap response). Fall back to client-side gameState computation
+  // only if the DB clock is unavailable (e.g. pre-schema or demo mode).
   const topbarInner = document.querySelector(".topbar-inner");
   if (topbarInner) {
     let clockText;
