@@ -9452,6 +9452,24 @@ async function recomputeLeaderOfThirdPartyRole(partySlug, oldCharId, newCharId, 
       );
       if (rowCount) changed = true;
     }
+
+    // Auto-grant permanent Privy Council membership for the new third-party leader.
+    // PC status is never auto-removed when leaving the role.
+    try {
+      const { simMonth, simYear } = await getCurrentSimMonthYear();
+      await pool.query(
+        `INSERT INTO privy_council_members (character_id, appointed_by, reason, sim_month, sim_year, removed_at, removed_by, removal_reason)
+         VALUES ($1, $2, $3, $4, $5, NULL, NULL, '')
+         ON CONFLICT (character_id)
+         DO UPDATE SET removed_at = NULL, removed_by = NULL, removal_reason = '',
+                       sim_month = COALESCE(privy_council_members.sim_month, EXCLUDED.sim_month),
+                       sim_year  = COALESCE(privy_council_members.sim_year,  EXCLUDED.sim_year),
+                       appointed_by = EXCLUDED.appointed_by, reason = EXCLUDED.reason`,
+        [newCharId, actingUserId, "Auto-granted on appointment as leader of the third party", simMonth, simYear]
+      );
+    } catch (pcErr) {
+      console.error("[recomputeLeaderOfThirdPartyRole] PC auto-grant failed:", pcErr.message);
+    }
   }
 
   return changed;
@@ -10142,10 +10160,11 @@ app.get("/api/characters/:id", charReadLimit, async (req, res) => {
   }
 });
 
-app.post("/api/characters", charWriteLimit, async (req, res) => {
+app.post("/api/characters/:userId?", charWriteLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
-    const { user_id, name, party = "", constituency = "", roles = [], offices = [], is_active = true } = req.body || {};
+    const user_id = req.params.userId || null;
+    const { name, party = "", constituency = "", roles = [], offices = [], is_active = true } = req.body || {};
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "name is required" });
     }
@@ -10363,10 +10382,10 @@ app.patch("/api/me/absent", charWriteLimit, async (req, res) => {
 });
 
 // POST /api/characters/select — set session active character
-app.post("/api/characters/select", charAppWriteLimit, async (req, res) => {
+app.post("/api/characters/select/:characterId", charAppWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { character_id } = req.body || {};
+    const character_id = req.params.characterId;
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
 
     const { rows } = await pool.query(
@@ -11437,10 +11456,11 @@ app.post("/api/admin/avatar-changes/:id/reject", charAppWriteLimit, async (req, 
 
 const propertyWriteLimit = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false });
 
-app.post("/api/mod/property/set", propertyWriteLimit, async (req, res) => {
+app.post("/api/mod/property/set/:characterId", propertyWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { character_id, home, rentals } = req.body || {};
+    const character_id = req.params.characterId;
+    const { home, rentals } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
 
     const { rows: before } = await pool.query(
@@ -11810,10 +11830,10 @@ app.get("/api/parties/:partyId", partyReadLimit, async (req, res) => {
 });
 
 // POST /api/parties/:partyId/set-leader — admin/mod only: set party leader (DB-backed)
-app.post("/api/parties/:partyId/set-leader", partyWriteLimit, async (req, res) => {
+app.post("/api/parties/:partyId/set-leader/:characterId?", partyWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { character_id } = req.body || {};
+    const character_id = req.params.characterId || null;
 
     const { rows: partyRows } = await pool.query("SELECT * FROM parties WHERE slug = $1", [req.params.partyId]);
     if (!partyRows.length) return res.status(404).json({ error: "Party not found" });
@@ -11858,11 +11878,12 @@ app.post("/api/parties/:partyId/set-leader", partyWriteLimit, async (req, res) =
   }
 });
 
-app.post("/api/parties/:partyId/leadership", partyWriteLimit, async (req, res) => {
+app.post("/api/parties/:partyId/leadership/:role/:characterId?", partyWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
 
-    const { role, character_id } = req.body || {};
+    const role = req.params.role;
+    const character_id = req.params.characterId || null;
     if (!role || !["chairman", "whip"].includes(role)) {
       return res.status(400).json({ error: "role must be 'chairman' or 'whip'" });
     }
@@ -12612,8 +12633,8 @@ app.post("/api/admin/profile-changes/:id/reject", profileChangeWriteLimit, async
   }
 });
 
-// POST /api/me/character/shop-purchases — record a shop purchase, deduct from bank
-app.post("/api/me/character/shop-purchases", meFinanceWriteLimit, async (req, res) => {
+// POST /api/me/character/shop-purchases/:itemId — record a shop purchase, deduct from bank
+app.post("/api/me/character/shop-purchases/:itemId", meFinanceWriteLimit, async (req, res) => {
   const client = await pool.connect();
   try {
     if (!requireAuth(req, res)) return;
@@ -12629,7 +12650,8 @@ app.post("/api/me/character/shop-purchases", meFinanceWriteLimit, async (req, re
     if (!charRows.length) { return res.status(404).json({ error: "No active character found" }); }
     const charId = charRows[0].id;
 
-    const { item_id, item_name, price, monthly_upkeep, base_price = 0, effects = [], risk_modifier = null } = req.body || {};
+    const item_id = req.params.itemId;
+    const { item_name, price, monthly_upkeep, base_price = 0, effects = [], risk_modifier = null } = req.body || {};
     if (!item_id || !item_name) { return res.status(400).json({ error: "item_id and item_name are required" }); }
 
     const itemPrice     = Math.max(0, Number(price        || 0));
@@ -12919,12 +12941,12 @@ app.post("/api/me/character/shop-purchases/:id/dismiss", meFinanceWriteLimit, as
 });
 
 // POST /api/me/character/additional-revenue — admin/mod: add revenue stream to active character
-app.post("/api/me/character/additional-revenue", meFinanceWriteLimit, async (req, res) => {
+app.post("/api/me/character/additional-revenue/:characterId?", meFinanceWriteLimit, async (req, res) => {
   try {
     if (!requireAdminModOrSpeaker(req, res)) return;
 
-    const { character_id, label, annual_amount } = req.body || {};
-    const targetCharId = character_id || req.session.characterId;
+    const { label, annual_amount } = req.body || {};
+    const targetCharId = req.params.characterId || req.session.characterId;
     if (!targetCharId) return res.status(400).json({ error: "character_id required" });
 
     const amount = Number(annual_amount || 0);
@@ -13358,8 +13380,8 @@ app.get("/api/parties/:partyId/shop-purchases", partyReadLimit, async (req, res)
   }
 });
 
-// POST /api/parties/:partyId/shop-purchases — buy a party shop item (atomic: deduct treasury)
-app.post("/api/parties/:partyId/shop-purchases", partyShopLimit, async (req, res) => {
+// POST /api/parties/:partyId/shop-purchases/:itemId — buy a party shop item (atomic: deduct treasury)
+app.post("/api/parties/:partyId/shop-purchases/:itemId", partyShopLimit, async (req, res) => {
   const client = await pool.connect();
   try {
     if (!requireAuth(req, res)) { return; }
@@ -13377,7 +13399,8 @@ app.post("/api/parties/:partyId/shop-purchases", partyShopLimit, async (req, res
       if (!isLeader && !isChairman) { return res.status(403).json({ error: "Forbidden" }); }
     }
 
-    const { item_id, item_name, price, monthly_upkeep, effects, risk_modifier } = req.body || {};
+    const item_id = req.params.itemId;
+    const { item_name, price, monthly_upkeep, effects, risk_modifier } = req.body || {};
     if (!item_id || !item_name) { return res.status(400).json({ error: "item_id and item_name required" }); }
     const priceParsed  = Math.max(0, parseFloat(price)          || 0);
     const upkeepParsed = Math.max(0, parseFloat(monthly_upkeep) || 0);
@@ -13620,7 +13643,7 @@ app.post("/api/parties/:partyId/drafts", partyWriteLimit, async (req, res) => {
 const expulsionWriteLimit = rateLimit({ windowMs: 60_000, max: 10, standardHeaders: true, legacyHeaders: false });
 const expulsionReadLimit  = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
 
-app.post("/api/parties/:partyId/expulsions", expulsionWriteLimit, async (req, res) => {
+app.post("/api/parties/:partyId/expulsions/:characterId", expulsionWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const isAdminOrMod = hasAdminOrMod(req);
@@ -13637,7 +13660,8 @@ app.post("/api/parties/:partyId/expulsions", expulsionWriteLimit, async (req, re
       }
     }
 
-    const { character_id, reason = "" } = req.body || {};
+    const character_id = req.params.characterId;
+    const { reason = "" } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
 
     // Validate target character belongs to this party
@@ -13879,7 +13903,7 @@ app.get("/api/parties/:partyId/elections/:id", electionReadLimit, async (req, re
   }
 });
 
-app.post("/api/parties/:partyId/elections/:id/nominate", electionWriteLimit, async (req, res) => {
+app.post("/api/parties/:partyId/elections/:id/nominate/:characterId", electionWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows: eRows } = await pool.query(
@@ -13889,7 +13913,7 @@ app.post("/api/parties/:partyId/elections/:id/nominate", electionWriteLimit, asy
     if (!eRows.length) return res.status(404).json({ error: "Election not found" });
     if (eRows[0].status !== "nominations") return res.status(409).json({ error: "Election is not in nominations phase" });
 
-    const { character_id } = req.body || {};
+    const character_id = req.params.characterId;
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
 
     // Verify character is a party member
@@ -13914,7 +13938,7 @@ app.post("/api/parties/:partyId/elections/:id/nominate", electionWriteLimit, asy
   }
 });
 
-app.post("/api/parties/:partyId/elections/:id/vote", electionWriteLimit, async (req, res) => {
+app.post("/api/parties/:partyId/elections/:id/vote/:nomineeId", electionWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const { rows: eRows } = await pool.query(
@@ -13937,7 +13961,7 @@ app.post("/api/parties/:partyId/elections/:id/vote", electionWriteLimit, async (
       return res.status(403).json({ error: "Only party members may vote" });
     }
 
-    const { nominee_id } = req.body || {};
+    const nominee_id = req.params.nomineeId;
     if (!nominee_id) return res.status(400).json({ error: "nominee_id is required" });
 
     // Nominee must be nominated (or a runoff finalist)
@@ -14135,10 +14159,11 @@ app.get("/api/privy-council", privyReadLimit, async (req, res) => {
   }
 });
 
-app.post("/api/mod/privy-council/appoint", privyWriteLimit, async (req, res) => {
+app.post("/api/mod/privy-council/appoint/:characterId", privyWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { character_id, reason = "" } = req.body || {};
+    const character_id = req.params.characterId;
+    const { reason = "" } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
 
     const { rows: charRows } = await pool.query(
@@ -14166,10 +14191,11 @@ app.post("/api/mod/privy-council/appoint", privyWriteLimit, async (req, res) => 
   }
 });
 
-app.post("/api/mod/privy-council/remove", privyWriteLimit, async (req, res) => {
+app.post("/api/mod/privy-council/remove/:characterId", privyWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { character_id, force = false } = req.body || {};
+    const character_id = req.params.characterId;
+    const { force = false } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
 
     // Guard: block removal of characters who currently hold a permanent qualifying office
@@ -14672,10 +14698,10 @@ app.post("/api/offices", officeWriteLimit, async (req, res) => {
   }
 });
 
-app.post("/api/offices/:id/assign", officeWriteLimit, async (req, res) => {
+app.post("/api/offices/:id/assign/:characterId", officeWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { character_id } = req.body || {};
+    const character_id = req.params.characterId;
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
 
     // Verify office and character exist
@@ -15789,14 +15815,16 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
   }
 });
 
-// POST /api/divisions/create — admin/mod/speaker: create a division for a given entity
-app.post("/api/divisions/create", divWriteLimit, async (req, res) => {
+// POST /api/divisions/create/:entityType/:entityId — admin/mod/speaker: create a division for a given entity
+app.post("/api/divisions/create/:entityType/:entityId", divWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const canCreate = hasAdminModOrSpeaker(req);
     if (!canCreate) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
-    const { entity_type, entity_id, title = "", closes_at, closes_at_sim } = req.body || {};
+    const entity_type = req.params.entityType;
+    const entity_id = req.params.entityId;
+    const { title = "", closes_at, closes_at_sim } = req.body || {};
     if (!entity_type || !entity_id) {
       return res.status(400).json({ error: "entity_type and entity_id are required" });
     }
@@ -16527,10 +16555,11 @@ app.get("/api/qt/questions/:id", qtReadLimit, async (req, res) => {
   }
 });
 
-app.post("/api/qt/questions", qtWriteLimit, async (req, res) => {
+app.post("/api/qt/questions/:officeId", qtWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
-    const { office_id, question_text, asked_by_name, npc_party } = req.body || {};
+    const office_id = req.params.officeId;
+    const { question_text, asked_by_name, npc_party } = req.body || {};
     if (!office_id || !question_text) {
       return res.status(400).json({ error: "office_id and question_text are required" });
     }
@@ -18114,13 +18143,13 @@ app.post("/api/scandals/situations/:id/respond", scandalWriteLimit, async (req, 
 });
 
 // ── POST /api/scandals/:id/choose ─────────────────────────────────────────
-app.post("/api/scandals/:id/choose", scandalWriteLimit, async (req, res) => {
+app.post("/api/scandals/:id/choose/:choiceId", scandalWriteLimit, async (req, res) => {
   try {
     if (!requireAuth(req, res)) return;
     const characterId = await getActiveCharacterId(req);
     if (!characterId) return res.status(400).json({ error: "No active character" });
 
-    const { choice_id } = req.body || {};
+    const choice_id = req.params.choiceId;
     if (!choice_id) return res.status(400).json({ error: "choice_id is required" });
 
     // Load scandal and verify ownership
@@ -18275,10 +18304,12 @@ app.post("/api/mod/scandal-templates", scandalWriteLimit, async (req, res) => {
 });
 
 // ── POST /api/mod/scandals/situations/create ──────────────────────────────
-app.post("/api/mod/scandals/situations/create", scandalWriteLimit, async (req, res) => {
+app.post("/api/mod/scandals/situations/create/:characterId/:templateId", scandalWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { character_id, template_id, title_override, expires_in_months } = req.body || {};
+    const character_id = req.params.characterId;
+    const template_id = req.params.templateId;
+    const { title_override, expires_in_months } = req.body || {};
     if (!character_id || !template_id) {
       return res.status(400).json({ error: "character_id and template_id are required" });
     }
@@ -20006,11 +20037,12 @@ app.get("/api/admin/characters", adminCharMgmtLimit, async (req, res) => {
 
 // POST /api/admin/characters/:id/assign-owner — assign a character to a user
 // Admin or mod access.
-app.post("/api/admin/characters/:id/assign-owner", adminCharMgmtLimit, async (req, res) => {
+app.post("/api/admin/characters/:id/assign-owner/:userId", adminCharMgmtLimit, async (req, res) => {
   const client = await pool.connect();
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { user_id, set_active = false } = req.body || {};
+    const user_id = req.params.userId;
+    const { set_active = false } = req.body || {};
     if (!user_id) return res.status(400).json({ error: "user_id is required" });
 
     const { rows: charRows } = await client.query(
@@ -20074,10 +20106,10 @@ app.post("/api/admin/characters/:id/assign-owner", adminCharMgmtLimit, async (re
 
 // POST /api/admin/users/:id/active-character — set or clear a user's active character pointer
 // Admin or mod access.
-app.post("/api/admin/users/:id/active-character", adminCharMgmtLimit, async (req, res) => {
+app.post("/api/admin/users/:id/active-character/:characterId?", adminCharMgmtLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const { character_id } = req.body || {}; // null = clear pointer
+    const character_id = req.params.characterId || null; // null = clear pointer
 
     const { rows: userRows } = await pool.query("SELECT id FROM users WHERE id = $1", [req.params.id]);
     if (!userRows.length) return res.status(404).json({ error: "User not found" });
@@ -20117,12 +20149,12 @@ app.post("/api/admin/users/:id/active-character", adminCharMgmtLimit, async (req
 // Sets managed_by_user_id on the character so the target user can operate it as a secondary NPC.
 // The NPC retains user_id = NULL (it is not "owned" in the PC sense).
 // Admin or mod access.
-app.post("/api/admin/characters/:id/assign-npc-manager", adminCharMgmtLimit, async (req, res) => {
+app.post("/api/admin/characters/:id/assign-npc-manager/:userId", adminCharMgmtLimit, async (req, res) => {
   const client = await pool.connect();
   try {
     if (!requireAdminOrMod(req, res)) return;
 
-    const { user_id } = req.body || {};
+    const user_id = req.params.userId;
     if (!user_id) return res.status(400).json({ error: "user_id is required" });
 
     // Validate character exists and is an NPC
@@ -20350,10 +20382,11 @@ app.get("/api/admin/playerbase", playerbaseLimit, async (req, res) => {
 });
 
 // POST /api/admin/finance/set-bank — set bank balance for a character
-app.post("/api/admin/finance/set-bank", financeLimit, async (req, res) => {
+app.post("/api/admin/finance/set-bank/:characterId", financeLimit, async (req, res) => {
   try {
     if (!requireAdminModOrSpeaker(req, res)) return;
-    const { character_id, bank_balance } = req.body || {};
+    const character_id = req.params.characterId;
+    const { bank_balance } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
     const balance = parseFloat(bank_balance);
     if (!Number.isFinite(balance)) return res.status(400).json({ error: "bank_balance must be a number" });
@@ -20376,10 +20409,11 @@ app.post("/api/admin/finance/set-bank", financeLimit, async (req, res) => {
 });
 
 // POST /api/admin/finance/set-salary-override — set/clear salary override
-app.post("/api/admin/finance/set-salary-override", financeLimit, async (req, res) => {
+app.post("/api/admin/finance/set-salary-override/:characterId", financeLimit, async (req, res) => {
   try {
     if (!requireAdminModOrSpeaker(req, res)) return;
-    const { character_id, annual_salary_override } = req.body || {};
+    const character_id = req.params.characterId;
+    const { annual_salary_override } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
 
     const override = annual_salary_override != null && annual_salary_override !== ""
@@ -20404,10 +20438,11 @@ app.post("/api/admin/finance/set-salary-override", financeLimit, async (req, res
 });
 
 // POST /api/admin/finance/set-positions — set character positions (replaces all); marks positions_override
-app.post("/api/admin/finance/set-positions", financeLimit, async (req, res) => {
+app.post("/api/admin/finance/set-positions/:characterId", financeLimit, async (req, res) => {
   try {
     if (!requireAdminModOrSpeaker(req, res)) return;
-    const { character_id, positions } = req.body || {};
+    const character_id = req.params.characterId;
+    const { positions } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
     if (!Array.isArray(positions)) return res.status(400).json({ error: "positions must be an array" });
 
@@ -20451,10 +20486,11 @@ app.post("/api/admin/finance/set-positions", financeLimit, async (req, res) => {
 });
 
 // POST /api/admin/finance/revenue — create additional revenue entry
-app.post("/api/admin/finance/revenue", financeLimit, async (req, res) => {
+app.post("/api/admin/finance/revenue/:characterId", financeLimit, async (req, res) => {
   try {
     if (!requireAdminModOrSpeaker(req, res)) return;
-    const { character_id, label, annual_amount } = req.body || {};
+    const character_id = req.params.characterId;
+    const { label, annual_amount } = req.body || {};
     if (!character_id) return res.status(400).json({ error: "character_id is required" });
     if (!label || !String(label).trim()) return res.status(400).json({ error: "label is required" });
     const amount = parseFloat(annual_amount);
@@ -22475,14 +22511,14 @@ app.get("/api/me/faction", charAppReadLimit, async (req, res) => {
 });
 
 // POST /api/me/faction/switch — switch active character faction (once per sim year)
-app.post("/api/me/faction/switch", verifyCsrfToken, charAppWriteLimit, async (req, res) => {
+app.post("/api/me/faction/switch/:factionId", verifyCsrfToken, charAppWriteLimit, async (req, res) => {
   const client = await pool.connect();
   try {
     if (!requireAuth(req, res)) return;
     const characterId = await getActiveCharacterId(req);
     if (!characterId) return res.status(400).json({ error: "No active character selected" });
 
-    const newFactionId = String(req.body?.faction_id || "").trim();
+    const newFactionId = String(req.params.factionId || "").trim();
     if (!newFactionId) return res.status(400).json({ error: "faction_id is required" });
 
     await client.query("BEGIN");
@@ -23078,12 +23114,12 @@ app.get("/api/admin/other-officials/faction-allocations", crudReadLimit, async (
 });
 
 // PUT /api/admin/other-officials/faction-allocations
-app.put("/api/admin/other-officials/faction-allocations", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+app.put("/api/admin/other-officials/faction-allocations/:arenaId", verifyCsrfToken, crudWriteLimit, async (req, res) => {
   const client = await pool.connect();
   try {
     if (!requireAdminOrMod(req, res)) return;
     const arenaType = String(req.body?.arena_type || "").trim();
-    const arenaId = String(req.body?.arena_id || "").trim();
+    const arenaId = String(req.params.arenaId || "").trim();
     const partySlug = String(req.body?.party_slug || "").trim();
     const allocations = Array.isArray(req.body?.allocations) ? req.body.allocations : null;
 
@@ -24050,13 +24086,13 @@ app.post("/api/staff/internal-tickets", verifyCsrfToken, crudWriteLimit, async (
 });
 
 // PUT /api/staff/internal-tickets/:id/costing
-app.put("/api/staff/internal-tickets/:id/costing", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+app.put("/api/staff/internal-tickets/:id/costing/:chargeCharacterId?", verifyCsrfToken, crudWriteLimit, async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     const ticketId = String(req.params.id || "").trim();
     const costAmount = Number(req.body?.cost_amount ?? 0);
     const costModel = String(req.body?.cost_model || "party_budget").trim() || "party_budget";
-    const chargeCharacterId = req.body?.charge_character_id ? String(req.body.charge_character_id) : null;
+    const chargeCharacterId = req.params.chargeCharacterId ? String(req.params.chargeCharacterId) : null;
     const details = req.body?.details && typeof req.body.details === "object" ? req.body.details : {};
 
     const { rows } = await pool.query(`SELECT * FROM party_internal_tickets WHERE id = $1 LIMIT 1`, [ticketId]);

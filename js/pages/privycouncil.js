@@ -112,7 +112,7 @@ function render(members, posts, data, state, manager) {
         <label class="label" for="pc-reason">Reason (optional)</label>
         <input class="input" id="pc-reason" type="text" maxlength="500" placeholder="e.g. Party leader, PM, etc.">
         <button id="pc-appoint-btn" type="button" class="btn">Appoint</button>
-        ${state.message ? `<p class="muted">${esc(state.message)}</p>` : ""}
+        <p class="muted" id="pc-appoint-msg"${state.message ? "" : " hidden"}>${state.message ? esc(state.message) : ""}</p>
       </div>
     </section>
     ` : (state.message ? `<p class="muted">${esc(state.message)}</p>` : "")}
@@ -152,15 +152,16 @@ function render(members, posts, data, state, manager) {
     });
   });
 
-  // Populate character select
+  // Populate character select — show all active characters; mark existing members
   if (manager) {
     const select = host.querySelector("#pc-char-select");
     if (select && Array.isArray(data._dbCharacters)) {
       const alreadyIn = new Set(members.map((m) => m.character_id));
-      for (const c of data._dbCharacters.filter((c) => !alreadyIn.has(c.id)).sort((a, b) => a.name.localeCompare(b.name))) {
+      for (const c of [...data._dbCharacters].sort((a, b) => (a.name || "").localeCompare(b.name || ""))) { // spread to avoid mutating shared data
+        if (!c.id) continue; // skip any character without a valid id
         const opt = document.createElement("option");
         opt.value = c.id;
-        opt.textContent = c.name;
+        opt.textContent = alreadyIn.has(c.id) ? `${c.name} (already a member)` : c.name;
         select.appendChild(opt);
       }
     }
@@ -168,7 +169,11 @@ function render(members, posts, data, state, manager) {
     host.querySelector("#pc-appoint-btn")?.addEventListener("click", async () => {
       const charId = host.querySelector("#pc-char-select")?.value || "";
       const reason = host.querySelector("#pc-reason")?.value || "";
-      if (!charId) return;
+      if (!charId) {
+        const msgEl = host.querySelector("#pc-appoint-msg");
+        if (msgEl) { msgEl.hidden = false; msgEl.textContent = "Please select a character to appoint."; }
+        return;
+      }
       try {
         await apiAppointPrivyCouncillor(charId, reason);
         await initPrivyCouncilPage(data, { message: "Appointed successfully.", postMessage: "" });

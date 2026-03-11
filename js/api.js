@@ -772,11 +772,15 @@ export async function apiGetCharacter(id) {
 }
 
 export async function apiCreateCharacter(character) {
-  const res = await _fetch(`${API_BASE}/api/characters`, {
+  const { user_id, ...rest } = character;
+  const url = user_id
+    ? `${API_BASE}/api/characters/${encodeURIComponent(user_id)}`
+    : `${API_BASE}/api/characters`;
+  const res = await _fetch(url, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(character),
+    body: JSON.stringify(rest),
   });
   if (!res.ok) throw new Error(`apiCreateCharacter failed (${res.status})`);
   return res.json();
@@ -800,11 +804,11 @@ export async function apiGetMyCharacters() {
 }
 
 export async function apiSelectCharacter(character_id) {
-  const res = await _fetch(`${API_BASE}/api/characters/select`, {
+  const res = await _fetch(`${API_BASE}/api/characters/select/${encodeURIComponent(character_id)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ character_id }),
+    body: JSON.stringify({}),
   });
   if (!res.ok) throw new Error(`apiSelectCharacter failed (${res.status})`);
   return res.json();
@@ -1011,11 +1015,11 @@ export async function apiRejectAvatarChange(id) {
 }
 
 export async function apiSetProperty(character_id, home, rentals) {
-  const res = await _fetch(`${API_BASE}/api/mod/property/set`, {
+  const res = await _fetch(`${API_BASE}/api/mod/property/set/${encodeURIComponent(character_id)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ character_id, home, rentals }),
+    body: JSON.stringify({ home, rentals }),
   });
   if (!res.ok) throw new Error(`apiSetProperty failed (${res.status})`);
   return res.json();
@@ -1028,11 +1032,14 @@ export async function apiGetParty(partyId) {
 }
 
 export async function apiSetPartyLeadership(partyId, role, character_id) {
-  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/leadership`, {
+  const url = character_id
+    ? `${API_BASE}/api/parties/${encodeURIComponent(partyId)}/leadership/${encodeURIComponent(role)}/${encodeURIComponent(character_id)}`
+    : `${API_BASE}/api/parties/${encodeURIComponent(partyId)}/leadership/${encodeURIComponent(role)}`;
+  const res = await _fetch(url, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ role, character_id }),
+    body: JSON.stringify({}),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -1042,11 +1049,14 @@ export async function apiSetPartyLeadership(partyId, role, character_id) {
 }
 
 export async function apiSetPartyLeader(partyId, character_id) {
-  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/set-leader`, {
+  const url = character_id
+    ? `${API_BASE}/api/parties/${encodeURIComponent(partyId)}/set-leader/${encodeURIComponent(character_id)}`
+    : `${API_BASE}/api/parties/${encodeURIComponent(partyId)}/set-leader`;
+  const res = await _fetch(url, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ character_id }),
+    body: JSON.stringify({}),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -1160,11 +1170,12 @@ export async function apiGetPartyShopPurchases(partyId) {
 }
 
 export async function apiAddPartyShopPurchase(partyId, purchase) {
-  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/shop-purchases`, {
+  const { item_id, ...rest } = purchase;
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/shop-purchases/${encodeURIComponent(item_id)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(purchase),
+    body: JSON.stringify(rest),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiAddPartyShopPurchase failed (${res.status})`);
@@ -1274,11 +1285,11 @@ export async function apiCreateOffice(office) {
 }
 
 export async function apiAssignOffice(officeId, character_id) {
-  const res = await _fetch(`${API_BASE}/api/offices/${encodeURIComponent(officeId)}/assign`, {
+  const res = await _fetch(`${API_BASE}/api/offices/${encodeURIComponent(officeId)}/assign/${encodeURIComponent(character_id)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ character_id }),
+    body: JSON.stringify({}),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -1406,11 +1417,11 @@ export async function apiGetDivision(id) {
 }
 
 export async function apiCreateDivision(entityType, entityId, title = "", closesAtSim = null) {
-  const res = await _fetch(`${API_BASE}/api/divisions/create`, {
+  const res = await _fetch(`${API_BASE}/api/divisions/create/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ entity_type: entityType, entity_id: entityId, title, closes_at_sim: closesAtSim }),
+    body: JSON.stringify({ title, closes_at_sim: closesAtSim }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -1477,11 +1488,12 @@ export async function apiGetQtQuestion(id) {
 }
 
 export async function apiSubmitQtQuestion(payload) {
-  const res = await _fetch(`${API_BASE}/api/qt/questions`, {
+  const { office_id, ...rest } = payload;
+  const res = await _fetch(`${API_BASE}/api/qt/questions/${encodeURIComponent(office_id)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(sanitizeForSimWrite(payload)),
+    body: JSON.stringify(sanitizeForSimWrite(rest)),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiSubmitQtQuestion failed (${res.status})`);
@@ -1900,22 +1912,23 @@ export async function apiScandalSituationRespond(situationId, action) {
 }
 
 export async function apiScandalChoose(scandalId, choice_id) {
-  const res = await _fetch(`${API_BASE}/api/scandals/${encodeURIComponent(scandalId)}/choose`, {
+  const res = await _fetch(`${API_BASE}/api/scandals/${encodeURIComponent(scandalId)}/choose/${encodeURIComponent(choice_id)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ choice_id }),
+    body: JSON.stringify({}),
   });
   if (!res.ok) throw new Error(`apiScandalChoose failed (${res.status})`);
   return res.json();
 }
 
 export async function apiModScandalSituationCreate(payload) {
-  const res = await _fetch(`${API_BASE}/api/mod/scandals/situations/create`, {
+  const { character_id, template_id, ...rest } = payload;
+  const res = await _fetch(`${API_BASE}/api/mod/scandals/situations/create/${encodeURIComponent(character_id)}/${encodeURIComponent(template_id)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(sanitizeForSimWrite(payload)),
+    body: JSON.stringify(sanitizeForSimWrite(rest)),
   });
   if (!res.ok) throw new Error(`apiModScandalSituationCreate failed (${res.status})`);
   return res.json();
@@ -2457,11 +2470,11 @@ export async function apiAdminGetCharacters(params = {}) {
 }
 
 export async function apiAdminAssignCharacterOwner(characterId, userId, setActive = false) {
-  const res = await _fetch(`${API_BASE}/api/admin/characters/${encodeURIComponent(characterId)}/assign-owner`, {
+  const res = await _fetch(`${API_BASE}/api/admin/characters/${encodeURIComponent(characterId)}/assign-owner/${encodeURIComponent(userId)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ user_id: userId, set_active: setActive }),
+    body: JSON.stringify({ set_active: setActive }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -2471,11 +2484,14 @@ export async function apiAdminAssignCharacterOwner(characterId, userId, setActiv
 }
 
 export async function apiAdminSetUserActiveCharacter(userId, characterId) {
-  const res = await _fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}/active-character`, {
+  const url = characterId
+    ? `${API_BASE}/api/admin/users/${encodeURIComponent(userId)}/active-character/${encodeURIComponent(characterId)}`
+    : `${API_BASE}/api/admin/users/${encodeURIComponent(userId)}/active-character`;
+  const res = await _fetch(url, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ character_id: characterId || null }),
+    body: JSON.stringify({}),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -2485,11 +2501,11 @@ export async function apiAdminSetUserActiveCharacter(userId, characterId) {
 }
 
 export async function apiAdminAssignNpcManager(characterId, userId) {
-  const res = await _fetch(`${API_BASE}/api/admin/characters/${encodeURIComponent(characterId)}/assign-npc-manager`, {
+  const res = await _fetch(`${API_BASE}/api/admin/characters/${encodeURIComponent(characterId)}/assign-npc-manager/${encodeURIComponent(userId)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ user_id: userId }),
+    body: JSON.stringify({}),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -2510,11 +2526,11 @@ export async function apiGetPlayerbase() {
 }
 
 export async function apiAdminSetBank(characterId, bankBalance) {
-  const res = await _fetch(`${API_BASE}/api/admin/finance/set-bank`, {
+  const res = await _fetch(`${API_BASE}/api/admin/finance/set-bank/${encodeURIComponent(characterId)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ character_id: characterId, bank_balance: bankBalance }),
+    body: JSON.stringify({ bank_balance: bankBalance }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -2524,11 +2540,11 @@ export async function apiAdminSetBank(characterId, bankBalance) {
 }
 
 export async function apiAdminSetSalaryOverride(characterId, override) {
-  const res = await _fetch(`${API_BASE}/api/admin/finance/set-salary-override`, {
+  const res = await _fetch(`${API_BASE}/api/admin/finance/set-salary-override/${encodeURIComponent(characterId)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ character_id: characterId, annual_salary_override: override }),
+    body: JSON.stringify({ annual_salary_override: override }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -2550,11 +2566,11 @@ export async function apiAdminUpdateCharacterProfile(characterId, fields) {
 }
 
 export async function apiAdminSetPositions(characterId, positions) {
-  const res = await _fetch(`${API_BASE}/api/admin/finance/set-positions`, {
+  const res = await _fetch(`${API_BASE}/api/admin/finance/set-positions/${encodeURIComponent(characterId)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ character_id: characterId, positions }),
+    body: JSON.stringify({ positions }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -2564,11 +2580,11 @@ export async function apiAdminSetPositions(characterId, positions) {
 }
 
 export async function apiAdminCreateRevenue(characterId, label, annualAmount) {
-  const res = await _fetch(`${API_BASE}/api/admin/finance/revenue`, {
+  const res = await _fetch(`${API_BASE}/api/admin/finance/revenue/${encodeURIComponent(characterId)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ character_id: characterId, label, annual_amount: annualAmount }),
+    body: JSON.stringify({ label, annual_amount: annualAmount }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -2907,11 +2923,12 @@ export async function apiRejectProfileChange(id) {
 }
 
 export async function apiAddShopPurchase(purchase) {
-  const res = await _fetch(`${API_BASE}/api/me/character/shop-purchases`, {
+  const { item_id, ...rest } = purchase;
+  const res = await _fetch(`${API_BASE}/api/me/character/shop-purchases/${encodeURIComponent(item_id)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(purchase),
+    body: JSON.stringify(rest),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiAddShopPurchase failed (${res.status})`);
@@ -2952,11 +2969,14 @@ export async function apiDismissShopPurchase(id) {
 }
 
 export async function apiAddAdditionalRevenue(characterId, label, annualAmount) {
-  const res = await _fetch(`${API_BASE}/api/me/character/additional-revenue`, {
+  const url = characterId
+    ? `${API_BASE}/api/me/character/additional-revenue/${encodeURIComponent(characterId)}`
+    : `${API_BASE}/api/me/character/additional-revenue`;
+  const res = await _fetch(url, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ character_id: characterId, label, annual_amount: annualAmount }),
+    body: JSON.stringify({ label, annual_amount: annualAmount }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiAddAdditionalRevenue failed (${res.status})`);
@@ -3368,7 +3388,7 @@ export async function apiDenyWhipRequest(partyId, requestId) {
 
 // ── Party expulsion workflow ──────────────────────────────────────────────────
 export async function apiRequestExpulsion(partyId, characterId, reason = "") {
-  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/expulsions`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId, reason }) });
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/expulsions/${encodeURIComponent(characterId)}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ reason }) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiRequestExpulsion failed (${res.status})`);
   return body;
@@ -3409,13 +3429,13 @@ export async function apiGetPartyElection(partyId, electionId) {
   return res.json();
 }
 export async function apiNominateForElection(partyId, electionId, characterId) {
-  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections/${encodeURIComponent(electionId)}/nominate`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId }) });
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections/${encodeURIComponent(electionId)}/nominate/${encodeURIComponent(characterId)}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiNominateForElection failed (${res.status})`);
   return body;
 }
 export async function apiVoteInElection(partyId, electionId, nomineeId) {
-  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections/${encodeURIComponent(electionId)}/vote`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ nominee_id: nomineeId }) });
+  const res = await _fetch(`${API_BASE}/api/parties/${encodeURIComponent(partyId)}/elections/${encodeURIComponent(electionId)}/vote/${encodeURIComponent(nomineeId)}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({}) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiVoteInElection failed (${res.status})`);
   return body;
@@ -3446,13 +3466,13 @@ export async function apiGetPrivyCouncil() {
   return res.json();
 }
 export async function apiAppointPrivyCouncillor(characterId, reason = "") {
-  const res = await _fetch(`${API_BASE}/api/mod/privy-council/appoint`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId, reason }) });
+  const res = await _fetch(`${API_BASE}/api/mod/privy-council/appoint/${encodeURIComponent(characterId)}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ reason }) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiAppointPrivyCouncillor failed (${res.status})`);
   return body;
 }
 export async function apiRemovePrivyCouncillor(characterId, { force = false } = {}) {
-  const res = await _fetch(`${API_BASE}/api/mod/privy-council/remove`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ character_id: characterId, force }) });
+  const res = await _fetch(`${API_BASE}/api/mod/privy-council/remove/${encodeURIComponent(characterId)}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ force }) });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiRemovePrivyCouncillor failed (${res.status})`);
   return body;
@@ -3546,11 +3566,11 @@ export async function apiGetMyFaction() {
 }
 
 export async function apiSwitchMyFaction(faction_id) {
-  const res = await _fetch(`${API_BASE}/api/me/faction/switch`, {
+  const res = await _fetch(`${API_BASE}/api/me/faction/switch/${encodeURIComponent(faction_id)}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ faction_id }),
+    body: JSON.stringify({}),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiSwitchMyFaction failed (${res.status})`);
@@ -3635,11 +3655,12 @@ export async function apiAdminIpcIntegrityCheck() {
 
 /** Admin/mod: replace faction allocations for one arena+party. */
 export async function apiPutOtherOfficialsFactionAllocations(payload) {
-  const res = await _fetch(`${API_BASE}/api/admin/other-officials/faction-allocations`, {
+  const { arena_id, ...rest } = payload;
+  const res = await _fetch(`${API_BASE}/api/admin/other-officials/faction-allocations/${encodeURIComponent(arena_id)}`, {
     method: "PUT",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(sanitizeForSimWrite(payload)),
+    body: JSON.stringify(sanitizeForSimWrite(rest)),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiPutOtherOfficialsFactionAllocations failed (${res.status})`);
@@ -3720,10 +3741,14 @@ export async function apiStaffCreateInternalTicket(payload) {
 }
 
 export async function apiStaffSetInternalTicketCosting(id, payload) {
-  const res = await _fetch(`${API_BASE}/api/staff/internal-tickets/${encodeURIComponent(id)}/costing`, {
+  const { charge_character_id, ...rest } = payload || {};
+  const url = charge_character_id
+    ? `${API_BASE}/api/staff/internal-tickets/${encodeURIComponent(id)}/costing/${encodeURIComponent(charge_character_id)}`
+    : `${API_BASE}/api/staff/internal-tickets/${encodeURIComponent(id)}/costing`;
+  const res = await _fetch(url, {
     method: "PUT", credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify(payload || {}),
+    body: JSON.stringify(rest),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `apiStaffSetInternalTicketCosting failed (${res.status})`);
