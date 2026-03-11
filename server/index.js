@@ -3574,6 +3574,9 @@ async function runDebateAutoClose(month, year) {
     console.error("[debate/auto-close] bill query failed:", err.message);
   }
 }
+
+/**
+ * Called on every clock tick. Closes any open divisions whose closes_at_sim
  * deadline has been reached or passed. Sets outcome = 'expired'.
  * closes_at_sim is stored as TEXT in "YYYY-MM" format.
  *
