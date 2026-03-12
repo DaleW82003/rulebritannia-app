@@ -22,7 +22,7 @@ import {
   apiGetHealth,
   apiGetAdminSnapshotStatus,
   apiGetSimFreeze, apiSetSimFreeze,
-  apiClockStart, apiClockPause, apiClockUnpause,
+  apiClockStart,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
@@ -1009,7 +1009,7 @@ export async function initAdminPanelPage(data) {
       <section class="panel" style="max-width:700px;margin-top:12px;">
         <h2 style="margin-top:0;">Simulation Control <span class="admin-badge">Admin only</span></h2>
         <div style="display:grid;gap:8px;">
-          <div class="muted">Simulation must be started by an admin on Sunday. Sunday is frozen for polls and work; the clock advances Mon–Sat in two blocks (see Tick Rate below).</div>
+          <div class="muted">Simulation must be started by an admin on Sunday. Freeze can only be disabled on a Sunday. The clock advances Mon–Sat in two blocks (see Tick Rate below).</div>
           <div class="kv"><span>Simulation status</span><b>${gs.started ? "Running" : "Not started"}</b></div>
           <div class="kv"><span>Clock anchor (real date)</span><b>${esc(String(gs.startRealDate || "Not set"))}</b></div>
           <div class="kv"><span>Tick Rate</span><b>2 sim months per real week (Mon–Wed: 1 month, Thu–Sat: 1 month, Sun: frozen)</b></div>
@@ -1025,13 +1025,11 @@ export async function initAdminPanelPage(data) {
             </label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn danger" type="button" id="sim-freeze-enable">Enable Freeze</button>
-              <button class="btn" type="button" id="sim-freeze-disable">Disable Freeze</button>
+              <button class="btn" type="button" id="sim-freeze-disable">Disable Freeze (Sunday only)</button>
               <span id="sim-freeze-status" class="muted"></span>
             </div>
           </div>
-          <label class="label" style="margin:0;"><input type="checkbox" id="sim-pause-clock-check" ${gs.isPaused ? "checked" : ""}> Pause game clock (unpause on Sunday only)</label>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn" type="button" id="sim-save-pause-clock">Save Pause Setting</button>
             <button class="btn" type="button" id="sim-start-simulation" ${gs.started || !isSundayToday() ? "disabled" : ""}>Start Simulation (Sunday Only)</button>
           </div>
           ${!gs.started && !isSundayToday() ? `<div class="muted">Start unlocks on Sunday. Next Sunday anchor: <b>${esc(nextSundayIso().slice(0, 10))}</b>.</div>` : ""}
@@ -1437,51 +1435,6 @@ export async function initAdminPanelPage(data) {
     });
 
     // ── Simulation Control ────────────────────────────────────────────────────
-    host.querySelector("#sim-save-pause-clock")?.addEventListener("click", async () => {
-      const wantPaused = !!host.querySelector("#sim-pause-clock-check")?.checked;
-      const wasPaused = !!data.gameState.isPaused;
-      const statusEl = host.querySelector("#sim-control-status");
-      if (wantPaused !== wasPaused) {
-        if (wantPaused && !wasPaused) {
-          data.gameState.isPaused = true;
-          data.gameState.pausedAtRealDate = new Date().toISOString();
-          try {
-            await Promise.all([
-              saveState(data),
-              apiClockPause(),
-            ]);
-          } catch (err) {
-            console.error("[admin-panel] pause failed:", err);
-            if (statusEl) statusEl.textContent = `Pause failed: ${err.message}`;
-            return;
-          }
-        } else if (!wantPaused && wasPaused) {
-          if (!isSundayToday()) {
-            if (statusEl) statusEl.textContent = "Cannot unpause: the simulation may only be unpaused on a Sunday.";
-            return;
-          }
-          const pausedAt = new Date(data.gameState.pausedAtRealDate || new Date().toISOString());
-          const now = new Date();
-          const pauseDurationMs = now.getTime() - pausedAt.getTime();
-          data.gameState.startRealDate = new Date(new Date(data.gameState.startRealDate).getTime() + pauseDurationMs).toISOString();
-          data.gameState.isPaused = false;
-          data.gameState.pausedAtRealDate = "";
-          try {
-            await Promise.all([
-              saveState(data),
-              apiClockUnpause(),
-            ]);
-          } catch (err) {
-            console.error("[admin-panel] unpause failed:", err);
-            if (statusEl) statusEl.textContent = `Unpause failed: ${err.message}`;
-            return;
-          }
-        }
-        if (statusEl) statusEl.textContent = `Game clock ${data.gameState.isPaused ? "paused" : "unpaused"}.`;
-        render();
-      }
-    });
-
     host.querySelector("#sim-force-sunday-roll")?.addEventListener("click", () => {
       if (!confirm("⚠ Force Sunday Roll will trigger all Sunday roll logic immediately. This cannot be undone. Proceed?")) return;
       runSundayRoll(data);
@@ -1517,6 +1470,10 @@ export async function initAdminPanelPage(data) {
         if (statusEl) statusEl.textContent = "Applying…";
         const result = await apiSetSimFreeze({ is_frozen: true, reason: String(reasonInput?.value || "").trim() || null });
         simFreeze = result?.freeze ?? simFreeze;
+        // Update local UI state to reflect the server-side pause (server also sets sim_clock.is_paused).
+        data.gameState ??= {};
+        data.gameState.isPaused = true;
+        data.gameState.pausedAtRealDate = new Date().toISOString();
         if (statusEl) statusEl.textContent = "Freeze enabled.";
         render();
       } catch (e) {
@@ -1527,10 +1484,18 @@ export async function initAdminPanelPage(data) {
     host.querySelector("#sim-freeze-disable")?.addEventListener("click", async () => {
       const reasonInput = host.querySelector("#sim-freeze-reason");
       const statusEl = host.querySelector("#sim-freeze-status");
+      if (!isSundayToday()) {
+        if (statusEl) statusEl.textContent = "Cannot disable freeze: only permitted on Sundays.";
+        return;
+      }
       try {
         if (statusEl) statusEl.textContent = "Applying…";
         const result = await apiSetSimFreeze({ is_frozen: false, reason: String(reasonInput?.value || "").trim() || null });
         simFreeze = result?.freeze ?? simFreeze;
+        // Update local UI state to reflect the server-side unpause (server also clears sim_clock.is_paused).
+        data.gameState ??= {};
+        data.gameState.isPaused = false;
+        data.gameState.pausedAtRealDate = "";
         if (statusEl) statusEl.textContent = "Freeze disabled.";
         render();
       } catch (e) {

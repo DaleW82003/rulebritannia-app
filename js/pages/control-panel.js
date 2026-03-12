@@ -20,6 +20,7 @@ import {
   apiAdminSeed1997Factions,
   apiGetOtherOfficialsArenasTotals, apiGetOtherOfficialsFactionAllocations, apiPutOtherOfficialsFactionAllocations,
   apiAdminIpcIntegrityCheck, apiAdminTriggerFactionFreeze,
+  apiGetEconomyData,
 } from "../api.js";
 
 const CONTROL_LINKS = [
@@ -104,6 +105,7 @@ export async function initControlPanelPage(data) {
   let activeDbChars = [];
   let shopPriceData = { priceIndex: 1.0, lastAppliedSimMonth: null, lastAppliedSimYear: null };
   let financeConfig = { salaryBands: {}, startingBalances: {}, financeCostIndex: 1.0, lastSalaryBandsSimYear: null, lastStartingBalancesSimYear: null, lastInflationSimYear: null, currentSimYear: null };
+  let economyData = {};
   await Promise.all([
     manager
       ? apiGetCharacterApplications("pending").catch(() => ({ applications: [] })).then((r) => { pendingApplications = r.applications; })
@@ -117,9 +119,14 @@ export async function initControlPanelPage(data) {
     canEdit
       ? apiGetFinanceConfig().catch(() => ({})).then((r) => { financeConfig = { ...financeConfig, ...r }; })
       : Promise.resolve(),
+    canEdit
+      ? apiGetEconomyData().catch(() => ({})).then((r) => { economyData = r; })
+      : Promise.resolve(),
   ]);
 
-  const economyInflationPct = Number(data?.economyPage?.topline?.inflation || 0);
+  // Use app_config economy_page_data as the canonical source for the inflation rate;
+  // fall back to the snapshot economyPage for legacy/demo compatibility.
+  const economyInflationPct = Number(economyData?.topline?.inflation || data?.economyPage?.topline?.inflation || 0);
 
   rolePanels.innerHTML = `
     <section class="panel" style="margin-bottom:12px;">
