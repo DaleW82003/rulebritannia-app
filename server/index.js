@@ -23624,11 +23624,11 @@ async function getOtherOfficialsTotalsForPlayableParties() {
     const bodyId = String(row?.id || body?.id || "").trim();
     if (!bodyId) continue;
 
-    if (bodyId === "house-of-lords") {
+    if (bodyId === "lords") {
       totalsByArena["body:lords"] = buildPlayablePartyTotalsFromRows(body?.partyBreakdown, "seats");
       continue;
     }
-    if (bodyId === "european-parliament") {
+    if (bodyId === "europarl") {
       totalsByArena["body:europarl"] = buildPlayablePartyTotalsFromRows(body?.partyBreakdown, "seats");
       continue;
     }
