@@ -850,7 +850,9 @@ async function ensureSchema() {
 
   await pool.query(`ALTER TABLE division_votes ADD COLUMN IF NOT EXISTS effective_weight INTEGER NOT NULL DEFAULT 1;`);
   await pool.query(`ALTER TABLE division_votes ADD COLUMN IF NOT EXISTS delegation_source_character_id UUID REFERENCES characters(id) ON DELETE SET NULL;`);
+  await pool.query(`ALTER TABLE division_votes ADD COLUMN IF NOT EXISTS vote_locked BOOLEAN NOT NULL DEFAULT FALSE;`);
   await pool.query(`ALTER TABLE divisions ADD COLUMN IF NOT EXISTS immutable_result JSONB;`);
+  await pool.query(`ALTER TABLE divisions ADD COLUMN IF NOT EXISTS weight_snapshot JSONB;`);
 
   // ── Question Time (structured tables) ────────────────────────────────────
   await pool.query(`
@@ -3537,6 +3539,61 @@ async function runDebateAutoClose(month, year) {
 }
 
 /**
+ * Compute a weight snapshot for a division.
+ * Reads active players from the current game-state snapshot, enriches them with
+ * sim join dates from the characters table, then computes effective weights with
+ * `applyDelegation: true` (absent players' weights flow to their delegate).
+ *
+ * When `rebelsByParty` is provided (staff-set rebel counts), the available seat
+ * pool for each playable party is reduced by the rebel count BEFORE computing
+ * player weights.  This ensures active players share only the non-rebel portion
+ * of their party's seats (e.g., Labour 418 seats − 18 rebels = 400 for players).
+ * The rebel votes themselves are tracked separately via `rebels_by_party`.
+ *
+ * The returned object is stored in `divisions.weight_snapshot` so that:
+ *   1. Vote weights are locked in at division-open time (or when rebels change).
+ *   2. The tally is consistent regardless of when characters vote.
+ *   3. Rebel-adjusted weights always give the correct player pool.
+ *
+ * The oddment (remainder after equal division) always goes to the party leader,
+ * as enforced by `computeAllPlayerWeights`.
+ *
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {object} [rebelsByParty] - { partyName: rebelCount } from divisions.rebels_by_party
+ * @returns {Promise<{effectiveWeights:object, baseWeights:object, capturedAt:string, simMonth:number|null, simYear:number|null}>}
+ */
+async function buildDivisionWeightSnapshot(db, rebelsByParty = {}) {
+  const [rawSeatsByParty, stateResult, clockResult] = await Promise.all([
+    getPartySeatsFromConstituencies(db),
+    db.query(`SELECT ss.data FROM state_snapshots ss
+                JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+               WHERE asc2.id = 'main'`),
+    db.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"),
+  ]);
+
+  // Reduce each playable party's seat pool by their rebel count so that active
+  // players share only the non-rebel seats.  The rebels vote in their own direction
+  // and are never part of the player weight pool.
+  const seatsByParty = { ...rawSeatsByParty };
+  for (const [party, rebels] of Object.entries(rebelsByParty || {})) {
+    if (seatsByParty[party] !== undefined) {
+      seatsByParty[party] = Math.max(0, seatsByParty[party] - Number(rebels || 0));
+    }
+  }
+
+  const rawStatePlayers = Array.isArray(stateResult.rows[0]?.data?.players) ? stateResult.rows[0].data.players : [];
+  const simMonth = clockResult.rows[0]?.sim_current_month ?? null;
+  const simYear  = clockResult.rows[0]?.sim_current_year  ?? null;
+  const enrichedPlayers = await batchEnrichPlayersWithSimJoinDates(db, rawStatePlayers);
+  const { effectiveWeights, baseWeights } = computeAllPlayerWeights(seatsByParty, enrichedPlayers, {
+    applyDelegation: true,
+    currentSimMonth: simMonth,
+    currentSimYear:  simYear,
+  });
+  return { effectiveWeights, baseWeights, capturedAt: new Date().toISOString(), simMonth, simYear, rebelsByParty };
+}
+
+/**
  * Called on every clock tick. Closes any open divisions whose closes_at_sim
  * deadline has been reached or passed.  Computes the actual tally from cast
  * votes, staff-set NPC votes, and staff-set rebel counts; stores the outcome
@@ -3557,7 +3614,7 @@ async function runDivisionAutoClose(month, year) {
   let expiredRows;
   try {
     const { rows } = await pool.query(
-      `SELECT id, entity_type, entity_id, title, npc_votes, rebels_by_party, rebels_by_party_choice
+      `SELECT id, entity_type, entity_id, title, npc_votes, rebels_by_party, rebels_by_party_choice, weight_snapshot
          FROM divisions
         WHERE status = 'open'
           AND (
@@ -3589,11 +3646,12 @@ async function runDivisionAutoClose(month, year) {
     const npcVotes       = div.npc_votes              || {};
     const rebelsByPty    = div.rebels_by_party        || {};
     const rebelChoicePty = div.rebels_by_party_choice || {};
+    const openTimeWeights = div.weight_snapshot?.effectiveWeights || null;
 
-    // Compute tally from player votes + NPC data
+    // Compute tally from player votes + NPC data (using snapshot weights for consistency)
     let tally = { aye: 0, no: 0, abstain: 0 };
     try {
-      ({ tally } = await computeDivisionTallyFromDb(pool, div.id, npcVotes, rebelsByPty, rebelChoicePty, seatsByParty));
+      ({ tally } = await computeDivisionTallyFromDb(pool, div.id, npcVotes, rebelsByPty, rebelChoicePty, seatsByParty, { weightSnapshot: openTimeWeights }));
     } catch (tallyErr) {
       console.error(`[division/auto-close] tally failed for division ${div.id}:`, tallyErr.message);
       // Fall through — outcome will be "expired"
@@ -3922,12 +3980,16 @@ async function runBillAutoAdvance(month, year) {
         [JSON.stringify(stagePatch), bill.id]
       );
 
-      // 2. Open the formal division (1 sim month window)
+      // 2. Open the formal division (1 sim month window) with a weight snapshot
+      let divisionWeightSnapshot = null;
+      try { divisionWeightSnapshot = await buildDivisionWeightSnapshot(pool); } catch (wsErr) {
+        console.warn(`[bill/auto-advance] weight snapshot failed for bill ${bill.id}:`, wsErr.message);
+      }
       const { rows: divRows } = await pool.query(
-        `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
-         VALUES ('bill', $1, $2, $3)
+        `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim, weight_snapshot)
+         VALUES ('bill', $1, $2, $3, $4::jsonb)
          RETURNING id`,
-        [bill.id, `Final Division: ${title}`, closesAtSim]
+        [bill.id, `Final Division: ${title}`, closesAtSim, divisionWeightSnapshot ? JSON.stringify(divisionWeightSnapshot) : null]
       );
       const divisionId = divRows[0].id;
 
@@ -7479,11 +7541,13 @@ app.post("/api/bills/:id/amendments/:aid/decide", crudWriteLimit, async (req, re
         const sm = clk[0]?.sim_current_month ?? 8;
         const sy = clk[0]?.sim_current_year  ?? 1997;
         const closesAtSim = nextSimMonth(sm, sy);
+        let amendmentWeightSnapshot = null;
+        try { amendmentWeightSnapshot = await buildDivisionWeightSnapshot(pool); } catch { /* best-effort */ }
         const { rows: divRows } = await pool.query(
-          `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
-           VALUES ('bill-amendment', $1, $2, $3)
+          `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim, weight_snapshot)
+           VALUES ('bill-amendment', $1, $2, $3, $4::jsonb)
            RETURNING id`,
-          [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim]
+          [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim, amendmentWeightSnapshot ? JSON.stringify(amendmentWeightSnapshot) : null]
         );
         await pool.query(
           `UPDATE bill_amendments SET status = 'in-division', division_id = $3, updated_at = NOW()
@@ -7558,11 +7622,13 @@ app.post("/api/bills/:id/amendments/:aid/support", crudWriteLimit, async (req, r
       const sy = clk[0]?.sim_current_year  ?? 1997;
       const bill = billRows[0]?.data || {};
       const closesAtSim = nextSimMonth(sm, sy);
+      let supportWeightSnapshot = null;
+      try { supportWeightSnapshot = await buildDivisionWeightSnapshot(pool); } catch { /* best-effort */ }
       const { rows: divRows } = await pool.query(
-        `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
-         VALUES ('bill-amendment', $1, $2, $3)
+        `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim, weight_snapshot)
+         VALUES ('bill-amendment', $1, $2, $3, $4::jsonb)
          RETURNING id`,
-        [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim]
+        [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim, supportWeightSnapshot ? JSON.stringify(supportWeightSnapshot) : null]
       );
       await pool.query(
         `UPDATE bill_amendments SET status = 'in-division', division_id = $3, updated_at = NOW()
@@ -7659,11 +7725,15 @@ app.post("/api/bills/:id/final-division", crudWriteLimit, async (req, res) => {
     const sy = clk[0]?.sim_current_year  ?? 1997;
     const closesAtSim = nextSimMonth(sm, sy);
 
+    let finalDivisionWeightSnapshot = null;
+    try { finalDivisionWeightSnapshot = await buildDivisionWeightSnapshot(pool); } catch (wsErr) {
+      console.warn("[bill/final-division] weight snapshot failed:", wsErr.message);
+    }
     const { rows: divRows } = await pool.query(
-      `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
-       VALUES ('bill', $1, $2, $3)
+      `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim, weight_snapshot)
+       VALUES ('bill', $1, $2, $3, $4::jsonb)
        RETURNING id, entity_type, entity_id, title, status, closes_at_sim, created_at`,
-      [req.params.id, `Final Division: ${bill.title || req.params.id}`, closesAtSim]
+      [req.params.id, `Final Division: ${bill.title || req.params.id}`, closesAtSim, finalDivisionWeightSnapshot ? JSON.stringify(finalDivisionWeightSnapshot) : null]
     );
 
     // Record division id in bill data
@@ -16488,7 +16558,7 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query(
       `SELECT id, entity_type, entity_id, title, status, closes_at, created_at,
-              npc_votes, rebels_by_party, rebels_by_party_choice
+              npc_votes, rebels_by_party, rebels_by_party_choice, weight_snapshot
          FROM divisions WHERE id = $1`,
       [req.params.id]
     );
@@ -16498,9 +16568,13 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
     const rebelP  = rows[0].rebels_by_party      || {};
     const rebelCh = rows[0].rebels_by_party_choice || {};
     const seatsByParty = await getPartySeatsFromConstituencies(pool);
+    const snapshotWeights = rows[0].weight_snapshot?.effectiveWeights || null;
 
-    // Tally + per-party breakdown (includes NPC seats, rebels, Sinn Féin auto-abstain)
-    const { tally, byParty } = await computeDivisionTallyFromDb(pool, req.params.id, npcV, rebelP, rebelCh, seatsByParty);
+    // Tally + per-party breakdown (includes NPC seats, rebels, Sinn Féin auto-abstain, absent)
+    const { tally, byParty, absentWeight } = await computeDivisionTallyFromDb(
+      pool, req.params.id, npcV, rebelP, rebelCh, seatsByParty,
+      { weightSnapshot: snapshotWeights }
+    );
 
     const { rows: delegations } = await pool.query(
       `SELECT character_id, delegation_source_character_id
@@ -16512,7 +16586,7 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
 
     const immutableResult = rows[0].immutable_result || null;
 
-    res.json({ division: rows[0], tally, byParty, seatsByParty, delegationMap: delegations, immutableResult });
+    res.json({ division: rows[0], tally, byParty, absentWeight, seatsByParty, delegationMap: delegations, immutableResult });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -16547,11 +16621,15 @@ app.post("/api/divisions/create/:entityType/:entityId", divWriteLimit, async (re
       }
     }
 
+    let newDivisionWeightSnapshot = null;
+    try { newDivisionWeightSnapshot = await buildDivisionWeightSnapshot(pool); } catch (wsErr) {
+      console.warn("[division/create] weight snapshot failed:", wsErr.message);
+    }
     const { rows } = await pool.query(
-      `INSERT INTO divisions (entity_type, entity_id, title, closes_at, closes_at_sim)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO divisions (entity_type, entity_id, title, closes_at, closes_at_sim, weight_snapshot)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
        RETURNING id, entity_type, entity_id, title, status, closes_at, closes_at_sim, npc_votes, rebels_by_party, rebels_by_party_choice, outcome, created_at`,
-      [entity_type, String(entity_id), title, closes_at || null, closes_at_sim || null]
+      [entity_type, String(entity_id), title, closes_at || null, closes_at_sim || null, newDivisionWeightSnapshot ? JSON.stringify(newDivisionWeightSnapshot) : null]
     );
     await writeAuditLog(req.session.userId, "division.create", "division", rows[0].id, null, rows[0]);
     res.status(201).json({ ok: true, division: rows[0] });
@@ -16568,7 +16646,7 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const { entityType, entityId } = req.params;
     const { rows } = await pool.query(
       `SELECT id, entity_type, entity_id, title, status, closes_at, closes_at_sim,
-              npc_votes, rebels_by_party, rebels_by_party_choice, outcome, created_at
+              npc_votes, rebels_by_party, rebels_by_party_choice, outcome, created_at, weight_snapshot
          FROM divisions WHERE entity_type = $1 AND entity_id = $2
         ORDER BY created_at DESC LIMIT 1`,
       [entityType, entityId]
@@ -16580,22 +16658,25 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const rebelP  = division.rebels_by_party      || {};
     const rebelCh = division.rebels_by_party_choice || {};
     const seatsByParty = await getPartySeatsFromConstituencies(pool);
+    const snapshotWeights = division.weight_snapshot?.effectiveWeights || null;
 
-    // Tally + per-party breakdown (includes NPC seats, rebels, Sinn Féin auto-abstain)
-    const { tally, byParty } = await computeDivisionTallyFromDb(pool, division.id, npcV, rebelP, rebelCh, seatsByParty);
+    // Tally + per-party breakdown + absent weight (characters in snapshot who didn't vote)
+    const { tally, byParty, absentWeight } = await computeDivisionTallyFromDb(
+      pool, division.id, npcV, rebelP, rebelCh, seatsByParty,
+      { weightSnapshot: snapshotWeights }
+    );
 
-    // Caller's own vote and effective weight
+    // Caller's own vote and snapshotted weight (falls back to live computation for old divisions)
     const charId = await getActiveCharacterId(req);
     let myVote = null;
     let myWeight = 0;
     if (charId) {
       const { rows: mv } = await pool.query(
-        "SELECT vote, effective_weight AS weight FROM division_votes WHERE division_id = $1 AND character_id = $2",
+        "SELECT vote, vote_locked, effective_weight AS weight FROM division_votes WHERE division_id = $1 AND character_id = $2",
         [division.id, charId]
       );
       myVote = mv[0] || null;
 
-      // Compute the caller's current effective weight from constituencies DB, minus rebels for their party
       try {
         const { rows: charRows } = await pool.query(
           "SELECT name, party, whip_status, joined_sim_month, joined_sim_year FROM characters WHERE id = $1", [charId]
@@ -16605,7 +16686,11 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
         const whipWithdrawn = charRows[0]?.whip_status === "withdrawn";
         if (whipWithdrawn) {
           myWeight = 1;
+        } else if (snapshotWeights && charName && snapshotWeights[charName] !== undefined) {
+          // Use the weight locked in at division open time
+          myWeight = Number(snapshotWeights[charName]);
         } else {
+          // Fallback for legacy divisions without a snapshot
           const [seatsByPartyFresh, stateResult, clockResult] = await Promise.all([
             getPartySeatsFromConstituencies(pool),
             pool.query(`SELECT ss.data FROM state_snapshots ss
@@ -16619,7 +16704,6 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
           const statePlayers = await batchEnrichPlayersWithSimJoinDates(pool, rawStatePlayers);
           const { effectiveWeights } = computeAllPlayerWeights(seatsByPartyFresh, statePlayers, { currentSimMonth: simMonthFE, currentSimYear: simYearFE });
           const rawWeight = Number(effectiveWeights[charName] || 0);
-          // Deduct rebel fraction from myWeight display
           const partyRebels = Number(division.rebels_by_party?.[charParty] ?? 0);
           if (partyRebels > 0 && rawWeight > 0) {
             const partyTotalWeight = Object.entries(effectiveWeights)
@@ -16634,10 +16718,10 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
             myWeight = rawWeight;
           }
         }
-      } catch (wErr) { console.error("[division.for-entity myWeight]", wErr.message); /* weight display is best-effort */ }
+      } catch (wErr) { console.error("[division.for-entity myWeight]", wErr.message); }
     }
 
-    res.json({ division, tally, byParty, seatsByParty, myVote, myWeight });
+    res.json({ division, tally, byParty, absentWeight, seatsByParty, myVote, myWeight });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -16663,9 +16747,9 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
     const charId = await getActiveCharacterId(req);
     if (!charId) return res.status(403).json({ error: "No active character. Select a character first." });
 
-    // Verify division is open
+    // Verify division is open and load weight snapshot
     const { rows: divRows } = await pool.query(
-      "SELECT id, status FROM divisions WHERE id = $1",
+      "SELECT id, status, weight_snapshot, npc_votes, rebels_by_party, rebels_by_party_choice FROM divisions WHERE id = $1",
       [req.params.id]
     );
     if (!divRows.length) return res.status(404).json({ error: "Division not found" });
@@ -16680,14 +16764,21 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
     const whipWithdrawn  = charRows[0]?.whip_status === "withdrawn";
     const isNpc          = Boolean(charRows[0]?.is_npc);
 
-    // Compute effective weight server-side:
-    //   seats from constituencies DB (authoritative source)
-    //   player list from game state (for absence/delegation)
-    //   MPs with whip withdrawn vote as Independents with weight=1
-    //   NPC characters not present in state are injected synthetically to receive their party share.
+    // Effective weight: use the weight snapshot captured at division-open time so the
+    // result is consistent regardless of when the character actually votes.
+    // whipWithdrawn is checked FIRST and always takes priority over the snapshot —
+    // a whip suspended after the division opened must still vote as an independent (weight=1).
+    // If the snapshot is missing (legacy division), fall back to live computation.
     let effectiveWeight = 1;
+    const snapshotWeights = divRows[0]?.weight_snapshot?.effectiveWeights || null;
     try {
-      if (!whipWithdrawn) {
+      if (whipWithdrawn) {
+        effectiveWeight = 1; // Whip-withdrawn MPs vote as independent weight=1; overrides snapshot
+      } else if (snapshotWeights && charName && snapshotWeights[charName] !== undefined) {
+        // Use the weight locked in at division open time (respects delegation at open time)
+        effectiveWeight = Number(snapshotWeights[charName]);
+      } else {
+        // Fallback: live computation for old divisions without a snapshot
         const seatsByParty = await getPartySeatsFromConstituencies(pool);
         const { rows: stateRows } = await pool.query(
           `SELECT ss.data FROM state_snapshots ss
@@ -16705,21 +16796,65 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
           joinedSimYear:  charRows[0].joined_sim_year  ?? null,
         });
       }
-      // whipWithdrawn: effectiveWeight stays 1
     } catch (wErr) {
       console.error("[division.vote weight-calc]", wErr.message);
       // Fall back to weight=1 so the vote is still recorded
     }
 
+    // ── Vote finality state machine ───────────────────────────────────────────
+    // Rules:
+    //   • Locked vote (vote_locked=true) → completely immutable; return 409.
+    //   • Aye/No locked in (not yet locked): can only switch to the opposing
+    //     direction, which collapses the vote to "abstain" + vote_locked=true.
+    //     Attempting to directly set "abstain" on a firm aye/no is blocked.
+    //   • Abstain (initial, not locked): freely upgradeable to aye or no.
+    //   • No prior vote: any direction is allowed.
+    const { rows: existingVoteRows } = await pool.query(
+      `SELECT vote, vote_locked FROM division_votes WHERE division_id = $1 AND character_id = $2`,
+      [req.params.id, charId]
+    );
+    const existing = existingVoteRows[0] || null;
+    let finalVote = vote;
+    let voteLocked = false;
+
+    if (existing) {
+      if (existing.vote_locked) {
+        return res.status(409).json({
+          error: "Your vote is final and cannot be changed.",
+          vote: existing.vote,
+          vote_locked: true,
+        });
+      }
+      const prev = existing.vote;
+      if (prev === "aye" || prev === "no") {
+        const opposite = prev === "aye" ? "no" : "aye";
+        if (vote === opposite) {
+          // Voted both directions → collapses to abstain, permanently locked
+          finalVote = "abstain";
+          voteLocked = true;
+        } else if (vote === "abstain") {
+          // Cannot directly abstain when locked on a firm aye/no
+          return res.status(409).json({
+            error: `Your vote is locked to ${prev.toUpperCase()}. To abstain, vote ${opposite.toUpperCase()} instead — this will collapse both votes to Abstain (final).`,
+            vote: prev,
+            vote_locked: false,
+          });
+        }
+        // vote === prev is a no-op — fall through to upsert with unchanged values
+      }
+      // prev === "abstain" (initial, not locked): any new direction is fine
+    }
+
     // Save vote (upsert) — client-supplied weight is always ignored
     const { rows: voteRows } = await pool.query(
-      `INSERT INTO division_votes (division_id, character_id, vote, weight, effective_weight, delegation_source_character_id)
-       VALUES ($1, $2, $3, $4, $4, NULL)
+      `INSERT INTO division_votes (division_id, character_id, vote, weight, effective_weight, vote_locked, delegation_source_character_id)
+       VALUES ($1, $2, $3, $4, $4, $5, NULL)
        ON CONFLICT (division_id, character_id)
        DO UPDATE SET vote = EXCLUDED.vote, weight = EXCLUDED.weight, effective_weight = EXCLUDED.effective_weight,
+                     vote_locked = EXCLUDED.vote_locked,
                      delegation_source_character_id = NULL, voted_at = NOW()
-       RETURNING id, division_id, character_id, vote, weight, effective_weight, delegation_source_character_id, voted_at`,
-      [req.params.id, charId, vote, effectiveWeight]
+       RETURNING id, division_id, character_id, vote, weight, effective_weight, vote_locked, delegation_source_character_id, voted_at`,
+      [req.params.id, charId, finalVote, effectiveWeight, voteLocked]
     );
 
     // Rebellion logging: keep a single authoritative rebellion record per (division, character)
@@ -16741,7 +16876,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 
         if (instrRows.length) {
           const instr = instrRows[0];
-          if (instr.position !== "free" && instr.position !== vote) {
+          if (instr.position !== "free" && instr.position !== finalVote) {
             // Get current sim date for recording
             const { rows: clk } = await pool.query(
               "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
@@ -16753,7 +16888,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
               `INSERT INTO division_rebellion_log
                  (division_id, character_id, party_slug, party_position, mp_vote, whip_level, recorded_at_sim)
                VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-              [req.params.id, charId, charParty, instr.position, vote, instr.whip_level, simStr]
+              [req.params.id, charId, charParty, instr.position, finalVote, instr.whip_level, simStr]
             );
           }
         }
@@ -16762,13 +16897,29 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
       }
     }
 
-    // Return updated tally
-    const { rows: tallyRows } = await pool.query(
-      `SELECT vote, SUM(effective_weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
-      [req.params.id]
-    );
-    const tally = { aye: 0, no: 0, abstain: 0 };
-    tallyRows.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
+    // Return full tally (mirrors computeDivisionTallyFromDb used by GET endpoints and final auto-close).
+    // This ensures the live display always matches what the final result will show.
+    let tally = { aye: 0, no: 0, abstain: 0 };
+    let byParty = {};
+    let absentWeight = 0;
+    try {
+      const npcV    = divRows[0].npc_votes            || {};
+      const rebelP  = divRows[0].rebels_by_party      || {};
+      const rebelCh = divRows[0].rebels_by_party_choice || {};
+      const seatsForTally = await getPartySeatsFromConstituencies(pool);
+      ({ tally, byParty, absentWeight } = await computeDivisionTallyFromDb(
+        pool, req.params.id, npcV, rebelP, rebelCh, seatsForTally,
+        { weightSnapshot: snapshotWeights }
+      ));
+    } catch (tallyErr) {
+      console.error("[division.vote tally]", tallyErr.message);
+      // non-fatal: return basic sum as fallback
+      const { rows: tallyRows } = await pool.query(
+        `SELECT vote, SUM(effective_weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
+        [req.params.id]
+      );
+      tallyRows.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
+    }
 
     let recompute;
     // Non-blocking: recompute political state after vote (rebellion may have been logged)
@@ -16782,7 +16933,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
       fireRecompute("character-political-state", "division.vote", () => recomputeCharacterPoliticalState(charId), { scope: recompute.target.scope, id: recompute.target.id });
     }
 
-    res.json({ ok: true, vote: voteRows[0], tally, recompute });
+    res.json({ ok: true, vote: voteRows[0], tally, byParty, absentWeight, recompute });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -16803,7 +16954,7 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
     try {
       await client.query("BEGIN");
       const { rows: divRows } = await client.query(
-        "SELECT id, status, entity_type, entity_id, title, npc_votes, rebels_by_party, rebels_by_party_choice FROM divisions WHERE id = $1 FOR UPDATE",
+        "SELECT id, status, entity_type, entity_id, title, npc_votes, rebels_by_party, rebels_by_party_choice, weight_snapshot FROM divisions WHERE id = $1 FOR UPDATE",
         [req.params.id]
       );
       if (!divRows.length) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Division not found" }); }
@@ -16812,9 +16963,10 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
       const npcVotes    = divRows[0].npc_votes            || {};
       const rebelsByPty = divRows[0].rebels_by_party      || {};
       const rebelChoicePty = divRows[0].rebels_by_party_choice || {};
+      const closingSnapshotWeights = divRows[0].weight_snapshot?.effectiveWeights || null;
 
       // Shared tally logic (identical to GET endpoints)
-      const { tally } = await computeDivisionTallyFromDb(client, req.params.id, npcVotes, rebelsByPty, rebelChoicePty, seatsByParty);
+      const { tally } = await computeDivisionTallyFromDb(client, req.params.id, npcVotes, rebelsByPty, rebelChoicePty, seatsByParty, { weightSnapshot: closingSnapshotWeights });
 
       const outcome = tally.aye > tally.no ? "passed" : tally.no > tally.aye ? "failed" : "tied";
       const immutableResult = { tally, outcome, closedAt: new Date().toISOString() };
@@ -16846,11 +16998,31 @@ app.patch("/api/divisions/:id/npc-votes", divWriteLimit, async (req, res) => {
     if (!canSet) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
     const { npc_votes = {}, rebels_by_party = {}, rebels_by_party_choice = {} } = req.body || {};
+
+    // Rebuild weight snapshot with updated rebel counts so player weights reflect
+    // the rebel-reduced seat pool (e.g. Labour 418 − 18 rebels = 400 for players).
+    let updatedSnapshot = null;
+    try {
+      updatedSnapshot = await buildDivisionWeightSnapshot(pool, rebels_by_party);
+    } catch (wsErr) {
+      console.warn("[npc-votes] weight snapshot rebuild failed:", wsErr.message);
+    }
+
     const { rows } = await pool.query(
-      `UPDATE divisions SET npc_votes = $1::jsonb, rebels_by_party = $2::jsonb, rebels_by_party_choice = $4::jsonb
+      `UPDATE divisions
+          SET npc_votes = $1::jsonb,
+              rebels_by_party = $2::jsonb,
+              rebels_by_party_choice = $4::jsonb,
+              weight_snapshot = COALESCE($5::jsonb, weight_snapshot)
         WHERE id = $3
        RETURNING id, npc_votes, rebels_by_party, rebels_by_party_choice`,
-      [JSON.stringify(npc_votes), JSON.stringify(rebels_by_party), req.params.id, JSON.stringify(rebels_by_party_choice)]
+      [
+        JSON.stringify(npc_votes),
+        JSON.stringify(rebels_by_party),
+        req.params.id,
+        JSON.stringify(rebels_by_party_choice),
+        updatedSnapshot ? JSON.stringify(updatedSnapshot) : null,
+      ]
     );
     if (!rows.length) return res.status(404).json({ error: "Division not found" });
     res.json({ ok: true, division: rows[0] });

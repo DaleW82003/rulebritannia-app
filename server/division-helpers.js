@@ -515,6 +515,12 @@ export function computeCharacterWeight(seatsByParty, statePlayers, charName, cha
  *   3. Playable-party rebel deductions and re-crediting
  *   4. Sinn Féin auto-abstain
  *
+ * When `weightSnapshot` is provided (the division's stored `weight_snapshot.effectiveWeights`),
+ * `absentWeight` is also computed: the sum of allocated weights for characters who have
+ * NOT yet cast a vote.  Characters who are profile-absent+delegating already have
+ * their weight reflected in their delegate's snapshotted effective weight, so they
+ * do NOT appear in `absentWeight` once their delegate votes.
+ *
  * The `db` parameter accepts either a Pool or a PoolClient so callers inside
  * a transaction can pass their client directly.
  *
@@ -524,27 +530,54 @@ export function computeCharacterWeight(seatsByParty, statePlayers, charName, cha
  * @param {object} rebelsByParty - { partyName: rebelCount }
  * @param {object} rebelsByPartyChoice - { partyName: "aye"|"no"|"abstain" }
  * @param {object} seatsByParty  - { partyName: seatCount } from constituencies DB
- * @returns {Promise<{tally:{aye:number,no:number,abstain:number}, byParty:object}>}
+ * @param {object} [opts]
+ * @param {object|null} [opts.weightSnapshot] - effectiveWeights map from divisions.weight_snapshot
+ * @returns {Promise<{tally:{aye:number,no:number,abstain:number}, byParty:object, absentWeight:number}>}
  */
-export async function computeDivisionTallyFromDb(db, divisionId, npcVotes, rebelsByParty, rebelsByPartyChoice, seatsByParty) {
-  // 1. Player votes — aggregated by party and direction
-  const { rows: pvRows } = await db.query(
-    `SELECT COALESCE(c.party, 'Independent') AS party, dv.vote,
-            SUM(dv.effective_weight) AS weight
-       FROM division_votes dv
-       LEFT JOIN characters c ON c.id = dv.character_id
-      WHERE dv.division_id = $1
-      GROUP BY COALESCE(c.party, 'Independent'), dv.vote`,
-    [divisionId]
-  );
-
+export async function computeDivisionTallyFromDb(db, divisionId, npcVotes, rebelsByParty, rebelsByPartyChoice, seatsByParty, { weightSnapshot = null } = {}) {
   const tally = { aye: 0, no: 0, abstain: 0 };
   const partyVoteMap = {};
-  for (const pv of pvRows) {
-    const w = Number(pv.weight || 0);
-    if (tally[pv.vote] !== undefined) tally[pv.vote] += w;
-    if (!partyVoteMap[pv.party]) partyVoteMap[pv.party] = {};
-    partyVoteMap[pv.party][pv.vote] = (partyVoteMap[pv.party][pv.vote] || 0) + w;
+
+  // 1. Player votes
+  // When a weight snapshot is available (always the case for divisions opened after this
+  // feature shipped), use the SNAPSHOT weight for each character rather than the stored
+  // effective_weight in division_votes.  This is critical because:
+  //   a) The snapshot is rebuilt whenever rebels are set (PATCH /api/divisions/:id/npc-votes),
+  //      so it always reflects the rebel-adjusted seat pool.
+  //   b) Players who voted before rebels were set will have stored effective_weight based
+  //      on the full seat count; the snapshot corrects this retroactively for the tally.
+  // Legacy divisions (no snapshot) fall back to the stored effective_weight.
+  if (weightSnapshot && typeof weightSnapshot === "object") {
+    const { rows: voteRows } = await db.query(
+      `SELECT c.name, COALESCE(c.party, 'Independent') AS party, dv.vote
+         FROM division_votes dv
+         JOIN characters c ON c.id = dv.character_id
+        WHERE dv.division_id = $1`,
+      [divisionId]
+    );
+    for (const row of voteRows) {
+      const w = Number(weightSnapshot[row.name] ?? 0);
+      if (tally[row.vote] !== undefined) tally[row.vote] += w;
+      if (!partyVoteMap[row.party]) partyVoteMap[row.party] = {};
+      partyVoteMap[row.party][row.vote] = (partyVoteMap[row.party][row.vote] || 0) + w;
+    }
+  } else {
+    // Legacy: use stored effective_weight
+    const { rows: pvRows } = await db.query(
+      `SELECT COALESCE(c.party, 'Independent') AS party, dv.vote,
+              SUM(dv.effective_weight) AS weight
+         FROM division_votes dv
+         LEFT JOIN characters c ON c.id = dv.character_id
+        WHERE dv.division_id = $1
+        GROUP BY COALESCE(c.party, 'Independent'), dv.vote`,
+      [divisionId]
+    );
+    for (const pv of pvRows) {
+      const w = Number(pv.weight || 0);
+      if (tally[pv.vote] !== undefined) tally[pv.vote] += w;
+      if (!partyVoteMap[pv.party]) partyVoteMap[pv.party] = {};
+      partyVoteMap[pv.party][pv.vote] = (partyVoteMap[pv.party][pv.vote] || 0) + w;
+    }
   }
 
   // byParty tracks per-party seat contributions to the final tally (player + NPC + rebels + Sinn Féin)
@@ -577,28 +610,43 @@ export async function computeDivisionTallyFromDb(db, divisionId, npcVotes, rebel
     }
   }
 
-  // 3. Playable-party rebels: deduct proportionally from player votes, credit rebel direction
+  // 3. Playable-party rebels.
+  // With a weight snapshot: the snapshot was already built with rebel-adjusted seats,
+  // so player votes already reflect the reduced pool.  Just credit rebel votes to their
+  // chosen direction — no deduction from player votes needed.
+  // Without a snapshot (legacy): fall back to proportional deduction from player votes.
   for (const [party, rebels] of Object.entries(rebelsByParty)) {
-    if (npcVotes[party]) continue; // NPC parties already handled above
+    if (npcVotes[party]) continue; // NPC parties already handled in step 2
     const rebelCount = Number(rebels);
     if (rebelCount <= 0) continue;
     const rebelDir = rebelsByPartyChoice[party];
-    const voteDirs = partyVoteMap[party] || {};
-    const totalPartyWeight = Object.values(voteDirs).reduce((s, w) => s + w, 0);
-    if (totalPartyWeight > 0) {
-      const rebelDeduction = Math.min(rebelCount, totalPartyWeight);
-      for (const [dir, weight] of Object.entries(voteDirs)) {
-        const deduct = Math.round((weight / totalPartyWeight) * rebelDeduction);
-        tally[dir] = Math.max(0, (tally[dir] || 0) - deduct);
-        if (byParty[party]) {
-          byParty[party][dir] = Math.max(0, (byParty[party][dir] || 0) - deduct);
+
+    if (weightSnapshot) {
+      // Snapshot path: player pool was already reduced; just add rebel votes
+      if (rebelDir && tally[rebelDir] !== undefined) {
+        tally[rebelDir] += rebelCount;
+        byParty[party] = byParty[party] || {};
+        byParty[party][rebelDir] = (byParty[party][rebelDir] || 0) + rebelCount;
+      }
+    } else {
+      // Legacy path: deduct proportionally from player votes then credit rebel direction
+      const voteDirs = partyVoteMap[party] || {};
+      const totalPartyWeight = Object.values(voteDirs).reduce((s, w) => s + w, 0);
+      if (totalPartyWeight > 0) {
+        const rebelDeduction = Math.min(rebelCount, totalPartyWeight);
+        for (const [dir, weight] of Object.entries(voteDirs)) {
+          const deduct = Math.round((weight / totalPartyWeight) * rebelDeduction);
+          tally[dir] = Math.max(0, (tally[dir] || 0) - deduct);
+          if (byParty[party]) {
+            byParty[party][dir] = Math.max(0, (byParty[party][dir] || 0) - deduct);
+          }
         }
       }
-    }
-    if (rebelDir && tally[rebelDir] !== undefined) {
-      tally[rebelDir] += rebelCount;
-      byParty[party] = byParty[party] || {};
-      byParty[party][rebelDir] = (byParty[party][rebelDir] || 0) + rebelCount;
+      if (rebelDir && tally[rebelDir] !== undefined) {
+        tally[rebelDir] += rebelCount;
+        byParty[party] = byParty[party] || {};
+        byParty[party][rebelDir] = (byParty[party][rebelDir] || 0) + rebelCount;
+      }
     }
   }
 
@@ -611,5 +659,27 @@ export async function computeDivisionTallyFromDb(db, divisionId, npcVotes, rebel
     }
   }
 
-  return { tally, byParty };
+  // 5. Absent weight: characters in the weight snapshot who have NOT yet voted.
+  // Profile-absent+delegating characters have effectiveWeight=0 in the snapshot
+  // (their weight flowed to their delegate), so they never inflate absentWeight.
+  // The absent weight already reflects the rebel-adjusted pool (snapshot was rebuilt
+  // when rebels were set), so it correctly shows only the non-rebel player weight gap.
+  let absentWeight = 0;
+  if (weightSnapshot && typeof weightSnapshot === "object") {
+    const { rows: votedRows } = await db.query(
+      `SELECT c.name
+         FROM division_votes dv
+         JOIN characters c ON c.id = dv.character_id
+        WHERE dv.division_id = $1`,
+      [divisionId]
+    );
+    const votedNames = new Set(votedRows.map((r) => String(r.name || "")));
+    for (const [name, weight] of Object.entries(weightSnapshot)) {
+      if (!votedNames.has(name) && Number(weight) > 0) {
+        absentWeight += Number(weight);
+      }
+    }
+  }
+
+  return { tally, byParty, absentWeight };
 }

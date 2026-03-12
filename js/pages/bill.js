@@ -660,7 +660,7 @@ async function renderDivision(bill, data) {
   // If a formal DB division exists, use it (authoritative weighted votes)
   if (bill.formalDivisionId) {
     let dbDiv = null, tally = { aye: 0, no: 0, abstain: 0 }, myVote = null, myWeight = 0;
-    let byParty = {}, seatsByParty = {};
+    let byParty = {}, seatsByParty = {}, absentWeight = 0;
     try {
       const result = await apiGetDivisionForEntity("bill", bill.id);
       if (result) {
@@ -670,6 +670,7 @@ async function renderDivision(bill, data) {
         myWeight = Number(result.myWeight || 0);
         byParty = result.byParty || {};
         seatsByParty = result.seatsByParty || {};
+        absentWeight = Number(result.absentWeight || 0);
       }
     } catch (_) {}
 
@@ -678,22 +679,55 @@ async function renderDivision(bill, data) {
 
     const divStatus = dbDiv?.status || "open";
     const countdown = dbDiv?.closes_at_sim || "—";
-    const myVoteLabel = myVote
-      ? `Your vote: <b>${esc(myVote.vote.charAt(0).toUpperCase() + myVote.vote.slice(1))}</b>`
+    const voteLocked = myVote?.vote_locked === true;
+    const prevVote   = myVote?.vote || null;   // null | "aye" | "no" | "abstain"
+
+    // Determine button state for each direction:
+    //   "active"   — current vote (highlighted)
+    //   "enabled"  — can click
+    //   "warn"     — will collapse to locked abstain (cross-vote)
+    //   "disabled" — not allowed
+    function voteButtonState(dir) {
+      if (!canVote || divStatus !== "open") return "disabled";
+      if (voteLocked) return "disabled";                          // final
+      if (!prevVote)  return "enabled";                          // no vote yet
+      if (prevVote === dir) return "active";                     // already this
+      if (prevVote === "abstain") return dir === "abstain" ? "active" : "enabled";
+      // prevVote is aye or no
+      if (dir === "abstain")  return "disabled";                 // can't directly abstain
+      // dir is the opposite of prevVote → cross-vote → warn
+      return "warn";
+    }
+
+    const ayeState  = voteButtonState("aye");
+    const noState   = voteButtonState("no");
+    const abstState = voteButtonState("abstain");
+
+    const btnClass = (state, dir) =>
+      `btn ${state === "active" ? "primary" : ""} ${state === "warn" ? "warn" : ""}`;
+
+    const myVoteLabel = prevVote
+      ? `Your vote: <b>${esc(prevVote.charAt(0).toUpperCase() + prevVote.slice(1))}</b>${voteLocked ? " 🔒 <span class='muted'>(final)</span>" : ""}`
       : "Not yet voted";
-    const myVoteClass = myVote ? `voted-${myVote.vote}` : "";
+    const myVoteClass = prevVote ? `voted-${prevVote}` : "";
     const canVote = divStatus === "open" && !!partyMeta.playable && myWeight > 0;
+
+    // Cross-vote helper text shown when a firm aye/no is set
+    const crossVoteHint = (!voteLocked && (prevVote === "aye" || prevVote === "no"))
+      ? `<p class="muted small" style="margin:6px 0 0;">⚠️ You have voted <b>${prevVote.toUpperCase()}</b>. Voting <b>${prevVote === "aye" ? "No" : "Aye"}</b> will collapse your vote to <b>Abstain</b> and make it <b>final</b>.</p>`
+      : "";
 
     voting.innerHTML = `
       <div class="division-panel">
         <div class="division-header">
-          <div class="division-title">🗳️ Final Division (DB-backed)</div>
+          <div class="division-title">🗳️ Final Division</div>
           <span class="division-countdown">${divStatus === "open" ? `Closes ${esc(countdown)}` : `Closed${dbDiv?.outcome ? ` · ${dbDiv.outcome}` : ""}`}</span>
         </div>
         <div class="division-totals">
-          <div class="division-total-cell aye"><div class="dc-num">${tally.aye}</div><div class="dc-lbl">Aye</div></div>
-          <div class="division-total-cell no"><div class="dc-num">${tally.no}</div><div class="dc-lbl">No</div></div>
-          <div class="division-total-cell"><div class="dc-num">${tally.abstain}</div><div class="dc-lbl">Abstain</div></div>
+          <div class="division-total-cell aye"><div class="dc-num">${Math.round(tally.aye)}</div><div class="dc-lbl">Aye</div></div>
+          <div class="division-total-cell no"><div class="dc-num">${Math.round(tally.no)}</div><div class="dc-lbl">No</div></div>
+          <div class="division-total-cell"><div class="dc-num">${Math.round(tally.abstain)}</div><div class="dc-lbl">Abstain</div></div>
+          ${absentWeight > 0 ? `<div class="division-total-cell absent"><div class="dc-num">${Math.round(absentWeight)}</div><div class="dc-lbl">Absent</div></div>` : ""}
         </div>
         ${Object.keys(byParty).length ? `
           <details style="margin-top:8px;">
@@ -713,11 +747,12 @@ async function renderDivision(bill, data) {
           </details>
         ` : ""}
         <div class="division-my-vote ${esc(myVoteClass)}">${myVoteLabel} · Weight: <b>${myWeight}</b></div>
+        ${crossVoteHint}
         ${divStatus === "open" ? `
           <div class="tile-bottom" style="padding-top:10px;">
-            <button class="btn ${myVote?.vote === "aye" ? "primary" : ""}" data-vote="aye" ${canVote ? "" : "disabled"}>Aye</button>
-            <button class="btn ${myVote?.vote === "no" ? "primary" : ""}" data-vote="no" ${canVote ? "" : "disabled"}>No</button>
-            <button class="btn ${myVote?.vote === "abstain" ? "primary" : ""}" data-vote="abstain" ${canVote ? "" : "disabled"}>Abstain</button>
+            <button class="${btnClass(ayeState, "aye")}" data-vote="aye" ${ayeState === "disabled" ? "disabled" : ""}>${ayeState === "warn" ? "⚠️ Aye → Abstain (final)" : "Aye"}</button>
+            <button class="${btnClass(noState, "no")}" data-vote="no" ${noState === "disabled" ? "disabled" : ""}>${noState === "warn" ? "⚠️ No → Abstain (final)" : "No"}</button>
+            <button class="${btnClass(abstState, "abstain")}" data-vote="abstain" ${abstState === "disabled" ? "disabled" : ""}>Abstain</button>
           </div>
         ` : `<p class="muted">Division closed. Outcome: <b>${esc(dbDiv?.outcome || "—")}</b></p>`}
         ${isStaff && divStatus === "open" ? `
@@ -781,11 +816,23 @@ async function renderDivision(bill, data) {
 
     voting.querySelectorAll("[data-vote]").forEach((btn) => {
       btn.addEventListener("click", async () => {
-        if (!canVote || divStatus !== "open") return;
+        if (btn.disabled || divStatus !== "open") return;
+        const chosenDir = btn.dataset.vote;
         const msg = voting.querySelector("#div-msg");
+
+        // Cross-vote confirmation: warn state means aye+no → abstain (final)
+        if (btn.classList.contains("warn")) {
+          const confirmed = confirm(
+            `⚠️ You are about to vote ${chosenDir.toUpperCase()} after already voting ${prevVote.toUpperCase()}.\n\n` +
+            `This will collapse your vote to ABSTAIN and make it FINAL — you will not be able to change it again.\n\n` +
+            `Proceed?`
+          );
+          if (!confirmed) return;
+        }
+
         if (msg) msg.textContent = "Voting…";
         try {
-          await apiCastVote(bill.formalDivisionId, btn.dataset.vote);
+          await apiCastVote(bill.formalDivisionId, chosenDir);
           await renderDivision(bill, data);
         } catch (err) { if (msg) msg.textContent = `Error: ${err.message}`; }
       });
@@ -862,6 +909,7 @@ async function renderDivision(bill, data) {
     progress.innerHTML = `
       <h2>Division Progress</h2>
       <div class="kv"><span>Status</span><b>${esc(divStatus)}</b></div>
+      ${absentWeight > 0 && divStatus === "open" ? `<p class="muted small">⚠️ <b>${Math.round(absentWeight)}</b> vote-weight not yet cast (absent). Characters who do not vote before the division closes have their weight excluded from the result.</p>` : ""}
       <p class="muted small">Vote totals use seat counts from the constituencies page as source of truth.</p>
       ${Object.keys(seatsByParty).length ? `
         <div class="division-party-breakdown" style="margin-top:6px;font-size:.85em;">
