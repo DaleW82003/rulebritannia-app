@@ -6211,7 +6211,10 @@ app.post("/api/snapshots/:id/restore", async (req, res) => {
  * GET /api/config   — public, returns all key/value pairs
  * PUT /api/config   — admin only, accepts { key: value, … }
  */
-app.get("/api/config", async (req, res) => {
+const configReadLimit  = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
+const configWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/config", configReadLimit, async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT key, value FROM app_config");
     // Never expose encrypted discourse credentials through the public config endpoint
@@ -6224,7 +6227,7 @@ app.get("/api/config", async (req, res) => {
   }
 });
 
-app.put("/api/config", async (req, res) => {
+app.put("/api/config", configWriteLimit, async (req, res) => {
   try {
     if (!req.session?.userId) {
       return res.status(401).json({ error: "Not logged in" });
@@ -6254,6 +6257,40 @@ app.put("/api/config", async (req, res) => {
              updated_at = NOW()`,
       [keys, values]
     );
+
+    // Keep sim_clock / sim_state in sync with config changes when the sim has not started.
+    const updatesMap = Object.fromEntries(entries);
+
+    if (updatesMap.sim_start_date) {
+      const parsed = new Date(updatesMap.sim_start_date);
+      if (!Number.isNaN(parsed.getTime())) {
+        const { rows: clkRows } = await pool.query(
+          "SELECT started FROM sim_clock WHERE id = 'main'"
+        );
+        if (!clkRows[0]?.started) {
+          const newMonth = parsed.getMonth() + 1; // 1-12
+          const newYear  = parsed.getFullYear();
+          await pool.query(
+            "UPDATE sim_clock SET sim_current_month = $1, sim_current_year = $2 WHERE id = 'main'",
+            [newMonth, newYear]
+          );
+          await pool.query(
+            "UPDATE sim_state SET month = $1, year = $2 WHERE id = 'main'",
+            [newMonth, newYear]
+          );
+        }
+      }
+    }
+
+    if (updatesMap.clock_rate) {
+      const newRate = parseInt(updatesMap.clock_rate, 10);
+      if (Number.isFinite(newRate) && newRate >= 1) {
+        await pool.query(
+          "UPDATE sim_clock SET rate = $1 WHERE id = 'main'",
+          [newRate]
+        );
+      }
+    }
 
     res.json({ ok: true });
   } catch (e) {
@@ -12834,12 +12871,22 @@ app.post("/api/shop/apply-inflation", shopIndexLimit, async (req, res) => {
       }
     }
 
-    // Read inflation rate: prefer client-provided value (from economy page state),
-    // fall back to reading from the app state blob (economyPage.topline.inflation)
+    // Read inflation rate: prefer client-provided value, then app_config.economy_page_data
+    // (the canonical source written by the Economy page), then fall back to state snapshot.
     const clientInflationPct = Number(req.body?.inflationPct);
     let inflationPct = Number.isFinite(clientInflationPct) && clientInflationPct > 0
       ? clientInflationPct
       : null;
+
+    if (inflationPct === null) {
+      const { rows: econRows } = await pool.query(
+        "SELECT value FROM app_config WHERE key = 'economy_page_data'"
+      );
+      if (econRows.length) {
+        const econData = JSON.parse(econRows[0].value);
+        inflationPct = Number(econData?.topline?.inflation ?? 0) || null;
+      }
+    }
 
     if (inflationPct === null) {
       const { rows: stateRows } = await pool.query(
@@ -17867,6 +17914,15 @@ app.post("/api/sim/freeze", simWriteLimit, async (req, res) => {
     if (reason != null && typeof reason !== "string") {
       return res.status(400).json({ error: "reason must be a string when provided" });
     }
+
+    // Disabling the freeze (unfreezing) is only permitted on Sundays (UK time).
+    if (!is_frozen) {
+      const ukDateStr = new Date().toLocaleString("en-US", { timeZone: "Europe/London", weekday: "long" });
+      if (!ukDateStr.startsWith("Sunday")) {
+        return res.status(403).json({ error: "The simulation freeze may only be disabled on a Sunday (UK time)" });
+      }
+    }
+
     const sanitizedReason = typeof reason === "string" ? reason.trim().slice(0, 240) : null;
 
     const before = await getSimulationFreezeState();
@@ -17881,6 +17937,11 @@ app.post("/api/sim/freeze", simWriteLimit, async (req, res) => {
        RETURNING id, is_frozen, reason, updated_by, updated_at`,
       [is_frozen, sanitizedReason || null, req.session.userId]
     );
+
+    // Keep sim_clock / sim_state pause flag in sync with the freeze state so the
+    // clock display reflects the frozen/unfrozen status and auto-ticks are blocked.
+    await pool.query(`UPDATE sim_clock SET is_paused = $1 WHERE id = 'main'`, [is_frozen]);
+    await pool.query(`UPDATE sim_state SET is_paused = $1 WHERE id = 'main'`, [is_frozen]);
 
     await writeAuditLog(
       req.session.userId,
@@ -21644,11 +21705,21 @@ app.post("/api/admin/finance/apply-inflation", adminFinanceLimit, async (req, re
       });
     }
 
-    // Read inflation rate from client body, or fall back to economy page topline
+    // Read inflation rate from client body, then app_config.economy_page_data
+    // (the canonical source written by the Economy page), then fall back to state snapshot.
     const clientInflationPct = Number(req.body?.inflationPct);
     let inflationPct = Number.isFinite(clientInflationPct) && clientInflationPct > 0
       ? clientInflationPct
       : null;
+    if (inflationPct === null) {
+      const { rows: econRows } = await pool.query(
+        "SELECT value FROM app_config WHERE key = 'economy_page_data'"
+      );
+      if (econRows.length) {
+        const econData = JSON.parse(econRows[0].value);
+        inflationPct = Number(econData?.topline?.inflation ?? 0) || null;
+      }
+    }
     if (inflationPct === null) {
       const { rows: stateRows } = await pool.query(
         `SELECT s.data FROM app_state_current c
