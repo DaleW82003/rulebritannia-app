@@ -180,7 +180,7 @@ export function skeletonHTML(lines = 3, layout = "tile") {
   return `<div role="status" aria-label="Loading…">${inner}</div>`;
 }
 
-export function initNavUI(user, clock, gameState) {
+export function initNavUI(user, clock, gameState, simFreeze) {
   // Inject skip-to-content link for keyboard / screen-reader users
   if (!document.getElementById("rb-skip-link")) {
     const mainEl = document.querySelector("main");
@@ -257,16 +257,17 @@ export function initNavUI(user, clock, gameState) {
   setActiveNav();
 
   // Topbar clock display — inserted into topbar-inner after the brand.
-  // Derive the displayed month/year from gameState (single source of truth) so
-  // that changes to sim_start_date are reflected immediately. Fall back to the
-  // legacy clock object if gameState is not yet available.
+  // The DB-backed sim_clock is the single source of truth (returned as `clock`
+  // in the bootstrap response). Fall back to client-side gameState computation
+  // only if the DB clock is unavailable (e.g. pre-schema or demo mode).
   const topbarInner = document.querySelector(".topbar-inner");
   if (topbarInner) {
     let clockText;
-    if (gameState) {
+    if (clock) {
+      const monthIdx = Math.max(0, Math.min(11, (clock.sim_current_month - 1)));
+      clockText = `${MONTH_NAMES[monthIdx]} ${clock.sim_current_year}`;
+    } else if (gameState) {
       clockText = formatSimMonthYear(gameState);
-    } else if (clock) {
-      clockText = `${MONTH_NAMES[(clock.sim_current_month - 1)]} ${clock.sim_current_year}`;
     } else {
       clockText = "–";
     }
@@ -274,6 +275,24 @@ export function initNavUI(user, clock, gameState) {
     clockEl.id = "topbar-clock";
     clockEl.className = "topbar-clock";
     clockEl.textContent = clockText;
+
+    // Show a clear status badge when the simulation is paused or frozen so the
+    // nav bar (the ultimate source of sim month/year) always reflects the real state.
+    const isPaused = clock?.is_paused ?? gameState?.isPaused ?? false;
+    if (isPaused) {
+      clockEl.classList.add("topbar-clock--paused");
+      const badge = document.createElement("span");
+      badge.className = "topbar-clock-badge";
+      badge.textContent = "Paused";
+      clockEl.appendChild(badge);
+    } else if (simFreeze?.is_frozen) {
+      clockEl.classList.add("topbar-clock--frozen");
+      const badge = document.createElement("span");
+      badge.className = "topbar-clock-badge";
+      badge.textContent = "Frozen";
+      clockEl.appendChild(badge);
+    }
+
     const brand = topbarInner.querySelector(".brand");
     if (brand && brand.nextSibling) {
       topbarInner.insertBefore(clockEl, brand.nextSibling);

@@ -138,7 +138,7 @@ async function renderHouseDb(root, data, motion) {
 
   // Load DB division state (or null if no division created yet)
   let dbDiv = null, tally = { aye: 0, no: 0, abstain: 0 }, myVote = null, myWeight = 0;
-  let divByParty = {}, divSeatsByParty = {};
+  let divByParty = {}, divSeatsByParty = {}, divAbsentWeight = 0;
   try {
     const result = await apiGetDivisionForEntity("motion", motion.id);
     if (result) {
@@ -148,12 +148,41 @@ async function renderHouseDb(root, data, motion) {
       myWeight = Number(result.myWeight || 0);
       divByParty = result.byParty || {};
       divSeatsByParty = result.seatsByParty || {};
+      divAbsentWeight = Number(result.absentWeight || 0);
     }
   } catch (_) { /* no division yet */ }
 
   // voteWeight: use server-computed effective weight (seat-proportional).
   // Falls back to 1 only if there is a vote recorded (which carries the weight) but myWeight wasn't returned.
   const voteWeight = myWeight || (myVote ? Number(myVote.weight || 0) : 0);
+  const divVoteLocked = myVote?.vote_locked === true;
+  const divPrevVote   = myVote?.vote || null;
+
+  // Vote button state helper (same logic as bill.js)
+  function divVoteButtonState(dir) {
+    if (!canVoteDivision(data) || voteWeight <= 0 || dbDiv?.status !== "open") return "disabled";
+    if (divVoteLocked) return "disabled";
+    if (!divPrevVote)  return "enabled";
+    if (divPrevVote === dir) return "active";
+    if (divPrevVote === "abstain") return dir === "abstain" ? "active" : "enabled";
+    if (dir === "abstain") return "disabled";
+    return "warn"; // opposite direction → will collapse to abstain
+  }
+
+  const divAyeState  = divVoteButtonState("aye");
+  const divNoState   = divVoteButtonState("no");
+  const divAbstState = divVoteButtonState("abstain");
+
+  const divBtnClass = (state) => `btn ${state === "active" ? "primary" : ""} ${state === "warn" ? "warn" : ""}`.trim();
+
+  const divMyVoteLabel = divPrevVote
+    ? `Your vote: <b>${esc(divPrevVote.charAt(0).toUpperCase() + divPrevVote.slice(1))}</b>${divVoteLocked ? " 🔒 <span class='muted'>(final)</span>" : ""}`
+    : "Not yet voted";
+  const divMyVoteClass = divPrevVote ? `voted-${divPrevVote}` : "";
+
+  const divCrossVoteHint = (!divVoteLocked && (divPrevVote === "aye" || divPrevVote === "no"))
+    ? `<p class="muted small" style="margin:6px 0 0;">⚠️ You have voted <b>${divPrevVote.toUpperCase()}</b>. Voting <b>${divPrevVote === "aye" ? "No" : "Aye"}</b> will collapse your vote to <b>Abstain</b> and make it <b>final</b>.</p>`
+    : "";
 
   // Load party instruction for current user's party
   let instr = null;
@@ -213,6 +242,7 @@ async function renderHouseDb(root, data, motion) {
           <div class="division-total-cell aye"><div class="dc-num">${Math.round(Number(tally.aye || 0))}</div><div class="dc-lbl">Ayes</div></div>
           <div class="division-total-cell no"><div class="dc-num">${Math.round(Number(tally.no || 0))}</div><div class="dc-lbl">Noes</div></div>
           <div class="division-total-cell"><div class="dc-num">${Math.round(Number(tally.abstain || 0))}</div><div class="dc-lbl">Abstain</div></div>
+          ${divAbsentWeight > 0 ? `<div class="division-total-cell absent"><div class="dc-num">${Math.round(divAbsentWeight)}</div><div class="dc-lbl">Absent</div></div>` : ""}
         </div>
         ${Object.keys(divByParty).length ? `
           <details style="margin-top:8px;">
@@ -231,14 +261,16 @@ async function renderHouseDb(root, data, motion) {
             </div>
           </details>
         ` : ""}
-        ${myVote ? `<div class="division-my-vote voted-${esc(myVote.vote)}">Your vote: <b>${esc(myVote.vote.charAt(0).toUpperCase() + myVote.vote.slice(1))}</b> · Weight: <b>${Math.round(Number(voteWeight))}</b></div>` : `<div class="division-my-vote">Not yet voted · Weight: <b>${Math.round(Number(voteWeight))}</b></div>`}
+        <div class="division-my-vote ${esc(divMyVoteClass)}">${divMyVoteLabel} · Weight: <b>${Math.round(Number(voteWeight))}</b></div>
+        ${divCrossVoteHint}
         ${dbDiv.status === "open" ? `
           <div class="tile-bottom" style="padding-top:10px;">
-            <button class="btn ${myVote?.vote === "aye" ? "primary" : ""}" data-action="vote" data-choice="aye" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Aye</button>
-            <button class="btn ${myVote?.vote === "no" ? "primary" : ""}" data-action="vote" data-choice="no" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>No</button>
-            <button class="btn ${myVote?.vote === "abstain" ? "primary" : ""}" data-action="vote" data-choice="abstain" ${canVoteDivision(data) && voteWeight > 0 ? "" : "disabled"}>Abstain</button>
+            <button class="${divBtnClass(divAyeState)}" data-action="vote" data-choice="aye" ${divAyeState === "disabled" ? "disabled" : ""}>${divAyeState === "warn" ? "⚠️ Aye → Abstain (final)" : "Aye"}</button>
+            <button class="${divBtnClass(divNoState)}" data-action="vote" data-choice="no" ${divNoState === "disabled" ? "disabled" : ""}>${divNoState === "warn" ? "⚠️ No → Abstain (final)" : "No"}</button>
+            <button class="${divBtnClass(divAbstState)}" data-action="vote" data-choice="abstain" ${divAbstState === "disabled" ? "disabled" : ""}>Abstain</button>
           </div>
         ` : `<p class="muted">Division closed. Outcome: <b>${esc(dbDiv.outcome || "—")}</b></p>`}
+        ${divAbsentWeight > 0 && dbDiv.status === "open" ? `<p class="muted small" style="margin:6px 0 0;">⚠️ <b>${Math.round(divAbsentWeight)}</b> vote-weight not yet cast — characters who do not vote before the division closes have their weight excluded from the result.</p>` : ""}
         ${isStaff && dbDiv.status === "open" ? `
           <div style="margin-top:12px;">
             <h4 style="margin:0 0 6px;">NPC Party Votes &amp; Rebels</h4>
@@ -329,13 +361,23 @@ async function renderHouseDb(root, data, motion) {
   // Vote buttons
   root.querySelectorAll("[data-action='vote']").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!dbDiv || dbDiv.status !== "open") return;
-      if (voteWeight <= 0 || !canVoteDivision(data)) return;
+      if (btn.disabled || !dbDiv || dbDiv.status !== "open") return;
       const choice = btn.getAttribute("data-choice");
       const msg = root.querySelector("#div-msg");
+
+      // Cross-vote confirmation: warn state means aye+no → abstain (final)
+      if (btn.classList.contains("warn")) {
+        const confirmed = confirm(
+          `⚠️ You are about to vote ${choice.toUpperCase()} after already voting ${divPrevVote.toUpperCase()}.\n\n` +
+          `This will collapse your vote to ABSTAIN and make it FINAL — you will not be able to change it again.\n\n` +
+          `Proceed?`
+        );
+        if (!confirmed) return;
+      }
+
       if (msg) msg.textContent = "Voting…";
       try {
-        const result = await apiCastVote(dbDiv.id, choice);
+        await apiCastVote(dbDiv.id, choice);
         if (msg) msg.textContent = "Vote recorded.";
         // Re-render with updated data
         await renderHouseDb(root, data, motion);

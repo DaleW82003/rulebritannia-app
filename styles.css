@@ -140,6 +140,12 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
   border-color:rgba(212,0,26,.25);
   color:var(--red);
 }
+.btn.warn{
+  border-color:rgba(180,100,0,.35);
+  color:#7a4400;
+  background:rgba(255,160,0,.08);
+}
+.btn.warn:hover{ background:rgba(255,160,0,.16); }
 .btn-secondary{
   background:rgba(11,45,107,.06);
   border-color:rgba(11,45,107,.16);
@@ -254,6 +260,33 @@ hr{ border:none; border-top:1px solid rgba(11,27,58,.10); margin:14px 0; }
   background:rgba(255,255,255,.10);
   border:1px solid rgba(255,255,255,.18);
   white-space:nowrap;
+}
+.topbar-clock--paused{
+  background:rgba(180,100,0,.35);
+  border-color:rgba(255,160,0,.50);
+}
+.topbar-clock--frozen{
+  background:rgba(0,80,160,.35);
+  border-color:rgba(100,160,255,.50);
+}
+.topbar-clock-badge{
+  display:inline-block;
+  font-size:10px;
+  font-weight:700;
+  margin-left:6px;
+  padding:1px 5px;
+  border-radius:999px;
+  vertical-align:middle;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+.topbar-clock--paused .topbar-clock-badge{
+  background:rgba(255,160,0,.30);
+  color:#ffd880;
+}
+.topbar-clock--frozen .topbar-clock-badge{
+  background:rgba(100,160,255,.30);
+  color:#b0d4ff;
 }
 .topbar-logout-btn{
   padding:7px 14px;
@@ -1419,9 +1452,11 @@ input.invalid, textarea.invalid, select.invalid{
 }
 .division-total-cell.aye{ background:rgba(31,143,74,.08); border-color:rgba(31,143,74,.22); }
 .division-total-cell.no{ background:rgba(212,0,26,.06); border-color:rgba(212,0,26,.18); }
+.division-total-cell.absent{ background:rgba(120,120,120,.07); border-color:rgba(120,120,120,.22); }
 .division-total-cell .dc-num{ font-size:22px; font-weight:950; color:var(--navy); }
 .division-total-cell.aye .dc-num{ color:#0b3b1e; }
 .division-total-cell.no  .dc-num{ color:#6b0010; }
+.division-total-cell.absent .dc-num{ color:#555; }
 .division-total-cell .dc-lbl{ font-size:10px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-top:2px; }
 .division-my-vote{
   font-size:13px;

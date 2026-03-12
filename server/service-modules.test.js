@@ -393,7 +393,70 @@ test("computeCharacterWeight: party leader gets remainder when party contains a 
   assert.equal(w, 164, "party leader weight must equal seats minus new-backbencher allocation");
 });
 
-// ── Delegation: voting flows, EDM signing does not ───────────────────────────
+// ── Sim-clock-based settled backbencher threshold ─────────────────────────────
+
+test("computeAllPlayerWeights: backbencher with joinedSimMonth 2 months ago (currentSim given) is unsettled → weight 1", () => {
+  const seats = { Labour: 100 };
+  const players = [
+    { name: "NewBB",  party: "Labour", role: "backbencher", active: true,
+      joinedSimMonth: 5, joinedSimYear: 1997 },
+    { name: "Leader", party: "Labour", role: "prime-minister", active: true,
+      joinedSimMonth: 1, joinedSimYear: 1997 },
+  ];
+  // Current sim: July 1997 (month 7, year 1997) — NewBB joined May 1997, only 2 months ago
+  const { effectiveWeights } = computeAllPlayerWeights(seats, players, { currentSimMonth: 7, currentSimYear: 1997 });
+  assert.equal(effectiveWeights["NewBB"],  1,  "backbencher with 2 sim months must get weight 1");
+  assert.equal(effectiveWeights["Leader"], 99, "leader absorbs seats minus unsettled allocation");
+});
+
+test("computeAllPlayerWeights: backbencher with joinedSimMonth 4+ sim months ago is settled → full share", () => {
+  const seats = { Labour: 100 };
+  const players = [
+    { name: "SettledBB", party: "Labour", role: "backbencher", active: true,
+      joinedSimMonth: 1, joinedSimYear: 1997 },
+    { name: "Leader",    party: "Labour", role: "prime-minister", active: true,
+      joinedSimMonth: 1, joinedSimYear: 1997 },
+  ];
+  // Current sim: May 1997 (month 5, year 1997) — SettledBB joined Jan 1997, 4 months ago → settled
+  const { effectiveWeights } = computeAllPlayerWeights(seats, players, { currentSimMonth: 5, currentSimYear: 1997 });
+  assert.equal(effectiveWeights["SettledBB"] + effectiveWeights["Leader"], 100, "settled members split all seats");
+  assert.ok(effectiveWeights["SettledBB"] > 1, "settled backbencher must get more than 1");
+});
+
+test("computeAllPlayerWeights: non-backbencher (minister) always settled regardless of sim join date", () => {
+  const seats = { Labour: 100 };
+  const players = [
+    { name: "NewMinister", party: "Labour", role: "minister", active: true,
+      joinedSimMonth: 8, joinedSimYear: 1997 },
+  ];
+  // Current sim: Aug 1997 — just joined this month, but role is minister not backbencher
+  const { effectiveWeights } = computeAllPlayerWeights(seats, players, { currentSimMonth: 8, currentSimYear: 1997 });
+  assert.equal(effectiveWeights["NewMinister"], 100, "minister must always get full seats regardless of active time");
+});
+
+test("computeAllPlayerWeights: backbencher exactly at 4-month boundary (joinedSimMonth==currentMonth-4) is settled", () => {
+  const seats = { Conservative: 165 };
+  const players = [
+    { name: "MP", party: "Conservative", role: "backbencher", active: true,
+      joinedSimMonth: 1, joinedSimYear: 1997 },
+  ];
+  // Current sim month 5 year 1997 → elapsed = (1997-1997)*12 + (5-1) = 4 → settled
+  const { effectiveWeights } = computeAllPlayerWeights(seats, players, { currentSimMonth: 5, currentSimYear: 1997 });
+  assert.equal(effectiveWeights["MP"], 165, "backbencher at exactly 4 months is settled");
+});
+
+test("computeAllPlayerWeights: backbencher at 3 months (just under threshold) is unsettled", () => {
+  const seats = { Conservative: 165 };
+  const players = [
+    { name: "MP", party: "Conservative", role: "backbencher", active: true,
+      joinedSimMonth: 2, joinedSimYear: 1997 },
+    { name: "Leader", party: "Conservative", role: "party-leader-3rd-4th", active: true,
+      partyLeader: true, joinedSimMonth: 1, joinedSimYear: 1990 },
+  ];
+  // Current sim month 5 year 1997 → elapsed = (1997-1997)*12 + (5-2) = 3 → unsettled
+  const { effectiveWeights } = computeAllPlayerWeights(seats, players, { currentSimMonth: 5, currentSimYear: 1997 });
+  assert.equal(effectiveWeights["MP"], 1, "backbencher at 3 months (under threshold) must get weight 1");
+});
 // Scenario: Macmillan is absent and delegates to Weston.
 // Voting (applyDelegation=true): Weston receives 1 (base) + 164 (delegated) = 165.
 // EDM signing (applyDelegation=false): Weston receives only his own base weight = 1.
@@ -453,7 +516,7 @@ test("computeCharacterWeight: applyDelegation=true (default) — voter gets full
 
 // 3 000 chars is comfortably larger than all three handlers (~500–1 500 chars each)
 // but smaller than the next unrelated route so the slice stays within bounds.
-const MAX_HANDLER_LEN = 3000;
+const MAX_HANDLER_LEN = 12000;
 
 function extractHandlerSlice(src, routeStr) {
   const idx = src.indexOf(routeStr);
@@ -541,5 +604,324 @@ test("GET /api/control-panel/absence-log: response includes currentAbsent query"
   assert.ok(
     slice.includes("currentAbsent"),
     "absence-log endpoint must include a currentAbsent field in its response",
+  );
+});
+
+// ── Bill auto-advance: static checks ─────────────────────────────────────────
+
+test("runBillAutoAdvance: function exists and auto-opens divisions for bills at Report Debate", () => {
+  assert.ok(
+    serverSrc.includes("async function runBillAutoAdvance("),
+    "runBillAutoAdvance must be defined in server/index.js",
+  );
+});
+
+test("runBillAutoAdvance: wired into clock tick sequence", () => {
+  const slice = extractHandlerSlice(serverSrc, "runBillAutoAdvance(newMonth, newYear)");
+  assert.ok(
+    slice.length > 0,
+    "runBillAutoAdvance must be called in the clock tick sequence",
+  );
+});
+
+test("runBillAutoAdvance: skips bills with pending amendment divisions", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runBillAutoAdvance("),
+                              serverSrc.indexOf("async function runBillAutoAdvance(") + 4000);
+  assert.ok(
+    src.includes("in-division") && src.includes("proposed"),
+    "runBillAutoAdvance must skip bills with pending amendment divisions or proposed amendments",
+  );
+});
+
+test("runBillAutoAdvance: advances bill stage to Final Division and inserts division row", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runBillAutoAdvance("),
+                              serverSrc.indexOf("async function runBillAutoAdvance(") + 4000);
+  assert.ok(
+    src.includes("Final Division"),
+    "runBillAutoAdvance must advance bill stage to Final Division",
+  );
+  assert.ok(
+    src.includes("INSERT INTO divisions"),
+    "runBillAutoAdvance must INSERT a new division row",
+  );
+  assert.ok(
+    src.includes("formalDivisionId"),
+    "runBillAutoAdvance must record formalDivisionId in bill data",
+  );
+});
+
+// ── Division auto-close: outcome calculation static checks ───────────────────
+
+test("runDivisionAutoClose: computes tally before setting outcome (not just 'expired')", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runDivisionAutoClose("),
+                              serverSrc.indexOf("async function runDivisionAutoClose(") + 5000);
+  assert.ok(
+    src.includes("computeDivisionTallyFromDb"),
+    "runDivisionAutoClose must call computeDivisionTallyFromDb to compute the actual tally",
+  );
+  assert.ok(
+    src.includes('"passed"') && src.includes('"failed"') && src.includes('"tied"'),
+    "runDivisionAutoClose must set outcome to passed/failed/tied based on tally",
+  );
+});
+
+test("runDivisionAutoClose: stores immutable_result snapshot on close", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runDivisionAutoClose("),
+                              serverSrc.indexOf("async function runDivisionAutoClose(") + 5000);
+  assert.ok(
+    src.includes("immutable_result"),
+    "runDivisionAutoClose must store an immutable_result snapshot when closing",
+  );
+});
+
+test("runDivisionAutoClose: advances bill stage when division is for a bill entity", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runDivisionAutoClose("),
+                              serverSrc.indexOf("async function runDivisionAutoClose(") + 5000);
+  assert.ok(
+    src.includes("entity_type") && (src.includes('"bill"') || src.includes("'bill'")),
+    "runDivisionAutoClose must check entity_type to handle bill divisions specially",
+  );
+  assert.ok(
+    src.includes("Passed - Awaiting Assent") && src.includes("Defeated in Division"),
+    "runDivisionAutoClose must advance bill to Passed or Defeated depending on outcome",
+  );
+});
+
+// ── Amendment auto-apply on division close ────────────────────────────────────
+
+test("runDivisionAutoClose: handles bill-amendment entity — applies amendment when passed", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runDivisionAutoClose("),
+                              serverSrc.indexOf("async function runDivisionAutoClose(") + 8000);
+  assert.ok(
+    src.includes("bill-amendment"),
+    "runDivisionAutoClose must handle bill-amendment entity_type",
+  );
+  assert.ok(
+    src.includes("applyAmendmentToBillText"),
+    "runDivisionAutoClose must call applyAmendmentToBillText when amendment division passes",
+  );
+  assert.ok(
+    src.includes("'accepted'"),
+    "runDivisionAutoClose must mark amendment as accepted when division passes",
+  );
+  assert.ok(
+    src.includes("'refused'"),
+    "runDivisionAutoClose must mark amendment as refused when division fails",
+  );
+});
+
+// ── Auto-generated news after bill final division ────────────────────────────
+
+test("autoGenerateBillDivisionNews: function exists in server/index.js", () => {
+  assert.ok(
+    serverSrc.includes("async function autoGenerateBillDivisionNews("),
+    "autoGenerateBillDivisionNews must be defined in server/index.js",
+  );
+});
+
+test("autoGenerateBillDivisionNews: inserts a press_items row with npcAuthor and PARL reference", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function autoGenerateBillDivisionNews("),
+                              serverSrc.indexOf("async function autoGenerateBillDivisionNews(") + 4000);
+  assert.ok(
+    src.includes("INSERT INTO press_items"),
+    "autoGenerateBillDivisionNews must INSERT into press_items",
+  );
+  assert.ok(
+    src.includes("npcAuthor") && src.includes("true"),
+    "news item must be authored as npcAuthor to avoid character ownership requirement",
+  );
+  assert.ok(
+    src.includes("PARL"),
+    "news item must use PARL reference prefix for parliamentary division results",
+  );
+  assert.ok(
+    src.includes("allocatePressSerial"),
+    "news item must use allocatePressSerial to get a unique reference number",
+  );
+});
+
+test("autoGenerateBillDivisionNews: includes party breakdown and rebellion notes in news body", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function autoGenerateBillDivisionNews("),
+                              serverSrc.indexOf("async function autoGenerateBillDivisionNews(") + 4000);
+  assert.ok(
+    src.includes("Party breakdown") || src.includes("party breakdown"),
+    "news body must include a party-by-party breakdown section",
+  );
+  assert.ok(
+    src.includes("rebel"),
+    "news body must mention rebellions when present",
+  );
+});
+
+test("runDivisionAutoClose: calls autoGenerateBillDivisionNews for bill divisions", () => {
+  const src = serverSrc.slice(serverSrc.indexOf("async function runDivisionAutoClose("),
+                              serverSrc.indexOf("async function runDivisionAutoClose(") + 8000);
+  assert.ok(
+    src.includes("autoGenerateBillDivisionNews"),
+    "runDivisionAutoClose must call autoGenerateBillDivisionNews after closing a bill division",
+  );
+});
+
+// ── Vote finality state machine ───────────────────────────────────────────────
+
+test("Division vote endpoint: vote_locked column exists in migration", () => {
+  assert.ok(
+    serverSrc.includes("vote_locked BOOLEAN"),
+    "division_votes schema migration must add vote_locked BOOLEAN column",
+  );
+});
+
+test("Division vote endpoint: enforces finality — locked vote returns 409", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/divisions/:id/vote"');
+  assert.ok(
+    slice.includes("vote_locked"),
+    "division vote endpoint must read vote_locked from existing vote row",
+  );
+  assert.ok(
+    slice.includes("Your vote is final"),
+    "division vote endpoint must return 409 with 'Your vote is final' when vote is locked",
+  );
+});
+
+test("Division vote endpoint: cross-vote (aye→no or no→aye) collapses to locked abstain", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/divisions/:id/vote"');
+  assert.ok(
+    slice.includes("voteLocked = true"),
+    "division vote endpoint must set voteLocked=true when cross-voting",
+  );
+  assert.ok(
+    slice.includes('finalVote = "abstain"'),
+    "division vote endpoint must set finalVote to abstain on cross-vote",
+  );
+});
+
+test("Division vote endpoint: direct abstain on firm aye/no is blocked with 409", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/divisions/:id/vote"');
+  assert.ok(
+    slice.includes('dir === "abstain"') || slice.includes("vote === \"abstain\""),
+    "division vote endpoint must block direct abstain on a firm aye/no vote",
+  );
+});
+
+test("Division vote endpoint: vote response includes vote_locked field", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/divisions/:id/vote"');
+  assert.ok(
+    slice.includes("vote_locked") && slice.includes("RETURNING"),
+    "division vote RETURNING clause must include vote_locked",
+  );
+});
+
+// ── Weight snapshot: division open time ──────────────────────────────────────
+
+test("buildDivisionWeightSnapshot: function exists in server/index.js", () => {
+  assert.ok(
+    serverSrc.includes("async function buildDivisionWeightSnapshot("),
+    "buildDivisionWeightSnapshot must be defined in server/index.js",
+  );
+});
+
+test("buildDivisionWeightSnapshot: uses computeAllPlayerWeights with applyDelegation:true", () => {
+  const fnStart = serverSrc.indexOf("async function buildDivisionWeightSnapshot(");
+  const fnSlice = serverSrc.slice(fnStart, fnStart + 1500);
+  assert.ok(
+    fnSlice.includes("computeAllPlayerWeights"),
+    "buildDivisionWeightSnapshot must call computeAllPlayerWeights",
+  );
+  assert.ok(
+    fnSlice.includes("applyDelegation: true"),
+    "buildDivisionWeightSnapshot must pass applyDelegation:true so absent+delegating players' weight flows to their delegate",
+  );
+});
+
+test("Division create endpoint: stores weight_snapshot at open time", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/divisions/create/:entityType/:entityId"');
+  assert.ok(
+    slice.includes("weight_snapshot") && slice.includes("buildDivisionWeightSnapshot"),
+    "POST /api/divisions/create must call buildDivisionWeightSnapshot and store it",
+  );
+});
+
+test("Division vote endpoint: uses snapshot weight when available (not live recompute)", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/divisions/:id/vote"');
+  assert.ok(
+    slice.includes("snapshotWeights") && slice.includes("weight_snapshot"),
+    "division vote endpoint must read weight_snapshot from the division row and use it for effectiveWeight",
+  );
+});
+
+test("Division vote endpoint: returns full computeDivisionTallyFromDb tally (not simple SUM)", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/divisions/:id/vote"');
+  assert.ok(
+    slice.includes("computeDivisionTallyFromDb"),
+    "division vote endpoint must return the full server-side tally via computeDivisionTallyFromDb",
+  );
+});
+
+test("computeDivisionTallyFromDb: returns absentWeight for characters in snapshot who have not voted", () => {
+  const helperSrc = readFileSync(resolve(__dir, "division-helpers.js"), "utf8");
+  assert.ok(
+    helperSrc.includes("absentWeight"),
+    "computeDivisionTallyFromDb must compute and return absentWeight",
+  );
+  assert.ok(
+    helperSrc.includes("votedNames") && helperSrc.includes("weightSnapshot"),
+    "computeDivisionTallyFromDb must compare snapshot keys against voted character names",
+  );
+});
+
+// ── Rebellion system: snapshot rebuild on npc-votes PATCH ────────────────────
+
+test("PATCH /api/divisions/:id/npc-votes: rebuilds weight snapshot with rebel-adjusted seat pool", () => {
+  const slice = extractHandlerSlice(serverSrc, '"/api/divisions/:id/npc-votes"');
+  assert.ok(
+    slice.includes("buildDivisionWeightSnapshot") && slice.includes("rebels_by_party"),
+    "PATCH npc-votes must call buildDivisionWeightSnapshot(pool, rebels_by_party) after saving rebels",
+  );
+  assert.ok(
+    slice.includes("weight_snapshot") && slice.includes("COALESCE"),
+    "PATCH npc-votes must persist updated weight_snapshot (COALESCE preserves snapshot if rebuild fails)",
+  );
+});
+
+test("buildDivisionWeightSnapshot: reduces seat pool by rebel count for each party", () => {
+  const fnStart = serverSrc.indexOf("async function buildDivisionWeightSnapshot(");
+  const fnSlice = serverSrc.slice(fnStart, fnStart + 2500);
+  assert.ok(
+    fnSlice.includes("rebelsByParty"),
+    "buildDivisionWeightSnapshot must accept rebelsByParty parameter",
+  );
+  assert.ok(
+    fnSlice.includes("Math.max(0") && fnSlice.includes("Number(rebels"),
+    "buildDivisionWeightSnapshot must subtract rebel count from each party's seats (floor at 0)",
+  );
+});
+
+test("computeDivisionTallyFromDb: with snapshot, uses snapshot weights for player votes (not stored effective_weight)", () => {
+  const helperSrc = readFileSync(resolve(__dir, "division-helpers.js"), "utf8");
+  assert.ok(
+    helperSrc.includes("weightSnapshot[row.name]"),
+    "computeDivisionTallyFromDb must use snapshot[charName] for player vote weight when snapshot is available",
+  );
+});
+
+test("computeDivisionTallyFromDb: with snapshot, playable rebels are credited without deducting from player votes", () => {
+  const helperSrc = readFileSync(resolve(__dir, "division-helpers.js"), "utf8");
+  // Snapshot path: just adds rebel votes — no deduction
+  assert.ok(
+    helperSrc.includes("Snapshot path: player pool was already reduced"),
+    "computeDivisionTallyFromDb must comment that rebel deduction is skipped on the snapshot path",
+  );
+  // Legacy path: still deducts proportionally
+  assert.ok(
+    helperSrc.includes("Legacy path: deduct proportionally"),
+    "computeDivisionTallyFromDb must retain legacy proportional deduction path for old divisions without snapshot",
+  );
+});
+
+test("NPC party votes: npcVotes still applied in computeDivisionTallyFromDb regardless of snapshot", () => {
+  const helperSrc = readFileSync(resolve(__dir, "division-helpers.js"), "utf8");
+  assert.ok(
+    helperSrc.includes("NPC party votes") && helperSrc.includes("npcVote") && helperSrc.includes("seatsByParty"),
+    "computeDivisionTallyFromDb must still apply staff-set NPC votes using full seat counts from constituencies",
   );
 });

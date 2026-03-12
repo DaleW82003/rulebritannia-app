@@ -24,7 +24,7 @@ import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-hel
 import { fireRecompute, awaitedRecompute, createRecomputeContext, buildRecomputeResponseMetadata } from "./recompute-helpers.js";
 import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, seed1997Factions } from "./political-state-service.js";
 import { seedPredefinedGuides } from "./guides-seed.js";
-import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb } from "./division-helpers.js";
+import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb, batchEnrichPlayersWithSimJoinDates } from "./division-helpers.js";
 import { resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary } from "./finance-service.js";
 import {
   IPM_TICKET_ORIGIN,
@@ -790,6 +790,10 @@ async function ensureSchema() {
     ON CONFLICT (id) DO NOTHING;
   `);
 
+  await pool.query(`ALTER TABLE sim_clock ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE sim_clock ADD COLUMN IF NOT EXISTS started BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE sim_clock ADD COLUMN IF NOT EXISTS started_real_date TIMESTAMPTZ`);
+
   // ── Offices & Assignments ─────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS offices (
@@ -846,7 +850,9 @@ async function ensureSchema() {
 
   await pool.query(`ALTER TABLE division_votes ADD COLUMN IF NOT EXISTS effective_weight INTEGER NOT NULL DEFAULT 1;`);
   await pool.query(`ALTER TABLE division_votes ADD COLUMN IF NOT EXISTS delegation_source_character_id UUID REFERENCES characters(id) ON DELETE SET NULL;`);
+  await pool.query(`ALTER TABLE division_votes ADD COLUMN IF NOT EXISTS vote_locked BOOLEAN NOT NULL DEFAULT FALSE;`);
   await pool.query(`ALTER TABLE divisions ADD COLUMN IF NOT EXISTS immutable_result JSONB;`);
+  await pool.query(`ALTER TABLE divisions ADD COLUMN IF NOT EXISTS weight_snapshot JSONB;`);
 
   // ── Question Time (structured tables) ────────────────────────────────────
   await pool.query(`
@@ -2319,6 +2325,14 @@ async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS characters_managed_by_idx ON characters (managed_by_user_id);
   `);
 
+  // ── Sim-clock join date for vote weight calculation ────────────────────────
+  // joined_sim_month/joined_sim_year: the sim clock values at character creation,
+  // used to determine the 4-sim-month settling period for new backbenchers.
+  await pool.query(`
+    ALTER TABLE characters ADD COLUMN IF NOT EXISTS joined_sim_month INTEGER;
+    ALTER TABLE characters ADD COLUMN IF NOT EXISTS joined_sim_year  INTEGER;
+  `);
+
   // ── NPC application fields on pending_character_applications ─────────────
   // application_type: 'pc' (player character, default) or 'npc'.
   // npc_reason: required note to moderators explaining why the NPC is needed.
@@ -3525,24 +3539,83 @@ async function runDebateAutoClose(month, year) {
 }
 
 /**
- * Called on every clock tick. Closes any open divisions whose closes_at_sim
- * deadline has been reached or passed. Sets outcome = 'expired'.
- * closes_at_sim is stored as TEXT in "YYYY-MM" format.
+ * Compute a weight snapshot for a division.
+ * Reads active players from the current game-state snapshot, enriches them with
+ * sim join dates from the characters table, then computes effective weights with
+ * `applyDelegation: true` (absent players' weights flow to their delegate).
  *
- * Also closes any divisions whose real-time closes_at timestamp has passed
- * (these are created via the admin UI with a wall-clock deadline rather than
- * a sim-clock deadline). This covers divisions that have no closes_at_sim value
- * and would otherwise accumulate as permanently-open rows.
+ * When `rebelsByParty` is provided (staff-set rebel counts), the available seat
+ * pool for each playable party is reduced by the rebel count BEFORE computing
+ * player weights.  This ensures active players share only the non-rebel portion
+ * of their party's seats (e.g., Labour 418 seats − 18 rebels = 400 for players).
+ * The rebel votes themselves are tracked separately via `rebels_by_party`.
+ *
+ * The returned object is stored in `divisions.weight_snapshot` so that:
+ *   1. Vote weights are locked in at division-open time (or when rebels change).
+ *   2. The tally is consistent regardless of when characters vote.
+ *   3. Rebel-adjusted weights always give the correct player pool.
+ *
+ * The oddment (remainder after equal division) always goes to the party leader,
+ * as enforced by `computeAllPlayerWeights`.
+ *
+ * @param {import('pg').Pool|import('pg').PoolClient} db
+ * @param {object} [rebelsByParty] - { partyName: rebelCount } from divisions.rebels_by_party
+ * @returns {Promise<{effectiveWeights:object, baseWeights:object, capturedAt:string, simMonth:number|null, simYear:number|null}>}
+ */
+async function buildDivisionWeightSnapshot(db, rebelsByParty = {}) {
+  const [rawSeatsByParty, stateResult, clockResult] = await Promise.all([
+    getPartySeatsFromConstituencies(db),
+    db.query(`SELECT ss.data FROM state_snapshots ss
+                JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+               WHERE asc2.id = 'main'`),
+    db.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"),
+  ]);
+
+  // Reduce each playable party's seat pool by their rebel count so that active
+  // players share only the non-rebel seats.  The rebels vote in their own direction
+  // and are never part of the player weight pool.
+  const seatsByParty = { ...rawSeatsByParty };
+  for (const [party, rebels] of Object.entries(rebelsByParty || {})) {
+    if (seatsByParty[party] !== undefined) {
+      seatsByParty[party] = Math.max(0, seatsByParty[party] - Number(rebels || 0));
+    }
+  }
+
+  const rawStatePlayers = Array.isArray(stateResult.rows[0]?.data?.players) ? stateResult.rows[0].data.players : [];
+  const simMonth = clockResult.rows[0]?.sim_current_month ?? null;
+  const simYear  = clockResult.rows[0]?.sim_current_year  ?? null;
+  const enrichedPlayers = await batchEnrichPlayersWithSimJoinDates(db, rawStatePlayers);
+  const { effectiveWeights, baseWeights } = computeAllPlayerWeights(seatsByParty, enrichedPlayers, {
+    applyDelegation: true,
+    currentSimMonth: simMonth,
+    currentSimYear:  simYear,
+  });
+  return { effectiveWeights, baseWeights, capturedAt: new Date().toISOString(), simMonth, simYear, rebelsByParty };
+}
+
+/**
+ * Called on every clock tick. Closes any open divisions whose closes_at_sim
+ * deadline has been reached or passed.  Computes the actual tally from cast
+ * votes, staff-set NPC votes, and staff-set rebel counts; stores the outcome
+ * as "passed", "failed", "tied", or "expired" (no votes recorded).  Stores an
+ * immutable_result snapshot and, for bill divisions, advances the bill to the
+ * appropriate final stage.
+ *
+ * Also closes divisions whose real-time closes_at timestamp has passed (admin-UI
+ * wall-clock deadlines).
  *
  * @param {number} month - New sim month (1-12)
  * @param {number} year  - New sim year
  */
 async function runDivisionAutoClose(month, year) {
   const deadline = simDeadlineToText(month, year); // "YYYY-MM"
+
+  // 1. Find all open divisions whose deadline has passed.
+  let expiredRows;
   try {
-    const { rowCount } = await pool.query(
-      `UPDATE divisions
-          SET status = 'closed', outcome = 'expired'
+    const { rows } = await pool.query(
+      `SELECT id, entity_type, entity_id, title, npc_votes, rebels_by_party, rebels_by_party_choice, weight_snapshot
+         FROM divisions
         WHERE status = 'open'
           AND (
             (closes_at_sim IS NOT NULL AND closes_at_sim <= $1)
@@ -3551,11 +3624,450 @@ async function runDivisionAutoClose(month, year) {
           )`,
       [deadline]
     );
-    if (rowCount) {
-      console.log(`[division/auto-close] closed ${rowCount} expired division(s) at sim ${deadline}`);
-    }
+    expiredRows = rows;
   } catch (err) {
-    console.error("[division/auto-close] failed:", err.message);
+    console.error("[division/auto-close] query failed:", err.message);
+    return;
+  }
+
+  if (!expiredRows.length) return;
+
+  // 2. Fetch seat totals once for all tally computations.
+  let seatsByParty = {};
+  try {
+    seatsByParty = await getPartySeatsFromConstituencies(pool);
+  } catch (seatErr) {
+    console.error("[division/auto-close] seat fetch failed:", seatErr.message);
+    // Continue with empty seats — tallies will still count player votes
+  }
+
+  let closedCount = 0;
+  for (const div of expiredRows) {
+    const npcVotes       = div.npc_votes              || {};
+    const rebelsByPty    = div.rebels_by_party        || {};
+    const rebelChoicePty = div.rebels_by_party_choice || {};
+    const openTimeWeights = div.weight_snapshot?.effectiveWeights || null;
+
+    // Compute tally from player votes + NPC data (using snapshot weights for consistency)
+    let tally = { aye: 0, no: 0, abstain: 0 };
+    try {
+      ({ tally } = await computeDivisionTallyFromDb(pool, div.id, npcVotes, rebelsByPty, rebelChoicePty, seatsByParty, { weightSnapshot: openTimeWeights }));
+    } catch (tallyErr) {
+      console.error(`[division/auto-close] tally failed for division ${div.id}:`, tallyErr.message);
+      // Fall through — outcome will be "expired"
+    }
+
+    const totalVotes = tally.aye + tally.no + tally.abstain;
+    let outcome;
+    if (totalVotes === 0) {
+      outcome = "expired";
+    } else if (tally.aye > tally.no) {
+      outcome = "passed";
+    } else if (tally.no > tally.aye) {
+      outcome = "failed";
+    } else {
+      outcome = "tied"; // Speaker tie-break still required for bills; recorded for visibility
+    }
+
+    const immutableResult = { tally, outcome, closedAt: new Date().toISOString(), autoClosedByTick: true };
+
+    try {
+      await pool.query(
+        `UPDATE divisions
+            SET status = 'closed', outcome = $2, immutable_result = $3::jsonb
+          WHERE id = $1`,
+        [div.id, outcome, JSON.stringify(immutableResult)]
+      );
+      closedCount++;
+      console.log(`[division/auto-close] division ${div.id} closed — outcome: ${outcome} (aye ${tally.aye}, no ${tally.no})`);
+    } catch (updateErr) {
+      console.error(`[division/auto-close] update failed for division ${div.id}:`, updateErr.message);
+      continue;
+    }
+
+    // 3. Entity-specific post-close actions.
+    if (div.entity_type === "bill" && div.entity_id) {
+      // Bill final division: advance stage and auto-generate a parliamentary news item.
+      try {
+        let billData = null;
+        const { rows: bRows } = await pool.query("SELECT id, data FROM bills WHERE id = $1", [div.entity_id]);
+        billData = bRows[0]?.data || null;
+
+        if (outcome === "passed") {
+          await pool.query(
+            `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+            [JSON.stringify({
+              stage:               "Passed - Awaiting Assent",
+              status:              "awaiting-assent",
+              stageStartedAt:      new Date().toISOString(),
+              stageDeadlineSim:    null,
+              divisionOutcome:     "passed",
+              divisionResolvedAt:  new Date().toISOString(),
+            }), div.entity_id]
+          );
+          console.log(`[division/auto-close] bill ${div.entity_id} advanced to Passed - Awaiting Assent`);
+        } else if (outcome === "failed" || outcome === "expired") {
+          await pool.query(
+            `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+            [JSON.stringify({
+              stage:               "Defeated in Division",
+              status:              "failed",
+              stageStartedAt:      new Date().toISOString(),
+              stageDeadlineSim:    null,
+              divisionOutcome:     outcome,
+              divisionResolvedAt:  new Date().toISOString(),
+            }), div.entity_id]
+          );
+          console.log(`[division/auto-close] bill ${div.entity_id} advanced to Defeated in Division (${outcome})`);
+        }
+        // "tied": leave at Final Division — Speaker must cast tie-break manually
+
+        // Auto-generate a parliamentary news item for the division result.
+        if (billData && outcome !== "tied") {
+          await autoGenerateBillDivisionNews(pool, div, tally, outcome, billData, month, year).catch((nErr) => {
+            console.error(`[division/auto-close] news generation failed for bill ${div.entity_id}:`, nErr.message);
+          });
+        }
+      } catch (billErr) {
+        console.error(`[division/auto-close] bill stage update failed for bill ${div.entity_id}:`, billErr.message);
+      }
+
+    } else if (div.entity_type === "bill-amendment" && div.entity_id) {
+      // Amendment division: apply amendment to bill text if passed; mark amendment accordingly.
+      try {
+        const [billId, amendmentId] = div.entity_id.split(":").map((s) => s.trim());
+        if (billId && amendmentId) {
+          if (outcome === "passed") {
+            // Fetch amendment and bill text
+            const { rows: amRows } = await pool.query(
+              "SELECT * FROM bill_amendments WHERE bill_id = $1 AND id = $2",
+              [billId, amendmentId]
+            );
+            const { rows: bRows } = await pool.query("SELECT data FROM bills WHERE id = $1", [billId]);
+            const am = amRows[0];
+            const bill = bRows[0]?.data;
+            if (am && bill) {
+              const updatedText = applyAmendmentToBillText(
+                bill.billText || "", am.article_number, am.amendment_type, am.text || ""
+              );
+              await pool.query(
+                `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+                [JSON.stringify({ billText: updatedText }), billId]
+              );
+              await pool.query(
+                `UPDATE bill_amendments SET status = 'accepted', updated_at = NOW()
+                  WHERE bill_id = $1 AND id = $2`,
+                [billId, amendmentId]
+              );
+              console.log(`[division/auto-close] amendment ${amendmentId} on bill ${billId} PASSED — applied to bill text`);
+            }
+          } else {
+            // failed, expired, tied → amendment refused
+            await pool.query(
+              `UPDATE bill_amendments SET status = 'refused', updated_at = NOW()
+                WHERE bill_id = $1 AND id = $2`,
+              [billId, amendmentId]
+            );
+            console.log(`[division/auto-close] amendment ${amendmentId} on bill ${billId} ${outcome} — marked refused`);
+          }
+        }
+      } catch (amErr) {
+        console.error(`[division/auto-close] amendment update failed for ${div.entity_id}:`, amErr.message);
+      }
+    }
+
+    await writeAuditLog("system", "division.auto-close", "division", div.id, div, { ...div, status: "closed", tally, outcome }).catch(() => {});
+  }
+
+  if (closedCount) {
+    console.log(`[division/auto-close] closed ${closedCount} division(s) at sim ${deadline}`);
+  }
+}
+
+/**
+ * Build and insert a parliamentary news press release recording the result of
+ * a bill final division.  Shows the overall outcome, seat-weighted tallies,
+ * per-party breakdown (including NPC parties and rebellions), and any tied
+ * outcome requiring a Speaker tie-break.
+ *
+ * Uses press_type='release' with prefix "PARL" and kind "PR" so the item
+ * appears in the main press feed.  npcAuthor=true so no character ownership
+ * is required (author_character_id is NULL).
+ *
+ * @param {import('pg').Pool} db
+ * @param {object} div   - division row (entity_type, entity_id, title, rebels_by_party, rebels_by_party_choice, npc_votes)
+ * @param {object} tally - { aye, no, abstain }
+ * @param {string} outcome - 'passed'|'failed'|'expired'
+ * @param {object} billData - bill's JSONB data field
+ * @param {number} month  - current sim month
+ * @param {number} year   - current sim year
+ */
+async function autoGenerateBillDivisionNews(db, div, tally, outcome, billData, month, year) {
+  const { rows: pvRows } = await db.query(
+    `SELECT COALESCE(c.party, 'Independent') AS party, dv.vote,
+            SUM(dv.effective_weight) AS weight
+       FROM division_votes dv
+       LEFT JOIN characters c ON c.id = dv.character_id
+      WHERE dv.division_id = $1
+      GROUP BY COALESCE(c.party, 'Independent'), dv.vote
+      ORDER BY party, vote`,
+    [div.id]
+  );
+
+  const billTitle = billData?.title || div.entity_id;
+  const sponsor   = billData?.sponsor || null;
+
+  // Build party-by-party narrative
+  const partyVoteMap = {};
+  for (const pv of pvRows) {
+    if (!partyVoteMap[pv.party]) partyVoteMap[pv.party] = {};
+    partyVoteMap[pv.party][pv.vote] = (partyVoteMap[pv.party][pv.vote] || 0) + Number(pv.weight || 0);
+  }
+
+  const npcVotes   = div.npc_votes              || {};
+  const rebelsByPty = div.rebels_by_party       || {};
+
+  const partyLines = [];
+
+  // Player-party votes
+  for (const [party, votes] of Object.entries(partyVoteMap).sort()) {
+    const ayeW   = Number(votes.aye     || 0);
+    const noW    = Number(votes.no      || 0);
+    const abstW  = Number(votes.abstain || 0);
+    const direction = ayeW > 0 && noW === 0 ? "voted Aye"
+                    : noW  > 0 && ayeW === 0 ? "voted No"
+                    : ayeW > 0 && noW > 0    ? "split vote"
+                    : abstW > 0              ? "abstained"
+                    : "no votes recorded";
+    const rebels = Number(rebelsByPty[party] || 0);
+    const rebelNote = rebels > 0 ? ` (${rebels} rebel${rebels > 1 ? "s" : ""})` : "";
+    partyLines.push(`• **${party}**: ${direction}${rebelNote}`);
+  }
+
+  // NPC-party votes
+  for (const [party, vote] of Object.entries(npcVotes).sort()) {
+    if (partyVoteMap[party]) continue; // already shown above
+    const rebels = Number(rebelsByPty[party] || 0);
+    const rebelNote = rebels > 0 ? ` (${rebels} rebel${rebels > 1 ? "s" : ""})` : "";
+    partyLines.push(`• **${party}**: voted ${vote.charAt(0).toUpperCase() + vote.slice(1)}${rebelNote}`);
+  }
+
+  const outcomeLabel = outcome === "passed" ? "PASSED" : "DEFEATED";
+  const outcomeNote  = outcome === "passed"
+    ? "The bill passes to Awaiting Royal Assent."
+    : "The bill has been defeated and will not proceed further.";
+
+  const body = [
+    `The **${billTitle}**${sponsor ? ` (sponsored by ${sponsor})` : ""} has been put to a Final Division.`,
+    "",
+    `**Result: ${outcomeLabel}** — Ayes: ${tally.aye} | Noes: ${tally.no} | Abstentions: ${tally.abstain}`,
+    "",
+    outcomeNote,
+    "",
+    partyLines.length ? "**Party breakdown:**" : "",
+    ...partyLines,
+  ].filter((l) => l !== undefined).join("\n").trim();
+
+  const headline  = `${billTitle}: ${outcomeLabel} by ${Math.abs(tally.aye - tally.no)} ${tally.aye > tally.no ? "ayes" : "noes"}`;
+  const newsId    = randomUUID();
+
+  // Allocate a serial for PARL PR reference codes
+  const serial = await allocatePressSerial(db, "PR", "PARL");
+  const reference = `PARL PR${serial}`;
+
+  const newsData = attachLifecycle({
+    id:              newsId,
+    title:           `Division Result: ${billTitle}`,
+    headline,
+    body,
+    author:          "Parliamentary Record",
+    party:           "",
+    npcAuthor:       true,
+    referenceKind:   "PR",
+    referencePrefix: "PARL",
+    referenceSerial: serial,
+    reference,
+    autoArchiveAfterSimMonths: 12,
+    divisionId:      div.id,
+    billId:          div.entity_id,
+    divisionOutcome: outcome,
+  }, month, year);
+
+  await db.query(
+    `INSERT INTO press_items (id, press_type, data, author_character_id, reference_kind, reference_prefix, reference_serial, reference_code)
+     VALUES ($1, 'release', $2::jsonb, NULL, 'PR', 'PARL', $3, $4)`,
+    [newsId, JSON.stringify(newsData), serial, reference]
+  );
+  console.log(`[division/auto-close] generated news item ${newsId} (${reference}) for bill ${div.entity_id} — ${outcomeLabel}`);
+}
+
+/**
+ * Called on every clock tick. Advances bills from "Report Debate" to "Final Division"
+ * stage when their debate deadline has passed and automatically opens the formal
+ * division in the divisions table (1-sim-month window).
+ *
+ * Bills with pending amendment divisions or proposed amendments awaiting author
+ * decision are skipped — those must be resolved by staff before the final vote opens.
+ *
+ * @param {number} month - New sim month (1-12)
+ * @param {number} year  - New sim year
+ */
+async function runBillAutoAdvance(month, year) {
+  // Find bills at Report Debate whose stage deadline has passed with no blocking amendments.
+  let bills;
+  try {
+    const { rows } = await pool.query(
+      `SELECT b.id, b.data, b.discourse_topic_id
+         FROM bills b
+        WHERE (b.data->>'stage') = 'Report Debate'
+          AND (b.data->>'status') NOT IN ('archived','closed','failed','withdrawn')
+          AND b.data->'stageDeadlineSim'->>'month' IS NOT NULL
+          AND b.data->'stageDeadlineSim'->>'year' IS NOT NULL
+          AND (
+            (b.data->'stageDeadlineSim'->>'year')::int < $1
+            OR (
+              (b.data->'stageDeadlineSim'->>'year')::int = $1
+              AND (b.data->'stageDeadlineSim'->>'month')::int <= $2
+            )
+          )
+          -- Skip if any amendment is in an open division
+          AND NOT EXISTS (
+            SELECT 1 FROM bill_amendments ba
+              JOIN divisions d ON d.id = ba.division_id
+             WHERE ba.bill_id = b.id AND ba.status = 'in-division' AND d.status = 'open'
+          )
+          -- Skip if any amendment is awaiting author decision
+          AND NOT EXISTS (
+            SELECT 1 FROM bill_amendments ba2
+             WHERE ba2.bill_id = b.id AND ba2.status = 'proposed'
+          )
+          -- Skip if a formal division already exists for this bill
+          AND NOT EXISTS (
+            SELECT 1 FROM divisions dv
+             WHERE dv.entity_type = 'bill' AND dv.entity_id = b.id
+          )`,
+      [year, month]
+    );
+    bills = rows;
+  } catch (err) {
+    console.error("[bill/auto-advance] query failed:", err.message);
+    return;
+  }
+
+  if (!bills.length) return;
+
+  const closesAtSim = nextSimMonth(month, year);
+
+  // Load Discourse credentials once for the whole batch (best-effort).
+  let discBaseUrl = null, discApiKey = null, discApiUsername = null;
+  try {
+    ({ baseUrl: discBaseUrl, apiKey: discApiKey, apiUsername: discApiUsername } = await loadDiscourseCredentials());
+  } catch { /* not configured — skip */ }
+
+  for (const bill of bills) {
+    try {
+      const billData = bill.data;
+      const title = billData?.title || bill.id;
+
+      // 1. Advance bill stage to Final Division
+      const stagePatch = {
+        stage:            "Final Division",
+        stageStartedAt:   new Date().toISOString(),
+        stageDeadlineSim: simDeadline(month, year, BILL_STAGE_MONTHS["Final Division"]),
+      };
+      await pool.query(
+        `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+        [JSON.stringify(stagePatch), bill.id]
+      );
+
+      // 2. Open the formal division (1 sim month window) with a weight snapshot
+      let divisionWeightSnapshot = null;
+      try { divisionWeightSnapshot = await buildDivisionWeightSnapshot(pool); } catch (wsErr) {
+        console.warn(`[bill/auto-advance] weight snapshot failed for bill ${bill.id}:`, wsErr.message);
+      }
+      const { rows: divRows } = await pool.query(
+        `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim, weight_snapshot)
+         VALUES ('bill', $1, $2, $3, $4::jsonb)
+         RETURNING id`,
+        [bill.id, `Final Division: ${title}`, closesAtSim, divisionWeightSnapshot ? JSON.stringify(divisionWeightSnapshot) : null]
+      );
+      const divisionId = divRows[0].id;
+
+      // 3. Record division id in bill data
+      await pool.query(
+        `UPDATE bills SET data = data || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+        [JSON.stringify({ formalDivisionId: divisionId }), bill.id]
+      );
+
+      await writeAuditLog("system", "bill.final-division.auto-opened", "bill", bill.id, billData, { divisionId, closesAtSim }).catch(() => {});
+      console.log(`[bill/auto-advance] bill ${bill.id} advanced to Final Division — division ${divisionId} opens, closes at sim ${closesAtSim}`);
+
+      // 4. Close Discourse debate topic (non-fatal)
+      const topicId = Number(bill.discourse_topic_id || 0);
+      if (topicId && discBaseUrl) {
+        try {
+          await closeDiscTopic({ baseUrl: discBaseUrl, apiKey: discApiKey, apiUsername: discApiUsername, topicId });
+          console.log(`[bill/auto-advance] closed Discourse topic ${topicId} for bill ${bill.id}`);
+        } catch (discErr) {
+          console.warn(`[bill/auto-advance] closeTopic failed for bill ${bill.id} (topic ${topicId}): ${discErr.message}`);
+          try {
+            await createPost({ baseUrl: discBaseUrl, apiKey: discApiKey, apiUsername: discApiUsername, topicId, raw: "**Debate closed.** The Final Division has opened automatically. Voting is now in progress." });
+          } catch (postErr) {
+            console.warn(`[bill/auto-advance] fallback post failed for bill ${bill.id}:`, postErr.message);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[bill/auto-advance] failed for bill ${bill.id}:`, err.message);
+    }
+  }
+}
+
+/**
+ * Called on every tick AND on Sunday freeze.
+ * Closes polling entries whose autoArchiveAfterSimMonths has elapsed, or whose
+ * explicit closesAtSimObj close date has been reached.
+ */
+async function runPollingAutoClose(month, year) {
+  try {
+    // Archive entries with elapsed autoArchiveAfterSimMonths (same logic as tick auto-archive)
+    const { rowCount: archived } = await pool.query(
+      `UPDATE polling_entries
+          SET data = data || '{"status":"archived"}'::jsonb,
+              updated_at = NOW()
+        WHERE (data->>'status') NOT IN ('archived','closed')
+          AND (data->>'autoArchiveAfterSimMonths') IS NOT NULL
+          AND (data->>'autoArchiveAfterSimMonths')::int > 0
+          AND (
+            (($1 - (data->'createdAtSim'->>'year')::int) * 12
+             + ($2 - (data->'createdAtSim'->>'month')::int))
+            >= (data->>'autoArchiveAfterSimMonths')::int
+          )`,
+      [year, month]
+    );
+
+    // Also close entries with an explicit closesAtSimObj that has been reached
+    const { rowCount: closed } = await pool.query(
+      `UPDATE polling_entries
+          SET data = data || '{"status":"closed"}'::jsonb,
+              updated_at = NOW()
+        WHERE (data->>'status') = 'open'
+          AND data->'closesAtSimObj' IS NOT NULL
+          AND (
+            (data->'closesAtSimObj'->>'year')::int < $1
+            OR (
+              (data->'closesAtSimObj'->>'year')::int = $1
+              AND (data->'closesAtSimObj'->>'month')::int <= $2
+            )
+          )`,
+      [year, month]
+    );
+
+    if (archived || closed) {
+      console.log(`[polling/auto-close] archived=${archived} closed=${closed} at sim ${year}-${month}`);
+    }
+  } catch (e) {
+    console.error("[polling/auto-close]", e.message);
   }
 }
 
@@ -7029,11 +7541,13 @@ app.post("/api/bills/:id/amendments/:aid/decide", crudWriteLimit, async (req, re
         const sm = clk[0]?.sim_current_month ?? 8;
         const sy = clk[0]?.sim_current_year  ?? 1997;
         const closesAtSim = nextSimMonth(sm, sy);
+        let amendmentWeightSnapshot = null;
+        try { amendmentWeightSnapshot = await buildDivisionWeightSnapshot(pool); } catch { /* best-effort */ }
         const { rows: divRows } = await pool.query(
-          `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
-           VALUES ('bill-amendment', $1, $2, $3)
+          `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim, weight_snapshot)
+           VALUES ('bill-amendment', $1, $2, $3, $4::jsonb)
            RETURNING id`,
-          [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim]
+          [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim, amendmentWeightSnapshot ? JSON.stringify(amendmentWeightSnapshot) : null]
         );
         await pool.query(
           `UPDATE bill_amendments SET status = 'in-division', division_id = $3, updated_at = NOW()
@@ -7108,11 +7622,13 @@ app.post("/api/bills/:id/amendments/:aid/support", crudWriteLimit, async (req, r
       const sy = clk[0]?.sim_current_year  ?? 1997;
       const bill = billRows[0]?.data || {};
       const closesAtSim = nextSimMonth(sm, sy);
+      let supportWeightSnapshot = null;
+      try { supportWeightSnapshot = await buildDivisionWeightSnapshot(pool); } catch { /* best-effort */ }
       const { rows: divRows } = await pool.query(
-        `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
-         VALUES ('bill-amendment', $1, $2, $3)
+        `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim, weight_snapshot)
+         VALUES ('bill-amendment', $1, $2, $3, $4::jsonb)
          RETURNING id`,
-        [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim]
+        [`${req.params.id}:${req.params.aid}`, `Amendment ${req.params.aid} on: ${bill.title || req.params.id}`, closesAtSim, supportWeightSnapshot ? JSON.stringify(supportWeightSnapshot) : null]
       );
       await pool.query(
         `UPDATE bill_amendments SET status = 'in-division', division_id = $3, updated_at = NOW()
@@ -7209,11 +7725,15 @@ app.post("/api/bills/:id/final-division", crudWriteLimit, async (req, res) => {
     const sy = clk[0]?.sim_current_year  ?? 1997;
     const closesAtSim = nextSimMonth(sm, sy);
 
+    let finalDivisionWeightSnapshot = null;
+    try { finalDivisionWeightSnapshot = await buildDivisionWeightSnapshot(pool); } catch (wsErr) {
+      console.warn("[bill/final-division] weight snapshot failed:", wsErr.message);
+    }
     const { rows: divRows } = await pool.query(
-      `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim)
-       VALUES ('bill', $1, $2, $3)
+      `INSERT INTO divisions (entity_type, entity_id, title, closes_at_sim, weight_snapshot)
+       VALUES ('bill', $1, $2, $3, $4::jsonb)
        RETURNING id, entity_type, entity_id, title, status, closes_at_sim, created_at`,
-      [req.params.id, `Final Division: ${bill.title || req.params.id}`, closesAtSim]
+      [req.params.id, `Final Division: ${bill.title || req.params.id}`, closesAtSim, finalDivisionWeightSnapshot ? JSON.stringify(finalDivisionWeightSnapshot) : null]
     );
 
     // Record division id in bill data
@@ -7331,30 +7851,38 @@ app.patch("/api/bills/:id/vote", crudWriteLimit, async (req, res) => {
 
     // Get current active character from DB
     const { rows: charRows } = await pool.query(
-      "SELECT name, party, is_npc FROM characters WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at DESC LIMIT 1",
+      "SELECT name, party, is_npc, joined_sim_month, joined_sim_year FROM characters WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at DESC LIMIT 1",
       [req.session.userId]
     );
     if (!charRows.length) return res.status(400).json({ error: "No active character found" });
     const { name: charName, party: charParty, is_npc: isNpc } = charRows[0];
 
-    // Seat totals from constituencies DB (authoritative source — constituencies page)
-    const seatsByParty = await getPartySeatsFromConstituencies(pool);
+    // Fetch seats + sim clock in parallel
+    const [seatsByParty, clkResult, stateResult] = await Promise.all([
+      getPartySeatsFromConstituencies(pool),
+      pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"),
+      pool.query(`SELECT ss.data
+                    FROM state_snapshots ss
+                    JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+                   WHERE asc2.id = 'main'`),
+    ]);
+    const simMonth = clkResult.rows[0]?.sim_current_month ?? null;
+    const simYear  = clkResult.rows[0]?.sim_current_year  ?? null;
+    const stateData = stateResult.rows[0]?.data ?? {};
+    const rawPlayers = Array.isArray(stateData?.players) ? stateData.players : [];
 
-    // Load current game state for player list (absence/delegation info)
-    const { rows: stateRows } = await pool.query(
-      `SELECT ss.data
-         FROM state_snapshots ss
-         JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
-        WHERE asc2.id = 'main'`
-    );
-    const stateData = stateRows[0]?.data ?? {};
-    const players = Array.isArray(stateData?.players) ? stateData.players : [];
+    // Enrich all players with sim join dates from DB for accurate 4-sim-month threshold
+    const players = await batchEnrichPlayersWithSimJoinDates(pool, rawPlayers);
 
     // Compute effective weight server-side (seats from constituencies DB, players from state).
     // NPC characters not present in state are injected synthetically to receive their party share.
-    const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, players);
+    const { effectiveWeights } = computeAllPlayerWeights(seatsByParty, players, { currentSimMonth: simMonth, currentSimYear: simYear });
     const effectiveWeight = isNpc
-      ? computeCharacterWeight(seatsByParty, players, charName, charParty, true)
+      ? computeCharacterWeight(seatsByParty, players, charName, charParty, true, {
+          currentSimMonth: simMonth, currentSimYear: simYear,
+          joinedSimMonth: charRows[0].joined_sim_month ?? null,
+          joinedSimYear:  charRows[0].joined_sim_year  ?? null,
+        })
       : Number(effectiveWeights[charName] || 0);
 
     // Initialise division if this is the first vote
@@ -8040,10 +8568,10 @@ const clockWriteLimit = rateLimit({ windowMs: 60_000, max: 20,  standardHeaders:
 app.get("/api/clock", clockReadLimit, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
+      "SELECT sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started FROM sim_clock WHERE id = 'main'"
     );
     if (!rows.length) {
-      return res.json({ sim_current_month: 8, sim_current_year: 1997, real_last_tick: null, rate: 1 });
+      return res.json({ sim_current_month: 8, sim_current_year: 1997, real_last_tick: null, rate: 1, is_paused: false, started: false });
     }
     res.json(rows[0]);
   } catch (e) {
@@ -8056,69 +8584,152 @@ app.post("/api/clock/tick", clockWriteLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
     if (!await enforceSimulationNotFrozen(req, res, { routeLabel: "/api/clock/tick" })) return;
-    const { rows } = await pool.query(
-      `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
-       VALUES ('main', 8, 1997, 1)
-       ON CONFLICT (id) DO UPDATE SET
-         sim_current_year  = sim_clock.sim_current_year + FLOOR((sim_clock.sim_current_month - 1 + sim_clock.rate) / 12),
-         sim_current_month = MOD(sim_clock.sim_current_month - 1 + sim_clock.rate, 12) + 1,
-         real_last_tick    = NOW()
-       RETURNING sim_current_month, sim_current_year, real_last_tick, rate`
-    );
-    const newMonth = rows[0].sim_current_month;
-    const newYear  = rows[0].sim_current_year;
-
-    // Keep sim_state in sync so both clock representations agree.
-    await pool.query(
-      `UPDATE sim_state SET month = $1, year = $2, last_tick_at = NOW() WHERE id = 'main'`,
-      [newMonth, newYear]
-    );
-
-    // Auto-archive content whose autoArchiveAfterSimMonths has elapsed.
-    // We compare createdAtSim against the new sim date.
-    const ARCHIVABLE_TABLES = [
-      "bills", "motions", "statements", "regulations",
-      "questiontime_questions", "press_items", "polling_entries",
-    ];
-    let archived = 0;
-    for (const tbl of ARCHIVABLE_TABLES) {
-      try {
-        const { rowCount } = await pool.query(
-          `UPDATE ${tbl}
-              SET data = data || '{"status":"archived"}'::jsonb,
-                  updated_at = NOW()
-            WHERE (data->>'status') NOT IN ('archived','closed')
-              AND (data->>'autoArchiveAfterSimMonths') IS NOT NULL
-              AND (data->>'autoArchiveAfterSimMonths')::int > 0
-              AND (
-                (($1 - (data->'createdAtSim'->>'year')::int) * 12
-                 + ($2 - (data->'createdAtSim'->>'month')::int))
-                >= (data->>'autoArchiveAfterSimMonths')::int
-              )`,
-          [newYear, newMonth]
-        );
-        archived += rowCount ?? 0;
-      } catch (archiveErr) {
-        // Non-fatal: log and continue
-        console.error(`[clock/tick] auto-archive failed for ${tbl}:`, archiveErr.message);
-      }
-    }
-
-    await writeAuditLog(req.session.userId, "clock.tick", "sim_clock", "main", null, { ...rows[0], archivedItems: archived });
-
-    // Automatic salary crediting — runs on every tick (catch-up for missed 2-month periods)
-    fireRecompute("salary-crediting", "clock.tick", () => runSalaryCrediting(newMonth, newYear));
-    runShopUpkeep(newMonth, newYear).catch((e) => console.error("[clock/tick] shop upkeep failed:", e.message));
-    runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
-    runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
-    runDebateAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] debate auto-close failed:", e.message));
-    runDivisionAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] division auto-close failed:", e.message));
-    res.json({ ok: true, clock: rows[0], archivedItems: archived });
+    const result = await performClockTick(req.session.userId);
+    res.json({ ok: true, clock: result.clock, archivedItems: result.archivedItems });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
   }
 });
+
+async function runQTEscalation(month, year) {
+  try {
+    // Step 1: Auto-issue speaker demand for open questions past their due_at_sim
+    // (due_at_sim <= current sim date AND speaker_demanded_at IS NULL)
+    const { rows: overdueRows } = await pool.query(
+      `SELECT id, office_id, asked_by_name
+         FROM qt_questions
+        WHERE status = 'open'
+          AND speaker_demanded_at IS NULL
+          AND due_at_sim IS NOT NULL
+          AND (
+            (due_at_sim::jsonb->>'year')::int < $1
+            OR ((due_at_sim::jsonb->>'year')::int = $1 AND (due_at_sim::jsonb->>'month')::int <= $2)
+          )`,
+      [year, month]
+    );
+
+    for (const q of overdueRows) {
+      // Demand due 1 sim month from now
+      const dueMonth = month === 12 ? 1 : month + 1;
+      const dueYear  = month === 12 ? year + 1 : year;
+      const demandDue = JSON.stringify({ month: dueMonth, year: dueYear });
+      await pool.query(
+        `UPDATE qt_questions
+            SET speaker_demanded_at = NOW(), demand_due_at_sim = $1, updated_at = NOW()
+          WHERE id = $2`,
+        [demandDue, q.id]
+      );
+      console.log(`[qt/auto-demand] issued speaker demand on question ${q.id} (office: ${q.office_id})`);
+    }
+  } catch (e) {
+    console.error("[qt/auto-demand]", e.message);
+  }
+
+  try {
+    // Step 2: Auto-archive questions where speaker demand has expired (demand_due_at_sim passed)
+    const { rows: expiredRows } = await pool.query(
+      `SELECT q.id, q.office_id, q.asked_by_name,
+              oa.character_id AS minister_char_id
+         FROM qt_questions q
+         LEFT JOIN offices o ON o.spec_id = q.office_id
+         LEFT JOIN office_assignments oa ON oa.office_id = o.id
+        WHERE q.status = 'open'
+          AND q.speaker_demanded_at IS NOT NULL
+          AND q.demand_due_at_sim IS NOT NULL
+          AND (
+            (q.demand_due_at_sim::jsonb->>'year')::int < $1
+            OR ((q.demand_due_at_sim::jsonb->>'year')::int = $1 AND (q.demand_due_at_sim::jsonb->>'month')::int <= $2)
+          )`,
+      [year, month]
+    );
+
+    for (const q of expiredRows) {
+      // Archive the question
+      await pool.query(
+        `UPDATE qt_questions SET status = 'archived', updated_at = NOW() WHERE id = $1`,
+        [q.id]
+      );
+      // Record the penalty in the audit log (ministry failed to answer)
+      await writeAuditLog(
+        null,
+        "qt.question.auto-archived-unanswered",
+        "qt_question",
+        q.id,
+        null,
+        { office_id: q.office_id, minister_char_id: q.minister_char_id ?? null },
+        { reason: "Minister failed to answer after Speaker demand", simMonth: month, simYear: year }
+      );
+      console.log(`[qt/auto-expire] archived unanswered question ${q.id} (office: ${q.office_id})`);
+    }
+  } catch (e) {
+    console.error("[qt/auto-expire]", e.message);
+  }
+}
+
+async function performClockTick(userId) {
+  const { rows } = await pool.query(
+    `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+     VALUES ('main', 8, 1997, 1)
+     ON CONFLICT (id) DO UPDATE SET
+       sim_current_year  = sim_clock.sim_current_year + FLOOR((sim_clock.sim_current_month - 1 + sim_clock.rate) / 12),
+       sim_current_month = MOD(sim_clock.sim_current_month - 1 + sim_clock.rate, 12) + 1,
+       real_last_tick    = NOW()
+     RETURNING sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started`
+  );
+  const newMonth = rows[0].sim_current_month;
+  const newYear  = rows[0].sim_current_year;
+
+  // Keep sim_state in sync so both clock representations agree.
+  await pool.query(
+    `UPDATE sim_state SET month = $1, year = $2, last_tick_at = NOW() WHERE id = 'main'`,
+    [newMonth, newYear]
+  );
+
+  // Auto-archive content whose autoArchiveAfterSimMonths has elapsed.
+  const ARCHIVABLE_TABLES = [
+    "bills", "motions", "statements", "regulations",
+    "questiontime_questions", "press_items", "polling_entries",
+  ];
+  let archived = 0;
+  for (const tbl of ARCHIVABLE_TABLES) {
+    try {
+      const { rowCount } = await pool.query(
+        `UPDATE ${tbl}
+            SET data = data || '{"status":"archived"}'::jsonb,
+                updated_at = NOW()
+          WHERE (data->>'status') NOT IN ('archived','closed')
+            AND (data->>'autoArchiveAfterSimMonths') IS NOT NULL
+            AND (data->>'autoArchiveAfterSimMonths')::int > 0
+            AND (
+              (($1 - (data->'createdAtSim'->>'year')::int) * 12
+               + ($2 - (data->'createdAtSim'->>'month')::int))
+              >= (data->>'autoArchiveAfterSimMonths')::int
+            )`,
+        [newYear, newMonth]
+      );
+      archived += rowCount ?? 0;
+    } catch (archiveErr) {
+      // Non-fatal: log and continue
+      console.error(`[clock/tick] auto-archive failed for ${tbl}:`, archiveErr.message);
+    }
+  }
+
+  await writeAuditLog(userId ?? "system", "clock.tick", "sim_clock", "main", null, { ...rows[0], archivedItems: archived });
+
+  // Automatic salary crediting — runs on every tick
+  fireRecompute("salary-crediting", "clock.tick", () => runSalaryCrediting(newMonth, newYear));
+  runShopUpkeep(newMonth, newYear).catch((e) => console.error("[clock/tick] shop upkeep failed:", e.message));
+  runRevenuePayouts(newMonth, newYear).catch((e) => console.error("[clock/tick] revenue payouts failed:", e.message));
+  runMembershipIntake(newMonth, newYear).catch((e) => console.error("[clock/tick] membership intake failed:", e.message));
+  runDebateAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] debate auto-close failed:", e.message));
+  runBillAutoAdvance(newMonth, newYear).catch((e) => console.error("[clock/tick] bill auto-advance failed:", e.message));
+  runDivisionAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] division auto-close failed:", e.message));
+  runQTEscalation(newMonth, newYear).catch((e) => console.error("[clock/tick] QT escalation failed:", e.message));
+  runPollingAutoClose(newMonth, newYear).catch((e) => console.error("[clock/tick] polling auto-close failed:", e.message));
+
+  return { clock: rows[0], archivedItems: archived };
+}
 
 app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
   try {
@@ -8164,6 +8775,134 @@ app.post("/api/clock/set", clockWriteLimit, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
+app.post("/api/clock/start", clockWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    if (!await enforceSimulationNotFrozen(req, res, { routeLabel: "/api/clock/start" })) return;
+
+    // Must be Sunday in UK time
+    const ukDateStr = new Date().toLocaleString("en-US", { timeZone: "Europe/London", weekday: "long" });
+    if (!ukDateStr.startsWith("Sunday")) {
+      return res.status(403).json({ error: "Simulation may only be started on a Sunday (UK time)" });
+    }
+
+    const { rows: existing } = await pool.query(
+      "SELECT started FROM sim_clock WHERE id = 'main'"
+    );
+    if (existing[0]?.started) {
+      return res.status(409).json({ error: "Simulation is already started" });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE sim_clock
+          SET started = TRUE, started_real_date = NOW(), is_paused = FALSE, real_last_tick = NOW()
+        WHERE id = 'main'
+        RETURNING sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started, started_real_date`
+    );
+    await pool.query(
+      `UPDATE sim_state SET is_paused = FALSE WHERE id = 'main'`
+    );
+    res.json({ ok: true, clock: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/clock/pause", clockWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { rows: existing } = await pool.query(
+      "SELECT started, is_paused FROM sim_clock WHERE id = 'main'"
+    );
+    if (!existing[0]?.started) {
+      return res.status(409).json({ error: "Simulation has not been started" });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE sim_clock SET is_paused = TRUE WHERE id = 'main'
+       RETURNING sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started, started_real_date`
+    );
+    await pool.query(`UPDATE sim_state SET is_paused = TRUE WHERE id = 'main'`);
+    res.json({ ok: true, clock: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/clock/unpause", clockWriteLimit, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    // Must be Sunday in UK time
+    const ukDateStr = new Date().toLocaleString("en-US", { timeZone: "Europe/London", weekday: "long" });
+    if (!ukDateStr.startsWith("Sunday")) {
+      return res.status(403).json({ error: "Simulation may only be unpaused on a Sunday (UK time)" });
+    }
+
+    const { rows: existing } = await pool.query(
+      "SELECT started, is_paused FROM sim_clock WHERE id = 'main'"
+    );
+    if (!existing[0]?.started) {
+      return res.status(409).json({ error: "Simulation has not been started" });
+    }
+    if (!existing[0]?.is_paused) {
+      return res.status(409).json({ error: "Simulation is not paused" });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE sim_clock SET is_paused = FALSE WHERE id = 'main'
+       RETURNING sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started, started_real_date`
+    );
+    await pool.query(`UPDATE sim_state SET is_paused = FALSE WHERE id = 'main'`);
+    res.json({ ok: true, clock: rows[0] });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+function startAutoTickScheduler() {
+  async function maybeAutoTick() {
+    try {
+      const { rows: clkRows } = await pool.query(
+        "SELECT started, is_paused, real_last_tick FROM sim_clock WHERE id = 'main'"
+      );
+      const clk = clkRows[0];
+      if (!clk?.started || clk?.is_paused) return;
+
+      // Check freeze state
+      const { rows: freezeRows } = await pool.query(
+        "SELECT is_frozen FROM simulation_freeze_state WHERE id = 'main'"
+      );
+      if (freezeRows[0]?.is_frozen) return;
+
+      // Check UK weekday: Monday=1 or Thursday=4 only
+      const ukDayStr = new Date().toLocaleString("en-US", { timeZone: "Europe/London", weekday: "long" });
+      const isMonday   = ukDayStr.startsWith("Monday");
+      const isThursday = ukDayStr.startsWith("Thursday");
+      if (!isMonday && !isThursday) return;
+
+      // Check if already ticked today (UK date)
+      if (clk.real_last_tick) {
+        const lastTickUkDate = new Date(clk.real_last_tick).toLocaleDateString("en-GB", { timeZone: "Europe/London" });
+        const todayUkDate    = new Date().toLocaleDateString("en-GB", { timeZone: "Europe/London" });
+        if (lastTickUkDate === todayUkDate) return;
+      }
+
+      console.log("[auto-tick] triggering scheduled tick");
+      await performClockTick(null);
+    } catch (e) {
+      console.error("[auto-tick] error:", e.message);
+    }
+  }
+
+  maybeAutoTick();
+  setInterval(maybeAutoTick, 5 * 60 * 1000);
+}
 
 /**
  * PRESS ITEMS
@@ -9575,9 +10314,9 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     // abort the entire Promise.all. The user query returns null (not []) so that a
     // failure can be distinguished from a genuinely deleted user, preventing the
     // session-destruction guard from logging out valid users.
-    const [clockRows, configRows, userRows, stateRows, charRows, seatTotalRows, canonicalPartyRows] = await Promise.all([
+    const [clockRows, configRows, userRows, stateRows, charRows, seatTotalRows, canonicalPartyRows, freezeRow] = await Promise.all([
       pool.query(
-        "SELECT sim_current_month, sim_current_year, real_last_tick, rate FROM sim_clock WHERE id = 'main'"
+        "SELECT sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started FROM sim_clock WHERE id = 'main'"
       ).then((r) => r.rows).catch(bootstrapCatch("clock")),
 
       pool.query("SELECT key, value FROM app_config").then((r) => r.rows)
@@ -9624,10 +10363,19 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
       pool.query(
         `SELECT slug, name, playable FROM parties ORDER BY playable DESC, name`
       ).then((r) => r.rows).catch(bootstrapCatch("parties")),
+
+      // Simulation freeze state — included so the nav bar can show a frozen indicator
+      // without an extra round-trip on every page load.
+      getSimulationFreezeState().catch(() => null),
     ]);
 
     // Clock — fall back to defaults if the table row doesn't exist yet.
     const clock = clockRows[0] ?? { sim_current_month: 8, sim_current_year: 1997, real_last_tick: null, rate: 1 };
+
+    // Simulation freeze — safe minimal shape for the client nav bar indicator.
+    const simFreeze = freezeRow
+      ? { is_frozen: Boolean(freezeRow.is_frozen), reason: freezeRow.reason || null }
+      : { is_frozen: false, reason: null };
 
     // Config — strip sensitive keys.
     const config = Object.fromEntries(
@@ -9648,12 +10396,12 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
     if (isLoggedIn && userRows !== null && !userRows.length) {
       // Session references a deleted user; destroy it silently.
       req.session.destroy(() => {});
-      return res.json({ clock, config, user: null, csrfToken: null, state: null, seatTotals, canonicalParties });
+      return res.json({ clock, config, user: null, csrfToken: null, state: null, seatTotals, canonicalParties, simFreeze });
     }
 
     if (!isLoggedIn || userRows === null) {
       // Not logged in, or user query failed transiently — don't destroy the session.
-      return res.json({ clock, config, user: null, csrfToken: null, state: null, is_demo: !isLoggedIn, seatTotals, canonicalParties });
+      return res.json({ clock, config, user: null, csrfToken: null, state: null, is_demo: !isLoggedIn, seatTotals, canonicalParties, simFreeze });
     }
 
     // Lazily generate CSRF token for sessions that pre-date the feature.
@@ -9726,7 +10474,7 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
       }
     }
 
-    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state, currentCharacter, seatTotals, canonicalParties, is_demo: false });
+    res.json({ clock, config, user, csrfToken: req.session.csrfToken, state, currentCharacter, seatTotals, canonicalParties, simFreeze, is_demo: false });
   } catch (e) {
     console.error("[bootstrap]", e);
     res.status(500).json({ error: "Server error" });
@@ -10184,6 +10932,14 @@ app.post("/api/characters/:userId?", charWriteLimit, async (req, res) => {
         [rows[0].id]
       );
     }
+    // Seed sim-clock join date (best-effort)
+    pool.query(
+      `UPDATE characters
+          SET joined_sim_month = (SELECT sim_current_month FROM sim_clock WHERE id = 'main'),
+              joined_sim_year  = (SELECT sim_current_year  FROM sim_clock WHERE id = 'main')
+        WHERE id = $1`,
+      [rows[0].id]
+    ).catch((e) => console.warn("[character.create] sim clock seed failed:", e.message));
     await writeAuditLog(req.session.userId, "character.create", "character", rows[0].id, null, rows[0]);
     res.status(201).json({ ok: true, character: rows[0] });
   } catch (e) {
@@ -10800,6 +11556,15 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
         [character.id]
       ).catch((e) => console.warn("[approve-npc] backbencher seed failed:", e.message));
 
+      // Seed sim-clock join date (best-effort)
+      pool.query(
+        `UPDATE characters
+            SET joined_sim_month = (SELECT sim_current_month FROM sim_clock WHERE id = 'main'),
+                joined_sim_year  = (SELECT sim_current_year  FROM sim_clock WHERE id = 'main')
+          WHERE id = $1`,
+        [character.id]
+      ).catch((e) => console.warn("[approve-npc] sim clock seed failed:", e.message));
+
       // Seed starting bank balance (best-effort)
       const startingBalance = STARTING_BALANCES[Math.min(10, Math.max(1, Number(app_.financial_background_level) || 5))] ?? 25000;
       await pool.query(
@@ -10883,6 +11648,15 @@ app.post("/api/admin/characters/applications/:id/approve", charAppWriteLimit, as
         "INSERT INTO character_positions (character_id, position_key) VALUES ($1, 'backbencher') ON CONFLICT DO NOTHING",
         [character.id]
       ).catch((e) => console.warn("[approve] backbencher seed failed:", e.message));
+
+      // Seed sim-clock join date (best-effort)
+      pool.query(
+        `UPDATE characters
+            SET joined_sim_month = (SELECT sim_current_month FROM sim_clock WHERE id = 'main'),
+                joined_sim_year  = (SELECT sim_current_year  FROM sim_clock WHERE id = 'main')
+          WHERE id = $1`,
+        [character.id]
+      ).catch((e) => console.warn("[approve] sim clock seed failed:", e.message));
 
       // Seed starting bank balance from financial background level (one-time, only if no finance row exists)
       const startingBalance = STARTING_BALANCES[Math.min(10, Math.max(1, Number(app_.financial_background_level) || 5))] ?? 25000;
@@ -15784,7 +16558,7 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query(
       `SELECT id, entity_type, entity_id, title, status, closes_at, created_at,
-              npc_votes, rebels_by_party, rebels_by_party_choice
+              npc_votes, rebels_by_party, rebels_by_party_choice, weight_snapshot
          FROM divisions WHERE id = $1`,
       [req.params.id]
     );
@@ -15794,9 +16568,13 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
     const rebelP  = rows[0].rebels_by_party      || {};
     const rebelCh = rows[0].rebels_by_party_choice || {};
     const seatsByParty = await getPartySeatsFromConstituencies(pool);
+    const snapshotWeights = rows[0].weight_snapshot?.effectiveWeights || null;
 
-    // Tally + per-party breakdown (includes NPC seats, rebels, Sinn Féin auto-abstain)
-    const { tally, byParty } = await computeDivisionTallyFromDb(pool, req.params.id, npcV, rebelP, rebelCh, seatsByParty);
+    // Tally + per-party breakdown (includes NPC seats, rebels, Sinn Féin auto-abstain, absent)
+    const { tally, byParty, absentWeight } = await computeDivisionTallyFromDb(
+      pool, req.params.id, npcV, rebelP, rebelCh, seatsByParty,
+      { weightSnapshot: snapshotWeights }
+    );
 
     const { rows: delegations } = await pool.query(
       `SELECT character_id, delegation_source_character_id
@@ -15808,7 +16586,7 @@ app.get("/api/divisions/:id", divReadLimit, async (req, res) => {
 
     const immutableResult = rows[0].immutable_result || null;
 
-    res.json({ division: rows[0], tally, byParty, seatsByParty, delegationMap: delegations, immutableResult });
+    res.json({ division: rows[0], tally, byParty, absentWeight, seatsByParty, delegationMap: delegations, immutableResult });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -15843,11 +16621,15 @@ app.post("/api/divisions/create/:entityType/:entityId", divWriteLimit, async (re
       }
     }
 
+    let newDivisionWeightSnapshot = null;
+    try { newDivisionWeightSnapshot = await buildDivisionWeightSnapshot(pool); } catch (wsErr) {
+      console.warn("[division/create] weight snapshot failed:", wsErr.message);
+    }
     const { rows } = await pool.query(
-      `INSERT INTO divisions (entity_type, entity_id, title, closes_at, closes_at_sim)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO divisions (entity_type, entity_id, title, closes_at, closes_at_sim, weight_snapshot)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
        RETURNING id, entity_type, entity_id, title, status, closes_at, closes_at_sim, npc_votes, rebels_by_party, rebels_by_party_choice, outcome, created_at`,
-      [entity_type, String(entity_id), title, closes_at || null, closes_at_sim || null]
+      [entity_type, String(entity_id), title, closes_at || null, closes_at_sim || null, newDivisionWeightSnapshot ? JSON.stringify(newDivisionWeightSnapshot) : null]
     );
     await writeAuditLog(req.session.userId, "division.create", "division", rows[0].id, null, rows[0]);
     res.status(201).json({ ok: true, division: rows[0] });
@@ -15864,7 +16646,7 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const { entityType, entityId } = req.params;
     const { rows } = await pool.query(
       `SELECT id, entity_type, entity_id, title, status, closes_at, closes_at_sim,
-              npc_votes, rebels_by_party, rebels_by_party_choice, outcome, created_at
+              npc_votes, rebels_by_party, rebels_by_party_choice, outcome, created_at, weight_snapshot
          FROM divisions WHERE entity_type = $1 AND entity_id = $2
         ORDER BY created_at DESC LIMIT 1`,
       [entityType, entityId]
@@ -15876,42 +16658,52 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
     const rebelP  = division.rebels_by_party      || {};
     const rebelCh = division.rebels_by_party_choice || {};
     const seatsByParty = await getPartySeatsFromConstituencies(pool);
+    const snapshotWeights = division.weight_snapshot?.effectiveWeights || null;
 
-    // Tally + per-party breakdown (includes NPC seats, rebels, Sinn Féin auto-abstain)
-    const { tally, byParty } = await computeDivisionTallyFromDb(pool, division.id, npcV, rebelP, rebelCh, seatsByParty);
+    // Tally + per-party breakdown + absent weight (characters in snapshot who didn't vote)
+    const { tally, byParty, absentWeight } = await computeDivisionTallyFromDb(
+      pool, division.id, npcV, rebelP, rebelCh, seatsByParty,
+      { weightSnapshot: snapshotWeights }
+    );
 
-    // Caller's own vote and effective weight
+    // Caller's own vote and snapshotted weight (falls back to live computation for old divisions)
     const charId = await getActiveCharacterId(req);
     let myVote = null;
     let myWeight = 0;
     if (charId) {
       const { rows: mv } = await pool.query(
-        "SELECT vote, effective_weight AS weight FROM division_votes WHERE division_id = $1 AND character_id = $2",
+        "SELECT vote, vote_locked, effective_weight AS weight FROM division_votes WHERE division_id = $1 AND character_id = $2",
         [division.id, charId]
       );
       myVote = mv[0] || null;
 
-      // Compute the caller's current effective weight from constituencies DB, minus rebels for their party
       try {
         const { rows: charRows } = await pool.query(
-          "SELECT name, party, whip_status FROM characters WHERE id = $1", [charId]
+          "SELECT name, party, whip_status, joined_sim_month, joined_sim_year FROM characters WHERE id = $1", [charId]
         );
         const charName = charRows[0]?.name || "";
         const charParty = charRows[0]?.party || "";
         const whipWithdrawn = charRows[0]?.whip_status === "withdrawn";
         if (whipWithdrawn) {
           myWeight = 1;
+        } else if (snapshotWeights && charName && snapshotWeights[charName] !== undefined) {
+          // Use the weight locked in at division open time
+          myWeight = Number(snapshotWeights[charName]);
         } else {
-          const seatsByPartyFresh = await getPartySeatsFromConstituencies(pool);
-          const { rows: stateRows } = await pool.query(
-            `SELECT ss.data FROM state_snapshots ss
-               JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
-              WHERE asc2.id = 'main'`
-          );
-          const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-          const { effectiveWeights } = computeAllPlayerWeights(seatsByPartyFresh, statePlayers);
+          // Fallback for legacy divisions without a snapshot
+          const [seatsByPartyFresh, stateResult, clockResult] = await Promise.all([
+            getPartySeatsFromConstituencies(pool),
+            pool.query(`SELECT ss.data FROM state_snapshots ss
+                          JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
+                         WHERE asc2.id = 'main'`),
+            pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"),
+          ]);
+          const rawStatePlayers = Array.isArray(stateResult.rows[0]?.data?.players) ? stateResult.rows[0].data.players : [];
+          const simMonthFE = clockResult.rows[0]?.sim_current_month ?? null;
+          const simYearFE  = clockResult.rows[0]?.sim_current_year  ?? null;
+          const statePlayers = await batchEnrichPlayersWithSimJoinDates(pool, rawStatePlayers);
+          const { effectiveWeights } = computeAllPlayerWeights(seatsByPartyFresh, statePlayers, { currentSimMonth: simMonthFE, currentSimYear: simYearFE });
           const rawWeight = Number(effectiveWeights[charName] || 0);
-          // Deduct rebel fraction from myWeight display
           const partyRebels = Number(division.rebels_by_party?.[charParty] ?? 0);
           if (partyRebels > 0 && rawWeight > 0) {
             const partyTotalWeight = Object.entries(effectiveWeights)
@@ -15926,10 +16718,10 @@ app.get("/api/divisions/for-entity/:entityType/:entityId", divReadLimit, async (
             myWeight = rawWeight;
           }
         }
-      } catch (wErr) { console.error("[division.for-entity myWeight]", wErr.message); /* weight display is best-effort */ }
+      } catch (wErr) { console.error("[division.for-entity myWeight]", wErr.message); }
     }
 
-    res.json({ division, tally, byParty, seatsByParty, myVote, myWeight });
+    res.json({ division, tally, byParty, absentWeight, seatsByParty, myVote, myWeight });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -15955,9 +16747,9 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
     const charId = await getActiveCharacterId(req);
     if (!charId) return res.status(403).json({ error: "No active character. Select a character first." });
 
-    // Verify division is open
+    // Verify division is open and load weight snapshot
     const { rows: divRows } = await pool.query(
-      "SELECT id, status FROM divisions WHERE id = $1",
+      "SELECT id, status, weight_snapshot, npc_votes, rebels_by_party, rebels_by_party_choice FROM divisions WHERE id = $1",
       [req.params.id]
     );
     if (!divRows.length) return res.status(404).json({ error: "Division not found" });
@@ -15965,45 +16757,104 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 
     // Get character name and party for weight computation and rebellion check
     const { rows: charRows } = await pool.query(
-      "SELECT name, party, whip_status, is_npc FROM characters WHERE id = $1", [charId]
+      "SELECT name, party, whip_status, is_npc, joined_sim_month, joined_sim_year FROM characters WHERE id = $1", [charId]
     );
     const charParty      = charRows[0]?.party       || null;
     const charName       = charRows[0]?.name        || null;
     const whipWithdrawn  = charRows[0]?.whip_status === "withdrawn";
     const isNpc          = Boolean(charRows[0]?.is_npc);
 
-    // Compute effective weight server-side:
-    //   seats from constituencies DB (authoritative source)
-    //   player list from game state (for absence/delegation)
-    //   MPs with whip withdrawn vote as Independents with weight=1
-    //   NPC characters not present in state are injected synthetically to receive their party share.
+    // Effective weight: use the weight snapshot captured at division-open time so the
+    // result is consistent regardless of when the character actually votes.
+    // whipWithdrawn is checked FIRST and always takes priority over the snapshot —
+    // a whip suspended after the division opened must still vote as an independent (weight=1).
+    // If the snapshot is missing (legacy division), fall back to live computation.
     let effectiveWeight = 1;
+    const snapshotWeights = divRows[0]?.weight_snapshot?.effectiveWeights || null;
     try {
-      if (!whipWithdrawn) {
+      if (whipWithdrawn) {
+        effectiveWeight = 1; // Whip-withdrawn MPs vote as independent weight=1; overrides snapshot
+      } else if (snapshotWeights && charName && snapshotWeights[charName] !== undefined) {
+        // Use the weight locked in at division open time (respects delegation at open time)
+        effectiveWeight = Number(snapshotWeights[charName]);
+      } else {
+        // Fallback: live computation for old divisions without a snapshot
         const seatsByParty = await getPartySeatsFromConstituencies(pool);
         const { rows: stateRows } = await pool.query(
           `SELECT ss.data FROM state_snapshots ss
              JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
             WHERE asc2.id = 'main'`
         );
-        const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
-        effectiveWeight = computeCharacterWeight(seatsByParty, statePlayers, charName, charParty, isNpc);
+        const { rows: clockRows } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+        const simMonth = clockRows[0]?.sim_current_month ?? null;
+        const simYear  = clockRows[0]?.sim_current_year  ?? null;
+        const rawStatePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
+        const enrichedPlayers = await batchEnrichPlayersWithSimJoinDates(pool, rawStatePlayers);
+        effectiveWeight = computeCharacterWeight(seatsByParty, enrichedPlayers, charName, charParty, isNpc, {
+          currentSimMonth: simMonth, currentSimYear: simYear,
+          joinedSimMonth: charRows[0].joined_sim_month ?? null,
+          joinedSimYear:  charRows[0].joined_sim_year  ?? null,
+        });
       }
-      // whipWithdrawn: effectiveWeight stays 1
     } catch (wErr) {
       console.error("[division.vote weight-calc]", wErr.message);
       // Fall back to weight=1 so the vote is still recorded
     }
 
+    // ── Vote finality state machine ───────────────────────────────────────────
+    // Rules:
+    //   • Locked vote (vote_locked=true) → completely immutable; return 409.
+    //   • Aye/No locked in (not yet locked): can only switch to the opposing
+    //     direction, which collapses the vote to "abstain" + vote_locked=true.
+    //     Attempting to directly set "abstain" on a firm aye/no is blocked.
+    //   • Abstain (initial, not locked): freely upgradeable to aye or no.
+    //   • No prior vote: any direction is allowed.
+    const { rows: existingVoteRows } = await pool.query(
+      `SELECT vote, vote_locked FROM division_votes WHERE division_id = $1 AND character_id = $2`,
+      [req.params.id, charId]
+    );
+    const existing = existingVoteRows[0] || null;
+    let finalVote = vote;
+    let voteLocked = false;
+
+    if (existing) {
+      if (existing.vote_locked) {
+        return res.status(409).json({
+          error: "Your vote is final and cannot be changed.",
+          vote: existing.vote,
+          vote_locked: true,
+        });
+      }
+      const prev = existing.vote;
+      if (prev === "aye" || prev === "no") {
+        const opposite = prev === "aye" ? "no" : "aye";
+        if (vote === opposite) {
+          // Voted both directions → collapses to abstain, permanently locked
+          finalVote = "abstain";
+          voteLocked = true;
+        } else if (vote === "abstain") {
+          // Cannot directly abstain when locked on a firm aye/no
+          return res.status(409).json({
+            error: `Your vote is locked to ${prev.toUpperCase()}. To abstain, vote ${opposite.toUpperCase()} instead — this will collapse both votes to Abstain (final).`,
+            vote: prev,
+            vote_locked: false,
+          });
+        }
+        // vote === prev is a no-op — fall through to upsert with unchanged values
+      }
+      // prev === "abstain" (initial, not locked): any new direction is fine
+    }
+
     // Save vote (upsert) — client-supplied weight is always ignored
     const { rows: voteRows } = await pool.query(
-      `INSERT INTO division_votes (division_id, character_id, vote, weight, effective_weight, delegation_source_character_id)
-       VALUES ($1, $2, $3, $4, $4, NULL)
+      `INSERT INTO division_votes (division_id, character_id, vote, weight, effective_weight, vote_locked, delegation_source_character_id)
+       VALUES ($1, $2, $3, $4, $4, $5, NULL)
        ON CONFLICT (division_id, character_id)
        DO UPDATE SET vote = EXCLUDED.vote, weight = EXCLUDED.weight, effective_weight = EXCLUDED.effective_weight,
+                     vote_locked = EXCLUDED.vote_locked,
                      delegation_source_character_id = NULL, voted_at = NOW()
-       RETURNING id, division_id, character_id, vote, weight, effective_weight, delegation_source_character_id, voted_at`,
-      [req.params.id, charId, vote, effectiveWeight]
+       RETURNING id, division_id, character_id, vote, weight, effective_weight, vote_locked, delegation_source_character_id, voted_at`,
+      [req.params.id, charId, finalVote, effectiveWeight, voteLocked]
     );
 
     // Rebellion logging: keep a single authoritative rebellion record per (division, character)
@@ -16025,7 +16876,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
 
         if (instrRows.length) {
           const instr = instrRows[0];
-          if (instr.position !== "free" && instr.position !== vote) {
+          if (instr.position !== "free" && instr.position !== finalVote) {
             // Get current sim date for recording
             const { rows: clk } = await pool.query(
               "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
@@ -16037,7 +16888,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
               `INSERT INTO division_rebellion_log
                  (division_id, character_id, party_slug, party_position, mp_vote, whip_level, recorded_at_sim)
                VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-              [req.params.id, charId, charParty, instr.position, vote, instr.whip_level, simStr]
+              [req.params.id, charId, charParty, instr.position, finalVote, instr.whip_level, simStr]
             );
           }
         }
@@ -16046,13 +16897,29 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
       }
     }
 
-    // Return updated tally
-    const { rows: tallyRows } = await pool.query(
-      `SELECT vote, SUM(effective_weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
-      [req.params.id]
-    );
-    const tally = { aye: 0, no: 0, abstain: 0 };
-    tallyRows.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
+    // Return full tally (mirrors computeDivisionTallyFromDb used by GET endpoints and final auto-close).
+    // This ensures the live display always matches what the final result will show.
+    let tally = { aye: 0, no: 0, abstain: 0 };
+    let byParty = {};
+    let absentWeight = 0;
+    try {
+      const npcV    = divRows[0].npc_votes            || {};
+      const rebelP  = divRows[0].rebels_by_party      || {};
+      const rebelCh = divRows[0].rebels_by_party_choice || {};
+      const seatsForTally = await getPartySeatsFromConstituencies(pool);
+      ({ tally, byParty, absentWeight } = await computeDivisionTallyFromDb(
+        pool, req.params.id, npcV, rebelP, rebelCh, seatsForTally,
+        { weightSnapshot: snapshotWeights }
+      ));
+    } catch (tallyErr) {
+      console.error("[division.vote tally]", tallyErr.message);
+      // non-fatal: return basic sum as fallback
+      const { rows: tallyRows } = await pool.query(
+        `SELECT vote, SUM(effective_weight) AS total_weight FROM division_votes WHERE division_id = $1 GROUP BY vote`,
+        [req.params.id]
+      );
+      tallyRows.forEach((v) => { tally[v.vote] = Number(v.total_weight); });
+    }
 
     let recompute;
     // Non-blocking: recompute political state after vote (rebellion may have been logged)
@@ -16066,7 +16933,7 @@ app.post("/api/divisions/:id/vote", divWriteLimit, async (req, res) => {
       fireRecompute("character-political-state", "division.vote", () => recomputeCharacterPoliticalState(charId), { scope: recompute.target.scope, id: recompute.target.id });
     }
 
-    res.json({ ok: true, vote: voteRows[0], tally, recompute });
+    res.json({ ok: true, vote: voteRows[0], tally, byParty, absentWeight, recompute });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -16087,7 +16954,7 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
     try {
       await client.query("BEGIN");
       const { rows: divRows } = await client.query(
-        "SELECT id, status, entity_type, entity_id, title, npc_votes, rebels_by_party, rebels_by_party_choice FROM divisions WHERE id = $1 FOR UPDATE",
+        "SELECT id, status, entity_type, entity_id, title, npc_votes, rebels_by_party, rebels_by_party_choice, weight_snapshot FROM divisions WHERE id = $1 FOR UPDATE",
         [req.params.id]
       );
       if (!divRows.length) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Division not found" }); }
@@ -16096,9 +16963,10 @@ app.post("/api/divisions/:id/close", divWriteLimit, async (req, res) => {
       const npcVotes    = divRows[0].npc_votes            || {};
       const rebelsByPty = divRows[0].rebels_by_party      || {};
       const rebelChoicePty = divRows[0].rebels_by_party_choice || {};
+      const closingSnapshotWeights = divRows[0].weight_snapshot?.effectiveWeights || null;
 
       // Shared tally logic (identical to GET endpoints)
-      const { tally } = await computeDivisionTallyFromDb(client, req.params.id, npcVotes, rebelsByPty, rebelChoicePty, seatsByParty);
+      const { tally } = await computeDivisionTallyFromDb(client, req.params.id, npcVotes, rebelsByPty, rebelChoicePty, seatsByParty, { weightSnapshot: closingSnapshotWeights });
 
       const outcome = tally.aye > tally.no ? "passed" : tally.no > tally.aye ? "failed" : "tied";
       const immutableResult = { tally, outcome, closedAt: new Date().toISOString() };
@@ -16130,11 +16998,31 @@ app.patch("/api/divisions/:id/npc-votes", divWriteLimit, async (req, res) => {
     if (!canSet) return res.status(403).json({ error: "admin, mod or speaker role required" });
 
     const { npc_votes = {}, rebels_by_party = {}, rebels_by_party_choice = {} } = req.body || {};
+
+    // Rebuild weight snapshot with updated rebel counts so player weights reflect
+    // the rebel-reduced seat pool (e.g. Labour 418 − 18 rebels = 400 for players).
+    let updatedSnapshot = null;
+    try {
+      updatedSnapshot = await buildDivisionWeightSnapshot(pool, rebels_by_party);
+    } catch (wsErr) {
+      console.warn("[npc-votes] weight snapshot rebuild failed:", wsErr.message);
+    }
+
     const { rows } = await pool.query(
-      `UPDATE divisions SET npc_votes = $1::jsonb, rebels_by_party = $2::jsonb, rebels_by_party_choice = $4::jsonb
+      `UPDATE divisions
+          SET npc_votes = $1::jsonb,
+              rebels_by_party = $2::jsonb,
+              rebels_by_party_choice = $4::jsonb,
+              weight_snapshot = COALESCE($5::jsonb, weight_snapshot)
         WHERE id = $3
        RETURNING id, npc_votes, rebels_by_party, rebels_by_party_choice`,
-      [JSON.stringify(npc_votes), JSON.stringify(rebels_by_party), req.params.id, JSON.stringify(rebels_by_party_choice)]
+      [
+        JSON.stringify(npc_votes),
+        JSON.stringify(rebels_by_party),
+        req.params.id,
+        JSON.stringify(rebels_by_party_choice),
+        updatedSnapshot ? JSON.stringify(updatedSnapshot) : null,
+      ]
     );
     if (!rows.length) return res.status(404).json({ error: "Division not found" });
     res.json({ ok: true, division: rows[0] });
@@ -23607,6 +24495,11 @@ app.post("/api/admin/factions/trigger-freeze", verifyCsrfToken, crudWriteLimit, 
     // 2) Publish faction derived stats once after all outcomes are applied.
     const factionResults = await runFactionFreeze(pool);
 
+    // 3b) Close any polls whose debate window or archive threshold has passed.
+    const { rows: clkRows } = await pool.query("SELECT sim_current_month AS month, sim_current_year AS year FROM sim_clock WHERE id = 'main' LIMIT 1");
+    const clk = clkRows[0] || { month: 8, year: 1997 };
+    await runPollingAutoClose(clk.month, clk.year).catch((e) => console.error("[trigger-freeze] polling auto-close failed:", e.message));
+
     // 3) Recompute party climate once per playable party after publish.
     const climateRefresh = [];
     for (const partySlug of FACTION_PLAYABLE_PARTIES) {
@@ -24908,6 +25801,7 @@ if (process.env.NODE_ENV !== "test") {
   ensureSchema()
     .then(() => {
       app.listen(PORT, () => console.log(`[server] listening on :${PORT}`));
+      startAutoTickScheduler();
     })
     .catch((e) => {
       console.error("[server] schema init failed", e);
