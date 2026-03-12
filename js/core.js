@@ -295,6 +295,7 @@ export async function bootData() {
         user: null,
         clock,
         sources,
+        simFreeze: null,
         bootWarning: "Cannot reach the server. Your session may still be active — please refresh or try again shortly.",
       };
     }
@@ -310,7 +311,7 @@ export async function bootData() {
       console.warn("[bootData] Failed to load demo.json:", e.message);
     }
     const ensured = ensureDefaults(demoData);
-    return { data: ensured, user: null, clock, sources };
+    return { data: ensured, user: null, clock, sources, simFreeze: null };
   }
 
   // Logged in.
@@ -335,7 +336,7 @@ export async function bootData() {
   // no stale state or client-side baseline can override the live seat picture.
   applyBootstrapParliament(ensured, bootstrap);
 
-  return { data: ensured, user, clock, sources };
+  return { data: ensured, user, clock, sources, simFreeze: bootstrap?.simFreeze ?? null };
 }
 
 export function nowMs() {
