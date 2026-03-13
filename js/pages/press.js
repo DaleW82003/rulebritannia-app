@@ -1020,11 +1020,10 @@ function render(data, state) {
 
     const item = {
       // id is assigned server-side (DB-authoritative).
-      author,
+      // author is stripped by the write sanitizer and re-populated server-side.
       avatar,
       body,
-      createdAtSim: now,
-      ...(npcAuthor ? { npcAuthor: true } : {})
+      ...(npcAuthor ? { isNpcComment: true, npcAuthorName: author } : {})
     };
     const submitBtn = e.currentTarget.querySelector("[type='submit']");
     if (submitBtn) submitBtn.disabled = true;

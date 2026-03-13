@@ -2890,8 +2890,12 @@ function computePropertyFinance(character, financeCostIndex = 1.0) {
 }
 
 // ── 1997 baseline salary scale (idempotent) ────────────────────────────────
-// effective_from_sim_index = 1997*12 + (8-1) = 23964 + 7 = 23971 (August 1997)
-const SALARY_1997_SIM_INDEX = 1997 * 12 + 7; // August 1997 = index 23971
+// effective_from_sim_index = 1997*12 + 0 = 23964 (January 1997)
+// Game starts in May 1997 (sim index 23968); the scale must apply from at least
+// January 1997 so that all sim months from the game start receive a salary.
+const SALARY_1997_SIM_INDEX = 1997 * 12 + 0; // January 1997 = index 23964
+// Legacy constant (was August 1997 = 23971) used only for the migration update below.
+const SALARY_1997_SIM_INDEX_LEGACY = 1997 * 12 + 7;
 
 const SALARY_1997_ROLES = {
   prime_minister:            101749,
@@ -2907,12 +2911,20 @@ const SALARY_1997_ROLES = {
 };
 
 async function seedSalaryScale1997() {
-  // Check if a scale for sim_index 23971 already exists
+  // Migration: if the scale was previously seeded with the old August-1997 index,
+  // move it to January 1997 so it covers the game start month (May 1997).
+  await pool.query(
+    `UPDATE salary_scales SET effective_from_sim_index = $1
+      WHERE effective_from_sim_index = $2 AND name = '1997 Baseline'`,
+    [SALARY_1997_SIM_INDEX, SALARY_1997_SIM_INDEX_LEGACY]
+  );
+
+  // Check if a scale for January 1997 already exists
   const { rows: existing } = await pool.query(
     "SELECT id FROM salary_scales WHERE effective_from_sim_index = $1 LIMIT 1",
     [SALARY_1997_SIM_INDEX]
   );
-  if (existing.length) return; // already seeded
+  if (existing.length) return; // already seeded (or just migrated above)
   const { rows } = await pool.query(
     "INSERT INTO salary_scales (name, effective_from_sim_index) VALUES ($1, $2) RETURNING id",
     ["1997 Baseline", SALARY_1997_SIM_INDEX]
@@ -8108,21 +8120,34 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
 
     // Compute signature weight using the DB-authoritative party split, but without
     // absent/delegation flows. EDM signing is personal — you sign for yourself only.
-    // NPC characters not present in state are injected synthetically.
+    // Build the player list directly from characters DB so all current party members
+    // are included (state_snapshot can be stale and miss recently-created characters).
     let weight = 1;
     try {
       const seatsByParty = await getPartySeatsFromConstituencies(pool);
-      const { rows: stateRows } = await pool.query(
-        `SELECT ss.data FROM state_snapshots ss
-           JOIN app_state_current asc2 ON ss.id = asc2.snapshot_id
-          WHERE asc2.id = 'main'`
+      const { rows: charRows2 } = await pool.query(
+        `SELECT c.name, c.party, c.is_npc, c.joined_sim_month, c.joined_sim_year,
+                (p.leader_character_id = c.id) AS is_party_leader
+           FROM characters c
+           LEFT JOIN parties p ON (p.name = c.party OR p.slug = c.party)
+          WHERE c.is_active = TRUE
+          ORDER BY c.name`
       );
-      const statePlayers = Array.isArray(stateRows[0]?.data?.players) ? stateRows[0].data.players : [];
+      const dbPlayers = charRows2.map((r) => ({
+        name:          r.name,
+        party:         r.party || "Independent",
+        role:          Boolean(r.is_party_leader) ? "party-leader-3rd-4th" : "backbencher",
+        partyLeader:   Boolean(r.is_party_leader),
+        active:        true,
+        absent:        false,
+        joinedSimMonth: r.joined_sim_month ?? null,
+        joinedSimYear:  r.joined_sim_year  ?? null,
+      }));
       // Compute signature weight using base (non-delegated) party split.
       // EDM signing must NOT apply absent/delegation flows — a signer cannot
       // sign on behalf of an absent party colleague.  Pass applyDelegation:false
       // so the weight reflects only the signer's own proportional share.
-      const computed = computeCharacterWeight(seatsByParty, statePlayers, char.name, char.party, Boolean(char.is_npc), { applyDelegation: false });
+      const computed = computeCharacterWeight(seatsByParty, dbPlayers, char.name, char.party, Boolean(char.is_npc), { applyDelegation: false });
       if (computed > 0) weight = computed;
     } catch (wErr) {
       console.error("[edm.sign weight-calc]", wErr.message);
@@ -9199,12 +9224,23 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     if (!VALID_PRESS_TYPES.has(press_type)) {
       return res.status(400).json({ error: "press_type must be 'release', 'conference', 'speech', 'comment', or 'letter'" });
     }
-    // Enforce NPC author restriction: only admin/mod/speaker may post comments with npcAuthor flag
-    if (press_type === "comment" && item.npcAuthor) {
-      if (!hasAdminModOrSpeaker(req)) {
-        return res.status(403).json({ error: "Only admin, mod, or speaker may post as NPC" });
-      }
+    // Determine NPC authorship server-side (npcAuthor is stripped by the write sanitizer,
+    // so we infer it from officeKey membership or the isNpcComment flag).
+    // Only admin/mod/speaker may post as NPC.
+    const isNpcPost = hasAdminModOrSpeaker(req) && (
+      Boolean(SERVER_NPC_OFFICES[item.officeKey]) ||
+      Boolean(item.isNpcComment)
+    );
+    if (item.isNpcComment && !hasAdminModOrSpeaker(req)) {
+      return res.status(403).json({ error: "Only admin, mod, or speaker may post as NPC" });
     }
+
+    // Resolve the authoring character (use DB-canonical lookup for reliability).
+    const authorCharId = isNpcPost ? null : await getActiveCharacterId(req);
+    if (!isNpcPost && !authorCharId) {
+      return res.status(403).json({ error: "Forbidden: no active character" });
+    }
+
     const { rows: clk } = await client.query(
       "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
     );
@@ -9238,9 +9274,11 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     const { id: _ignoredId, reference: _ignoredRef, prefix: _ignoredPrefix, kind: _ignoredKind, serial: _ignoredSerial, ...rest } = item;
     const authorFromSession = await pressAuthorFromSession(client, req);
     const npcOffice = SERVER_NPC_OFFICES[item.officeKey] || null;
-    const authorFields = item.npcAuthor
+    const authorFields = isNpcPost
       ? {
-          author: npcOffice?.authorName || "NPC",
+          author: item.isNpcComment
+            ? (item.npcAuthorName || "NPC")
+            : (npcOffice?.authorName || "NPC"),
           party: "",
           authorOffice: npcOffice?.displayName || String(item.officeKey || ""),
         }
@@ -9249,6 +9287,8 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     const payload = {
       ...rest,
       ...authorFields,
+      // Re-add npcAuthor flag into the stored JSONB for the DB check constraint.
+      ...(isNpcPost ? { npcAuthor: true } : {}),
       id: serverId,
       ...(serverReference ? { reference: serverReference } : {}),
       ...(kind ? { referenceKind: kind, referencePrefix: serverPrefix, referenceSerial: serverSerial } : {}),
@@ -9256,7 +9296,6 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     const enriched = attachLifecycle(payload, sm, sy);
 
     // Store the authoring character ID (null for NPC-authored items)
-    const authorCharId = item.npcAuthor ? null : (req.session.characterId || null);
     const { rows } = await client.query(
       `INSERT INTO press_items (id, press_type, data, author_character_id, reference_kind, reference_prefix, reference_serial, reference_code)
        VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8)
