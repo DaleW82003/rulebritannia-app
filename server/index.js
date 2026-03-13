@@ -8127,9 +8127,12 @@ app.post("/api/motions/:id/sign", crudWriteLimit, async (req, res) => {
       const seatsByParty = await getPartySeatsFromConstituencies(pool);
       const { rows: charRows2 } = await pool.query(
         `SELECT c.name, c.party, c.is_npc, c.joined_sim_month, c.joined_sim_year,
-                (p.leader_character_id = c.id) AS is_party_leader
+                EXISTS (
+                  SELECT 1 FROM parties p
+                   WHERE p.leader_character_id = c.id
+                     AND (p.name = c.party OR p.slug = c.party)
+                ) AS is_party_leader
            FROM characters c
-           LEFT JOIN parties p ON (p.name = c.party OR p.slug = c.party)
           WHERE c.is_active = TRUE
           ORDER BY c.name`
       );
@@ -9109,8 +9112,8 @@ async function characterIsThirdPartyLeader(db, charId) {
   return rows.length > 0;
 }
 
-async function pressAuthorFromSession(client, req) {
-  const charId = req.session.characterId || null;
+async function pressAuthorFromSession(client, req, resolvedCharId) {
+  const charId = resolvedCharId || req.session.characterId || null;
   if (!charId) return { author: "MP", party: "", authorOffice: "" };
   const { rows } = await client.query(
     `SELECT c.name, c.party,
@@ -9272,7 +9275,7 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
 
     // Strip client-supplied id/reference/prefix/kind/serial; use server-assigned values.
     const { id: _ignoredId, reference: _ignoredRef, prefix: _ignoredPrefix, kind: _ignoredKind, serial: _ignoredSerial, ...rest } = item;
-    const authorFromSession = await pressAuthorFromSession(client, req);
+    const authorFromSession = await pressAuthorFromSession(client, req, authorCharId);
     const npcOffice = SERVER_NPC_OFFICES[item.officeKey] || null;
     const authorFields = isNpcPost
       ? {
