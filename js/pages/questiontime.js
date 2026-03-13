@@ -46,6 +46,14 @@ function normaliseQuestionTime(data) {
   data.questionTime.offices ??= [];
   data.questionTime.questions ??= [];
 
+  // Deduplicate any offices that may have been stored with duplicate ids
+  const seenIds = new Set();
+  data.questionTime.offices = data.questionTime.offices.filter((o) => {
+    if (!o?.id || seenIds.has(o.id)) return false;
+    seenIds.add(o.id);
+    return true;
+  });
+
   // Seed static offices if none exist yet
   if (!data.questionTime.offices.length) {
     data.questionTime.offices = QT_OFFICES.map((o) => ({ ...o }));
