@@ -257,6 +257,23 @@ function applyBootstrapParliament(data, bootstrap) {
   data.parliament.totalSeats = data.parliament.parties.reduce((s, p) => s + p.seats, 0) || 650;
 }
 
+/**
+ * Inject DB-authoritative clock values into data.gameState.
+ * clock.sim_current_month / sim_current_year are the canonical current sim date
+ * as maintained by the server's sim_clock table.  Writing them into gameState
+ * makes getSimDate() / formatSimMonthYear() return these values automatically
+ * everywhere, without each page needing its own clock-access logic.
+ */
+function applyDbClock(data, clock) {
+  if (!clock) return;
+  const m = Number(clock.sim_current_month);
+  const y = Number(clock.sim_current_year);
+  if (Number.isFinite(m) && m >= 1 && m <= 12 && Number.isFinite(y) && y > 0) {
+    data.gameState.sim_current_month = m;
+    data.gameState.sim_current_year  = y;
+  }
+}
+
 
 export async function bootData() {
   const sources = [];
@@ -311,6 +328,7 @@ export async function bootData() {
       console.warn("[bootData] Failed to load demo.json:", e.message);
     }
     const ensured = ensureDefaults(demoData);
+    applyDbClock(ensured, clock);
     return { data: ensured, user: null, clock, sources, simFreeze: null };
   }
 
@@ -335,6 +353,12 @@ export async function bootData() {
   // Always rebuild parliament.parties from the DB-backed bootstrap data so that
   // no stale state or client-side baseline can override the live seat picture.
   applyBootstrapParliament(ensured, bootstrap);
+
+  // DB-authoritative clock — single source of truth for sim month/year display.
+  // Inject into gameState so that getSimDate()/formatSimMonthYear() read the DB
+  // values everywhere (dashboard, bills, QT, press, events, etc.) without each
+  // page needing its own clock-access logic.
+  applyDbClock(ensured, clock);
 
   return { data: ensured, user, clock, sources, simFreeze: bootstrap?.simFreeze ?? null };
 }

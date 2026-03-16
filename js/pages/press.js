@@ -101,6 +101,8 @@ function simLabel(data) {
   return formatSimMonthYear(data?.gameState || {});
 }
 
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
 /**
  * Convert a createdAtSim value to a "Month YYYY" display string.
  * Handles both the legacy string format ("August 1997") and the server-authoritative
@@ -109,10 +111,9 @@ function simLabel(data) {
 function simLabelToString(val) {
   if (!val) return "";
   if (typeof val === "string") return val;
-  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const m = Number(val.month);
   const y = Number(val.year);
-  if (m >= 1 && m <= 12 && y) return `${names[m - 1]} ${y}`;
+  if (m >= 1 && m <= 12 && y) return `${MONTH_NAMES[m - 1]} ${y}`;
   return "";
 }
 
@@ -128,14 +129,13 @@ function npcSignatory(officeKey, data) {
 }
 
 function plusMonths(label, months) {
-  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const [mn, ys] = String(label || "August 1997").split(" ");
-  let m = Math.max(names.indexOf(mn), 0) + 1;
+  let m = Math.max(MONTH_NAMES.indexOf(mn), 0) + 1;
   let y = Number(ys || 1997);
   const total = ((y * 12) + (m - 1) + months);
   const nm = (total % 12) + 1;
   const ny = Math.floor(total / 12);
-  return `${names[nm - 1]} ${ny}`;
+  return `${MONTH_NAMES[nm - 1]} ${ny}`;
 }
 
 /** Parse a "Month YYYY" label or a { month, year } object into a { month: 1-12, year } object, or null if invalid. */
@@ -145,10 +145,9 @@ function parseSimLabel(label) {
     const y = Number(label.year);
     if (m >= 1 && m <= 12 && y) return { month: m, year: y };
   }
-  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const parts = String(label || "").trim().split(" ");
   if (parts.length < 2) return null;
-  const m = names.indexOf(parts[0]) + 1;
+  const m = MONTH_NAMES.indexOf(parts[0]) + 1;
   const y = Number(parts[1]);
   if (m < 1 || !y) return null;
   return { month: m, year: y };

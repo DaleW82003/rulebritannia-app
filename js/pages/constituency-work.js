@@ -3,6 +3,7 @@ import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
 import { toastSuccess, toastError } from "../components/toast.js";
 import { getCharacterContext } from "../engines/core-engine.js";
+import { getSimDate } from "../clock.js";
 import {
   apiScandalsMine,
   apiScandalsOptIn,
@@ -41,9 +42,8 @@ function canModerate(data) {
 
 function getSimIndex(data) {
   const gs = data?.gameState || {};
-  const y = Number(gs.startSimYear || 1997);
-  const m = Number(gs.startSimMonth || 8);
-  return (y * 12) + (m - 1);
+  const current = getSimDate(gs);
+  return current.year * 12 + current.monthIndex; // monthIndex is 0-based (Jan=0)
 }
 
 function simLabel(index) {
