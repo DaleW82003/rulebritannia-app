@@ -101,6 +101,22 @@ function simLabel(data) {
   return formatSimMonthYear(data?.gameState || {});
 }
 
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/**
+ * Convert a createdAtSim value to a "Month YYYY" display string.
+ * Handles both the legacy string format ("August 1997") and the server-authoritative
+ * object format ({ month: 8, year: 1997 }) returned from the DB via attachLifecycle.
+ */
+function simLabelToString(val) {
+  if (!val) return "";
+  if (typeof val === "string") return val;
+  const m = Number(val.month);
+  const y = Number(val.year);
+  if (m >= 1 && m <= 12 && y) return `${MONTH_NAMES[m - 1]} ${y}`;
+  return "";
+}
+
 /** Return the signatory line for an NPC office, using monarch gender from adminSettings. */
 function npcSignatory(officeKey, data) {
   const office = NPC_OFFICES[officeKey];
@@ -113,22 +129,25 @@ function npcSignatory(officeKey, data) {
 }
 
 function plusMonths(label, months) {
-  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const [mn, ys] = String(label || "August 1997").split(" ");
-  let m = Math.max(names.indexOf(mn), 0) + 1;
+  let m = Math.max(MONTH_NAMES.indexOf(mn), 0) + 1;
   let y = Number(ys || 1997);
   const total = ((y * 12) + (m - 1) + months);
   const nm = (total % 12) + 1;
   const ny = Math.floor(total / 12);
-  return `${names[nm - 1]} ${ny}`;
+  return `${MONTH_NAMES[nm - 1]} ${ny}`;
 }
 
-/** Parse a "Month YYYY" label into a { month: 1-12, year } object, or null if invalid. */
+/** Parse a "Month YYYY" label or a { month, year } object into a { month: 1-12, year } object, or null if invalid. */
 function parseSimLabel(label) {
-  const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  if (label && typeof label === "object" && label.month && label.year) {
+    const m = Number(label.month);
+    const y = Number(label.year);
+    if (m >= 1 && m <= 12 && y) return { month: m, year: y };
+  }
   const parts = String(label || "").trim().split(" ");
   if (parts.length < 2) return null;
-  const m = names.indexOf(parts[0]) + 1;
+  const m = MONTH_NAMES.indexOf(parts[0]) + 1;
   const y = Number(parts[1]);
   if (m < 1 || !y) return null;
   return { month: m, year: y };
@@ -297,6 +316,68 @@ function readMarkingFormData(fd) {
   return { score, partyScore, partyEffects, impact };
 }
 
+/**
+ * Maps a cabinet office spec_id to a short department display name for the press context dropdown.
+ * Must stay in sync with server/index.js OFFICE_DEPT_NAMES.
+ */
+const OFFICE_DEPT_DISPLAY = {
+  "prime-minister": "10 Downing Street",
+  "chancellor":     "HM Treasury",
+  "home":           "Home Office",
+  "foreign":        "FCDO",
+  "trade":          "Dept. for Business & Trade",
+  "defence":        "Ministry of Defence",
+  "welfare":        "Dept. for Work & Pensions",
+  "education":      "Dept. for Education",
+  "env-agri":       "Dept. for Environment & Agriculture",
+  "health":         "Dept. of Health & Social Care",
+  "eti":            "Dept. for Transport & Infrastructure",
+  "culture":        "Dept. for Culture, Media & Sport",
+  "home-nations":   "Home Nations Office",
+  "leader-commons": "Leader of the House",
+};
+
+/**
+ * Returns true if the character is a party leader (PM, Opposition Leader, or Third-Party Leader).
+ */
+function isPartyLeader(char) {
+  return ["prime-minister", "leader-opposition", "party-leader-3rd-4th"].includes(char?.role);
+}
+
+/**
+ * Returns true if the character holds a cabinet office.
+ */
+function isCabinetMember(char) {
+  return Array.isArray(char?.office_types)
+    ? char.office_types.includes("cabinet")
+    : char?.office_type === "cabinet";
+}
+
+/**
+ * Renders the optional press context dropdown for party leaders and cabinet members.
+ * Party leaders may choose "Party Press" using their party name as the reference prefix.
+ * Cabinet members may choose "Government Press" using their department name.
+ * All users always have "Personal Press" (their own name) as the default.
+ * Returns an empty string if no extra options are available.
+ */
+function pressContextDropdown(char) {
+  const leader = isPartyLeader(char);
+  const cabinet = isCabinetMember(char);
+  if (!leader && !cabinet) return "";
+  const partyName = char?.party || "";
+  const primaryOffice = (Array.isArray(char?.offices) && char.offices.length > 0) ? char.offices[0] : (char?.office || "");
+  const deptName = OFFICE_DEPT_DISPLAY[primaryOffice] || "";
+  const options = [
+    `<option value="personal">Personal Press (${esc(char?.name || "Your Name")})</option>`,
+    leader && partyName ? `<option value="party">Party Press (${esc(partyName)})</option>` : "",
+    cabinet && deptName ? `<option value="department">Government Press (${esc(deptName)})</option>` : "",
+  ].filter(Boolean).join("");
+  return `
+    <label class="label" for="press-context-select">Post as</label>
+    <select id="press-context-select" name="pressContext" class="input" style="margin-bottom:8px;">${options}</select>
+  `;
+}
+
 function render(data, state) {
   const root = document.getElementById("press-root");
   if (!root) return;
@@ -380,6 +461,7 @@ function render(data, state) {
         ? `<div class="muted-block">You must have an active character to submit press releases. <a href="user.html">Create or activate a character</a> first.</div>`
         : `<form id="release-form" class="tile" style="margin-bottom:10px;">
         <p class="muted"><b>Template note:</b> once submitted, this release is public and cannot be edited by users.</p>
+        ${pressContextDropdown(char)}
         <label class="label" for="release-subject">Subject line</label>
         <input id="release-subject" name="subject" class="input" required>
         <label class="label" for="release-body">Release text</label>
@@ -390,9 +472,10 @@ function render(data, state) {
       ${releases.length ? releases.map((r) => `
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-            <div><b>${esc(r._categoryLabel)}</b> — <b>${esc(r.reference)}</b> — ${esc(r.subject)}</div>
+            <div><b>${esc(r.reference)}</b> — ${esc(r.subject)}</div>
+            <div class="muted">${esc(simLabelToString(r.createdAtSim))}</div>
           </div>
-          <div class="muted">By ${esc(r.author_display_name || r.author)}${affiliationBadge({ party: r.party }) ? ` ${affiliationBadge({ party: r.party })}` : ""} • ${esc(r.createdAtSim)}</div>
+          <div class="muted">By ${esc(r.author_display_name || r.author)}${affiliationBadge({ party: r.party }) ? ` ${affiliationBadge({ party: r.party })}` : ""}</div>
           ${renderMarkingResult(r)}
           <div class="tile-bottom"><button class="btn" data-action="toggle-release" data-id="${esc(r.id)}" type="button">${state.openRelease === r.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-release" data-id="${esc(r.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openRelease === r.id ? (
@@ -411,9 +494,10 @@ function render(data, state) {
             ${relArchived.map((r) => `
               <article class="tile" style="margin-bottom:10px;opacity:0.85;">
                 <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                  <div><b>${esc(r._categoryLabel)}</b> — <b>${esc(r.reference)}</b> — ${esc(r.subject)} <span class="muted" style="font-size:0.85em;">[Archived]</span></div>
+                  <div><b>${esc(r.reference)}</b> — ${esc(r.subject)} <span class="muted" style="font-size:0.85em;">[Archived]</span></div>
+                  <div class="muted">${esc(simLabelToString(r.createdAtSim))}</div>
                 </div>
-                <div class="muted">By ${esc(r.author_display_name || r.author)}${affiliationBadge({ party: r.party }) ? ` ${affiliationBadge({ party: r.party })}` : ""} • ${esc(r.createdAtSim)}</div>
+                <div class="muted">By ${esc(r.author_display_name || r.author)}${affiliationBadge({ party: r.party }) ? ` ${affiliationBadge({ party: r.party })}` : ""}</div>
                 ${renderMarkingResult(r)}
                 <div class="tile-bottom"><button class="btn" data-action="toggle-release" data-id="${esc(r.id)}" type="button">${state.openRelease === r.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-release" data-id="${esc(r.id)}" type="button">Delete</button>` : ""}</div>
                 ${state.openRelease === r.id ? (
@@ -437,6 +521,7 @@ function render(data, state) {
         ? `<div class="muted-block">You must have an active character to host press conferences. <a href="user.html">Create or activate a character</a> first.</div>`
         : `<form id="conference-form" class="tile" style="margin-bottom:10px;">
         <p class="muted"><b>Template note:</b> once submitted, this conference opening is public and cannot be edited by users.</p>
+        ${pressContextDropdown(char)}
         <label class="label" for="conference-subject">Subject line</label>
         <input id="conference-subject" name="subject" class="input" required>
         <label class="label" for="conference-body">Opening statement</label>
@@ -453,10 +538,10 @@ function render(data, state) {
         return `
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-            <div><b>${esc(c._categoryLabel)}</b> — <b>${esc(c.reference)}</b> — ${esc(c.subject)}</div>
-            <div>${conferenceStatusChip(c, data)}</div>
+            <div><b>${esc(c.reference)}</b> — ${esc(c.subject)}</div>
+            <div style="display:flex;gap:8px;align-items:center;"><span class="muted">${esc(simLabelToString(c.createdAtSim))}</span>${conferenceStatusChip(c, data)}</div>
           </div>
-          <div class="muted">By ${esc(c.author_display_name || c.author)}${affiliationBadge({ party: c.party }) ? ` ${affiliationBadge({ party: c.party })}` : ""} • Opens ${esc(c.createdAtSim)} • Closes ${esc(c.closesAtSim)}</div>
+          <div class="muted">By ${esc(c.author_display_name || c.author)}${affiliationBadge({ party: c.party }) ? ` ${affiliationBadge({ party: c.party })}` : ""} • Closes ${esc(c.closesAtSim)}</div>
           <div class="tile-bottom"><button class="btn" data-action="toggle-conference" data-id="${esc(c.id)}" type="button">${state.openConference === c.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-conference" data-id="${esc(c.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openConference === c.id ? `
             <div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(c.body)}</div>
@@ -511,10 +596,10 @@ function render(data, state) {
               return `
               <article class="tile" style="margin-bottom:10px;opacity:0.85;">
                 <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                  <div><b>${esc(c._categoryLabel)}</b> — <b>${esc(c.reference)}</b> — ${esc(c.subject)} <span class="muted" style="font-size:0.85em;">[Archived]</span></div>
-                  <div>${conferenceStatusChip(c, data)}</div>
+                  <div><b>${esc(c.reference)}</b> — ${esc(c.subject)} <span class="muted" style="font-size:0.85em;">[Archived]</span></div>
+                  <div style="display:flex;gap:8px;align-items:center;"><span class="muted">${esc(simLabelToString(c.createdAtSim))}</span>${conferenceStatusChip(c, data)}</div>
                 </div>
-                <div class="muted">By ${esc(c.author_display_name || c.author)}${affiliationBadge({ party: c.party }) ? ` ${affiliationBadge({ party: c.party })}` : ""} • Opens ${esc(c.createdAtSim)} • Closes ${esc(c.closesAtSim)}</div>
+                <div class="muted">By ${esc(c.author_display_name || c.author)}${affiliationBadge({ party: c.party }) ? ` ${affiliationBadge({ party: c.party })}` : ""} • Closes ${esc(c.closesAtSim)}</div>
                 <div class="tile-bottom"><button class="btn" data-action="toggle-conference" data-id="${esc(c.id)}" type="button">${state.openConference === c.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-conference" data-id="${esc(c.id)}" type="button">Delete</button>` : ""}</div>
                 ${state.openConference === c.id ? `
                   <div class="tile" style="margin-top:8px;white-space:pre-wrap;">${esc(c.body)}</div>
@@ -568,7 +653,7 @@ function render(data, state) {
           <img src="${esc(findCharacterAvatar(data, c.author, c.avatar))}" alt="${esc(c.author)} avatar" width="44" height="44" style="border-radius:999px;object-fit:cover;">
           <div style="flex:1;">
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-              <div><b>${esc(c.author_display_name || c.author)}</b>${affiliationBadge({ party: c.party, isModAffiliation: !!c.npcAuthor }) ? ` ${affiliationBadge({ party: c.party, isModAffiliation: !!c.npcAuthor })}` : ""}</div><div class="muted">${esc(c.createdAtSim)}</div>
+              <div><b>${esc(c.author_display_name || c.author)}</b>${affiliationBadge({ party: c.party, isModAffiliation: !!c.npcAuthor }) ? ` ${affiliationBadge({ party: c.party, isModAffiliation: !!c.npcAuthor })}` : ""}</div><div class="muted">${esc(simLabelToString(c.createdAtSim))}</div>
             </div>
             ${state.editPressId === c.id
               ? `<form class="tile" data-action="save-edit-press" data-id="${esc(c.id)}" style="margin-top:4px;"><textarea class="input" name="body" rows="3" required>${esc(c.body)}</textarea><div style="display:flex;gap:6px;margin-top:4px;"><button class="btn" type="submit">Save</button><button class="btn" type="button" data-action="cancel-edit-press">Cancel</button></div></form>`
@@ -587,7 +672,7 @@ function render(data, state) {
                 <img src="${esc(findCharacterAvatar(data, c.author, c.avatar))}" alt="${esc(c.author)} avatar" width="44" height="44" style="border-radius:999px;object-fit:cover;">
                 <div style="flex:1;">
                   <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                    <div><b>${esc(c.author_display_name || c.author)}</b>${affiliationBadge({ party: c.party, isModAffiliation: !!c.npcAuthor }) ? ` ${affiliationBadge({ party: c.party, isModAffiliation: !!c.npcAuthor })}` : ""} <span class="muted" style="font-size:0.85em;">[Archived]</span></div><div class="muted">${esc(c.createdAtSim)}</div>
+                    <div><b>${esc(c.author_display_name || c.author)}</b>${affiliationBadge({ party: c.party, isModAffiliation: !!c.npcAuthor }) ? ` ${affiliationBadge({ party: c.party, isModAffiliation: !!c.npcAuthor })}` : ""} <span class="muted" style="font-size:0.85em;">[Archived]</span></div><div class="muted">${esc(simLabelToString(c.createdAtSim))}</div>
                   </div>
                   <p style="white-space:pre-wrap;">${esc(c.body)}</p>
                   ${marker ? `<button class="btn" data-action="delete-comment" data-id="${esc(c.id)}" type="button">Delete</button>` : ""}
@@ -607,6 +692,7 @@ function render(data, state) {
         ? `<div class="muted-block">You must have an active character to submit speeches. <a href="user.html">Create or activate a character</a> first.</div>`
         : `<form id="speech-form" class="tile" style="margin-bottom:10px;">
         <p class="muted"><b>Template note:</b> once submitted, this speech is public and cannot be edited by users.</p>
+        ${pressContextDropdown(char)}
         <label class="label" for="speech-title">Title</label>
         <input id="speech-title" name="title" class="input" required>
         <label class="label" for="speech-audience">Audience</label>
@@ -623,9 +709,10 @@ function render(data, state) {
       ${speeches.length ? speeches.map((s) => `
         <article class="tile" style="margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-            <div><b>${esc(s._categoryLabel)}</b> — <b>${esc(s.reference)}</b> — ${esc(s.title)}</div>
+            <div><b>${esc(s.reference)}</b> — ${esc(s.title)}</div>
+            <div class="muted">${esc(simLabelToString(s.createdAtSim))}</div>
           </div>
-          <div class="muted">By ${esc(s.author_display_name || s.author)}${affiliationBadge({ party: s.party }) ? ` ${affiliationBadge({ party: s.party })}` : ""} • ${esc(s.audience)} • ${esc(s.createdAtSim)}</div>
+          <div class="muted">By ${esc(s.author_display_name || s.author)}${affiliationBadge({ party: s.party }) ? ` ${affiliationBadge({ party: s.party })}` : ""} • <em>${esc(s.audience)}</em></div>
           ${renderMarkingResult(s)}
           <div class="tile-bottom"><button class="btn" data-action="toggle-speech" data-id="${esc(s.id)}" type="button">${state.openSpeech === s.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-speech" data-id="${esc(s.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openSpeech === s.id ? `
@@ -648,9 +735,10 @@ function render(data, state) {
             ${spArchived.map((s) => `
               <article class="tile" style="margin-bottom:10px;opacity:0.85;">
                 <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                  <div><b>${esc(s._categoryLabel)}</b> — <b>${esc(s.reference)}</b> — ${esc(s.title)} <span class="muted" style="font-size:0.85em;">[Archived]</span></div>
+                  <div><b>${esc(s.reference)}</b> — ${esc(s.title)} <span class="muted" style="font-size:0.85em;">[Archived]</span></div>
+                  <div class="muted">${esc(simLabelToString(s.createdAtSim))}</div>
                 </div>
-                <div class="muted">By ${esc(s.author_display_name || s.author)}${affiliationBadge({ party: s.party }) ? ` ${affiliationBadge({ party: s.party })}` : ""} • ${esc(s.audience)} • ${esc(s.createdAtSim)}</div>
+                <div class="muted">By ${esc(s.author_display_name || s.author)}${affiliationBadge({ party: s.party }) ? ` ${affiliationBadge({ party: s.party })}` : ""} • <em>${esc(s.audience)}</em></div>
                 ${renderMarkingResult(s)}
                 <div class="tile-bottom"><button class="btn" data-action="toggle-speech" data-id="${esc(s.id)}" type="button">${state.openSpeech === s.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-speech" data-id="${esc(s.id)}" type="button">Delete</button>` : ""}</div>
                 ${state.openSpeech === s.id ? `
@@ -709,7 +797,7 @@ function render(data, state) {
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
             <div><b>${esc(l.reference)}</b> — ${esc(l.subject)}</div>
           </div>
-          <div class="muted">From ${esc(office?.displayName || l.officeKey)} • To: ${esc(l.recipient)} • ${esc(l.createdAtSim)}</div>
+          <div class="muted">From ${esc(office?.displayName || l.officeKey)} • To: ${esc(l.recipient)} • ${esc(simLabelToString(l.createdAtSim))}</div>
           ${renderMarkingResult(l)}
           <div class="tile-bottom"><button class="btn" data-action="toggle-letter" data-id="${esc(l.id)}" type="button">${state.openLetter === l.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-letter" data-id="${esc(l.id)}" type="button">Delete</button>` : ""}</div>
           ${state.openLetter === l.id ? `
@@ -742,7 +830,7 @@ function render(data, state) {
                 <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
                   <div><b>${esc(l.reference)}</b> — ${esc(l.subject)} <span class="muted" style="font-size:0.85em;">[Archived]</span></div>
                 </div>
-                <div class="muted">From ${esc(office?.displayName || l.officeKey)} • To: ${esc(l.recipient)} • ${esc(l.createdAtSim)}</div>
+                <div class="muted">From ${esc(office?.displayName || l.officeKey)} • To: ${esc(l.recipient)} • ${esc(simLabelToString(l.createdAtSim))}</div>
                 ${renderMarkingResult(l)}
                 <div class="tile-bottom"><button class="btn" data-action="toggle-letter" data-id="${esc(l.id)}" type="button">${state.openLetter === l.id ? "Close" : "Open"}</button>${marker ? `<button class="btn danger" data-action="delete-letter" data-id="${esc(l.id)}" type="button">Delete</button>` : ""}</div>
                 ${state.openLetter === l.id ? `
@@ -797,11 +885,13 @@ function render(data, state) {
     const fd = new FormData(e.currentTarget);
     const subject = String(fd.get("subject") || "").trim();
     const body = String(fd.get("body") || "").trim();
+    const pressContext = String(fd.get("pressContext") || "personal");
     if (!subject || !body) return;
     // id and reference are assigned server-side (DB-authoritative, concurrency-safe).
     const item = {
       subject,
       body,
+      pressContext,
       author: char?.display_name || char?.name || "MP",
       party: char?.party || "",
       createdAtSim: now,
@@ -855,11 +945,13 @@ function render(data, state) {
     const fd = new FormData(e.currentTarget);
     const subject = String(fd.get("subject") || "").trim();
     const body = String(fd.get("body") || "").trim();
+    const pressContext = String(fd.get("pressContext") || "personal");
     if (!subject || !body) return;
     // id and reference are assigned server-side (DB-authoritative, concurrency-safe).
     const item = {
       subject,
       body,
+      pressContext,
       author: char?.display_name || char?.name || "MP",
       party: char?.party || "",
       authorOffice: char?.office || "",
@@ -1126,6 +1218,7 @@ function render(data, state) {
     const topOfSpeech = String(fd.get("topOfSpeech") || "").trim();
     const body = String(fd.get("body") || "").trim();
     const picture = String(fd.get("picture") || "");
+    const pressContext = String(fd.get("pressContext") || "personal");
     if (!title || !audience || !topOfSpeech || !body) return;
     // id and reference are assigned server-side (DB-authoritative, concurrency-safe).
     const item = {
@@ -1134,6 +1227,7 @@ function render(data, state) {
       topOfSpeech,
       body,
       picture,
+      pressContext,
       author: char?.display_name || char?.name || "MP",
       party: char?.party || "",
       authorOffice: char?.office || char?.role || "",

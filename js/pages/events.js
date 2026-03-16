@@ -6,7 +6,7 @@ import { toastSuccess, toastError } from "../components/toast.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateEvent, apiGetEvents, apiUpdateEvent, apiDeleteEvent } from "../api.js";
 import { getCharacterContext } from "../engines/core-engine.js";
-import { formatSimMonthYear } from "../clock.js";
+import { formatSimMonthYear, getSimDate } from "../clock.js";
 
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -22,7 +22,8 @@ function isPartyLeader(char) {
 
 function simIndex(data) {
   const gs = data?.gameState || {};
-  return (Number(gs.startSimYear || 1997) * 12) + (Number(gs.startSimMonth || 8) - 1);
+  const current = getSimDate(gs);
+  return current.year * 12 + current.monthIndex; // monthIndex is 0-based (Jan=0)
 }
 
 function simLabel(index) {

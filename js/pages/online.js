@@ -2,7 +2,7 @@ import { esc, affiliationBadge } from "../ui.js";
 import { isAdmin, isMod, canAdminOrMod } from "../permissions.js";
 import { handleApiError } from "../errors.js";
 import { apiCreateOnlinePost, apiGetOnlinePosts, apiDeleteOnlinePost, apiUpdateOnlinePost, apiUpdateOnlineSettings, apiCreateNewsStory } from "../api.js";
-import { formatSimMonthYear } from "../clock.js";
+import { formatSimMonthYear, getSimDate } from "../clock.js";
 import { getCharacterContext } from "../engines/core-engine.js";
 import { isLoggedIn, nowMs } from "../core.js";
 
@@ -20,7 +20,8 @@ function canModerate(data) {
 
 function simIndex(data) {
   const gs = data?.gameState || {};
-  return (Number(gs.startSimYear || 1997) * 12) + (Number(gs.startSimMonth || 8) - 1);
+  const current = getSimDate(gs);
+  return current.year * 12 + current.monthIndex; // monthIndex is 0-based (Jan=0)
 }
 
 function twitterLimit(data) {

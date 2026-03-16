@@ -9046,20 +9046,41 @@ app.get("/api/press/:id", pressReadLimit, async (req, res) => {
 
 // ── Press reference helpers ───────────────────────────────────────────────
 
-/** Tokens never treated as a surname in press reference prefixes. */
+/** Tokens never treated as a name part in press reference prefixes. */
 const PRESS_NON_SURNAME_TOKENS = new Set(["mp", "pc", "qc", "kc", "rt", "hon", "the", "right", "honourable", "honorable"]);
 
 /**
- * Extract the surname from a character's display name for use as a press prefix.
+ * Extract the full cleaned name from a character's display name for use as a press prefix.
  * Strips leading honorifics (Rt Hon, The Right Honourable) and trailing post-nominals (MP, PC).
+ * Returns the full remaining name (e.g. "Dale Weston" from "The Right Honourable Dale Weston MP PC").
  */
-function pressSurname(name) {
+function pressFullName(name) {
   const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "MP";
   while (parts.length > 1 && PRESS_NON_SURNAME_TOKENS.has(parts[parts.length - 1].toLowerCase().replace(/\.$/, ""))) parts.pop();
   while (parts.length > 1 && PRESS_NON_SURNAME_TOKENS.has(parts[0].toLowerCase().replace(/\.$/, ""))) parts.shift();
-  return parts[parts.length - 1] || "MP";
+  return parts.join(" ") || "MP";
 }
+
+/**
+ * Maps a cabinet office spec_id to a short department display name for use in department press references.
+ */
+const OFFICE_DEPT_NAMES = {
+  "prime-minister": "10 Downing Street",
+  "chancellor":     "HM Treasury",
+  "home":           "Home Office",
+  "foreign":        "FCDO",
+  "trade":          "Dept. for Business & Trade",
+  "defence":        "Ministry of Defence",
+  "welfare":        "Dept. for Work & Pensions",
+  "education":      "Dept. for Education",
+  "env-agri":       "Dept. for Environment & Agriculture",
+  "health":         "Dept. of Health & Social Care",
+  "eti":            "Dept. for Transport & Infrastructure",
+  "culture":        "Dept. for Culture, Media & Sport",
+  "home-nations":   "Home Nations Office",
+  "leader-commons": "Leader of the House",
+};
 
 /** NPC office short prefixes — mirrors js/pages/press.js NPC_OFFICE_PREFIXES. */
 const SERVER_NPC_OFFICE_PREFIXES = {
@@ -9154,12 +9175,17 @@ async function hydratePressItemRow(client, row) {
 }
 
 /**
- * Determine the press reference prefix for a new item:
- * - NPC letters use the office key short code.
- * - All other items use the session character's surname (looked up from DB).
+ * Determine the press reference prefix for a new item.
+ *
+ * pressContext controls what prefix is used:
+ *   "personal"   – character's full clean name (default for all users)
+ *   "party"      – party name (only allowed for party leaders: PM, opp-leader, 3rd-party leader)
+ *   "department" – department short name (only allowed for cabinet members)
+ *
+ * NPC letters always use the NPC office short code regardless of pressContext.
  * Falls back to "MP" if no character is active.
  */
-async function pressPrefixForRequest(pool, req, pressType, officeKey) {
+async function pressPrefixForRequest(pool, req, pressType, officeKey, pressContext) {
   if (pressType === "letter" && officeKey && SERVER_NPC_OFFICE_PREFIXES[officeKey]) {
     return SERVER_NPC_OFFICE_PREFIXES[officeKey];
   }
@@ -9175,6 +9201,15 @@ async function pressPrefixForRequest(pool, req, pressType, officeKey) {
                  AND o.type = 'cabinet'
             ) AS has_cabinet_office,
             (
+              SELECT o.spec_id
+                FROM office_assignments oa
+                JOIN offices o ON o.id = oa.office_id
+               WHERE oa.character_id = c.id
+                 AND o.type = 'cabinet'
+               ORDER BY o.spec_id = 'prime-minister' DESC
+               LIMIT 1
+            ) AS primary_cabinet_spec_id,
+            (
               SELECT p.short_name
                 FROM parties p
                WHERE p.slug = c.party OR p.name = c.party
@@ -9187,16 +9222,22 @@ async function pressPrefixForRequest(pool, req, pressType, officeKey) {
   );
   const ch = rows[0];
   if (!ch) return "MP";
-  if (await characterHasOfficeSpec(pool, charId, ["prime-minister"])) return "PM";
-  if (await characterHasOfficeSpec(pool, charId, ["leader-opposition"])) {
-    return String(ch.party_short_name || ch.party || "MP").trim().toUpperCase();
+
+  const isPartyLeader = await characterHasOfficeSpec(pool, charId, ["prime-minister", "leader-opposition"])
+    || await characterIsThirdPartyLeader(pool, charId);
+
+  // "party" press: use the party name (restricted to party leaders)
+  if (pressContext === "party" && isPartyLeader) {
+    return String(ch.party_short_name || ch.party || "MP").trim();
   }
-  // Third-party leader: check if this character is leader of the current third party
-  if (await characterIsThirdPartyLeader(pool, charId)) {
-    return String(ch.party_short_name || ch.party || "MP").trim().toUpperCase();
+
+  // "department" press: use the department short name (restricted to cabinet members)
+  if (pressContext === "department" && ch.has_cabinet_office && ch.primary_cabinet_spec_id) {
+    return OFFICE_DEPT_NAMES[ch.primary_cabinet_spec_id] || pressFullName(ch.name) || "MP";
   }
-  if (ch.has_cabinet_office) return "GOV";
-  return ch.name ? pressSurname(ch.name) : "MP";
+
+  // Default / "personal" press: use the character's full clean name
+  return ch.name ? pressFullName(ch.name) : "MP";
 }
 
 /**
@@ -9263,7 +9304,8 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     const kind = KIND_MAP[press_type];
     if (kind) {
       // Compute the prefix from the session character or NPC office key.
-      const prefix = await pressPrefixForRequest(client, req, press_type, item.officeKey);
+      const pressContext = String(item.pressContext || "personal").toLowerCase();
+      const prefix = await pressPrefixForRequest(client, req, press_type, item.officeKey, pressContext);
       // Atomically allocate the next serial for this (kind, prefix) pair.
       const serial = await allocatePressSerial(client, kind, prefix);
       serverReference = press_type === "letter"

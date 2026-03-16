@@ -18,6 +18,19 @@ export function getSimDate(gameState, now = new Date()) {
   if (!gameState || typeof gameState !== "object") {
     return { monthIndex: 0, monthName: MONTHS[0], year: 1997 };
   }
+
+  // DB-authoritative clock — single source of truth.
+  // core.js bootData() injects sim_current_month/year from the /api/bootstrap response
+  // so that every page uses the DB value rather than a real-world-time computation.
+  const dbM = Number(gameState.sim_current_month);
+  const dbY = Number(gameState.sim_current_year);
+  if (Number.isFinite(dbM) && dbM >= 1 && dbM <= 12 && Number.isFinite(dbY) && dbY > 0) {
+    const monthIndex = dbM - 1;
+    return { monthIndex, monthName: MONTHS[monthIndex], year: dbY };
+  }
+
+  // Fallback: compute from real-world elapsed time (used when DB clock is not yet
+  // injected — e.g. unit tests, demo mode before bootstrap, or pre-schema environments).
   const startReal = new Date(gameState.startRealDate);
   const startMonth = Number(gameState.startSimMonth); // 1-12
   const startYear = Number(gameState.startSimYear);
