@@ -9185,11 +9185,11 @@ async function hydratePressItemRow(client, row) {
  * NPC letters always use the NPC office short code regardless of pressContext.
  * Falls back to "MP" if no character is active.
  */
-async function pressPrefixForRequest(pool, req, pressType, officeKey, pressContext) {
+async function pressPrefixForRequest(pool, req, pressType, officeKey, pressContext, resolvedCharId) {
   if (pressType === "letter" && officeKey && SERVER_NPC_OFFICE_PREFIXES[officeKey]) {
     return SERVER_NPC_OFFICE_PREFIXES[officeKey];
   }
-  const charId = req.session.characterId || null;
+  const charId = resolvedCharId || req.session.characterId || null;
   if (!charId) return "MP";
   const { rows } = await pool.query(
     `SELECT c.name, c.party,
@@ -9305,7 +9305,7 @@ app.post("/api/press", pressWriteLimit, async (req, res) => {
     if (kind) {
       // Compute the prefix from the session character or NPC office key.
       const pressContext = String(item.pressContext || "personal").toLowerCase();
-      const prefix = await pressPrefixForRequest(client, req, press_type, item.officeKey, pressContext);
+      const prefix = await pressPrefixForRequest(client, req, press_type, item.officeKey, pressContext, authorCharId);
       // Atomically allocate the next serial for this (kind, prefix) pair.
       const serial = await allocatePressSerial(client, kind, prefix);
       serverReference = press_type === "letter"
