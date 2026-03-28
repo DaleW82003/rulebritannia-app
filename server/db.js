@@ -33,8 +33,20 @@ export const pool = new Pool({
   ...buildPoolConfig(process.env.DATABASE_URL),
   // Limit concurrent connections to avoid exhausting Render/Neon's connection cap.
   max: 10,
+  // Ask Node to keep TCP connections alive through network idling.
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
   // Release idle clients quickly so they don't hold slots unnecessarily.
   idleTimeoutMillis: 30_000,
   // Fail fast when the database is unreachable rather than queuing indefinitely.
   connectionTimeoutMillis: 5_000,
+});
+
+// Avoid crashing the Node process when an idle pooled client is dropped by the
+// network/database provider. `pg` emits this on the Pool instance; without a
+// listener it becomes an unhandled `error` event and terminates the process.
+pool.on("error", (err, client) => {
+  const pid = client?.processID ?? "unknown";
+  const host = client?.host ?? "unknown";
+  console.error(`[db] pooled client error (pid=${pid}, host=${host})`, err);
 });
