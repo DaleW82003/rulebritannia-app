@@ -33,6 +33,9 @@ export const pool = new Pool({
   ...buildPoolConfig(process.env.DATABASE_URL),
   // Limit concurrent connections to avoid exhausting Render/Neon's connection cap.
   max: 10,
+  // Ask Node to keep TCP connections alive through network idling.
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
   // Release idle clients quickly so they don't hold slots unnecessarily.
   idleTimeoutMillis: 30_000,
   // Fail fast when the database is unreachable rather than queuing indefinitely.
