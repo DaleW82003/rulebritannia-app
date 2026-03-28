@@ -38,3 +38,12 @@ export const pool = new Pool({
   // Fail fast when the database is unreachable rather than queuing indefinitely.
   connectionTimeoutMillis: 5_000,
 });
+
+
+pool.on("error", (error) => {
+  console.error("[db] Unexpected error on idle PostgreSQL client", {
+    message: error?.message,
+    code: error?.code,
+    stack: error?.stack,
+  });
+});
