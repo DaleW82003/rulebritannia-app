@@ -42,11 +42,11 @@ export const pool = new Pool({
   connectionTimeoutMillis: 5_000,
 });
 
-// Avoid crashing the Node process when an idle pooled client is dropped by the
-// network/database provider. `pg` emits this on the Pool instance; without a
-// listener it becomes an unhandled `error` event and terminates the process.
-pool.on("error", (err, client) => {
-  const pid = client?.processID ?? "unknown";
-  const host = client?.host ?? "unknown";
-  console.error(`[db] pooled client error (pid=${pid}, host=${host})`, err);
+
+pool.on("error", (error) => {
+  console.error("[db] Unexpected error on idle PostgreSQL client", {
+    message: error?.message,
+    code: error?.code,
+    stack: error?.stack,
+  });
 });
