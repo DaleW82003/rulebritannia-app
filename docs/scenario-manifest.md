@@ -11,6 +11,14 @@ of the world at game start.  Server code reads manifests through
 `server/scenario-manifest-loader.js`; no scenario-specific magic strings
 should exist outside of manifest files.
 
+> **Phase 3 scope** — This document describes the manifest *format* and
+> *loader* introduced in Phase 3.  Multi-scenario runtime support (admin-UI
+> scenario selection, seeding pipelines for non-default scenarios) is **not
+> yet implemented**.  Only the `1997` scenario manifest is active; non-default
+> scenario keys are explicitly rejected at runtime by `assertSupportedScenarioKey`
+> in `server/index.js` and `server/political-state-service.js`.  Phase 4 will
+> lift that restriction once the full seed pipeline is ready.
+
 ---
 
 ## Directory layout
