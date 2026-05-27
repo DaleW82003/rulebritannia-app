@@ -46,6 +46,10 @@ Lines that are empty or begin with `#` (after any leading whitespace) are
 ignored.  Use these freely for editorial notes inside the CSV — they do not
 affect parsing or validation.
 
+> **Inline comments are not supported.** The `#` filter applies only to lines
+> that begin with `#`; a `#` character that appears after a data field is
+> treated as part of that field's value, not as a comment marker.
+
 ### Record types
 
 #### `seat_breakdown`
@@ -57,8 +61,6 @@ One row per party.  Used to cross-validate that the derived seat count
 |--------|------|-------------|
 | `party` | ✓ | Party name (normalised — see [Party normalisation](#party-normalisation)) |
 | `seats` | ✓ | Expected seat count for this party |
-
-All other columns are ignored.
 
 All other columns are ignored.
 
@@ -108,15 +110,25 @@ constituency_result,SNP,Scotland,Dundee East,,,,,,,
 
 #### `overall_total`
 
-Aggregated national totals.  Two rows are expected:
+Aggregated national totals.  The parser processes all `overall_total` rows and
+accumulates into two variables (`electorate`, `turnoutTotal`); each row
+overwrites the accumulated value using `parseInt(...) || 0` so the **last
+non-empty value wins**.
 
-- First `overall_total` row: `turnout_pct` column captures the national
-  turnout percentage (ignored in output).
-- Second `overall_total` row: `electorate` column captures the total
-  registered electorate; `turnout_total` captures the total votes cast.
+The standard CSV layout uses two rows where the data is split across them:
 
-Both values land in the top-level `electorate` and `turnoutTotal` fields of
-the output JSON.
+- First row carries `turnout_total` (total votes cast).
+- Second row carries `electorate` (registered electorate).
+
+Because the second row has an empty `turnout_total` column, `turnoutTotal`
+is overwritten to `0` by `parseInt("") || 0`.  This is a **pre-existing
+limitation** in the parser: the committed `constituencies.json` for 1997
+correctly records `electorate` but always shows `"turnoutTotal": 0`.
+
+> **Debt:** If `turnoutTotal` is needed by a future server feature, the two
+> `overall_total` rows should be collapsed into one row that contains both
+> `electorate` and `turnout_total`, or the parser should accumulate the
+> maximum non-zero value instead of overwriting unconditionally.
 
 ```
 overall_total,,,,,,,,66.1%,,
