@@ -1048,6 +1048,7 @@ export async function seedDefaultScenarioFactions(scenarioKey = getDefaultScenar
   return results;
 }
 
+/** @deprecated Use seedDefaultScenarioFactions(scenarioKey, actorUserId). */
 export async function seed1997Factions(actorUserId = "") {
   return seedDefaultScenarioFactions(getDefaultScenarioKey(), actorUserId);
 }

@@ -150,7 +150,22 @@ export function saveState(data) {
 export function ensureDefaults(data) {
   // Defensive defaults so pages never "blank" because one field is missing.
   // Null-coalescing for missing keys + type guards for critical arrays/objects.
-  data.gameState ??= { started: false, startRealDate: "", startSimMonth: 8, startSimYear: 1997, isPaused: false, pausedAtRealDate: "" };
+  const simCurrentMonth = Number(data?.gameState?.sim_current_month);
+  const fallbackStartMonth = Number.isInteger(simCurrentMonth) && simCurrentMonth >= 1 && simCurrentMonth <= 12
+    ? simCurrentMonth
+    : 1;
+  const simCurrentYear = Number(data?.gameState?.sim_current_year);
+  const fallbackStartYear = Number.isInteger(simCurrentYear) && simCurrentYear > 0
+    ? simCurrentYear
+    : new Date().getUTCFullYear();
+  data.gameState ??= {
+    started: false,
+    startRealDate: "",
+    startSimMonth: fallbackStartMonth,
+    startSimYear: fallbackStartYear,
+    isPaused: false,
+    pausedAtRealDate: "",
+  };
   data.gameState.pausedAtRealDate ??= "";
   data.adminSettings ??= { monarchGender: "Queen" };
   data.adminSettings.monarchGender ??= "Queen";

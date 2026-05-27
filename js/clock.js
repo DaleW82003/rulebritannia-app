@@ -15,8 +15,9 @@ const MONTHS = [
 /* ------------------------------------------------------------------ */
 
 export function getSimDate(gameState, now = new Date()) {
+  const runtimeFallbackYear = new Date().getUTCFullYear();
   if (!gameState || typeof gameState !== "object") {
-    return { monthIndex: 0, monthName: MONTHS[0], year: 1997 };
+    return { monthIndex: 0, monthName: MONTHS[0], year: runtimeFallbackYear };
   }
 
   // DB-authoritative clock — single source of truth.
@@ -40,7 +41,7 @@ export function getSimDate(gameState, now = new Date()) {
 
   if (gameState.started === false) {
     const fallbackIndex = Math.max(0, Math.min(11, Number.isFinite(startMonth) ? startMonth - 1 : 0));
-    return { monthIndex: fallbackIndex, monthName: MONTHS[fallbackIndex], year: Number.isFinite(startYear) ? startYear : 1997 };
+    return { monthIndex: fallbackIndex, monthName: MONTHS[fallbackIndex], year: Number.isFinite(startYear) ? startYear : runtimeFallbackYear };
   }
 
   // When paused, compute sim date as of the moment we paused (not start date)

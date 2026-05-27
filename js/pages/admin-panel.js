@@ -25,6 +25,7 @@ import {
   apiGetAdminSnapshotStatus,
   apiGetSimFreeze, apiSetSimFreeze,
   apiClockStart,
+  getDefaultScenarioKey,
   apiListAdminScenarios,
   apiSeedScenarioElection,
   apiInitializeScenarioConstituencies,
@@ -331,7 +332,7 @@ export async function initAdminPanelPage(data) {
     const fields = [
       { key: "discourse_base_url", label: "Discourse Base URL", placeholder: "https://forum.rulebritannia.org" },
       { key: "ui_base_url",        label: "UI Base URL",        placeholder: "https://rulebritannia.org" },
-      { key: "sim_start_date",     label: "Sim Start Date",     placeholder: "1997-08-01" },
+      { key: "sim_start_date",     label: "Sim Start Date",     placeholder: "YYYY-MM-01" },
       { key: "clock_rate",         label: "Clock Rate (sim months/week)", placeholder: "2" },
     ];
     return fields
@@ -894,6 +895,7 @@ export async function initAdminPanelPage(data) {
   }
 
   function renderScenarioInitSection() {
+    const defaultScenarioKey = getDefaultScenarioKey();
     const defaultScenario = availableScenarios.find((s) => s.isDefault) || availableScenarios[0] || null;
     const defaultScenarioReady = defaultScenario ? defaultScenario.initializationReady !== false : true;
     const defaultScenarioBlockedReason = defaultScenario?.initializationBlockedReason || "This scenario is not initialization-ready yet.";
@@ -904,7 +906,7 @@ export async function initAdminPanelPage(data) {
           const label = s.isDefault ? `${esc(s.title)} (default${readinessSuffix})` : `${esc(s.title)}${readinessSuffix}`;
           return `<option value="${esc(s.key)}" ${s.isDefault ? "selected" : ""}>${label}</option>`;
         }).join("")
-      : `<option value="1997" selected>May 1997 General Election (default)</option>`;
+      : `<option value="${esc(defaultScenarioKey)}" selected>Default scenario</option>`;
 
     const descriptionHtml = availableScenarios.length
       ? availableScenarios.map((s) => `
@@ -919,7 +921,7 @@ export async function initAdminPanelPage(data) {
             </p>
             ${s.initializationReady === false ? `<p style="margin:6px 0 0;font-size:12px;color:#9a3412;"><strong>Blocked:</strong> ${esc(s.initializationBlockedReason || "Scenario is not initialization-ready yet.")}</p>` : ""}
           </div>`).join("")
-      : `<p style="margin:4px 0;font-size:13px;color:#444;">1997 UK General Election. Labour landslide. Simulation begins August 1997.</p>`;
+      : `<p style="margin:4px 0;font-size:13px;color:#444;">Scenario metadata unavailable. Initialization will target the configured default scenario.</p>`;
 
     return `
       <section class="panel" style="max-width:700px;margin-top:12px;border:2px solid #2c5aa0;background:#f6f9ff;">
@@ -950,7 +952,7 @@ export async function initAdminPanelPage(data) {
 
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
           <input id="scenario-init-confirm-input" type="text"
-                 placeholder="Type INITIALIZE SCENARIO ${esc(defaultScenario?.key || "1997")} to confirm"
+                 placeholder="Type INITIALIZE SCENARIO ${esc(defaultScenario?.key || defaultScenarioKey)} to confirm"
                  style="flex:1;min-width:300px;padding:4px 8px;border:1px solid #2c5aa0;border-radius:4px;font-size:13px;" />
           <button class="btn" id="btn-scenario-init" type="button"
                   ${defaultScenarioReady ? "" : "disabled"}
@@ -986,9 +988,9 @@ export async function initAdminPanelPage(data) {
             <b>Wipe Content</b>
             <p style="margin:4px 0 8px;font-size:13px;color:#555;">
               ⚠️ Deletes <strong>all in-character sim content</strong>: bills, motions, statements, regulations, questions,
-              polling, news, papers, press, Red Lion posts, online posts, fundraisers, events, scandals, elections (1997 base
-              re-seeded), CS briefings/cases, Privy Council posts. Also vacates all government &amp; opposition offices,
-              clears cabinet/shadow-cabinet drafts, and resets the budget to the 1997 baseline.
+              polling, news, papers, press, Red Lion posts, online posts, fundraisers, events, scandals, elections (default
+              scenario baseline re-seeded), CS briefings/cases, Privy Council posts. Also vacates all government &amp; opposition offices,
+              clears cabinet/shadow-cabinet drafts, and resets the budget to the default scenario baseline.
               <br>Characters and user accounts are <strong>preserved</strong>.
               <br><strong>This cannot be undone.</strong>
             </p>
@@ -2001,7 +2003,7 @@ export async function initAdminPanelPage(data) {
     });
 
     host.querySelector("#btn-scenario-init")?.addEventListener("click", async () => {
-      const key = scenarioSelect?.value || "1997";
+      const key = scenarioSelect?.value || getDefaultScenarioKey();
       const expectedConfirm = `INITIALIZE SCENARIO ${key}`;
       const statusEl = host.querySelector("#scenario-init-status");
       const selectedScenario = availableScenarios.find((s) => s.key === key) || null;

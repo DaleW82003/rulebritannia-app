@@ -2178,11 +2178,8 @@ export async function apiDeleteConstituency(id) {
 }
 
 export const DEFAULT_SCENARIO_KEY = "1997";
-export const DEFAULT_SCENARIO_SEED_LABEL = "May 1997";
-export const DEFAULT_SCENARIO_RESET_LABEL = "August 1997";
-// Phase 2 note: routes are generalized to "scenario" terminology, but only the
-// default 1997 scenario is currently supported; broader multi-scenario behavior
-// is intentionally deferred.
+export const DEFAULT_SCENARIO_SEED_LABEL = "the default scenario election baseline";
+export const DEFAULT_SCENARIO_RESET_LABEL = "the default scenario start";
 
 export function getDefaultScenarioKey() {
   return DEFAULT_SCENARIO_KEY;
@@ -2200,8 +2197,9 @@ export async function apiInitializeScenarioConstituencies(confirmOverwrite, scen
   return body;
 }
 
+/** @deprecated Use apiInitializeScenarioConstituencies(confirmOverwrite, scenarioKey). */
 export async function apiInitialize1997Constituencies(confirmOverwrite) {
-  return apiInitializeScenarioConstituencies(confirmOverwrite, "1997");
+  return apiInitializeScenarioConstituencies(confirmOverwrite, getDefaultScenarioKey());
 }
 
 export async function apiClearConstituencies() {
@@ -2312,8 +2310,9 @@ export async function apiSeedScenarioElection(scenarioKey = getDefaultScenarioKe
   return body;
 }
 
+/** @deprecated Use apiSeedScenarioElection(scenarioKey). */
 export async function apiSeedElection1997() {
-  return apiSeedScenarioElection("1997");
+  return apiSeedScenarioElection(getDefaultScenarioKey());
 }
 
 export async function apiGetElectionBodiesCurrent() {
@@ -3679,7 +3678,7 @@ export async function apiListAdminScenarios() {
   return res.json();
 }
 
-/** Admin/mod: idempotent seed of the current default scenario factions (currently 1997). */
+/** Admin/mod: idempotent seed of the current default scenario factions. */
 export async function apiAdminSeedScenarioFactions(scenarioKey = getDefaultScenarioKey()) {
   const res = await _fetch(`${API_BASE}/api/admin/seed-scenario-factions`, {
     method: "POST", credentials: "include",
@@ -3691,11 +3690,12 @@ export async function apiAdminSeedScenarioFactions(scenarioKey = getDefaultScena
   return body;
 }
 
+/** @deprecated Use apiAdminSeedScenarioFactions(scenarioKey). */
 export async function apiAdminSeed1997Factions() {
-  return apiAdminSeedScenarioFactions("1997");
+  return apiAdminSeedScenarioFactions(getDefaultScenarioKey());
 }
 
-/** Admin/mod: seed default-scenario bodies + locals baseline data (currently 1997). */
+/** Admin/mod: seed default-scenario bodies + locals baseline data. */
 export async function apiAdminSeedScenarioBodiesLocals(force = false, scenarioKey = getDefaultScenarioKey()) {
   const res = await _fetch(`${API_BASE}/api/admin/seed-scenario-bodies-locals`, {
     method: "POST",
@@ -3708,8 +3708,9 @@ export async function apiAdminSeedScenarioBodiesLocals(force = false, scenarioKe
   return body;
 }
 
+/** @deprecated Use apiAdminSeedScenarioBodiesLocals(force, scenarioKey). */
 export async function apiAdminSeed1997BodiesLocals(force = false) {
-  return apiAdminSeedScenarioBodiesLocals(force, "1997");
+  return apiAdminSeedScenarioBodiesLocals(force, getDefaultScenarioKey());
 }
 
 /** Admin/mod: totals for other-official arenas (visible bodies + all locals). */

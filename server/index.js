@@ -4457,10 +4457,6 @@ function parseDefaultScenarioElectionCsv(scenarioKey = getDefaultScenarioKey()) 
   }
 }
 
-function parse1997CSV() {
-  return parseDefaultScenarioElectionCsv(getDefaultScenarioKey());
-}
-
 function getScenarioElectionSeedConfig(scenarioKey = getDefaultScenarioKey()) {
   assertSupportedScenarioKey(scenarioKey);
   const manifest = loadScenarioManifest(scenarioKey);
@@ -4473,7 +4469,7 @@ function getScenarioElectionSeedConfig(scenarioKey = getDefaultScenarioKey()) {
 
 /**
  * Idempotent seed of the current default scenario general election baseline.
- * Uses the legacy 1997 asset files until broader scenario extraction lands.
+ * Election source data is loaded from the scenario manifest.
  */
 async function initializeScenarioElection(scenarioKey = getDefaultScenarioKey()) {
   const activeScenarioKey = assertSupportedScenarioKey(scenarioKey);
@@ -4562,10 +4558,6 @@ async function initializeScenarioElection(scenarioKey = getDefaultScenarioKey())
   );
 }
 
-async function seedElection1997() {
-  return initializeScenarioElection(getDefaultScenarioKey());
-}
-
 /**
  * Idempotent seed of a scenario's constituencies from the committed JSON dataset.
  * Skips if constituencies table is already populated.
@@ -4616,10 +4608,6 @@ async function initializeScenarioConstituencies(scenarioKey = getDefaultScenario
     client.release();
   }
   console.log(`[initializeScenarioConstituencies] seeded ${incoming.length} constituencies for scenarioKey=${seedConfig.scenarioKey}.`);
-}
-
-async function seedConstituencies1997() {
-  return initializeScenarioConstituencies(getDefaultScenarioKey());
 }
 
 /**
@@ -19843,7 +19831,7 @@ app.delete("/api/mod/scandals/situations/:id", scandalWriteLimit, async (req, re
 // POST /api/elections/:id/finalize             — admin/mod: apply flips + write events, set last GE
 // GET  /api/elections/:id/changes              — authenticated: list constituency changes for election
 // POST /api/admin/elections/seed-scenario      — admin/mod: seed the current default scenario election
-// POST /api/admin/elections/seed-1997           — legacy alias for the current default scenario
+// POST /api/admin/elections/seed-1997           — legacy alias for /seed-scenario (default scenario target)
 // GET  /api/elections/bodies/current           — authenticated: current result per body
 // GET  /api/elections/bodies/archive           — authenticated: archived (replaced) results
 // POST /api/elections/bodies                   — admin/mod: submit new result for a body
@@ -20435,7 +20423,7 @@ app.get("/api/constituencies/:id/events", electionsApiReadLimit, async (req, res
 // PUT    /api/constituencies/:id                    — admin/mod/speaker: update one
 // DELETE /api/constituencies/:id                    — admin/mod/speaker: delete one
 // POST   /api/admin/constituencies/initialize-scenario  — bulk-seed constituencies for the selected scenario; requires confirm=true
-// POST   /api/admin/constituencies/initialize-1997      — legacy alias for the default 1997 scenario
+// POST   /api/admin/constituencies/initialize-1997      — legacy alias for /initialize-scenario (default scenario target)
 // DELETE /api/admin/constituencies/clear            — admin only: wipe all
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -25697,7 +25685,7 @@ app.post("/api/staff/internal-tickets/:id/messages", verifyCsrfToken, crudWriteL
 });
 
 // POST /api/admin/seed-scenario-factions  (admin/mod only: idempotent seed of the current default scenario factions)
-// POST /api/admin/seed-1997-factions       (legacy alias)
+// POST /api/admin/seed-1997-factions       (legacy alias to /seed-scenario-factions)
 const seedScenarioFactionsHandler = async (req, res) => {
   try {
     const scenarioKey = assertScenarioInitializationReady(
