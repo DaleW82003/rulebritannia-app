@@ -451,6 +451,37 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
   `);
 
+  // Migration: add account-suspension columns to users (idempotent)
+  await pool.query(`
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS suspended    BOOLEAN   NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMP NULL,
+      ADD COLUMN IF NOT EXISTS suspended_by UUID      NULL;
+  `);
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_name = 'users'
+           AND column_name = 'suspended_by'
+      ) AND NOT EXISTS (
+        SELECT 1
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+         WHERE t.relname = 'users'
+           AND c.contype = 'f'
+           AND a.attname = 'suspended_by'
+      ) THEN
+        ALTER TABLE users
+          ADD CONSTRAINT users_suspended_by_fkey
+          FOREIGN KEY (suspended_by) REFERENCES users(id) ON DELETE SET NULL;
+      END IF;
+    END $$;
+  `);
+
   // Backfill: users that existed before email verification was introduced are already
   // trusted (manually approved by an admin), so mark them as verified immediately.
   // Scoped to users with NO entry in pending_registrations so that newly approved
@@ -4821,13 +4852,6 @@ async function seedBudgetBaseline(force = false) {
     [JSON.stringify(lastYear), JSON.stringify(currentYear), JSON.stringify(adminControls)]
   );
 
-  // Migration: add suspended columns to users table (idempotent)
-  await pool.query(`
-    ALTER TABLE users
-     ADD COLUMN IF NOT EXISTS suspended      BOOLEAN   NOT NULL DEFAULT FALSE,
-     ADD COLUMN IF NOT EXISTS suspended_at   TIMESTAMPTZ,
-     ADD COLUMN IF NOT EXISTS suspended_by   UUID      REFERENCES users(id) ON DELETE SET NULL;
-  `);
 }
 
 /**
@@ -21010,18 +21034,37 @@ const adminUsersLimit = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: 
 app.get("/api/admin/users", adminUsersLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
-    const { rows } = await pool.query(`
-      SELECT u.id, u.username, u.email,
-             u.email_verified,
-             u.suspended,
-             u.active_character_id,
-             COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles,
-             (SELECT c.name FROM characters c WHERE c.id = u.active_character_id LIMIT 1) AS active_character_name
-        FROM users u
-        LEFT JOIN user_roles ur ON ur.user_id = u.id
-       GROUP BY u.id, u.username, u.email, u.email_verified, u.suspended, u.active_character_id
-       ORDER BY u.username
-    `);
+    let rows;
+    try {
+      ({ rows } = await pool.query(`
+        SELECT u.id, u.username, u.email,
+               u.email_verified,
+               u.suspended,
+               u.active_character_id,
+               COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles,
+               (SELECT c.name FROM characters c WHERE c.id = u.active_character_id LIMIT 1) AS active_character_name
+          FROM users u
+          LEFT JOIN user_roles ur ON ur.user_id = u.id
+         GROUP BY u.id, u.username, u.email, u.email_verified, u.suspended, u.active_character_id
+         ORDER BY u.username
+      `));
+    } catch (queryError) {
+      const missingSuspendedColumn =
+        queryError?.code === "42703" && String(queryError?.message || "").includes("suspended");
+      if (!missingSuspendedColumn) throw queryError;
+      ({ rows } = await pool.query(`
+        SELECT u.id, u.username, u.email,
+               u.email_verified,
+               FALSE AS suspended,
+               u.active_character_id,
+               COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles,
+               (SELECT c.name FROM characters c WHERE c.id = u.active_character_id LIMIT 1) AS active_character_name
+          FROM users u
+          LEFT JOIN user_roles ur ON ur.user_id = u.id
+         GROUP BY u.id, u.username, u.email, u.email_verified, u.active_character_id
+         ORDER BY u.username
+      `));
+    }
     res.json({
       users: rows.map((r) => ({
         id:                  r.id,
