@@ -1,0 +1,26 @@
+{
+  "key": "2015-beta",
+  "title": "May 2015 General Election (Beta – Alternative History)",
+  "description": "Beta scenario based on the May 2015 UK general election. In this alternative-history variant the simulation diverges from the actual result; the specific narrative divergence is TBD. The simulation begins in August 2015 with players entering a newly-formed Parliament. This scenario is in active development: constituency data, budget baselines, factions, and local council figures all require real data before it can be used in production.",
+  "startDate": { "month": 5, "year": 2015 },
+  "clockDefault": { "month": 8, "year": 2015 },
+  "status": "beta",
+  "tags": ["beta", "alternative-history", "2015"],
+  "constituenciesFile": "data/scenarios/2015-beta/constituencies.json",
+  "worldSeedFile": "data/scenarios/2015-beta/world-seed.json",
+  "electionCsvFile": "assets/2015-beta_structured.csv",
+  "expectedConstituencyCount": 650,
+  "playableParties": ["Conservative", "Labour", "Liberal Democrat"],
+  "_TODO": [
+    "Define the specific alternative-history divergence/narrative for this scenario.",
+    "Populate assets/2015-beta_structured.csv with real 2015 constituency-level results (or alt-history variant).",
+    "Run `node scripts/convert-scenario-csv.js 2015-beta` to generate constituencies.json from the CSV.",
+    "Fill in budget.lastYear and budget.currentYear with real 2014-15 / 2015-16 figures.",
+    "Fill in factions with post-2015 party wing data.",
+    "Fill in bodies (Lords, European Parliament, devolved assemblies) with post-2015 composition.",
+    "Fill in locals with post-2015 local council data.",
+    "Fill in partyStructures and partyTreasuryCash with appropriate 2015-era figures.",
+    "Decide whether UKIP or SNP should be added to playableParties for this scenario.",
+    "Review and confirm officeSpecs and salaryScale (2015 IPSA figures used as placeholder)."
+  ]
+}

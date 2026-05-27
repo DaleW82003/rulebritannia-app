@@ -1,0 +1,29 @@
+record_type,party,region,constituency,seats,votes,vote_pct,majority,turnout_pct,turnout_total,electorate
+# TODO: This file is a placeholder. Replace the seat_breakdown rows below with the
+# alt-history 2015 seat totals once the scenario narrative is defined, then add
+# one row per constituency (record_type=constituency_result) for each of the 650 seats.
+# See assets/1997_structured.csv for the expected format.
+#
+# Real 2015 result for reference (do NOT use directly — this is an alt-history scenario):
+#   Conservative: 331 seats
+#   Labour: 232 seats
+#   SNP: 56 seats
+#   Liberal Democrat: 8 seats
+#   DUP: 8 seats
+#   Others: 15 seats
+#
+# Replace the rows below with the alt-history totals before seeding.
+seat_breakdown,Conservative,,,0,,,,,,
+seat_breakdown,Labour,,,0,,,,,,
+seat_breakdown,Liberal Democrat,,,0,,,,,,
+seat_breakdown,SNP,,,0,,,,,,
+seat_breakdown,UKIP,,,0,,,,,,
+seat_breakdown,Plaid Cymru,,,0,,,,,,
+seat_breakdown,Green,,,0,,,,,,
+seat_breakdown,DUP,,,0,,,,,,
+seat_breakdown,Sinn Féin,,,0,,,,,,
+seat_breakdown,SDLP,,,0,,,,,,
+seat_breakdown,UUP,,,0,,,,,,
+seat_breakdown,Alliance,,,0,,,,,,
+seat_breakdown,Independents,,,0,,,,,,
+seat_breakdown,Speaker,,,1,,,,,,

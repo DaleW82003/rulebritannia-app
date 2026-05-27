@@ -1,0 +1,6 @@
+{
+  "_note": "Placeholder — no real constituency data yet. Run `node scripts/convert-scenario-csv.js 2015-beta` once assets/2015-beta_structured.csv has been populated with real (or alt-history) 2015 constituency-level results.",
+  "_TODO": "Populate assets/2015-beta_structured.csv then regenerate this file via the convert-scenario-csv script.",
+  "generatedAt": null,
+  "constituencies": []
+}
