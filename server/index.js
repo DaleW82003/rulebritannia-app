@@ -4820,6 +4820,14 @@ async function seedBudgetBaseline(force = false) {
        updated_at     = NOW()`,
     [JSON.stringify(lastYear), JSON.stringify(currentYear), JSON.stringify(adminControls)]
   );
+
+  // Migration: add suspended columns to users table (idempotent)
+  await pool.query(`
+    ALTER TABLE users
+     ADD COLUMN IF NOT EXISTS suspended      BOOLEAN   NOT NULL DEFAULT FALSE,
+     ADD COLUMN IF NOT EXISTS suspended_at   TIMESTAMPTZ,
+     ADD COLUMN IF NOT EXISTS suspended_by   UUID      REFERENCES users(id) ON DELETE SET NULL;
+  `);
 }
 
 /**
@@ -5415,7 +5423,7 @@ app.post(["/auth/login", "/api/auth/login"], authLimit, async (req, res) => {
     const normalizedEmail = email.toLowerCase().trim();
 
     const { rows } = await pool.query(
-      "SELECT id, username, email, password_hash, roles, email_verified FROM users WHERE email = $1",
+      "SELECT id, username, email, password_hash, roles, email_verified, suspended FROM users WHERE email = $1",
       [normalizedEmail]
     );
 
@@ -5433,6 +5441,11 @@ app.post(["/auth/login", "/api/auth/login"], authLimit, async (req, res) => {
     // Require email verification
     if (!user.email_verified) {
       return res.status(403).json({ ok: false, error: "Please verify your email address before logging in. Check your inbox for a verification link, or visit the login page to request a new one." });
+    }
+
+    // Block suspended users
+    if (user.suspended) {
+      return res.status(403).json({ ok: false, error: "Your account has been suspended. Please contact an administrator." });
     }
 
     // Save to session
@@ -20999,12 +21012,14 @@ app.get("/api/admin/users", adminUsersLimit, async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const { rows } = await pool.query(`
       SELECT u.id, u.username, u.email,
+             u.email_verified,
+             u.suspended,
              u.active_character_id,
              COALESCE(array_agg(ur.role ORDER BY ur.role) FILTER (WHERE ur.role IS NOT NULL), '{}') AS roles,
              (SELECT c.name FROM characters c WHERE c.id = u.active_character_id LIMIT 1) AS active_character_name
         FROM users u
         LEFT JOIN user_roles ur ON ur.user_id = u.id
-       GROUP BY u.id, u.username, u.email, u.active_character_id
+       GROUP BY u.id, u.username, u.email, u.email_verified, u.suspended, u.active_character_id
        ORDER BY u.username
     `);
     res.json({
@@ -21012,6 +21027,8 @@ app.get("/api/admin/users", adminUsersLimit, async (req, res) => {
         id:                  r.id,
         username:            r.username,
         email:               r.email,
+        emailVerified:       r.email_verified,
+        suspended:           r.suspended,
         roles:               r.roles || [],
         activeCharacterId:   r.active_character_id || null,
         activeCharacter:     r.active_character_name || "",
@@ -21020,6 +21037,157 @@ app.get("/api/admin/users", adminUsersLimit, async (req, res) => {
   } catch (e) {
     console.error("[GET /api/admin/users]", e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/admin/users/:id/resend-verification — admin: resend verification email
+// Generates a fresh token in pending_registrations and re-sends the verification email.
+app.post("/api/admin/users/:id/resend-verification", adminUsersLimit, verifyCsrfToken, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { id } = req.params;
+
+    // Fetch target user
+    const { rows: userRows } = await pool.query(
+      "SELECT id, username, email, email_verified FROM users WHERE id = $1",
+      [id]
+    );
+    if (!userRows.length) return res.status(404).json({ ok: false, error: "User not found" });
+    const user = userRows[0];
+
+    if (user.email_verified) {
+      return res.status(400).json({ ok: false, error: "User's email is already verified." });
+    }
+
+    // Update (or insert) the pending_registration token for this email
+    const newToken    = randomBytes(32).toString("hex");
+    const newTokenExp = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const { rowCount } = await pool.query(
+      `UPDATE pending_registrations
+          SET email_verification_token     = $1,
+              email_verification_token_exp = $2,
+              verification_resent_at       = NOW()
+        WHERE email = $3`,
+      [newToken, newTokenExp, user.email]
+    );
+
+    // If no pending_registrations row exists (edge case), we can't send the link
+    if (rowCount === 0) {
+      return res.status(409).json({ ok: false, error: "No pending registration found for this user's email. The verification flow cannot proceed." });
+    }
+
+    sendVerificationEmail(user.email, newToken).catch((e) =>
+      console.error("[admin] resend-verification email failed:", e)
+    );
+
+    console.info(`[admin] resend-verification: admin ${req.session.userId} resent verification email to user ${id} (${user.email})`);
+    pool.query(
+      `INSERT INTO audit_log (actor_id, action, target, details) VALUES ($1, $2, $3, $4::jsonb)`,
+      [req.session.userId, "admin.resend-verification", user.email,
+       JSON.stringify({ userId: id, username: user.username })]
+    ).catch((e) => console.error("[audit] resend-verification insert failed:", e));
+
+    res.json({ ok: true, message: `Verification email resent to ${user.email}.` });
+  } catch (e) {
+    console.error("[POST /api/admin/users/:id/resend-verification]", e);
+    res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
+
+// POST /api/admin/users/:id/suspend — admin: suspend or unsuspend a user
+// Body: { suspended: boolean }
+app.post("/api/admin/users/:id/suspend", adminUsersLimit, verifyCsrfToken, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { id } = req.params;
+    const suspend = req.body?.suspended !== false; // default to suspending
+
+    // Prevent self-suspension
+    if (id === req.session.userId) {
+      return res.status(400).json({ ok: false, error: "You cannot suspend your own account." });
+    }
+
+    const { rows: userRows } = await pool.query(
+      "SELECT id, username, email FROM users WHERE id = $1",
+      [id]
+    );
+    if (!userRows.length) return res.status(404).json({ ok: false, error: "User not found" });
+    const user = userRows[0];
+
+    await pool.query(
+      `UPDATE users
+          SET suspended    = $1,
+              suspended_at = CASE WHEN $1 THEN NOW() ELSE NULL END,
+              suspended_by = CASE WHEN $1 THEN $2::uuid ELSE NULL END
+        WHERE id = $3`,
+      [suspend, req.session.userId, id]
+    );
+
+    // If suspending, invalidate existing sessions for that user
+    if (suspend) {
+      await pool.query(
+        `DELETE FROM sessions WHERE sess->>'userId' = $1`,
+        [id]
+      );
+    }
+
+    const action = suspend ? "admin.user-suspended" : "admin.user-unsuspended";
+    console.info(`[admin] ${action}: admin ${req.session.userId} ${suspend ? "suspended" : "unsuspended"} user ${id} (${user.email})`);
+    pool.query(
+      `INSERT INTO audit_log (actor_id, action, target, details) VALUES ($1, $2, $3, $4::jsonb)`,
+      [req.session.userId, action, user.email,
+       JSON.stringify({ userId: id, username: user.username, suspended: suspend })]
+    ).catch((e) => console.error(`[audit] ${action} insert failed:`, e));
+
+    res.json({ ok: true, suspended: suspend, message: suspend ? `${user.username} has been suspended.` : `${user.username} has been unsuspended.` });
+  } catch (e) {
+    console.error("[POST /api/admin/users/:id/suspend]", e);
+    res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
+
+// DELETE /api/admin/users/:id — root admin: delete a user account
+// Preserves audit log entries (actor_id SET NULL on FK). Removes pending_registrations
+// for the same email so the address can be re-used for a new registration.
+app.delete("/api/admin/users/:id", adminUsersLimit, verifyCsrfToken, async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const { id } = req.params;
+
+    // Prevent self-deletion
+    if (id === req.session.userId) {
+      return res.status(400).json({ ok: false, error: "You cannot delete your own account." });
+    }
+
+    const { rows: userRows } = await pool.query(
+      "SELECT id, username, email FROM users WHERE id = $1",
+      [id]
+    );
+    if (!userRows.length) return res.status(404).json({ ok: false, error: "User not found" });
+    const user = userRows[0];
+
+    // Log before delete (so actor context is preserved)
+    await pool.query(
+      `INSERT INTO audit_log (actor_id, action, target, details) VALUES ($1, $2, $3, $4::jsonb)`,
+      [req.session.userId, "admin.user-deleted", user.email,
+       JSON.stringify({ userId: id, username: user.username })]
+    );
+
+    // Invalidate the user's sessions
+    await pool.query(`DELETE FROM sessions WHERE sess->>'userId' = $1`, [id]);
+
+    // Delete the user (cascades user_roles, pending_character_applications, etc.)
+    await pool.query("DELETE FROM users WHERE id = $1", [id]);
+
+    // Remove pending_registrations for this email so the address is free to re-register
+    await pool.query("DELETE FROM pending_registrations WHERE email = $1", [user.email]);
+
+    console.info(`[admin] user-deleted: admin ${req.session.userId} deleted user ${id} (${user.email})`);
+    res.json({ ok: true, message: `User ${user.username} has been deleted.` });
+  } catch (e) {
+    console.error("[DELETE /api/admin/users/:id]", e);
+    res.status(500).json({ ok: false, error: "Server error" });
   }
 });
 
