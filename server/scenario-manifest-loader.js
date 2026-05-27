@@ -85,25 +85,6 @@ export function loadScenarioManifest(key) {
     throw err;
   }
 
-  /**
-   * Resolve whether a scenario is safe to initialize in admin seeding flows.
-   *
-   * Manifest shape:
-   *   initialization.ready         (boolean, defaults to true)
-   *   initialization.blockedReason (string, optional when ready=false)
-   *
-   * @param {string} key - Scenario key, e.g. "1997".
-   * @returns {{ ready: boolean, blockedReason: string|null }}
-   */
-  export function getScenarioInitializationStatus(key) {
-    const manifest = loadScenarioManifest(key);
-    const ready = manifest?.initialization?.ready !== false;
-    const blockedReason = ready
-      ? null
-      : String(manifest?.initialization?.blockedReason || "Scenario is not initialization-ready yet.");
-    return { ready, blockedReason };
-  }
-
   let manifest;
   try {
     manifest = JSON.parse(raw);
@@ -118,6 +99,25 @@ export function loadScenarioManifest(key) {
 
   _cache.set(key, manifest);
   return manifest;
+}
+
+/**
+ * Resolve whether a scenario is safe to initialize in admin seeding flows.
+ *
+ * Manifest shape:
+ *   initialization.ready         (boolean, defaults to true)
+ *   initialization.blockedReason (string, optional when ready=false)
+ *
+ * @param {string} key - Scenario key, e.g. "1997".
+ * @returns {{ ready: boolean, blockedReason: string|null }}
+ */
+export function getScenarioInitializationStatus(key) {
+  const manifest = loadScenarioManifest(key);
+  const ready = manifest?.initialization?.ready !== false;
+  const blockedReason = ready
+    ? null
+    : String(manifest?.initialization?.blockedReason || "Scenario is not initialization-ready yet.");
+  return { ready, blockedReason };
 }
 
 /**
