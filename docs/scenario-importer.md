@@ -60,6 +60,8 @@ One row per party.  Used to cross-validate that the derived seat count
 
 All other columns are ignored.
 
+All other columns are ignored.
+
 ```
 seat_breakdown,Conservative,,,331,,,,,,
 seat_breakdown,Labour,,,232,,,,,,
@@ -174,6 +176,8 @@ Examples:
 | `Hackney North and Stoke Newington` | `hackney-north-and-stoke-newington` |
 | `St Helens North` | `st-helens-north` |
 | `Ynys Môn` | `ynys-m-n` |
+
+> **Note:** Non-ASCII characters (e.g. accented vowels) are not transliterated — they are treated as non-alphanumeric and collapsed into the `-` separator.  In practice, British constituency names are almost entirely ASCII; the edge cases only arise in a handful of Welsh constituencies (`Ynys Môn` → `ynys-m-n`, `Aberconwy` → `aberconwy`).
 
 ---
 
