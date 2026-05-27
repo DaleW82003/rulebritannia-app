@@ -18,7 +18,7 @@ This document is the definitive pre-launch gate for opening alpha testing with r
 | **Backend host** | Render web service (or equivalent Node.js host with persistent process) |
 | **Frontend host** | Cloudflare Pages (static site) |
 | **DNS / Proxy** | Cloudflare Workers (`worker/index.js`) for bare-domain routing; Cloudflare Pages Function (`functions/api/[[path]].js`) for `www` routing |
-| **Email** | SendGrid account with a verified sender address |
+| **Email** | Resend account with a verified sender address |
 | **Anti-bot** | Cloudflare Turnstile (recommended for registration) |
 | **Forum** | Discourse (Communiteq or self-hosted) — optional but recommended for alpha comms |
 
@@ -28,7 +28,7 @@ This document is the definitive pre-launch gate for opening alpha testing with r
 - [ ] `NODE_ENV=production` is set on the server (Render: Environment tab)
 - [ ] `SESSION_SECRET` is set to a long random string (≥ 32 chars); **not** the default placeholder
 - [ ] `DATABASE_URL` points to the correct Neon/Postgres instance
-- [ ] `SENDGRID_API_KEY` is set; email delivery is working (test with a registration flow)
+- [ ] `RESEND_API_KEY` is set; email delivery is working (test with a registration flow)
 - [ ] `TURNSTILE_ENABLED=true`, `TURNSTILE_SITE_KEY`, and `TURNSTILE_SECRET_KEY` are set (if using Turnstile)
 - [ ] `ENABLE_DEV_SEED` is **NOT set** (or explicitly `false`) — production must never have this enabled
 - [ ] Static site is deployed on Cloudflare Pages and routes correctly to the backend
@@ -45,8 +45,8 @@ Set all of the following in the Render (or equivalent) **Environment** tab befor
 | `DATABASE_URL` | **Required** | — | Postgres connection string (`sslmode=require` for Neon) |
 | `SESSION_SECRET` | **Required** | — | Long random string; server exits with `FATAL` if this is the placeholder value and `NODE_ENV=production` |
 | `NODE_ENV` | **Required** | — | Must be `production` for production guards to activate |
-| `SENDGRID_API_KEY` | Required for email | — | Email verification and admin notifications |
-| `SENDGRID_FROM` | Optional | `support@rulebritannia.org` | Sender address for outgoing mail |
+| `RESEND_API_KEY` | Required for email | — | Email verification and admin notifications |
+| `EMAIL_FROM` | Optional | `Rule Britannia <support@rulebritannia.org>` | Sender address for outgoing mail |
 | `APP_BASE_URL` | Optional | `https://www.rulebritannia.org` | Base URL in email verification links (no trailing slash) |
 | `DISCOURSE_SSO_ENABLED` | Optional | disabled | Set to `"true"` to activate DiscourseConnect SSO endpoints |
 | `DISCOURSE_ENCRYPTION_KEY` | Optional | derived from `SESSION_SECRET` | 64-char hex AES-256 key for encrypting Discourse credentials stored in `app_config` |
@@ -71,7 +71,7 @@ Set all of the following in the Render (or equivalent) **Environment** tab befor
 | Cookie security | `sameSite=lax`, `secure=false`, no domain | `sameSite=none`, `secure=true`, `domain=.rulebritannia.org` |
 | Database | Local Postgres or dev Neon branch | Production Neon branch |
 | Turnstile | Disabled | Enabled (recommended) |
-| Email | Optional / SendGrid test mode | Live SendGrid — verify sender before launch |
+| Email | Optional / Resend test mode | Live Resend — verify sender before launch |
 | Discourse SSO | Not required | Enable when forum is ready |
 | `isDevSeedAllowed()` | Returns `true` | Returns `false` (unless `ENABLE_DEV_SEED=true`, which must not occur) |
 
@@ -302,7 +302,7 @@ Run these in a staging or pre-production environment before inviting the first a
 1. Navigate to `/register.html` in an incognito window.
 2. Complete registration (email, password, character name, party selection).
 3. If Turnstile is enabled, complete the challenge.
-4. Verify the email confirmation email is received (check SendGrid activity).
+4. Verify the email confirmation email is received (check Resend activity).
 5. Click the verification link.
 6. In the admin account: Admin Panel → Pending Registrations → approve the new user.
 7. Log in as the new user. Confirm access to the main simulation pages.
@@ -419,7 +419,7 @@ These are not code blockers but should be handled before inviting alpha users.
 | Amendment author name-fallback still present for legacy bills with `NULL author_character_id` | Low | Run `POST /api/admin/repair/backfill-author-ids` before launch. For a fresh DB, this is a non-issue. |
 | Large monolithic `server/index.js` (~21K lines) increases regression risk under fast feature expansion | Low | Post-alpha: continue the modular extraction work documented in `docs/extraction-summary.md`. |
 | Discourse group sync is a manual action — if run prematurely it may create unexpected group memberships | Low | Keep "Sync Groups Now" **off** until Discourse group mappings are confirmed. Brief all admins. |
-| SendGrid sender domain not verified — emails land in spam or are rejected | Medium | Verify the sender domain in SendGrid Dashboard before launch. Send a test verification email. |
+| Resend sender domain not verified — emails land in spam or are rejected | Medium | Verify the sender domain in Resend Dashboard before launch. Send a test verification email. |
 | `POST /api/press` is restricted to `admin, mod, speaker` — matrix says `[authenticated]` | Low (documented) | RBAC matrix drift is documented and intentional (stricter than matrix). No action required. |
 
 ---

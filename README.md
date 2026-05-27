@@ -84,7 +84,7 @@ The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mo
 │  Express server  (server/index.js, Node ≥ 18)              │
 │  ~24 700 lines, ~422 REST endpoints                        │
 │  Auth / CSRF / Sessions / Rate-limiting / RBAC             │
-│  Email (SendGrid)  ·  Discourse API  ·  Turnstile          │
+│  Email (Resend)    ·  Discourse API  ·  Turnstile          │
 └──────────────────┬─────────────────────────────────────────┘
                    │  pg (node-postgres)
                    ▼
@@ -210,7 +210,7 @@ rulebritannia-app/
 | **Database** | PostgreSQL (Neon recommended); schema auto-created via `ensureSchema()` |
 | **Sessions** | `express-session` + `connect-pg-simple` (PostgreSQL session store) |
 | **Password hashing** | `bcryptjs` |
-| **Email** | SendGrid (`@sendgrid/mail`) |
+| **Email** | Resend (`resend`) |
 | **Anti-bot** | Cloudflare Turnstile |
 | **Forum integration** | Discourse (DiscourseConnect SSO + REST API) |
 | **CDN / Proxy** | Cloudflare Workers + Cloudflare Pages Functions |
@@ -315,8 +315,8 @@ Copy `server/.env.example` to `server/.env` and fill in the values below.
 | `NODE_ENV` | ✗ | _(unset)_ | Set to `production` on Render/hosting. Enables startup validation, production CORS rules, and `isDevSeedAllowed()` guards. If unset, behaves permissively (dev-seed endpoints are accessible). |
 | `DISCOURSE_SSO_ENABLED` | ✗ | `false` | Set to `true` to activate DiscourseConnect SSO endpoints (`/api/discourse/sso` and callback). |
 | `DISCOURSE_ENCRYPTION_KEY` | ✗ | derived from `SESSION_SECRET` | 64-char hex AES-256 key for encrypting stored Discourse credentials in the DB. Only needed if rotating the key independently of the session secret. |
-| `SENDGRID_API_KEY` | ✗ | — | SendGrid API key for email verification messages. **Never commit this.** |
-| `SENDGRID_FROM` | ✗ | `support@rulebritannia.org` | Sender address for outgoing emails. |
+| `RESEND_API_KEY` | ✗ | — | Resend API key for email verification messages. **Never commit this.** |
+| `EMAIL_FROM` | ✗ | `Rule Britannia <support@rulebritannia.org>` | Sender address for outgoing emails. |
 | `APP_BASE_URL` | ✗ | `https://www.rulebritannia.org` | Base URL used to build links in emails (no trailing slash). |
 | `TURNSTILE_ENABLED` | ✗ | `false` | Set to `true` to activate the Cloudflare Turnstile anti-bot widget on the registration form. |
 | `TURNSTILE_SITE_KEY` | ✗ | — | Cloudflare Turnstile site key (public; safe to expose to the frontend via `/api/config`). |

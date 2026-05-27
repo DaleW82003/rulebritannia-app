@@ -72,7 +72,7 @@ Rule Britannia is a browser-based UK parliamentary political simulation set in 1
 
 External services:
   Discourse forum — DiscourseConnect SSO + REST API (topics, posts, groups)
-  SendGrid        — Transactional email (email verification)
+  Resend          — Transactional email (email verification)
   Cloudflare Turnstile — Anti-bot widget on registration
 ```
 
@@ -761,7 +761,7 @@ The Express server itself handles background-style tasks inline:
 ### Registration Flow
 
 1. User submits registration form at `POST /api/register` (rate-limited). Optional Cloudflare Turnstile token is verified server-side if `TURNSTILE_ENABLED=true`.
-2. Server sends a verification email via SendGrid (`POST /api/auth/verify-email` confirms the token).
+2. Server sends a verification email via Resend (`POST /api/auth/verify-email` confirms the token).
 3. Account sits in `pending_registrations` until an admin approves it (`POST /api/admin/registrations/:id/approve`) or rejects it (`POST /api/admin/registrations/:id/reject`).
 4. On approval, the server calls `computeApprovalRolesToAdd()` to assign initial roles (`party:*` and `office:backbencher`).
 
@@ -1094,7 +1094,7 @@ Integration tests are not run in CI (require a live database). Run them manually
    - `DATABASE_URL` — your Postgres connection string
    - `SESSION_SECRET` — a long random string (min 32 chars in production)
    - `NODE_ENV=development` (or omit for permissive mode)
-   - Optional: `SENDGRID_API_KEY`, `TURNSTILE_ENABLED`, Discourse env vars
+   - Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `TURNSTILE_ENABLED`, Discourse env vars
 
 ### Starting the Server
 
@@ -1358,7 +1358,7 @@ Based on the current codebase, the following areas are natural candidates for ex
 - **Pagination UI in frontend.** The `/api/admin/characters/applications`, `/api/civil-service/briefings`, and `/api/civil-service/cases` endpoints support `?limit`/`?offset` pagination, but the frontend clients do not yet pass these parameters.
 - **Comprehensive RBAC E2E test suite.** A full authenticated API test matrix covering all role tiers (backbencher, minister, party leader, chief whip, speaker, mod, admin) would provide ongoing confidence in permission enforcement.
 - **Split `discourse.js` / `discourseClient.js`.** The two coexisting client modules should be consolidated into a single well-tested module to reduce confusion and maintenance overhead.
-- **Support ticket email notifications.** When a staff member posts a reply to a player's ticket, an email notification should be sent via SendGrid to inform the player. Similarly, players could optionally receive a notification when a ticket is closed or reopened.
+- **Support ticket email notifications.** When a staff member posts a reply to a player's ticket, an email notification should be sent via Resend to inform the player. Similarly, players could optionally receive a notification when a ticket is closed or reopened.
 - **Real-time support updates.** The current 25-second polling loop in `js/pages/support.js` is a reasonable alpha approach, but a WebSocket or SSE channel would allow instant delivery of new messages without polling overhead.
 - **Support ticket pagination in staff view.** The staff list endpoint (`GET /api/support/staff/tickets`) already supports `?limit` and `?offset`, but the frontend does not yet pass pagination parameters — the staff view loads up to the default page size only.
 

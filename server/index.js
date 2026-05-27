@@ -8,7 +8,7 @@ import { createCipheriv, createDecipheriv, randomBytes, randomUUID, scryptSync, 
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import sgMail from "@sendgrid/mail";
+import { Resend } from "resend";
 import { pool } from "./db.js";
 import { createTopic, createPost, createTopicWithRetry, closeTopic as closeDiscTopic, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse } from "./discourse.js";
 import {
@@ -96,23 +96,20 @@ async function verifyTurnstileToken(token, remoteip) {
   }
 }
 
-// ── Email (SendGrid) config ───────────────────────────────────────────────────
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
-const SENDGRID_FROM    = process.env.SENDGRID_FROM    || "support@rulebritannia.org";
-const APP_BASE_URL     = process.env.APP_BASE_URL     || "https://www.rulebritannia.org";
-
-if (SENDGRID_API_KEY) {
-  sgMail.setApiKey(SENDGRID_API_KEY);
-}
+// ── Email (Resend) config ─────────────────────────────────────────────────────
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const EMAIL_FROM     = process.env.EMAIL_FROM     || "Rule Britannia <support@rulebritannia.org>";
+const APP_BASE_URL   = process.env.APP_BASE_URL   || "https://www.rulebritannia.org";
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
 async function sendVerificationEmail(email, token) {
-  if (!SENDGRID_API_KEY) {
-    console.warn("[email] SENDGRID_API_KEY not configured; skipping verification email to", email);
+  if (!resend) {
+    console.warn("[email] RESEND_API_KEY not configured; skipping verification email to", email);
     return;
   }
   const verifyUrl = `${APP_BASE_URL}/verify-email.html?token=${encodeURIComponent(token)}`;
-  await sgMail.send({
-    from:    { name: "Rule Britannia", email: SENDGRID_FROM },
+  await resend.emails.send({
+    from:    EMAIL_FROM,
     to:      email,
     subject: "Verify your Rule Britannia email address",
     text: [

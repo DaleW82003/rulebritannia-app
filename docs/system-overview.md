@@ -356,9 +356,9 @@ Clock ticks (`POST /api/clock/tick`) are admin/staff actions. On each tick the s
 | **Group sync** | `enqueueDiscourseGroupSync()` reconciles application roles → Discourse groups on role changes |
 | **Credentials** | Discourse URL, API key, and SSO secret stored as encrypted env vars; exposed via per-request decryption |
 
-### Email (SendGrid)
+### Email (Resend)
 
-Registration verification and approval notification emails are sent via SendGrid when `SENDGRID_API_KEY` is set. If not set, email steps are skipped silently (dev mode).
+Registration verification and approval notification emails are sent via Resend when `RESEND_API_KEY` is set. If not set, email steps are skipped silently (dev mode).
 
 ### Cloudflare Turnstile
 
@@ -407,7 +407,7 @@ Bot-protection on the registration form when `TURNSTILE_ENABLED=true`. Verificat
 | **Clock tick trigger** | The simulation clock is advanced only by explicit `POST /api/clock/tick` calls. This is a **manual admin action**; there is no automated cron scheduler. See `docs/dev-guide.md §14`. |
 | **Recompute timing** | `recomputeCharacterPoliticalState()` is called non-blocking (fire-and-forget). Political state values may briefly show stale data immediately after a triggering action. |
 | **Faction freeze timing** | `runFactionFreeze()` is called on demand from Control Panel → Trigger Freeze (admin/mod). There is no automated Sunday scheduler yet. `lastFreezeAt` is visible to all viewers so players know when faction stats were last published. |
-| **Email delivery in dev** | SendGrid integration is skipped when `SENDGRID_API_KEY` is absent. Email verification is not enforced as a hard gate in development. |
+| **Email delivery in dev** | Resend integration is skipped when `RESEND_API_KEY` is absent. Email verification is not enforced as a hard gate in development. |
 | **Discourse credential encryption** | Discourse credentials are encrypted with AES-256-GCM. The key is derived from `SESSION_SECRET` via `scryptSync` (salt `"rb-discourse-v1"`) unless `DISCOURSE_ENCRYPTION_KEY` is provided as a 64-char hex string. |
 | **`data/demo.json` freshness** | The demo snapshot is a static file. It must be manually regenerated using the export-snapshot endpoint and committed when the live world changes significantly. |
 | **Economy modelling** | Economic indicators (GDP, inflation, unemployment) are admin-editable fields. A dynamic model linking policy choices to economic outcomes is not yet implemented. |
