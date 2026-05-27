@@ -19984,8 +19984,6 @@ app.post("/api/elections/:id/finalize", electionsApiWriteLimit, async (req, res)
 
 const scenarioElectionSeedHandler = async (req, res) => {
   try {
-    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
-    if (!requireAdminOrMod(req, res)) return;
     const scenarioKey = getRequestedScenarioKey(req);
     await initializeScenarioElection(scenarioKey);
     const { rows } = await pool.query(
@@ -20001,8 +19999,16 @@ const scenarioElectionSeedHandler = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
-app.post("/api/admin/elections/seed-scenario", electionsApiWriteLimit, scenarioElectionSeedHandler);
-app.post("/api/admin/elections/seed-1997", electionsApiWriteLimit, scenarioElectionSeedHandler);
+app.post("/api/admin/elections/seed-scenario", electionsApiWriteLimit, async (req, res) => {
+  if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
+  if (!requireAdminOrMod(req, res)) return;
+  return scenarioElectionSeedHandler(req, res);
+});
+app.post("/api/admin/elections/seed-1997", electionsApiWriteLimit, async (req, res) => {
+  if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
+  if (!requireAdminOrMod(req, res)) return;
+  return scenarioElectionSeedHandler(req, res);
+});
 
 // ── Election Bodies (results dashboard) ──────────────────────────────────────
 // GET  /api/elections/bodies/current   — current result per body (public: read)
@@ -25573,7 +25579,6 @@ app.post("/api/staff/internal-tickets/:id/messages", verifyCsrfToken, crudWriteL
 // POST /api/admin/seed-1997-factions       (legacy alias)
 const seedScenarioFactionsHandler = async (req, res) => {
   try {
-    if (!requireAdminOrMod(req, res)) return;
     const scenarioKey = getRequestedScenarioKey(req);
     const results = await seedDefaultScenarioFactions(scenarioKey, req.session.userId || "");
     await ensureUnalignedFactionsForPlayableParties();
@@ -25584,8 +25589,14 @@ const seedScenarioFactionsHandler = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
-app.post("/api/admin/seed-scenario-factions", verifyCsrfToken, crudWriteLimit, seedScenarioFactionsHandler);
-app.post("/api/admin/seed-1997-factions", verifyCsrfToken, crudWriteLimit, seedScenarioFactionsHandler);
+app.post("/api/admin/seed-scenario-factions", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  if (!requireAdminOrMod(req, res)) return;
+  return seedScenarioFactionsHandler(req, res);
+});
+app.post("/api/admin/seed-1997-factions", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+  if (!requireAdminOrMod(req, res)) return;
+  return seedScenarioFactionsHandler(req, res);
+});
 
 // ── Identity / authority legacy repair endpoints ──────────────────────────────
 
