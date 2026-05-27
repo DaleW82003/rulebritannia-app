@@ -21,8 +21,8 @@
  * @module scenario-manifest-loader
  */
 
-import { readFileSync, readdirSync } from "fs";
-import { resolve, dirname } from "path";
+import { accessSync, readFileSync, readdirSync } from "fs";
+import { resolve, dirname, isAbsolute, sep } from "path";
 import { fileURLToPath } from "url";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +41,11 @@ const _manifestCache = new Map();
 const _worldSeedCache = new Map();
 /** In-process constituencies cache: scenarioKey → parsed seed object. */
 const _constituenciesCache = new Map();
+const SCENARIO_STATUSES = new Set(["default", "beta", "legacy"]);
+const ALLOWED_INHERITANCE_ASSETS = new Set(["worldSeed", "constituencies"]);
+const ALLOWED_BODY_TYPES = new Set(["standard", "mayors"]);
+const ALLOWED_NATIONS = new Set(["England", "Scotland", "Wales", "Northern Ireland"]);
+const OPTIONAL_PARTY_REFERENCES = new Set(["Others"]);
 
 /**
  * The key of the scenario that is active when no explicit scenario is selected.
@@ -76,6 +81,541 @@ function buildManifestError(key, message, code, cause) {
   err.code = code;
   err.scenarioKey = key;
   return err;
+}
+
+function assertScenario(condition, key, message, code) {
+  if (!condition) {
+    throw buildManifestError(key, message, code);
+  }
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isPositiveInteger(value) {
+  return Number.isInteger(value) && value > 0;
+}
+
+function isIntegerInRange(value, min, max) {
+  return Number.isInteger(value) && value >= min && value <= max;
+}
+
+function validateRepoRelativePath(key, fieldName, rawValue) {
+  const relativePath = String(rawValue || "").trim();
+  assertScenario(
+    relativePath,
+    key,
+    `Scenario manifest for key "${key}" is missing required field "${fieldName}".`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
+  assertScenario(
+    !isAbsolute(relativePath),
+    key,
+    `Scenario manifest for key "${key}" field "${fieldName}" must be repo-root-relative, not absolute.`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
+  const absolutePath = resolveManifestPath(relativePath);
+  assertScenario(
+    absolutePath === REPO_ROOT || absolutePath.startsWith(`${REPO_ROOT}${sep}`),
+    key,
+    `Scenario manifest for key "${key}" field "${fieldName}" must stay within the repository root.`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
+  try {
+    accessSync(absolutePath);
+  } catch (cause) {
+    throw buildManifestError(
+      key,
+      `Scenario manifest for key "${key}" references missing file "${relativePath}" in field "${fieldName}".`,
+      "SCENARIO_MANIFEST_INVALID_DATA",
+      cause
+    );
+  }
+}
+
+function validateMonthYear(key, fieldName, value, code = "SCENARIO_MANIFEST_INVALID_DATA") {
+  assertScenario(
+    isPlainObject(value),
+    key,
+    `Scenario manifest for key "${key}" field "${fieldName}" must be an object with month/year.`,
+    code
+  );
+  assertScenario(
+    isIntegerInRange(value.month, 1, 12),
+    key,
+    `Scenario manifest for key "${key}" field "${fieldName}.month" must be an integer from 1 to 12.`,
+    code
+  );
+  assertScenario(
+    isPositiveInteger(value.year),
+    key,
+    `Scenario manifest for key "${key}" field "${fieldName}.year" must be a positive integer.`,
+    code
+  );
+}
+
+function validateUniqueRecords(key, values, getId, messagePrefix, code) {
+  const seen = new Set();
+  for (const value of values) {
+    const id = String(getId(value) || "").trim();
+    assertScenario(id, key, `${messagePrefix} is missing its required identifier.`, code);
+    assertScenario(!seen.has(id), key, `${messagePrefix} identifier "${id}" must be unique.`, code);
+    seen.add(id);
+  }
+}
+
+function validatePartyReference(partySlugs, key, value, message, code) {
+  const party = String(value || "").trim();
+  assertScenario(party, key, message, code);
+  assertScenario(
+    partySlugs.has(party) || OPTIONAL_PARTY_REFERENCES.has(party),
+    key,
+    `${message} Received unknown party "${party}".`,
+    code
+  );
+}
+
+export function validateScenarioManifest(manifest, scenarioKey) {
+  const key = String(scenarioKey || "").trim() || String(manifest?.key || "").trim() || "(unknown)";
+  assertScenario(
+    isPlainObject(manifest),
+    key,
+    `Scenario manifest for key "${key}" must contain a JSON object at the top level.`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
+  assertScenario(
+    String(manifest?.key || "").trim() === key,
+    key,
+    `Scenario manifest for key "${key}" must declare a matching "key" field.`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
+  assertScenario(
+    isNonEmptyString(manifest?.title),
+    key,
+    `Scenario manifest for key "${key}" is missing required field "title".`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
+  assertScenario(
+    isNonEmptyString(manifest?.description),
+    key,
+    `Scenario manifest for key "${key}" is missing required field "description".`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
+  validateMonthYear(key, "startDate", manifest?.startDate);
+  validateMonthYear(key, "clockDefault", manifest?.clockDefault);
+  assertScenario(
+    SCENARIO_STATUSES.has(manifest?.status),
+    key,
+    `Scenario manifest for key "${key}" field "status" must be one of: ${Array.from(SCENARIO_STATUSES).join(", ")}.`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
+  assertScenario(
+    isPositiveInteger(manifest?.expectedConstituencyCount),
+    key,
+    `Scenario manifest for key "${key}" field "expectedConstituencyCount" must be a positive integer.`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
+  assertScenario(
+    Array.isArray(manifest?.playableParties) && manifest.playableParties.length > 0,
+    key,
+    `Scenario manifest for key "${key}" field "playableParties" must be a non-empty array.`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
+  validateUniqueRecords(
+    key,
+    manifest.playableParties.map((party) => ({ id: party })),
+    (row) => row.id,
+    `Scenario manifest for key "${key}" playableParties entry`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
+  for (const party of manifest.playableParties) {
+    assertScenario(
+      isNonEmptyString(party),
+      key,
+      `Scenario manifest for key "${key}" contains an empty playable party entry.`,
+      "SCENARIO_MANIFEST_INVALID_DATA"
+    );
+  }
+  validateRepoRelativePath(key, "electionCsvFile", manifest?.electionCsvFile);
+  validateRepoRelativePath(key, "worldSeedFile", manifest?.worldSeedFile);
+  validateRepoRelativePath(key, "constituenciesFile", manifest?.constituenciesFile);
+
+  if (manifest?.initialization !== undefined) {
+    assertScenario(
+      isPlainObject(manifest.initialization),
+      key,
+      `Scenario manifest for key "${key}" field "initialization" must be an object.`,
+      "SCENARIO_MANIFEST_INVALID_DATA"
+    );
+    if (manifest.initialization.ready !== undefined) {
+      assertScenario(
+        typeof manifest.initialization.ready === "boolean",
+        key,
+        `Scenario manifest for key "${key}" field "initialization.ready" must be boolean when present.`,
+        "SCENARIO_MANIFEST_INVALID_DATA"
+      );
+    }
+    if (manifest.initialization.blockedReason !== undefined) {
+      assertScenario(
+        isNonEmptyString(manifest.initialization.blockedReason),
+        key,
+        `Scenario manifest for key "${key}" field "initialization.blockedReason" must be a non-empty string when present.`,
+        "SCENARIO_MANIFEST_INVALID_DATA"
+      );
+    }
+  }
+
+  if (manifest?.parentScenario) {
+    assertScenario(
+      isNonEmptyString(manifest.parentScenario),
+      key,
+      `Scenario manifest for key "${key}" field "parentScenario" must be a non-empty string.`,
+      "SCENARIO_MANIFEST_INVALID_DATA"
+    );
+  }
+
+  if (manifest?.inheritance && Object.keys(manifest.inheritance).length > 0) {
+    assertScenario(
+      isNonEmptyString(manifest.parentScenario),
+      key,
+      `Scenario manifest for key "${key}" cannot declare inheritance modes without a parent scenario.`,
+      "SCENARIO_MANIFEST_INVALID_INHERITANCE"
+    );
+  }
+
+  return manifest;
+}
+
+export function validateScenarioWorldSeed(seed, manifest) {
+  const key = String(manifest?.key || "(unknown)");
+  const code = "SCENARIO_WORLD_SEED_INVALID_DATA";
+  assertScenario(
+    isPlainObject(seed),
+    key,
+    `Scenario world seed for key "${key}" must contain a JSON object at the top level.`,
+    code
+  );
+  assertScenario(
+    Array.isArray(seed?.canonicalParties) && seed.canonicalParties.length > 0,
+    key,
+    `Scenario world seed for key "${key}" must define a non-empty canonicalParties array.`,
+    code
+  );
+  validateUniqueRecords(
+    key,
+    seed.canonicalParties,
+    (row) => row?.slug,
+    `Scenario world seed for key "${key}" canonical party`,
+    code
+  );
+  const partySlugs = new Set();
+  for (const party of seed.canonicalParties) {
+    assertScenario(
+      isPlainObject(party),
+      key,
+      `Scenario world seed for key "${key}" canonicalParties entries must be objects.`,
+      code
+    );
+    assertScenario(
+      isNonEmptyString(party?.name),
+      key,
+      `Scenario world seed for key "${key}" canonical party "${party?.slug || "(unknown)"}" must define "name".`,
+      code
+    );
+    partySlugs.add(String(party.slug).trim());
+  }
+
+  for (const party of manifest?.playableParties || []) {
+    validatePartyReference(
+      partySlugs,
+      key,
+      party,
+      `Scenario manifest for key "${key}" playableParties entry must reference a canonical party.`,
+      code
+    );
+  }
+
+  for (const partyKey of Object.keys(seed?.partyStructures || {})) {
+    validatePartyReference(
+      partySlugs,
+      key,
+      partyKey,
+      `Scenario world seed for key "${key}" partyStructures key must reference a canonical party.`,
+      code
+    );
+  }
+  for (const partyKey of Object.keys(seed?.partyTreasuryCash || {})) {
+    validatePartyReference(
+      partySlugs,
+      key,
+      partyKey,
+      `Scenario world seed for key "${key}" partyTreasuryCash key must reference a canonical party.`,
+      code
+    );
+  }
+  for (const partyKey of Object.keys(seed?.economy?.hqBaselineUpkeep || {})) {
+    validatePartyReference(
+      partySlugs,
+      key,
+      partyKey,
+      `Scenario world seed for key "${key}" economy.hqBaselineUpkeep key must reference a canonical party.`,
+      code
+    );
+  }
+
+  if (seed?.factions !== undefined) {
+    assertScenario(
+      Array.isArray(seed.factions),
+      key,
+      `Scenario world seed for key "${key}" field "factions" must be an array when present.`,
+      code
+    );
+    validateUniqueRecords(key, seed.factions, (row) => row?.slug, `Scenario world seed for key "${key}" faction`, code);
+    for (const faction of seed.factions) {
+      validatePartyReference(
+        partySlugs,
+        key,
+        faction?.party_slug,
+        `Scenario world seed for key "${key}" faction "${faction?.slug || "(unknown)"}" must define a valid party_slug.`,
+        code
+      );
+      assertScenario(
+        isNonEmptyString(faction?.name),
+        key,
+        `Scenario world seed for key "${key}" faction "${faction?.slug || "(unknown)"}" must define "name".`,
+        code
+      );
+    }
+  }
+
+  const officeGroups = [
+    ["officeSpecs.cabinet", seed?.officeSpecs?.cabinet],
+    ["officeSpecs.shadow", seed?.officeSpecs?.shadow],
+  ];
+  for (const [label, rows] of officeGroups) {
+    assertScenario(
+      Array.isArray(rows) && rows.length > 0,
+      key,
+      `Scenario world seed for key "${key}" must define a non-empty ${label} array.`,
+      code
+    );
+    validateUniqueRecords(key, rows, (row) => row?.specId, `Scenario world seed for key "${key}" ${label} entry`, code);
+    for (const row of rows) {
+      assertScenario(
+        isNonEmptyString(row?.title),
+        key,
+        `Scenario world seed for key "${key}" ${label} entry "${row?.specId || "(unknown)"}" must define "title".`,
+        code
+      );
+    }
+  }
+
+  assertScenario(
+    isPlainObject(seed?.salaryScale),
+    key,
+    `Scenario world seed for key "${key}" must define "salaryScale".`,
+    code
+  );
+  assertScenario(
+    isNonEmptyString(seed.salaryScale?.name),
+    key,
+    `Scenario world seed for key "${key}" salaryScale must define "name".`,
+    code
+  );
+  validateMonthYear(key, "salaryScale.effectiveFrom", seed.salaryScale?.effectiveFrom, code);
+  validateMonthYear(key, "salaryScale.legacyEffectiveFrom", seed.salaryScale?.legacyEffectiveFrom, code);
+  assertScenario(
+    isPlainObject(seed.salaryScale?.roles) && Object.keys(seed.salaryScale.roles).length > 0,
+    key,
+    `Scenario world seed for key "${key}" salaryScale.roles must be a non-empty object.`,
+    code
+  );
+
+  if (seed?.bodies !== undefined) {
+    assertScenario(
+      isPlainObject(seed.bodies),
+      key,
+      `Scenario world seed for key "${key}" field "bodies" must be an object when present.`,
+      code
+    );
+    for (const [bodyKey, body] of Object.entries(seed.bodies)) {
+      assertScenario(
+        isPlainObject(body),
+        key,
+        `Scenario world seed for key "${key}" body "${bodyKey}" must be an object.`,
+        code
+      );
+      assertScenario(
+        isNonEmptyString(body?.id),
+        key,
+        `Scenario world seed for key "${key}" body "${bodyKey}" must define "id".`,
+        code
+      );
+      assertScenario(
+        body.id === bodyKey,
+        key,
+        `Scenario world seed for key "${key}" body "${bodyKey}" must use a matching "id".`,
+        code
+      );
+      if (body.type !== undefined) {
+        assertScenario(
+          ALLOWED_BODY_TYPES.has(body.type),
+          key,
+          `Scenario world seed for key "${key}" body "${bodyKey}" has unsupported type "${body.type}".`,
+          code
+        );
+      }
+      if (body.partyBreakdown !== undefined) {
+        assertScenario(
+          Array.isArray(body.partyBreakdown),
+          key,
+          `Scenario world seed for key "${key}" body "${bodyKey}" field "partyBreakdown" must be an array when present.`,
+          code
+        );
+      }
+      for (const row of body.partyBreakdown || []) {
+        validatePartyReference(
+          partySlugs,
+          key,
+          row?.party,
+          `Scenario world seed for key "${key}" body "${bodyKey}" partyBreakdown entry must reference a canonical party.`,
+          code
+        );
+      }
+      if (body.mayors !== undefined) {
+        assertScenario(
+          Array.isArray(body.mayors),
+          key,
+          `Scenario world seed for key "${key}" body "${bodyKey}" field "mayors" must be an array when present.`,
+          code
+        );
+        validateUniqueRecords(
+          key,
+          body.mayors,
+          (row) => row?.id ?? row?.name,
+          `Scenario world seed for key "${key}" body "${bodyKey}" mayor`,
+          code
+        );
+      }
+    }
+  }
+
+  if (seed?.locals !== undefined) {
+    assertScenario(
+      Array.isArray(seed.locals?.countries),
+      key,
+      `Scenario world seed for key "${key}" locals.countries must be an array.`,
+      code
+    );
+    validateUniqueRecords(
+      key,
+      seed.locals.countries,
+      (row) => row?.country,
+      `Scenario world seed for key "${key}" locals country`,
+      code
+    );
+    for (const country of seed.locals.countries) {
+      assertScenario(
+        ALLOWED_NATIONS.has(country.country),
+        key,
+        `Scenario world seed for key "${key}" locals country "${country.country}" is unsupported.`,
+        code
+      );
+      if (country.partyBreakdown !== undefined) {
+        assertScenario(
+          Array.isArray(country.partyBreakdown),
+          key,
+          `Scenario world seed for key "${key}" locals country "${country.country}" field "partyBreakdown" must be an array when present.`,
+          code
+        );
+      }
+      for (const row of country.partyBreakdown || []) {
+        validatePartyReference(
+          partySlugs,
+          key,
+          row?.party,
+          `Scenario world seed for key "${key}" locals country "${country.country}" partyBreakdown entry must reference a canonical party.`,
+          code
+        );
+      }
+    }
+  }
+
+  return seed;
+}
+
+export function validateScenarioConstituenciesSeed(seed, manifest, worldSeed) {
+  const key = String(manifest?.key || "(unknown)");
+  const code = "SCENARIO_CONSTITUENCIES_INVALID_DATA";
+  assertScenario(
+    isPlainObject(seed),
+    key,
+    `Scenario constituencies seed for key "${key}" must contain a JSON object at the top level.`,
+    code
+  );
+  assertScenario(
+    Array.isArray(seed?.constituencies),
+    key,
+    `Scenario constituencies seed for key "${key}" must define a "constituencies" array.`,
+    code
+  );
+  const partySlugs = new Set((worldSeed?.canonicalParties || []).map((party) => String(party?.slug || "").trim()).filter(Boolean));
+  const seenIds = new Set();
+  for (const constituency of seed.constituencies) {
+    assertScenario(
+      isPlainObject(constituency),
+      key,
+      `Scenario constituencies seed for key "${key}" entries must be objects.`,
+      code
+    );
+    const id = String(constituency?.id || "").trim();
+    assertScenario(id, key, `Scenario constituencies seed for key "${key}" contains a constituency without "id".`, code);
+    assertScenario(
+      !seenIds.has(id),
+      key,
+      `Scenario constituencies seed for key "${key}" contains duplicate constituency id "${id}".`,
+      code
+    );
+    seenIds.add(id);
+    assertScenario(
+      isNonEmptyString(constituency?.name),
+      key,
+      `Scenario constituencies seed for key "${key}" constituency "${id}" is missing "name".`,
+      code
+    );
+    assertScenario(
+      ALLOWED_NATIONS.has(constituency?.nation),
+      key,
+      `Scenario constituencies seed for key "${key}" constituency "${id}" has unsupported nation "${constituency?.nation}".`,
+      code
+    );
+    assertScenario(
+      isNonEmptyString(constituency?.region),
+      key,
+      `Scenario constituencies seed for key "${key}" constituency "${id}" is missing "region".`,
+      code
+    );
+    validatePartyReference(
+      partySlugs,
+      key,
+      constituency?.party,
+      `Scenario constituencies seed for key "${key}" constituency "${id}" must reference a valid canonical party slug.`,
+      code
+    );
+  }
+  if (seed?.voteSummary && isPlainObject(seed.voteSummary)) {
+    for (const party of Object.keys(seed.voteSummary)) {
+      validatePartyReference(
+        partySlugs,
+        key,
+        party,
+        `Scenario constituencies seed for key "${key}" voteSummary key must reference a valid canonical party slug.`,
+        code
+      );
+    }
+  }
+  return seed;
 }
 
 function readJsonFile({ absolutePath, notFoundMessage, notFoundCode, invalidMessage, invalidCode, scenarioKey }) {
@@ -118,6 +658,13 @@ function normalizeInheritanceConfig(key, rawInheritance) {
   }
   const out = {};
   for (const [asset, mode] of Object.entries(rawInheritance)) {
+    if (!ALLOWED_INHERITANCE_ASSETS.has(asset)) {
+      throw buildManifestError(
+        key,
+        `Scenario manifest for key "${key}" has invalid inheritance key "${asset}". Supported keys: ${Array.from(ALLOWED_INHERITANCE_ASSETS).join(", ")}.`,
+        "SCENARIO_MANIFEST_INVALID_INHERITANCE"
+      );
+    }
     if (mode !== "merge" && mode !== "replace") {
       throw buildManifestError(
         key,
@@ -145,6 +692,12 @@ function getRawScenarioManifest(key) {
     invalidCode: "SCENARIO_MANIFEST_INVALID_JSON",
     scenarioKey: normalized,
   });
+  assertScenario(
+    isPlainObject(manifest),
+    normalized,
+    `Scenario manifest for key "${normalized}" must contain a JSON object at the top level.`,
+    "SCENARIO_MANIFEST_INVALID_DATA"
+  );
 
   _rawManifestCache.set(normalized, manifest);
   return manifest;
@@ -308,6 +861,7 @@ function loadScenarioManifestWithAncestors(key, ancestry) {
   manifest.key = String(rawManifest?.key || key).trim() || key;
   manifest.inheritance = normalizedInheritance;
   delete manifest.baseScenario;
+  validateScenarioManifest(manifest, key);
 
   _manifestCache.set(key, manifest);
   return manifest;
@@ -371,6 +925,7 @@ export function loadScenarioWorldSeed(key) {
   if (manifest?.parentScenario && ownWorldSeedPath && getInheritanceMode(manifest, "worldSeed") === "merge") {
     seed = mergeScenarioSeedData(loadScenarioWorldSeed(manifest.parentScenario), seed);
   }
+  validateScenarioWorldSeed(seed, manifest);
 
   _worldSeedCache.set(key, seed);
   return seed;
@@ -420,6 +975,7 @@ export function loadScenarioConstituenciesSeed(key) {
   ) {
     seed = mergeScenarioSeedData(loadScenarioConstituenciesSeed(manifest.parentScenario), seed);
   }
+  validateScenarioConstituenciesSeed(seed, manifest, loadScenarioWorldSeed(key));
 
   _constituenciesCache.set(key, seed);
   return seed;

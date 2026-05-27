@@ -6,6 +6,9 @@ import {
   loadScenarioWorldSeed,
   loadScenarioConstituenciesSeed,
   mergeScenarioSeedData,
+  validateScenarioManifest,
+  validateScenarioWorldSeed,
+  validateScenarioConstituenciesSeed,
 } from "./scenario-manifest-loader.js";
 
 test("2015-beta manifest declares 1997 as its parent scenario", () => {
@@ -71,4 +74,106 @@ test("mergeScenarioSeedData replaces arrays without explicit record-merge rules"
     { events: [{ id: "child-event", status: "queued" }] }
   );
   assert.deepEqual(merged.events, [{ id: "child-event", status: "queued" }]);
+});
+
+test("validateScenarioManifest rejects missing required metadata and unsupported inheritance keys", () => {
+  assert.throws(
+    () => validateScenarioManifest({
+      key: "bad-scenario",
+      description: "Missing title",
+      startDate: { month: 5, year: 2015 },
+      clockDefault: { month: 8, year: 2015 },
+      status: "beta",
+      electionCsvFile: "assets/2015-beta_structured.csv",
+      worldSeedFile: "data/scenarios/1997/world-seed.json",
+      constituenciesFile: "data/scenarios/2015-beta/constituencies.json",
+      expectedConstituencyCount: 650,
+      playableParties: ["Conservative"],
+    }, "bad-scenario"),
+    (err) => err?.code === "SCENARIO_MANIFEST_INVALID_DATA" && /title/.test(err.message)
+  );
+
+  assert.throws(
+    () => validateScenarioManifest({
+      key: "bad-scenario",
+      title: "Bad Scenario",
+      description: "Invalid inheritance key",
+      startDate: { month: 5, year: 2015 },
+      clockDefault: { month: 8, year: 2015 },
+      status: "beta",
+      parentScenario: "1997",
+      inheritance: { events: "merge" },
+      electionCsvFile: "assets/2015-beta_structured.csv",
+      worldSeedFile: "data/scenarios/1997/world-seed.json",
+      constituenciesFile: "data/scenarios/2015-beta/constituencies.json",
+      expectedConstituencyCount: 650,
+      playableParties: ["Conservative"],
+    }, "bad-scenario"),
+    (err) => err?.code === "SCENARIO_MANIFEST_INVALID_INHERITANCE"
+  );
+});
+
+test("validateScenarioWorldSeed rejects invalid party references and missing required ids", () => {
+  const manifest = loadScenarioManifest("1997");
+  assert.throws(
+    () => validateScenarioWorldSeed({
+      canonicalParties: [
+        { slug: "Conservative", name: "Conservative" },
+      ],
+      officeSpecs: {
+        cabinet: [{ specId: "prime-minister", title: "Prime Minister" }],
+        shadow: [{ specId: "leader-opposition", title: "Leader of the Opposition" }],
+      },
+      salaryScale: {
+        name: "Test",
+        effectiveFrom: { month: 1, year: 1997 },
+        legacyEffectiveFrom: { month: 8, year: 1997 },
+        roles: { backbencher: 1 },
+      },
+      factions: [{ slug: "mystery", name: "Mystery", party_slug: "Unknown Party" }],
+    }, { ...manifest, playableParties: ["Conservative"] }),
+    (err) => err?.code === "SCENARIO_WORLD_SEED_INVALID_DATA" && /Unknown Party/.test(err.message)
+  );
+
+  assert.throws(
+    () => validateScenarioWorldSeed({
+      canonicalParties: [
+        { slug: "Conservative", name: "Conservative" },
+      ],
+      officeSpecs: {
+        cabinet: [{ title: "Prime Minister" }],
+        shadow: [{ specId: "leader-opposition", title: "Leader of the Opposition" }],
+      },
+      salaryScale: {
+        name: "Test",
+        effectiveFrom: { month: 1, year: 1997 },
+        legacyEffectiveFrom: { month: 8, year: 1997 },
+        roles: { backbencher: 1 },
+      },
+    }, { ...manifest, playableParties: ["Conservative"] }),
+    (err) => err?.code === "SCENARIO_WORLD_SEED_INVALID_DATA" && /identifier/.test(err.message)
+  );
+});
+
+test("validateScenarioConstituenciesSeed rejects invalid constituency ids and party references", () => {
+  const manifest = loadScenarioManifest("1997");
+  const worldSeed = loadScenarioWorldSeed("1997");
+
+  assert.throws(
+    () => validateScenarioConstituenciesSeed({
+      constituencies: [
+        { id: "", name: "Seat A", nation: "England", region: "London", party: "Labour" },
+      ],
+    }, manifest, worldSeed),
+    (err) => err?.code === "SCENARIO_CONSTITUENCIES_INVALID_DATA" && /without "id"/.test(err.message)
+  );
+
+  assert.throws(
+    () => validateScenarioConstituenciesSeed({
+      constituencies: [
+        { id: "seat-a", name: "Seat A", nation: "England", region: "London", party: "Not A Party" },
+      ],
+    }, manifest, worldSeed),
+    (err) => err?.code === "SCENARIO_CONSTITUENCIES_INVALID_DATA" && /Not A Party/.test(err.message)
+  );
 });

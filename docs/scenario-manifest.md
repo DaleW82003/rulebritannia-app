@@ -112,6 +112,11 @@ Throws with `err.code === "SCENARIO_MANIFEST_NOT_FOUND"` if no manifest
 exists for the key, and `"SCENARIO_MANIFEST_INVALID_JSON"` if the file
 cannot be parsed.
 
+The loader also validates the effective manifest and throws
+`"SCENARIO_MANIFEST_INVALID_DATA"` for invalid metadata/linked file
+references and `"SCENARIO_MANIFEST_INVALID_INHERITANCE"` for invalid parent
+or inheritance configuration.
+
 If the manifest declares `parentScenario`/`baseScenario`, the loader first
 loads the parent manifest and then applies the child manifest on top:
 
@@ -133,6 +138,11 @@ If the scenario has a parent:
 - `inheritance.worldSeed = "replace"` → use only the child seed
 - no child `worldSeedFile` → reuse the parent seed unchanged
 
+After loading, the effective world seed is validated. Invalid canonical-party
+registries, broken party references, missing required IDs (for example faction
+slugs or office `specId`s), and malformed runtime-owned domains throw
+`"SCENARIO_WORLD_SEED_INVALID_DATA"`.
+
 ### `loadScenarioConstituenciesSeed(key)`
 
 Reads and returns the effective constituencies seed JSON for the scenario.
@@ -143,6 +153,11 @@ If the scenario has a parent:
   constituencies JSON with the child JSON
 - `inheritance.constituencies = "replace"` → use only the child JSON
 - no child `constituenciesFile` → reuse the parent JSON unchanged
+
+After loading, the effective constituency seed is validated. Invalid
+constituency IDs, unsupported nation values, and constituency/vote-summary
+party references that do not exist in the effective canonical-party registry
+throw `"SCENARIO_CONSTITUENCIES_INVALID_DATA"`.
 
 This lets a child scenario override only selected constituency winners while
 keeping the parent seat map as a baseline.
@@ -174,6 +189,25 @@ Everything else follows the normal object/array rules above.
 There is deliberately **no delete/remove syntax** in this phase. If a future
 scenario needs to drop inherited records, add an explicit rule in code rather
 than introducing an implicit magic patch language.
+
+## Validation expectations
+
+Current validation is intentionally practical rather than schema-heavy:
+
+- manifest metadata must be complete (`key`, title/description, dates, status,
+  expected constituency count, playable parties)
+- linked manifest files must exist and stay repo-root-relative
+- parent scenarios and inheritance keys must be valid
+- effective world seeds must provide a valid canonical-party registry plus
+  required IDs/keys for factions and office specs
+- party references inside world/constituency seed data must resolve against the
+  effective canonical-party registry (except explicit `"Others"` buckets)
+- effective constituency data must contain well-formed constituency records
+
+The constituency loader does **not** enforce
+`expectedConstituencyCount` by itself, because blocked/incomplete scenarios may
+still exist in preview form. That count is still enforced by the admin
+initialization flow before any DB overwrite happens.
 
 The current default scenario uses it for:
 

@@ -4304,6 +4304,22 @@ function normalizeScenarioKey(scenarioKey = getDefaultScenarioKey()) {
   return String(scenarioKey || getDefaultScenarioKey()).trim() || getDefaultScenarioKey();
 }
 
+function isScenarioConfigError(err) {
+  return typeof err?.code === "string" && err.code.startsWith("SCENARIO_");
+}
+
+function sendScenarioConfigError(res, err, logLabel) {
+  console.error(logLabel, {
+    code: err?.code || "SCENARIO_UNKNOWN",
+    message: err?.message || "Scenario configuration error",
+    scenarioKey: err?.scenarioKey || null,
+  });
+  return res.status(err?.status || 500).json({
+    error: err?.message || "Scenario configuration error",
+    code: err?.code || "SCENARIO_UNKNOWN",
+  });
+}
+
 function assertSupportedScenarioKey(scenarioKey = getDefaultScenarioKey()) {
   const normalized = normalizeScenarioKey(scenarioKey);
   if (normalized !== getDefaultScenarioKey()) {
@@ -20126,7 +20142,9 @@ app.get("/api/admin/scenarios", async (req, res) => {
           status: "unknown",
           playableParties: [],
           initializationReady: false,
-          initializationBlockedReason: "Scenario manifest could not be loaded.",
+          initializationBlockedReason: isScenarioConfigError(err)
+            ? err.message
+            : "Scenario manifest could not be loaded.",
           isDefault: key === defaultKey,
         };
       }
@@ -20153,6 +20171,7 @@ const scenarioElectionSeedHandler = async (req, res) => {
     );
     res.json({ ok: true, scenarioKey, election: rows[0] || null });
   } catch (e) {
+    if (isScenarioConfigError(e)) return sendScenarioConfigError(res, e, "[POST /api/admin/elections/seed-scenario]");
     if (e?.status) return res.status(e.status).json({ error: e.message });
     console.error("[POST /api/admin/elections/seed-scenario]", e);
     res.status(500).json({ error: "Server error" });
@@ -20601,6 +20620,7 @@ const initializeScenarioConstituenciesHandler = async (req, res) => {
     );
     res.json({ ok: true, scenarioKey, count: incoming.length });
   } catch (e) {
+    if (isScenarioConfigError(e)) return sendScenarioConfigError(res, e, "[POST /api/admin/constituencies/initialize-scenario]");
     if (e?.status) return res.status(e.status).json({ error: e.message });
     console.error("[POST /api/admin/constituencies/initialize-scenario]", e);
     res.status(500).json({ error: "Server error" });
@@ -23842,6 +23862,7 @@ const seedScenarioBodiesLocalsHandler = async (req, res) => {
 
     res.json({ ok: true, scenarioKey, force });
   } catch (e) {
+    if (isScenarioConfigError(e)) return sendScenarioConfigError(res, e, "[seed-scenario-bodies-locals]");
     if (e?.status) return res.status(e.status).json({ error: e.message });
     console.error("[seed-scenario-bodies-locals]", e);
     res.status(500).json({ error: "seed-scenario-bodies-locals failed", details: e?.message || "Unknown error" });
@@ -25687,6 +25708,7 @@ const seedScenarioFactionsHandler = async (req, res) => {
     await ensureUnalignedFactionsForPlayableParties();
     res.json({ ok: true, scenarioKey, inserted: results.inserted, skipped: results.skipped });
   } catch (e) {
+    if (isScenarioConfigError(e)) return sendScenarioConfigError(res, e, "[POST /api/admin/seed-scenario-factions]");
     if (e?.status) return res.status(e.status).json({ error: e.message });
     console.error("[POST /api/admin/seed-scenario-factions]", e);
     res.status(500).json({ error: "Server error" });
