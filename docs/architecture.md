@@ -87,7 +87,7 @@ flowchart TD
 │  Hosted: Render  (https://rulebritannia-app-backend.onrender.com)│
 │  ~21,000 lines · 392 registered route handlers                  │
 │  Auth · CSRF · Sessions · Rate-limiting · RBAC                  │
-│  Email (SendGrid) · Discourse API · Cloudflare Turnstile        │
+│  Email (Resend)   · Discourse API · Cloudflare Turnstile        │
 └────────────────────────┬────────────────────────────────────────┘
                          │  node-postgres (pg)
                          ▼
@@ -161,7 +161,7 @@ Discourse API key and SSO secret are stored encrypted in the `app_config` Postgr
 `ensureSchema()` is called once at server startup and creates all tables if missing, then applies idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migrations. No external migration tool is used.
 
 **Email:**  
-Verification emails are sent via SendGrid (`@sendgrid/mail`). If `SENDGRID_API_KEY` is absent, the email step is skipped with a console warning (email verification is not enforced as a hard gate in development).
+Verification emails are sent via Resend (`resend`). If `RESEND_API_KEY` is absent, the email step is skipped with a console warning (email verification is not enforced as a hard gate in development).
 
 **Complete API endpoint surface** (grouped by resource):
 
@@ -648,7 +648,7 @@ The `worker/index.js` Cloudflare Worker is a *routing proxy*, not a background p
 | **Cloudflare Workers** | API routing proxy + bare-domain redirect | `wrangler.toml`, deployed separately |
 | **Render** | Express server hosting | Backend URL hard-coded in `worker/index.js` and `functions/api/[[path]].js` |
 | **Neon (PostgreSQL)** | Database | `DATABASE_URL` env var; SSL auto-detected for `neon.tech` hosts |
-| **SendGrid** | Transactional email (verification) | `SENDGRID_API_KEY`, `SENDGRID_FROM`, `APP_BASE_URL` env vars |
+| **Resend** | Transactional email (verification) | `RESEND_API_KEY`, `EMAIL_FROM`, `APP_BASE_URL` env vars |
 | **Cloudflare Turnstile** | Bot protection on registration | `TURNSTILE_ENABLED`, `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` env vars; disabled by default |
 | **Discourse** | Forum with SSO and API-created topics | Credentials stored encrypted in `app_config` DB table; configured via Admin Panel UI |
 
@@ -731,8 +731,8 @@ SESSION_SECRET=<long-random-string>
 NODE_ENV=production
 
 # Optional
-SENDGRID_API_KEY=SG.xxx
-SENDGRID_FROM=support@rulebritannia.org
+RESEND_API_KEY=re_xxx
+EMAIL_FROM="Rule Britannia <support@rulebritannia.org>"
 APP_BASE_URL=https://www.rulebritannia.org
 
 TURNSTILE_ENABLED=true

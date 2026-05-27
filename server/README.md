@@ -34,8 +34,8 @@ The server listens on `http://localhost:3000` by default (override with `PORT`).
 | `ENABLE_DEV_SEED` | — | Set to `true` to enable destructive seed/wipe/reset endpoints in non-production environments like staging. **Never set in real production.** |
 | `DISCOURSE_SSO_ENABLED` | — | `true` to activate DiscourseConnect SSO endpoints |
 | `DISCOURSE_ENCRYPTION_KEY` | — | 64-char hex AES-256 key for encrypting stored Discourse credentials |
-| `SENDGRID_API_KEY` | — | SendGrid key for email verification messages |
-| `SENDGRID_FROM` | — | Sender address for outgoing emails (default: `support@rulebritannia.org`) |
+| `RESEND_API_KEY` | — | Resend key for email verification messages |
+| `EMAIL_FROM` | — | Sender address for outgoing emails (default: `Rule Britannia <support@rulebritannia.org>`) |
 | `APP_BASE_URL` | — | Base URL for email links (default: `https://www.rulebritannia.org`) |
 | `TURNSTILE_ENABLED` | — | `true` to enable Cloudflare Turnstile anti-bot on registration |
 | `TURNSTILE_SITE_KEY` | — | Turnstile site key (public) |
