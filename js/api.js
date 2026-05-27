@@ -2195,7 +2195,9 @@ export async function apiInitializeScenarioConstituencies(confirmOverwrite, scen
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify({ confirm: confirmOverwrite, scenarioKey }),
   });
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiInitializeScenarioConstituencies failed (${res.status})`);
+  return body;
 }
 
 export async function apiInitialize1997Constituencies(confirmOverwrite) {
@@ -2305,7 +2307,9 @@ export async function apiSeedScenarioElection(scenarioKey = getDefaultScenarioKe
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify({ scenarioKey }),
   });
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSeedScenarioElection failed (${res.status})`);
+  return body;
 }
 
 export async function apiSeedElection1997() {
@@ -2383,7 +2387,12 @@ export async function apiAdminSeedBudget(force = false) {
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify({ force }),
   });
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 409 && body.alreadySeeded) return body;
+    throw new Error(body.error || `apiAdminSeedBudget failed (${res.status})`);
+  }
+  return body;
 }
 
 export async function apiAdminUpdateBudgetControls(controls) {
