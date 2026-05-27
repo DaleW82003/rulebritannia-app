@@ -924,7 +924,7 @@ export async function initAdminPanelPage(data) {
         </p>
 
         <div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;padding:10px 14px;font-size:13px;margin-bottom:14px;">
-          <b>What will be seeded:</b> election record (May 1997), all 659 constituencies, 1996–97 budget baseline,
+          <b>What will be seeded:</b> election record, all constituencies, budget baseline,
           party faction seeds, and bodies/locals baseline.<br>
           <b>Existing content is overwritten</b> for constituencies; other steps add missing data without destroying existing rows.<br>
           <b>What will NOT be touched:</b> characters, user accounts, sim content (bills, motions, etc.), audit log.
