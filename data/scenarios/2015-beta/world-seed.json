@@ -1,356 +1,59 @@
 {
-  "_note": "2015-beta world seed — populated from known 2015 structural data where available. Sections marked _TODO require real data before this scenario can be used in production.",
-
-  "canonicalParties": [
-    { "slug": "Conservative",     "name": "Conservative",     "short_name": "CON", "playable": true  },
-    { "slug": "Labour",           "name": "Labour",           "short_name": "LAB", "playable": true  },
-    { "slug": "Liberal Democrat", "name": "Liberal Democrat", "short_name": "LDM", "playable": true  },
-    { "slug": "SNP",              "name": "SNP",              "short_name": "SNP", "playable": false },
-    { "slug": "UKIP",             "name": "UKIP",             "short_name": "UKP", "playable": false },
-    { "slug": "Plaid Cymru",      "name": "Plaid Cymru",      "short_name": "PC",  "playable": false },
-    { "slug": "Green",            "name": "Green",            "short_name": "GRN", "playable": false },
-    { "slug": "DUP",              "name": "DUP",              "short_name": "DUP", "playable": false },
-    { "slug": "Sinn Féin",        "name": "Sinn Féin",        "short_name": "SF",  "playable": false },
-    { "slug": "SDLP",             "name": "SDLP",             "short_name": "SDL", "playable": false },
-    { "slug": "Alliance",         "name": "Alliance",         "short_name": "ALL", "playable": false },
-    { "slug": "UUP",              "name": "UUP",              "short_name": "UUP", "playable": false },
-    { "slug": "Independents",     "name": "Independents",     "short_name": "IND", "playable": false },
-    { "slug": "Speaker",          "name": "Speaker",          "short_name": "SPK", "playable": false }
+  "_note": "2015-beta inherits the 1997 world seed and overrides only the currently-known 2015-era differences. Omitted domains intentionally continue to use the base scenario until real 2015/alt-history data exists.",
+  "_TODO": [
+    "Populate real 2015/alternative-history constituency results before enabling initialization.",
+    "Replace inherited 1997-era party structures, treasury cash, factions, bodies, locals, and budget baselines with 2015-specific data.",
+    "Review whether additional scenario-specific domains (for example events/news state) need explicit overrides once those loaders become scenario-aware."
   ],
-
-  "partyStructures": {
-    "_TODO": "Replace this stub with real 2015-era party HQ department sizes and regional office counts. Use the 1997 world-seed partyStructures as a structural reference.",
-    "Conservative": {
-      "departments": {
-        "communications": 0, "policy": 0, "campaign": 0, "compliance": 0,
-        "admin": 0, "fundraising": 0, "membership": 0, "research": 0
-      },
-      "nationalOffices": []
-    },
-    "Labour": {
-      "departments": {
-        "communications": 0, "policy": 0, "campaign": 0, "compliance": 0,
-        "admin": 0, "fundraising": 0, "membership": 0, "research": 0
-      },
-      "nationalOffices": []
-    },
-    "Liberal Democrat": {
-      "departments": {
-        "communications": 0, "policy": 0, "campaign": 0, "compliance": 0,
-        "admin": 0, "fundraising": 0, "membership": 0, "research": 0
-      },
-      "nationalOffices": []
-    }
-  },
-
-  "partyTreasuryCash": {
-    "_TODO": "Replace with real 2015-era party treasury/cash-in-hand figures (£ GBP). Check Electoral Commission donation/spending returns for the 2015 cycle.",
-    "Conservative":     0,
-    "Labour":           0,
-    "Liberal Democrat": 0
-  },
-
-  "factions": [
-    {
-      "_TODO": "Replace all faction stubs with accurate post-2015 party wing data. mp_count values must reflect the alternative-history seat totals for this scenario, not the real 2015 result.",
-      "party_slug": "Conservative",
-      "slug": "tory-right-placeholder",
-      "name": "TODO: Conservative Right Faction",
-      "description": "TODO: Define faction.",
-      "colour": "#003087",
-      "ideology_tags": [],
-      "leadership_alignment": "neutral",
-      "rebellion_bias": 0,
-      "media_sensitivity": 0,
-      "constituency_sensitivity": 0,
-      "display_order": 1,
-      "mp_count": 0,
-      "influence_bonus": 0,
-      "notes": "2015-beta placeholder — needs real data"
-    },
-    {
-      "party_slug": "Conservative",
-      "slug": "tory-modernisers-placeholder",
-      "name": "TODO: Conservative Modernisers Faction",
-      "description": "TODO: Define faction.",
-      "colour": "#1d6ab0",
-      "ideology_tags": [],
-      "leadership_alignment": "neutral",
-      "rebellion_bias": 0,
-      "media_sensitivity": 0,
-      "constituency_sensitivity": 0,
-      "display_order": 2,
-      "mp_count": 0,
-      "influence_bonus": 0,
-      "notes": "2015-beta placeholder — needs real data"
-    },
-    {
-      "party_slug": "Labour",
-      "slug": "labour-left-placeholder",
-      "name": "TODO: Labour Left Faction",
-      "description": "TODO: Define faction. Note: Corbyn era begins post-election; define divergence point for alt-history.",
-      "colour": "#7b0000",
-      "ideology_tags": [],
-      "leadership_alignment": "neutral",
-      "rebellion_bias": 0,
-      "media_sensitivity": 0,
-      "constituency_sensitivity": 0,
-      "display_order": 1,
-      "mp_count": 0,
-      "influence_bonus": 0,
-      "notes": "2015-beta placeholder — needs real data"
-    },
-    {
-      "party_slug": "Labour",
-      "slug": "labour-right-placeholder",
-      "name": "TODO: Labour Right / Progress Faction",
-      "description": "TODO: Define faction.",
-      "colour": "#cc0000",
-      "ideology_tags": [],
-      "leadership_alignment": "neutral",
-      "rebellion_bias": 0,
-      "media_sensitivity": 0,
-      "constituency_sensitivity": 0,
-      "display_order": 2,
-      "mp_count": 0,
-      "influence_bonus": 0,
-      "notes": "2015-beta placeholder — needs real data"
-    },
-    {
-      "party_slug": "Liberal Democrat",
-      "slug": "libdem-placeholder",
-      "name": "TODO: Liberal Democrat Faction",
-      "description": "TODO: Define faction. LD was reduced to 8 seats in the real 2015 result; alt-history may differ.",
-      "colour": "#f4a900",
-      "ideology_tags": [],
-      "leadership_alignment": "neutral",
-      "rebellion_bias": 0,
-      "media_sensitivity": 0,
-      "constituency_sensitivity": 0,
-      "display_order": 1,
-      "mp_count": 0,
-      "influence_bonus": 0,
-      "notes": "2015-beta placeholder — needs real data"
-    }
-  ],
-
-  "bodies": {
-    "_TODO": "Replace all body stubs with real post-2015 composition data. Lords figures below are approximate for 2015; European Parliament, devolved bodies, and mayors need accurate 2015 breakdowns.",
-    "lords": {
-      "id": "lords",
-      "type": "standard",
-      "visible": true,
-      "totalSeats": 826,
-      "compositionBreakdown": [
-        { "name": "Lords Spiritual", "seats": 26 },
-        { "name": "Crossbenchers",   "seats": 179 }
-      ],
-      "partyBreakdown": [
-        { "party": "Conservative",     "seats": 249, "_note": "TODO: verify post-May-2015 figure" },
-        { "party": "Labour",           "seats": 213, "_note": "TODO: verify post-May-2015 figure" },
-        { "party": "Liberal Democrat", "seats": 110, "_note": "TODO: verify post-May-2015 figure" },
-        { "party": "Others",           "seats": 49,  "_note": "TODO: verify post-May-2015 figure" }
-      ]
-    },
-    "europarl": {
-      "id": "europarl",
-      "type": "standard",
-      "visible": true,
-      "totalSeats": 73,
-      "_TODO": "Replace with real 2014 European Parliament election results for UK MEPs (last EP election before 2015 GE).",
-      "partyBreakdown": [
-        { "party": "UKIP",             "seats": 24, "_note": "TODO: verify 2014 EP result" },
-        { "party": "Labour",           "seats": 20, "_note": "TODO: verify 2014 EP result" },
-        { "party": "Conservative",     "seats": 19, "_note": "TODO: verify 2014 EP result" },
-        { "party": "Green",            "seats": 3,  "_note": "TODO: verify 2014 EP result" },
-        { "party": "SNP",              "seats": 2,  "_note": "TODO: verify 2014 EP result" },
-        { "party": "Liberal Democrat", "seats": 1,  "_note": "TODO: verify 2014 EP result" },
-        { "party": "Plaid Cymru",      "seats": 1,  "_note": "TODO: verify 2014 EP result" },
-        { "party": "Others",           "seats": 3,  "_note": "TODO: verify 2014 EP result" }
-      ]
-    },
-    "scottish-parliament":     { "id": "scottish-parliament",     "type": "standard", "visible": false, "_TODO": "Populate with 2011 Scottish Parliament results (most recent before 2015 GE)" },
-    "welsh-assembly":          { "id": "welsh-assembly",          "type": "standard", "visible": false, "_TODO": "Populate with 2011 Welsh Assembly results" },
-    "ni-assembly":             { "id": "ni-assembly",             "type": "standard", "visible": false, "_TODO": "Populate with 2011 Northern Ireland Assembly results" },
-    "directly-elected-mayors": { "id": "directly-elected-mayors", "type": "mayors",   "visible": false, "mayors": [], "_TODO": "Populate with 2015-era directly-elected mayor data if needed" }
-  },
-
-  "locals": {
-    "_TODO": "Replace with real 2015-era local council data (post-May-2015 local election cycle). Structure matches 1997 world-seed locals format.",
-    "countries": [
-      {
-        "country": "England",
-        "totalCouncils": 0,
-        "totalCouncillors": 0,
-        "noOverallControlCouncils": 0,
-        "_TODO": "Populate with 2015 English local authority data.",
-        "partyBreakdown": []
-      },
-      {
-        "country": "Scotland",
-        "totalCouncils": 32,
-        "totalCouncillors": 0,
-        "noOverallControlCouncils": 0,
-        "_TODO": "Populate with 2015 Scottish council data.",
-        "partyBreakdown": []
-      },
-      {
-        "country": "Wales",
-        "totalCouncils": 22,
-        "totalCouncillors": 0,
-        "noOverallControlCouncils": 0,
-        "_TODO": "Populate with 2015 Welsh council data.",
-        "partyBreakdown": []
-      },
-      {
-        "country": "Northern Ireland",
-        "totalCouncils": 11,
-        "_TODO": "NI councils were reorganised to 11 from May 2015; populate with post-reorganisation data.",
-        "totalCouncillors": 0,
-        "noOverallControlCouncils": 0,
-        "partyBreakdown": []
-      }
-    ]
-  },
-
-  "budget": {
-    "_TODO": "Replace with real 2014-15 outturn / 2015-16 HM Treasury baseline figures. GDP and line-item revenues/expenditures below are zero-filled stubs.",
-    "lastYear": {
-      "label": "2014-15 Baseline — TODO: replace with real outturn figures",
-      "gdp": 0,
-      "revenues": {
-        "Income Tax":                  0,
-        "Corporate Tax":               0,
-        "Value Added Tax":             0,
-        "National Insurance":          0,
-        "Fuel Duty":                   0,
-        "Stamp Duty":                  0,
-        "Business Rate Appropriations": 0
-      },
-      "expenditures": {
-        "Health":                0,
-        "Social Security":       0,
-        "Education":             0,
-        "Home Office":           0,
-        "Ministry of Defense":   0,
-        "Transport":             0,
-        "Local Government":      0,
-        "Environment":           0,
-        "Energy":                0,
-        "Culture":               0,
-        "Housing":               0,
-        "Business":              0,
-        "Scottish Office":       0,
-        "Welsh Office":          0,
-        "Northern Ireland Office": 0
-      },
-      "capital": {
-        "Capital Expenditure": 0
-      }
-    },
-    "currentYear": {
-      "label": "2015-16 (Seeded Baseline) — TODO: replace with real HMT figures",
-      "gdp": 0,
-      "revenues": {
-        "Income Tax":                  0,
-        "Corporate Tax":               0,
-        "Value Added Tax":             0,
-        "National Insurance":          0,
-        "Fuel Duty":                   0,
-        "Stamp Duty":                  0,
-        "Business Rate Appropriations": 0
-      },
-      "expenditures": {
-        "Health":                0,
-        "Social Security":       0,
-        "Education":             0,
-        "Home Office":           0,
-        "Ministry of Defense":   0,
-        "Transport":             0,
-        "Local Government":      0,
-        "Environment":           0,
-        "Energy":                0,
-        "Culture":               0,
-        "Housing":               0,
-        "Business":              0,
-        "Scottish Office":       0,
-        "Welsh Office":          0,
-        "Northern Ireland Office": 0
-      },
-      "capital": {
-        "Capital Expenditure": 0
-      }
-    },
-    "adminControls": {
-      "_TODO": "Replace with real 2015-era debt interest, charity relief, and other-expenses figures.",
-      "debtInterestPercent":       0,
-      "debtInterestExpenditure":   0,
-      "charityReliefExpenditure":  0,
-      "otherExpensesExpenditure":  0
-    }
-  },
-
   "officeSpecs": {
-    "_TODO": "Review these titles against the actual offices that existed in 2015. The structure below is copied from the 1997 scenario; some titles (e.g. Scottish/Welsh/NI devolved ministers) may need adjustment.",
     "cabinet": [
-      { "specId": "prime-minister",    "title": "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
-      { "specId": "chancellor",        "title": "Chancellor of the Exchequer, and Second Lord of the Treasury" },
-      { "specId": "home",              "title": "Secretary of State for the Home Department" },
-      { "specId": "foreign",           "title": "Secretary of State for Foreign and Commonwealth Affairs" },
-      { "specId": "trade",             "title": "Secretary of State for Business, Innovation and Skills" },
-      { "specId": "defence",           "title": "Secretary of State for Defence" },
-      { "specId": "welfare",           "title": "Secretary of State for Work and Pensions" },
-      { "specId": "education",         "title": "Secretary of State for Education" },
-      { "specId": "env-agri",          "title": "Secretary of State for Environment, Food and Rural Affairs" },
-      { "specId": "health",            "title": "Secretary of State for Health" },
-      { "specId": "eti",               "title": "Secretary of State for Transport" },
-      { "specId": "culture",           "title": "Secretary of State for Culture, Media and Sport" },
-      { "specId": "home-nations",      "title": "Secretary of State for the Home Nations" },
-      { "specId": "leader-commons",    "title": "Leader of the House of Commons" }
+      { "specId": "prime-minister", "title": "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
+      { "specId": "chancellor", "title": "Chancellor of the Exchequer, and Second Lord of the Treasury" },
+      { "specId": "home", "title": "Secretary of State for the Home Department" },
+      { "specId": "foreign", "title": "Secretary of State for Foreign and Commonwealth Affairs" },
+      { "specId": "trade", "title": "Secretary of State for Business, Innovation and Skills" },
+      { "specId": "defence", "title": "Secretary of State for Defence" },
+      { "specId": "welfare", "title": "Secretary of State for Work and Pensions" },
+      { "specId": "education", "title": "Secretary of State for Education" },
+      { "specId": "env-agri", "title": "Secretary of State for Environment, Food and Rural Affairs" },
+      { "specId": "health", "title": "Secretary of State for Health" },
+      { "specId": "eti", "title": "Secretary of State for Transport" },
+      { "specId": "culture", "title": "Secretary of State for Culture, Media and Sport" },
+      { "specId": "home-nations", "title": "Secretary of State for the Home Nations" },
+      { "specId": "leader-commons", "title": "Leader of the House of Commons" }
     ],
     "shadow": [
-      { "specId": "leader-opposition",       "title": "Leader of the Opposition" },
-      { "specId": "shadow-chancellor",        "title": "Shadow Chancellor of the Exchequer" },
-      { "specId": "shadow-home",              "title": "Shadow Secretary of State for the Home Department" },
-      { "specId": "shadow-foreign",           "title": "Shadow Secretary of State for Foreign and Commonwealth Affairs" },
-      { "specId": "shadow-trade",             "title": "Shadow Secretary of State for Business, Innovation and Skills" },
-      { "specId": "shadow-defence",           "title": "Shadow Secretary of State for Defence" },
-      { "specId": "shadow-welfare",           "title": "Shadow Secretary of State for Work and Pensions" },
-      { "specId": "shadow-education",         "title": "Shadow Secretary of State for Education" },
-      { "specId": "shadow-env-agri",          "title": "Shadow Secretary of State for Environment, Food and Rural Affairs" },
-      { "specId": "shadow-health",            "title": "Shadow Secretary of State for Health" },
-      { "specId": "shadow-eti",               "title": "Shadow Secretary of State for Transport" },
-      { "specId": "shadow-culture",           "title": "Shadow Secretary of State for Culture, Media and Sport" },
-      { "specId": "shadow-home-nations",      "title": "Shadow Secretary of State for the Home Nations" },
-      { "specId": "shadow-leader-commons",    "title": "Shadow Leader of the House of Commons" }
+      { "specId": "leader-opposition", "title": "Leader of the Opposition" },
+      { "specId": "shadow-chancellor", "title": "Shadow Chancellor of the Exchequer" },
+      { "specId": "shadow-home", "title": "Shadow Secretary of State for the Home Department" },
+      { "specId": "shadow-foreign", "title": "Shadow Secretary of State for Foreign and Commonwealth Affairs" },
+      { "specId": "shadow-trade", "title": "Shadow Secretary of State for Business, Innovation and Skills" },
+      { "specId": "shadow-defence", "title": "Shadow Secretary of State for Defence" },
+      { "specId": "shadow-welfare", "title": "Shadow Secretary of State for Work and Pensions" },
+      { "specId": "shadow-education", "title": "Shadow Secretary of State for Education" },
+      { "specId": "shadow-env-agri", "title": "Shadow Secretary of State for Environment, Food and Rural Affairs" },
+      { "specId": "shadow-health", "title": "Shadow Secretary of State for Health" },
+      { "specId": "shadow-eti", "title": "Shadow Secretary of State for Transport" },
+      { "specId": "shadow-culture", "title": "Shadow Secretary of State for Culture, Media and Sport" },
+      { "specId": "shadow-home-nations", "title": "Shadow Secretary of State for the Home Nations" },
+      { "specId": "shadow-leader-commons", "title": "Shadow Leader of the House of Commons" }
     ]
   },
-
   "salaryScale": {
-    "_TODO": "Verify these against IPSA 2015 determinations. MP basic salary was £67,060 from May 2015. Ministerial top-ups are approximate; confirm against the Ministerial and Other Salaries Act figures.",
     "name": "2015 IPSA Baseline (Approximate)",
-    "effectiveFrom":       { "month": 1, "year": 2015 },
+    "effectiveFrom": { "month": 1, "year": 2015 },
     "legacyEffectiveFrom": { "month": 8, "year": 2015 },
     "roles": {
-      "prime_minister":          143462,
-      "leader_opposition":        79468,
-      "leader_third_party":       67060,
-      "speaker":                  79468,
-      "secretary_of_state":      134565,
-      "minister_of_state":        98740,
+      "prime_minister": 143462,
+      "leader_opposition": 79468,
+      "leader_third_party": 67060,
+      "speaker": 79468,
+      "secretary_of_state": 134565,
+      "minister_of_state": 98740,
       "shadow_secretary_of_state": 67060,
-      "committee_chairman":       79468,
-      "committee_member":         67060,
-      "backbencher":              67060
-    }
-  },
-
-  "economy": {
-    "_TODO": "Replace with real 2015-era HQ baseline upkeep figures.",
-    "hqBaselineUpkeep": {
-      "Conservative":     0,
-      "Labour":           0,
-      "Liberal Democrat": 0
+      "committee_chairman": 79468,
+      "committee_member": 67060,
+      "backbencher": 67060
     }
   }
 }

@@ -28,6 +28,12 @@ The script reads all path and validation settings from
 declared in the manifest's `constituenciesFile` field.  No arguments other
 than the optional `<key>` are needed.
 
+> If a child scenario uses manifest inheritance with
+> `inheritance.constituencies = "merge"`, the committed JSON at
+> `constituenciesFile` may be a partial overrides file authored by hand. The
+> importer still writes a full generated dataset; use it when you want to
+> regenerate the complete child file rather than maintain a narrow override set.
+
 ---
 
 ## Expected source format
@@ -260,6 +266,8 @@ parsing occurs.
    ```
 
 4. Commit the generated `constituencies.json` alongside the manifest.
+   Child scenarios that intentionally keep only a small override file may edit
+   that file manually instead of using the importer.
 
 5. Continue with the remaining world-seed domains (`world-seed.json`) as
    described in `docs/scenario-manifest.md`.

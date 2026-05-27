@@ -23,7 +23,14 @@ import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_RO
 import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-helpers.js";
 import { fireRecompute, awaitedRecompute, createRecomputeContext, buildRecomputeResponseMetadata } from "./recompute-helpers.js";
 import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, getDefaultScenarioKey, seedDefaultScenarioFactions } from "./political-state-service.js";
-import { loadScenarioManifest, loadScenarioWorldSeed, resolveManifestPath, listScenarioKeys, getScenarioInitializationStatus } from "./scenario-manifest-loader.js";
+import {
+  loadScenarioManifest,
+  loadScenarioWorldSeed,
+  loadScenarioConstituenciesSeed,
+  resolveManifestPath,
+  listScenarioKeys,
+  getScenarioInitializationStatus,
+} from "./scenario-manifest-loader.js";
 import { seedPredefinedGuides } from "./guides-seed.js";
 import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb, batchEnrichPlayersWithSimJoinDates } from "./division-helpers.js";
 import { resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary } from "./finance-service.js";
@@ -4372,10 +4379,6 @@ function getScenarioConstituencySeedConfig(scenarioKey = getDefaultScenarioKey()
   };
 }
 
-function getScenarioConstituenciesPath(scenarioKey = getDefaultScenarioKey()) {
-  return getScenarioConstituencySeedConfig(scenarioKey).constituenciesPath;
-}
-
 /**
  * Parse the current default scenario structured CSV to extract party vote/seat data and turnout.
  * The CSV path is read from the scenario manifest (electionCsvFile).
@@ -4423,7 +4426,7 @@ function parseDefaultScenarioElectionCsv(scenarioKey = getDefaultScenarioKey()) 
     console.warn("[parseDefaultScenarioElectionCsv] failed, falling back to scenario constituencies JSON:", e.message);
     // Fallback: count seats from the scenario constituencies JSON (no vote data yet).
     try {
-      const json = JSON.parse(readFileSync(getScenarioConstituenciesPath(scenarioKey), "utf8"));
+      const json = loadScenarioConstituenciesSeed(scenarioKey);
       const counts = {};
       for (const c of (json.constituencies || [])) {
         const p = normaliseParty(c.party);
@@ -4558,7 +4561,7 @@ async function initializeScenarioConstituencies(scenarioKey = getDefaultScenario
 
   let json;
   try {
-    json = JSON.parse(readFileSync(seedConfig.constituenciesPath, "utf8"));
+    json = loadScenarioConstituenciesSeed(seedConfig.scenarioKey);
   } catch (e) {
     console.warn(`[initializeScenarioConstituencies] could not load constituencies JSON for scenarioKey=${seedConfig.scenarioKey}:`, e.message);
     return;
@@ -20422,8 +20425,7 @@ const constWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders:
 
 // Helper: load the committed JSON for a scenario on demand.
 function loadScenarioConstituenciesJson(scenarioKey = getDefaultScenarioKey()) {
-  const seedConfig = getScenarioConstituencySeedConfig(scenarioKey);
-  return JSON.parse(readFileSync(seedConfig.constituenciesPath, "utf8"));
+  return loadScenarioConstituenciesSeed(scenarioKey);
 }
 
 app.get("/api/constituencies", constReadLimit, async (req, res) => {

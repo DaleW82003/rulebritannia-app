@@ -5,6 +5,10 @@
   "startDate": { "month": 5, "year": 2015 },
   "clockDefault": { "month": 8, "year": 2015 },
   "status": "beta",
+  "parentScenario": "1997",
+  "inheritance": {
+    "constituencies": "replace"
+  },
   "initialization": {
     "ready": false,
     "blockedReason": "This beta scenario is visible for preview but initialization is blocked until constituency/world baseline data is completed."

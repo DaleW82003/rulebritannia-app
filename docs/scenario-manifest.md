@@ -7,7 +7,7 @@ Each playable game start ("scenario") in Rule Britannia is described by a
 
 The manifest is the single authoritative source of metadata for a scenario:
 seed file locations, election data, playable parties, scenario-owned world
-seed packs, and the expected shape of the world at game start.  Server code reads manifests through
+seed packs, and the expected shape of the world at game start. Server code reads manifests through
 `server/scenario-manifest-loader.js`; no scenario-specific magic strings
 should exist outside of manifest files.
 
@@ -59,11 +59,15 @@ data/scenarios/
 | `clockDefault.month` | `number` | ✓ | 1–12. |
 | `clockDefault.year` | `number` | ✓ | e.g. `1997`. |
 | `status` | `string` | ✓ | One of `"default"`, `"beta"`, or `"legacy"`. Only `"default"` is loaded automatically. |
-| `constituenciesFile` | `string` | ✓ | Repo-root-relative path to the constituencies JSON file (array of constituency objects). |
-| `worldSeedFile` | `string` | ✓ | Repo-root-relative path to the base-world seed JSON (parties, faction seeds, bodies/locals, budget baseline). |
+| `parentScenario` | `string` |  | Optional base scenario key. Child manifests inherit unspecified manifest fields from this parent. `baseScenario` is accepted as a legacy alias. |
+| `inheritance` | `object` |  | Optional per-asset inheritance modes for child scenarios. Supported keys are `worldSeed` and `constituencies`; values must be `"merge"` or `"replace"`. |
+| `constituenciesFile` | `string` | ✓* | Repo-root-relative path to the constituencies JSON file (array of constituency objects, or an overrides file when `inheritance.constituencies` is `"merge"`). |
+| `worldSeedFile` | `string` | ✓* | Repo-root-relative path to the world-seed JSON file (full seed, or an overrides file when `inheritance.worldSeed` is `"merge"`). |
 | `electionCsvFile` | `string` | ✓ | Repo-root-relative path to the structured election CSV (party vote/seat summary). |
 | `expectedConstituencyCount` | `number` | ✓ | Number of constituencies the JSON must contain; seeding is rejected if the count doesn't match. |
 | `playableParties` | `string[]` | ✓ | Ordered list of party names that have faction infrastructure in this scenario. |
+
+\* A child scenario may omit one of these file fields and inherit the parent's file unchanged. If it supplies its own file, the loader applies the configured inheritance mode for that asset.
 
 ### Example — `data/scenarios/1997/manifest.json`
 
@@ -93,6 +97,7 @@ import {
   getDefaultScenarioKey,   // () => "1997"
   loadScenarioManifest,    // (key: string) => manifest object (cached)
   loadScenarioWorldSeed,   // (key: string) => scenario-owned world seed object
+  loadScenarioConstituenciesSeed, // (key: string) => merged/replaced constituencies seed object
   resolveManifestPath,     // (relPath: string) => absolute path
   listScenarioKeys,        // () => string[]  — all keys with a manifest on disk
 } from "./scenario-manifest-loader.js";
@@ -107,10 +112,68 @@ Throws with `err.code === "SCENARIO_MANIFEST_NOT_FOUND"` if no manifest
 exists for the key, and `"SCENARIO_MANIFEST_INVALID_JSON"` if the file
 cannot be parsed.
 
+If the manifest declares `parentScenario`/`baseScenario`, the loader first
+loads the parent manifest and then applies the child manifest on top:
+
+- child scalar values override parent scalar values
+- child objects merge by key
+- child arrays replace parent arrays
+
+This keeps manifest inheritance explicit and predictable.
+
 ### `loadScenarioWorldSeed(key)`
 
-Reads and returns the parsed scenario-owned world seed JSON referenced by the
-manifest's `worldSeedFile`.
+Reads and returns the effective world-seed JSON for the scenario.
+
+If the scenario has no parent, the loader simply parses `worldSeedFile`.
+If the scenario has a parent:
+
+- `inheritance.worldSeed = "merge"` (default) → merge the parent seed with the
+  child seed
+- `inheritance.worldSeed = "replace"` → use only the child seed
+- no child `worldSeedFile` → reuse the parent seed unchanged
+
+### `loadScenarioConstituenciesSeed(key)`
+
+Reads and returns the effective constituencies seed JSON for the scenario.
+
+If the scenario has a parent:
+
+- `inheritance.constituencies = "merge"` (default) → merge the parent
+  constituencies JSON with the child JSON
+- `inheritance.constituencies = "replace"` → use only the child JSON
+- no child `constituenciesFile` → reuse the parent JSON unchanged
+
+This lets a child scenario override only selected constituency winners while
+keeping the parent seat map as a baseline.
+
+## Seed precedence rules
+
+The override model is intentionally narrow:
+
+1. **Parent loads first.**
+2. **Child object properties override matching parent properties.**
+3. **Arrays replace by default.**
+4. **A small set of record arrays merge by stable identifiers instead of
+   replacing wholesale.**
+
+Record-array merge rules are currently:
+
+- `constituencies` by `id` (fallback `name`)
+- `canonicalParties` by `slug` (fallback `name`)
+- `factions` by `slug`
+- `officeSpecs.cabinet` / `officeSpecs.shadow` by `specId`
+- `locals.countries` by `country`
+- `locals.countries[*].partyBreakdown` by `party`
+- `bodies.<body>.partyBreakdown` by `party`
+- `bodies.<body>.compositionBreakdown` by `name`
+- `bodies.<body>.mayors` by `id` (fallback `name`)
+
+Everything else follows the normal object/array rules above.
+
+There is deliberately **no delete/remove syntax** in this phase. If a future
+scenario needs to drop inherited records, add an explicit rule in code rather
+than introducing an implicit magic patch language.
 
 The current default scenario uses it for:
 
@@ -145,9 +208,15 @@ Each scenario owns its committed constituency seed JSON:
 data/scenarios/<key>/constituencies.json
 ```
 
-The manifest field `constituenciesFile` points to that file.  This keeps the
+The manifest field `constituenciesFile` points to that file. This keeps the
 generated constituency dataset colocated with the scenario definition instead
 of relying on a global year-specific filename.
+
+For child scenarios using `inheritance.constituencies = "merge"`, the file may
+contain only the constituencies that differ from the parent plus any top-level
+summary fields (`voteSummary`, `electorate`, `turnoutTotal`) that also need to
+change. The loader materializes the full effective dataset before validation
+and seeding.
 
 For the current default scenario:
 
@@ -172,9 +241,10 @@ and world-seed loader in these places:
 2. **`parseDefaultScenarioElectionCsv`** — opens
    `resolveManifestPath(manifest.electionCsvFile)` instead of a hardcoded
    string.
-3. **`loadScenarioConstituenciesJson`** and
+3. **`loadScenarioConstituenciesSeed`** and
    **`initializeScenarioConstituenciesHandler`** — load the committed
-   `constituencies.json` for the selected `scenarioKey`.
+   `constituencies.json` for the selected `scenarioKey`, including any parent
+   overrides.
 
 4. **`seedPlayableParties`** — reads canonical parties, party structure
    defaults, and treasury baselines from `worldSeedFile`.
@@ -219,8 +289,10 @@ Behavior:
 
 1. The route resolves the requested `scenarioKey`.
 2. It loads `data/scenarios/<key>/manifest.json`.
-3. It opens the scenario's `constituenciesFile`.
-4. It validates that the file contains exactly `expectedConstituencyCount`
+3. It resolves the scenario's effective constituencies seed (base + overrides
+   if configured).
+4. It validates that the effective dataset contains exactly
+   `expectedConstituencyCount`
    entries.
 5. It overwrites the `constituencies` table with that scenario's committed
    seed data.
@@ -233,9 +305,11 @@ always targets the default 1997 scenario.
 ## Adding a new scenario
 
 1. Create `data/scenarios/<newKey>/manifest.json` with all required fields.
+   Add `parentScenario` if the new scenario should inherit an existing one.
 2. Place the constituency JSON at `data/scenarios/<newKey>/constituencies.json`
    (or another repo-root-relative path referenced by `constituenciesFile`),
-   place the base-world seed JSON at the path listed in `worldSeedFile`, and
+   place the base-world seed JSON or overrides JSON at the path listed in
+   `worldSeedFile`, and
    place the election CSV at the path listed in `electionCsvFile`.
 3. Verify `listScenarioKeys()` returns the new key.
 4. Re-generate the constituency JSON with:
@@ -244,7 +318,18 @@ always targets the default 1997 scenario.
    node scripts/convert-scenario-csv.js <newKey>
    ```
 
-5. Copy or author the world seed domains that are currently supported:
+5. Copy or author only the world-seed domains you need to change. Omitted
+   domains inherit from the parent when `parentScenario` is set; otherwise the
+   file must provide the complete seed.
+
+6. When overriding only selected constituency winners, set
+   `inheritance.constituencies` to `"merge"` and commit a partial
+   `constituencies.json` containing just the changed seats.
+
+7. When a child scenario should *not* inherit a parent asset, set that asset's
+   inheritance mode to `"replace"` and provide a full child-owned file.
+
+The currently-supported world-seed domains remain:
 
    - `canonicalParties`
    - `partyStructures`
@@ -257,7 +342,7 @@ always targets the default 1997 scenario.
    - `salaryScale`
    - `economy.hqBaselineUpkeep`
 
-6. Update remaining non-scenario-owned runtime guards in
+8. Update remaining non-scenario-owned runtime guards in
    `server/political-state-service.js` and `server/index.js` once the broader
    seed pipeline supports the new key.
 
