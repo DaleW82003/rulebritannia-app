@@ -10,7 +10,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { Resend } from "resend";
 import { pool } from "./db.js";
-import { createTopic, createPost, createTopicWithRetry, closeTopic as closeDiscTopic, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers, buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse } from "./discourse.js";
+import { createTopic, createPost, createTopicWithRetry, closeTopic as closeDiscTopic, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers, normalizeDiscourseUsernames, resolveDiscourseSyncGroup, diffDiscourseGroupMembers, buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse } from "./discourse.js";
 import {
   createTopic as dcCreateTopic,
   createPost as dcCreatePost,
@@ -10118,10 +10118,12 @@ async function _runSyncJob(job) {
     for (const grp of uniqueGroups) desiredByGroup.set(grp, new Set());
 
     for (const user of users) {
+      const [username] = normalizeDiscourseUsernames([user.username]);
+      if (!username) continue;
       const groups = computeDiscourseGroups(user.roles || []);
       for (const grp of groups) {
         if (!desiredByGroup.has(grp)) desiredByGroup.set(grp, new Set());
-        desiredByGroup.get(grp).add(user.username);
+        desiredByGroup.get(grp).add(username);
       }
     }
 
@@ -10139,20 +10141,23 @@ async function _runSyncJob(job) {
     // Sync each group
     const groupResults = [];
     for (const [group, desiredSet] of desiredByGroup) {
-      const groupId = groupIdMap.get(group);
-      if (groupId == null) {
-        const msg = `Unknown group name: ${group}`;
-        console.error("[discourse-sync-groups] group=%s error=%s", group, msg);
-        _syncJobLog(job, `group=${group} skipped: ${msg}`);
-        groupResults.push({ group, added: [], removed: [], skipped: msg });
+      const target = resolveDiscourseSyncGroup({
+        groupName: group,
+        groupIdMap,
+        warn: (msg) => console.warn("[discourse-sync-groups] warning: %s", msg),
+      });
+      if (target.skipped) {
+        _syncJobLog(job, `group=${group} skipped: ${target.skipped}`);
+        groupResults.push({ group, added: [], removed: [], skipped: target.skipped });
         continue;
       }
       try {
+        const groupId = target.groupId;
         const currentMembers = await getGroupMembers({ baseUrl, apiKey, apiUsername, groupName: group, groupId });
-        const currentSet = new Set(currentMembers.map((m) => m.username));
-
-        const toAdd    = [...desiredSet].filter((u) => !currentSet.has(u));
-        const toRemove = [...currentSet].filter((u) => !desiredSet.has(u));
+        const { toAdd, toRemove } = diffDiscourseGroupMembers({
+          desiredUsernames: [...desiredSet],
+          currentMembers,
+        });
 
         _syncJobLog(job, `group=${group} id=${groupId} adding=${toAdd.length} removing=${toRemove.length}`);
         if (toAdd.length)    await addGroupMembers(   { baseUrl, apiKey, apiUsername, groupName: group, groupId, usernames: toAdd    });
