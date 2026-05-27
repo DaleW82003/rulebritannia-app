@@ -22,7 +22,7 @@ import { addSimMonths, simDeadline, simDeadlineToText, nextSimMonth } from "./li
 import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_ROLES } from "./state-contracts.js";
 import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-helpers.js";
 import { fireRecompute, awaitedRecompute, createRecomputeContext, buildRecomputeResponseMetadata } from "./recompute-helpers.js";
-import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, seed1997Factions } from "./political-state-service.js";
+import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, getDefaultScenarioKey, seedDefaultScenarioFactions } from "./political-state-service.js";
 import { seedPredefinedGuides } from "./guides-seed.js";
 import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb, batchEnrichPlayersWithSimJoinDates } from "./division-helpers.js";
 import { resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary } from "./finance-service.js";
@@ -1756,9 +1756,9 @@ async function ensureSchema() {
 
   await seedPlayableParties();
   await seedScandalTemplates();
-  await seedElection1997();
-  await seedConstituencies1997();
-  await seedSalaryScale1997();
+  await initializeScenarioElection(getDefaultScenarioKey());
+  await initializeScenarioConstituencies(getDefaultScenarioKey());
+  await initializeDefaultScenarioSalaryScale();
 
   // ── Shop price index ───────────────────────────────────────────────────────
   await pool.query(`
@@ -2938,7 +2938,7 @@ const SALARY_1997_ROLES = {
   backbencher:                43860,
 };
 
-async function seedSalaryScale1997() {
+async function initializeDefaultScenarioSalaryScale() {
   // Migration: if the scale was previously seeded with the old August-1997 index,
   // move it to January 1997 so it covers the game start month (May 1997).
   await pool.query(
@@ -3128,7 +3128,7 @@ async function recomputeSalaryPositions(characterId) {
  *   party leadership role +12 party leader, +6 chief/deputy whip, +4 whip/chairman
  */
 // clamp100, pressureLabel, recomputeCharacterPoliticalState → server/political-state-service.js
-// computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, seed1997Factions → server/political-state-service.js
+// computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, seedDefaultScenarioFactions → server/political-state-service.js
 // resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary → server/finance-service.js
 async function runSalaryCrediting(month, year) {
   const simIndex = year * 12 + (month - 1);
@@ -4229,11 +4229,37 @@ async function seedPlayableParties() {
   }
 }
 
+const DEFAULT_SCENARIO_CONSTITUENCIES_EXPECTED_COUNT = 659;
+
+function normalizeScenarioKey(scenarioKey = getDefaultScenarioKey()) {
+  return String(scenarioKey || getDefaultScenarioKey()).trim() || getDefaultScenarioKey();
+}
+
+function assertSupportedScenarioKey(scenarioKey = getDefaultScenarioKey()) {
+  const normalized = normalizeScenarioKey(scenarioKey);
+  if (normalized !== getDefaultScenarioKey()) {
+    const err = new Error(`Unsupported scenarioKey: ${normalized}`);
+    err.status = 400;
+    throw err;
+  }
+  return normalized;
+}
+
+function getRequestedScenarioKey(req) {
+  return assertSupportedScenarioKey(req.body?.scenarioKey ?? req.query?.scenarioKey ?? getDefaultScenarioKey());
+}
+
+function getDefaultScenarioConstituenciesPath(scenarioKey = getDefaultScenarioKey()) {
+  assertSupportedScenarioKey(scenarioKey);
+  return resolve(__serverDir, "..", "data", "constituencies_1997.json");
+}
+
 /**
- * Parse the 1997 structured CSV to extract party vote/seat data and turnout.
- * Falls back to counting from constituencies_1997.json if the CSV is unavailable.
+ * Parse the current default scenario structured CSV to extract party vote/seat data and turnout.
+ * The dataset is still backed by the 1997 source files in this phase.
  */
-function parse1997CSV() {
+function parseDefaultScenarioElectionCsv(scenarioKey = getDefaultScenarioKey()) {
+  assertSupportedScenarioKey(scenarioKey);
   try {
     const raw = readFileSync(resolve(__serverDir, "..", "assets", "1997_structured.csv"), "utf8");
     const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
@@ -4271,10 +4297,10 @@ function parse1997CSV() {
       turnoutPct,
     };
   } catch (e) {
-    console.warn("[parse1997CSV] failed, falling back to constituencies JSON:", e.message);
-    // Fallback: count seats from constituencies_1997.json (no vote data).
+    console.warn("[parseDefaultScenarioElectionCsv] failed, falling back to default scenario constituencies JSON:", e.message);
+    // Fallback: count seats from the current default scenario constituencies JSON (no vote data yet).
     try {
-      const json = JSON.parse(readFileSync(resolve(__serverDir, "..", "data", "constituencies_1997.json"), "utf8"));
+      const json = JSON.parse(readFileSync(getDefaultScenarioConstituenciesPath(scenarioKey), "utf8"));
       const counts = {};
       for (const c of (json.constituencies || [])) {
         const p = normaliseParty(c.party);
@@ -4289,12 +4315,17 @@ function parse1997CSV() {
   }
 }
 
+function parse1997CSV() {
+  return parseDefaultScenarioElectionCsv(getDefaultScenarioKey());
+}
+
 /**
- * Idempotent seed of the 1997 General Election baseline.
- * Uses assets/1997_structured.csv for accurate vote/seat/turnout data.
+ * Idempotent seed of the current default scenario general election baseline.
+ * Uses the legacy 1997 asset files until broader scenario extraction lands.
  */
-async function seedElection1997() {
-  // Check if the 1997 GE record already exists.
+async function initializeScenarioElection(scenarioKey = getDefaultScenarioKey()) {
+  const activeScenarioKey = assertSupportedScenarioKey(scenarioKey);
+  // Check if the default-scenario general election record already exists.
   const { rows: existing } = await pool.query(
     `SELECT id FROM elections WHERE type = 'general' AND polling_day = '1997-05-01' LIMIT 1`
   );
@@ -4317,8 +4348,8 @@ async function seedElection1997() {
     );
     const hasMissingVotes = Number(sumRows[0]?.total_votes || 0) === 0;
     if (hasMissingVotes) {
-      console.log(`[seedElection1997] repairing missing vote/share data for existing 1997 GE (id=${elId})`);
-      const csvData = parse1997CSV();
+      console.log(`[initializeScenarioElection] repairing missing vote/share data for existing ${activeScenarioKey} general election (id=${elId})`);
+      const csvData = parseDefaultScenarioElectionCsv(activeScenarioKey);
       for (const ps of csvData.parties) {
         await pool.query(
           `INSERT INTO election_party_summary (election_id, party, seats, votes, vote_share)
@@ -4335,13 +4366,13 @@ async function seedElection1997() {
           [csvData.turnoutTotal, csvData.turnoutPct, elId]
         );
       }
-      console.log(`[seedElection1997] repaired 1997 GE vote data: ${csvData.parties.map(p=>`${p.party}:${p.seats}`).join(", ")}`);
+      console.log(`[initializeScenarioElection] repaired default scenario vote data: ${csvData.parties.map(p=>`${p.party}:${p.seats}`).join(", ")}`);
     }
     return;
   }
 
-  // Parse the 1997 structured CSV.
-  const csvData = parse1997CSV();
+  // Parse the current default scenario structured CSV.
+  const csvData = parseDefaultScenarioElectionCsv(activeScenarioKey);
 
   // Create the election record.
   const { rows: elRows } = await pool.query(
@@ -4362,7 +4393,7 @@ async function seedElection1997() {
       [elId, ps.party, ps.seats, ps.votes, ps.voteShare]
     );
   }
-  console.log(`[seedElection1997] seeded 1997 GE (id=${elId}) from CSV: ${csvData.parties.map(p=>`${p.party}:${p.seats}`).join(", ")}`);
+  console.log(`[initializeScenarioElection] seeded default scenario election (scenarioKey=${activeScenarioKey}, id=${elId}) from CSV: ${csvData.parties.map(p=>`${p.party}:${p.seats}`).join(", ")}`);
 
   // Mark as last general election.
   await pool.query(
@@ -4371,25 +4402,30 @@ async function seedElection1997() {
   );
 }
 
+async function seedElection1997() {
+  return initializeScenarioElection(getDefaultScenarioKey());
+}
+
 /**
- * Idempotent seed of 1997 constituencies from constituencies_1997.json.
+ * Idempotent seed of the current default scenario constituencies from the committed JSON dataset.
  * Skips if constituencies table is already populated.
  */
-async function seedConstituencies1997() {
+async function initializeScenarioConstituencies(scenarioKey = getDefaultScenarioKey()) {
+  assertSupportedScenarioKey(scenarioKey);
   const { rows: existing } = await pool.query(`SELECT 1 FROM constituencies LIMIT 1`);
   if (existing.length > 0) return; // already populated
 
   let json;
   try {
-    json = JSON.parse(readFileSync(resolve(__serverDir, "..", "data", "constituencies_1997.json"), "utf8"));
+    json = JSON.parse(readFileSync(getDefaultScenarioConstituenciesPath(scenarioKey), "utf8"));
   } catch (e) {
-    console.warn("[seedConstituencies1997] could not load constituencies_1997.json:", e.message);
+    console.warn("[initializeScenarioConstituencies] could not load default scenario constituencies JSON:", e.message);
     return;
   }
 
   const incoming = json.constituencies || [];
   if (incoming.length === 0) {
-    console.warn("[seedConstituencies1997] constituencies_1997.json has no entries — skipping.");
+    console.warn("[initializeScenarioConstituencies] default scenario constituencies JSON has no entries — skipping.");
     return;
   }
 
@@ -4412,7 +4448,11 @@ async function seedConstituencies1997() {
   } finally {
     client.release();
   }
-  console.log(`[seedConstituencies1997] seeded ${incoming.length} constituencies.`);
+  console.log(`[initializeScenarioConstituencies] seeded ${incoming.length} constituencies for scenarioKey=${scenarioKey}.`);
+}
+
+async function seedConstituencies1997() {
+  return initializeScenarioConstituencies(getDefaultScenarioKey());
 }
 
 /**
@@ -5017,14 +5057,16 @@ async function enforceSimulationNotFrozen(req, res, options = {}) {
  *   POST   /api/admin/clear-cache
  *   POST   /api/admin/import-snapshot
  *   POST   /api/admin/repair/character-owner-pointers
- *   POST   /api/admin/elections/seed-1997
+ *   POST   /api/admin/elections/seed-scenario
+ *   POST   /api/admin/elections/seed-1997 (legacy alias)
  *   POST   /api/admin/budget/seed
  *   POST   /api/admin/reset-baseline
  *   POST   /api/admin/wipe-content
  *   POST   /api/admin/wipe-with-characters
  *   POST   /api/admin/seed-demo
  *   POST   /api/admin/seed
- *   POST   /api/admin/constituencies/initialize-1997
+ *   POST   /api/admin/constituencies/initialize-scenario
+ *   POST   /api/admin/constituencies/initialize-1997 (legacy alias)
  *   DELETE /api/admin/constituencies/clear
  */
 function isDevSeedAllowed() {
@@ -18444,7 +18486,7 @@ app.post("/api/admin/discourse-sync-debates", discourseDebateSyncLimit, async (r
 // POST /api/admin/wipe-content
 //
 // Wipes gameplay/content tables and resets the sim clock + state to the
-// August 1997 baseline.  User accounts and pending registrations are
+// current default scenario baseline (currently August 1997).  User accounts and pending registrations are
 // NOT touched.  Requires a typed confirmation body: { confirm: "WIPE CONTENT" }
 //
 // ── demo.json safety ────────────────────────────────────────────────────────
@@ -18500,13 +18542,13 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
     // Reset group_drafts (clear cabinet and shadow cabinet drafts)
     await pool.query(`UPDATE group_drafts SET drafts = '[]'::jsonb, updated_at = NOW()`);
 
-    // Reset budget_data to 1997 baseline
+    // Reset budget_data to the current default scenario baseline (currently 1997)
     await seedBudgetBaseline(true);
 
-    // Re-seed 1997 base election (idempotent)
-    await seedElection1997();
+    // Re-seed the current default scenario election baseline (currently 1997)
+    await initializeScenarioElection(getDefaultScenarioKey());
 
-    // Reset sim clock to August 1997
+    // Reset sim clock to the current default scenario start (currently August 1997)
     await pool.query(`
       INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
       VALUES ('main', 8, 1997, 1)
@@ -18517,7 +18559,7 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
         real_last_tick    = NOW()
     `);
 
-    // Reset sim_state to August 1997
+    // Reset sim_state to the current default scenario start (currently August 1997)
     await pool.query(`
       INSERT INTO sim_state (id, year, month, is_paused)
       VALUES ('main', 1997, 8, true)
@@ -18531,7 +18573,7 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
     // Reset app_state_current — create a fresh empty snapshot and point to it
     const { rows: snapRows } = await pool.query(
       `INSERT INTO state_snapshots (label, data)
-         VALUES ('Post-wipe baseline (August 1997)', '{}'::jsonb)
+         VALUES ('Post-wipe baseline (default scenario start: August 1997)', '{}'::jsonb)
        RETURNING id`
     );
     const newSnapshotId = snapRows[0].id;
@@ -18543,7 +18585,7 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
     );
 
     await writeAuditLog(req.session.userId, "admin.wipe-content", "all", "*", null, {
-      headline: "Wipe Content: all IC simulation content cleared, sim reset to August 1997",
+      headline: "Wipe Content: all IC simulation content cleared, sim reset to the default scenario start (currently August 1997)",
       simMonth: 8,
       simYear: 1997,
       // questiontime_questions = legacy JSON-blob QT table; qt_questions = new structured QT table
@@ -18558,28 +18600,28 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
         "game_events", "scandal_situations", "scandals", "scandal_player_choices", "scandal_mod_decisions",
         "red_lion_posts", "online_posts", "fundraising_items",
         "privy_council_posts", "cs_briefings", "cs_cases", "frontbench_reshuffles",
-        "office_assignments (vacated)", "group_drafts (reset)", "budget_data (reset to 1997)",
+        "office_assignments (vacated)", "group_drafts (reset)", "budget_data (reset to default scenario baseline: 1997)",
       ],
-      simResetTo: "August 1997",
+      simResetTo: "default scenario start (currently August 1997)",
       newSnapshotId,
     });
 
     // Ensure baseline constituencies are present after reset (idempotent — skips if already seeded)
-    await seedConstituencies1997();
+    await initializeScenarioConstituencies(getDefaultScenarioKey());
 
     res.json({
       ok: true,
-      message: "Content wiped and sim reset to August 1997. All offices vacated, drafts cleared, budget reset. User accounts and characters are intact.",
+      message: "Content wiped and sim reset to the default scenario start (currently August 1997). All offices vacated, drafts cleared, budget reset. User accounts and characters are intact.",
       wiped: [
         "bills", "bill_amendments", "motions", "statements", "regulations",
         "questiontime_questions", "qt_questions", "press_items", "polling_entries",
-        "elections (re-seeded 1997 base)", "news_stories", "newspaper_articles",
+        "elections (re-seeded default scenario base: 1997)", "news_stories", "newspaper_articles",
         "divisions", "division_votes", "game_events", "scandals",
         "red_lion_posts", "online_posts", "fundraising_items",
         "privy_council_posts", "cs_briefings", "cs_cases",
         "office_assignments (vacated)", "group_drafts (reset)", "budget_data (reset)",
       ],
-      simResetTo: "August 1997",
+      simResetTo: "default scenario start (currently August 1997)",
     });
   } catch (e) {
     console.error("[wipe-content]", e);
@@ -18649,13 +18691,13 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
     // Reset group_drafts (clear cabinet and shadow cabinet drafts)
     await pool.query(`UPDATE group_drafts SET drafts = '[]'::jsonb, updated_at = NOW()`);
 
-    // Reset budget_data to 1997 baseline
+    // Reset budget_data to the current default scenario baseline (currently 1997)
     await seedBudgetBaseline(true);
 
-    // Re-seed 1997 base election (idempotent)
-    await seedElection1997();
+    // Re-seed the current default scenario election baseline (currently 1997)
+    await initializeScenarioElection(getDefaultScenarioKey());
 
-    // Reset sim clock to August 1997
+    // Reset sim clock to the current default scenario start (currently August 1997)
     await pool.query(`
       INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
       VALUES ('main', 8, 1997, 1)
@@ -18666,7 +18708,7 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
         real_last_tick    = NOW()
     `);
 
-    // Reset sim_state to August 1997
+    // Reset sim_state to the current default scenario start (currently August 1997)
     await pool.query(`
       INSERT INTO sim_state (id, year, month, is_paused)
       VALUES ('main', 1997, 8, true)
@@ -18680,7 +18722,7 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
     // Reset app_state_current — create a fresh empty snapshot and point to it
     const { rows: snapRows } = await pool.query(
       `INSERT INTO state_snapshots (label, data)
-         VALUES ('Post-wipe-with-characters baseline (August 1997)', '{}'::jsonb)
+         VALUES ('Post-wipe-with-characters baseline (default scenario start: August 1997)', '{}'::jsonb)
        RETURNING id`
     );
     const newSnapshotId = snapRows[0].id;
@@ -18692,7 +18734,7 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
     );
 
     await writeAuditLog(req.session.userId, "admin.wipe-with-characters", "all", "*", null, {
-      headline: "Wipe With Characters: all IC simulation content + character data cleared, sim reset to August 1997",
+      headline: "Wipe With Characters: all IC simulation content + character data cleared, sim reset to the default scenario start (currently August 1997)",
       simMonth: 8,
       simYear: 1997,
       tables: [
@@ -18709,28 +18751,28 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
         "news_stories", "newspaper_articles",
         "divisions", "division_votes", "division_party_instructions", "division_rebellion_log", "division_rebel_requests",
         "game_events", "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
-        "group_drafts (reset)", "budget_data (reset to 1997)",
+        "group_drafts (reset)", "budget_data (reset to default scenario baseline: 1997)",
       ],
-      simResetTo: "August 1997",
+      simResetTo: "default scenario start (currently August 1997)",
       newSnapshotId,
     });
 
     // Ensure baseline constituencies are present after reset
-    await seedConstituencies1997();
+    await initializeScenarioConstituencies(getDefaultScenarioKey());
 
     res.json({
       ok: true,
-      message: "Content and character data wiped. Sim reset to August 1997. User accounts are intact.",
+      message: "Content and character data wiped. Sim reset to the default scenario start (currently August 1997). User accounts are intact.",
       wiped: [
         "characters", "office_assignments", "office_assignment_history",
         "bills", "bill_amendments", "motions", "statements", "regulations",
         "questiontime_questions", "qt_questions", "press_items", "polling_entries",
-        "elections (re-seeded 1997 base)", "news_stories", "newspaper_articles",
+        "elections (re-seeded default scenario base: 1997)", "news_stories", "newspaper_articles",
         "divisions", "division_votes", "scandals", "game_events",
         "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
         "group_drafts (reset)", "budget_data (reset)",
       ],
-      simResetTo: "August 1997",
+      simResetTo: "default scenario start (currently August 1997)",
     });
   } catch (e) {
     console.error("[wipe-with-characters]", e);
@@ -18751,7 +18793,7 @@ async function handleSeedDemo(req, res) {
     if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
 
-    // ── Reset clock to August 1997 ─────────────────────────────────────────
+    // ── Reset clock to the default scenario start (currently August 1997) ──
     await pool.query(`
       INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
       VALUES ('main', 8, 1997, 1)
@@ -18762,7 +18804,7 @@ async function handleSeedDemo(req, res) {
         real_last_tick    = NOW()
     `);
 
-    // ── Reset sim_state (authoritative pause/tick state) to August 1997 ───
+    // ── Reset sim_state (authoritative pause/tick state) to the default scenario start (currently August 1997) ───
     await pool.query(`
       INSERT INTO sim_state (id, year, month, is_paused)
       VALUES ('main', 1997, 8, true)
@@ -18902,7 +18944,7 @@ async function handleSeedDemo(req, res) {
 
     res.json({
       ok: true,
-      message: "Demo data seeded successfully. Simulation reset to August 1997.",
+      message: "Demo data seeded successfully. Simulation reset to the default scenario start (currently August 1997).",
       counts: {
         bills: bills.length, motions: motions.length, statements: statements.length,
         regulations: regulations.length, qtQuestions: qtQuestions.length,
@@ -19672,7 +19714,8 @@ app.delete("/api/mod/scandals/situations/:id", scandalWriteLimit, async (req, re
 // PUT  /api/elections/:id                      — admin/mod: update election metadata/changes
 // POST /api/elections/:id/finalize             — admin/mod: apply flips + write events, set last GE
 // GET  /api/elections/:id/changes              — authenticated: list constituency changes for election
-// POST /api/admin/elections/seed-1997          — admin/mod: idempotent seed of 1997 GE
+// POST /api/admin/elections/seed-scenario      — admin/mod: seed the current default scenario election
+// POST /api/admin/elections/seed-1997           — legacy alias for the current default scenario
 // GET  /api/elections/bodies/current           — authenticated: current result per body
 // GET  /api/elections/bodies/archive           — authenticated: archived (replaced) results
 // POST /api/elections/bodies                   — admin/mod: submit new result for a body
@@ -19939,24 +19982,27 @@ app.post("/api/elections/:id/finalize", electionsApiWriteLimit, async (req, res)
   }
 });
 
-// POST /api/admin/elections/seed-1997  — idempotent re-seed of 1997 baseline
-app.post("/api/admin/elections/seed-1997", electionsApiWriteLimit, async (req, res) => {
+const scenarioElectionSeedHandler = async (req, res) => {
   try {
     if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdminOrMod(req, res)) return;
-    await seedElection1997();
+    const scenarioKey = getRequestedScenarioKey(req);
+    await initializeScenarioElection(scenarioKey);
     const { rows } = await pool.query(
       `SELECT e.id, e.type, e.polling_day, e.label, e.status
          FROM elections e
          JOIN app_state_elections s ON s.last_general_election_id = e.id
         WHERE s.id = 'main' LIMIT 1`
     );
-    res.json({ ok: true, election: rows[0] || null });
+    res.json({ ok: true, scenarioKey, election: rows[0] || null });
   } catch (e) {
-    console.error("[POST /api/admin/elections/seed-1997]", e);
+    if (e?.status) return res.status(e.status).json({ error: e.message });
+    console.error("[POST /api/admin/elections/seed-scenario]", e);
     res.status(500).json({ error: "Server error" });
   }
-});
+};
+app.post("/api/admin/elections/seed-scenario", electionsApiWriteLimit, scenarioElectionSeedHandler);
+app.post("/api/admin/elections/seed-1997", electionsApiWriteLimit, scenarioElectionSeedHandler);
 
 // ── Election Bodies (results dashboard) ──────────────────────────────────────
 // GET  /api/elections/bodies/current   — current result per body (public: read)
@@ -20204,21 +20250,26 @@ app.get("/api/constituencies/:id/events", electionsApiReadLimit, async (req, res
 // POST   /api/constituencies                        — admin/mod/speaker: upsert one
 // PUT    /api/constituencies/:id                    — admin/mod/speaker: update one
 // DELETE /api/constituencies/:id                    — admin/mod/speaker: delete one
-// POST   /api/admin/constituencies/initialize-1997  — bulk-seed from JSON; requires confirm=true
+// POST   /api/admin/constituencies/initialize-scenario  — bulk-seed the current default scenario; requires confirm=true
+// POST   /api/admin/constituencies/initialize-1997       — legacy alias for the current default scenario
 // DELETE /api/admin/constituencies/clear            — admin only: wipe all
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const constReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
 const constWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
 
-// Helper: load the committed 1997 JSON (lazy, cached after first load)
-let _constituencies1997 = null;
-function load1997Json() {
-  if (!_constituencies1997) {
-    const p = resolve(__serverDir, "..", "data", "constituencies_1997.json");
-    _constituencies1997 = JSON.parse(readFileSync(p, "utf8"));
+// Helper: load the committed JSON for the current default scenario (lazy, cached after first load)
+let _defaultScenarioConstituenciesJson = null;
+function loadDefaultScenarioConstituenciesJson(scenarioKey = getDefaultScenarioKey()) {
+  assertSupportedScenarioKey(scenarioKey);
+  if (!_defaultScenarioConstituenciesJson) {
+    _defaultScenarioConstituenciesJson = JSON.parse(readFileSync(getDefaultScenarioConstituenciesPath(scenarioKey), "utf8"));
   }
-  return _constituencies1997;
+  return _defaultScenarioConstituenciesJson;
+}
+
+function load1997Json() {
+  return loadDefaultScenarioConstituenciesJson(getDefaultScenarioKey());
 }
 
 app.get("/api/constituencies", constReadLimit, async (req, res) => {
@@ -20345,7 +20396,7 @@ app.delete("/api/constituencies/:id", constWriteLimit, async (req, res) => {
   }
 });
 
-app.post("/api/admin/constituencies/initialize-1997", constWriteLimit, async (req, res) => {
+const initializeScenarioConstituenciesHandler = async (req, res) => {
   try {
     if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdminModOrSpeaker(req, res)) return;
@@ -20354,12 +20405,13 @@ app.post("/api/admin/constituencies/initialize-1997", constWriteLimit, async (re
       return res.status(400).json({ error: "Send confirm: true to confirm overwriting all constituencies" });
     }
 
-    const json = load1997Json();
+    const scenarioKey = getRequestedScenarioKey(req);
+    const json = loadDefaultScenarioConstituenciesJson(scenarioKey);
     const incoming = json.constituencies;
-    // The 1997 UK general election used 659 constituencies.
-    if (!Array.isArray(incoming) || incoming.length !== 659) {
+    // The current default scenario still uses the 1997 pre-boundary-review map with 659 constituencies.
+    if (!Array.isArray(incoming) || incoming.length !== DEFAULT_SCENARIO_CONSTITUENCIES_EXPECTED_COUNT) {
       return res.status(500).json({
-        error: `constituencies_1997.json must contain exactly 659 entries (found ${incoming?.length ?? 0}). ` +
+        error: `default scenario constituencies JSON must contain exactly ${DEFAULT_SCENARIO_CONSTITUENCIES_EXPECTED_COUNT} entries (found ${incoming?.length ?? 0}). ` +
                "Re-run scripts/convert-1997-csv.js to regenerate."
       });
     }
@@ -20385,14 +20437,17 @@ app.post("/api/admin/constituencies/initialize-1997", constWriteLimit, async (re
 
     await writeAuditLog(
       req.session.userId, "constituencies.initialize_1997", "constituencies",
-      "bulk", null, { count: incoming.length }
+      "bulk", null, { count: incoming.length, scenarioKey }
     );
-    res.json({ ok: true, count: incoming.length });
+    res.json({ ok: true, scenarioKey, count: incoming.length });
   } catch (e) {
-    console.error("[POST /api/admin/constituencies/initialize-1997]", e);
+    if (e?.status) return res.status(e.status).json({ error: e.message });
+    console.error("[POST /api/admin/constituencies/initialize-scenario]", e);
     res.status(500).json({ error: "Server error" });
   }
-});
+};
+app.post("/api/admin/constituencies/initialize-scenario", constWriteLimit, initializeScenarioConstituenciesHandler);
+app.post("/api/admin/constituencies/initialize-1997", constWriteLimit, initializeScenarioConstituenciesHandler);
 
 app.delete("/api/admin/constituencies/clear", constWriteLimit, async (req, res) => {
   try {
@@ -21500,8 +21555,8 @@ app.post("/api/admin/reset-baseline", resetBaselineLimit, async (req, res) => {
 
     // Re-seed canonical parties, 1997 election baseline, and 1997 constituencies.
     await seedPlayableParties();
-    await seedElection1997();
-    await seedConstituencies1997();
+    await initializeScenarioElection(getDefaultScenarioKey());
+    await initializeScenarioConstituencies(getDefaultScenarioKey());
 
     await writeAuditLog(req.session.userId, "admin.reset-baseline", "all", "*", null, {
       cleared: ["constituency_events", "constituencies", "election_constituency_changes",
@@ -23438,7 +23493,7 @@ async function getCanonicalConstituencyParties(client = pool) {
   return rows.map((r) => String(r.party).trim()).filter(Boolean);
 }
 
-const BODIES_1997_SEED = {
+const DEFAULT_SCENARIO_BODIES_SEED = {
   lords: {
     id: "lords",
     type: "standard",
@@ -23477,7 +23532,7 @@ const BODIES_1997_SEED = {
   "directly-elected-mayors": { id: "directly-elected-mayors", type: "mayors", visible: false, mayors: [] },
 };
 
-const LOCALS_1997_SEED = {
+const DEFAULT_SCENARIO_LOCALS_SEED = {
   countries: [
     { country: "England", totalCouncils: 386, totalCouncillors: 22580, noOverallControlCouncils: 74, partyBreakdown: [
       { party: "Labour", councillors: 10840, councilsControlled: 187 },
@@ -23532,12 +23587,12 @@ function mergeSeedValue(existing, seeded, force = false) {
   return existing;
 }
 
-function validate1997SeedParties(canonicalParties) {
+function validateDefaultScenarioSeedParties(canonicalParties) {
   const canonicalSet = new Set(canonicalParties);
   const uses = [];
-  for (const row of BODIES_1997_SEED.lords.partyBreakdown) uses.push(row.party);
-  for (const row of BODIES_1997_SEED.europarl.partyBreakdown) uses.push(row.party);
-  for (const c of LOCALS_1997_SEED.countries) for (const row of c.partyBreakdown) uses.push(row.party);
+  for (const row of DEFAULT_SCENARIO_BODIES_SEED.lords.partyBreakdown) uses.push(row.party);
+  for (const row of DEFAULT_SCENARIO_BODIES_SEED.europarl.partyBreakdown) uses.push(row.party);
+  for (const c of DEFAULT_SCENARIO_LOCALS_SEED.countries) for (const row of c.partyBreakdown) uses.push(row.party);
   const missing = [];
   for (const party of uses) {
     if (party !== "Others" && !canonicalSet.has(party)) {
@@ -23547,30 +23602,31 @@ function validate1997SeedParties(canonicalParties) {
   return Array.from(new Set(missing));
 }
 
-function validate1997SeedTotals() {
-  const lordsComp = BODIES_1997_SEED.lords.compositionBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
-  const lordsParty = BODIES_1997_SEED.lords.partyBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
-  if ((lordsComp + lordsParty) !== BODIES_1997_SEED.lords.totalSeats) {
+function validateDefaultScenarioSeedTotals() {
+  const lordsComp = DEFAULT_SCENARIO_BODIES_SEED.lords.compositionBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
+  const lordsParty = DEFAULT_SCENARIO_BODIES_SEED.lords.partyBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
+  if ((lordsComp + lordsParty) !== DEFAULT_SCENARIO_BODIES_SEED.lords.totalSeats) {
     throw new Error("Lords seed total mismatch");
   }
-  const euroTotal = BODIES_1997_SEED.europarl.partyBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
-  if (euroTotal !== BODIES_1997_SEED.europarl.totalSeats) {
+  const euroTotal = DEFAULT_SCENARIO_BODIES_SEED.europarl.partyBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
+  if (euroTotal !== DEFAULT_SCENARIO_BODIES_SEED.europarl.totalSeats) {
     throw new Error("Europarl seed total mismatch");
   }
 }
 
-app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+const seedScenarioBodiesLocalsHandler = async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
     if (!isDevSeedAllowed()) {
       return res.status(403).json({ error: "Seeding is disabled in this environment" });
     }
 
+    const scenarioKey = getRequestedScenarioKey(req);
     const queryForce = String(req.query?.force || "").toLowerCase() === "true";
     const bodyForce = req.body?.force === true || String(req.body?.force || "").toLowerCase() === "true";
     const force = queryForce || bodyForce;
 
-    validate1997SeedTotals();
+    validateDefaultScenarioSeedTotals();
 
     const { rows: beforeBodiesRows } = await pool.query("SELECT id, data FROM bodies_data ORDER BY sort_order ASC, id ASC");
     const { rows: beforeLocalsRows } = await pool.query("SELECT value FROM app_config WHERE key = 'locals_data'");
@@ -23591,15 +23647,15 @@ app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, 
       `);
 
       const canonicalParties = await getCanonicalConstituencyParties(client);
-      const nonCanonicalParties = validate1997SeedParties(canonicalParties);
+      const nonCanonicalParties = validateDefaultScenarioSeedParties(canonicalParties);
       if (nonCanonicalParties.length) {
-        console.warn("[seed-1997-bodies-locals] Seed includes parties not present in constituency baseline:", nonCanonicalParties);
+        console.warn("[seed-scenario-bodies-locals] Default scenario seed includes parties not present in constituency baseline:", nonCanonicalParties);
       }
 
       const { rows: bodyRows } = await client.query("SELECT id, data, sort_order FROM bodies_data");
       const bodyMap = new Map(bodyRows.map((r) => [r.id, r]));
 
-      for (const [id, seedData] of Object.entries(BODIES_1997_SEED)) {
+      for (const [id, seedData] of Object.entries(DEFAULT_SCENARIO_BODIES_SEED)) {
         const existingData = bodyMap.get(id)?.data || { id };
         const merged = mergeSeedValue(existingData, seedData, force);
         await client.query(
@@ -23614,11 +23670,11 @@ app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, 
       const existingLocals = localsRows.length ? JSON.parse(localsRows[0].value) : {};
       let mergedLocals;
       if (force) {
-        mergedLocals = deepClone(LOCALS_1997_SEED);
+        mergedLocals = deepClone(DEFAULT_SCENARIO_LOCALS_SEED);
       } else {
         const existingCountries = Array.isArray(existingLocals?.countries) ? existingLocals.countries : [];
         const countryMap = new Map(existingCountries.map((c) => [String(c?.country || ""), c]));
-        for (const seedCountry of LOCALS_1997_SEED.countries) {
+        for (const seedCountry of DEFAULT_SCENARIO_LOCALS_SEED.countries) {
           const existingCountry = countryMap.get(seedCountry.country);
           if (!existingCountry) {
             countryMap.set(seedCountry.country, deepClone(seedCountry));
@@ -23668,21 +23724,25 @@ app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, 
       req.session.userId,
       "bodies_locals.seed_1997",
       "seed",
-      "bodies-locals-1997",
-      { force, bodies: beforeBodies, locals: beforeLocals },
+      "bodies-locals-default-scenario",
+      { force, scenarioKey, bodies: beforeBodies, locals: beforeLocals },
       {
         force,
+        scenarioKey,
         bodies: afterBodiesRows.map((r) => ({ id: r.id, ...r.data })),
         locals: afterLocalsRows.length ? JSON.parse(afterLocalsRows[0].value) : null,
       }
     );
 
-    res.json({ ok: true, force });
+    res.json({ ok: true, scenarioKey, force });
   } catch (e) {
-    console.error("[seed-1997-bodies-locals]", e);
-    res.status(500).json({ error: "seed-1997-bodies-locals failed", details: e?.message || "Unknown error" });
+    if (e?.status) return res.status(e.status).json({ error: e.message });
+    console.error("[seed-scenario-bodies-locals]", e);
+    res.status(500).json({ error: "seed-scenario-bodies-locals failed", details: e?.message || "Unknown error" });
   }
-});
+};
+app.post("/api/admin/seed-scenario-bodies-locals", verifyCsrfToken, crudWriteLimit, seedScenarioBodiesLocalsHandler);
+app.post("/api/admin/seed-1997-bodies-locals", verifyCsrfToken, crudWriteLimit, seedScenarioBodiesLocalsHandler);
 
 // ── Cabinet/Shadow Cabinet headline ──────────────────────────────────────────
 app.get("/api/cabinet/headline", crudReadLimit, async (req, res) => {
@@ -25509,18 +25569,23 @@ app.post("/api/staff/internal-tickets/:id/messages", verifyCsrfToken, crudWriteL
   }
 });
 
-// POST /api/admin/seed-1997-factions  (admin/mod only: idempotent seed of 1997 starter factions)
-app.post("/api/admin/seed-1997-factions", verifyCsrfToken, crudWriteLimit, async (req, res) => {
+// POST /api/admin/seed-scenario-factions  (admin/mod only: idempotent seed of the current default scenario factions)
+// POST /api/admin/seed-1997-factions       (legacy alias)
+const seedScenarioFactionsHandler = async (req, res) => {
   try {
     if (!requireAdminOrMod(req, res)) return;
-    const results = await seed1997Factions(req.session.userId || "");
+    const scenarioKey = getRequestedScenarioKey(req);
+    const results = await seedDefaultScenarioFactions(scenarioKey, req.session.userId || "");
     await ensureUnalignedFactionsForPlayableParties();
-    res.json({ ok: true, inserted: results.inserted, skipped: results.skipped });
+    res.json({ ok: true, scenarioKey, inserted: results.inserted, skipped: results.skipped });
   } catch (e) {
-    console.error("[POST /api/admin/seed-1997-factions]", e);
+    if (e?.status) return res.status(e.status).json({ error: e.message });
+    console.error("[POST /api/admin/seed-scenario-factions]", e);
     res.status(500).json({ error: "Server error" });
   }
-});
+};
+app.post("/api/admin/seed-scenario-factions", verifyCsrfToken, crudWriteLimit, seedScenarioFactionsHandler);
+app.post("/api/admin/seed-1997-factions", verifyCsrfToken, crudWriteLimit, seedScenarioFactionsHandler);
 
 // ── Identity / authority legacy repair endpoints ──────────────────────────────
 

@@ -2177,14 +2177,22 @@ export async function apiDeleteConstituency(id) {
   return res.json();
 }
 
-export async function apiInitialize1997Constituencies(confirmOverwrite) {
-  const res = await _fetch(`${API_BASE}/api/admin/constituencies/initialize-1997`, {
+export function getDefaultScenarioKey() {
+  return "1997";
+}
+
+export async function apiInitializeScenarioConstituencies(confirmOverwrite, scenarioKey = getDefaultScenarioKey()) {
+  const res = await _fetch(`${API_BASE}/api/admin/constituencies/initialize-scenario`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ confirm: confirmOverwrite }),
+    body: JSON.stringify({ confirm: confirmOverwrite, scenarioKey }),
   });
   return res.json();
+}
+
+export async function apiInitialize1997Constituencies(confirmOverwrite) {
+  return apiInitializeScenarioConstituencies(confirmOverwrite, "1997");
 }
 
 export async function apiClearConstituencies() {
@@ -2283,14 +2291,18 @@ export async function apiFinalizeElection(id) {
   return res.json();
 }
 
-export async function apiSeedElection1997() {
-  const res = await _fetch(`${API_BASE}/api/admin/elections/seed-1997`, {
+export async function apiSeedScenarioElection(scenarioKey = getDefaultScenarioKey()) {
+  const res = await _fetch(`${API_BASE}/api/admin/elections/seed-scenario`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ scenarioKey }),
   });
   return res.json();
+}
+
+export async function apiSeedElection1997() {
+  return apiSeedScenarioElection("1997");
 }
 
 export async function apiGetElectionBodiesCurrent() {
@@ -3644,30 +3656,41 @@ export async function apiGetPartyFactionClimate(slug, { debug = false } = {}) {
   return res.json();
 }
 
-/** Admin/mod: idempotent seed of 1997 baseline factions for Labour, Conservative, Liberal Democrat */
-export async function apiAdminSeed1997Factions() {
-  const res = await _fetch(`${API_BASE}/api/admin/seed-1997-factions`, {
+/** Admin/mod: idempotent seed of the current default scenario factions (currently 1997). */
+export async function apiAdminSeedScenarioFactions(scenarioKey = getDefaultScenarioKey()) {
+  const res = await _fetch(`${API_BASE}/api/admin/seed-scenario-factions`, {
     method: "POST", credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ scenarioKey }),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `apiAdminSeed1997Factions failed (${res.status})`);
+  if (!res.ok) throw new Error(body.error || `apiAdminSeedScenarioFactions failed (${res.status})`);
   return body;
 }
 
-/** Admin/mod: seed 1997 bodies + locals baseline data (merge by default, force optional). */
-export async function apiAdminSeed1997BodiesLocals(force = false) {
-  const query = force ? "?force=true" : "";
-  const res = await _fetch(`${API_BASE}/api/admin/seed-1997-bodies-locals${query}`, {
+export async function apiAdminSeed1997Factions() {
+  return apiAdminSeedScenarioFactions("1997");
+}
+
+/** Admin/mod: seed default-scenario bodies + locals baseline data (currently 1997). */
+export async function apiAdminSeedScenarioBodiesLocals(force = false, scenarioKey = getDefaultScenarioKey()) {
+  const params = new URLSearchParams();
+  if (force) params.set("force", "true");
+  if (scenarioKey) params.set("scenarioKey", scenarioKey);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const res = await _fetch(`${API_BASE}/api/admin/seed-scenario-bodies-locals${query}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ force: !!force }),
+    body: JSON.stringify({ force: !!force, scenarioKey }),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `apiAdminSeed1997BodiesLocals failed (${res.status})`);
+  if (!res.ok) throw new Error(body.error || `apiAdminSeedScenarioBodiesLocals failed (${res.status})`);
   return body;
+}
+
+export async function apiAdminSeed1997BodiesLocals(force = false) {
+  return apiAdminSeedScenarioBodiesLocals(force, "1997");
 }
 
 /** Admin/mod: totals for other-official arenas (visible bodies + all locals). */

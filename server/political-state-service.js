@@ -10,7 +10,7 @@
  *   - computeFactionStrength / computeFactionCohesion / computeLeadershipPressure
  *   - computeFactionPoliticalState (faction state persistence)
  *   - getPartyFactionClimate (party-level faction climate summary)
- *   - seed1997Factions (admin seed helper for playable parties)
+ *   - seedDefaultScenarioFactions (admin seed helper for playable parties)
  *   - FACTION_PLAYABLE_PARTIES constant
  *
  * All DB-dependent functions import pool from ./db.js so they remain
@@ -34,6 +34,22 @@ import { pool } from "./db.js";
  * authoritative source used by all faction-related logic and API guards.
  */
 export const FACTION_PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
+
+const DEFAULT_SCENARIO_KEY = "1997";
+
+export function getDefaultScenarioKey() {
+  return DEFAULT_SCENARIO_KEY;
+}
+
+function assertSupportedScenarioKey(scenarioKey = DEFAULT_SCENARIO_KEY) {
+  const normalized = String(scenarioKey || DEFAULT_SCENARIO_KEY).trim() || DEFAULT_SCENARIO_KEY;
+  if (normalized !== DEFAULT_SCENARIO_KEY) {
+    const err = new Error(`Unsupported scenarioKey: ${normalized}`);
+    err.status = 400;
+    throw err;
+  }
+  return normalized;
+}
 
 const DOMINANCE_COMPONENT_WEIGHTS = {
   commons: 1.0,
@@ -964,15 +980,17 @@ export async function getPartyFactionClimate(partySlug, { includeDebug = false }
 }
 
 /**
- * Seed editable 1997 baseline factions for the three playable parties.
+ * Seed editable starter factions for the current default scenario.
  * Inserts only if no factions exist for that party yet — safe to call repeatedly.
  * Returns a summary of what was inserted vs. already present.
  *
+ * The app still ships only the 1997 default scenario data in this phase.
  * SEED VALUES — mods/admins can change these after seeding via the control panel.
  * All mp_counts are approximate 1997 estimates; adjust freely in-game.
  */
-export async function seed1997Factions(actorUserId = "") {
-  const SEED_DATA = [
+export async function seedDefaultScenarioFactions(scenarioKey = getDefaultScenarioKey(), actorUserId = "") {
+  assertSupportedScenarioKey(scenarioKey);
+  const DEFAULT_SCENARIO_FACTION_SEED_DATA = [
     // ── Labour (418 seats, May 1997) ─────────────────────────────────────────
     // New Labour swept to power; internal factions reflect Blairite dominance
     // with a sizeable traditional left and eurosceptic minority.
@@ -1082,7 +1100,7 @@ export async function seed1997Factions(actorUserId = "") {
 
   const results = { inserted: [], skipped: [] };
 
-  for (const f of SEED_DATA) {
+  for (const f of DEFAULT_SCENARIO_FACTION_SEED_DATA) {
     // Skip if a faction with this slug already exists for this party
     const { rows: existing } = await pool.query(
       "SELECT id FROM party_factions WHERE party_slug = $1 AND slug = $2",
@@ -1116,4 +1134,8 @@ export async function seed1997Factions(actorUserId = "") {
   }
 
   return results;
+}
+
+export async function seed1997Factions(actorUserId = "") {
+  return seedDefaultScenarioFactions(getDefaultScenarioKey(), actorUserId);
 }

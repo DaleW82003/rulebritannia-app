@@ -52,14 +52,16 @@ The following endpoints are **disabled in production** (`NODE_ENV=production`) u
 | `POST` | `/api/admin/clear-cache` | Truncates all parliamentary content tables |
 | `POST` | `/api/admin/import-snapshot` | Overwrites entire game state from uploaded JSON |
 | `POST` | `/api/admin/repair/character-owner-pointers` | Reconciles character owner pointers by patching data |
-| `POST` | `/api/admin/elections/seed-1997` | Seeds 1997 general election baseline data |
+| `POST` | `/api/admin/elections/seed-scenario` | Seeds the current default scenario general election baseline (currently 1997) |
+| `POST` | `/api/admin/elections/seed-1997` | Legacy alias for the current default scenario election seed |
 | `POST` | `/api/admin/budget/seed` | Seeds 1996–97 budget baseline |
 | `POST` | `/api/admin/reset-baseline` | Wipes all election/constituency data and re-seeds baseline |
 | `POST` | `/api/admin/wipe-content` | Deletes all gameplay content |
 | `POST` | `/api/admin/wipe-with-characters` | Deletes all content AND all characters |
 | `POST` | `/api/admin/seed-demo` | Resets and populates the database with demo data |
 | `POST` | `/api/admin/seed` | Alias for `/api/admin/seed-demo` |
-| `POST` | `/api/admin/constituencies/initialize-1997` | Overwrites all 659 constituencies with 1997 baseline |
+| `POST` | `/api/admin/constituencies/initialize-scenario` | Overwrites all default-scenario constituencies (currently the 659-seat 1997 baseline) |
+| `POST` | `/api/admin/constituencies/initialize-1997` | Legacy alias for the current default scenario constituency initializer |
 | `DELETE` | `/api/admin/constituencies/clear` | Deletes all constituencies |
 
 ### Environment flag
