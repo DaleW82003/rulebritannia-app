@@ -3680,7 +3680,6 @@ export async function apiAdminSeed1997Factions() {
 export async function apiAdminSeedScenarioBodiesLocals(force = false, scenarioKey = getDefaultScenarioKey()) {
   const params = new URLSearchParams();
   if (force) params.set("force", "true");
-  if (scenarioKey) params.set("scenarioKey", scenarioKey);
   const query = params.toString() ? `?${params.toString()}` : "";
   const res = await _fetch(`${API_BASE}/api/admin/seed-scenario-bodies-locals${query}`, {
     method: "POST",
