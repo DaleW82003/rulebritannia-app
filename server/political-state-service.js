@@ -42,7 +42,7 @@ export function getDefaultScenarioKey() {
 }
 
 function assertSupportedScenarioKey(scenarioKey = DEFAULT_SCENARIO_KEY) {
-  const normalized = String(scenarioKey || DEFAULT_SCENARIO_KEY).trim() || DEFAULT_SCENARIO_KEY;
+  const normalized = String(scenarioKey || DEFAULT_SCENARIO_KEY).trim();
   if (normalized !== DEFAULT_SCENARIO_KEY) {
     const err = new Error(`Unsupported scenarioKey: ${normalized}`);
     err.status = 400;

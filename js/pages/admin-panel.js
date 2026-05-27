@@ -3,6 +3,7 @@ import { esc } from "../ui.js";
 import { runSundayRoll } from "../engines/core-engine.js";
 import { saveState } from "../core.js";
 import {
+  DEFAULT_SCENARIO_RESET_LABEL,
   apiLogout, apiGetState, apiGetConfig, apiSaveConfig,
   apiGetSnapshots, apiSaveSnapshot, apiRestoreSnapshot,
   apiGetAuditLog,
@@ -897,7 +898,7 @@ export async function initAdminPanelPage(data) {
         <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 14px;font-size:13px;margin-bottom:14px;">
           <b>What will be wiped:</b> bills, motions, statements, regulations, question time questions,
           press items, polling entries.<br>
-          <b>What will be reset:</b> sim clock &#8594; default scenario start (currently August 1997), sim state &#8594; paused, app state pointer &#8594; fresh empty snapshot.<br>
+          <b>What will be reset:</b> sim clock &#8594; default scenario start (currently ${DEFAULT_SCENARIO_RESET_LABEL}), sim state &#8594; paused, app state pointer &#8594; fresh empty snapshot.<br>
           <b>What will NOT be touched:</b> user accounts, pending registrations, audit log, Discourse credentials, app config.
         </div>
 

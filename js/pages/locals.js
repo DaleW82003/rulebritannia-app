@@ -1,4 +1,4 @@
-import { apiAdminSeedScenarioBodiesLocals, apiGetBodies, apiGetLocals, apiSaveLocals } from "../api.js";
+import { DEFAULT_SCENARIO_SEED_LABEL, apiAdminSeedScenarioBodiesLocals, apiGetBodies, apiGetLocals, apiSaveLocals } from "../api.js";
 import { setHTML, esc } from "../ui.js";
 import { canManage } from "../permissions.js";
 
@@ -119,7 +119,7 @@ function bindEditor(data) {
   panel.insertAdjacentHTML("afterbegin", `
     <div class="muted-block" style="margin-bottom:12px;">
       <b style="font-size:.9em;">Seed Default Scenario Bodies/Locals</b>
-      <p style="margin:6px 0 8px;">Seed baseline bodies and locals data for the current default scenario (currently May 1997). Merge is non-destructive; force overwrite replaces existing seeded fields.</p>
+      <p style="margin:6px 0 8px;">Seed baseline bodies and locals data for the current default scenario (currently ${DEFAULT_SCENARIO_SEED_LABEL}). Merge is non-destructive; force overwrite replaces existing seeded fields.</p>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <button class="btn" type="button" id="locals-seed-scenario-merge">Seed (merge)</button>
         <button class="btn danger" type="button" id="locals-seed-scenario-force">Seed (force overwrite)</button>

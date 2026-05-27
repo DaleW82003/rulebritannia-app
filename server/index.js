@@ -19999,12 +19999,12 @@ const scenarioElectionSeedHandler = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
-app.post("/api/admin/elections/seed-scenario", electionsApiWriteLimit, async (req, res) => {
+app.post("/api/admin/elections/seed-scenario", verifyCsrfToken, electionsApiWriteLimit, async (req, res) => {
   if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
   if (!requireAdminOrMod(req, res)) return;
   return scenarioElectionSeedHandler(req, res);
 });
-app.post("/api/admin/elections/seed-1997", electionsApiWriteLimit, async (req, res) => {
+app.post("/api/admin/elections/seed-1997", verifyCsrfToken, electionsApiWriteLimit, async (req, res) => {
   if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
   if (!requireAdminOrMod(req, res)) return;
   return scenarioElectionSeedHandler(req, res);
@@ -20452,8 +20452,8 @@ const initializeScenarioConstituenciesHandler = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
-app.post("/api/admin/constituencies/initialize-scenario", constWriteLimit, initializeScenarioConstituenciesHandler);
-app.post("/api/admin/constituencies/initialize-1997", constWriteLimit, initializeScenarioConstituenciesHandler);
+app.post("/api/admin/constituencies/initialize-scenario", verifyCsrfToken, constWriteLimit, initializeScenarioConstituenciesHandler);
+app.post("/api/admin/constituencies/initialize-1997", verifyCsrfToken, constWriteLimit, initializeScenarioConstituenciesHandler);
 
 app.delete("/api/admin/constituencies/clear", constWriteLimit, async (req, res) => {
   try {

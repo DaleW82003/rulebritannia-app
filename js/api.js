@@ -2177,8 +2177,12 @@ export async function apiDeleteConstituency(id) {
   return res.json();
 }
 
+export const DEFAULT_SCENARIO_KEY = "1997";
+export const DEFAULT_SCENARIO_SEED_LABEL = "May 1997";
+export const DEFAULT_SCENARIO_RESET_LABEL = "August 1997";
+
 export function getDefaultScenarioKey() {
-  return "1997";
+  return DEFAULT_SCENARIO_KEY;
 }
 
 export async function apiInitializeScenarioConstituencies(confirmOverwrite, scenarioKey = getDefaultScenarioKey()) {

@@ -17,6 +17,7 @@ import {
   apiGetSim,
   apiGetModsMessage, apiSetModsMessage,
   apiGetAdminPartyFactions, apiCreatePartyFaction, apiUpdatePartyFaction, apiUpdatePartyFactionAllocation,
+  DEFAULT_SCENARIO_KEY,
   apiAdminSeedScenarioFactions,
   apiGetOtherOfficialsArenasTotals, apiGetOtherOfficialsFactionAllocations, apiPutOtherOfficialsFactionAllocations,
   apiAdminIpcIntegrityCheck, apiAdminTriggerFactionFreeze,
@@ -1331,7 +1332,7 @@ export async function initControlPanelPage(data) {
       <div style="margin-bottom:12px;padding:10px 12px;background:var(--bg-alt,#f7f7f7);border-radius:6px;border:1px solid var(--border,#ddd);">
         <b style="font-size:.9em;">Default Scenario Setup</b>
         <p class="muted" style="font-size:.82em;margin:4px 0 8px;">
-          Seeds the starter factions for the current default scenario (currently 1997) for Labour, Conservative, and Liberal Democrat.
+          Seeds the starter factions for the current default scenario (currently ${DEFAULT_SCENARIO_KEY}) for Labour, Conservative, and Liberal Democrat.
           This is idempotent — existing factions with the same slug are not overwritten.
           Seed values (MP counts, alignment, rebellion bias) are editable via the tiles above after seeding.
         </p>
