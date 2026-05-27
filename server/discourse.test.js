@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse, closeTopic, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers } from "./discourse.js";
+import { buildSsoPayload, verifySsoPayload, verifyConsumerRequest, buildConsumerResponse, closeTopic, resolveGroupIds, getGroupMembers, addGroupMembers, removeGroupMembers, normalizeDiscourseUsernames, resolveDiscourseSyncGroup, diffDiscourseGroupMembers } from "./discourse.js";
 import { DISCOURSE_GROUP_MAP } from "./roles.js";
 
 // ── buildSsoPayload ───────────────────────────────────────────────────────────
@@ -418,6 +418,38 @@ test("addGroupMembers uses groupId in URL when provided", async () => {
   }
 });
 
+test("normalizeDiscourseUsernames trims, removes empty values and de-duplicates", () => {
+  assert.deepEqual(
+    normalizeDiscourseUsernames([" alice ", "", "alice", " bob ", null, undefined, "   "]),
+    ["alice", "bob"]
+  );
+});
+
+test("diffDiscourseGroupMembers ignores duplicate and empty usernames", () => {
+  assert.deepEqual(
+    diffDiscourseGroupMembers({
+      desiredUsernames: ["alice", " alice ", "", "bob", null],
+      currentMembers: [{ username: "alice" }, { username: "carol" }, { username: " carol " }, { username: "" }],
+    }),
+    { toAdd: ["bob"], toRemove: ["carol"] }
+  );
+});
+
+test("resolveDiscourseSyncGroup warns and skips unknown group names", () => {
+  const warnings = [];
+  const result = resolveDiscourseSyncGroup({
+    groupName: "missing-group",
+    groupIdMap: new Map([["staff", 5]]),
+    warn: (msg) => warnings.push(msg),
+  });
+
+  assert.deepEqual(result, {
+    groupId: null,
+    skipped: "Unknown Discourse group name: missing-group",
+  });
+  assert.deepEqual(warnings, ["Unknown Discourse group name: missing-group"]);
+});
+
 // ── removeGroupMembers — groupId in URL ───────────────────────────────────────
 
 test("removeGroupMembers uses groupId in URL when provided", async () => {
@@ -588,6 +620,41 @@ test("addGroupMembers sends Api-Key, Api-Username and Accept: application/json h
     assert.equal(capturedInit?.headers?.["Api-Key"],      "mykey");
     assert.equal(capturedInit?.headers?.["Api-Username"], "myuser");
     assert.equal(capturedInit?.headers?.["Accept"],       "application/json");
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("addGroupMembers filters duplicate and empty usernames before the API call", async () => {
+  const saved = globalThis.fetch;
+  let capturedBody = null;
+  globalThis.fetch = async (_url, init) => {
+    capturedBody = JSON.parse(init.body);
+    return { ok: true };
+  };
+  try {
+    await addGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "staff", groupId: 5, usernames: [" alice ", "", "alice", undefined, "bob", "   "],
+    });
+    assert.deepEqual(capturedBody, { usernames: "alice,bob" });
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test("addGroupMembers treats HTTP 422 already-a-member responses as success", async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 422,
+    text: async () => "{\"errors\":[\"alice is already a member\"]}",
+  });
+  try {
+    await assert.doesNotReject(() => addGroupMembers({
+      baseUrl: "https://forum.example.com", apiKey: "k", apiUsername: "u",
+      groupName: "staff", groupId: 9, usernames: ["alice"],
+    }));
   } finally {
     globalThis.fetch = saved;
   }

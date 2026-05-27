@@ -157,6 +157,61 @@ function groupUrlPath(groupName, groupId) {
 }
 
 /**
+ * Normalise a list of Discourse usernames before making API calls.
+   *
+ * @param {Array<string|null|undefined>} usernames
+ * @returns {string[]}
+ */
+export function normalizeDiscourseUsernames(usernames) {
+  const clean = [];
+  const seen = new Set();
+  for (const value of Array.isArray(usernames) ? usernames : []) {
+    if (typeof value !== "string") continue;
+    const username = value.trim();
+    if (!username || seen.has(username)) continue;
+    seen.add(username);
+    clean.push(username);
+  }
+  return clean;
+}
+
+/**
+ * Resolve a Discourse sync target group, warning when a mapped group is absent.
+ *
+ * @param {object} opts
+ * @param {string} opts.groupName
+ * @param {Map<string, number>} opts.groupIdMap
+ * @param {Function} [opts.warn]
+ * @returns {{ groupId: number|null, skipped: string|null }}
+ */
+export function resolveDiscourseSyncGroup({ groupName, groupIdMap, warn = (msg) => console.warn(msg) }) {
+  const groupId = groupIdMap.get(groupName);
+  if (groupId != null) return { groupId, skipped: null };
+  const skipped = `Unknown Discourse group name: ${groupName}`;
+  warn(skipped);
+  return { groupId: null, skipped };
+}
+
+/**
+ * Compute membership changes for a Discourse group.
+ *
+ * @param {object} opts
+ * @param {Array<string|null|undefined>} opts.desiredUsernames
+ * @param {Array<{ username: string|null|undefined }>} opts.currentMembers
+ * @returns {{ toAdd: string[], toRemove: string[] }}
+ */
+export function diffDiscourseGroupMembers({ desiredUsernames, currentMembers }) {
+  const desired = normalizeDiscourseUsernames(desiredUsernames);
+  const current = normalizeDiscourseUsernames((currentMembers || []).map((member) => member?.username));
+  const desiredSet = new Set(desired);
+  const currentSet = new Set(current);
+  return {
+    toAdd: desired.filter((username) => !currentSet.has(username)),
+    toRemove: current.filter((username) => !desiredSet.has(username)),
+  };
+}
+
+/**
  * Perform a fetch with automatic retry on HTTP 429 (rate-limit) responses.
  *
  * On 429 the helper attempts to read the JSON body to extract
@@ -377,7 +432,8 @@ export async function getGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
  * @returns {Promise<void>}
  */
 export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames, _sleep, _warn }) {
-  if (!usernames.length) return;
+  const cleanUsernames = normalizeDiscourseUsernames(usernames);
+  if (!cleanUsernames.length) return;
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
   const res = await discourseApiRequest(`${cleanBase}/groups/${groupPath}/members.json`, {
@@ -389,10 +445,11 @@ export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
       "Content-Type": "application/json",
       "Accept":       "application/json",
     },
-    body: JSON.stringify({ usernames: usernames.join(",") }),
+    body: JSON.stringify({ usernames: cleanUsernames.join(",") }),
   }, { sleep: _sleep, warn: _warn });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    if (res.status === 422 && /already a member/i.test(text)) return;
     throw new Error(`addGroupMembers(${groupName}) failed: HTTP ${res.status} ${text}`);
   }
 }
@@ -411,7 +468,8 @@ export async function addGroupMembers({ baseUrl, apiKey, apiUsername, groupName,
  * @returns {Promise<void>}
  */
 export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupName, groupId, usernames, _sleep, _warn }) {
-  if (!usernames.length) return;
+  const cleanUsernames = normalizeDiscourseUsernames(usernames);
+  if (!cleanUsernames.length) return;
   const cleanBase = (baseUrl || "").trim().replace(/\/$/, "");
   const groupPath = groupUrlPath(groupName, groupId);
   const res = await discourseApiRequest(`${cleanBase}/groups/${groupPath}/members.json`, {
@@ -423,7 +481,7 @@ export async function removeGroupMembers({ baseUrl, apiKey, apiUsername, groupNa
       "Content-Type": "application/json",
       "Accept":       "application/json",
     },
-    body: JSON.stringify({ usernames: usernames.join(",") }),
+    body: JSON.stringify({ usernames: cleanUsernames.join(",") }),
   }, { sleep: _sleep, warn: _warn });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -567,4 +625,3 @@ export function verifySsoPayload({ ssoSecret, sso, sig, expectedNonce }) {
     groups:     (params.get("groups") || "").split(",").filter(Boolean),
   };
 }
-
