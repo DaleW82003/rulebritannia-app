@@ -19,6 +19,7 @@ import {
   apiAdminGetUsers, apiAdminGetCharacters,
   apiAdminAssignCharacterOwner, apiAdminSetUserActiveCharacter,
   apiAdminAssignNpcManager,
+  apiAdminResendVerification, apiAdminSuspendUser, apiAdminDeleteUser,
   apiGetHealth,
   apiGetAdminSnapshotStatus,
   apiGetSimFreeze, apiSetSimFreeze,
@@ -70,6 +71,7 @@ export async function initAdminPanelPage(data) {
   let debateSyncResults = {}; // map kind -> last sync result
   let pendingRegistrations = []; // pending registration applications
   let simFreeze = { is_frozen: false, reason: null, updated_at: null };
+  let adminUsers = []; // all user accounts for User Management section
 
   // ── User–Character Management state ─────────────────────────────────────
   let charMgmtUsers = [];        // users with active_character info
@@ -943,32 +945,53 @@ export async function initAdminPanelPage(data) {
   }
 
   function renderUserPermissions() {
-    if (!syncPreview.length) {
+    if (!adminUsers.length) {
       return `
-        <section class="panel" style="max-width:900px;margin-top:12px;">
-          <h2 style="margin-top:0;">User Permissions</h2>
-          <p style="font-size:13px;color:#888;">No users loaded. Refresh the Discourse Sync Preview above to populate.</p>
+        <section class="panel" style="max-width:1100px;margin-top:12px;" id="user-permissions-section">
+          <h2 style="margin-top:0;">User Management</h2>
+          <p style="font-size:13px;color:#888;">No users loaded.</p>
         </section>`;
     }
 
-    const rows = syncPreview.map((u) => `
-      <tr style="border-bottom:1px solid #eee;">
+    const rows = adminUsers.map((u) => {
+      const statusBadge = u.suspended
+        ? `<span style="background:#c00;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;">Suspended</span>`
+        : `<span style="background:#2a7a2a;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;">Active</span>`;
+      const verifiedBadge = u.emailVerified
+        ? `<span style="color:#2a7a2a;font-size:12px;">✓ Verified</span>`
+        : `<span style="color:#c00;font-size:12px;">✗ Unverified</span>`;
+      return `
+      <tr style="border-bottom:1px solid #eee;" data-userid="${esc(u.id)}">
         <td style="padding:6px 10px;font-size:13px;">${esc(u.username)}</td>
         <td style="padding:6px 10px;font-size:12px;">${esc(u.email)}</td>
         <td style="padding:6px 10px;font-size:12px;">${esc((u.roles || []).join(", ") || "—")}</td>
-        <td style="padding:6px 10px;">
-          <button class="btn btn-edit-user-roles" data-userid="${esc(u.userId)}"
+        <td style="padding:6px 10px;">${verifiedBadge}</td>
+        <td style="padding:6px 10px;">${statusBadge}</td>
+        <td style="padding:6px 10px;white-space:nowrap;display:flex;gap:4px;flex-wrap:wrap;">
+          <button class="btn btn-edit-user-roles" data-userid="${esc(u.id)}"
                   data-username="${esc(u.username)}"
                   data-roles="${esc(JSON.stringify(u.roles || []))}"
-                  type="button" style="font-size:12px;padding:2px 8px;">Edit Roles</button>
+                  type="button" style="font-size:11px;padding:2px 7px;">Edit Roles</button>
+          ${!u.emailVerified ? `
+          <button class="btn btn-resend-verification" data-userid="${esc(u.id)}"
+                  data-username="${esc(u.username)}"
+                  type="button" style="font-size:11px;padding:2px 7px;">Resend Verification</button>` : ""}
+          <button class="btn btn-toggle-suspend ${u.suspended ? "" : "danger"}" data-userid="${esc(u.id)}"
+                  data-username="${esc(u.username)}"
+                  data-suspended="${u.suspended ? "true" : "false"}"
+                  type="button" style="font-size:11px;padding:2px 7px;">${u.suspended ? "Unsuspend" : "Suspend"}</button>
+          <button class="btn danger btn-delete-user" data-userid="${esc(u.id)}"
+                  data-username="${esc(u.username)}"
+                  type="button" style="font-size:11px;padding:2px 7px;">Delete</button>
         </td>
-      </tr>`).join("");
+      </tr>`;
+    }).join("");
 
     return `
-      <section class="panel" style="max-width:900px;margin-top:12px;" id="user-permissions-section">
-        <h2 style="margin-top:0;">User Permissions</h2>
+      <section class="panel" style="max-width:1100px;margin-top:12px;" id="user-permissions-section">
+        <h2 style="margin-top:0;">User Management</h2>
         <p style="font-size:13px;color:#555;margin-top:0;">
-          Assign admin, mod, and speaker roles to live users.
+          Manage user accounts — assign roles, resend verification, suspend, or remove users.
         </p>
         <div style="overflow-x:auto;">
           <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -976,7 +999,9 @@ export async function initAdminPanelPage(data) {
               <tr style="border-bottom:2px solid #ccc;">
                 <th style="text-align:left;padding:6px 10px;">Username</th>
                 <th style="text-align:left;padding:6px 10px;">Email</th>
-                <th style="text-align:left;padding:6px 10px;">Current Roles</th>
+                <th style="text-align:left;padding:6px 10px;">Roles</th>
+                <th style="text-align:left;padding:6px 10px;">Email</th>
+                <th style="text-align:left;padding:6px 10px;">Status</th>
                 <th style="padding:6px 10px;"></th>
               </tr>
             </thead>
@@ -1921,6 +1946,7 @@ export async function initAdminPanelPage(data) {
         const currentRoles = JSON.parse(btn.dataset.roles || "[]");
         const editor = host.querySelector("#user-role-editor");
         if (!editor) return;
+        editor.dataset.editorUserId = userRoleEditorUserId;
         editor.style.display = "block";
         const nameEl = editor.querySelector("#user-role-editor-username");
         if (nameEl) nameEl.textContent = username;
@@ -1938,20 +1964,82 @@ export async function initAdminPanelPage(data) {
     });
 
     host.querySelector("#btn-save-user-roles")?.addEventListener("click", async () => {
-      if (!userRoleEditorUserId) return;
+      const editor = host.querySelector("#user-role-editor");
+      const targetId = editor?.dataset.editorUserId || userRoleEditorUserId;
+      if (!targetId) return;
       const statusEl = host.querySelector("#user-role-editor-status");
       const roles = [...host.querySelectorAll(".user-role-checkbox:checked")].map((cb) => cb.value);
       try {
         if (statusEl) statusEl.textContent = "Saving…";
-        await apiSetUserRoles(userRoleEditorUserId, roles);
-        logAction({ action: "roles-assigned", target: userRoleEditorUserId, details: { roles } });
+        await apiSetUserRoles(targetId, roles);
+        logAction({ action: "roles-assigned", target: targetId, details: { roles } });
         if (statusEl) statusEl.textContent = "✓ Roles saved.";
-        await loadSyncPreview();
+        await Promise.all([loadSyncPreview(), loadAdminUsers()]);
         render(status);
       } catch (err) {
         toastError(`Save roles: ${err.message}`);
         if (statusEl) statusEl.textContent = `Error: ${err.message}`;
       }
+    });
+
+    // ── Resend Verification ──────────────────────────────────────────────────
+    host.querySelectorAll(".btn-resend-verification").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const userId   = btn.dataset.userid;
+        const username = btn.dataset.username || userId;
+        if (!confirm(`Resend verification email to ${username}?`)) return;
+        btn.disabled = true;
+        try {
+          const result = await apiAdminResendVerification(userId);
+          toastSuccess(result.message || "Verification email sent.");
+        } catch (err) {
+          toastError(`Resend failed: ${err.message}`);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // ── Suspend / Unsuspend ──────────────────────────────────────────────────
+    host.querySelectorAll(".btn-toggle-suspend").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const userId    = btn.dataset.userid;
+        const username  = btn.dataset.username || userId;
+        const isSuspended = btn.dataset.suspended === "true";
+        const action    = isSuspended ? "unsuspend" : "suspend";
+        if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} user ${username}?`)) return;
+        btn.disabled = true;
+        try {
+          const result = await apiAdminSuspendUser(userId, !isSuspended);
+          toastSuccess(result.message || `User ${action}ed.`);
+          await loadAdminUsers();
+          render("");
+        } catch (err) {
+          toastError(`${action} failed: ${err.message}`);
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // ── Delete User ──────────────────────────────────────────────────────────
+    host.querySelectorAll(".btn-delete-user").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const userId   = btn.dataset.userid;
+        const username = btn.dataset.username || userId;
+        if (!confirm(`Delete user "${username}"?\n\nThis will permanently remove their account. Their audit log history will be preserved. This cannot be undone.`)) return;
+        // Second confirmation for safety
+        if (!confirm(`Final confirmation: permanently delete "${username}"?`)) return;
+        btn.disabled = true;
+        try {
+          const result = await apiAdminDeleteUser(userId);
+          toastSuccess(result.message || "User deleted.");
+          await loadAdminUsers();
+          render("");
+        } catch (err) {
+          toastError(`Delete failed: ${err.message}`);
+          btn.disabled = false;
+        }
+      });
     });
   }
 
@@ -1974,7 +2062,17 @@ export async function initAdminPanelPage(data) {
     }
   }
 
-  await Promise.all([loadConfig(), loadDiscourseConfig(), loadDiscourseCategoryIds(), loadSnapshots(), loadSnapshotStatus(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard(), loadPendingRegistrations(), loadSimFreeze()]);
+  async function loadAdminUsers() {
+    try {
+      const result = await apiAdminGetUsers();
+      adminUsers = result?.users || [];
+    } catch (err) {
+      console.error("Failed to load admin users:", err);
+      adminUsers = [];
+    }
+  }
+
+  await Promise.all([loadConfig(), loadDiscourseConfig(), loadDiscourseCategoryIds(), loadSnapshots(), loadSnapshotStatus(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard(), loadPendingRegistrations(), loadSimFreeze(), loadAdminUsers()]);
   render("");
 
   // Event delegation for pending registration approve/reject buttons

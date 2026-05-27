@@ -2477,6 +2477,40 @@ export async function apiAdminGetUsers() {
   return res.json();
 }
 
+export async function apiAdminResendVerification(userId) {
+  const res = await _fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}/resend-verification`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAdminResendVerification failed (${res.status})`);
+  return body;
+}
+
+export async function apiAdminSuspendUser(userId, suspended) {
+  const res = await _fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}/suspend`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ suspended }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAdminSuspendUser failed (${res.status})`);
+  return body;
+}
+
+export async function apiAdminDeleteUser(userId) {
+  const res = await _fetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { ...csrfHeaders() },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiAdminDeleteUser failed (${res.status})`);
+  return body;
+}
+
 export async function apiAdminGetCharacters(params = {}) {
   const qs = new URLSearchParams();
   if (params.owned !== undefined) qs.set("owned", params.owned);
