@@ -3663,6 +3663,13 @@ export async function apiGetPartyFactionClimate(slug, { debug = false } = {}) {
   return res.json();
 }
 
+/** Admin: list available scenario manifests with summary info. */
+export async function apiListAdminScenarios() {
+  const res = await _fetch(`${API_BASE}/api/admin/scenarios`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiListAdminScenarios failed (${res.status})`); }
+  return res.json();
+}
+
 /** Admin/mod: idempotent seed of the current default scenario factions (currently 1997). */
 export async function apiAdminSeedScenarioFactions(scenarioKey = getDefaultScenarioKey()) {
   const res = await _fetch(`${API_BASE}/api/admin/seed-scenario-factions`, {

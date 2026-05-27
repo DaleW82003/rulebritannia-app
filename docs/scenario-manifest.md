@@ -303,3 +303,67 @@ always targets the default 1997 scenario.
 - Cabinet/shadow cabinet, party-leader, NPC, and starting-news/polling defaults
   are still global runtime concerns; later phases should move them behind
   scenario-owned seed files or initializer logic.
+
+---
+
+## Admin Scenario Initialization (Phase 6)
+
+### Overview
+
+Admins can initialize or reseed all world baseline data from the Admin Panel
+without touching the server CLI or running individual seed endpoints manually.
+
+### How to use
+
+1. Navigate to **Admin Panel** (`/admin-panel.html`).
+2. Scroll to the **World Initialization — Scenario Seeding** section (between
+   the Maintenance section and the Danger Zone).
+3. Select a scenario from the dropdown. Currently only **May 1997 General
+   Election** is available.
+4. Read the description and confirmation warning.
+5. Type `INITIALIZE SCENARIO 1997` (substituting the key shown) in the
+   confirmation box.
+6. Click **Initialize Scenario**.
+7. A browser confirm dialog will appear — accept it to proceed.
+8. The panel shows per-step progress as each seed step runs:
+   - ✓ / ✗ Election record
+   - ✓ / ✗ Constituencies
+   - ✓ / ✗ Budget baseline
+   - ✓ / ✗ Party factions
+   - ✓ / ✗ Bodies & locals
+9. A toast notification reports overall success or failure.
+
+### Safety protections
+
+- Typed confirmation string (`INITIALIZE SCENARIO <key>`) must match exactly
+  before the button becomes functional.
+- A browser `window.confirm()` dialog provides a second explicit gate.
+- All five seed steps are idempotent — running them on an already-seeded world
+  adds missing data without destroying existing rows, **except** for the
+  constituencies step which wipes and reloads the full constituency table.
+- Per-step results are displayed so failures are immediately visible.
+
+### API
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| `GET` | `/api/admin/scenarios` | Admin | Returns `{ scenarios: [...] }` with manifest summary fields: `key`, `title`, `description`, `status`, `startDate`, `clockDefault`, `playableParties`, `isDefault`. No `isDevSeedAllowed` gate (read-only). |
+
+The individual seed endpoints called by the UI remain unchanged:
+
+| Method | Path | Auth | Gated by `isDevSeedAllowed` |
+|--------|------|------|----------------------------|
+| `POST` | `/api/admin/elections/seed-scenario` | Admin/Mod | Yes |
+| `POST` | `/api/admin/constituencies/initialize-scenario` | Admin/Mod/Speaker | Yes |
+| `POST` | `/api/admin/budget/seed` | Admin | Yes |
+| `POST` | `/api/admin/seed-scenario-factions` | Admin/Mod | Yes |
+| `POST` | `/api/admin/seed-scenario-bodies-locals` | Admin/Mod | Yes |
+
+### Limitations (Phase 6 scope)
+
+- Only the `1997` scenario is currently available. Adding a new scenario key
+  requires authoring all seed files and updating `assertSupportedScenarioKey`
+  in `server/index.js`.
+- The initialization flow does **not** seed demo polling data, characters,
+  government formation, party leaders, or NPC rosters. Those remain manual or
+  handled by later phases.

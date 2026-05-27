@@ -23,7 +23,7 @@ import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_RO
 import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-helpers.js";
 import { fireRecompute, awaitedRecompute, createRecomputeContext, buildRecomputeResponseMetadata } from "./recompute-helpers.js";
 import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, getDefaultScenarioKey, seedDefaultScenarioFactions } from "./political-state-service.js";
-import { loadScenarioManifest, loadScenarioWorldSeed, resolveManifestPath } from "./scenario-manifest-loader.js";
+import { loadScenarioManifest, loadScenarioWorldSeed, resolveManifestPath, listScenarioKeys } from "./scenario-manifest-loader.js";
 import { seedPredefinedGuides } from "./guides-seed.js";
 import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb, batchEnrichPlayersWithSimJoinDates } from "./division-helpers.js";
 import { resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary } from "./finance-service.js";
@@ -20065,6 +20065,38 @@ app.post("/api/elections/:id/finalize", electionsApiWriteLimit, async (req, res)
     res.json({ ok: true, appliedCount: changes.length });
   } catch (e) {
     console.error("[POST /api/elections/:id/finalize]", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── Scenario Admin ────────────────────────────────────────────────────────────
+// GET /api/admin/scenarios — admin: list available scenario manifests with summary info
+app.get("/api/admin/scenarios", async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+    const keys = listScenarioKeys();
+    const defaultKey = getDefaultScenarioKey();
+    const scenarios = keys.map((key) => {
+      try {
+        const m = loadScenarioManifest(key);
+        return {
+          key:             m.key,
+          title:           m.title,
+          description:     m.description,
+          status:          m.status,
+          startDate:       m.startDate,
+          clockDefault:    m.clockDefault,
+          playableParties: m.playableParties || [],
+          isDefault:       key === defaultKey,
+        };
+      } catch (err) {
+        console.warn(`[GET /api/admin/scenarios] Failed to load manifest for key "${key}":`, err.message);
+        return { key, title: key, description: "", status: "unknown", playableParties: [], isDefault: key === defaultKey };
+      }
+    });
+    res.json({ ok: true, scenarios });
+  } catch (e) {
+    console.error("[GET /api/admin/scenarios]", e);
     res.status(500).json({ error: "Server error" });
   }
 });

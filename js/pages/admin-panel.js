@@ -25,6 +25,12 @@ import {
   apiGetAdminSnapshotStatus,
   apiGetSimFreeze, apiSetSimFreeze,
   apiClockStart,
+  apiListAdminScenarios,
+  apiSeedScenarioElection,
+  apiInitializeScenarioConstituencies,
+  apiAdminSeedScenarioFactions,
+  apiAdminSeedScenarioBodiesLocals,
+  apiAdminSeedBudget,
 } from "../api.js";
 import { logAction } from "../audit.js";
 import { toastError } from "../components/toast.js";
@@ -73,6 +79,7 @@ export async function initAdminPanelPage(data) {
   let pendingRegistrations = []; // pending registration applications
   let simFreeze = { is_frozen: false, reason: null, updated_at: null };
   let adminUsers = []; // all user accounts for User Management section
+  let availableScenarios = []; // scenario manifests for scenario initialization section
 
   // ── User–Character Management state ─────────────────────────────────────
   let charMgmtUsers = [];        // users with active_character info
@@ -886,6 +893,65 @@ export async function initAdminPanelPage(data) {
       </section>`;
   }
 
+  function renderScenarioInitSection() {
+    const defaultScenario = availableScenarios.find((s) => s.isDefault) || availableScenarios[0] || null;
+    const optionsHtml = availableScenarios.length
+      ? availableScenarios.map((s) => {
+          const label = s.isDefault ? `${esc(s.title)} (default)` : esc(s.title);
+          return `<option value="${esc(s.key)}" ${s.isDefault ? "selected" : ""}>${label}</option>`;
+        }).join("")
+      : `<option value="1997" selected>May 1997 General Election (default)</option>`;
+
+    const descriptionHtml = availableScenarios.length
+      ? availableScenarios.map((s) => `
+          <div class="scenario-desc" data-scenario-key="${esc(s.key)}" style="${s.isDefault ? "" : "display:none;"}">
+            <p style="margin:4px 0 6px;font-size:13px;color:#444;">${esc(s.description || "")}</p>
+            <p style="margin:0;font-size:12px;color:#666;">
+              <strong>Playable parties:</strong> ${esc((s.playableParties || []).join(", ") || "—")}
+              &nbsp;|&nbsp;
+              <strong>Status:</strong> ${esc(s.status || "—")}
+            </p>
+          </div>`).join("")
+      : `<p style="margin:4px 0;font-size:13px;color:#444;">1997 UK General Election. Labour landslide. Simulation begins August 1997.</p>`;
+
+    return `
+      <section class="panel" style="max-width:700px;margin-top:12px;border:2px solid #2c5aa0;background:#f6f9ff;">
+        <h2 style="margin-top:0;color:#2c5aa0;">&#127758; World Initialization &#8212; Scenario Seeding</h2>
+        <p style="font-size:13px;color:#555;margin-top:0;">
+          Select a scenario and run <strong>Initialize Scenario</strong> to seed (or reseed) all world baseline data from the
+          chosen scenario seed files. This covers five steps: election record, constituencies, budget baseline,
+          party factions, and bodies/locals. All steps are <em>idempotent</em> — safe to run on a fresh or already-seeded world.
+        </p>
+
+        <div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;padding:10px 14px;font-size:13px;margin-bottom:14px;">
+          <b>What will be seeded:</b> election record (May 1997), all 659 constituencies, 1996–97 budget baseline,
+          party faction seeds, and bodies/locals baseline.<br>
+          <b>Existing content is overwritten</b> for constituencies; other steps add missing data without destroying existing rows.<br>
+          <b>What will NOT be touched:</b> characters, user accounts, sim content (bills, motions, etc.), audit log.
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label for="scenario-init-select" style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">Select scenario</label>
+          <select id="scenario-init-select" style="padding:5px 8px;font-size:13px;border:1px solid #aac;border-radius:4px;min-width:280px;">
+            ${optionsHtml}
+          </select>
+        </div>
+
+        <div id="scenario-init-description" style="margin-bottom:14px;">
+          ${descriptionHtml}
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+          <input id="scenario-init-confirm-input" type="text"
+                 placeholder="Type INITIALIZE SCENARIO ${esc(defaultScenario?.key || "1997")} to confirm"
+                 style="flex:1;min-width:300px;padding:4px 8px;border:1px solid #2c5aa0;border-radius:4px;font-size:13px;" />
+          <button class="btn" id="btn-scenario-init" type="button"
+                  style="background:#2c5aa0;color:#fff;border-color:#2c5aa0;white-space:nowrap;">Initialize Scenario</button>
+        </div>
+        <div id="scenario-init-status" style="font-size:13px;margin-top:8px;"></div>
+      </section>`;
+  }
+
   function renderDangerZone() {
     return `
       <section class="panel" style="max-width:700px;margin-top:12px;border:2px solid #c00;background:#fff8f8;">
@@ -1152,6 +1218,8 @@ export async function initAdminPanelPage(data) {
       ${renderSystemHealthSection()}
 
       ${renderMaintenanceSection()}
+
+      ${renderScenarioInitSection()}
 
       ${renderDangerZone()}
 
@@ -1886,6 +1954,74 @@ export async function initAdminPanelPage(data) {
       }
     });
 
+    // ── Scenario Init section ──────────────────────────────────────────────────
+
+    const scenarioSelect = host.querySelector("#scenario-init-select");
+    const scenarioConfirmInput = host.querySelector("#scenario-init-confirm-input");
+
+    // Update description and confirm placeholder when scenario changes
+    scenarioSelect?.addEventListener("change", () => {
+      const key = scenarioSelect.value;
+      host.querySelectorAll(".scenario-desc").forEach((el) => {
+        el.style.display = el.dataset.scenarioKey === key ? "" : "none";
+      });
+      if (scenarioConfirmInput) {
+        scenarioConfirmInput.placeholder = `Type INITIALIZE SCENARIO ${key} to confirm`;
+        scenarioConfirmInput.value = "";
+      }
+      const statusEl = host.querySelector("#scenario-init-status");
+      if (statusEl) statusEl.textContent = "";
+    });
+
+    host.querySelector("#btn-scenario-init")?.addEventListener("click", async () => {
+      const key = scenarioSelect?.value || "1997";
+      const expectedConfirm = `INITIALIZE SCENARIO ${key}`;
+      const statusEl = host.querySelector("#scenario-init-status");
+
+      if (scenarioConfirmInput?.value !== expectedConfirm) {
+        if (statusEl) statusEl.textContent = `Type ${expectedConfirm} in the box above to confirm.`;
+        return;
+      }
+      if (!confirm(`⚠️ Initialize all world seed data from scenario "${key}"? Constituencies will be overwritten. Other steps add missing data without destroying existing rows. Continue?`)) return;
+
+      const btn = host.querySelector("#btn-scenario-init");
+      if (btn) { btn.disabled = true; btn.textContent = "Initializing…"; }
+      if (statusEl) statusEl.innerHTML = "";
+
+      const steps = [
+        { label: "Election record",   fn: () => apiSeedScenarioElection(key) },
+        { label: "Constituencies",    fn: () => apiInitializeScenarioConstituencies(true, key) },
+        { label: "Budget baseline",   fn: () => apiAdminSeedBudget(false) },
+        { label: "Party factions",    fn: () => apiAdminSeedScenarioFactions(key) },
+        { label: "Bodies & locals",   fn: () => apiAdminSeedScenarioBodiesLocals(false, key) },
+      ];
+
+      const lines = [];
+      let hasError = false;
+
+      for (const step of steps) {
+        lines.push(`⏳ ${step.label}…`);
+        if (statusEl) statusEl.innerHTML = lines.map((l) => esc(l)).join("<br>");
+        try {
+          await step.fn();
+          lines[lines.length - 1] = `✓ ${step.label}`;
+        } catch (err) {
+          lines[lines.length - 1] = `✗ ${step.label}: ${err.message}`;
+          hasError = true;
+        }
+        if (statusEl) statusEl.innerHTML = lines.map((l) => esc(l)).join("<br>");
+      }
+
+      if (!hasError) {
+        logAction({ action: "admin.initialize-scenario", details: { scenarioKey: key } });
+        toastSuccess(`Scenario "${key}" initialized successfully.`);
+        if (scenarioConfirmInput) scenarioConfirmInput.value = "";
+      } else {
+        toastError(`Scenario initialization completed with errors. Check the status above.`);
+      }
+      if (btn) { btn.disabled = false; btn.textContent = "Initialize Scenario"; }
+    });
+
     // ── Danger Zone buttons ────────────────────────────────────────────────────
 
     host.querySelector("#btn-wipe-content")?.addEventListener("click", async () => {
@@ -2073,7 +2209,17 @@ export async function initAdminPanelPage(data) {
     }
   }
 
-  await Promise.all([loadConfig(), loadDiscourseConfig(), loadDiscourseCategoryIds(), loadSnapshots(), loadSnapshotStatus(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard(), loadPendingRegistrations(), loadSimFreeze(), loadAdminUsers()]);
+  async function loadAvailableScenarios() {
+    try {
+      const result = await apiListAdminScenarios();
+      availableScenarios = result?.scenarios || [];
+    } catch (err) {
+      console.error("Failed to load available scenarios:", err);
+      availableScenarios = [];
+    }
+  }
+
+  await Promise.all([loadConfig(), loadDiscourseConfig(), loadDiscourseCategoryIds(), loadSnapshots(), loadSnapshotStatus(), loadAuditLog(), loadSyncPreview(), loadSsoReadiness(), loadDashboard(), loadPendingRegistrations(), loadSimFreeze(), loadAdminUsers(), loadAvailableScenarios()]);
   render("");
 
   // Event delegation for pending registration approve/reject buttons
