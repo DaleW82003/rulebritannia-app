@@ -23,7 +23,7 @@ import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_RO
 import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-helpers.js";
 import { fireRecompute, awaitedRecompute, createRecomputeContext, buildRecomputeResponseMetadata } from "./recompute-helpers.js";
 import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, getDefaultScenarioKey, seedDefaultScenarioFactions } from "./political-state-service.js";
-import { loadScenarioManifest, resolveManifestPath } from "./scenario-manifest-loader.js";
+import { loadScenarioManifest, loadScenarioWorldSeed, resolveManifestPath } from "./scenario-manifest-loader.js";
 import { seedPredefinedGuides } from "./guides-seed.js";
 import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb, batchEnrichPlayersWithSimJoinDates } from "./division-helpers.js";
 import { resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary } from "./finance-service.js";
@@ -4126,68 +4126,41 @@ function normaliseParty(raw) {
   return SERVER_PARTY_MAP[trimmed] ?? trimmed;
 }
 
-// All 15 canonical parties (3 playable + 12 NPC).
-const ALL_CANONICAL_PARTIES = [
-  { slug: "Conservative",     name: "Conservative",     short_name: "CON", playable: true  },
-  { slug: "Labour",           name: "Labour",           short_name: "LAB", playable: true  },
-  { slug: "Liberal Democrat", name: "Liberal Democrat", short_name: "LDM", playable: true  },
-  { slug: "SNP",              name: "SNP",              short_name: "SNP", playable: false },
-  { slug: "Plaid Cymru",      name: "Plaid Cymru",      short_name: "PC",  playable: false },
-  { slug: "Green",            name: "Green",            short_name: "GRN", playable: false },
-  { slug: "UKIP",             name: "UKIP",             short_name: "UKP", playable: false },
-  { slug: "DUP",              name: "DUP",              short_name: "DUP", playable: false },
-  { slug: "Sinn Féin",        name: "Sinn Féin",        short_name: "SF",  playable: false },
-  { slug: "SDLP",             name: "SDLP",             short_name: "SDL", playable: false },
-  { slug: "Alliance",         name: "Alliance",         short_name: "ALL", playable: false },
-  { slug: "TUP",              name: "TUP",              short_name: "TUP", playable: false },
-  { slug: "UUP",              name: "UUP",              short_name: "UUP", playable: false },
-  { slug: "Independents",     name: "Independents",     short_name: "IND", playable: false },
-  { slug: "Speaker",          name: "Speaker",          short_name: "SPK", playable: false },
-];
+function loadDefaultScenarioWorldSeed() {
+  return loadScenarioWorldSeed(getDefaultScenarioKey());
+}
+
+function getDefaultScenarioCanonicalParties() {
+  const canonicalParties = loadDefaultScenarioWorldSeed()?.canonicalParties;
+  if (!Array.isArray(canonicalParties) || !canonicalParties.length) {
+    throw new Error("Default scenario world seed must define canonicalParties");
+  }
+  return canonicalParties;
+}
 
 /**
  * Idempotent upsert of all canonical parties.
  */
 async function seedPlayableParties() {
+  const worldSeed = loadDefaultScenarioWorldSeed();
+  const canonicalParties = getDefaultScenarioCanonicalParties();
+  const baselineStructures = worldSeed?.partyStructures || {};
+  const baselineTreasuryCash = worldSeed?.partyTreasuryCash || {};
   // Add columns if not present (migration safety — must come before any UPDATE that references them).
   await pool.query(`
     ALTER TABLE parties ADD COLUMN IF NOT EXISTS playable          BOOLEAN NOT NULL DEFAULT false;
     ALTER TABLE parties ADD COLUMN IF NOT EXISTS party_structure   JSONB   NOT NULL DEFAULT '{}'::jsonb;
     ALTER TABLE parties ADD COLUMN IF NOT EXISTS treasury_overspend BOOLEAN NOT NULL DEFAULT false;
   `);
-  const values = ALL_CANONICAL_PARTIES.map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`).join(", ");
-  const params = ALL_CANONICAL_PARTIES.flatMap(({ slug, name, short_name, playable }) => [slug, name, short_name, playable]);
+  const values = canonicalParties.map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`).join(", ");
+  const params = canonicalParties.flatMap(({ slug, name, short_name, playable }) => [slug, name, short_name, playable]);
   await pool.query(
     `INSERT INTO parties (slug, name, short_name, playable) VALUES ${values}
      ON CONFLICT (slug) DO UPDATE SET short_name = EXCLUDED.short_name, playable = EXCLUDED.playable`,
     params
   );
 
-  // Seed baseline 1997 party structure for the 3 playable parties (idempotent: only if empty)
-  const BASELINE_STRUCTURES = {
-    Conservative: {
-      departments: { communications: 12, policy: 10, campaign: 15, compliance: 4, admin: 8, fundraising: 6, membership: 8, research: 7 },
-      nationalOffices: [
-        { region: "Scotland", size: "Regional Office", staffCount: 8 },
-        { region: "Wales",    size: "Regional Office", staffCount: 6 },
-      ],
-    },
-    Labour: {
-      departments: { communications: 14, policy: 11, campaign: 18, compliance: 4, admin: 9, fundraising: 7, membership: 10, research: 7 },
-      nationalOffices: [
-        { region: "Scotland", size: "Regional Office", staffCount: 10 },
-        { region: "Wales",    size: "Regional Office", staffCount: 8 },
-      ],
-    },
-    "Liberal Democrat": {
-      departments: { communications: 6, policy: 5, campaign: 8, compliance: 2, admin: 4, fundraising: 3, membership: 5, research: 4 },
-      nationalOffices: [
-        { region: "Scotland", size: "Regional Office", staffCount: 4 },
-        { region: "Wales",    size: "Regional Office", staffCount: 3 },
-      ],
-    },
-  };
-  for (const [slug, base] of Object.entries(BASELINE_STRUCTURES)) {
+  for (const [slug, base] of Object.entries(baselineStructures)) {
     const totalDeptStaff   = Object.values(base.departments).reduce((s, v) => s + v, 0);
     const totalOfficeStaff = base.nationalOffices.reduce((s, o) => s + o.staffCount, 0);
     const totalStaff       = totalDeptStaff + totalOfficeStaff;
@@ -4211,12 +4184,7 @@ async function seedPlayableParties() {
   // This ensures additive operations (donations, fundraising credits, membership intake) always
   // start from the correct base rather than from 0 when the treasury JSONB is empty.
   // Uses jsonb_set so any existing debt/members values are preserved.
-  const BASELINE_TREASURY_CASH = {
-    Conservative:     350000,
-    Labour:           290000,
-    "Liberal Democrat": 95000,
-  };
-  for (const [slug, defaultCash] of Object.entries(BASELINE_TREASURY_CASH)) {
+  for (const [slug, defaultCash] of Object.entries(baselineTreasuryCash)) {
     await pool.query(
       `UPDATE parties
           SET treasury = jsonb_set(COALESCE(treasury,'{}'), '{cash}', to_jsonb($1::numeric))
@@ -4861,74 +4829,10 @@ async function seedBudgetBaseline(force = false) {
     const { rows } = await pool.query(`SELECT last_year FROM budget_data WHERE id = 'main'`);
     if (rows.length && rows[0].last_year !== null) return; // already seeded
   }
-  const lastYear = {
-    label: "1996–97 Baseline",
-    gdp: 1930,
-    revenues: {
-      "Income Tax": 102.65,
-      "Corporate Tax": 34.74,
-      "Value Added Tax": 92.17,
-      "National Insurance": 66.62,
-      "Fuel Duty": 23.28,
-      "Stamp Duty": 9.96,
-      "Business Rate Appropriations": 14.14,
-    },
-    expenditures: {
-      "Health": 40.96,
-      "Social Security": 59.42,
-      "Education": 88.10,
-      "Home Office": 34.94,
-      "Ministry of Defense": 34.11,
-      "Transport": 18.69,
-      "Local Government": 61.21,
-      "Environment": 6.54,
-      "Energy": 5.58,
-      "Culture": 0.06,
-      "Housing": -2.45,
-      "Business": -5.50,
-      "Scottish Office": 21.14,
-      "Welsh Office": 7.10,
-      "Northern Ireland Office": 3.58,
-    },
-    capital: { "Capital Expenditure": 35.21 },
-  };
-  const currentYear = {
-    label: "1997–98 (Seeded Baseline)",
-    gdp: 1950,
-    revenues: {
-      "Income Tax": 104.40,
-      "Corporate Tax": 36.10,
-      "Value Added Tax": 93.20,
-      "National Insurance": 67.15,
-      "Fuel Duty": 24.04,
-      "Stamp Duty": 12.81,
-      "Business Rate Appropriations": 15.96,
-    },
-    expenditures: {
-      "Health": 42.10,
-      "Social Security": 60.20,
-      "Education": 89.24,
-      "Home Office": 29.25,
-      "Ministry of Defense": 34.53,
-      "Transport": 15.96,
-      "Local Government": 63.98,
-      "Environment": 6.67,
-      "Energy": 5.58,
-      "Culture": 0.01,
-      "Housing": -11.88,
-      "Business": 2.88,
-      "Scottish Office": 22.51,
-      "Welsh Office": 7.55,
-      "Northern Ireland Office": 3.27,
-    },
-    capital: { "Capital Expenditure": 14.14 },
-  };
-  const adminControls = {
-    debtInterestPercent: 7.20,
-    debtInterestExpenditure: 31.11,
-    charityReliefExpenditure: 0.41,
-    otherExpensesExpenditure: -0.66,
-  };
+  const budgetSeed = loadDefaultScenarioWorldSeed()?.budget || {};
+  const lastYear = budgetSeed.lastYear || {};
+  const currentYear = budgetSeed.currentYear || {};
+  const adminControls = budgetSeed.adminControls || {};
   await pool.query(
     `INSERT INTO budget_data (id, last_year, current_year, admin_controls, archive, pending, updated_at)
      VALUES ('main', $1::jsonb, $2::jsonb, $3::jsonb, '[]'::jsonb, NULL, NOW())
@@ -11168,8 +11072,9 @@ app.post("/api/characters/:userId?", charWriteLimit, async (req, res) => {
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "name is required" });
     }
-    if (party && !ALL_CANONICAL_PARTIES.some((p) => p.name === party)) {
-      return res.status(400).json({ error: `party must be one of: ${ALL_CANONICAL_PARTIES.map((p) => p.name).join(", ")}` });
+    const canonicalParties = getDefaultScenarioCanonicalParties();
+    if (party && !canonicalParties.some((p) => p.name === party)) {
+      return res.status(400).json({ error: `party must be one of: ${canonicalParties.map((p) => p.name).join(", ")}` });
     }
     const { rows } = await pool.query(
       `INSERT INTO characters (user_id, name, party, constituency, roles, offices, is_active)
@@ -11214,8 +11119,9 @@ app.patch("/api/characters/:id", charWriteLimit, async (req, res) => {
             constituency = old.constituency, roles = old.roles,
             offices = old.offices, is_active = old.is_active } = req.body || {};
 
-    if (party && !ALL_CANONICAL_PARTIES.some((p) => p.name === party)) {
-      return res.status(400).json({ error: `party must be one of: ${ALL_CANONICAL_PARTIES.map((p) => p.name).join(", ")}` });
+    const canonicalParties = getDefaultScenarioCanonicalParties();
+    if (party && !canonicalParties.some((p) => p.name === party)) {
+      return res.status(400).json({ error: `party must be one of: ${canonicalParties.map((p) => p.name).join(", ")}` });
     }
 
     const { rows } = await pool.query(
@@ -23542,77 +23448,13 @@ async function getCanonicalConstituencyParties(client = pool) {
   return rows.map((r) => String(r.party).trim()).filter(Boolean);
 }
 
-const DEFAULT_SCENARIO_BODIES_SEED = {
-  lords: {
-    id: "lords",
-    type: "standard",
-    visible: true,
-    totalSeats: 1265,
-    compositionBreakdown: [
-      { name: "Lords Spiritual", seats: 26 },
-      { name: "Law Lords", seats: 26 },
-      { name: "Crossbenchers", seats: 351 },
-    ],
-    partyBreakdown: [
-      { party: "Labour", seats: 182 },
-      { party: "Conservative", seats: 497 },
-      { party: "Liberal Democrat", seats: 73 },
-      { party: "Others", seats: 110 },
-    ],
-  },
-  europarl: {
-    id: "europarl",
-    type: "standard",
-    visible: true,
-    totalSeats: 87,
-    partyBreakdown: [
-      { party: "Labour", seats: 62 },
-      { party: "Conservative", seats: 18 },
-      { party: "Liberal Democrat", seats: 2 },
-      { party: "SNP", seats: 2 },
-      { party: "DUP", seats: 1 },
-      { party: "SDLP", seats: 1 },
-      { party: "UUP", seats: 1 },
-    ],
-  },
-  "scottish-parliament": { id: "scottish-parliament", type: "standard", visible: false },
-  "welsh-assembly": { id: "welsh-assembly", type: "standard", visible: false },
-  "ni-assembly": { id: "ni-assembly", type: "standard", visible: false },
-  "directly-elected-mayors": { id: "directly-elected-mayors", type: "mayors", visible: false, mayors: [] },
-};
+function getDefaultScenarioBodiesSeed() {
+  return loadDefaultScenarioWorldSeed()?.bodies || {};
+}
 
-const DEFAULT_SCENARIO_LOCALS_SEED = {
-  countries: [
-    { country: "England", totalCouncils: 386, totalCouncillors: 22580, noOverallControlCouncils: 74, partyBreakdown: [
-      { party: "Labour", councillors: 10840, councilsControlled: 187 },
-      { party: "Conservative", councillors: 4550, councilsControlled: 21 },
-      { party: "Liberal Democrat", councillors: 4960, councilsControlled: 35 },
-      { party: "Others", councillors: 2230, councilsControlled: 1 },
-    ] },
-    { country: "Scotland", totalCouncils: 32, totalCouncillors: 1306, noOverallControlCouncils: 3, partyBreakdown: [
-      { party: "Labour", councillors: 621, councilsControlled: 21 },
-      { party: "Conservative", councillors: 82, councilsControlled: 0 },
-      { party: "Liberal Democrat", councillors: 129, councilsControlled: 0 },
-      { party: "SNP", councillors: 181, councilsControlled: 3 },
-      { party: "Others", councillors: 293, councilsControlled: 5 },
-    ] },
-    { country: "Wales", totalCouncils: 22, totalCouncillors: 1272, noOverallControlCouncils: 3, partyBreakdown: [
-      { party: "Labour", councillors: 726, councilsControlled: 14 },
-      { party: "Conservative", councillors: 42, councilsControlled: 0 },
-      { party: "Liberal Democrat", councillors: 79, councilsControlled: 0 },
-      { party: "Plaid Cymru", councillors: 113, councilsControlled: 1 },
-      { party: "Others", councillors: 312, councilsControlled: 4 },
-    ] },
-    { country: "Northern Ireland", totalCouncils: 26, totalCouncillors: 582, noOverallControlCouncils: 24, partyBreakdown: [
-      { party: "UUP", councillors: 185, councilsControlled: 1 },
-      { party: "DUP", councillors: 91, councilsControlled: 0 },
-      { party: "SDLP", councillors: 120, councilsControlled: 1 },
-      { party: "Sinn Féin", councillors: 74, councilsControlled: 0 },
-      { party: "Alliance", councillors: 41, councilsControlled: 0 },
-      { party: "Others", councillors: 71, councilsControlled: 0 },
-    ] },
-  ],
-};
+function getDefaultScenarioLocalsSeed() {
+  return loadDefaultScenarioWorldSeed()?.locals || { countries: [] };
+}
 
 function deepClone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -23637,11 +23479,13 @@ function mergeSeedValue(existing, seeded, force = false) {
 }
 
 function validateDefaultScenarioSeedParties(canonicalParties) {
+  const bodiesSeed = getDefaultScenarioBodiesSeed();
+  const localsSeed = getDefaultScenarioLocalsSeed();
   const canonicalSet = new Set(canonicalParties);
   const uses = [];
-  for (const row of DEFAULT_SCENARIO_BODIES_SEED.lords.partyBreakdown) uses.push(row.party);
-  for (const row of DEFAULT_SCENARIO_BODIES_SEED.europarl.partyBreakdown) uses.push(row.party);
-  for (const c of DEFAULT_SCENARIO_LOCALS_SEED.countries) for (const row of c.partyBreakdown) uses.push(row.party);
+  for (const row of (bodiesSeed.lords?.partyBreakdown || [])) uses.push(row.party);
+  for (const row of (bodiesSeed.europarl?.partyBreakdown || [])) uses.push(row.party);
+  for (const c of (localsSeed.countries || [])) for (const row of (c.partyBreakdown || [])) uses.push(row.party);
   const missing = [];
   for (const party of uses) {
     if (party !== "Others" && !canonicalSet.has(party)) {
@@ -23652,13 +23496,16 @@ function validateDefaultScenarioSeedParties(canonicalParties) {
 }
 
 function validateDefaultScenarioSeedTotals() {
-  const lordsComp = DEFAULT_SCENARIO_BODIES_SEED.lords.compositionBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
-  const lordsParty = DEFAULT_SCENARIO_BODIES_SEED.lords.partyBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
-  if ((lordsComp + lordsParty) !== DEFAULT_SCENARIO_BODIES_SEED.lords.totalSeats) {
+  const bodiesSeed = getDefaultScenarioBodiesSeed();
+  const lordsSeed = bodiesSeed.lords || {};
+  const euroSeed = bodiesSeed.europarl || {};
+  const lordsComp = (lordsSeed.compositionBreakdown || []).reduce((sum, r) => sum + Number(r.seats || 0), 0);
+  const lordsParty = (lordsSeed.partyBreakdown || []).reduce((sum, r) => sum + Number(r.seats || 0), 0);
+  if ((lordsComp + lordsParty) !== Number(lordsSeed.totalSeats || 0)) {
     throw new Error("Lords seed total mismatch");
   }
-  const euroTotal = DEFAULT_SCENARIO_BODIES_SEED.europarl.partyBreakdown.reduce((sum, r) => sum + Number(r.seats || 0), 0);
-  if (euroTotal !== DEFAULT_SCENARIO_BODIES_SEED.europarl.totalSeats) {
+  const euroTotal = (euroSeed.partyBreakdown || []).reduce((sum, r) => sum + Number(r.seats || 0), 0);
+  if (euroTotal !== Number(euroSeed.totalSeats || 0)) {
     throw new Error("Europarl seed total mismatch");
   }
 }
@@ -23674,6 +23521,8 @@ const seedScenarioBodiesLocalsHandler = async (req, res) => {
     const queryForce = String(req.query?.force || "").toLowerCase() === "true";
     const bodyForce = req.body?.force === true || String(req.body?.force || "").toLowerCase() === "true";
     const force = queryForce || bodyForce;
+    const bodiesSeed = getDefaultScenarioBodiesSeed();
+    const localsSeed = getDefaultScenarioLocalsSeed();
 
     validateDefaultScenarioSeedTotals();
 
@@ -23704,7 +23553,7 @@ const seedScenarioBodiesLocalsHandler = async (req, res) => {
       const { rows: bodyRows } = await client.query("SELECT id, data, sort_order FROM bodies_data");
       const bodyMap = new Map(bodyRows.map((r) => [r.id, r]));
 
-      for (const [id, seedData] of Object.entries(DEFAULT_SCENARIO_BODIES_SEED)) {
+      for (const [id, seedData] of Object.entries(bodiesSeed)) {
         const existingData = bodyMap.get(id)?.data || { id };
         const merged = mergeSeedValue(existingData, seedData, force);
         await client.query(
@@ -23719,11 +23568,11 @@ const seedScenarioBodiesLocalsHandler = async (req, res) => {
       const existingLocals = localsRows.length ? JSON.parse(localsRows[0].value) : {};
       let mergedLocals;
       if (force) {
-        mergedLocals = deepClone(DEFAULT_SCENARIO_LOCALS_SEED);
+        mergedLocals = deepClone(localsSeed);
       } else {
         const existingCountries = Array.isArray(existingLocals?.countries) ? existingLocals.countries : [];
         const countryMap = new Map(existingCountries.map((c) => [String(c?.country || ""), c]));
-        for (const seedCountry of DEFAULT_SCENARIO_LOCALS_SEED.countries) {
+        for (const seedCountry of localsSeed.countries || []) {
           const existingCountry = countryMap.get(seedCountry.country);
           if (!existingCountry) {
             countryMap.set(seedCountry.country, deepClone(seedCountry));

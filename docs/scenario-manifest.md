@@ -6,16 +6,17 @@ Each playable game start ("scenario") in Rule Britannia is described by a
 **manifest file** stored under `data/scenarios/<key>/manifest.json`.
 
 The manifest is the single authoritative source of metadata for a scenario:
-seed file locations, election data, playable parties, and the expected shape
-of the world at game start.  Server code reads manifests through
+seed file locations, election data, playable parties, scenario-owned world
+seed packs, and the expected shape of the world at game start.  Server code reads manifests through
 `server/scenario-manifest-loader.js`; no scenario-specific magic strings
 should exist outside of manifest files.
 
 > **Current scope** — The manifest layer is shared across scenario-aware
 > loaders.  Most runtime flows still treat `1997` as the only active gameplay
-> scenario, but constituency import/initialization now resolves its committed
-> JSON dataset by explicit `scenarioKey`.  Other non-default scenario behavior
-> remains gated until later phases wire the broader runtime.
+> scenario, but constituency import/initialization plus base-world seed loading
+> now resolve their committed JSON datasets by explicit `scenarioKey`.  Other
+> non-default scenario behavior remains gated until later phases wire the
+> broader runtime.
 
 ---
 
@@ -26,7 +27,8 @@ data/
 └── scenarios/
     └── 1997/
         ├── manifest.json
-        └── constituencies.json   ← committed constituency seed for 1997
+        ├── constituencies.json   ← committed constituency seed for 1997
+        └── world-seed.json       ← parties/factions/bodies/locals/budget seeds
 ```
 
 Additional scenarios live as sibling directories:
@@ -58,6 +60,7 @@ data/scenarios/
 | `clockDefault.year` | `number` | ✓ | e.g. `1997`. |
 | `status` | `string` | ✓ | One of `"default"`, `"beta"`, or `"legacy"`. Only `"default"` is loaded automatically. |
 | `constituenciesFile` | `string` | ✓ | Repo-root-relative path to the constituencies JSON file (array of constituency objects). |
+| `worldSeedFile` | `string` | ✓ | Repo-root-relative path to the base-world seed JSON (parties, faction seeds, bodies/locals, budget baseline). |
 | `electionCsvFile` | `string` | ✓ | Repo-root-relative path to the structured election CSV (party vote/seat summary). |
 | `expectedConstituencyCount` | `number` | ✓ | Number of constituencies the JSON must contain; seeding is rejected if the count doesn't match. |
 | `playableParties` | `string[]` | ✓ | Ordered list of party names that have faction infrastructure in this scenario. |
@@ -73,6 +76,7 @@ data/scenarios/
   "clockDefault": { "month": 8, "year": 1997 },
   "status": "default",
   "constituenciesFile": "data/scenarios/1997/constituencies.json",
+  "worldSeedFile": "data/scenarios/1997/world-seed.json",
   "electionCsvFile": "assets/1997_structured.csv",
   "expectedConstituencyCount": 659,
   "playableParties": ["Conservative", "Labour", "Liberal Democrat"]
@@ -88,6 +92,7 @@ import {
   DEFAULT_SCENARIO_KEY,    // "1997"
   getDefaultScenarioKey,   // () => "1997"
   loadScenarioManifest,    // (key: string) => manifest object (cached)
+  loadScenarioWorldSeed,   // (key: string) => scenario-owned world seed object
   resolveManifestPath,     // (relPath: string) => absolute path
   listScenarioKeys,        // () => string[]  — all keys with a manifest on disk
 } from "./scenario-manifest-loader.js";
@@ -101,6 +106,19 @@ Results are cached in-process; repeated calls are cheap.
 Throws with `err.code === "SCENARIO_MANIFEST_NOT_FOUND"` if no manifest
 exists for the key, and `"SCENARIO_MANIFEST_INVALID_JSON"` if the file
 cannot be parsed.
+
+### `loadScenarioWorldSeed(key)`
+
+Reads and returns the parsed scenario-owned world seed JSON referenced by the
+manifest's `worldSeedFile`.
+
+The current default scenario uses it for:
+
+- canonical party registry
+- party organisation/treasury defaults
+- faction seed data
+- House of Lords / European Parliament / locals baseline state
+- budget baseline values
 
 ### `resolveManifestPath(relPath)`
 
@@ -143,7 +161,8 @@ now stored per scenario.
 
 ## How the loader is used
 
-`server/index.js` calls `loadScenarioManifest(key)` in three places:
+`server/index.js` and `server/political-state-service.js` now use the manifest
+and world-seed loader in these places:
 
 1. **`getScenarioConstituencySeedConfig`** — validates that the manifest has a
    constituency JSON path and expected seat count, then resolves the JSON path.
@@ -154,9 +173,16 @@ now stored per scenario.
    **`initializeScenarioConstituenciesHandler`** — load the committed
    `constituencies.json` for the selected `scenarioKey`.
 
-`server/political-state-service.js` imports `DEFAULT_SCENARIO_KEY` and
-`getDefaultScenarioKey` from the loader, removing the last hardcoded `"1997"`
-literal from service logic.
+4. **`seedPlayableParties`** — reads canonical parties, party structure
+   defaults, and treasury baselines from `worldSeedFile`.
+5. **`seedDefaultScenarioFactions`** — reads faction seed rows from
+   `worldSeedFile`.
+6. **`seedScenarioBodiesLocalsHandler`** — reads bodies/locals baseline data
+   from `worldSeedFile`.
+7. **`seedBudgetBaseline`** — reads budget baseline/admin-control values from
+   `worldSeedFile`.
+8. **`FACTION_PLAYABLE_PARTIES`** — now resolves directly from
+   `manifest.playableParties`.
 
 ---
 
@@ -196,7 +222,8 @@ always targets the default 1997 scenario.
 
 1. Create `data/scenarios/<newKey>/manifest.json` with all required fields.
 2. Place the constituency JSON at `data/scenarios/<newKey>/constituencies.json`
-   (or another repo-root-relative path referenced by `constituenciesFile`), and
+   (or another repo-root-relative path referenced by `constituenciesFile`),
+   place the base-world seed JSON at the path listed in `worldSeedFile`, and
    place the election CSV at the path listed in `electionCsvFile`.
 3. Verify `listScenarioKeys()` returns the new key.
 4. Re-generate the constituency JSON with:
@@ -205,19 +232,54 @@ always targets the default 1997 scenario.
    node scripts/convert-scenario-csv.js <newKey>
    ```
 
-5. Update non-constituency runtime guards in `server/political-state-service.js`
-   and `server/index.js` once the broader seed pipeline supports the new key.
+5. Copy or author the world seed domains that are currently supported:
+
+   - `canonicalParties`
+   - `partyStructures`
+   - `partyTreasuryCash`
+   - `factions`
+   - `bodies`
+   - `locals`
+   - `budget`
+
+6. Update remaining non-scenario-owned runtime guards in
+   `server/political-state-service.js` and `server/index.js` once the broader
+   seed pipeline supports the new key.
 
 ---
 
-## Remaining debt (post-Phase 3)
+## Scenario-driven domains vs pending domains
 
-- `FACTION_PLAYABLE_PARTIES` in `political-state-service.js` is still a
-  hardcoded array; a future phase will derive it from
-  `manifest.playableParties`.
+### Now scenario-driven
+
+- Constituency seed file (`constituenciesFile`)
+- Canonical party registry
+- Playable-party list
+- Party structure defaults
+- Party treasury cash defaults
+- Faction seed rows
+- Lords / European Parliament / local-government baseline seed data
+- Budget baseline/admin-control defaults
+
+### Still pending
+
+- Party leaders
+- Government / opposition formation
+- Cabinet / shadow-cabinet office assignments
+- NPC/character baseline roster
+- Starting news / events / polling
+- Clock fallback consumption in `server/clock.js`
+
+---
+
+## Remaining debt (post-Phase 5)
+
 - `clockDefault` in the manifest is not yet consumed by `server/clock.js`;
   the fallback `{ month: 8, year: 1997 }` is still hardcoded there.
 - Admin UI copy (reset descriptions, seed labels) still references "August
   1997" directly; a future phase will interpolate from manifest metadata.
 - The `sim_current_year DEFAULT 1997` in `server/schema.sql` will be removed
   once the bootstrapping migration derives the default from the manifest.
+- Cabinet/shadow cabinet, party-leader, NPC, and starting-news/polling defaults
+  are still global runtime concerns; later phases should move them behind
+  scenario-owned seed files or initializer logic.

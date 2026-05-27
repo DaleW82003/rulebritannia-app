@@ -8,7 +8,7 @@
  *
  * The loader is the single authoritative source for:
  *   - the default scenario key
- *   - resolving scenario-relative asset paths (constituencies JSON, election CSV)
+ *   - resolving scenario-relative asset paths (constituencies JSON, election CSV, world seed JSON)
  *   - any manifest field a caller needs without importing the full server module
  *
  * Manifests are cached after first read so repeated calls in a single process
@@ -34,6 +34,8 @@ const SCENARIOS_DIR = resolve(REPO_ROOT, "data", "scenarios");
 
 /** In-process manifest cache: scenarioKey → parsed manifest object. */
 const _cache = new Map();
+/** In-process world-seed cache: scenarioKey → parsed seed object. */
+const _worldSeedCache = new Map();
 
 /**
  * The key of the scenario that is active when no explicit scenario is selected.
@@ -97,6 +99,53 @@ export function loadScenarioManifest(key) {
 
   _cache.set(key, manifest);
   return manifest;
+}
+
+/**
+ * Load the parsed world-seed JSON for a scenario.
+ *
+ * The manifest must provide a `worldSeedFile` repo-root-relative path.
+ *
+ * @param {string} key - Scenario key, e.g. "1997".
+ * @returns {object} Parsed world seed object.
+ * @throws {Error} If the manifest omits the file path, the file cannot be found,
+ * or the JSON is invalid.
+ */
+export function loadScenarioWorldSeed(key) {
+  if (_worldSeedCache.has(key)) return _worldSeedCache.get(key);
+
+  const manifest = loadScenarioManifest(key);
+  const seedRelPath = String(manifest?.worldSeedFile || "").trim();
+  if (!seedRelPath) {
+    const err = new Error(`Scenario manifest for key "${key}" does not define worldSeedFile.`);
+    err.code = "SCENARIO_WORLD_SEED_MISSING";
+    throw err;
+  }
+
+  let raw;
+  try {
+    raw = readFileSync(resolveManifestPath(seedRelPath), "utf8");
+  } catch (e) {
+    const err = new Error(
+      `Scenario world seed not found for key "${key}". Expected file: ${seedRelPath}`
+    );
+    err.cause = e;
+    err.code = "SCENARIO_WORLD_SEED_NOT_FOUND";
+    throw err;
+  }
+
+  let seed;
+  try {
+    seed = JSON.parse(raw);
+  } catch (e) {
+    const err = new Error(`Scenario world seed for key "${key}" contains invalid JSON.`);
+    err.cause = e;
+    err.code = "SCENARIO_WORLD_SEED_INVALID_JSON";
+    throw err;
+  }
+
+  _worldSeedCache.set(key, seed);
+  return seed;
 }
 
 /**
