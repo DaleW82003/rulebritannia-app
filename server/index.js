@@ -10144,7 +10144,7 @@ async function _runSyncJob(job) {
       const target = resolveDiscourseSyncGroup({
         groupName: group,
         groupIdMap,
-        warn: (msg) => console.warn("[discourse-sync-groups] %s", msg),
+        warn: (msg) => console.warn("[discourse-sync-groups] warning: %s", msg),
       });
       if (target.skipped) {
         _syncJobLog(job, `group=${group} skipped: ${target.skipped}`);
