@@ -895,9 +895,13 @@ export async function initAdminPanelPage(data) {
 
   function renderScenarioInitSection() {
     const defaultScenario = availableScenarios.find((s) => s.isDefault) || availableScenarios[0] || null;
+    const defaultScenarioReady = defaultScenario ? defaultScenario.initializationReady !== false : true;
+    const defaultScenarioBlockedReason = defaultScenario?.initializationBlockedReason || "This scenario is not initialization-ready yet.";
     const optionsHtml = availableScenarios.length
       ? availableScenarios.map((s) => {
-          const label = s.isDefault ? `${esc(s.title)} (default)` : esc(s.title);
+          const isReady = s.initializationReady !== false;
+          const readinessSuffix = isReady ? "" : " — not ready";
+          const label = s.isDefault ? `${esc(s.title)} (default${readinessSuffix})` : `${esc(s.title)}${readinessSuffix}`;
           return `<option value="${esc(s.key)}" ${s.isDefault ? "selected" : ""}>${label}</option>`;
         }).join("")
       : `<option value="1997" selected>May 1997 General Election (default)</option>`;
@@ -910,7 +914,10 @@ export async function initAdminPanelPage(data) {
               <strong>Playable parties:</strong> ${esc((s.playableParties || []).join(", ") || "—")}
               &nbsp;|&nbsp;
               <strong>Status:</strong> ${esc(s.status || "—")}
+              &nbsp;|&nbsp;
+              <strong>Init readiness:</strong> ${s.initializationReady === false ? "Not ready" : "Ready"}
             </p>
+            ${s.initializationReady === false ? `<p style="margin:6px 0 0;font-size:12px;color:#9a3412;"><strong>Blocked:</strong> ${esc(s.initializationBlockedReason || "Scenario is not initialization-ready yet.")}</p>` : ""}
           </div>`).join("")
       : `<p style="margin:4px 0;font-size:13px;color:#444;">1997 UK General Election. Labour landslide. Simulation begins August 1997.</p>`;
 
@@ -946,7 +953,12 @@ export async function initAdminPanelPage(data) {
                  placeholder="Type INITIALIZE SCENARIO ${esc(defaultScenario?.key || "1997")} to confirm"
                  style="flex:1;min-width:300px;padding:4px 8px;border:1px solid #2c5aa0;border-radius:4px;font-size:13px;" />
           <button class="btn" id="btn-scenario-init" type="button"
+                  ${defaultScenarioReady ? "" : "disabled"}
                   style="background:#2c5aa0;color:#fff;border-color:#2c5aa0;white-space:nowrap;">Initialize Scenario</button>
+        </div>
+        <div id="scenario-init-readiness-note"
+             style="font-size:12px;margin-top:-2px;margin-bottom:8px;color:#9a3412;${defaultScenarioReady ? "display:none;" : ""}">
+          Initialization blocked for this scenario: ${esc(defaultScenarioBlockedReason)}
         </div>
         <div id="scenario-init-status" style="font-size:13px;margin-top:8px;"></div>
       </section>`;
@@ -1962,6 +1974,9 @@ export async function initAdminPanelPage(data) {
     // Update description and confirm placeholder when scenario changes
     scenarioSelect?.addEventListener("change", () => {
       const key = scenarioSelect.value;
+      const selectedScenario = availableScenarios.find((s) => s.key === key) || null;
+      const isReady = selectedScenario ? selectedScenario.initializationReady !== false : true;
+      const blockedReason = selectedScenario?.initializationBlockedReason || "This scenario is not initialization-ready yet.";
       host.querySelectorAll(".scenario-desc").forEach((el) => {
         el.style.display = el.dataset.scenarioKey === key ? "" : "none";
       });
@@ -1970,13 +1985,33 @@ export async function initAdminPanelPage(data) {
         scenarioConfirmInput.value = "";
       }
       const statusEl = host.querySelector("#scenario-init-status");
-      if (statusEl) statusEl.textContent = "";
+      const btn = host.querySelector("#btn-scenario-init");
+      const note = host.querySelector("#scenario-init-readiness-note");
+      if (btn) btn.disabled = !isReady;
+      if (note) {
+        if (isReady) {
+          note.textContent = "";
+          note.style.display = "none";
+        } else {
+          note.textContent = `Initialization blocked for this scenario: ${blockedReason}`;
+          note.style.display = "";
+        }
+      }
+      if (statusEl) statusEl.textContent = isReady ? "" : `Initialization blocked: ${blockedReason}`;
     });
 
     host.querySelector("#btn-scenario-init")?.addEventListener("click", async () => {
       const key = scenarioSelect?.value || "1997";
       const expectedConfirm = `INITIALIZE SCENARIO ${key}`;
       const statusEl = host.querySelector("#scenario-init-status");
+      const selectedScenario = availableScenarios.find((s) => s.key === key) || null;
+      const isReady = selectedScenario ? selectedScenario.initializationReady !== false : true;
+      const blockedReason = selectedScenario?.initializationBlockedReason || "This scenario is not initialization-ready yet.";
+
+      if (!isReady) {
+        if (statusEl) statusEl.textContent = `Initialization blocked: ${blockedReason}`;
+        return;
+      }
 
       if (scenarioConfirmInput?.value !== expectedConfirm) {
         if (statusEl) statusEl.textContent = `Type ${expectedConfirm} in the box above to confirm.`;

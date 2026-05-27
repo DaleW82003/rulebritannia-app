@@ -23,7 +23,7 @@ import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_RO
 import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-helpers.js";
 import { fireRecompute, awaitedRecompute, createRecomputeContext, buildRecomputeResponseMetadata } from "./recompute-helpers.js";
 import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, getDefaultScenarioKey, seedDefaultScenarioFactions } from "./political-state-service.js";
-import { loadScenarioManifest, loadScenarioWorldSeed, resolveManifestPath, listScenarioKeys } from "./scenario-manifest-loader.js";
+import { loadScenarioManifest, loadScenarioWorldSeed, resolveManifestPath, listScenarioKeys, getScenarioInitializationStatus } from "./scenario-manifest-loader.js";
 import { seedPredefinedGuides } from "./guides-seed.js";
 import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb, batchEnrichPlayersWithSimJoinDates } from "./division-helpers.js";
 import { resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary } from "./finance-service.js";
@@ -4308,7 +4308,7 @@ function assertSupportedScenarioKey(scenarioKey = getDefaultScenarioKey()) {
 }
 
 function getRequestedScenarioKey(req) {
-  return assertSupportedScenarioKey(req.body?.scenarioKey ?? req.query?.scenarioKey ?? getDefaultScenarioKey());
+  return normalizeScenarioKey(req.body?.scenarioKey ?? req.query?.scenarioKey ?? getDefaultScenarioKey());
 }
 
 function getRequestedConstituencyScenarioKey(req) {
@@ -4316,6 +4316,28 @@ function getRequestedConstituencyScenarioKey(req) {
     return getDefaultScenarioKey();
   }
   return normalizeScenarioKey(req.body?.scenarioKey ?? req.query?.scenarioKey ?? getDefaultScenarioKey());
+}
+
+function assertScenarioInitializationReady(scenarioKey, operationLabel = "initialize this scenario") {
+  const normalized = normalizeScenarioKey(scenarioKey);
+  let readiness;
+  try {
+    readiness = getScenarioInitializationStatus(normalized);
+  } catch (e) {
+    if (e?.code === "SCENARIO_MANIFEST_NOT_FOUND") {
+      const err = new Error(`Unsupported scenarioKey: ${normalized}`);
+      err.status = 400;
+      throw err;
+    }
+    throw e;
+  }
+  if (!readiness.ready) {
+    const reason = String(readiness.blockedReason || "Scenario is not initialization-ready yet.");
+    const err = new Error(`Scenario "${normalized}" cannot ${operationLabel}. ${reason}`);
+    err.status = 409;
+    throw err;
+  }
+  return normalized;
 }
 
 function getScenarioConstituencySeedConfig(scenarioKey = getDefaultScenarioKey()) {
@@ -20079,6 +20101,7 @@ app.get("/api/admin/scenarios", async (req, res) => {
     const scenarios = keys.map((key) => {
       try {
         const m = loadScenarioManifest(key);
+        const readiness = getScenarioInitializationStatus(key);
         return {
           key:             m.key,
           title:           m.title,
@@ -20087,11 +20110,22 @@ app.get("/api/admin/scenarios", async (req, res) => {
           startDate:       m.startDate,
           clockDefault:    m.clockDefault,
           playableParties: m.playableParties || [],
+          initializationReady: readiness.ready,
+          initializationBlockedReason: readiness.blockedReason,
           isDefault:       key === defaultKey,
         };
       } catch (err) {
         console.warn(`[GET /api/admin/scenarios] Failed to load manifest for key "${key}":`, err.message);
-        return { key, title: key, description: "", status: "unknown", playableParties: [], isDefault: key === defaultKey };
+        return {
+          key,
+          title: key,
+          description: "",
+          status: "unknown",
+          playableParties: [],
+          initializationReady: false,
+          initializationBlockedReason: "Scenario manifest could not be loaded.",
+          isDefault: key === defaultKey,
+        };
       }
     });
     res.json({ ok: true, scenarios });
@@ -20103,7 +20137,10 @@ app.get("/api/admin/scenarios", async (req, res) => {
 
 const scenarioElectionSeedHandler = async (req, res) => {
   try {
-    const scenarioKey = getRequestedScenarioKey(req);
+    const scenarioKey = assertScenarioInitializationReady(
+      getRequestedScenarioKey(req),
+      "run initialization"
+    );
     await initializeScenarioElection(scenarioKey);
     const { rows } = await pool.query(
       `SELECT e.id, e.type, e.polling_day, e.label, e.status
@@ -20522,7 +20559,10 @@ const initializeScenarioConstituenciesHandler = async (req, res) => {
       return res.status(400).json({ error: "Send confirm: true to confirm overwriting all constituencies" });
     }
 
-    const scenarioKey = getRequestedConstituencyScenarioKey(req);
+    const scenarioKey = assertScenarioInitializationReady(
+      getRequestedConstituencyScenarioKey(req),
+      "run initialization"
+    );
     const json = loadScenarioConstituenciesJson(scenarioKey);
     const incoming = json.constituencies;
     const { expectedCount } = getScenarioConstituencySeedConfig(scenarioKey);
@@ -23680,7 +23720,10 @@ const seedScenarioBodiesLocalsHandler = async (req, res) => {
       return res.status(403).json({ error: "Seeding is disabled in this environment" });
     }
 
-    const scenarioKey = getRequestedScenarioKey(req);
+    const scenarioKey = assertScenarioInitializationReady(
+      getRequestedScenarioKey(req),
+      "run initialization"
+    );
     const queryForce = String(req.query?.force || "").toLowerCase() === "true";
     const bodyForce = req.body?.force === true || String(req.body?.force || "").toLowerCase() === "true";
     const force = queryForce || bodyForce;
@@ -25634,7 +25677,10 @@ app.post("/api/staff/internal-tickets/:id/messages", verifyCsrfToken, crudWriteL
 // POST /api/admin/seed-1997-factions       (legacy alias)
 const seedScenarioFactionsHandler = async (req, res) => {
   try {
-    const scenarioKey = getRequestedScenarioKey(req);
+    const scenarioKey = assertScenarioInitializationReady(
+      getRequestedScenarioKey(req),
+      "run initialization"
+    );
     const results = await seedDefaultScenarioFactions(scenarioKey, req.session.userId || "");
     await ensureUnalignedFactionsForPlayableParties();
     res.json({ ok: true, scenarioKey, inserted: results.inserted, skipped: results.skipped });
