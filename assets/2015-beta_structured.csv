@@ -26,4 +26,5 @@ seat_breakdown,SDLP,,,0,,,,,,
 seat_breakdown,UUP,,,0,,,,,,
 seat_breakdown,Alliance,,,0,,,,,,
 seat_breakdown,Independents,,,0,,,,,,
-seat_breakdown,Speaker,,,1,,,,,,
+# Speaker seat is set to 0 here; set to 1 before seeding (the Speaker holds one seat in each Parliament).
+seat_breakdown,Speaker,,,0,,,,,,

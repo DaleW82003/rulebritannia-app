@@ -1,6 +1,6 @@
 {
   "key": "2015-beta",
-  "title": "May 2015 General Election (Beta – Alternative History)",
+  "title": "May 2015 General Election (Beta — Alternative History)",
   "description": "Beta scenario based on the May 2015 UK general election. In this alternative-history variant the simulation diverges from the actual result; the specific narrative divergence is TBD. The simulation begins in August 2015 with players entering a newly-formed Parliament. This scenario is in active development: constituency data, budget baselines, factions, and local council figures all require real data before it can be used in production.",
   "startDate": { "month": 5, "year": 2015 },
   "clockDefault": { "month": 8, "year": 2015 },
