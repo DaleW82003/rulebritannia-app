@@ -157,7 +157,7 @@ function groupUrlPath(groupName, groupId) {
 }
 
 /**
- * Normalise a list of Discourse usernames before making API calls.
+ * Normalize a list of Discourse usernames before making API calls.
  *
  * @param {Array<string|null|undefined>} usernames
  * @returns {string[]}
