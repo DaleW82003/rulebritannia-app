@@ -165,6 +165,14 @@ function validateUniqueRecords(key, values, getId, messagePrefix, code) {
   }
 }
 
+function getCanonicalPartySlugSet(worldSeed) {
+  return new Set(
+    (worldSeed?.canonicalParties || [])
+      .map((party) => String(party?.slug || "").trim())
+      .filter(Boolean)
+  );
+}
+
 function validatePartyReference(partySlugs, key, value, message, code) {
   const party = String(value || "").trim();
   assertScenario(party, key, message, code);
@@ -560,7 +568,7 @@ export function validateScenarioConstituenciesSeed(seed, manifest, worldSeed) {
     `Scenario constituencies seed for key "${key}" must define a "constituencies" array.`,
     code
   );
-  const partySlugs = new Set((worldSeed?.canonicalParties || []).map((party) => String(party?.slug || "").trim()).filter(Boolean));
+  const partySlugs = getCanonicalPartySlugSet(worldSeed);
   const seenIds = new Set();
   for (const constituency of seed.constituencies) {
     assertScenario(
@@ -658,6 +666,8 @@ function normalizeInheritanceConfig(key, rawInheritance) {
   }
   const out = {};
   for (const [asset, mode] of Object.entries(rawInheritance)) {
+    // Only these scenario-owned assets currently support explicit merge/replace
+    // behavior. Any other key would be a silent no-op, so reject it eagerly.
     if (!ALLOWED_INHERITANCE_ASSETS.has(asset)) {
       throw buildManifestError(
         key,

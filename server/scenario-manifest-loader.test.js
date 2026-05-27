@@ -20,9 +20,11 @@ test("2015-beta manifest declares 1997 as its parent scenario", () => {
 
 test("2015-beta world seed inherits omitted domains and overrides selected ones", () => {
   const seed = loadScenarioWorldSeed("2015-beta");
+  const tradeOffice = seed.officeSpecs.cabinet.find((row) => row.specId === "trade");
+  assert.ok(tradeOffice, "Expected 2015-beta cabinet trade office override to exist");
   assert.equal(seed.salaryScale.name, "2015 IPSA Baseline (Approximate)");
   assert.equal(seed.salaryScale.effectiveFrom.year, 2015);
-  assert.equal(seed.officeSpecs.cabinet.find((row) => row.specId === "trade")?.title, "Secretary of State for Business, Innovation and Skills");
+  assert.equal(tradeOffice.title, "Secretary of State for Business, Innovation and Skills");
   assert.equal(seed.budget.lastYear.gdp, 1930);
 });
 
