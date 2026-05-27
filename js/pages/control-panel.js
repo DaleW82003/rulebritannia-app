@@ -1330,13 +1330,13 @@ export async function initControlPanelPage(data) {
     // ── Seed default scenario factions button ─────────────────────────────────
     const seedBtnHtml = `
       <div style="margin-bottom:12px;padding:10px 12px;background:var(--bg-alt,#f7f7f7);border-radius:6px;border:1px solid var(--border,#ddd);">
-        <b style="font-size:.9em;">Default Scenario Setup</b>
+        <b style="font-size:.9em;">Default Scenario Setup (${DEFAULT_SCENARIO_KEY})</b>
         <p class="muted" style="font-size:.82em;margin:4px 0 8px;">
           Seeds the starter factions for the current default scenario (currently ${DEFAULT_SCENARIO_KEY}) for Labour, Conservative, and Liberal Democrat.
           This is idempotent — existing factions with the same slug are not overwritten.
           Seed values (MP counts, alignment, rebellion bias) are editable via the tiles above after seeding.
         </p>
-        <button class="btn" id="cp-seed-scenario-btn" type="button">Seed Default Scenario Factions</button>
+        <button class="btn" id="cp-seed-scenario-btn" type="button">Seed Default Scenario Factions (${DEFAULT_SCENARIO_KEY})</button>
         <span id="cp-seed-scenario-status" style="font-size:.85em;margin-left:8px;"></span>
       </div>
     `;

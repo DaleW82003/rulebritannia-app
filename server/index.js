@@ -4232,6 +4232,11 @@ async function seedPlayableParties() {
 const DEFAULT_SCENARIO_CONSTITUENCIES_EXPECTED_COUNT = 659;
 
 function normalizeScenarioKey(scenarioKey = getDefaultScenarioKey()) {
+  if (typeof scenarioKey !== "string" && typeof scenarioKey !== "number") {
+    const err = new Error("scenarioKey must be a string or number");
+    err.status = 400;
+    throw err;
+  }
   return String(scenarioKey || getDefaultScenarioKey()).trim() || getDefaultScenarioKey();
 }
 

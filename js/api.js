@@ -3678,10 +3678,7 @@ export async function apiAdminSeed1997Factions() {
 
 /** Admin/mod: seed default-scenario bodies + locals baseline data (currently 1997). */
 export async function apiAdminSeedScenarioBodiesLocals(force = false, scenarioKey = getDefaultScenarioKey()) {
-  const params = new URLSearchParams();
-  if (force) params.set("force", "true");
-  const query = params.toString() ? `?${params.toString()}` : "";
-  const res = await _fetch(`${API_BASE}/api/admin/seed-scenario-bodies-locals${query}`, {
+  const res = await _fetch(`${API_BASE}/api/admin/seed-scenario-bodies-locals`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
