@@ -60,11 +60,11 @@ The following endpoints are **disabled in production** (`NODE_ENV=production`) u
 | `POST` | `/api/admin/wipe-with-characters` | Deletes all content AND all characters |
 | `POST` | `/api/admin/seed-demo` | Resets and populates the database with demo data |
 | `POST` | `/api/admin/seed` | Alias for `/api/admin/seed-demo` |
-| `POST` | `/api/admin/constituencies/initialize-scenario` | Overwrites all default-scenario constituencies (currently the 659-seat 1997 baseline) |
-| `POST` | `/api/admin/constituencies/initialize-1997` | Legacy alias for the current default scenario constituency initializer |
+| `POST` | `/api/admin/constituencies/initialize-scenario` | Overwrites constituencies from the selected scenario manifest + committed JSON seed |
+| `POST` | `/api/admin/constituencies/initialize-1997` | Legacy alias that always initializes the default 1997 constituency seed |
 | `DELETE` | `/api/admin/constituencies/clear` | Deletes all constituencies |
 
-Phase 2 status: scenario route aliases are available for naming consistency, but full multi-scenario support is not implemented yet; the active default remains 1997.
+Current status: constituency initialization is scenario-aware, but broader gameplay/runtime support still treats 1997 as the active default scenario.
 
 ### Environment flag
 

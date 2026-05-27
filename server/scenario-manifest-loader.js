@@ -105,7 +105,7 @@ export function loadScenarioManifest(key) {
  * Manifest paths are stored relative to the repository root so they are
  * portable across deployment layouts.
  *
- * @param {string} manifestRelativePath - e.g. "data/constituencies_1997.json"
+ * @param {string} manifestRelativePath - e.g. "data/scenarios/1997/constituencies.json"
  * @returns {string} Absolute path.
  */
 export function resolveManifestPath(manifestRelativePath) {

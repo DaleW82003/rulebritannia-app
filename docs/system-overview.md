@@ -177,9 +177,9 @@ Users / Admins / Moderators
 | **Edge proxy (Worker)** | `worker/index.js` | Cloudflare Worker: proxies `rulebritannia.org/api/*` to Render backend; bare-domain redirect | `worker/index.js`, `wrangler.toml` |
 | **Edge proxy (Pages)** | `functions/api/[[path]].js` | Cloudflare Pages Function: proxies `www.rulebritannia.org/api/*`; fallback | `functions/api/[[path]].js` |
 | **Discourse integration** | `server/discourse.js`, `server/discourseClient.js` | DiscourseConnect SSO, auto group sync, debate topic lifecycle | Both files |
-| **Scripts** | `scripts/` | Asset versioning, static analysis, data conversion | `scripts/render-version-assets.mjs`, `scripts/static-checks.js`, `scripts/convert-1997-csv.js` |
+| **Scripts** | `scripts/` | Asset versioning, static analysis, data conversion | `scripts/render-version-assets.mjs`, `scripts/static-checks.js`, `scripts/convert-scenario-csv.js` |
 | **RBAC audit** | `scripts/audit/` | Feature manifest scanner + RBAC matrix drift detection | `scripts/audit/feature-manifest.js`, `scripts/audit/rbac-matrix.json` |
-| **Static datasets** | `data/` | 1997 election CSV, 650-constituency JSON, read-only demo snapshot | `data/1997_structured.csv`, `data/constituencies_1997.json`, `data/demo.json` |
+| **Static datasets** | `data/` | Scenario manifests, scenario constituency JSON, 1997 election CSV, read-only demo snapshot | `data/scenarios/1997/manifest.json`, `data/scenarios/1997/constituencies.json`, `data/1997_structured.csv`, `data/demo.json` |
 | **Documentation** | `docs/` | Architecture, dev guide, simulation model, audit reports, runbook | See §11 |
 | **Tests** | `server/*.test.js` | Server-side unit and integration tests (Node built-in test runner) | `server/guides-seed.test.js`, `server/service-modules.test.js`, `server/factions.integration.test.js`, … |
 | **CI** | `.github/workflows/` | Static checks + manifest on every push/PR | `static-checks.yml` |
@@ -329,8 +329,8 @@ When a character is assigned or removed from a cabinet, shadow cabinet, or parli
 
 | Asset | Location | Purpose |
 |---|---|---|
-| **1997 election CSV** | `data/1997_structured.csv` | Raw 1997 general election results by party, region, constituency, votes, and majority. Used by `scripts/convert-1997-csv.js` to produce the JSON file. |
-| **Constituency JSON** | `data/constituencies_1997.json` | 650 structured constituency records (id, name, nation, region, winning party, MP name) used to seed the database via admin endpoints. |
+| **1997 election CSV** | `data/1997_structured.csv` | Reference copy of the raw 1997 general election results by party, region, constituency, votes, and majority. The converter reads the manifest's canonical CSV path (`assets/1997_structured.csv`) and produces the scenario JSON file. |
+| **Constituency JSON** | `data/scenarios/1997/constituencies.json` | 659 structured constituency records (id, name, nation, region, winning party, MP name) used to seed the database via `POST /api/admin/constituencies/initialize-scenario`. |
 | **Demo snapshot** | `data/demo.json` | A read-only world snapshot. Served directly to unauthenticated visitors at `data/demo.json` so the site is explorable without an account. The server never writes to this file. |
 | **styles.css** | `styles.css` | Single global stylesheet. Versioned at build time by `scripts/render-version-assets.mjs` appending `?v=<git-sha>` to all HTML references for cache-busting. |
 | **Static HTML** | `/*.html` | 53 static pages served by Cloudflare Pages. No server-side rendering. |

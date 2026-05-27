@@ -4112,7 +4112,7 @@ async function runPollingAutoClose(month, year) {
   }
 }
 
-// Server-side party name normaliser — mirrors scripts/convert-1997-csv.js.
+// Server-side party name normaliser — mirrors scripts/convert-scenario-csv.js.
 // Handles ASCII variants, Latin-1 mojibake and legacy CSV typos.
 const SERVER_PARTY_MAP = {
   "Sinn Fein":    "Sinn Féin",
@@ -4230,12 +4230,6 @@ async function seedPlayableParties() {
   }
 }
 
-// Phase 3: constituency seat count is now read from the scenario manifest.
-// The helper below is called lazily so the manifest is only loaded once needed.
-function getScenarioExpectedConstituencyCount(scenarioKey = getDefaultScenarioKey()) {
-  return loadScenarioManifest(scenarioKey).expectedConstituencyCount;
-}
-
 function normalizeScenarioKey(scenarioKey = getDefaultScenarioKey()) {
   if (typeof scenarioKey !== "string" && typeof scenarioKey !== "number") {
     const err = new Error("scenarioKey must be a string or number");
@@ -4259,9 +4253,47 @@ function getRequestedScenarioKey(req) {
   return assertSupportedScenarioKey(req.body?.scenarioKey ?? req.query?.scenarioKey ?? getDefaultScenarioKey());
 }
 
-function getDefaultScenarioConstituenciesPath(scenarioKey = getDefaultScenarioKey()) {
-  assertSupportedScenarioKey(scenarioKey);
-  return resolveManifestPath(loadScenarioManifest(scenarioKey).constituenciesFile);
+function getRequestedConstituencyScenarioKey(req) {
+  if (req.path === "/api/admin/constituencies/initialize-1997") {
+    return getDefaultScenarioKey();
+  }
+  return normalizeScenarioKey(req.body?.scenarioKey ?? req.query?.scenarioKey ?? getDefaultScenarioKey());
+}
+
+function getScenarioConstituencySeedConfig(scenarioKey = getDefaultScenarioKey()) {
+  const normalized = normalizeScenarioKey(scenarioKey);
+  let manifest;
+  try {
+    manifest = loadScenarioManifest(normalized);
+  } catch (e) {
+    if (e?.code === "SCENARIO_MANIFEST_NOT_FOUND") {
+      const err = new Error(`Unsupported constituency scenarioKey: ${normalized}`);
+      err.status = 400;
+      throw err;
+    }
+    throw e;
+  }
+
+  if (!manifest?.constituenciesFile) {
+    const err = new Error(`Scenario manifest for key "${normalized}" is missing required field "constituenciesFile".`);
+    err.status = 500;
+    throw err;
+  }
+  if (!Number.isInteger(manifest?.expectedConstituencyCount) || manifest.expectedConstituencyCount <= 0) {
+    const err = new Error(`Scenario manifest for key "${normalized}" is missing a valid numeric "expectedConstituencyCount".`);
+    err.status = 500;
+    throw err;
+  }
+
+  return {
+    scenarioKey: normalized,
+    constituenciesPath: resolveManifestPath(manifest.constituenciesFile),
+    expectedCount: manifest.expectedConstituencyCount,
+  };
+}
+
+function getScenarioConstituenciesPath(scenarioKey = getDefaultScenarioKey()) {
+  return getScenarioConstituencySeedConfig(scenarioKey).constituenciesPath;
 }
 
 /**
@@ -4308,10 +4340,10 @@ function parseDefaultScenarioElectionCsv(scenarioKey = getDefaultScenarioKey()) 
       turnoutPct,
     };
   } catch (e) {
-    console.warn("[parseDefaultScenarioElectionCsv] failed, falling back to default scenario constituencies JSON:", e.message);
-    // Fallback: count seats from the current default scenario constituencies JSON (no vote data yet).
+    console.warn("[parseDefaultScenarioElectionCsv] failed, falling back to scenario constituencies JSON:", e.message);
+    // Fallback: count seats from the scenario constituencies JSON (no vote data yet).
     try {
-      const json = JSON.parse(readFileSync(getDefaultScenarioConstituenciesPath(scenarioKey), "utf8"));
+      const json = JSON.parse(readFileSync(getScenarioConstituenciesPath(scenarioKey), "utf8"));
       const counts = {};
       for (const c of (json.constituencies || [])) {
         const p = normaliseParty(c.party);
@@ -4418,25 +4450,32 @@ async function seedElection1997() {
 }
 
 /**
- * Idempotent seed of the current default scenario constituencies from the committed JSON dataset.
+ * Idempotent seed of a scenario's constituencies from the committed JSON dataset.
  * Skips if constituencies table is already populated.
  */
 async function initializeScenarioConstituencies(scenarioKey = getDefaultScenarioKey()) {
-  assertSupportedScenarioKey(scenarioKey);
+  const seedConfig = getScenarioConstituencySeedConfig(scenarioKey);
   const { rows: existing } = await pool.query(`SELECT 1 FROM constituencies LIMIT 1`);
   if (existing.length > 0) return; // already populated
 
   let json;
   try {
-    json = JSON.parse(readFileSync(getDefaultScenarioConstituenciesPath(scenarioKey), "utf8"));
+    json = JSON.parse(readFileSync(seedConfig.constituenciesPath, "utf8"));
   } catch (e) {
-    console.warn("[initializeScenarioConstituencies] could not load default scenario constituencies JSON:", e.message);
+    console.warn(`[initializeScenarioConstituencies] could not load constituencies JSON for scenarioKey=${seedConfig.scenarioKey}:`, e.message);
     return;
   }
 
   const incoming = json.constituencies || [];
   if (incoming.length === 0) {
-    console.warn("[initializeScenarioConstituencies] default scenario constituencies JSON has no entries — skipping.");
+    console.warn(`[initializeScenarioConstituencies] scenarioKey=${seedConfig.scenarioKey} constituencies JSON has no entries — skipping.`);
+    return;
+  }
+  if (!Array.isArray(incoming) || incoming.length !== seedConfig.expectedCount) {
+    console.warn(
+      `[initializeScenarioConstituencies] scenarioKey=${seedConfig.scenarioKey} constituencies JSON ` +
+      `must contain exactly ${seedConfig.expectedCount} entries (found ${incoming?.length ?? 0}) — skipping.`
+    );
     return;
   }
 
@@ -4459,7 +4498,7 @@ async function initializeScenarioConstituencies(scenarioKey = getDefaultScenario
   } finally {
     client.release();
   }
-  console.log(`[initializeScenarioConstituencies] seeded ${incoming.length} constituencies for scenarioKey=${scenarioKey}.`);
+  console.log(`[initializeScenarioConstituencies] seeded ${incoming.length} constituencies for scenarioKey=${seedConfig.scenarioKey}.`);
 }
 
 async function seedConstituencies1997() {
@@ -20267,26 +20306,18 @@ app.get("/api/constituencies/:id/events", electionsApiReadLimit, async (req, res
 // POST   /api/constituencies                        — admin/mod/speaker: upsert one
 // PUT    /api/constituencies/:id                    — admin/mod/speaker: update one
 // DELETE /api/constituencies/:id                    — admin/mod/speaker: delete one
-// POST   /api/admin/constituencies/initialize-scenario  — bulk-seed the current default scenario; requires confirm=true
-// POST   /api/admin/constituencies/initialize-1997       — legacy alias for the current default scenario
+// POST   /api/admin/constituencies/initialize-scenario  — bulk-seed constituencies for the selected scenario; requires confirm=true
+// POST   /api/admin/constituencies/initialize-1997      — legacy alias for the default 1997 scenario
 // DELETE /api/admin/constituencies/clear            — admin only: wipe all
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const constReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
 const constWriteLimit = rateLimit({ windowMs: 60_000, max: 60,  standardHeaders: true, legacyHeaders: false });
 
-// Helper: load the committed JSON for the current default scenario (lazy, cached after first load)
-let _defaultScenarioConstituenciesJson = null;
-function loadDefaultScenarioConstituenciesJson(scenarioKey = getDefaultScenarioKey()) {
-  assertSupportedScenarioKey(scenarioKey);
-  if (!_defaultScenarioConstituenciesJson) {
-    _defaultScenarioConstituenciesJson = JSON.parse(readFileSync(getDefaultScenarioConstituenciesPath(scenarioKey), "utf8"));
-  }
-  return _defaultScenarioConstituenciesJson;
-}
-
-function load1997Json() {
-  return loadDefaultScenarioConstituenciesJson(getDefaultScenarioKey());
+// Helper: load the committed JSON for a scenario on demand.
+function loadScenarioConstituenciesJson(scenarioKey = getDefaultScenarioKey()) {
+  const seedConfig = getScenarioConstituencySeedConfig(scenarioKey);
+  return JSON.parse(readFileSync(seedConfig.constituenciesPath, "utf8"));
 }
 
 app.get("/api/constituencies", constReadLimit, async (req, res) => {
@@ -20422,15 +20453,15 @@ const initializeScenarioConstituenciesHandler = async (req, res) => {
       return res.status(400).json({ error: "Send confirm: true to confirm overwriting all constituencies" });
     }
 
-    const scenarioKey = getRequestedScenarioKey(req);
-    const json = loadDefaultScenarioConstituenciesJson(scenarioKey);
+    const scenarioKey = getRequestedConstituencyScenarioKey(req);
+    const json = loadScenarioConstituenciesJson(scenarioKey);
     const incoming = json.constituencies;
-    const expectedCount = getScenarioExpectedConstituencyCount(scenarioKey);
+    const { expectedCount } = getScenarioConstituencySeedConfig(scenarioKey);
     // Validate against the expected count declared in the scenario manifest.
     if (!Array.isArray(incoming) || incoming.length !== expectedCount) {
       return res.status(500).json({
-        error: `default scenario constituencies JSON must contain exactly ${expectedCount} entries (found ${incoming?.length ?? 0}). ` +
-               "Re-run scripts/convert-1997-csv.js to regenerate."
+        error: `Scenario "${scenarioKey}" constituencies JSON must contain exactly ${expectedCount} entries (found ${incoming?.length ?? 0}). ` +
+               `Re-run node scripts/convert-scenario-csv.js ${scenarioKey} to regenerate.`
       });
     }
 
@@ -20454,7 +20485,7 @@ const initializeScenarioConstituenciesHandler = async (req, res) => {
     }
 
     await writeAuditLog(
-      req.session.userId, "constituencies.initialize_1997", "constituencies",
+      req.session.userId, "constituencies.initialize_scenario", "constituencies",
       "bulk", null, { count: incoming.length, scenarioKey }
     );
     res.json({ ok: true, scenarioKey, count: incoming.length });

@@ -672,13 +672,15 @@ The `other_officials_faction_allocations` table tracks how non-Commons official 
 
 ## 6. Data Model
 
-### 1997 Constituency Dataset
+### Scenario Constituency Dataset
 
-**Source CSV:** `assets/1997_structured.csv` — the canonical input read by `scripts/convert-1997-csv.js`. A copy also exists at `data/1997_structured.csv` for reference, but the conversion script always reads from the `assets/` path.
+**Manifest:** `data/scenarios/1997/manifest.json`
 
-**Generated JSON:** `data/constituencies_1997.json`
+**Source CSV:** `assets/1997_structured.csv` — the canonical 1997 input read via the manifest. A copy also exists at `data/1997_structured.csv` for reference.
 
-The CSV contains one row per constituency with fields including constituency name, region, elected party, vote counts, and a seat breakdown summary. The `convert-1997-csv.js` script processes this into a structured JSON array consumed by `POST /api/admin/constituencies/initialize-1997`.
+**Generated JSON:** `data/scenarios/1997/constituencies.json`
+
+The CSV contains one row per constituency with fields including constituency name, region, elected party, vote counts, and a seat breakdown summary. The reusable `convert-scenario-csv.js` script processes this into a structured JSON array consumed by `POST /api/admin/constituencies/initialize-scenario`.
 
 The conversion script performs:
 1. **Party normalisation** — maps ASCII variants (`Sinn Fein`) and mojibake (`Sinn F?in`) to canonical Unicode (`Sinn Féin`). Maps `UK Unionist` and `Independent` to `Independents`.
@@ -687,10 +689,10 @@ The conversion script performs:
 
 **Run the conversion script:**
 ```bash
-node scripts/convert-1997-csv.js
+node scripts/convert-scenario-csv.js 1997
 ```
 
-This regenerates `data/constituencies_1997.json`. Do not edit the JSON directly; edit the CSV and re-run the script.
+This regenerates `data/scenarios/1997/constituencies.json`. Do not edit the JSON directly; edit the CSV and re-run the script.
 
 ### Demo Data (`data/demo.json`)
 
@@ -884,15 +886,15 @@ When a debate is created for a parliamentary entity (`POST /api/debates/create`)
 
 ## 10. Scripts and Tooling
 
-### `scripts/convert-1997-csv.js`
+### `scripts/convert-scenario-csv.js`
 
-Converts `assets/1997_structured.csv` → `data/constituencies_1997.json`.
+Converts a scenario's election CSV → the scenario's committed `constituencies.json`.
 
 ```bash
-node scripts/convert-1997-csv.js
+node scripts/convert-scenario-csv.js 1997
 ```
 
-Run after modifying the CSV. Handles party name normalisation, nation/region resolution, and slug generation. The output JSON is consumed by `POST /api/admin/constituencies/initialize-1997`.
+Run after modifying a scenario CSV. Handles party name normalisation, nation/region resolution, and slug generation. The output JSON is consumed by `POST /api/admin/constituencies/initialize-scenario`.
 
 ### `scripts/render-version-assets.mjs`
 
@@ -1124,7 +1126,7 @@ If the backend is on a different port, set `window.RB_API_BASE` in the browser c
 
 ```bash
 # Convert constituency CSV (after editing assets/1997_structured.csv)
-node scripts/convert-1997-csv.js
+node scripts/convert-scenario-csv.js 1997
 
 # Cache-bust HTML files (dry run)
 node scripts/render-version-assets.mjs --dry-run

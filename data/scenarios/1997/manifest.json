@@ -5,7 +5,7 @@
   "startDate": { "month": 5, "year": 1997 },
   "clockDefault": { "month": 8, "year": 1997 },
   "status": "default",
-  "constituenciesFile": "data/constituencies_1997.json",
+  "constituenciesFile": "data/scenarios/1997/constituencies.json",
   "electionCsvFile": "assets/1997_structured.csv",
   "expectedConstituencyCount": 659,
   "playableParties": ["Conservative", "Labour", "Liberal Democrat"]

@@ -11,13 +11,11 @@ of the world at game start.  Server code reads manifests through
 `server/scenario-manifest-loader.js`; no scenario-specific magic strings
 should exist outside of manifest files.
 
-> **Phase 3 scope** — This document describes the manifest *format* and
-> *loader* introduced in Phase 3.  Multi-scenario runtime support (admin-UI
-> scenario selection, seeding pipelines for non-default scenarios) is **not
-> yet implemented**.  Only the `1997` scenario manifest is active; non-default
-> scenario keys are explicitly rejected at runtime by `assertSupportedScenarioKey`
-> in `server/index.js` and `server/political-state-service.js`.  Phase 4 will
-> lift that restriction once the full seed pipeline is ready.
+> **Current scope** — The manifest layer is shared across scenario-aware
+> loaders.  Most runtime flows still treat `1997` as the only active gameplay
+> scenario, but constituency import/initialization now resolves its committed
+> JSON dataset by explicit `scenarioKey`.  Other non-default scenario behavior
+> remains gated until later phases wire the broader runtime.
 
 ---
 
@@ -27,7 +25,8 @@ should exist outside of manifest files.
 data/
 └── scenarios/
     └── 1997/
-        └── manifest.json   ← the 1997 (default) scenario
+        ├── manifest.json
+        └── constituencies.json   ← committed constituency seed for 1997
 ```
 
 Additional scenarios live as sibling directories:
@@ -35,9 +34,11 @@ Additional scenarios live as sibling directories:
 ```
 data/scenarios/
 ├── 1997/
-│   └── manifest.json
+│   ├── manifest.json
+│   └── constituencies.json
 └── 2015/           ← future scenario
-    └── manifest.json
+    ├── manifest.json
+    └── constituencies.json
 ```
 
 ---
@@ -71,7 +72,7 @@ data/scenarios/
   "startDate": { "month": 5, "year": 1997 },
   "clockDefault": { "month": 8, "year": 1997 },
   "status": "default",
-  "constituenciesFile": "data/constituencies_1997.json",
+  "constituenciesFile": "data/scenarios/1997/constituencies.json",
   "electionCsvFile": "assets/1997_structured.csv",
   "expectedConstituencyCount": 659,
   "playableParties": ["Conservative", "Labour", "Liberal Democrat"]
@@ -104,7 +105,7 @@ cannot be parsed.
 ### `resolveManifestPath(relPath)`
 
 Converts a repo-root-relative path stored in a manifest field (e.g.
-`"data/constituencies_1997.json"`) to an absolute filesystem path that can
+`"data/scenarios/1997/constituencies.json"`) to an absolute filesystem path that can
 be passed to `readFileSync`.
 
 ### `listScenarioKeys()`
@@ -115,18 +116,43 @@ in test environments that don't clone data files).
 
 ---
 
+## Scenario constituency storage
+
+Each scenario owns its committed constituency seed JSON:
+
+```text
+data/scenarios/<key>/constituencies.json
+```
+
+The manifest field `constituenciesFile` points to that file.  This keeps the
+generated constituency dataset colocated with the scenario definition instead
+of relying on a global year-specific filename.
+
+For the current default scenario:
+
+```text
+data/scenarios/1997/manifest.json
+data/scenarios/1997/constituencies.json
+```
+
+The raw CSV input may still live elsewhere (for 1997 it remains
+`assets/1997_structured.csv`), but the committed JSON consumed by the server is
+now stored per scenario.
+
+---
+
 ## How the loader is used
 
 `server/index.js` calls `loadScenarioManifest(key)` in three places:
 
-1. **`getDefaultScenarioConstituenciesPath`** — returns
-   `resolveManifestPath(manifest.constituenciesFile)` instead of a hardcoded
-   string.
+1. **`getScenarioConstituencySeedConfig`** — validates that the manifest has a
+   constituency JSON path and expected seat count, then resolves the JSON path.
 2. **`parseDefaultScenarioElectionCsv`** — opens
    `resolveManifestPath(manifest.electionCsvFile)` instead of a hardcoded
    string.
-3. **`getScenarioExpectedConstituencyCount`** — returns
-   `manifest.expectedConstituencyCount` instead of a hardcoded `659`.
+3. **`loadScenarioConstituenciesJson`** and
+   **`initializeScenarioConstituenciesHandler`** — load the committed
+   `constituencies.json` for the selected `scenarioKey`.
 
 `server/political-state-service.js` imports `DEFAULT_SCENARIO_KEY` and
 `getDefaultScenarioKey` from the loader, removing the last hardcoded `"1997"`
@@ -134,15 +160,53 @@ literal from service logic.
 
 ---
 
+## Initializing constituencies for a selected scenario
+
+The admin seed route is:
+
+```text
+POST /api/admin/constituencies/initialize-scenario
+```
+
+Request body:
+
+```json
+{
+  "confirm": true,
+  "scenarioKey": "1997"
+}
+```
+
+Behavior:
+
+1. The route resolves the requested `scenarioKey`.
+2. It loads `data/scenarios/<key>/manifest.json`.
+3. It opens the scenario's `constituenciesFile`.
+4. It validates that the file contains exactly `expectedConstituencyCount`
+   entries.
+5. It overwrites the `constituencies` table with that scenario's committed
+   seed data.
+
+`POST /api/admin/constituencies/initialize-1997` remains as a legacy alias that
+always targets the default 1997 scenario.
+
+---
+
 ## Adding a new scenario
 
 1. Create `data/scenarios/<newKey>/manifest.json` with all required fields.
-2. Place (or symlink) the constituency JSON and election CSV at the paths
-   listed in the manifest, relative to the repo root.
+2. Place the constituency JSON at `data/scenarios/<newKey>/constituencies.json`
+   (or another repo-root-relative path referenced by `constituenciesFile`), and
+   place the election CSV at the path listed in `electionCsvFile`.
 3. Verify `listScenarioKeys()` returns the new key.
-4. Update `assertSupportedScenarioKey` in `server/political-state-service.js`
-   and `server/index.js` to accept the new key once the full seed pipeline
-   supports it.
+4. Re-generate the constituency JSON with:
+
+   ```bash
+   node scripts/convert-scenario-csv.js <newKey>
+   ```
+
+5. Update non-constituency runtime guards in `server/political-state-service.js`
+   and `server/index.js` once the broader seed pipeline supports the new key.
 
 ---
 
