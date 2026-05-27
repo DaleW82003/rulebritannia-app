@@ -53,7 +53,7 @@ function toSlug(name) {
 
 // ── Minimal CSV parser (handles quoted fields) ────────────────────────────────
 function parseCsv(text) {
-  const lines  = text.split(/\r?\n/).filter(Boolean);
+  const lines  = text.split(/\r?\n/).filter(l => l && !l.trimStart().startsWith("#"));
   const header = lines[0].split(",");
   return lines.slice(1).map((line) => {
     const values = [];
