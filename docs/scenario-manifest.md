@@ -28,7 +28,7 @@ data/
     └── 1997/
         ├── manifest.json
         ├── constituencies.json   ← committed constituency seed for 1997
-        └── world-seed.json       ← parties/factions/bodies/locals/budget seeds
+        └── world-seed.json       ← parties/factions/governance/economy seed pack
 ```
 
 Additional scenarios live as sibling directories:
@@ -119,6 +119,9 @@ The current default scenario uses it for:
 - faction seed data
 - House of Lords / European Parliament / locals baseline state
 - budget baseline values
+- cabinet and shadow-cabinet office spec registry
+- salary-scale baseline seed values
+- party HQ baseline upkeep defaults
 
 ### `resolveManifestPath(relPath)`
 
@@ -183,6 +186,15 @@ and world-seed loader in these places:
    `worldSeedFile`.
 8. **`FACTION_PLAYABLE_PARTIES`** — now resolves directly from
    `manifest.playableParties`.
+9. **Clock bootstrap/reset fallbacks** — resolve from `manifest.clockDefault`.
+10. **Election seed metadata** — polling day/label derive from
+   `manifest.startDate` + `manifest.title`.
+11. **`seedOfficeSpecs`** — office spec rows resolve from
+   `worldSeedFile.officeSpecs`.
+12. **`initializeDefaultScenarioSalaryScale`** — salary baseline seed resolves
+   from `worldSeedFile.salaryScale`.
+13. **Party upkeep baseline in monthly finance tick** — resolves from
+   `worldSeedFile.economy.hqBaselineUpkeep`.
 
 ---
 
@@ -241,6 +253,9 @@ always targets the default 1997 scenario.
    - `bodies`
    - `locals`
    - `budget`
+   - `officeSpecs`
+   - `salaryScale`
+   - `economy.hqBaselineUpkeep`
 
 6. Update remaining non-scenario-owned runtime guards in
    `server/political-state-service.js` and `server/index.js` once the broader
@@ -260,6 +275,11 @@ always targets the default 1997 scenario.
 - Faction seed rows
 - Lords / European Parliament / local-government baseline seed data
 - Budget baseline/admin-control defaults
+- Cabinet and shadow-cabinet office spec defaults
+- Salary-scale baseline defaults
+- Party HQ baseline upkeep defaults
+- Default scenario clock fallback/reset metadata
+- Default scenario election metadata (polling day/label)
 
 ### Still pending
 
@@ -268,7 +288,7 @@ always targets the default 1997 scenario.
 - Cabinet / shadow-cabinet office assignments
 - NPC/character baseline roster
 - Starting news / events / polling
-- Clock fallback consumption in `server/clock.js`
+- Economy page baseline defaults (`app_config.economy_page_data`)
 
 ---
 

@@ -432,5 +432,63 @@
       "charityReliefExpenditure": 0.41,
       "otherExpensesExpenditure": -0.66
     }
+  },
+  "officeSpecs": {
+    "cabinet": [
+      { "specId": "prime-minister", "title": "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
+      { "specId": "chancellor", "title": "Chancellor of the Exchequer, and Second Lord of the Treasury" },
+      { "specId": "home", "title": "Secretary of State for the Home Department" },
+      { "specId": "foreign", "title": "Secretary of State for Foreign and Commonwealth Affairs" },
+      { "specId": "trade", "title": "Secretary of State for Business and Trade, and President of the Board of Trade" },
+      { "specId": "defence", "title": "Secretary of State for Defence" },
+      { "specId": "welfare", "title": "Secretary of State for Work and Pensions" },
+      { "specId": "education", "title": "Secretary of State for Education" },
+      { "specId": "env-agri", "title": "Secretary of State for the Environment and Agriculture" },
+      { "specId": "health", "title": "Secretary of State for Health and Social Care" },
+      { "specId": "eti", "title": "Secretary of State for Transport and Infrastructure" },
+      { "specId": "culture", "title": "Secretary of State for Culture, Media and Sport" },
+      { "specId": "home-nations", "title": "Secretary of State for the Home Nations" },
+      { "specId": "leader-commons", "title": "Leader of the House of Commons" }
+    ],
+    "shadow": [
+      { "specId": "leader-opposition", "title": "Leader of the Opposition" },
+      { "specId": "shadow-chancellor", "title": "Shadow Chancellor of the Exchequer" },
+      { "specId": "shadow-home", "title": "Shadow Secretary of State for the Home Department" },
+      { "specId": "shadow-foreign", "title": "Shadow Secretary of State for Foreign and Commonwealth Affairs" },
+      { "specId": "shadow-trade", "title": "Shadow Secretary of State for Business and Trade, and President of the Board of Trade" },
+      { "specId": "shadow-defence", "title": "Shadow Secretary of State for Defence" },
+      { "specId": "shadow-welfare", "title": "Shadow Secretary of State for Work and Pensions" },
+      { "specId": "shadow-education", "title": "Shadow Secretary of State for Education" },
+      { "specId": "shadow-env-agri", "title": "Shadow Secretary of State for the Environment and Agriculture" },
+      { "specId": "shadow-health", "title": "Shadow Secretary of State for Health and Social Care" },
+      { "specId": "shadow-eti", "title": "Shadow Secretary of State for Transport and Infrastructure" },
+      { "specId": "shadow-culture", "title": "Shadow Secretary of State for Culture, Media and Sport" },
+      { "specId": "shadow-home-nations", "title": "Shadow Secretary of State for the Home Nations" },
+      { "specId": "shadow-leader-commons", "title": "Shadow Leader of the House of Commons" }
+    ]
+  },
+  "salaryScale": {
+    "name": "1997 Baseline",
+    "effectiveFrom": { "month": 1, "year": 1997 },
+    "legacyEffectiveFrom": { "month": 8, "year": 1997 },
+    "roles": {
+      "prime_minister": 101749,
+      "leader_opposition": 63024,
+      "leader_third_party": 60387,
+      "speaker": 60387,
+      "secretary_of_state": 63047,
+      "minister_of_state": 53800,
+      "shadow_secretary_of_state": 53800,
+      "committee_chairman": 48860,
+      "committee_member": 46860,
+      "backbencher": 43860
+    }
+  },
+  "economy": {
+    "hqBaselineUpkeep": {
+      "Conservative": 12000,
+      "Labour": 15000,
+      "Liberal Democrat": 8000
+    }
   }
 }

@@ -800,24 +800,31 @@ async function ensureSchema() {
     );
   `);
 
+  const defaultScenarioClock = getDefaultScenarioClockDefault();
+  const defaultScenarioStartLabel = formatSimMonthYearLabel(defaultScenarioClock.month, defaultScenarioClock.year);
+  const defaultScenarioSimStartDate =
+    `${defaultScenarioClock.year}-${String(defaultScenarioClock.month).padStart(2, "0")}-01`;
+
   // Seed defaults (INSERT … ON CONFLICT DO NOTHING keeps existing values)
-  await pool.query(`
-    INSERT INTO app_config (key, value) VALUES
+  await pool.query(
+    `INSERT INTO app_config (key, value) VALUES
       ('discourse_base_url',      'https://forum.rulebritannia.org'),
       ('discourse_api_key',       ''),
       ('discourse_api_username',  ''),
       ('discourse_sso_secret',    ''),
       ('ui_base_url',             'https://rulebritannia.org'),
-      ('sim_start_date',          '1997-08-01'),
+      ('sim_start_date',          $1),
       ('clock_rate',              '2')
-    ON CONFLICT (key) DO NOTHING;
-  `);
+     ON CONFLICT (key) DO NOTHING;`,
+    [defaultScenarioSimStartDate]
+  );
 
-  await pool.query(`
-    INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
-    VALUES ('main', 8, 1997, 1)
-    ON CONFLICT (id) DO NOTHING;
-  `);
+  await pool.query(
+    `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+     VALUES ('main', $1, $2, 1)
+     ON CONFLICT (id) DO NOTHING;`,
+    [defaultScenarioClock.month, defaultScenarioClock.year]
+  );
 
   await pool.query(`ALTER TABLE sim_clock ADD COLUMN IF NOT EXISTS is_paused BOOLEAN NOT NULL DEFAULT FALSE`);
   await pool.query(`ALTER TABLE sim_clock ADD COLUMN IF NOT EXISTS started BOOLEAN NOT NULL DEFAULT FALSE`);
@@ -2918,15 +2925,11 @@ function computePropertyFinance(character, financeCostIndex = 1.0) {
   };
 }
 
-// ── 1997 baseline salary scale (idempotent) ────────────────────────────────
-// effective_from_sim_index = 1997*12 + 0 = 23964 (January 1997)
-// Game starts in May 1997 (sim index 23968); the scale must apply from at least
-// January 1997 so that all sim months from the game start receive a salary.
-const SALARY_1997_SIM_INDEX = 1997 * 12 + 0; // January 1997 = index 23964
-// Legacy constant (was August 1997 = 23971) used only for the migration update below.
-const SALARY_1997_SIM_INDEX_LEGACY = 1997 * 12 + 7;
-
-const SALARY_1997_ROLES = {
+const SALARY_SCALE_DEFAULTS = {
+  name: "1997 Baseline",
+  effectiveFrom: { month: 1, year: 1997 },
+  legacyEffectiveFrom: { month: 8, year: 1997 },
+  roles: {
   prime_minister:            101749,
   leader_opposition:          63024,
   leader_third_party:         60387,
@@ -2937,39 +2940,10 @@ const SALARY_1997_ROLES = {
   committee_chairman:         48860,
   committee_member:           46860,
   backbencher:                43860,
+  },
 };
 
-async function initializeDefaultScenarioSalaryScale() {
-  // Migration: if the scale was previously seeded with the old August-1997 index,
-  // move it to January 1997 so it covers the game start month (May 1997).
-  await pool.query(
-    `UPDATE salary_scales SET effective_from_sim_index = $1
-      WHERE effective_from_sim_index = $2 AND name = '1997 Baseline'`,
-    [SALARY_1997_SIM_INDEX, SALARY_1997_SIM_INDEX_LEGACY]
-  );
-
-  // Check if a scale for January 1997 already exists
-  const { rows: existing } = await pool.query(
-    "SELECT id FROM salary_scales WHERE effective_from_sim_index = $1 LIMIT 1",
-    [SALARY_1997_SIM_INDEX]
-  );
-  if (existing.length) return; // already seeded (or just migrated above)
-  const { rows } = await pool.query(
-    "INSERT INTO salary_scales (name, effective_from_sim_index) VALUES ($1, $2) RETURNING id",
-    ["1997 Baseline", SALARY_1997_SIM_INDEX]
-  );
-  const scaleId = rows[0].id;
-  const roleEntries = Object.entries(SALARY_1997_ROLES);
-  const placeholders = roleEntries.map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`).join(", ");
-  await pool.query(
-    `INSERT INTO salary_scale_roles (scale_id, role_key, annual_salary) VALUES ${placeholders}`,
-    [scaleId, ...roleEntries.flatMap(([k, v]) => [k, v])]
-  );
-  console.log("[seed] 1997 salary scale seeded, id =", scaleId);
-}
-
-// ── Canonical office specs (mirrors client-side OFFICE_SPECS / SHADOW_OFFICE_SPECS) ──
-const CABINET_OFFICE_SPECS = [
+const CABINET_OFFICE_SPECS_DEFAULTS = [
   { specId: "prime-minister",    title: "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
   { specId: "chancellor",        title: "Chancellor of the Exchequer, and Second Lord of the Treasury" },
   { specId: "home",              title: "Secretary of State for the Home Department" },
@@ -2985,7 +2959,8 @@ const CABINET_OFFICE_SPECS = [
   { specId: "home-nations",      title: "Secretary of State for the Home Nations" },
   { specId: "leader-commons",    title: "Leader of the House of Commons" },
 ];
-const SHADOW_OFFICE_SPECS_SERVER = [
+
+const SHADOW_OFFICE_SPECS_DEFAULTS = [
   { specId: "leader-opposition",       title: "Leader of the Opposition" },
   { specId: "shadow-chancellor",       title: "Shadow Chancellor of the Exchequer" },
   { specId: "shadow-home",             title: "Shadow Secretary of State for the Home Department" },
@@ -3002,18 +2977,139 @@ const SHADOW_OFFICE_SPECS_SERVER = [
   { specId: "shadow-leader-commons",   title: "Shadow Leader of the House of Commons" },
 ];
 
+const HQ_BASELINE_UPKEEP_DEFAULTS = {
+  Conservative: 12000,
+  Labour: 15000,
+  "Liberal Democrat": 8000,
+};
+
+function normaliseSeedMonthYear(seedDate, fallback) {
+  const month = Number(seedDate?.month);
+  const year = Number(seedDate?.year);
+  if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year <= 0) {
+    return { ...fallback };
+  }
+  return { month, year };
+}
+
+function getDefaultScenarioClockDefault() {
+  const fallback = { month: 8, year: 1997 };
+  try {
+    const manifest = loadScenarioManifest(getDefaultScenarioKey());
+    return normaliseSeedMonthYear(manifest?.clockDefault, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function getDefaultScenarioElectionDate() {
+  const fallback = { month: 5, year: 1997 };
+  try {
+    const manifest = loadScenarioManifest(getDefaultScenarioKey());
+    return normaliseSeedMonthYear(manifest?.startDate, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function getDefaultScenarioSalaryScaleSeed() {
+  const seed = loadDefaultScenarioWorldSeed()?.salaryScale || {};
+  const effectiveFrom = normaliseSeedMonthYear(seed?.effectiveFrom, SALARY_SCALE_DEFAULTS.effectiveFrom);
+  const legacyEffectiveFrom = normaliseSeedMonthYear(seed?.legacyEffectiveFrom, SALARY_SCALE_DEFAULTS.legacyEffectiveFrom);
+  const roles = seed?.roles && typeof seed.roles === "object" ? seed.roles : SALARY_SCALE_DEFAULTS.roles;
+  return {
+    name: String(seed?.name || SALARY_SCALE_DEFAULTS.name),
+    effectiveFrom,
+    legacyEffectiveFrom,
+    roles: { ...SALARY_SCALE_DEFAULTS.roles, ...roles },
+  };
+}
+
+function getDefaultScenarioOfficeSpecsSeed() {
+  const officeSpecs = loadDefaultScenarioWorldSeed()?.officeSpecs || {};
+  const normalizeSpecs = (seedRows, fallbackRows) => {
+    if (!Array.isArray(seedRows) || seedRows.length === 0) return fallbackRows;
+    const normalized = seedRows
+      .map((row) => ({
+       specId: String(row?.specId || "").trim(),
+       title: String(row?.title || "").trim(),
+      }))
+      .filter((row) => row.specId && row.title);
+    return normalized.length ? normalized : fallbackRows;
+  };
+  return {
+    cabinet: normalizeSpecs(officeSpecs.cabinet, CABINET_OFFICE_SPECS_DEFAULTS),
+    shadow: normalizeSpecs(officeSpecs.shadow, SHADOW_OFFICE_SPECS_DEFAULTS),
+  };
+}
+
+function getDefaultScenarioHqBaselineUpkeep() {
+  const hqUpkeep = loadDefaultScenarioWorldSeed()?.economy?.hqBaselineUpkeep;
+  if (!hqUpkeep || typeof hqUpkeep !== "object") return HQ_BASELINE_UPKEEP_DEFAULTS;
+  const output = { ...HQ_BASELINE_UPKEEP_DEFAULTS };
+  for (const [party, amount] of Object.entries(hqUpkeep)) {
+    const parsed = Number(amount);
+    if (Number.isFinite(parsed) && parsed >= 0) output[party] = parsed;
+  }
+  return output;
+}
+
+function formatSimMonthYearLabel(month, year) {
+  const monthIndex = Number(month) - 1;
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+  const safeMonth = monthNames[monthIndex] || "Unknown";
+  return `${safeMonth} ${year}`;
+}
+
+async function initializeDefaultScenarioSalaryScale() {
+  const salarySeed = getDefaultScenarioSalaryScaleSeed();
+  const salarySimIndex = salarySeed.effectiveFrom.year * 12 + (salarySeed.effectiveFrom.month - 1);
+  const salarySimIndexLegacy = salarySeed.legacyEffectiveFrom.year * 12 + (salarySeed.legacyEffectiveFrom.month - 1);
+
+  // Migration: if the scale was previously seeded with the old August-1997 index,
+  // move it to January 1997 so it covers the game start month (May 1997).
+  await pool.query(
+    `UPDATE salary_scales SET effective_from_sim_index = $1
+      WHERE effective_from_sim_index = $2 AND name = $3`,
+    [salarySimIndex, salarySimIndexLegacy, salarySeed.name]
+  );
+
+  // Check if a scale for January 1997 already exists
+  const { rows: existing } = await pool.query(
+    "SELECT id FROM salary_scales WHERE effective_from_sim_index = $1 LIMIT 1",
+    [salarySimIndex]
+  );
+  if (existing.length) return; // already seeded (or just migrated above)
+  const { rows } = await pool.query(
+    "INSERT INTO salary_scales (name, effective_from_sim_index) VALUES ($1, $2) RETURNING id",
+    [salarySeed.name, salarySimIndex]
+  );
+  const scaleId = rows[0].id;
+  const roleEntries = Object.entries(salarySeed.roles);
+  const placeholders = roleEntries.map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`).join(", ");
+  await pool.query(
+    `INSERT INTO salary_scale_roles (scale_id, role_key, annual_salary) VALUES ${placeholders}`,
+    [scaleId, ...roleEntries.flatMap(([k, v]) => [k, v])]
+  );
+  console.log("[seed] 1997 salary scale seeded, id =", scaleId);
+}
+
 /** Idempotently ensure all canonical offices exist in the DB with their spec_id. */
 async function seedOfficeSpecs() {
-  const cabinetValues = CABINET_OFFICE_SPECS.map((_, i) => `($${i * 2 + 1}, 'cabinet', $${i * 2 + 2})`).join(", ");
-  const cabinetParams = CABINET_OFFICE_SPECS.flatMap(({ title, specId }) => [title, specId]);
+  const officeSpecs = getDefaultScenarioOfficeSpecsSeed();
+  const cabinetValues = officeSpecs.cabinet.map((_, i) => `($${i * 2 + 1}, 'cabinet', $${i * 2 + 2})`).join(", ");
+  const cabinetParams = officeSpecs.cabinet.flatMap(({ title, specId }) => [title, specId]);
   await pool.query(
     `INSERT INTO offices (name, type, spec_id) VALUES ${cabinetValues}
      ON CONFLICT (spec_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type`,
     cabinetParams
   );
 
-  const shadowValues = SHADOW_OFFICE_SPECS_SERVER.map((_, i) => `($${i * 2 + 1}, 'shadow', $${i * 2 + 2})`).join(", ");
-  const shadowParams = SHADOW_OFFICE_SPECS_SERVER.flatMap(({ title, specId }) => [title, specId]);
+  const shadowValues = officeSpecs.shadow.map((_, i) => `($${i * 2 + 1}, 'shadow', $${i * 2 + 2})`).join(", ");
+  const shadowParams = officeSpecs.shadow.flatMap(({ title, specId }) => [title, specId]);
   await pool.query(
     `INSERT INTO offices (name, type, spec_id) VALUES ${shadowValues}
      ON CONFLICT (spec_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type`,
@@ -3332,11 +3428,12 @@ async function runShopUpkeep(month, year) {
     // always subtracts from the *current* DB value at the moment of the write. This
     // prevents the race where a donation/fundraising credit landing between our SELECT
     // and UPDATE would be silently overwritten.
+    const hqBaselineUpkeep = getDefaultScenarioHqBaselineUpkeep();
     const toUpdate = parties
       .map((party) => {
         const overhead    = Number(party.party_structure?.monthlyOverhead || 0);
         const shopUpkeep  = Number(party.shop_upkeep || 0);
-        const hqBaseline  = Number(HQ_BASELINE_UPKEEP_1997[party.slug] || 0);
+        const hqBaseline  = Number(hqBaselineUpkeep[party.slug] || 0);
         const totalDeduct = overhead + shopUpkeep + hqBaseline;
         if (totalDeduct <= 0) return null;
         return { id: party.id, totalDeduct };
@@ -3447,13 +3544,6 @@ async function runRevenuePayouts(simMonth, simYear) {
     console.error("[runRevenuePayouts] error:", e.message);
   }
 }
-// ── Fixed HQ baseline monthly upkeep (1997 values) ────────────────────────
-const HQ_BASELINE_UPKEEP_1997 = {
-  Conservative:     12000,
-  Labour:           15000,
-  "Liberal Democrat": 8000,
-};
-
 // ── Annual membership intake (January) ───────────────────────────────────────
 // Called each tick. When month === 1, credits each party treasury with
 // membership_fee_annual × members (idempotent per sim year).
@@ -4330,15 +4420,27 @@ function parse1997CSV() {
   return parseDefaultScenarioElectionCsv(getDefaultScenarioKey());
 }
 
+function getScenarioElectionSeedConfig(scenarioKey = getDefaultScenarioKey()) {
+  assertSupportedScenarioKey(scenarioKey);
+  const manifest = loadScenarioManifest(scenarioKey);
+  const electionDate = normaliseSeedMonthYear(manifest?.startDate, getDefaultScenarioElectionDate());
+  const electionLabel = String(manifest?.title || "May 1997 General Election");
+  const pollingDay = `${electionDate.year}-${String(electionDate.month).padStart(2, "0")}-01`;
+  const finalizedAt = `${pollingDay}T00:00:00Z`;
+  return { pollingDay, finalizedAt, label: electionLabel };
+}
+
 /**
  * Idempotent seed of the current default scenario general election baseline.
  * Uses the legacy 1997 asset files until broader scenario extraction lands.
  */
 async function initializeScenarioElection(scenarioKey = getDefaultScenarioKey()) {
   const activeScenarioKey = assertSupportedScenarioKey(scenarioKey);
+  const electionSeed = getScenarioElectionSeedConfig(activeScenarioKey);
   // Check if the default-scenario general election record already exists.
   const { rows: existing } = await pool.query(
-    `SELECT id FROM elections WHERE type = 'general' AND polling_day = '1997-05-01' LIMIT 1`
+    `SELECT id FROM elections WHERE type = 'general' AND polling_day = $1 LIMIT 1`,
+    [electionSeed.pollingDay]
   );
 
   if (existing.length > 0) {
@@ -4388,9 +4490,15 @@ async function initializeScenarioElection(scenarioKey = getDefaultScenarioKey())
   // Create the election record.
   const { rows: elRows } = await pool.query(
     `INSERT INTO elections (type, polling_day, label, status, finalized_at, turnout_total, turnout_pct, is_current)
-     VALUES ('general', '1997-05-01', 'May 1997 General Election', 'finalized', '1997-05-01T00:00:00Z', $1, $2, true)
+     VALUES ('general', $1, $2, 'finalized', $3, $4, $5, true)
      RETURNING id`,
-    [csvData.turnoutTotal, csvData.turnoutPct]
+    [
+      electionSeed.pollingDay,
+      electionSeed.label,
+      electionSeed.finalizedAt,
+      csvData.turnoutTotal,
+      csvData.turnoutPct,
+    ]
   );
   const elId = elRows[0].id;
 
@@ -8763,14 +8871,16 @@ async function runQTEscalation(month, year) {
 }
 
 async function performClockTick(userId) {
+  const defaultScenarioClock = getDefaultScenarioClockDefault();
   const { rows } = await pool.query(
     `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
-     VALUES ('main', 8, 1997, 1)
+     VALUES ('main', $1, $2, 1)
      ON CONFLICT (id) DO UPDATE SET
        sim_current_year  = sim_clock.sim_current_year + FLOOR((sim_clock.sim_current_month - 1 + sim_clock.rate) / 12),
        sim_current_month = MOD(sim_clock.sim_current_month - 1 + sim_clock.rate, 12) + 1,
        real_last_tick    = NOW()
-     RETURNING sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started`
+     RETURNING sim_current_month, sim_current_year, real_last_tick, rate, is_paused, started`,
+    [defaultScenarioClock.month, defaultScenarioClock.year]
   );
   const newMonth = rows[0].sim_current_month;
   const newYear  = rows[0].sim_current_year;
@@ -10525,8 +10635,14 @@ app.get("/api/bootstrap", bootstrapLimit, async (req, res) => {
       getSimulationFreezeState().catch(() => null),
     ]);
 
-    // Clock — fall back to defaults if the table row doesn't exist yet.
-    const clock = clockRows[0] ?? { sim_current_month: 8, sim_current_year: 1997, real_last_tick: null, rate: 1 };
+    // Clock — fall back to default scenario metadata if the table row doesn't exist yet.
+    const defaultScenarioClock = getDefaultScenarioClockDefault();
+    const clock = clockRows[0] ?? {
+      sim_current_month: defaultScenarioClock.month,
+      sim_current_year: defaultScenarioClock.year,
+      real_last_tick: null,
+      rate: 1,
+    };
 
     // Simulation freeze — safe minimal shape for the client nav bar indicator.
     const simFreeze = freezeRow
@@ -15571,9 +15687,10 @@ async function getCurrentSimMonthYear() {
     }
   } catch (_) { /* fall through to sim_clock */ }
   const { rows: clk } = await pool.query("SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'");
+  const defaultScenarioClock = getDefaultScenarioClockDefault();
   return clk[0]
     ? { simMonth: clk[0].sim_current_month, simYear: clk[0].sim_current_year }
-    : { simMonth: 8, simYear: 1997 };
+    : { simMonth: defaultScenarioClock.month, simYear: defaultScenarioClock.year };
 }
 
 const officeReadLimit  = rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false });
@@ -18459,6 +18576,8 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
   try {
     if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
+    const defaultScenarioClock = getDefaultScenarioClockDefault();
+    const defaultScenarioStartLabel = formatSimMonthYearLabel(defaultScenarioClock.month, defaultScenarioClock.year);
 
     const { confirm: confirmText } = req.body || {};
     if (confirmText !== "WIPE CONTENT") {
@@ -18504,33 +18623,36 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
     // Re-seed the current default scenario election baseline (currently 1997)
     await initializeScenarioElection(getDefaultScenarioKey());
 
-    // Reset sim clock to the current default scenario start (currently August 1997)
-    await pool.query(`
-      INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
-      VALUES ('main', 8, 1997, 1)
-      ON CONFLICT (id) DO UPDATE SET
-        sim_current_month = 8,
-        sim_current_year  = 1997,
-        rate              = 1,
-        real_last_tick    = NOW()
-    `);
+    // Reset sim clock to the current default scenario start.
+    await pool.query(
+      `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+       VALUES ('main', $1, $2, 1)
+       ON CONFLICT (id) DO UPDATE SET
+         sim_current_month = EXCLUDED.sim_current_month,
+         sim_current_year  = EXCLUDED.sim_current_year,
+         rate              = EXCLUDED.rate,
+         real_last_tick    = NOW()`,
+      [defaultScenarioClock.month, defaultScenarioClock.year]
+    );
 
-    // Reset sim_state to the current default scenario start (currently August 1997)
-    await pool.query(`
-      INSERT INTO sim_state (id, year, month, is_paused)
-      VALUES ('main', 1997, 8, true)
-      ON CONFLICT (id) DO UPDATE SET
-        year        = 1997,
-        month       = 8,
-        is_paused   = true,
-        last_tick_at = NULL
-    `);
+    // Reset sim_state to the current default scenario start.
+    await pool.query(
+      `INSERT INTO sim_state (id, year, month, is_paused)
+       VALUES ('main', $1, $2, true)
+       ON CONFLICT (id) DO UPDATE SET
+         year        = EXCLUDED.year,
+         month       = EXCLUDED.month,
+         is_paused   = true,
+         last_tick_at = NULL`,
+      [defaultScenarioClock.year, defaultScenarioClock.month]
+    );
 
     // Reset app_state_current — create a fresh empty snapshot and point to it
     const { rows: snapRows } = await pool.query(
       `INSERT INTO state_snapshots (label, data)
-         VALUES ('Post-wipe baseline (default scenario start: August 1997)', '{}'::jsonb)
-       RETURNING id`
+         VALUES ($1, '{}'::jsonb)
+       RETURNING id`,
+      [`Post-wipe baseline (default scenario start: ${defaultScenarioStartLabel})`]
     );
     const newSnapshotId = snapRows[0].id;
     await pool.query(
@@ -18541,9 +18663,9 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
     );
 
     await writeAuditLog(req.session.userId, "admin.wipe-content", "all", "*", null, {
-      headline: "Wipe Content: all IC simulation content cleared, sim reset to the default scenario start (currently August 1997)",
-      simMonth: 8,
-      simYear: 1997,
+      headline: `Wipe Content: all IC simulation content cleared, sim reset to the default scenario start (${defaultScenarioStartLabel})`,
+      simMonth: defaultScenarioClock.month,
+      simYear: defaultScenarioClock.year,
       // questiontime_questions = legacy JSON-blob QT table; qt_questions = new structured QT table
       tables: [
         "bills", "bill_amendments", "bill_amendment_supporters", "bill_stage_reports", "bill_opposition_quota",
@@ -18558,7 +18680,7 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
         "privy_council_posts", "cs_briefings", "cs_cases", "frontbench_reshuffles",
         "office_assignments (vacated)", "group_drafts (reset)", "budget_data (reset to default scenario baseline: 1997)",
       ],
-      simResetTo: "default scenario start (currently August 1997)",
+      simResetTo: `default scenario start (${defaultScenarioStartLabel})`,
       newSnapshotId,
     });
 
@@ -18567,7 +18689,7 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
 
     res.json({
       ok: true,
-      message: "Content wiped and sim reset to the default scenario start (currently August 1997). All offices vacated, drafts cleared, budget reset. User accounts and characters are intact.",
+      message: `Content wiped and sim reset to the default scenario start (${defaultScenarioStartLabel}). All offices vacated, drafts cleared, budget reset. User accounts and characters are intact.`,
       wiped: [
         "bills", "bill_amendments", "motions", "statements", "regulations",
         "questiontime_questions", "qt_questions", "press_items", "polling_entries",
@@ -18577,7 +18699,7 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
         "privy_council_posts", "cs_briefings", "cs_cases",
         "office_assignments (vacated)", "group_drafts (reset)", "budget_data (reset)",
       ],
-      simResetTo: "default scenario start (currently August 1997)",
+      simResetTo: `default scenario start (${defaultScenarioStartLabel})`,
     });
   } catch (e) {
     console.error("[wipe-content]", e);
@@ -18605,6 +18727,8 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
   try {
     if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
+    const defaultScenarioClock = getDefaultScenarioClockDefault();
+    const defaultScenarioStartLabel = formatSimMonthYearLabel(defaultScenarioClock.month, defaultScenarioClock.year);
 
     const { confirm: confirmText } = req.body || {};
     if (confirmText !== "WIPE WITH CHARACTERS") {
@@ -18653,33 +18777,36 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
     // Re-seed the current default scenario election baseline (currently 1997)
     await initializeScenarioElection(getDefaultScenarioKey());
 
-    // Reset sim clock to the current default scenario start (currently August 1997)
-    await pool.query(`
-      INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
-      VALUES ('main', 8, 1997, 1)
-      ON CONFLICT (id) DO UPDATE SET
-        sim_current_month = 8,
-        sim_current_year  = 1997,
-        rate              = 1,
-        real_last_tick    = NOW()
-    `);
+    // Reset sim clock to the current default scenario start.
+    await pool.query(
+      `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+       VALUES ('main', $1, $2, 1)
+       ON CONFLICT (id) DO UPDATE SET
+         sim_current_month = EXCLUDED.sim_current_month,
+         sim_current_year  = EXCLUDED.sim_current_year,
+         rate              = EXCLUDED.rate,
+         real_last_tick    = NOW()`,
+      [defaultScenarioClock.month, defaultScenarioClock.year]
+    );
 
-    // Reset sim_state to the current default scenario start (currently August 1997)
-    await pool.query(`
-      INSERT INTO sim_state (id, year, month, is_paused)
-      VALUES ('main', 1997, 8, true)
-      ON CONFLICT (id) DO UPDATE SET
-        year        = 1997,
-        month       = 8,
-        is_paused   = true,
-        last_tick_at = NULL
-    `);
+    // Reset sim_state to the current default scenario start.
+    await pool.query(
+      `INSERT INTO sim_state (id, year, month, is_paused)
+       VALUES ('main', $1, $2, true)
+       ON CONFLICT (id) DO UPDATE SET
+         year        = EXCLUDED.year,
+         month       = EXCLUDED.month,
+         is_paused   = true,
+         last_tick_at = NULL`,
+      [defaultScenarioClock.year, defaultScenarioClock.month]
+    );
 
     // Reset app_state_current — create a fresh empty snapshot and point to it
     const { rows: snapRows } = await pool.query(
       `INSERT INTO state_snapshots (label, data)
-         VALUES ('Post-wipe-with-characters baseline (default scenario start: August 1997)', '{}'::jsonb)
-       RETURNING id`
+         VALUES ($1, '{}'::jsonb)
+       RETURNING id`,
+      [`Post-wipe-with-characters baseline (default scenario start: ${defaultScenarioStartLabel})`]
     );
     const newSnapshotId = snapRows[0].id;
     await pool.query(
@@ -18690,9 +18817,9 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
     );
 
     await writeAuditLog(req.session.userId, "admin.wipe-with-characters", "all", "*", null, {
-      headline: "Wipe With Characters: all IC simulation content + character data cleared, sim reset to the default scenario start (currently August 1997)",
-      simMonth: 8,
-      simYear: 1997,
+      headline: `Wipe With Characters: all IC simulation content + character data cleared, sim reset to the default scenario start (${defaultScenarioStartLabel})`,
+      simMonth: defaultScenarioClock.month,
+      simYear: defaultScenarioClock.year,
       tables: [
         "characters", "office_assignments", "office_assignment_history",
         "character_affiliations", "character_shop_purchases", "character_shop_revenue_payouts",
@@ -18709,7 +18836,7 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
         "game_events", "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
         "group_drafts (reset)", "budget_data (reset to default scenario baseline: 1997)",
       ],
-      simResetTo: "default scenario start (currently August 1997)",
+      simResetTo: `default scenario start (${defaultScenarioStartLabel})`,
       newSnapshotId,
     });
 
@@ -18718,7 +18845,7 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
 
     res.json({
       ok: true,
-      message: "Content and character data wiped. Sim reset to the default scenario start (currently August 1997). User accounts are intact.",
+      message: `Content and character data wiped. Sim reset to the default scenario start (${defaultScenarioStartLabel}). User accounts are intact.`,
       wiped: [
         "characters", "office_assignments", "office_assignment_history",
         "bills", "bill_amendments", "motions", "statements", "regulations",
@@ -18728,7 +18855,7 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
         "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
         "group_drafts (reset)", "budget_data (reset)",
       ],
-      simResetTo: "default scenario start (currently August 1997)",
+      simResetTo: `default scenario start (${defaultScenarioStartLabel})`,
     });
   } catch (e) {
     console.error("[wipe-with-characters]", e);
@@ -18749,27 +18876,31 @@ async function handleSeedDemo(req, res) {
     if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
 
-    // ── Reset clock to the default scenario start (currently August 1997) ──
-    await pool.query(`
-      INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
-      VALUES ('main', 8, 1997, 1)
-      ON CONFLICT (id) DO UPDATE SET
-        sim_current_month = 8,
-        sim_current_year  = 1997,
-        rate              = 1,
-        real_last_tick    = NOW()
-    `);
+    const defaultScenarioClock = getDefaultScenarioClockDefault();
 
-    // ── Reset sim_state (authoritative pause/tick state) to the default scenario start (currently August 1997) ───
-    await pool.query(`
-      INSERT INTO sim_state (id, year, month, is_paused)
-      VALUES ('main', 1997, 8, true)
-      ON CONFLICT (id) DO UPDATE SET
-        year         = 1997,
-        month        = 8,
-        is_paused    = true,
-        last_tick_at = NULL
-    `);
+    // ── Reset clock to the default scenario start ──
+    await pool.query(
+      `INSERT INTO sim_clock (id, sim_current_month, sim_current_year, rate)
+       VALUES ('main', $1, $2, 1)
+       ON CONFLICT (id) DO UPDATE SET
+         sim_current_month = EXCLUDED.sim_current_month,
+         sim_current_year  = EXCLUDED.sim_current_year,
+         rate              = EXCLUDED.rate,
+         real_last_tick    = NOW()`,
+      [defaultScenarioClock.month, defaultScenarioClock.year]
+    );
+
+    // ── Reset sim_state (authoritative pause/tick state) to the default scenario start ───
+    await pool.query(
+      `INSERT INTO sim_state (id, year, month, is_paused)
+       VALUES ('main', $1, $2, true)
+       ON CONFLICT (id) DO UPDATE SET
+         year         = EXCLUDED.year,
+         month        = EXCLUDED.month,
+         is_paused    = true,
+         last_tick_at = NULL`,
+      [defaultScenarioClock.year, defaultScenarioClock.month]
+    );
 
     // ── Clear existing content ─────────────────────────────────────────────
     await pool.query(
@@ -18786,8 +18917,8 @@ async function handleSeedDemo(req, res) {
       CASCADE`
     );
 
-    const SIM_MONTH = 8;
-    const SIM_YEAR  = 1997;
+    const SIM_MONTH = defaultScenarioClock.month;
+    const SIM_YEAR  = defaultScenarioClock.year;
     const NOW_ISO   = new Date().toISOString();
     const lc = (extra = {}) => attachLifecycle(extra, SIM_MONTH, SIM_YEAR, NOW_ISO);
 
@@ -18900,7 +19031,7 @@ async function handleSeedDemo(req, res) {
 
     res.json({
       ok: true,
-      message: "Demo data seeded successfully. Simulation reset to the default scenario start (currently August 1997).",
+      message: `Demo data seeded successfully. Simulation reset to the default scenario start (${defaultScenarioStartLabel}).`,
       counts: {
         bills: bills.length, motions: motions.length, statements: statements.length,
         regulations: regulations.length, qtQuestions: qtQuestions.length,
