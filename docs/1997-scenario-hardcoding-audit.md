@@ -1,205 +1,122 @@
-# 1997 Baseline Hardcoding Audit (Phase 1)
+# 1997 Scenario Hardcoding Audit (Phase 1 follow-up)
 
 ## Summary
 
-This phase audited where the app is hard-wired to a May/August 1997 baseline and where logic assumes a single historical starting scenario.
+This audit is now stored at a normal tracked repository path: `docs/1997-scenario-hardcoding-audit.md`.
 
-The most critical coupling is concentrated in:
-- server bootstrap/seed/reset paths (`server/index.js`)
-- scenario datasets and conversion script (`data/`, `assets/`, `scripts/convert-1997-csv.js`)
-- admin seed/reset routes and corresponding frontend controls (`js/api.js`, `js/pages/*`)
-- faction/party assumptions for the “big three” playable parties
-- economy/shop naming that encodes 1997 as the baseline pricing model
+Phase 1 follow-up result: 1997 coupling is concentrated in server initialization/reset/seed flows, constituency pipeline assets, and admin/API/UI wiring that still uses `*1997*` route and field names.
 
----
+## File-by-file findings
 
-## File inventory by category
+### A) scripts/importers
 
-### 1) Seed / import scripts
+| Exact file path | Category | Coupling (short) | Recommended refactor direction | Risk |
+|---|---|---|---|---|
+| `scripts/convert-1997-csv.js` | scripts/importers | Script name, input/output files, and seat count validation are all 1997-specific (`assets/1997_structured.csv` → `data/constituencies_1997.json`, expected `659`). | Replace with scenario-agnostic converter that reads scenario manifest (input file, output file, seat constraints). | high |
+| `scripts/audit/rbac-matrix.json` | scripts/importers | RBAC inventory hardcodes `/api/admin/*1997*` route paths and 659-seat rationale text. | Generate route inventory from generic endpoint names; keep scenario in metadata, not route string. | medium |
+| `scripts/audit/feature-manifest.js` | scripts/importers | Minimal/no direct 1997 coupling found. | Keep unchanged; ensure future scenario checks remain generic. | low |
+| `scripts/static-checks.js` | scripts/importers | Minimal/no direct 1997 coupling found. | Keep unchanged; avoid adding year-specific checks. | low |
 
-- `/tmp/workspace/DaleW82003/rulebritannia-app/scripts/convert-1997-csv.js`  
-  Converts `assets/1997_structured.csv` to `data/constituencies_1997.json`; enforces exactly 659 seats.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/server/index.js`  
-  Contains `seedElection1997`, `seedConstituencies1997`, `seedSalaryScale1997`, `seedPlayableParties` baseline structures, `BODIES_1997_SEED`, `LOCALS_1997_SEED`, wipe/reset reseeding flows, and demo seed data.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/server/political-state-service.js`  
-  Contains `seed1997Factions` with hard-coded 1997 party/faction distributions.
+### B) data files
 
-### 2) Data files
+| Exact file path | Category | Coupling (short) | Recommended refactor direction | Risk |
+|---|---|---|---|---|
+| `data/constituencies_1997.json` | data files | Canonical baseline file is year-bound and used as implicit default constituency source. | Move to `data/scenarios/<scenarioId>/constituencies.json` + manifest pointer. | high |
+| `data/1997_structured.csv` | data files | Raw constituency/election source dataset is year-bound and naming-coupled. | Store as scenario dataset referenced by manifest. | medium |
+| `assets/1997_structured.csv` | data files | Duplicate year-bound source asset increases coupling and drift risk. | Collapse to single canonical scenario source path. | medium |
+| `data/demo.json` | data files | Demo payload includes start year, election labels, and content timeline tied to 1997 progression. | Split demo content from scenario timeline defaults; inject scenario-specific chronology at seed time. | high |
 
-- `/tmp/workspace/DaleW82003/rulebritannia-app/data/constituencies_1997.json`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/data/1997_structured.csv`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/assets/1997_structured.csv`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/data/demo.json`  
-  Demo state includes start year 1997, `May 1997` election label, and 1997-timestamped narrative content.
+### C) server routes/services
 
-### 3) Server routes
+| Exact file path | Category | Coupling (short) | Recommended refactor direction | Risk |
+|---|---|---|---|---|
+| `server/index.js` | server routes/services | Year-specific admin routes (`/seed-1997`, `/initialize-1997`), fixed election date/label, hardcoded reset to August 1997, fallback year defaults, 659-seat checks, and `constituencies_1997.json` loader. | Introduce scenario manifest + generic seed/reset routes (`/seed-scenario`, `/initialize-constituencies`) and move defaults to scenario initializer. | high |
+| `server/political-state-service.js` | server routes/services | `seed1997Factions`, fixed playable parties array, and index math anchored to 1997 baseline. | Move faction seeds and playable-party list into scenario config and compute index from scenario start metadata. | high |
+| `server/clock.js` | server routes/services | Fallback date defaults to month/year in 1997. | Resolve fallback from scenario start metadata instead of hardcoded year. | medium |
+| `server/schema.sql` | server routes/services | `sim_current_year` DB default is 1997. | Remove fixed year default or derive from scenario bootstrapping migration. | medium |
+| `server/finance-service.js` | server routes/services | Comments/reference naming still encode 1997 baseline conventions. | Rename baseline economics terms to neutral naming while preserving backward compatibility. | low |
 
-- `/tmp/workspace/DaleW82003/rulebritannia-app/server/index.js`
-  - `POST /api/admin/elections/seed-1997`
-  - `POST /api/admin/constituencies/initialize-1997`
-  - `POST /api/admin/seed-1997-bodies-locals`
-  - `POST /api/admin/seed-1997-factions`
-  - `POST /api/admin/reset-baseline` (explicitly reseeds May 1997 + 659 constituencies)
-  - `POST /api/admin/wipe-content` and `POST /api/admin/wipe-with-characters` (reset to August 1997)
-  - `POST /api/admin/seed-demo` / `/api/admin/seed` (injects 1997-era content)
+### D) admin/control-panel flows
 
-### 4) Admin tools
+| Exact file path | Category | Coupling (short) | Recommended refactor direction | Risk |
+|---|---|---|---|---|
+| `js/api.js` | admin/control-panel flows | Admin client methods call year-specific route URLs (`initialize-1997`, `seed-1997*`). | Replace with generic admin API methods that pass scenario id as payload/query. | high |
+| `js/pages/admin-panel.js` | admin/control-panel flows | Reset UX copy explicitly promises reset to August 1997. | Bind copy to active scenario metadata (`startLabel`, `baselineLabel`). | medium |
+| `js/pages/control-panel.js` | admin/control-panel flows | “Seed 1997 Factions” action and hardcoded playable-party trio in control logic. | Make seed action scenario-selected; load playable parties from server metadata. | high |
+| `js/pages/bodies.js` | admin/control-panel flows | Includes “Seed May 1997 Bodies/Locals” behavior/copy. | Use generic seed action + scenario label interpolation. | medium |
+| `js/pages/locals.js` | admin/control-panel flows | Includes “Seed May 1997 Bodies/Locals” behavior/copy. | Use generic seed action + scenario label interpolation. | medium |
 
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/pages/admin-panel.js`  
-  Danger Zone copy and expectations explicitly reference August 1997 reset and 1997 baseline reseeding.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/pages/control-panel.js`  
-  “Seed 1997 Factions” control and 3-party assumption in other-officials allocation UI.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/pages/bodies.js`  
-  “Seed May 1997 Bodies/Locals” controls.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/pages/locals.js`  
-  “Seed May 1997 Bodies/Locals” controls.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/api.js`  
-  Admin API wrappers bound to year-specific route names (`initialize-1997`, `seed-1997*`).
-- `/tmp/workspace/DaleW82003/rulebritannia-app/scripts/audit/rbac-matrix.json`  
-  RBAC inventory includes year-specific route paths/rationales.
+### E) UI/client code
 
-### 5) UI pages
+| Exact file path | Category | Coupling (short) | Recommended refactor direction | Risk |
+|---|---|---|---|---|
+| `js/core.js` | UI/client code | Default game state start year set to 1997. | Hydrate defaults from server scenario manifest. | high |
+| `js/clock.js` | UI/client code | Fallback year defaults to 1997 in clock resolution. | Use scenario start fallback from manifest/bootstrap payload. | medium |
+| `js/pages/user.js` | UI/client code | Default `lastGeneralElection` and `startSimYear` both assume 1997 baseline. | Use scenario-provided election label/year defaults. | medium |
+| `js/pages/press.js` | UI/client code | Legacy parser defaults to “August 1997” and `1997` year fallback. | Parse against scenario start date fallback (not fixed literal). | low |
+| `js/pages/constituencies.js` | UI/client code | Canonical-party/playable assumptions align to current 3-party baseline behavior. | Source playable/canonical parties from API metadata per scenario. | high |
+| `js/pages/personal.js` | UI/client code | Schema fields (`basePrice1997`, `baseMonthlyUpkeep1997`) encode year in data model. | Rename to scenario-neutral baseline fields via migration/adapter layer. | medium |
+| `js/pages/party.js` | UI/client code | Same year-bound pricing fields plus `STAFF_COST_1997` constant naming. | Migrate to neutral baseline economics naming and scenario baseline config. | medium |
+| `js/pages/playerbase.js` | UI/client code | Comments/labels reference 1997 salary baseline assumptions. | Reword to scenario-baseline terminology and central constants. | low |
+| `js/pages/questiontime.js` | UI/client code | Minimal coupling: comments show sample JSON with year 1997, but no fixed year logic. | Optional comment cleanup only; no functional refactor needed now. | low |
 
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/pages/user.js`  
-  Defaults `lastGeneralElection` to `May 1997` and default start year to `1997`.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/core.js`  
-  Global default game state uses `startSimYear: 1997`.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/clock.js`  
-  Fallback year defaults to `1997`.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/pages/press.js`  
-  Legacy date fallback/parsing assumes `"August 1997"` and year `1997`.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/pages/constituencies.js`  
-  Fixed canonical party list and fixed playable-party assumptions in seat rendering.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/pages/playerbase.js`  
-  Position comments tied to “1997 salary scale”.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/pages/personal.js`  
-  Catalog schema and pricing fields encode `basePrice1997` and `baseMonthlyUpkeep1997`.
-- `/tmp/workspace/DaleW82003/rulebritannia-app/js/pages/party.js`  
-  Same `basePrice1997`/`baseMonthlyUpkeep1997` model plus `STAFF_COST_1997` naming.
+### F) docs/comments
 
-### 6) Business logic
+| Exact file path | Category | Coupling (short) | Recommended refactor direction | Risk |
+|---|---|---|---|---|
+| `README.md` | docs/comments | Documents 1997 baseline as default world framing. | Update docs to describe scenario-based initialization model. | medium |
+| `server/README.md` | docs/comments | Operational/admin seed instructions still reference year-specific endpoints. | Document generic scenario seed/reset APIs and scenario id usage. | medium |
+| `docs/dev-guide.md` | docs/comments | Developer guidance contains 1997 baseline assumptions. | Replace with scenario-manifest terminology and generic startup flow. | low |
+| `docs/system-overview.md` | docs/comments | Architecture narrative still anchored to single 1997 baseline. | Add scenario abstraction layer in system docs. | low |
+| `docs/simulation-model.md` | docs/comments | Simulation examples and default progression tied to 1997 baseline. | Generalize examples to scenario-driven start points. | low |
+| `docs/architecture.md` | docs/comments | References year-specific reset/seed behavior. | Update architecture sections after route/generalization refactor. | low |
+| `docs/trial-runbook.md` | docs/comments | Runbook steps reference year-specific seed/reset operations. | Replace with scenario selection + generic reset/seed procedure. | medium |
+| `docs/alpha-launch-checklist.md` | docs/comments | Checklist includes 1997-era baseline assumptions. | Reword checklist to scenario-agnostic launch criteria. | low |
+| `docs/extraction-summary.md` | docs/comments | Extraction notes include 1997-specific framing. | Keep historical references but mark as scenario-specific legacy context. | low |
+| `docs/recompute-observability.md` | docs/comments | Mentions 1997-coupled baseline states in observability context. | Update language to “active scenario baseline”. | low |
 
-- `/tmp/workspace/DaleW82003/rulebritannia-app/server/index.js`
-  - startup defaults: `sim_start_date = 1997-08-01`, `sim_clock`/`sim_state` year defaults
-  - salary scale anchored as `"1997 Baseline"` with hard-coded sim indices
-  - election seed fixed to polling day `1997-05-01` and label `"May 1997 General Election"`
-  - constituency loader locked to `constituencies_1997.json` and 659-seat expectation
-  - baseline reset/wipe reseed flows rely on 1997 constants/messages
-  - canonical party and playable-party assumptions tightly coupled to current scenario model
-- `/tmp/workspace/DaleW82003/rulebritannia-app/server/political-state-service.js`
-  - `FACTION_PLAYABLE_PARTIES` fixed to Labour/Conservative/Liberal Democrat
-  - calculations derive indexes relative to 1997 (`simYear - 1997`)
-  - faction seed content hard-coded to post-May-1997 distributions
-- `/tmp/workspace/DaleW82003/rulebritannia-app/server/clock.js`
-  - fallback sim date defaults to `{ month: 8, year: 1997 }`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/server/schema.sql`
-  - DB defaults for `sim_clock.sim_current_year` set to 1997
-- `/tmp/workspace/DaleW82003/rulebritannia-app/server/finance-service.js`
-  - comments and dependencies reference `HQ_BASELINE_UPKEEP_1997` in index module
+## Highest-risk areas
 
-### 7) Docs / comments
+1. **Initialization/reset flows (high)**
+   `server/index.js` reset/wipe/bootstrap routes and startup defaults still hard-reset to August 1997 and reseed May 1997 election baseline.
 
-Primary docs with explicit 1997 coupling:
-- `/tmp/workspace/DaleW82003/rulebritannia-app/README.md`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/server/README.md`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/docs/dev-guide.md`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/docs/system-overview.md`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/docs/simulation-model.md`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/docs/architecture.md`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/docs/trial-runbook.md`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/docs/alpha-launch-checklist.md`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/docs/extraction-summary.md`
-- `/tmp/workspace/DaleW82003/rulebritannia-app/docs/recompute-observability.md`
-- archive references:  
-  `/tmp/workspace/DaleW82003/rulebritannia-app/docs/archive/ALPHA_HARDENING_SUMMARY.md`  
-  `/tmp/workspace/DaleW82003/rulebritannia-app/docs/archive/pre-discourse-go-no-go-audit.md`  
-  `/tmp/workspace/DaleW82003/rulebritannia-app/docs/archive/pre-discourse-structural-inventory.json`  
-  `/tmp/workspace/DaleW82003/rulebritannia-app/docs/archive/FACTIONS_INTEGRATION_TESTS.md`
+2. **Constituency seed pipeline (high)**
+   `scripts/convert-1997-csv.js` + `data/constituencies_1997.json` + `POST /api/admin/constituencies/initialize-1997` enforce a single 659-seat historical dataset.
 
----
+3. **Party-count/playable-party assumptions (high)**
+   `server/political-state-service.js`, `server/index.js`, and `js/pages/control-panel.js` assume a fixed playable-party set and current party structure.
 
-## Hard-coded reference checklist
+4. **Defaults tied to 1997 date/state progression (high)**
+   Server/client fallbacks (`sim_current_year`, sim start dates, parser fallbacks) repeatedly default to 1997, creating hidden coupling.
 
-### Explicit year/date labels
-- `1997`, `May 1997`, `August 1997` appear in route names, labels, seed values, default config, reset copy, and docs.
+5. **659-seat / pre-boundary-review assumptions (high)**
+   Validation and operational messaging rely on exactly 659 constituencies, which blocks alternate constituency maps without schema/logic changes.
 
-### Year-specific route names
-- `/api/admin/elections/seed-1997`
-- `/api/admin/constituencies/initialize-1997`
-- `/api/admin/seed-1997-bodies-locals`
-- `/api/admin/seed-1997-factions`
+## Phased implementation order (concrete)
 
-### Year-specific seed filenames
-- `assets/1997_structured.csv`
-- `data/1997_structured.csv`
-- `data/constituencies_1997.json`
+1. **Terminology cleanup**
+   Rename year-coded identifiers/messages (`*1997*`, “August 1997 baseline”) in internal constants/comments/UI copy where safe, while preserving behavior.
 
-### Structural assumptions (starting election/parties/government/leaders/constituencies)
-- Election baseline locked to 1 May 1997 and “May 1997 General Election” label.
-- Constituency baseline locked to 659-seat historical dataset.
-- Faction model and character creation constrained to three playable parties.
-- Multiple defaults and resets assume sim starts/resets to August 1997.
-- Demo seed content is authored as 1997-era political world content.
+2. **Scenario manifest layer**
+   Add a single scenario manifest source (id, start date, election seed source, constituency source, playable parties, economy baseline).
 
----
+3. **Generic scenario initializer**
+   Replace route/function naming that hardcodes year with scenario-parameterized initializer/seed/reset endpoints.
 
-## Risk areas
+4. **Constituency migration**
+   Move constituency loading/validation from fixed `constituencies_1997.json` + `659` checks to manifest-driven dataset constraints.
 
-1. **Route/API compatibility risk**  
-   Frontend and backend are tightly coupled via year-specific admin endpoints.
+5. **Broader seed-domain extraction**
+   Externalize faction seeds, salary/economy baselines, and other year-bound defaults into scenario data packs.
 
-2. **Data-contract risk**  
-   Many checks assume exactly 659 constituencies and one canonical baseline dataset.
+6. **Admin scenario selection**
+   Update admin UI/API wrappers so operators choose scenario id rather than invoking year-specific controls.
 
-3. **Reset/ops risk**  
-   Wipe/reset/admin operations are semantically tied to a single baseline and could mis-seed if generalized partially.
+7. **2015 beta onboarding**
+   Add a 2015 scenario pack using the same manifest/initializer pipeline; run parity checks against 1997 scenario behavior.
 
-4. **Gameplay-balance risk**  
-   Salary, treasury, faction, and shop baselines are tuned with 1997 naming/values and could drift if scenario metadata is not centralized.
+## Change confirmation for this phase
 
-5. **Documentation drift risk**  
-   1997 framing is repeated in many docs; partial refactor will quickly desync docs and runtime behavior.
-
----
-
-## Recommended refactor order (for later phases)
-
-1. **Introduce scenario model + identifiers**  
-   Define canonical scenario metadata (id, label, startSimMonth/year, election seed source, constituency source, salary baseline source).
-
-2. **Decouple seed loaders from year-specific filenames/routes**  
-   Replace hard-coded `*1997*` loaders with scenario-driven loaders and generic route names.
-
-3. **Refactor reset/wipe/demo flows to scenario-aware reset targets**  
-   Make reset endpoints use active/default scenario config instead of embedded August/May 1997 constants.
-
-4. **Refactor party/faction/playable-party assumptions**  
-   Move playable-party lists and faction seed bundles under scenario config.
-
-5. **Refactor economy nomenclature and baseline constants**  
-   Rename `basePrice1997`-style fields to generic baseline semantics while preserving migration compatibility.
-
-6. **Update admin/UI copy and API wrappers**  
-   Replace 1997-specific labels/buttons/routes in `js/pages/*` and `js/api.js`.
-
-7. **Update docs and archived operational guidance**  
-   Document scenario-aware behavior and deprecate year-specific guidance.
-
----
-
-## What can remain generic vs what must become scenario-aware
-
-### Can remain generic
-- Core CRUD patterns for elections/constituencies/content.
-- Clock progression algorithm (Mon/Thu tick rule) itself.
-- Most UI rendering components and permission framework.
-- General admin safety patterns (confirm text, role checks, rate limits).
-
-### Must become scenario-aware
-- Baseline dataset selection (CSV/JSON paths and expectations).
-- Seed route naming and API wrappers.
-- Startup defaults (`sim_start_date`, sim fallback year/month).
-- Reset/wipe/demo reseed target values and messages.
-- Faction, salary, treasury, and playable-party baseline packs.
-- Docs that currently present 1997 as invariant platform behavior.
-
+- **Code files modified:** none.
+- **Documentation files modified:** `docs/1997-scenario-hardcoding-audit.md` only.
+- **This phase is documentation-only.**
