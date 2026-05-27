@@ -23,6 +23,7 @@ import { assertSnapshotDerivedTable, stripRelationalKeys, ALLOWED_STATE_WRITE_RO
 import { getSessionRoles, hasAdminOrMod, hasAdminModOrSpeaker } from "./rbac-helpers.js";
 import { fireRecompute, awaitedRecompute, createRecomputeContext, buildRecomputeResponseMetadata } from "./recompute-helpers.js";
 import { FACTION_PLAYABLE_PARTIES, clamp100, pressureLabel, recomputeCharacterPoliticalState, computeFactionStrength, computeFactionCohesion, computeLeadershipPressure, computeFactionPoliticalState, getPartyFactionClimate, getDefaultScenarioKey, seedDefaultScenarioFactions } from "./political-state-service.js";
+import { loadScenarioManifest, resolveManifestPath } from "./scenario-manifest-loader.js";
 import { seedPredefinedGuides } from "./guides-seed.js";
 import { SPEAKER_PARTY_RE, SINN_FEIN_PARTY_RE, RH_QUALIFYING_SPEC_IDS, PC_QUALIFYING_SPEC_IDS, getPartySeatsFromConstituencies, getPartiesRankedBySeats, getThirdPartySlug, getCharacterParliamentaryMeta, formatParliamentaryName, getCharacterDisplayName, batchGetCharacterDisplayNames, enrichCharacterRowWithDisplay, batchEnrichCharacterRows, computeAllPlayerWeights, computeCharacterWeight, computeDivisionTallyFromDb, batchEnrichPlayersWithSimJoinDates } from "./division-helpers.js";
 import { resolveActiveSalaryScale, computeCharacterAnnualSalary, resolvedAnnualSalary } from "./finance-service.js";
@@ -4229,9 +4230,11 @@ async function seedPlayableParties() {
   }
 }
 
-// Phase 2 note: "scenario" seams are in place, but only the default 1997
-// scenario is currently wired; non-default scenarios are intentionally rejected.
-const DEFAULT_SCENARIO_CONSTITUENCIES_EXPECTED_COUNT = 659;
+// Phase 3: constituency seat count is now read from the scenario manifest.
+// The helper below is called lazily so the manifest is only loaded once needed.
+function getScenarioExpectedConstituencyCount(scenarioKey = getDefaultScenarioKey()) {
+  return loadScenarioManifest(scenarioKey).expectedConstituencyCount;
+}
 
 function normalizeScenarioKey(scenarioKey = getDefaultScenarioKey()) {
   if (typeof scenarioKey !== "string" && typeof scenarioKey !== "number") {
@@ -4258,17 +4261,18 @@ function getRequestedScenarioKey(req) {
 
 function getDefaultScenarioConstituenciesPath(scenarioKey = getDefaultScenarioKey()) {
   assertSupportedScenarioKey(scenarioKey);
-  return resolve(__serverDir, "..", "data", "constituencies_1997.json");
+  return resolveManifestPath(loadScenarioManifest(scenarioKey).constituenciesFile);
 }
 
 /**
  * Parse the current default scenario structured CSV to extract party vote/seat data and turnout.
- * The dataset is still backed by the 1997 source files in this phase.
+ * The CSV path is read from the scenario manifest (electionCsvFile).
  */
 function parseDefaultScenarioElectionCsv(scenarioKey = getDefaultScenarioKey()) {
   assertSupportedScenarioKey(scenarioKey);
   try {
-    const raw = readFileSync(resolve(__serverDir, "..", "assets", "1997_structured.csv"), "utf8");
+    const csvPath = resolveManifestPath(loadScenarioManifest(scenarioKey).electionCsvFile);
+    const raw = readFileSync(csvPath, "utf8");
     const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
     const parties = {};
     let turnoutTotal = 0;
@@ -20421,10 +20425,11 @@ const initializeScenarioConstituenciesHandler = async (req, res) => {
     const scenarioKey = getRequestedScenarioKey(req);
     const json = loadDefaultScenarioConstituenciesJson(scenarioKey);
     const incoming = json.constituencies;
-    // The current default scenario still uses the 1997 pre-boundary-review map with 659 constituencies.
-    if (!Array.isArray(incoming) || incoming.length !== DEFAULT_SCENARIO_CONSTITUENCIES_EXPECTED_COUNT) {
+    const expectedCount = getScenarioExpectedConstituencyCount(scenarioKey);
+    // Validate against the expected count declared in the scenario manifest.
+    if (!Array.isArray(incoming) || incoming.length !== expectedCount) {
       return res.status(500).json({
-        error: `default scenario constituencies JSON must contain exactly ${DEFAULT_SCENARIO_CONSTITUENCIES_EXPECTED_COUNT} entries (found ${incoming?.length ?? 0}). ` +
+        error: `default scenario constituencies JSON must contain exactly ${expectedCount} entries (found ${incoming?.length ?? 0}). ` +
                "Re-run scripts/convert-1997-csv.js to regenerate."
       });
     }

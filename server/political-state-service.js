@@ -23,6 +23,10 @@
  */
 
 import { pool } from "./db.js";
+import {
+  DEFAULT_SCENARIO_KEY,
+  getDefaultScenarioKey as _loaderGetDefaultScenarioKey,
+} from "./scenario-manifest-loader.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -32,15 +36,19 @@ import { pool } from "./db.js";
  * Parties that have faction infrastructure wired up.
  * To add or remove playable parties, update this array — it is the single
  * authoritative source used by all faction-related logic and API guards.
+ *
+ * Phase 3 note: the manifest for the 1997 scenario also records playableParties.
+ * In a future phase this constant will be removed and callers will read
+ * playableParties from the loaded manifest so alternate scenarios can differ.
  */
 export const FACTION_PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
 
-// Phase 2 note: naming is scenario-oriented, but only the 1997 default scenario
-// is supported until full multi-scenario implementation lands.
-const DEFAULT_SCENARIO_KEY = "1997";
-
+// Phase 3: the default scenario key is now owned by scenario-manifest-loader.js.
+// Re-export it from there so this module remains the single import point for
+// callers that already reference getDefaultScenarioKey() from here.
+export { DEFAULT_SCENARIO_KEY };
 export function getDefaultScenarioKey() {
-  return DEFAULT_SCENARIO_KEY;
+  return _loaderGetDefaultScenarioKey();
 }
 
 function assertSupportedScenarioKey(scenarioKey = DEFAULT_SCENARIO_KEY) {
