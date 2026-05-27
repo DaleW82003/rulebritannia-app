@@ -1000,7 +1000,7 @@ export async function initAdminPanelPage(data) {
                 <th style="text-align:left;padding:6px 10px;">Username</th>
                 <th style="text-align:left;padding:6px 10px;">Email</th>
                 <th style="text-align:left;padding:6px 10px;">Roles</th>
-                <th style="text-align:left;padding:6px 10px;">Email</th>
+                <th style="text-align:left;padding:6px 10px;">Verified</th>
                 <th style="text-align:left;padding:6px 10px;">Status</th>
                 <th style="padding:6px 10px;"></th>
               </tr>
