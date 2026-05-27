@@ -2180,6 +2180,9 @@ export async function apiDeleteConstituency(id) {
 export const DEFAULT_SCENARIO_KEY = "1997";
 export const DEFAULT_SCENARIO_SEED_LABEL = "May 1997";
 export const DEFAULT_SCENARIO_RESET_LABEL = "August 1997";
+// Phase 2 note: routes are generalized to "scenario" terminology, but only the
+// default 1997 scenario is currently supported; broader multi-scenario behavior
+// is intentionally deferred.
 
 export function getDefaultScenarioKey() {
   return DEFAULT_SCENARIO_KEY;

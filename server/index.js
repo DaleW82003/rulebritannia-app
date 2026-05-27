@@ -4229,6 +4229,8 @@ async function seedPlayableParties() {
   }
 }
 
+// Phase 2 note: "scenario" seams are in place, but only the default 1997
+// scenario is currently wired; non-default scenarios are intentionally rejected.
 const DEFAULT_SCENARIO_CONSTITUENCIES_EXPECTED_COUNT = 659;
 
 function normalizeScenarioKey(scenarioKey = getDefaultScenarioKey()) {

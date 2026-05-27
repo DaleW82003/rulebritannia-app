@@ -35,6 +35,8 @@ import { pool } from "./db.js";
  */
 export const FACTION_PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
 
+// Phase 2 note: naming is scenario-oriented, but only the 1997 default scenario
+// is supported until full multi-scenario implementation lands.
 const DEFAULT_SCENARIO_KEY = "1997";
 
 export function getDefaultScenarioKey() {

@@ -6,6 +6,8 @@ This audit is now stored at a normal tracked repository path: `docs/1997-scenari
 
 Phase 1 follow-up result: 1997 coupling is concentrated in server initialization/reset/seed flows, constituency pipeline assets, and admin/API/UI wiring that still uses `*1997*` route and field names.
 
+Phase 2 note: route/helper naming seams now use "scenario" terminology where safe, but full multi-scenario runtime support is intentionally not implemented yet; 1997 remains the active default scenario.
+
 ## File-by-file findings
 
 ### A) scripts/importers

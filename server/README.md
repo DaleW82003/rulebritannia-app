@@ -64,6 +64,8 @@ The following endpoints are **disabled in production** (`NODE_ENV=production`) u
 | `POST` | `/api/admin/constituencies/initialize-1997` | Legacy alias for the current default scenario constituency initializer |
 | `DELETE` | `/api/admin/constituencies/clear` | Deletes all constituencies |
 
+Phase 2 status: scenario route aliases are available for naming consistency, but full multi-scenario support is not implemented yet; the active default remains 1997.
+
 ### Environment flag
 
 Set `ENABLE_DEV_SEED=true` **only** on non-production environments (local dev, staging) that need to run seeding or wipe operations.  Never set this on a real production instance.
