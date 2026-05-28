@@ -655,6 +655,44 @@ test("APPLICATION: applying for NPC-only party fails with 400", async () => {
   assert.equal(body.error, "You can only create characters for Labour, Conservative, or Liberal Democrat.");
 });
 
+test("APPLICATION: regular users can submit a main character application without admin role", async () => {
+  const applicant = await seedUserAndCharacter({ roles: [], party: "Labour" });
+  await pool.query("UPDATE characters SET is_active = FALSE WHERE id = $1", [applicant.charId]);
+  await pool.query("UPDATE users SET active_character_id = NULL WHERE id = $1", [applicant.userId]);
+
+  const constituency = `Regular Apply Seat ${Date.now()}`;
+  await pool.query(
+    `INSERT INTO constituencies (name, party, mp_name, mp_type)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (name) DO UPDATE SET party = EXCLUDED.party`,
+    [constituency, "Labour", "", "npc"]
+  );
+  const { factionId } = await seedFaction({ partySlug: "Labour" });
+
+  const client = new TestClient(baseUrl);
+  await client.login(applicant.email, applicant.password);
+
+  const { status, body } = await client.post("/api/characters/apply", {
+    name: `Regular Applicant ${Date.now()}`,
+    party: "Labour",
+    constituency,
+    faction_id: factionId,
+    date_of_birth: "1970-01-01",
+    education: "University",
+    career_background: "Law",
+    family: "Married",
+    year_first_elected: "1997",
+    bio: "Bio",
+    financial_background_level: 5,
+    avatar_attribution: "Tester",
+  });
+
+  assert.equal(status, 201, JSON.stringify(body));
+  assert.equal(body.ok, true);
+  assert.equal(body.application?.applicant_user_id, applicant.userId);
+  assert.equal(body.application?.status, "pending");
+});
+
 test("ME FACTION: NPC-only party character returns null faction", async () => {
   const user = await seedUserAndCharacter({ roles: [], party: "Labour" });
   const { rows: npcPartyCharRows } = await pool.query(

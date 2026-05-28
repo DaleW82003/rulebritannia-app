@@ -959,6 +959,50 @@ function biMonthlyCreditAmount(profile, mods) {
   return (Number(profile.salaryAnnual || 0) + extraAnnual + investmentIncome) / 6;
 }
 
+function parseIsoDateParts(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return { year, month, day };
+}
+
+function getDobMaxDateForSimClock(gameState) {
+  const simDate = getSimDate(gameState || {});
+  const simMonth = Number(simDate?.monthIndex) + 1;
+  const simYear = Number(simDate?.year);
+  const simDay = 1; // Game clock is month/year only; enforce age as of day 1.
+  const boundedMonth = Number.isInteger(simMonth) && simMonth >= 1 && simMonth <= 12 ? simMonth : 1;
+  const boundedYear = Number.isInteger(simYear) && simYear > 0 ? simYear : new Date().getUTCFullYear();
+  const maxYear = boundedYear - 18;
+  return `${String(maxYear).padStart(4, "0")}-${String(boundedMonth).padStart(2, "0")}-${String(simDay).padStart(2, "0")}`;
+}
+
+function isAtLeast18AtSimClock(dateOfBirth, gameState) {
+  const dob = parseIsoDateParts(dateOfBirth);
+  if (!dob) return false;
+  const simDate = getSimDate(gameState || {});
+  const simMonth = Number(simDate?.monthIndex) + 1;
+  const simYear = Number(simDate?.year);
+  const simDay = 1; // Game clock is month/year only; enforce age as of day 1.
+  const boundedMonth = Number.isInteger(simMonth) && simMonth >= 1 && simMonth <= 12 ? simMonth : 1;
+  const boundedYear = Number.isInteger(simYear) && simYear > 0 ? simYear : new Date().getUTCFullYear();
+  const boundedDay = simDay;
+  let age = boundedYear - dob.year;
+  if (boundedMonth < dob.month || (boundedMonth === dob.month && boundedDay < dob.day)) age -= 1;
+  return age >= 18;
+}
+
 function render(data, state) {
   const host = document.getElementById("personal-root") || document.querySelector("main.wrap");
   if (!host) return;
@@ -986,6 +1030,22 @@ function render(data, state) {
       "High Street Retail Unit", "Office Unit", "Warehouse", "Holiday Let"
     ];
     const RENTAL_STATUSES = enums.rentalStatuses ?? ["Occupied", "Vacant", "Under renovation"];
+    const REGION_OPTIONS = [
+      "North East",
+      "North West",
+      "Yorkshire and the Humber",
+      "East Midlands",
+      "West Midlands",
+      "East of England",
+      "London",
+      "South East",
+      "South West",
+      "Scotland",
+      "Wales",
+      "Northern Ireland",
+      "Overseas",
+    ];
+    const dobMaxDate = getDobMaxDateForSimClock(data.gameState);
 
     const dbChars = Array.isArray(state.dbState?.myCharacters) ? state.dbState.myCharacters : [];
     const dbMyApps = Array.isArray(state.dbState?.myApplications) ? state.dbState.myApplications : [];
@@ -1009,7 +1069,10 @@ function render(data, state) {
         </div>
         <form id="create-character-form" class="tile" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
           <input class="input" name="name" placeholder="Name" required>
-          <input class="input" type="date" name="date_of_birth" required>
+          <div>
+            <label class="label" for="create-character-dob">Date of Birth (must be 18+ on the first day of the current game month)</label>
+            <input id="create-character-dob" class="input" type="date" name="date_of_birth" required max="${esc(dobMaxDate)}" aria-label="Date of Birth">
+          </div>
           <select class="input" name="education" required><option value="">Education level</option>${EDUCATION_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>
           <select class="input" name="career_background" required><option value="">Pre-MP Career</option>${CAREER_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>
           <select class="input" name="family" required><option value="">Family Status</option>${FAMILY_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>
@@ -1026,7 +1089,7 @@ function render(data, state) {
           <select class="input" name="financial_background_level" required>
             <option value="">Financial background</option>${(state.enums?.financialLevels ?? [{level:1,label:"1 – Poverty"},{level:2,label:"2 – Financially Strained"},{level:3,label:"3 – Lower Working Class"},{level:4,label:"4 – Skilled Working / Lower Middle"},{level:5,label:"5 – Solid Middle Class"},{level:6,label:"6 – Upper Middle Class"},{level:7,label:"7 – Affluent Professional"},{level:8,label:"8 – High Net Worth Individual"},{level:9,label:"9 – Top 5%"},{level:10,label:"10 – Top 1%"}]).map((fl)=>`<option value="${esc(String(fl.level))}">${esc(fl.label)}</option>`).join("")}
           </select>
-          <fieldset style="grid-column:1/-1;border:1px solid var(--border,#ccc);padding:8px;border-radius:4px;"><legend><b>Primary Home</b></legend><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;"><select class="input" name="home_type"><option value="">Select home type (optional)</option>${HOME_TYPES.map((t)=>`<option value="${esc(t)}">${esc(t)}</option>`).join("")}</select><select class="input" name="home_value"><option value="">Estimated value (optional)</option>${PROPERTY_VALUES.map((v)=>`<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select><input class="input" name="home_region" placeholder="Region"><label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" name="home_mortgaged"> <span>Mortgaged</span></label><input class="input" name="home_notes" placeholder="Notes (optional)"></div></fieldset>
+          <fieldset style="grid-column:1/-1;border:1px solid var(--border,#ccc);padding:8px;border-radius:4px;"><legend><b>Primary Home</b></legend><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;"><select class="input" name="home_type"><option value="">Select home type (optional)</option>${HOME_TYPES.map((t)=>`<option value="${esc(t)}">${esc(t)}</option>`).join("")}</select><select class="input" name="home_value"><option value="">Estimated value (optional)</option>${PROPERTY_VALUES.map((v)=>`<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select><select class="input" name="home_region"><option value="">Property region (optional)</option>${REGION_OPTIONS.map((r)=>`<option value="${esc(r)}">${esc(r)}</option>`).join("")}</select><label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" name="home_mortgaged"> <span>Mortgaged</span></label><input class="input" name="home_notes" placeholder="Notes (optional)"></div></fieldset>
           <fieldset style="grid-column:1/-1;border:1px solid var(--border,#ccc);padding:8px;border-radius:4px;"><legend><b>Rental Properties (0–5)</b></legend><div id="rentals-list" style="display:grid;gap:8px;"></div><button type="button" class="btn" id="add-rental-btn" style="margin-top:8px;">+ Add Rental</button></fieldset>
           <button class="btn" type="submit" style="grid-column:1/-1;">Submit Character for Approval</button>
         </form>
@@ -1071,7 +1134,7 @@ function render(data, state) {
       const idx = rentalCount;
       const div = document.createElement("div");
       div.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;padding:6px 0;border-top:1px solid var(--border,#eee);";
-      div.innerHTML = `<div style="grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;"><b>Rental #${idx}</b><button type="button" class="btn danger" data-remove-rental="${idx}" style="padding:4px 10px;font-size:12px;">Remove</button></div><select class="input" name="rental_${idx}_type"><option value="">Type</option>${RENTAL_TYPES.map((t)=>`<option value="${esc(t)}">${esc(t)}</option>`).join("")}</select><select class="input" name="rental_${idx}_value"><option value="">Estimated value (optional)</option>${PROPERTY_VALUES.map((v)=>`<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select><input class="input" name="rental_${idx}_location" placeholder="Location"><select class="input" name="rental_${idx}_status"><option value="">Status</option>${RENTAL_STATUSES.map((st)=>`<option value="${esc(st)}">${esc(st)}</option>`).join("")}</select><input class="input" name="rental_${idx}_notes" placeholder="Notes (optional)"><label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" name="rental_${idx}_mortgaged"> <span>Mortgaged</span></label>`;
+      div.innerHTML = `<div style="grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;"><b>Rental #${idx}</b><button type="button" class="btn danger" data-remove-rental="${idx}" style="padding:4px 10px;font-size:12px;">Remove</button></div><select class="input" name="rental_${idx}_type"><option value="">Type</option>${RENTAL_TYPES.map((t)=>`<option value="${esc(t)}">${esc(t)}</option>`).join("")}</select><select class="input" name="rental_${idx}_value"><option value="">Estimated value (optional)</option>${PROPERTY_VALUES.map((v)=>`<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select><select class="input" name="rental_${idx}_location"><option value="">Property region (optional)</option>${REGION_OPTIONS.map((r)=>`<option value="${esc(r)}">${esc(r)}</option>`).join("")}</select><select class="input" name="rental_${idx}_status"><option value="">Status</option>${RENTAL_STATUSES.map((st)=>`<option value="${esc(st)}">${esc(st)}</option>`).join("")}</select><input class="input" name="rental_${idx}_notes" placeholder="Notes (optional)"><label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" name="rental_${idx}_mortgaged"> <span>Mortgaged</span></label>`;
       div.querySelector(`[data-remove-rental="${idx}"]`)?.addEventListener("click", () => { div.remove(); rentalCount = Math.max(0, rentalCount - 1); });
       rentalsList?.appendChild(div);
     });
@@ -1082,6 +1145,12 @@ function render(data, state) {
       const avatar_attribution = String(fd.get("avatar_attribution") || "").trim();
       if (!avatar_attribution) {
         state.message = 'Please fill in "Who is your avatar?" before submitting.';
+        render(data, state);
+        return;
+      }
+      const date_of_birth = String(fd.get("date_of_birth") || "").trim();
+      if (!isAtLeast18AtSimClock(date_of_birth, data.gameState)) {
+        state.message = "Date of birth must be at least 18 years before the current game month.";
         render(data, state);
         return;
       }
@@ -1103,7 +1172,7 @@ function render(data, state) {
         party: String(fd.get("party") || "").trim(),
         constituency: String(fd.get("constituency") || "").trim(),
         faction_id: String(fd.get("faction_id") || "").trim(),
-        date_of_birth: String(fd.get("date_of_birth") || "").trim(),
+        date_of_birth,
         education: String(fd.get("education") || "").trim(),
         career_background: String(fd.get("career_background") || "").trim(),
         family: String(fd.get("family") || "").trim(),

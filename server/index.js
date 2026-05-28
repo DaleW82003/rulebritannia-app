@@ -3071,6 +3071,37 @@ function formatSimMonthYearLabel(month, year) {
   return `${safeMonth} ${year}`;
 }
 
+function parseIsoDateParts(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return { year, month, day };
+}
+
+function calculateAgeAtSimClock(dateOfBirth, simMonth, simYear) {
+  const dob = parseIsoDateParts(dateOfBirth);
+  const month = Number(simMonth);
+  const year = Number(simYear);
+  const day = 1; // Sim clock is month/year only; evaluate age as of day 1.
+  if (!dob || !Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year < 1) {
+    return null;
+  }
+  let age = year - dob.year;
+  if (month < dob.month || (month === dob.month && day < dob.day)) age -= 1;
+  return age;
+}
+
 async function initializeDefaultScenarioSalaryScale() {
   const salarySeed = getDefaultScenarioSalaryScaleSeed();
   const salarySimIndex = salarySeed.effectiveFrom.year * 12 + (salarySeed.effectiveFrom.month - 1);
@@ -11213,10 +11244,10 @@ app.get("/api/characters/:id", charReadLimit, async (req, res) => {
   }
 });
 
-app.post("/api/characters/:userId?", charWriteLimit, async (req, res) => {
+app.post(/^\/api\/characters(?:\/([0-9a-fA-F-]{36}))?$/, charWriteLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
-    const user_id = req.params.userId || null;
+    const user_id = req.params[0] || null;
     const { name, party = "", constituency = "", roles = [], offices = [], is_active = true } = req.body || {};
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "name is required" });
@@ -11497,6 +11528,22 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
     if (!avatar_attribution || typeof avatar_attribution !== "string" || !avatar_attribution.trim()) {
       return res.status(400).json({ error: "avatar_attribution (who is your avatar?) is required" });
     }
+    if (!date_of_birth || typeof date_of_birth !== "string" || !date_of_birth.trim()) {
+      return res.status(400).json({ error: "date_of_birth is required" });
+    }
+
+    const { rows: clockRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main' LIMIT 1"
+    );
+    const simMonth = Number(clockRows[0]?.sim_current_month ?? 1);
+    const simYear = Number(clockRows[0]?.sim_current_year ?? 1997);
+    const ageAtSimClock = calculateAgeAtSimClock(date_of_birth, simMonth, simYear);
+    if (ageAtSimClock === null) {
+      return res.status(400).json({ error: "date_of_birth must be a valid date (YYYY-MM-DD)" });
+    }
+    if (ageAtSimClock < 18) {
+      return res.status(400).json({ error: `Character must be at least 18 by ${formatSimMonthYearLabel(simMonth, simYear)}.` });
+    }
 
     // Enforce bio max length
     const bioValue = bio != null ? String(bio).slice(0, 2000) : (personal_background ?? null);
@@ -11620,6 +11667,22 @@ app.post("/api/characters/apply-npc", charAppWriteLimit, async (req, res) => {
     }
     if (!npc_reason || typeof npc_reason !== "string" || !npc_reason.trim()) {
       return res.status(400).json({ error: "npc_reason is required — explain why this NPC is needed" });
+    }
+    if (!date_of_birth || typeof date_of_birth !== "string" || !date_of_birth.trim()) {
+      return res.status(400).json({ error: "date_of_birth is required for NPC characters" });
+    }
+
+    const { rows: npcClockRows } = await pool.query(
+      "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main' LIMIT 1"
+    );
+    const npcSimMonth = Number(npcClockRows[0]?.sim_current_month ?? 1);
+    const npcSimYear = Number(npcClockRows[0]?.sim_current_year ?? 1997);
+    const npcAgeAtSimClock = calculateAgeAtSimClock(date_of_birth, npcSimMonth, npcSimYear);
+    if (npcAgeAtSimClock === null) {
+      return res.status(400).json({ error: "date_of_birth must be a valid date (YYYY-MM-DD)" });
+    }
+    if (npcAgeAtSimClock < 18) {
+      return res.status(400).json({ error: `NPC character must be at least 18 by ${formatSimMonthYearLabel(npcSimMonth, npcSimYear)}.` });
     }
 
     // Constituency is required for NPCs
