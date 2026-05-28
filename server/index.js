@@ -3076,15 +3076,15 @@ async function initializeDefaultScenarioSalaryScale() {
   const salarySimIndex = salarySeed.effectiveFrom.year * 12 + (salarySeed.effectiveFrom.month - 1);
   const salarySimIndexLegacy = salarySeed.legacyEffectiveFrom.year * 12 + (salarySeed.legacyEffectiveFrom.month - 1);
 
-  // Migration: if the scale was previously seeded with the old August-1997 index,
-  // move it to January 1997 so it covers the game start month (May 1997).
+  // Migration: if the scale was previously seeded with the legacy index,
+  // move it to the configured default-scenario baseline index.
   await pool.query(
     `UPDATE salary_scales SET effective_from_sim_index = $1
       WHERE effective_from_sim_index = $2 AND name = $3`,
     [salarySimIndex, salarySimIndexLegacy, salarySeed.name]
   );
 
-  // Check if a scale for January 1997 already exists
+  // Check if a scale for the default-scenario baseline already exists.
   const { rows: existing } = await pool.query(
     "SELECT id FROM salary_scales WHERE effective_from_sim_index = $1 LIMIT 1",
     [salarySimIndex]
@@ -3101,7 +3101,7 @@ async function initializeDefaultScenarioSalaryScale() {
     `INSERT INTO salary_scale_roles (scale_id, role_key, annual_salary) VALUES ${placeholders}`,
     [scaleId, ...roleEntries.flatMap(([k, v]) => [k, v])]
   );
-  console.log("[seed] 1997 salary scale seeded, id =", scaleId);
+  console.log("[seed] default-scenario salary scale seeded, id =", scaleId);
 }
 
 /** Idempotently ensure all canonical offices exist in the DB with their spec_id. */
@@ -4320,7 +4320,7 @@ function sendScenarioConfigError(res, err, logLabel) {
   });
 }
 
-function assertSupportedScenarioKey(scenarioKey = getDefaultScenarioKey()) {
+function assertDefaultScenarioSeedKey(scenarioKey = getDefaultScenarioKey()) {
   const normalized = normalizeScenarioKey(scenarioKey);
   if (normalized !== getDefaultScenarioKey()) {
     const err = new Error(`Unsupported scenarioKey: ${normalized}`);
@@ -4396,11 +4396,11 @@ function getScenarioConstituencySeedConfig(scenarioKey = getDefaultScenarioKey()
 }
 
 /**
- * Parse the current default scenario structured CSV to extract party vote/seat data and turnout.
+ * Parse a scenario structured CSV (from manifest) to extract party vote/seat data and turnout.
  * The CSV path is read from the scenario manifest (electionCsvFile).
  */
-function parseDefaultScenarioElectionCsv(scenarioKey = getDefaultScenarioKey()) {
-  assertSupportedScenarioKey(scenarioKey);
+function parseScenarioElectionCsv(scenarioKey = getDefaultScenarioKey()) {
+  assertDefaultScenarioSeedKey(scenarioKey);
   try {
     const csvPath = resolveManifestPath(loadScenarioManifest(scenarioKey).electionCsvFile);
     const raw = readFileSync(csvPath, "utf8");
@@ -4439,7 +4439,7 @@ function parseDefaultScenarioElectionCsv(scenarioKey = getDefaultScenarioKey()) 
       turnoutPct,
     };
   } catch (e) {
-    console.warn("[parseDefaultScenarioElectionCsv] failed, falling back to scenario constituencies JSON:", e.message);
+    console.warn("[parseScenarioElectionCsv] failed, falling back to scenario constituencies JSON:", e.message);
     // Fallback: count seats from the scenario constituencies JSON (no vote data yet).
     try {
       const json = loadScenarioConstituenciesSeed(scenarioKey);
@@ -4458,10 +4458,10 @@ function parseDefaultScenarioElectionCsv(scenarioKey = getDefaultScenarioKey()) 
 }
 
 function getScenarioElectionSeedConfig(scenarioKey = getDefaultScenarioKey()) {
-  assertSupportedScenarioKey(scenarioKey);
+  assertDefaultScenarioSeedKey(scenarioKey);
   const manifest = loadScenarioManifest(scenarioKey);
   const electionDate = normaliseSeedMonthYear(manifest?.startDate, getDefaultScenarioElectionDate());
-  const electionLabel = String(manifest?.title || "May 1997 General Election");
+  const electionLabel = String(manifest?.title || "Default Scenario General Election");
   const pollingDay = `${electionDate.year}-${String(electionDate.month).padStart(2, "0")}-01`;
   const finalizedAt = `${pollingDay}T00:00:00Z`;
   return { pollingDay, finalizedAt, label: electionLabel };
@@ -4472,7 +4472,7 @@ function getScenarioElectionSeedConfig(scenarioKey = getDefaultScenarioKey()) {
  * Election source data is loaded from the scenario manifest.
  */
 async function initializeScenarioElection(scenarioKey = getDefaultScenarioKey()) {
-  const activeScenarioKey = assertSupportedScenarioKey(scenarioKey);
+  const activeScenarioKey = assertDefaultScenarioSeedKey(scenarioKey);
   const electionSeed = getScenarioElectionSeedConfig(activeScenarioKey);
   // Check if the default-scenario general election record already exists.
   const { rows: existing } = await pool.query(
@@ -4499,7 +4499,7 @@ async function initializeScenarioElection(scenarioKey = getDefaultScenarioKey())
     const hasMissingVotes = Number(sumRows[0]?.total_votes || 0) === 0;
     if (hasMissingVotes) {
       console.log(`[initializeScenarioElection] repairing missing vote/share data for existing ${activeScenarioKey} general election (id=${elId})`);
-      const csvData = parseDefaultScenarioElectionCsv(activeScenarioKey);
+      const csvData = parseScenarioElectionCsv(activeScenarioKey);
       for (const ps of csvData.parties) {
         await pool.query(
           `INSERT INTO election_party_summary (election_id, party, seats, votes, vote_share)
@@ -4522,7 +4522,7 @@ async function initializeScenarioElection(scenarioKey = getDefaultScenarioKey())
   }
 
   // Parse the current default scenario structured CSV.
-  const csvData = parseDefaultScenarioElectionCsv(activeScenarioKey);
+  const csvData = parseScenarioElectionCsv(activeScenarioKey);
 
   // Create the election record.
   const { rows: elRows } = await pool.query(
@@ -18588,7 +18588,7 @@ app.post("/api/admin/discourse-sync-debates", discourseDebateSyncLimit, async (r
 // POST /api/admin/wipe-content
 //
 // Wipes gameplay/content tables and resets the sim clock + state to the
-// current default scenario baseline (currently August 1997).  User accounts and pending registrations are
+// current default scenario baseline. User accounts and pending registrations are
 // NOT touched.  Requires a typed confirmation body: { confirm: "WIPE CONTENT" }
 //
 // ── demo.json safety ────────────────────────────────────────────────────────
@@ -18607,6 +18607,7 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const defaultScenarioClock = getDefaultScenarioClockDefault();
     const defaultScenarioStartLabel = formatSimMonthYearLabel(defaultScenarioClock.month, defaultScenarioClock.year);
+    const defaultScenarioElectionLabel = getScenarioElectionSeedConfig(getDefaultScenarioKey()).label;
 
     const { confirm: confirmText } = req.body || {};
     if (confirmText !== "WIPE CONTENT") {
@@ -18646,10 +18647,10 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
     // Reset group_drafts (clear cabinet and shadow cabinet drafts)
     await pool.query(`UPDATE group_drafts SET drafts = '[]'::jsonb, updated_at = NOW()`);
 
-    // Reset budget_data to the current default scenario baseline (currently 1997)
+    // Reset budget_data to the current default scenario baseline.
     await seedBudgetBaseline(true);
 
-    // Re-seed the current default scenario election baseline (currently 1997)
+    // Re-seed the current default scenario election baseline.
     await initializeScenarioElection(getDefaultScenarioKey());
 
     // Reset sim clock to the current default scenario start.
@@ -18707,7 +18708,7 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
         "game_events", "scandal_situations", "scandals", "scandal_player_choices", "scandal_mod_decisions",
         "red_lion_posts", "online_posts", "fundraising_items",
         "privy_council_posts", "cs_briefings", "cs_cases", "frontbench_reshuffles",
-        "office_assignments (vacated)", "group_drafts (reset)", "budget_data (reset to default scenario baseline: 1997)",
+        "office_assignments (vacated)", "group_drafts (reset)", `budget_data (reset to default scenario baseline: ${defaultScenarioStartLabel})`,
       ],
       simResetTo: `default scenario start (${defaultScenarioStartLabel})`,
       newSnapshotId,
@@ -18722,7 +18723,7 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
       wiped: [
         "bills", "bill_amendments", "motions", "statements", "regulations",
         "questiontime_questions", "qt_questions", "press_items", "polling_entries",
-        "elections (re-seeded default scenario base: 1997)", "news_stories", "newspaper_articles",
+        `elections (re-seeded default scenario base: ${defaultScenarioElectionLabel})`, "news_stories", "newspaper_articles",
         "divisions", "division_votes", "game_events", "scandals",
         "red_lion_posts", "online_posts", "fundraising_items",
         "privy_council_posts", "cs_briefings", "cs_cases",
@@ -18758,6 +18759,7 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
     if (!requireAdmin(req, res)) return;
     const defaultScenarioClock = getDefaultScenarioClockDefault();
     const defaultScenarioStartLabel = formatSimMonthYearLabel(defaultScenarioClock.month, defaultScenarioClock.year);
+    const defaultScenarioElectionLabel = getScenarioElectionSeedConfig(getDefaultScenarioKey()).label;
 
     const { confirm: confirmText } = req.body || {};
     if (confirmText !== "WIPE WITH CHARACTERS") {
@@ -18800,10 +18802,10 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
     // Reset group_drafts (clear cabinet and shadow cabinet drafts)
     await pool.query(`UPDATE group_drafts SET drafts = '[]'::jsonb, updated_at = NOW()`);
 
-    // Reset budget_data to the current default scenario baseline (currently 1997)
+    // Reset budget_data to the current default scenario baseline.
     await seedBudgetBaseline(true);
 
-    // Re-seed the current default scenario election baseline (currently 1997)
+    // Re-seed the current default scenario election baseline.
     await initializeScenarioElection(getDefaultScenarioKey());
 
     // Reset sim clock to the current default scenario start.
@@ -18863,7 +18865,7 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
         "news_stories", "newspaper_articles",
         "divisions", "division_votes", "division_party_instructions", "division_rebellion_log", "division_rebel_requests",
         "game_events", "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
-        "group_drafts (reset)", "budget_data (reset to default scenario baseline: 1997)",
+        "group_drafts (reset)", `budget_data (reset to default scenario baseline: ${defaultScenarioStartLabel})`,
       ],
       simResetTo: `default scenario start (${defaultScenarioStartLabel})`,
       newSnapshotId,
@@ -18879,7 +18881,7 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
         "characters", "office_assignments", "office_assignment_history",
         "bills", "bill_amendments", "motions", "statements", "regulations",
         "questiontime_questions", "qt_questions", "press_items", "polling_entries",
-        "elections (re-seeded default scenario base: 1997)", "news_stories", "newspaper_articles",
+        `elections (re-seeded default scenario base: ${defaultScenarioElectionLabel})`, "news_stories", "newspaper_articles",
         "divisions", "division_votes", "scandals", "game_events",
         "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
         "group_drafts (reset)", "budget_data (reset)",
@@ -21676,7 +21678,7 @@ app.post("/api/admin/characters/:id/assign-npc-manager/:userId", adminCharMgmtLi
 // Admin-only.  Clears: constituency_events, constituencies,
 // election_constituency_changes, election_party_summary, elections, and
 // resets app_state_elections pointers.  Then re-seeds canonical parties,
-// the May 1997 baseline election, and all 659 baseline constituencies so
+// the configured default-scenario baseline election and constituency map so
 // the app returns to a consistent "new world" state.
 //
 // Requires body: { confirm: "RESET BASELINE" }
@@ -21688,6 +21690,9 @@ app.post("/api/admin/reset-baseline", resetBaselineLimit, async (req, res) => {
   try {
     if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     if (!requireAdmin(req, res)) return;
+    const defaultScenarioKey = getDefaultScenarioKey();
+    const electionSeedConfig = getScenarioElectionSeedConfig(defaultScenarioKey);
+    const constituencySeedConfig = getScenarioConstituencySeedConfig(defaultScenarioKey);
 
     const { confirm: confirmText } = req.body || {};
     if (confirmText !== "RESET BASELINE") {
@@ -21721,20 +21726,21 @@ app.post("/api/admin/reset-baseline", resetBaselineLimit, async (req, res) => {
       client.release();
     }
 
-    // Re-seed canonical parties, 1997 election baseline, and 1997 constituencies.
+    // Re-seed canonical parties, default-scenario election baseline, and default-scenario constituencies.
     await seedPlayableParties();
-    await initializeScenarioElection(getDefaultScenarioKey());
-    await initializeScenarioConstituencies(getDefaultScenarioKey());
+    await initializeScenarioElection(defaultScenarioKey);
+    await initializeScenarioConstituencies(defaultScenarioKey);
 
     await writeAuditLog(req.session.userId, "admin.reset-baseline", "all", "*", null, {
       cleared: ["constituency_events", "constituencies", "election_constituency_changes",
                 "election_party_summary", "elections", "app_state_elections.pointers"],
-      reseeded: ["parties", "elections (1997)", "constituencies (1997)"],
+      reseeded: ["parties", `elections (${electionSeedConfig.label})`, `constituencies (${defaultScenarioKey})`],
     });
 
     res.json({
       ok: true,
-      message: "Baseline reset complete. May 1997 election and 659 constituencies re-seeded.",
+      scenarioKey: defaultScenarioKey,
+      message: `Baseline reset complete. ${electionSeedConfig.label} and ${constituencySeedConfig.expectedCount} constituencies re-seeded for scenario "${defaultScenarioKey}".`,
     });
   } catch (e) {
     console.error("[POST /api/admin/reset-baseline]", e);
@@ -23836,7 +23842,7 @@ const seedScenarioBodiesLocalsHandler = async (req, res) => {
     const { rows: afterLocalsRows } = await pool.query("SELECT value FROM app_config WHERE key = 'locals_data'");
     await writeAuditLog(
       req.session.userId,
-      "bodies_locals.seed_1997",
+      "bodies_locals.seed_scenario",
       "seed",
       "bodies-locals-default-scenario",
       { force, scenarioKey, bodies: beforeBodies, locals: beforeLocals },

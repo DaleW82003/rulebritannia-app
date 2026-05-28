@@ -21,7 +21,7 @@ Rule Britannia recreates the mechanics of British parliamentary democracy as an 
 - **Legislation** — players draft bills, table amendments, and cast votes in formal divisions.
 - **Government formation** — a Prime Minister forms a Cabinet; an opposition Leader of the Opposition appoints a Shadow Cabinet.
 - **Political parties** — parties hold seats, elect leaders, and maintain whipping systems.
-- **Constituency representation** — each MP holds a 1997-era constituency mapped to a region and historical result.
+- **Constituency representation** — each MP holds a constituency from the active scenario dataset, mapped to region and historical result for that scenario.
 - **Civil service** — ministers receive departmental briefings and make policy decisions.
 - **Economy & polling** — macroeconomic indicators drive approval ratings tracked through a polling engine.
 - **Press & media** — players submit press releases and press conferences; coverage is modelled with character-level impact modifiers. Multiple press formats: release, conference, comment, speech, letter.
@@ -40,7 +40,7 @@ Rule Britannia recreates the mechanics of British parliamentary democracy as an 
 - **Onboarding Guides** — 15 predefined guides are seeded server-side on startup (`server/guides-seed.js`) and displayed as collapsible panels on `guides.html`; staff can edit, reorder, or add guides through the Control Panel.
 - **Starter Pack** — a short "5 first-week actions" guide displayed to new players on the player dropon; editable by staff via the Control Panel without code changes.
 
-The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mon–Wed = 1 month, Thu–Sat = 1 month; Sunday frozen). The default starting point is August 1997 (shortly after the Labour landslide).
+The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mon–Wed = 1 month, Thu–Sat = 1 month; Sunday frozen). The starting point is derived from the configured default scenario (currently August 1997 in the bundled baseline).
 
 ---
 

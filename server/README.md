@@ -54,7 +54,7 @@ The following endpoints are **disabled in production** (`NODE_ENV=production`) u
 | `POST` | `/api/admin/repair/character-owner-pointers` | Reconciles character owner pointers by patching data |
 | `POST` | `/api/admin/elections/seed-scenario` | Seeds the current default scenario general election baseline |
 | `POST` | `/api/admin/elections/seed-1997` | Legacy alias for the current default scenario election seed |
-| `POST` | `/api/admin/budget/seed` | Seeds 1996–97 budget baseline |
+| `POST` | `/api/admin/budget/seed` | Seeds the default-scenario budget baseline |
 | `POST` | `/api/admin/reset-baseline` | Wipes all election/constituency data and re-seeds baseline |
 | `POST` | `/api/admin/wipe-content` | Deletes all gameplay content |
 | `POST` | `/api/admin/wipe-with-characters` | Deletes all content AND all characters |
@@ -64,7 +64,7 @@ The following endpoints are **disabled in production** (`NODE_ENV=production`) u
 | `POST` | `/api/admin/constituencies/initialize-1997` | Legacy alias that initializes whichever scenario is configured as default |
 | `DELETE` | `/api/admin/constituencies/clear` | Deletes all constituencies |
 
-Current status: constituency initialization is scenario-aware, but broader gameplay/runtime support still treats 1997 as the active default scenario.
+Current status: constituency initialization is scenario-aware. Election and faction seed flows still target the configured default scenario key, with legacy `*-1997` aliases retained for compatibility.
 
 ### Environment flag
 

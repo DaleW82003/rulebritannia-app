@@ -52,7 +52,7 @@ export function getDefaultScenarioKey() {
   return _loaderGetDefaultScenarioKey();
 }
 
-function assertSupportedScenarioKey(scenarioKey = DEFAULT_SCENARIO_KEY) {
+function assertDefaultScenarioSeedKey(scenarioKey = DEFAULT_SCENARIO_KEY) {
   if (typeof scenarioKey !== "string" && typeof scenarioKey !== "number") {
     const err = new Error("scenarioKey must be a string or number");
     err.status = 400;
@@ -67,12 +67,35 @@ function assertSupportedScenarioKey(scenarioKey = DEFAULT_SCENARIO_KEY) {
   return normalized;
 }
 
+function getDefaultScenarioClockFallback() {
+  const manifest = loadScenarioManifest(DEFAULT_SCENARIO_KEY);
+  const month = Number(manifest?.clockDefault?.month);
+  const year = Number(manifest?.clockDefault?.year);
+  return {
+    month: Number.isInteger(month) && month >= 1 && month <= 12 ? month : 8,
+    year: Number.isInteger(year) && year > 0 ? year : 1997,
+  };
+}
+
+function normalizeLegacySimIndex(rawIndex) {
+  const parsed = Number(rawIndex);
+  if (!Number.isFinite(parsed)) return 0;
+  // Backward-compat: earlier writes stored "(simYear - 1997) * 12 + (simMonth - 1)".
+  // Current writes use absolute "simYear * 12 + (simMonth - 1)".
+  if (parsed >= 0 && parsed < 10_000) {
+    return LEGACY_SIM_INDEX_BASE + parsed;
+  }
+  return parsed;
+}
+
 const DOMINANCE_COMPONENT_WEIGHTS = {
   commons: 1.0,
   bodies: 0.1,
   locals: 0.1,
   dem: 0.2,
 };
+const LEGACY_SIM_INDEX_BASE_YEAR = 1997;
+const LEGACY_SIM_INDEX_BASE = LEGACY_SIM_INDEX_BASE_YEAR * 12;
 
 const DOMINANCE_STABILISER = {
   hostilePressureReductionMax: 0.4,
@@ -162,12 +185,13 @@ export async function recomputeCharacterPoliticalState(characterId) {
   let total = 0;
 
   // ── Shared data ────────────────────────────────────────────────────────────
+  const scenarioClock = getDefaultScenarioClockFallback();
   const { rows: clkRows } = await pool.query(
     "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
   );
-  const simMonth = clkRows[0]?.sim_current_month ?? 8;
-  const simYear  = clkRows[0]?.sim_current_year  ?? 1997;
-  const currentIndex = (simYear - 1997) * 12 + (simMonth - 1);
+  const simMonth = Number(clkRows[0]?.sim_current_month ?? scenarioClock.month);
+  const simYear  = Number(clkRows[0]?.sim_current_year  ?? scenarioClock.year);
+  const currentIndex = (simYear * 12) + (simMonth - 1);
 
   // Character's party and constituency
   const { rows: charRows } = await pool.query(
@@ -266,7 +290,7 @@ export async function recomputeCharacterPoliticalState(characterId) {
     [characterId]
   );
   if (wpRows.length > 0) {
-    const savedIndex = Number(wpRows[0].last_saved_sim_index ?? 0);
+    const savedIndex = normalizeLegacySimIndex(wpRows[0].last_saved_sim_index ?? 0);
     if (currentIndex - savedIndex <= 3) {
       const delta = 5;
       total += delta;
@@ -410,7 +434,7 @@ export async function recomputeCharacterPoliticalState(characterId) {
     constituencyPressureRaw += 30;
     constituencyPressureBreakdown.push("No work plan on record");
   } else {
-    const savedIndex = Number(wpRows[0].last_saved_sim_index ?? 0);
+    const savedIndex = normalizeLegacySimIndex(wpRows[0].last_saved_sim_index ?? 0);
     const monthsStale = currentIndex - savedIndex;
     if (monthsStale > 3) {
       const stalePenalty = Math.min(40, monthsStale * 5);
@@ -1000,12 +1024,11 @@ export async function getPartyFactionClimate(partySlug, { includeDebug = false }
  * Inserts only if no factions exist for that party yet — safe to call repeatedly.
  * Returns a summary of what was inserted vs. already present.
  *
- * The app still ships only the 1997 default scenario data in this phase.
- * SEED VALUES — mods/admins can change these after seeding via the control panel.
- * All mp_counts are approximate 1997 estimates; adjust freely in-game.
+ * Seed values come from the default scenario world seed.
+ * Mods/admins can change seeded faction allocations later via the control panel.
  */
 export async function seedDefaultScenarioFactions(scenarioKey = getDefaultScenarioKey(), actorUserId = "") {
-  assertSupportedScenarioKey(scenarioKey);
+  assertDefaultScenarioSeedKey(scenarioKey);
   const DEFAULT_SCENARIO_FACTION_SEED_DATA = Array.isArray(loadScenarioWorldSeed(scenarioKey)?.factions)
     ? loadScenarioWorldSeed(scenarioKey).factions
     : [];
