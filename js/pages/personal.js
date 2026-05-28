@@ -981,10 +981,11 @@ function getDobMaxDateForSimClock(gameState) {
   const simDate = getSimDate(gameState || {});
   const simMonth = Number(simDate?.monthIndex) + 1;
   const simYear = Number(simDate?.year);
+  const simDay = 1; // Game clock is month/year only; enforce age as of day 1.
   const boundedMonth = Number.isInteger(simMonth) && simMonth >= 1 && simMonth <= 12 ? simMonth : 1;
   const boundedYear = Number.isInteger(simYear) && simYear > 0 ? simYear : new Date().getUTCFullYear();
   const maxYear = boundedYear - 18;
-  return `${String(maxYear).padStart(4, "0")}-${String(boundedMonth).padStart(2, "0")}-01`;
+  return `${String(maxYear).padStart(4, "0")}-${String(boundedMonth).padStart(2, "0")}-${String(simDay).padStart(2, "0")}`;
 }
 
 function isAtLeast18AtSimClock(dateOfBirth, gameState) {
@@ -993,10 +994,12 @@ function isAtLeast18AtSimClock(dateOfBirth, gameState) {
   const simDate = getSimDate(gameState || {});
   const simMonth = Number(simDate?.monthIndex) + 1;
   const simYear = Number(simDate?.year);
+  const simDay = 1; // Game clock is month/year only; enforce age as of day 1.
   const boundedMonth = Number.isInteger(simMonth) && simMonth >= 1 && simMonth <= 12 ? simMonth : 1;
   const boundedYear = Number.isInteger(simYear) && simYear > 0 ? simYear : new Date().getUTCFullYear();
+  const boundedDay = simDay;
   let age = boundedYear - dob.year;
-  if (boundedMonth < dob.month || (boundedMonth === dob.month && 1 < dob.day)) age -= 1;
+  if (boundedMonth < dob.month || (boundedMonth === dob.month && boundedDay < dob.day)) age -= 1;
   return age >= 18;
 }
 
@@ -1067,7 +1070,7 @@ function render(data, state) {
         <form id="create-character-form" class="tile" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
           <input class="input" name="name" placeholder="Name" required>
           <div>
-            <label class="label" for="create-character-dob">Date of Birth (must be 18+ at the current game date)</label>
+            <label class="label" for="create-character-dob">Date of Birth (must be 18+ on the first day of the current game month)</label>
             <input id="create-character-dob" class="input" type="date" name="date_of_birth" required max="${esc(dobMaxDate)}" aria-label="Date of Birth">
           </div>
           <select class="input" name="education" required><option value="">Education level</option>${EDUCATION_OPTIONS.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>
