@@ -547,7 +547,7 @@ after(async () => {
 
 function client() { return new TestClient(baseUrl); }
 
-async function setCanonicalRoles(userId, roles) {
+async function replaceCanonicalRoles(userId, roles) {
   await pool.query("DELETE FROM user_roles WHERE user_id = $1", [userId]);
   for (const role of roles) {
     await pool.query(
@@ -665,8 +665,8 @@ test("wipe-content removes canonical office:* roles while preserving admin/mod",
   const adminUser = await seedUserAndCharacter({ roles: ["admin"] });
   const regularUser = await seedUserAndCharacter({ roles: [] });
 
-  await setCanonicalRoles(adminUser.userId, ["admin", "mod", "office:secretary_of_state"]);
-  await setCanonicalRoles(regularUser.userId, ["office:backbencher"]);
+  await replaceCanonicalRoles(adminUser.userId, ["admin", "mod", "office:secretary_of_state"]);
+  await replaceCanonicalRoles(regularUser.userId, ["office:backbencher"]);
 
   const c = client();
   await c.login(adminUser.email, adminUser.password);
@@ -698,8 +698,8 @@ test("wipe-with-characters removes canonical office:* roles while preserving adm
   const adminUser = await seedUserAndCharacter({ roles: ["admin"] });
   const regularUser = await seedUserAndCharacter({ roles: [] });
 
-  await setCanonicalRoles(adminUser.userId, ["admin", "mod", "office:shadow_secretary_of_state"]);
-  await setCanonicalRoles(regularUser.userId, ["office:backbencher"]);
+  await replaceCanonicalRoles(adminUser.userId, ["admin", "mod", "office:secretary_of_state"]);
+  await replaceCanonicalRoles(regularUser.userId, ["office:backbencher"]);
 
   const c = client();
   await c.login(adminUser.email, adminUser.password);
