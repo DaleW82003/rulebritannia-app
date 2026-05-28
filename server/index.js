@@ -5159,6 +5159,10 @@ async function enforceSimulationNotFrozen(req, res, options = {}) {
  *   POST   /api/admin/constituencies/initialize-scenario
  *   POST   /api/admin/constituencies/initialize-1997 (legacy alias)
  *   DELETE /api/admin/constituencies/clear
+ *   POST   /api/admin/seed-scenario-factions
+ *   POST   /api/admin/seed-1997-factions (legacy alias)
+ *   POST   /api/admin/seed-scenario-bodies-locals
+ *   POST   /api/admin/seed-1997-bodies-locals (legacy alias)
  */
 function isDevSeedAllowed() {
   return process.env.NODE_ENV !== "production" || process.env.ENABLE_DEV_SEED === "true";
@@ -25694,6 +25698,7 @@ app.post("/api/staff/internal-tickets/:id/messages", verifyCsrfToken, crudWriteL
 // POST /api/admin/seed-1997-factions       (legacy alias to /seed-scenario-factions)
 const seedScenarioFactionsHandler = async (req, res) => {
   try {
+    if (!isDevSeedAllowed()) return res.status(404).json({ error: "Not found" });
     const scenarioKey = assertScenarioInitializationReady(
       getRequestedScenarioKey(req),
       "run initialization"

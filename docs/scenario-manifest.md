@@ -272,7 +272,7 @@ and world-seed loader in these places:
 
 1. **`getScenarioConstituencySeedConfig`** — validates that the manifest has a
    constituency JSON path and expected seat count, then resolves the JSON path.
-2. **`parseDefaultScenarioElectionCsv`** — opens
+2. **`parseScenarioElectionCsv`** — opens
    `resolveManifestPath(manifest.electionCsvFile)` instead of a hardcoded
    string.
 3. **`loadScenarioConstituenciesSeed`** and
@@ -413,8 +413,6 @@ The currently-supported world-seed domains remain:
 
 ## Remaining debt (post-Phase 5)
 
-- `clockDefault` in the manifest is not yet consumed by `server/clock.js`;
-  the fallback `{ month: 8, year: 1997 }` is still hardcoded there.
 - Admin UI copy (reset descriptions, seed labels) still references "August
   1997" directly; a future phase will interpolate from manifest metadata.
 - The `sim_current_year DEFAULT 1997` in `server/schema.sql` will be removed
@@ -437,8 +435,9 @@ without touching the server CLI or running individual seed endpoints manually.
 1. Navigate to **Admin Panel** (`/admin-panel.html`).
 2. Scroll to the **World Initialization — Scenario Seeding** section (between
    the Maintenance section and the Danger Zone).
-3. Select a scenario from the dropdown. Currently only **May 1997 General
-   Election** is available.
+3. Select a scenario from the dropdown. Only **May 1997 General
+   Election** is currently initialization-ready; `2015-beta` exists on disk
+   but remains blocked (see `initialization.blockedReason` in its manifest).
 4. Read the description and confirmation warning.
 5. Type `INITIALIZE SCENARIO 1997` (substituting the key shown) in the
    confirmation box.
@@ -480,9 +479,11 @@ The individual seed endpoints called by the UI remain unchanged:
 
 ### Limitations (Phase 6 scope)
 
-- Only the `1997` scenario is currently available. Adding a new scenario key
-  requires authoring all seed files and updating `assertSupportedScenarioKey`
-  in `server/index.js`.
+- Only the `1997` scenario is currently initialization-ready. The `2015-beta`
+  scenario exists on disk but is blocked by `initialization.ready = false` in
+  its manifest. Adding a fully supported new scenario requires authoring all
+  seed files and removing the `assertDefaultScenarioSeedKey` guard from the
+  election and faction seeding paths in `server/index.js`.
 - The initialization flow does **not** seed demo polling data, characters,
   government formation, party leaders, or NPC rosters. Those remain manual or
   handled by later phases.
