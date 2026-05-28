@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-28T10:41:18.638Z",
+  "generatedAt": "2026-05-28T18:48:19.406Z",
   "constituencies": [
     {
       "id": "aldershot",
@@ -5895,5 +5895,5 @@
     }
   },
   "electorate": 46354197,
-  "turnoutTotal": 0
+  "turnoutTotal": 30697525
 }

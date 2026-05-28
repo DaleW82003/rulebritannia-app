@@ -117,28 +117,18 @@ constituency_result,SNP,Scotland,Dundee East,,,,,,,
 #### `overall_total`
 
 Aggregated national totals.  The parser processes all `overall_total` rows and
-accumulates into two variables (`electorate`, `turnoutTotal`); each row
-overwrites the accumulated value using `parseInt(...) || 0` so the **last
-non-empty value wins**.
+accumulates into two variables (`electorate`, `turnoutTotal`).  Each variable
+is updated only when the parsed value is greater than zero, so multiple rows
+can each carry a different field without clobbering the other.
 
-The standard CSV layout uses two rows where the data is split across them:
+The standard CSV layout splits the data across two rows:
 
 - First row carries `turnout_total` (total votes cast).
 - Second row carries `electorate` (registered electorate).
 
-Because the second row has an empty `turnout_total` column, `turnoutTotal`
-is overwritten to `0` by `parseInt("") || 0`.  This is a **pre-existing
-limitation** in the parser: the committed `constituencies.json` for 1997
-correctly records `electorate` but always shows `"turnoutTotal": 0`.
-
-> **Debt:** If `turnoutTotal` is needed by a future server feature, the two
-> `overall_total` rows should be collapsed into one row that contains both
-> `electorate` and `turnout_total`, or the parser should accumulate the
-> maximum non-zero value instead of overwriting unconditionally.
-
 ```
-overall_total,,,,,,,,66.1%,,
-overall_total,,,,,,,,,,46425386,30691380
+overall_total,,,,,,,,66.1%,30697525,
+overall_total,,,,,,,,,,46354197
 ```
 
 ---
@@ -201,16 +191,28 @@ Examples:
 
 ## Validation
 
-After parsing, two checks are enforced — the script aborts with a non-zero
-exit code on any failure:
+After parsing, the following checks are enforced:
 
-1. **Constituency count** — the number of `constituency_result` rows must
-   equal `manifest.expectedConstituencyCount` exactly.
-2. **Seat-breakdown cross-check** — for every party listed in
+1. **Required columns** — the script aborts immediately if any of the required
+   header columns are missing from the CSV:
+   `record_type`, `party`, `region`, `constituency`, `seats`, `votes`,
+   `vote_pct`, `turnout_total`, `electorate`.
+
+2. **Constituency count** — the number of `constituency_result` rows must
+   equal `manifest.expectedConstituencyCount` exactly.  The script aborts with
+   a non-zero exit code on failure.
+
+3. **Seat-breakdown cross-check** — for every party listed in
    `seat_breakdown` rows with a non-zero count, the number of
    `constituency_result` rows won by that party must match.  Parties with
    `seats = 0` in the breakdown are skipped (they can still appear in
-   `vote_summary`).
+   `vote_summary`).  The script aborts with a non-zero exit code on failure.
+
+4. **Region name check** — each `constituency_result` row's `region` column
+   is compared against the `CANONICAL_REGIONS` set in the script.  An
+   unrecognised value emits a `WARNING:` line to `stderr` (once per unknown
+   value) but does **not** abort the import.  Extend `CANONICAL_REGIONS` if a
+   future scenario legitimately uses a different region name.
 
 ---
 

@@ -16,6 +16,45 @@ import { resolve } from "path";
 import { fileURLToPath } from "url";
 import { loadScenarioManifest, resolveManifestPath, getDefaultScenarioKey } from "../server/scenario-manifest-loader.js";
 
+// ── Required CSV columns ──────────────────────────────────────────────────────
+// All of these header names must be present in the CSV file.  An import is
+// aborted with a clear error if any are missing, preventing silent undefined→0
+// coercions from corrupting the output.
+const REQUIRED_CSV_COLUMNS = [
+  "record_type",
+  "party",
+  "region",
+  "constituency",
+  "seats",
+  "votes",
+  "vote_pct",
+  "turnout_total",
+  "electorate",
+];
+
+// ── Canonical region values ───────────────────────────────────────────────────
+// Derived from the standard UK parliamentary constituency map (nine English
+// regions plus the three devolved nations).  A CSV row whose region column does
+// not appear in this set triggers a warning during import so typos in new
+// scenario CSVs are caught without blocking the import entirely.
+//
+// Extend this set if a future scenario legitimately uses a different region name
+// (e.g., a redistributed boundary review with renamed regions).
+const CANONICAL_REGIONS = new Set([
+  "East Midlands",
+  "East of England",
+  "London",
+  "North East",
+  "North West",
+  "Northern Ireland",
+  "Scotland",
+  "South East",
+  "South West",
+  "Wales",
+  "West Midlands",
+  "Yorkshire and the Humber",
+]);
+
 // ── Party normalisation rules ─────────────────────────────────────────────────
 // Canonical name for the party with the accented é.  Any ASCII/mojibake variant
 // found in older CSVs or copy-paste from Windows-1252 is mapped here.
@@ -52,10 +91,11 @@ function toSlug(name) {
 }
 
 // ── Minimal CSV parser (handles quoted fields) ────────────────────────────────
+// Returns { headers: string[], rows: object[] } so callers can validate columns.
 function parseCsv(text) {
   const lines  = text.split(/\r?\n/).filter(l => l && !/^\s*#/.test(l));
-  const header = lines[0].split(",");
-  return lines.slice(1).map((line) => {
+  const headers = lines[0].split(",").map(h => h.trim());
+  const rows = lines.slice(1).map((line) => {
     const values = [];
     let cur = "";
     let inQ = false;
@@ -73,8 +113,23 @@ function parseCsv(text) {
       cur += ch;
     }
     values.push(cur);
-    return Object.fromEntries(header.map((h, i) => [h.trim(), (values[i] ?? "").trim()]));
+    return Object.fromEntries(headers.map((h, i) => [h, (values[i] ?? "").trim()]));
   });
+  return { headers, rows };
+}
+
+// ── CSV header validation ─────────────────────────────────────────────────────
+function validateCsvHeaders(headers, csvPath) {
+  const headerSet = new Set(headers);
+  const missing = REQUIRED_CSV_COLUMNS.filter(col => !headerSet.has(col));
+  if (missing.length > 0) {
+    const err = new Error(
+      `CSV file "${csvPath}" is missing required column(s): ${missing.join(", ")}.\n` +
+      `Expected columns: ${REQUIRED_CSV_COLUMNS.join(", ")}.`
+    );
+    err.code = "CSV_MISSING_COLUMNS";
+    throw err;
+  }
 }
 
 function readScenarioCsvText(csvPath) {
@@ -114,19 +169,30 @@ function getScenarioConstituencySeedConfig(scenarioKey = getDefaultScenarioKey()
 export function convertScenarioCsvToConstituencies(scenarioKey = getDefaultScenarioKey()) {
   const { csvPath, outPath, expectedSeats } = getScenarioConstituencySeedConfig(scenarioKey);
   const raw = readScenarioCsvText(csvPath);
-  const rows = parseCsv(raw);
+  const { headers, rows } = parseCsv(raw);
+
+  validateCsvHeaders(headers, csvPath);
 
   const constituencies = [];
   const voteSummary = {};
   const seatBreakdown = {};
   let electorate = 0;
   let turnoutTotal = 0;
+  const warnedRegions = new Set();
 
   for (const row of rows) {
     switch (row.record_type) {
       case "constituency_result": {
         const party = normaliseParty(row.party);
-        const { nation, region } = resolveNationRegion(row.region);
+        const csvRegion = row.region;
+        if (csvRegion && !CANONICAL_REGIONS.has(csvRegion) && !warnedRegions.has(csvRegion)) {
+          console.warn(
+            `WARNING: Unrecognised region "${csvRegion}" in scenario "${scenarioKey}".` +
+            ` Check CANONICAL_REGIONS in scripts/convert-scenario-csv.js if this is intentional.`
+          );
+          warnedRegions.add(csvRegion);
+        }
+        const { nation, region } = resolveNationRegion(csvRegion);
         const name = row.constituency.trim();
         constituencies.push({
           id: toSlug(name),
@@ -154,8 +220,13 @@ export function convertScenarioCsvToConstituencies(scenarioKey = getDefaultScena
         break;
       }
       case "overall_total": {
-        electorate = parseInt(row.electorate, 10) || 0;
-        turnoutTotal = parseInt(row.turnout_total, 10) || 0;
+        // Two overall_total rows are standard: one carries turnout_total, the
+        // other carries electorate.  Only update each variable when the parsed
+        // value is positive so the second row cannot clobber the first with 0.
+        const e = parseInt(row.electorate, 10) || 0;
+        const t = parseInt(row.turnout_total, 10) || 0;
+        if (e > 0) electorate = e;
+        if (t > 0) turnoutTotal = t;
         break;
       }
       default:

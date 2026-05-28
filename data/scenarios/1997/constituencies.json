@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-27T11:10:01.853Z",
+  "generatedAt": "2026-05-28T18:48:19.364Z",
   "constituencies": [
     {
       "id": "barking",
@@ -6016,5 +6016,5 @@
     }
   },
   "electorate": 43784559,
-  "turnoutTotal": 0
+  "turnoutTotal": 31286284
 }
