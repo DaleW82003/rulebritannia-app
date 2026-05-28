@@ -11213,10 +11213,10 @@ app.get("/api/characters/:id", charReadLimit, async (req, res) => {
   }
 });
 
-app.post("/api/characters/:userId?", charWriteLimit, async (req, res) => {
+app.post(/^\/api\/characters(?:\/([0-9a-fA-F-]{36}))?$/, charWriteLimit, async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
-    const user_id = req.params.userId || null;
+    const user_id = req.params[0] || null;
     const { name, party = "", constituency = "", roles = [], offices = [], is_active = true } = req.body || {};
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "name is required" });
