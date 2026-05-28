@@ -18742,19 +18742,41 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ADMIN: wipe-with-characters — full wipe including character data
+// ADMIN: wipe-with-characters — full beta wipe including character data
 // POST /api/admin/wipe-with-characters
 //
 // Wipes all gameplay/content tables AND character-related tables, then resets
-// the sim clock.  User accounts and pending registrations are NOT touched.
+// the sim clock.  User accounts, party rows, and pending registrations are
+// preserved.
 // Requires: { confirm: "WIPE WITH CHARACTERS" }
+//
+// ── Safety: no TRUNCATE CASCADE ─────────────────────────────────────────────
+// TRUNCATE <table> CASCADE propagates to ALL tables that have a FK constraint
+// definition pointing at <table>, regardless of the ON DELETE action on that
+// constraint.  Even after clearing users.active_character_id, issuing
+// TRUNCATE characters CASCADE would still truncate users (because the FK
+// constraint definition users.active_character_id → characters exists),
+// causing total admin lockout.
+//
+// Instead this handler uses a three-step safe approach:
+//   1. Pre-clear: UPDATE app_state_elections to break the elections FK pointer
+//      (app_state_elections is a preserved singleton; only the FK column is
+//      cleared so the later TRUNCATE elections can run without CASCADE).
+//   2. DELETE FROM characters: fires the correct ON DELETE action for every FK
+//      that points at characters.  SET NULL preserves users, parties, and
+//      pending_character_applications rows; CASCADE empties character-owned
+//      child tables (office_assignment_history, character_finance, etc.).
+//   3. TRUNCATE (no CASCADE) the explicit content table list.  All intra-list
+//      FK dependencies — e.g. news_story_comments → news_stories,
+//      party_internal_freeze_snapshots → party_internal_tickets — are resolved
+//      by including both parent and child in the same TRUNCATE statement.
 //
 // ── demo.json safety ────────────────────────────────────────────────────────
 // data/demo.json is a static read-only file on disk served directly to
-// logged-out browsers.  This endpoint only issues SQL TRUNCATE statements
-// against the live PostgreSQL database and never reads from, writes to, or
-// deletes any filesystem files.  demo.json is therefore completely unaffected
-// by any wipe operation.
+// logged-out browsers.  This endpoint only issues SQL DELETE/UPDATE/TRUNCATE
+// statements against the live PostgreSQL database and never reads from, writes
+// to, or deletes any filesystem files.  demo.json is therefore completely
+// unaffected by any wipe operation.
 // ════════════════════════════════════════════════════════════════════════════
 
 app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) => {
@@ -18773,34 +18795,78 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
       });
     }
 
-    // Clear users.active_character_id before deleting characters to avoid FK constraint violations
-    await pool.query(`UPDATE users SET active_character_id = NULL`);
+    // ── Step 1: Pre-clear app_state_elections FK pointer ─────────────────────
+    // app_state_elections is a preserved singleton (id='main'); only the FK
+    // column is cleared here so the TRUNCATE of elections below can succeed
+    // without needing CASCADE.
+    await pool.query(`UPDATE app_state_elections SET last_general_election_id = NULL WHERE id = 'main'`);
 
-    // Wipe all gameplay/content tables AND character-related tables
+    // ── Step 2: Delete all character rows ─────────────────────────────────────
+    // DELETE (not TRUNCATE) fires the ON DELETE action for every FK pointing at
+    // the characters table:
+    //   SET NULL: users.active_character_id, parties.*_character_id,
+    //             pending_character_applications.requested_by_character_id,
+    //             news_story_comments.character_id, news_reply_requests.char_id,
+    //             paper_article_comments.character_id, paper_submissions.char_id,
+    //             privy_council_posts.character_id, frontbench_reshuffles.declared_by,
+    //             party_leader_elections.winner_character_id,
+    //             division_party_instructions.set_by_character_id,
+    //             division_rebellion_log.character_id,
+    //             division_rebel_requests.character_id / decided_by_character_id,
+    //             party_internal_tickets.*_char_id and IPM costing/approval/outcome
+    //             char FKs, qt/bill/regulation/press author_character_id refs, etc.
+    //   CASCADE:  character_affiliations, office_assignments, office_assignment_history,
+    //             character_finance, character_work_plans, character_additional_revenue,
+    //             character_positions, character_shop_purchases (→ revenue_payouts),
+    //             scandal_opt_in, scandal_situations,
+    //             scandals (→ scandal_player_choices / scandal_mod_decisions),
+    //             privy_council_members,
+    //             pending_bio_changes, pending_avatar_changes, pending_profile_changes,
+    //             party_expulsion_requests, whip_withdrawal_requests,
+    //             party_leader_election_nominations, party_leader_election_votes,
+    //             division_votes, bill_amendment_supporters, bill_opposition_quota.
+    // users, parties, and pending_character_applications rows are NOT deleted.
+    await pool.query(`DELETE FROM characters`);
+
+    // ── Step 3: TRUNCATE content / character tables (no CASCADE) ──────────────
+    // All FK references from preserved tables have been broken in Steps 1–2.
+    // Comment/reply tables appear before their parent story/article tables so
+    // PostgreSQL can resolve intra-list FK dependencies without CASCADE.
+    // party_internal_freeze_snapshots (ticket_id SET NULL → party_internal_tickets)
+    // and all CASCADE children of party_internal_tickets are likewise resolved
+    // by including them in the same TRUNCATE statement.
     await pool.query(`
       TRUNCATE
-        characters,
+        -- Character-specific tables (cascade-emptied by Step 2; listed explicitly)
         office_assignments, office_assignment_history,
         character_affiliations,
-        character_shop_purchases, character_shop_revenue_payouts, character_additional_revenue, character_work_plans,
+        character_shop_purchases, character_shop_revenue_payouts, character_additional_revenue, character_work_plans, character_finance,
+        character_positions,
         scandal_opt_in, scandal_situations, scandals, scandal_player_choices, scandal_mod_decisions,
         privy_council_members, privy_council_posts,
+        pending_bio_changes, pending_avatar_changes, pending_profile_changes,
+        party_expulsion_requests, whip_withdrawal_requests,
+        party_leader_elections, party_leader_election_nominations, party_leader_election_votes,
         frontbench_reshuffles,
+        -- Parliamentary / legislative content
         bills, bill_amendments, bill_amendment_supporters, bill_stage_reports, bill_opposition_quota,
-        motions,
-        statements,
-        regulations,
+        motions, statements, regulations,
         questiontime_questions,
         qt_questions, qt_answers, qt_followups,
-        press_items,
-        polling_entries,
+        press_items, polling_entries,
         elections, election_party_summary, election_constituency_changes, constituency_events,
-        news_stories, newspaper_articles,
+        -- News / media (comment tables before parent tables to satisfy intra-list FK checks)
+        news_story_comments, news_reply_requests, news_stories,
+        paper_article_comments, paper_submissions, newspaper_articles,
+        -- Voting, events, misc content
         divisions, division_votes, division_party_instructions, division_rebellion_log, division_rebel_requests,
-        game_events,
-        red_lion_posts, online_posts, fundraising_items,
-        cs_briefings, cs_cases
-      CASCADE
+        game_events, red_lion_posts, online_posts, fundraising_items,
+        cs_briefings, cs_cases,
+        -- Party management workflow (IPM) — rows survive Step 2 via SET NULL; wiped here
+        party_internal_tickets,
+        party_internal_ticket_costing, party_internal_ticket_approvals,
+        party_internal_ticket_ignores, party_internal_ticket_outcomes,
+        party_internal_messages, party_internal_freeze_snapshots
     `);
 
     // Reset group_drafts (clear cabinet and shadow cabinet drafts)
@@ -18856,19 +18922,28 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
       simMonth: defaultScenarioClock.month,
       simYear: defaultScenarioClock.year,
       tables: [
-        "characters", "office_assignments", "office_assignment_history",
-        "character_affiliations", "character_shop_purchases", "character_shop_revenue_payouts",
-        "character_additional_revenue", "character_work_plans",
+        "characters (DELETE — users/parties/pending_character_applications preserved via SET NULL FKs)",
+        "office_assignments", "office_assignment_history",
+        "character_affiliations",
+        "character_shop_purchases", "character_shop_revenue_payouts",
+        "character_additional_revenue", "character_work_plans", "character_finance", "character_positions",
         "scandal_opt_in", "scandal_situations", "scandals", "scandal_player_choices", "scandal_mod_decisions",
         "privy_council_members", "privy_council_posts", "frontbench_reshuffles",
+        "pending_bio_changes", "pending_avatar_changes", "pending_profile_changes",
+        "party_expulsion_requests", "whip_withdrawal_requests",
+        "party_leader_elections", "party_leader_election_nominations", "party_leader_election_votes",
         "bills", "bill_amendments", "bill_amendment_supporters", "bill_stage_reports", "bill_opposition_quota",
         "motions", "statements", "regulations",
         "questiontime_questions", "qt_questions", "qt_answers", "qt_followups",
         "press_items", "polling_entries",
         "elections", "election_party_summary", "election_constituency_changes", "constituency_events",
-        "news_stories", "newspaper_articles",
+        "news_story_comments", "news_reply_requests", "news_stories",
+        "paper_article_comments", "paper_submissions", "newspaper_articles",
         "divisions", "division_votes", "division_party_instructions", "division_rebellion_log", "division_rebel_requests",
         "game_events", "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
+        "party_internal_tickets", "party_internal_ticket_costing", "party_internal_ticket_approvals",
+        "party_internal_ticket_ignores", "party_internal_ticket_outcomes",
+        "party_internal_messages", "party_internal_freeze_snapshots",
         "group_drafts (reset)", `budget_data (reset to default scenario baseline: ${defaultScenarioStartLabel})`,
       ],
       simResetTo: `default scenario start (${defaultScenarioStartLabel})`,
@@ -18880,16 +18955,27 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
 
     res.json({
       ok: true,
-      message: `Content and character data wiped. Sim reset to the default scenario start (${defaultScenarioStartLabel}). User accounts are intact.`,
+      message: `Content and character data wiped. Sim reset to the default scenario start (${defaultScenarioStartLabel}). User accounts, party rows, and pending registrations are intact.`,
       wiped: [
         "characters", "office_assignments", "office_assignment_history",
+        "character_affiliations", "character_shop_purchases", "character_shop_revenue_payouts",
+        "character_additional_revenue", "character_work_plans", "character_finance", "character_positions",
+        "scandal_opt_in", "scandal_situations", "scandals", "scandal_player_choices", "scandal_mod_decisions",
+        "privy_council_members", "privy_council_posts", "frontbench_reshuffles",
+        "pending_bio_changes", "pending_avatar_changes", "pending_profile_changes",
+        "party_expulsion_requests", "whip_withdrawal_requests",
+        "party_leader_elections", "party_leader_election_nominations", "party_leader_election_votes",
         "bills", "bill_amendments", "motions", "statements", "regulations",
         "questiontime_questions", "qt_questions", "press_items", "polling_entries",
-        `elections (re-seeded default scenario base: ${defaultScenarioElectionLabel})`, "news_stories", "newspaper_articles",
+        `elections (re-seeded default scenario base: ${defaultScenarioElectionLabel})`,
+        "news_story_comments", "news_reply_requests", "news_stories",
+        "paper_article_comments", "paper_submissions", "newspaper_articles",
         "divisions", "division_votes", "scandals", "game_events",
         "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
+        "party_internal_tickets (+ costing/approvals/ignores/outcomes/messages/freeze-snapshots)",
         "group_drafts (reset)", "budget_data (reset)",
       ],
+      preserved: ["users", "parties", "pending_character_applications", "app_state_elections (singleton row)"],
       simResetTo: `default scenario start (${defaultScenarioStartLabel})`,
     });
   } catch (e) {
