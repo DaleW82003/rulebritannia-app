@@ -67,6 +67,18 @@ async function createWipeTestSchema() {
     INSERT INTO group_drafts (group_key) VALUES ('shadowcabinet') ON CONFLICT (group_key) DO NOTHING;
   `);
 
+  // support_tickets — preserved table with a NO ACTION FK to characters
+  // (this FK must be pre-cleared before deleting character rows).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      created_by_user_id      UUID NOT NULL REFERENCES users(id),
+      created_by_character_id UUID REFERENCES characters(id),
+      subject                 TEXT NOT NULL DEFAULT '',
+      status                  TEXT NOT NULL DEFAULT 'open'
+    );
+  `);
+
   // elections + child tables + app_state_elections singleton
   // Needed by initializeScenarioElection() called after the wipe
   await pool.query(`
@@ -499,6 +511,7 @@ async function dropWipeTestSchema() {
       app_state_elections,
       election_constituency_changes, election_party_summary, elections,
       group_drafts,
+      support_tickets,
       budget_data
     CASCADE;
   `);
@@ -533,6 +546,16 @@ after(async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function client() { return new TestClient(baseUrl); }
+
+async function replaceCanonicalRoles(userId, roles) {
+  await pool.query("DELETE FROM user_roles WHERE user_id = $1", [userId]);
+  for (const role of roles) {
+    await pool.query(
+      `INSERT INTO user_roles (user_id, role, assigned_by) VALUES ($1, $2, $1)`,
+      [userId, role]
+    );
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
@@ -613,6 +636,95 @@ test("wipe-with-characters deletes all character rows", async () => {
 
   const { rows: charsAfter } = await pool.query(`SELECT id FROM characters`);
   assert.equal(charsAfter.length, 0, "All character rows must be deleted by wipe-with-characters");
+});
+
+test("wipe-with-characters preserves support tickets and nulls created_by_character_id", async () => {
+  const adminUser = await seedUserAndCharacter({ roles: ["admin"] });
+  const regularUser = await seedUserAndCharacter({ roles: [] });
+
+  await pool.query(
+    `INSERT INTO support_tickets (created_by_user_id, created_by_character_id, subject, status)
+     VALUES ($1, $2, 'Wipe regression guard', 'open')`,
+    [regularUser.userId, regularUser.charId]
+  );
+
+  const c = client();
+  await c.login(adminUser.email, adminUser.password);
+  const wipeRes = await c.post("/api/admin/wipe-with-characters", { confirm: "WIPE WITH CHARACTERS" });
+  assert.equal(wipeRes.status, 200, `Wipe must succeed: ${JSON.stringify(wipeRes.body)}`);
+
+  const { rows } = await pool.query(
+    `SELECT created_by_user_id, created_by_character_id FROM support_tickets WHERE created_by_user_id = $1`,
+    [regularUser.userId]
+  );
+  assert.equal(rows.length, 1, "Support ticket row should be preserved");
+  assert.equal(rows[0].created_by_character_id, null, "Support ticket character pointer must be cleared");
+});
+
+test("wipe-content removes canonical office:* roles while preserving admin/mod", async () => {
+  const adminUser = await seedUserAndCharacter({ roles: ["admin"] });
+  const regularUser = await seedUserAndCharacter({ roles: [] });
+
+  await replaceCanonicalRoles(adminUser.userId, ["admin", "mod", "office:secretary_of_state"]);
+  await replaceCanonicalRoles(regularUser.userId, ["office:backbencher"]);
+
+  const c = client();
+  await c.login(adminUser.email, adminUser.password);
+  const wipeRes = await c.post("/api/admin/wipe-content", { confirm: "WIPE CONTENT" });
+  assert.equal(wipeRes.status, 200, `Wipe must succeed: ${JSON.stringify(wipeRes.body)}`);
+
+  const { rows: adminRolesAfter } = await pool.query(
+    `SELECT role FROM user_roles WHERE user_id = $1 ORDER BY role`,
+    [adminUser.userId]
+  );
+  assert.deepEqual(
+    adminRolesAfter.map((r) => r.role),
+    ["admin", "mod"],
+    "wipe-content must remove office:* roles and keep admin/mod roles"
+  );
+
+  const { rows: regularRolesAfter } = await pool.query(
+    `SELECT role FROM user_roles WHERE user_id = $1 ORDER BY role`,
+    [regularUser.userId]
+  );
+  assert.deepEqual(
+    regularRolesAfter.map((r) => r.role),
+    [],
+    "wipe-content must remove office:* roles for non-staff users too"
+  );
+});
+
+test("wipe-with-characters removes canonical office:* roles while preserving admin/mod", async () => {
+  const adminUser = await seedUserAndCharacter({ roles: ["admin"] });
+  const regularUser = await seedUserAndCharacter({ roles: [] });
+
+  await replaceCanonicalRoles(adminUser.userId, ["admin", "mod", "office:secretary_of_state"]);
+  await replaceCanonicalRoles(regularUser.userId, ["office:backbencher"]);
+
+  const c = client();
+  await c.login(adminUser.email, adminUser.password);
+  const wipeRes = await c.post("/api/admin/wipe-with-characters", { confirm: "WIPE WITH CHARACTERS" });
+  assert.equal(wipeRes.status, 200, `Wipe must succeed: ${JSON.stringify(wipeRes.body)}`);
+
+  const { rows: adminRolesAfter } = await pool.query(
+    `SELECT role FROM user_roles WHERE user_id = $1 ORDER BY role`,
+    [adminUser.userId]
+  );
+  assert.deepEqual(
+    adminRolesAfter.map((r) => r.role),
+    ["admin", "mod"],
+    "wipe-with-characters must remove office:* roles and keep admin/mod roles"
+  );
+
+  const { rows: regularRolesAfter } = await pool.query(
+    `SELECT role FROM user_roles WHERE user_id = $1 ORDER BY role`,
+    [regularUser.userId]
+  );
+  assert.deepEqual(
+    regularRolesAfter.map((r) => r.role),
+    [],
+    "wipe-with-characters must remove office:* roles for non-staff users too"
+  );
 });
 
 test("admin access remains possible after wipe-with-characters — no lockout", async () => {
