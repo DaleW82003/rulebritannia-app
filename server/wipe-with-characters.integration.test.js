@@ -661,12 +661,12 @@ test("wipe-with-characters preserves support tickets and nulls created_by_charac
   assert.equal(rows[0].created_by_character_id, null, "Support ticket character pointer must be cleared");
 });
 
-test("wipe-content removes canonical office:* roles while preserving admin/mod", async () => {
+test("wipe-content removes canonical office:* and party:* roles while preserving admin/mod", async () => {
   const adminUser = await seedUserAndCharacter({ roles: ["admin"] });
   const regularUser = await seedUserAndCharacter({ roles: [] });
 
-  await replaceCanonicalRoles(adminUser.userId, ["admin", "mod", "office:secretary_of_state"]);
-  await replaceCanonicalRoles(regularUser.userId, ["office:backbencher"]);
+  await replaceCanonicalRoles(adminUser.userId, ["admin", "mod", "party:labour", "office:secretary_of_state"]);
+  await replaceCanonicalRoles(regularUser.userId, ["party:conservative", "office:backbencher"]);
 
   const c = client();
   await c.login(adminUser.email, adminUser.password);
@@ -680,7 +680,7 @@ test("wipe-content removes canonical office:* roles while preserving admin/mod",
   assert.deepEqual(
     adminRolesAfter.map((r) => r.role),
     ["admin", "mod"],
-    "wipe-content must remove office:* roles and keep admin/mod roles"
+    "wipe-content must remove office:* and party:* roles and keep admin/mod roles"
   );
 
   const { rows: regularRolesAfter } = await pool.query(
@@ -690,16 +690,16 @@ test("wipe-content removes canonical office:* roles while preserving admin/mod",
   assert.deepEqual(
     regularRolesAfter.map((r) => r.role),
     [],
-    "wipe-content must remove office:* roles for non-staff users too"
+    "wipe-content must remove office:* and party:* roles for non-staff users too"
   );
 });
 
-test("wipe-with-characters removes canonical office:* roles while preserving admin/mod", async () => {
+test("wipe-with-characters removes canonical office:* and party:* roles while preserving admin/mod", async () => {
   const adminUser = await seedUserAndCharacter({ roles: ["admin"] });
   const regularUser = await seedUserAndCharacter({ roles: [] });
 
-  await replaceCanonicalRoles(adminUser.userId, ["admin", "mod", "office:secretary_of_state"]);
-  await replaceCanonicalRoles(regularUser.userId, ["office:backbencher"]);
+  await replaceCanonicalRoles(adminUser.userId, ["admin", "mod", "party:labour", "office:secretary_of_state"]);
+  await replaceCanonicalRoles(regularUser.userId, ["party:conservative", "office:backbencher"]);
 
   const c = client();
   await c.login(adminUser.email, adminUser.password);
@@ -713,7 +713,7 @@ test("wipe-with-characters removes canonical office:* roles while preserving adm
   assert.deepEqual(
     adminRolesAfter.map((r) => r.role),
     ["admin", "mod"],
-    "wipe-with-characters must remove office:* roles and keep admin/mod roles"
+    "wipe-with-characters must remove office:* and party:* roles and keep admin/mod roles"
   );
 
   const { rows: regularRolesAfter } = await pool.query(
@@ -723,7 +723,7 @@ test("wipe-with-characters removes canonical office:* roles while preserving adm
   assert.deepEqual(
     regularRolesAfter.map((r) => r.role),
     [],
-    "wipe-with-characters must remove office:* roles for non-staff users too"
+    "wipe-with-characters must remove office:* and party:* roles for non-staff users too"
   );
 });
 
