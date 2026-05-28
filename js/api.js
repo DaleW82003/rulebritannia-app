@@ -2177,14 +2177,29 @@ export async function apiDeleteConstituency(id) {
   return res.json();
 }
 
-export async function apiInitialize1997Constituencies(confirmOverwrite) {
-  const res = await _fetch(`${API_BASE}/api/admin/constituencies/initialize-1997`, {
+export const DEFAULT_SCENARIO_KEY = "1997";
+export const DEFAULT_SCENARIO_SEED_LABEL = "the default scenario election baseline";
+export const DEFAULT_SCENARIO_RESET_LABEL = "the default scenario start";
+
+export function getDefaultScenarioKey() {
+  return DEFAULT_SCENARIO_KEY;
+}
+
+export async function apiInitializeScenarioConstituencies(confirmOverwrite, scenarioKey = getDefaultScenarioKey()) {
+  const res = await _fetch(`${API_BASE}/api/admin/constituencies/initialize-scenario`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ confirm: confirmOverwrite }),
+    body: JSON.stringify({ confirm: confirmOverwrite, scenarioKey }),
   });
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiInitializeScenarioConstituencies failed (${res.status})`);
+  return body;
+}
+
+/** @deprecated Use apiInitializeScenarioConstituencies(confirmOverwrite, scenarioKey). */
+export async function apiInitialize1997Constituencies(confirmOverwrite) {
+  return apiInitializeScenarioConstituencies(confirmOverwrite, getDefaultScenarioKey());
 }
 
 export async function apiClearConstituencies() {
@@ -2283,14 +2298,21 @@ export async function apiFinalizeElection(id) {
   return res.json();
 }
 
-export async function apiSeedElection1997() {
-  const res = await _fetch(`${API_BASE}/api/admin/elections/seed-1997`, {
+export async function apiSeedScenarioElection(scenarioKey = getDefaultScenarioKey()) {
+  const res = await _fetch(`${API_BASE}/api/admin/elections/seed-scenario`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ scenarioKey }),
   });
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `apiSeedScenarioElection failed (${res.status})`);
+  return body;
+}
+
+/** @deprecated Use apiSeedScenarioElection(scenarioKey). */
+export async function apiSeedElection1997() {
+  return apiSeedScenarioElection(getDefaultScenarioKey());
 }
 
 export async function apiGetElectionBodiesCurrent() {
@@ -2364,7 +2386,12 @@ export async function apiAdminSeedBudget(force = false) {
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
     body: JSON.stringify({ force }),
   });
-  return res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 409 && body.alreadySeeded) return body;
+    throw new Error(body.error || `apiAdminSeedBudget failed (${res.status})`);
+  }
+  return body;
 }
 
 export async function apiAdminUpdateBudgetControls(controls) {
@@ -3644,30 +3671,46 @@ export async function apiGetPartyFactionClimate(slug, { debug = false } = {}) {
   return res.json();
 }
 
-/** Admin/mod: idempotent seed of 1997 baseline factions for Labour, Conservative, Liberal Democrat */
-export async function apiAdminSeed1997Factions() {
-  const res = await _fetch(`${API_BASE}/api/admin/seed-1997-factions`, {
+/** Admin: list available scenario manifests with summary info. */
+export async function apiListAdminScenarios() {
+  const res = await _fetch(`${API_BASE}/api/admin/scenarios`, { credentials: "include" });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `apiListAdminScenarios failed (${res.status})`); }
+  return res.json();
+}
+
+/** Admin/mod: idempotent seed of the current default scenario factions. */
+export async function apiAdminSeedScenarioFactions(scenarioKey = getDefaultScenarioKey()) {
+  const res = await _fetch(`${API_BASE}/api/admin/seed-scenario-factions`, {
     method: "POST", credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ scenarioKey }),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `apiAdminSeed1997Factions failed (${res.status})`);
+  if (!res.ok) throw new Error(body.error || `apiAdminSeedScenarioFactions failed (${res.status})`);
   return body;
 }
 
-/** Admin/mod: seed 1997 bodies + locals baseline data (merge by default, force optional). */
-export async function apiAdminSeed1997BodiesLocals(force = false) {
-  const query = force ? "?force=true" : "";
-  const res = await _fetch(`${API_BASE}/api/admin/seed-1997-bodies-locals${query}`, {
+/** @deprecated Use apiAdminSeedScenarioFactions(scenarioKey). */
+export async function apiAdminSeed1997Factions() {
+  return apiAdminSeedScenarioFactions(getDefaultScenarioKey());
+}
+
+/** Admin/mod: seed default-scenario bodies + locals baseline data. */
+export async function apiAdminSeedScenarioBodiesLocals(force = false, scenarioKey = getDefaultScenarioKey()) {
+  const res = await _fetch(`${API_BASE}/api/admin/seed-scenario-bodies-locals`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json", ...csrfHeaders() },
-    body: JSON.stringify({ force: !!force }),
+    body: JSON.stringify({ force: !!force, scenarioKey }),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `apiAdminSeed1997BodiesLocals failed (${res.status})`);
+  if (!res.ok) throw new Error(body.error || `apiAdminSeedScenarioBodiesLocals failed (${res.status})`);
   return body;
+}
+
+/** @deprecated Use apiAdminSeedScenarioBodiesLocals(force, scenarioKey). */
+export async function apiAdminSeed1997BodiesLocals(force = false) {
+  return apiAdminSeedScenarioBodiesLocals(force, getDefaultScenarioKey());
 }
 
 /** Admin/mod: totals for other-official arenas (visible bodies + all locals). */

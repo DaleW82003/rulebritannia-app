@@ -105,7 +105,7 @@ const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "Ju
 
 /**
  * Convert a createdAtSim value to a "Month YYYY" display string.
- * Handles both the legacy string format ("August 1997") and the server-authoritative
+ * Handles both legacy string labels ("Month YYYY") and the server-authoritative
  * object format ({ month: 8, year: 1997 }) returned from the DB via attachLifecycle.
  */
 function simLabelToString(val) {
@@ -129,9 +129,10 @@ function npcSignatory(officeKey, data) {
 }
 
 function plusMonths(label, months) {
-  const [mn, ys] = String(label || "August 1997").split(" ");
+  const fallbackLabel = `${MONTH_NAMES[0]} ${new Date().getUTCFullYear()}`;
+  const [mn, ys] = String(label || fallbackLabel).split(" ");
   let m = Math.max(MONTH_NAMES.indexOf(mn), 0) + 1;
-  let y = Number(ys || 1997);
+  let y = Number(ys || new Date().getUTCFullYear());
   const total = ((y * 12) + (m - 1) + months);
   const nm = (total % 12) + 1;
   const ny = Math.floor(total / 12);

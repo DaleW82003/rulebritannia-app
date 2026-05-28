@@ -1,0 +1,16 @@
+{
+  "key": "1997",
+  "title": "May 1997 General Election",
+  "description": "The default scenario. Labour wins a landslide majority in the May 1997 UK general election. The simulation begins in August 1997 with players entering a newly-formed Parliament.",
+  "startDate": { "month": 5, "year": 1997 },
+  "clockDefault": { "month": 8, "year": 1997 },
+  "status": "default",
+  "initialization": {
+    "ready": true
+  },
+  "constituenciesFile": "data/scenarios/1997/constituencies.json",
+  "worldSeedFile": "data/scenarios/1997/world-seed.json",
+  "electionCsvFile": "assets/1997_structured.csv",
+  "expectedConstituencyCount": 659,
+  "playableParties": ["Conservative", "Labour", "Liberal Democrat"]
+}

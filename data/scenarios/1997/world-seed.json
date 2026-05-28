@@ -1,0 +1,494 @@
+{
+  "canonicalParties": [
+    { "slug": "Conservative", "name": "Conservative", "short_name": "CON", "playable": true },
+    { "slug": "Labour", "name": "Labour", "short_name": "LAB", "playable": true },
+    { "slug": "Liberal Democrat", "name": "Liberal Democrat", "short_name": "LDM", "playable": true },
+    { "slug": "SNP", "name": "SNP", "short_name": "SNP", "playable": false },
+    { "slug": "Plaid Cymru", "name": "Plaid Cymru", "short_name": "PC", "playable": false },
+    { "slug": "Green", "name": "Green", "short_name": "GRN", "playable": false },
+    { "slug": "UKIP", "name": "UKIP", "short_name": "UKP", "playable": false },
+    { "slug": "DUP", "name": "DUP", "short_name": "DUP", "playable": false },
+    { "slug": "Sinn Féin", "name": "Sinn Féin", "short_name": "SF", "playable": false },
+    { "slug": "SDLP", "name": "SDLP", "short_name": "SDL", "playable": false },
+    { "slug": "Alliance", "name": "Alliance", "short_name": "ALL", "playable": false },
+    { "slug": "TUP", "name": "TUP", "short_name": "TUP", "playable": false },
+    { "slug": "UUP", "name": "UUP", "short_name": "UUP", "playable": false },
+    { "slug": "Independents", "name": "Independents", "short_name": "IND", "playable": false },
+    { "slug": "Speaker", "name": "Speaker", "short_name": "SPK", "playable": false }
+  ],
+  "partyStructures": {
+    "Conservative": {
+      "departments": {
+        "communications": 12,
+        "policy": 10,
+        "campaign": 15,
+        "compliance": 4,
+        "admin": 8,
+        "fundraising": 6,
+        "membership": 8,
+        "research": 7
+      },
+      "nationalOffices": [
+        { "region": "Scotland", "size": "Regional Office", "staffCount": 8 },
+        { "region": "Wales", "size": "Regional Office", "staffCount": 6 }
+      ]
+    },
+    "Labour": {
+      "departments": {
+        "communications": 14,
+        "policy": 11,
+        "campaign": 18,
+        "compliance": 4,
+        "admin": 9,
+        "fundraising": 7,
+        "membership": 10,
+        "research": 7
+      },
+      "nationalOffices": [
+        { "region": "Scotland", "size": "Regional Office", "staffCount": 10 },
+        { "region": "Wales", "size": "Regional Office", "staffCount": 8 }
+      ]
+    },
+    "Liberal Democrat": {
+      "departments": {
+        "communications": 6,
+        "policy": 5,
+        "campaign": 8,
+        "compliance": 2,
+        "admin": 4,
+        "fundraising": 3,
+        "membership": 5,
+        "research": 4
+      },
+      "nationalOffices": [
+        { "region": "Scotland", "size": "Regional Office", "staffCount": 4 },
+        { "region": "Wales", "size": "Regional Office", "staffCount": 3 }
+      ]
+    }
+  },
+  "partyTreasuryCash": {
+    "Conservative": 350000,
+    "Labour": 290000,
+    "Liberal Democrat": 95000
+  },
+  "factions": [
+    {
+      "party_slug": "Labour",
+      "slug": "new-labour-blairite",
+      "name": "New Labour / Blairite",
+      "description": "The dominant Blairite modernising wing backing Blair's third-way programme.",
+      "colour": "#cc0000",
+      "ideology_tags": ["centrist", "moderniser", "third-way"],
+      "leadership_alignment": "aligned",
+      "rebellion_bias": 0.05,
+      "media_sensitivity": 0.4,
+      "constituency_sensitivity": 0.2,
+      "display_order": 1,
+      "mp_count": 200,
+      "influence_bonus": 2,
+      "notes": "1997 estimate — editable by mods/admins"
+    },
+    {
+      "party_slug": "Labour",
+      "slug": "tribune-group",
+      "name": "Tribune Group / Soft Left",
+      "description": "Broad soft-left grouping supportive of Labour values but cautious on market reforms.",
+      "colour": "#e05050",
+      "ideology_tags": ["soft-left", "labour-movement"],
+      "leadership_alignment": "neutral",
+      "rebellion_bias": 0.3,
+      "media_sensitivity": 0.3,
+      "constituency_sensitivity": 0.3,
+      "display_order": 2,
+      "mp_count": 100,
+      "influence_bonus": 0.5,
+      "notes": "1997 estimate — editable by mods/admins"
+    },
+    {
+      "party_slug": "Labour",
+      "slug": "campaign-group",
+      "name": "Campaign Group / Hard Left",
+      "description": "Socialist left grouping, most likely to rebel against New Labour policies.",
+      "colour": "#7b0000",
+      "ideology_tags": ["socialist", "hard-left", "anti-war"],
+      "leadership_alignment": "hostile",
+      "rebellion_bias": 0.8,
+      "media_sensitivity": 0.5,
+      "constituency_sensitivity": 0.4,
+      "display_order": 3,
+      "mp_count": 40,
+      "influence_bonus": 0,
+      "notes": "1997 estimate — editable by mods/admins"
+    },
+    {
+      "party_slug": "Labour",
+      "slug": "labour-first",
+      "name": "Labour First / Mainstream Right",
+      "description": "Right-of-party grouping favouring electability and fiscal caution.",
+      "colour": "#ff6666",
+      "ideology_tags": ["centre-right", "labour-right"],
+      "leadership_alignment": "aligned",
+      "rebellion_bias": 0.1,
+      "media_sensitivity": 0.3,
+      "constituency_sensitivity": 0.2,
+      "display_order": 4,
+      "mp_count": 50,
+      "influence_bonus": 0.3,
+      "notes": "1997 estimate — editable by mods/admins"
+    },
+    {
+      "party_slug": "Labour",
+      "slug": "labour-eurosceptics",
+      "name": "Labour Eurosceptics",
+      "description": "Cross-ideological group sceptical of deeper European integration.",
+      "colour": "#994444",
+      "ideology_tags": ["eurosceptic", "sovereign"],
+      "leadership_alignment": "neutral",
+      "rebellion_bias": 0.5,
+      "media_sensitivity": 0.3,
+      "constituency_sensitivity": 0.3,
+      "display_order": 5,
+      "mp_count": 28,
+      "influence_bonus": 0,
+      "notes": "1997 estimate — editable by mods/admins"
+    },
+    {
+      "party_slug": "Conservative",
+      "slug": "one-nation",
+      "name": "One Nation Conservatives",
+      "description": "Moderate, pro-European strand emphasising social cohesion and pragmatic governance.",
+      "colour": "#1d6ab0",
+      "ideology_tags": ["one-nation", "moderate", "pro-europe"],
+      "leadership_alignment": "aligned",
+      "rebellion_bias": 0.1,
+      "media_sensitivity": 0.3,
+      "constituency_sensitivity": 0.2,
+      "display_order": 1,
+      "mp_count": 50,
+      "influence_bonus": 0.5,
+      "notes": "1997 estimate — editable by mods/admins"
+    },
+    {
+      "party_slug": "Conservative",
+      "slug": "fresh-start-eurosceptics",
+      "name": "Fresh Start / Eurosceptics",
+      "description": "Dominant eurosceptic grouping; grew after Maastricht and pushed for harder EU line.",
+      "colour": "#003087",
+      "ideology_tags": ["eurosceptic", "sovereign", "thatcherite"],
+      "leadership_alignment": "hostile",
+      "rebellion_bias": 0.6,
+      "media_sensitivity": 0.4,
+      "constituency_sensitivity": 0.3,
+      "display_order": 2,
+      "mp_count": 60,
+      "influence_bonus": 1,
+      "notes": "1997 estimate — editable by mods/admins"
+    },
+    {
+      "party_slug": "Conservative",
+      "slug": "thatcherite-right",
+      "name": "Thatcherite Right",
+      "description": "Free-market Thatcherites prioritising low tax, deregulation, and strong defence.",
+      "colour": "#001f5b",
+      "ideology_tags": ["thatcherite", "free-market", "right"],
+      "leadership_alignment": "neutral",
+      "rebellion_bias": 0.4,
+      "media_sensitivity": 0.4,
+      "constituency_sensitivity": 0.3,
+      "display_order": 3,
+      "mp_count": 35,
+      "influence_bonus": 0.3,
+      "notes": "1997 estimate — editable by mods/admins"
+    },
+    {
+      "party_slug": "Conservative",
+      "slug": "tory-modernisers",
+      "name": "Conservative Modernisers",
+      "description": "Post-defeat modernising faction pushing for social liberalism and party reform.",
+      "colour": "#4a90d9",
+      "ideology_tags": ["moderniser", "liberal-conservative", "centrist"],
+      "leadership_alignment": "aligned",
+      "rebellion_bias": 0.05,
+      "media_sensitivity": 0.5,
+      "constituency_sensitivity": 0.2,
+      "display_order": 4,
+      "mp_count": 20,
+      "influence_bonus": 0.5,
+      "notes": "1997 estimate — editable by mods/admins"
+    },
+    {
+      "party_slug": "Liberal Democrat",
+      "slug": "social-liberals",
+      "name": "Social Liberal Forum",
+      "description": "Left-leaning social liberals prioritising public services and civil liberties.",
+      "colour": "#f4a900",
+      "ideology_tags": ["social-liberal", "left-leaning", "civil-liberties"],
+      "leadership_alignment": "aligned",
+      "rebellion_bias": 0.1,
+      "media_sensitivity": 0.4,
+      "constituency_sensitivity": 0.3,
+      "display_order": 1,
+      "mp_count": 25,
+      "influence_bonus": 0.5,
+      "notes": "1997 estimate — editable by mods/admins"
+    },
+    {
+      "party_slug": "Liberal Democrat",
+      "slug": "economic-liberals",
+      "name": "Economic Liberals",
+      "description": "Market-oriented liberals emphasising enterprise, free trade, and fiscal discipline.",
+      "colour": "#e8961e",
+      "ideology_tags": ["economic-liberal", "free-market", "orange-book"],
+      "leadership_alignment": "aligned",
+      "rebellion_bias": 0.2,
+      "media_sensitivity": 0.3,
+      "constituency_sensitivity": 0.2,
+      "display_order": 2,
+      "mp_count": 15,
+      "influence_bonus": 0.3,
+      "notes": "1997 estimate — editable by mods/admins"
+    },
+    {
+      "party_slug": "Liberal Democrat",
+      "slug": "independent-liberals",
+      "name": "Independent Liberals",
+      "description": "Constituency-first pragmatists resistant to strong whipping.",
+      "colour": "#d4891e",
+      "ideology_tags": ["pragmatist", "localist"],
+      "leadership_alignment": "neutral",
+      "rebellion_bias": 0.35,
+      "media_sensitivity": 0.3,
+      "constituency_sensitivity": 0.5,
+      "display_order": 3,
+      "mp_count": 6,
+      "influence_bonus": 0,
+      "notes": "1997 estimate — editable by mods/admins"
+    }
+  ],
+  "bodies": {
+    "lords": {
+      "id": "lords",
+      "type": "standard",
+      "visible": true,
+      "totalSeats": 1265,
+      "compositionBreakdown": [
+        { "name": "Lords Spiritual", "seats": 26 },
+        { "name": "Law Lords", "seats": 26 },
+        { "name": "Crossbenchers", "seats": 351 }
+      ],
+      "partyBreakdown": [
+        { "party": "Labour", "seats": 182 },
+        { "party": "Conservative", "seats": 497 },
+        { "party": "Liberal Democrat", "seats": 73 },
+        { "party": "Others", "seats": 110 }
+      ]
+    },
+    "europarl": {
+      "id": "europarl",
+      "type": "standard",
+      "visible": true,
+      "totalSeats": 87,
+      "partyBreakdown": [
+        { "party": "Labour", "seats": 62 },
+        { "party": "Conservative", "seats": 18 },
+        { "party": "Liberal Democrat", "seats": 2 },
+        { "party": "SNP", "seats": 2 },
+        { "party": "DUP", "seats": 1 },
+        { "party": "SDLP", "seats": 1 },
+        { "party": "UUP", "seats": 1 }
+      ]
+    },
+    "scottish-parliament": { "id": "scottish-parliament", "type": "standard", "visible": false },
+    "welsh-assembly": { "id": "welsh-assembly", "type": "standard", "visible": false },
+    "ni-assembly": { "id": "ni-assembly", "type": "standard", "visible": false },
+    "directly-elected-mayors": { "id": "directly-elected-mayors", "type": "mayors", "visible": false, "mayors": [] }
+  },
+  "locals": {
+    "countries": [
+      {
+        "country": "England",
+        "totalCouncils": 386,
+        "totalCouncillors": 22580,
+        "noOverallControlCouncils": 74,
+        "partyBreakdown": [
+          { "party": "Labour", "councillors": 10840, "councilsControlled": 187 },
+          { "party": "Conservative", "councillors": 4550, "councilsControlled": 21 },
+          { "party": "Liberal Democrat", "councillors": 4960, "councilsControlled": 35 },
+          { "party": "Others", "councillors": 2230, "councilsControlled": 1 }
+        ]
+      },
+      {
+        "country": "Scotland",
+        "totalCouncils": 32,
+        "totalCouncillors": 1306,
+        "noOverallControlCouncils": 3,
+        "partyBreakdown": [
+          { "party": "Labour", "councillors": 621, "councilsControlled": 21 },
+          { "party": "Conservative", "councillors": 82, "councilsControlled": 0 },
+          { "party": "Liberal Democrat", "councillors": 129, "councilsControlled": 0 },
+          { "party": "SNP", "councillors": 181, "councilsControlled": 3 },
+          { "party": "Others", "councillors": 293, "councilsControlled": 5 }
+        ]
+      },
+      {
+        "country": "Wales",
+        "totalCouncils": 22,
+        "totalCouncillors": 1272,
+        "noOverallControlCouncils": 3,
+        "partyBreakdown": [
+          { "party": "Labour", "councillors": 726, "councilsControlled": 14 },
+          { "party": "Conservative", "councillors": 42, "councilsControlled": 0 },
+          { "party": "Liberal Democrat", "councillors": 79, "councilsControlled": 0 },
+          { "party": "Plaid Cymru", "councillors": 113, "councilsControlled": 1 },
+          { "party": "Others", "councillors": 312, "councilsControlled": 4 }
+        ]
+      },
+      {
+        "country": "Northern Ireland",
+        "totalCouncils": 26,
+        "totalCouncillors": 582,
+        "noOverallControlCouncils": 24,
+        "partyBreakdown": [
+          { "party": "UUP", "councillors": 185, "councilsControlled": 1 },
+          { "party": "DUP", "councillors": 91, "councilsControlled": 0 },
+          { "party": "SDLP", "councillors": 120, "councilsControlled": 1 },
+          { "party": "Sinn Féin", "councillors": 74, "councilsControlled": 0 },
+          { "party": "Alliance", "councillors": 41, "councilsControlled": 0 },
+          { "party": "Others", "councillors": 71, "councilsControlled": 0 }
+        ]
+      }
+    ]
+  },
+  "budget": {
+    "lastYear": {
+      "label": "1996–97 Baseline",
+      "gdp": 1930,
+      "revenues": {
+        "Income Tax": 102.65,
+        "Corporate Tax": 34.74,
+        "Value Added Tax": 92.17,
+        "National Insurance": 66.62,
+        "Fuel Duty": 23.28,
+        "Stamp Duty": 9.96,
+        "Business Rate Appropriations": 14.14
+      },
+      "expenditures": {
+        "Health": 40.96,
+        "Social Security": 59.42,
+        "Education": 88.1,
+        "Home Office": 34.94,
+        "Ministry of Defense": 34.11,
+        "Transport": 18.69,
+        "Local Government": 61.21,
+        "Environment": 6.54,
+        "Energy": 5.58,
+        "Culture": 0.06,
+        "Housing": -2.45,
+        "Business": -5.5,
+        "Scottish Office": 21.14,
+        "Welsh Office": 7.1,
+        "Northern Ireland Office": 3.58
+      },
+      "capital": {
+        "Capital Expenditure": 35.21
+      }
+    },
+    "currentYear": {
+      "label": "1997–98 (Seeded Baseline)",
+      "gdp": 1950,
+      "revenues": {
+        "Income Tax": 104.4,
+        "Corporate Tax": 36.1,
+        "Value Added Tax": 93.2,
+        "National Insurance": 67.15,
+        "Fuel Duty": 24.04,
+        "Stamp Duty": 12.81,
+        "Business Rate Appropriations": 15.96
+      },
+      "expenditures": {
+        "Health": 42.1,
+        "Social Security": 60.2,
+        "Education": 89.24,
+        "Home Office": 29.25,
+        "Ministry of Defense": 34.53,
+        "Transport": 15.96,
+        "Local Government": 63.98,
+        "Environment": 6.67,
+        "Energy": 5.58,
+        "Culture": 0.01,
+        "Housing": -11.88,
+        "Business": 2.88,
+        "Scottish Office": 22.51,
+        "Welsh Office": 7.55,
+        "Northern Ireland Office": 3.27
+      },
+      "capital": {
+        "Capital Expenditure": 14.14
+      }
+    },
+    "adminControls": {
+      "debtInterestPercent": 7.2,
+      "debtInterestExpenditure": 31.11,
+      "charityReliefExpenditure": 0.41,
+      "otherExpensesExpenditure": -0.66
+    }
+  },
+  "officeSpecs": {
+    "cabinet": [
+      { "specId": "prime-minister", "title": "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
+      { "specId": "chancellor", "title": "Chancellor of the Exchequer, and Second Lord of the Treasury" },
+      { "specId": "home", "title": "Secretary of State for the Home Department" },
+      { "specId": "foreign", "title": "Secretary of State for Foreign and Commonwealth Affairs" },
+      { "specId": "trade", "title": "Secretary of State for Business and Trade, and President of the Board of Trade" },
+      { "specId": "defence", "title": "Secretary of State for Defence" },
+      { "specId": "welfare", "title": "Secretary of State for Work and Pensions" },
+      { "specId": "education", "title": "Secretary of State for Education" },
+      { "specId": "env-agri", "title": "Secretary of State for the Environment and Agriculture" },
+      { "specId": "health", "title": "Secretary of State for Health and Social Care" },
+      { "specId": "eti", "title": "Secretary of State for Transport and Infrastructure" },
+      { "specId": "culture", "title": "Secretary of State for Culture, Media and Sport" },
+      { "specId": "home-nations", "title": "Secretary of State for the Home Nations" },
+      { "specId": "leader-commons", "title": "Leader of the House of Commons" }
+    ],
+    "shadow": [
+      { "specId": "leader-opposition", "title": "Leader of the Opposition" },
+      { "specId": "shadow-chancellor", "title": "Shadow Chancellor of the Exchequer" },
+      { "specId": "shadow-home", "title": "Shadow Secretary of State for the Home Department" },
+      { "specId": "shadow-foreign", "title": "Shadow Secretary of State for Foreign and Commonwealth Affairs" },
+      { "specId": "shadow-trade", "title": "Shadow Secretary of State for Business and Trade, and President of the Board of Trade" },
+      { "specId": "shadow-defence", "title": "Shadow Secretary of State for Defence" },
+      { "specId": "shadow-welfare", "title": "Shadow Secretary of State for Work and Pensions" },
+      { "specId": "shadow-education", "title": "Shadow Secretary of State for Education" },
+      { "specId": "shadow-env-agri", "title": "Shadow Secretary of State for the Environment and Agriculture" },
+      { "specId": "shadow-health", "title": "Shadow Secretary of State for Health and Social Care" },
+      { "specId": "shadow-eti", "title": "Shadow Secretary of State for Transport and Infrastructure" },
+      { "specId": "shadow-culture", "title": "Shadow Secretary of State for Culture, Media and Sport" },
+      { "specId": "shadow-home-nations", "title": "Shadow Secretary of State for the Home Nations" },
+      { "specId": "shadow-leader-commons", "title": "Shadow Leader of the House of Commons" }
+    ]
+  },
+  "salaryScale": {
+    "name": "1997 Baseline",
+    "effectiveFrom": { "month": 1, "year": 1997 },
+    "legacyEffectiveFrom": { "month": 8, "year": 1997 },
+    "roles": {
+      "prime_minister": 101749,
+      "leader_opposition": 63024,
+      "leader_third_party": 60387,
+      "speaker": 60387,
+      "secretary_of_state": 63047,
+      "minister_of_state": 53800,
+      "shadow_secretary_of_state": 53800,
+      "committee_chairman": 48860,
+      "committee_member": 46860,
+      "backbencher": 43860
+    }
+  },
+  "economy": {
+    "hqBaselineUpkeep": {
+      "Conservative": 12000,
+      "Labour": 15000,
+      "Liberal Democrat": 8000
+    }
+  }
+}

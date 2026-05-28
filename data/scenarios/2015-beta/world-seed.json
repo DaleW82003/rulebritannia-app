@@ -1,0 +1,65 @@
+{
+  "_note": "2015-beta inherits the 1997 world seed and overrides only currently-confirmed 2015-era differences. Constituency/election seed data is now populated for this scenario, but broader world domains still intentionally inherit from 1997 until scenario-safe admin initialization is fully wired.",
+  "_TODO": [
+    "Replace inherited 1997-era party structures, treasury cash, factions, bodies, locals, and budget baselines with 2015-specific data.",
+    "Review whether additional scenario-specific domains (for example events/news state) need explicit overrides once those loaders become scenario-aware."
+  ],
+  "officeSpecs": {
+    "cabinet": [
+      { "specId": "prime-minister", "title": "Prime Minister, First Lord of the Treasury, and Minister for the Civil Service" },
+      { "specId": "chancellor", "title": "Chancellor of the Exchequer, and Second Lord of the Treasury" },
+      { "specId": "home", "title": "Secretary of State for the Home Department" },
+      { "specId": "foreign", "title": "Secretary of State for Foreign and Commonwealth Affairs" },
+      { "specId": "trade", "title": "Secretary of State for Business, Innovation and Skills" },
+      { "specId": "defence", "title": "Secretary of State for Defence" },
+      { "specId": "welfare", "title": "Secretary of State for Work and Pensions" },
+      { "specId": "education", "title": "Secretary of State for Education" },
+      { "specId": "env-agri", "title": "Secretary of State for Environment, Food and Rural Affairs" },
+      { "specId": "health", "title": "Secretary of State for Health" },
+      { "specId": "eti", "title": "Secretary of State for Transport" },
+      { "specId": "culture", "title": "Secretary of State for Culture, Media and Sport" },
+      { "specId": "home-nations", "title": "Secretary of State for the Home Nations" },
+      { "specId": "leader-commons", "title": "Leader of the House of Commons" }
+    ],
+    "shadow": [
+      { "specId": "leader-opposition", "title": "Leader of the Opposition" },
+      { "specId": "shadow-chancellor", "title": "Shadow Chancellor of the Exchequer" },
+      { "specId": "shadow-home", "title": "Shadow Secretary of State for the Home Department" },
+      { "specId": "shadow-foreign", "title": "Shadow Secretary of State for Foreign and Commonwealth Affairs" },
+      { "specId": "shadow-trade", "title": "Shadow Secretary of State for Business, Innovation and Skills" },
+      { "specId": "shadow-defence", "title": "Shadow Secretary of State for Defence" },
+      { "specId": "shadow-welfare", "title": "Shadow Secretary of State for Work and Pensions" },
+      { "specId": "shadow-education", "title": "Shadow Secretary of State for Education" },
+      { "specId": "shadow-env-agri", "title": "Shadow Secretary of State for Environment, Food and Rural Affairs" },
+      { "specId": "shadow-health", "title": "Shadow Secretary of State for Health" },
+      { "specId": "shadow-eti", "title": "Shadow Secretary of State for Transport" },
+      { "specId": "shadow-culture", "title": "Shadow Secretary of State for Culture, Media and Sport" },
+      { "specId": "shadow-home-nations", "title": "Shadow Secretary of State for the Home Nations" },
+      { "specId": "shadow-leader-commons", "title": "Shadow Leader of the House of Commons" }
+    ]
+  },
+  "salaryScale": {
+    "name": "2015 IPSA Baseline (Approximate)",
+    "effectiveFrom": { "month": 1, "year": 2015 },
+    "legacyEffectiveFrom": { "month": 8, "year": 2015 },
+    "roles": {
+      "prime_minister": 143462,
+      "leader_opposition": 79468,
+      "leader_third_party": 67060,
+      "speaker": 79468,
+      "secretary_of_state": 134565,
+      "minister_of_state": 98740,
+      "shadow_secretary_of_state": 67060,
+      "committee_chairman": 79468,
+      "committee_member": 67060,
+      "backbencher": 67060
+    }
+  },
+  "economy": {
+    "hqBaselineUpkeep": {
+      "Conservative": 18360,
+      "Labour": 22950,
+      "Liberal Democrat": 12240
+    }
+  }
+}

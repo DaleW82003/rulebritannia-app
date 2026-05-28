@@ -1,3 +1,19 @@
+import { getDefaultScenarioKey, loadScenarioManifest } from "./scenario-manifest-loader.js";
+
+function getDefaultScenarioClockFallback() {
+  try {
+    const manifest = loadScenarioManifest(getDefaultScenarioKey());
+    const month = Number(manifest?.clockDefault?.month);
+    const year = Number(manifest?.clockDefault?.year);
+    if (Number.isInteger(month) && month >= 1 && month <= 12 && Number.isInteger(year) && year > 0) {
+      return { month, year };
+    }
+  } catch {
+    // Use runtime fallback below.
+  }
+  return { month: 1, year: new Date().getUTCFullYear() };
+}
+
 /**
  * server/clock.js
  *
@@ -25,8 +41,9 @@
  * @returns {{ month: number, year: number }}
  */
 export function computeSimDateFromGameState(gameState, now = new Date()) {
+  const clockFallback = getDefaultScenarioClockFallback();
   if (!gameState || typeof gameState !== "object") {
-    return { month: 8, year: 1997 };
+    return { ...clockFallback };
   }
   const startMonth = Number(gameState.startSimMonth);
   const startYear  = Number(gameState.startSimYear);
@@ -36,14 +53,14 @@ export function computeSimDateFromGameState(gameState, now = new Date()) {
   // Sim not yet started — return the configured start month/year.
   if (gameState.started === false) {
     return {
-      month: validStart ? startMonth : 8,
-      year:  validStart ? startYear  : 1997,
+      month: validStart ? startMonth : clockFallback.month,
+      year:  validStart ? startYear  : clockFallback.year,
     };
   }
 
   // Sim started but startRealDate missing/invalid — fall back to start values.
   if (!gameState.startRealDate || !validStart) {
-    return { month: validStart ? startMonth : 8, year: validStart ? startYear : 1997 };
+    return { month: validStart ? startMonth : clockFallback.month, year: validStart ? startYear : clockFallback.year };
   }
 
   const startReal = new Date(gameState.startRealDate);

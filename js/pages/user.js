@@ -84,8 +84,16 @@ function normaliseUserData(data) {
   data.gameState ??= {};
   data.gameState.started ??= false;
   data.gameState.isPaused ??= false;
-  data.gameState.startSimMonth ??= 8;
-  data.gameState.startSimYear ??= 1997;
+  const fallbackStartMonthRaw = Number(data.gameState.sim_current_month);
+  const fallbackStartMonth = Number.isInteger(fallbackStartMonthRaw) && fallbackStartMonthRaw >= 1 && fallbackStartMonthRaw <= 12
+    ? fallbackStartMonthRaw
+    : 1;
+  const fallbackStartYearRaw = Number(data.gameState.sim_current_year);
+  const fallbackStartYear = Number.isInteger(fallbackStartYearRaw) && fallbackStartYearRaw > 0
+    ? fallbackStartYearRaw
+    : new Date().getUTCFullYear();
+  data.gameState.startSimMonth ??= fallbackStartMonth;
+  data.gameState.startSimYear ??= fallbackStartYear;
   data.gameState.startRealDate ??= "";
 
   for (const acc of data.userManagement.accounts) {

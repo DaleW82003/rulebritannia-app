@@ -10,19 +10,26 @@ import { computeSimDateFromGameState } from "./clock.js";
 
 // ── null / undefined / empty input ──────────────────────────────────────────
 
-test("returns August 1997 fallback for null gameState", () => {
+function getFallbackClock() {
+  return computeSimDateFromGameState(null);
+}
+
+test("returns default-scenario fallback for null gameState", () => {
+  const fallback = getFallbackClock();
   const result = computeSimDateFromGameState(null);
-  assert.deepEqual(result, { month: 8, year: 1997 });
+  assert.deepEqual(result, fallback);
 });
 
-test("returns August 1997 fallback for undefined gameState", () => {
+test("returns default-scenario fallback for undefined gameState", () => {
+  const fallback = getFallbackClock();
   const result = computeSimDateFromGameState(undefined);
-  assert.deepEqual(result, { month: 8, year: 1997 });
+  assert.deepEqual(result, fallback);
 });
 
-test("returns August 1997 fallback for non-object gameState", () => {
+test("returns default-scenario fallback for non-object gameState", () => {
+  const fallback = getFallbackClock();
   const result = computeSimDateFromGameState("bad-value");
-  assert.deepEqual(result, { month: 8, year: 1997 });
+  assert.deepEqual(result, fallback);
 });
 
 // ── sim not yet started (started === false) ──────────────────────────────────
@@ -53,10 +60,11 @@ test("returns configured start date when sim not started — different month", (
   assert.deepEqual(result, { month: 11, year: 2001 }, "should return November 2001");
 });
 
-test("returns August 1997 fallback when started=false but no valid start values", () => {
+test("returns default-scenario fallback when started=false but no valid start values", () => {
+  const fallback = getFallbackClock();
   const gs = { started: false };
   const result = computeSimDateFromGameState(gs);
-  assert.deepEqual(result, { month: 8, year: 1997 });
+  assert.deepEqual(result, fallback);
 });
 
 // ── sim started: dynamic Monday/Thursday computation ────────────────────────

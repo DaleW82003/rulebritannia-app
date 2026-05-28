@@ -21,7 +21,7 @@ Rule Britannia recreates the mechanics of British parliamentary democracy as an 
 - **Legislation** — players draft bills, table amendments, and cast votes in formal divisions.
 - **Government formation** — a Prime Minister forms a Cabinet; an opposition Leader of the Opposition appoints a Shadow Cabinet.
 - **Political parties** — parties hold seats, elect leaders, and maintain whipping systems.
-- **Constituency representation** — each MP holds a 1997-era constituency mapped to a region and historical result.
+- **Constituency representation** — each MP holds a constituency from the active scenario dataset, mapped to region and historical result for that scenario.
 - **Civil service** — ministers receive departmental briefings and make policy decisions.
 - **Economy & polling** — macroeconomic indicators drive approval ratings tracked through a polling engine.
 - **Press & media** — players submit press releases and press conferences; coverage is modelled with character-level impact modifiers. Multiple press formats: release, conference, comment, speech, letter.
@@ -40,7 +40,7 @@ Rule Britannia recreates the mechanics of British parliamentary democracy as an 
 - **Onboarding Guides** — 15 predefined guides are seeded server-side on startup (`server/guides-seed.js`) and displayed as collapsible panels on `guides.html`; staff can edit, reorder, or add guides through the Control Panel.
 - **Starter Pack** — a short "5 first-week actions" guide displayed to new players on the player dropon; editable by staff via the Control Panel without code changes.
 
-The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mon–Wed = 1 month, Thu–Sat = 1 month; Sunday frozen). The default starting point is August 1997 (shortly after the Labour landslide).
+The simulation clock runs at an accelerated pace: 2 sim-months per real week (Mon–Wed = 1 month, Thu–Sat = 1 month; Sunday frozen). The starting point is derived from the configured default scenario (currently August 1997 in the bundled baseline).
 
 ---
 
@@ -165,7 +165,8 @@ rulebritannia-app/
 │   └── api/[[path]].js     # Cloudflare Pages Function: always-on API proxy fallback
 │
 ├── scripts/
-│   ├── convert-1997-csv.js         # Convert 1997 CSV → constituencies_1997.json
+│   ├── convert-scenario-csv.js     # Convert a scenario CSV → data/scenarios/<key>/constituencies.json
+│   ├── convert-1997-csv.js         # Legacy wrapper: convert the default 1997 scenario CSV
 │   ├── render-version-assets.mjs   # Cache-bust: appends ?v=<sha> to asset refs in HTML
 │   ├── static-checks.js            # 8 static analysis checks (no DB needed)
 │   └── audit/
@@ -175,8 +176,11 @@ rulebritannia-app/
 │
 ├── data/
 │   ├── demo.json                   # ~284 KB seed data for read-only demo mode
-│   ├── constituencies_1997.json    # 1997 UK constituency data (generated)
-│   └── 1997_structured.csv         # Source CSV for constituencies (in assets/ too)
+│   ├── 1997_structured.csv         # Source CSV for constituencies (in assets/ too)
+│   └── scenarios/
+│       └── 1997/
+│           ├── manifest.json       # Scenario metadata
+│           └── constituencies.json # Generated constituency seed for 1997
 │
 ├── assets/
 │   ├── RB System Logo.png
@@ -385,23 +389,23 @@ localStorage.removeItem('rb_debug');  # to disable
 
 ~284 KB JSON file seeded with a representative parliament snapshot (parties, characters, bills, motions, economy, etc.). Used exclusively for **read-only demo mode** when no authenticated session exists. This file is never written by the server; it is a static asset.
 
-### `data/constituencies_1997.json`
+### `data/scenarios/1997/constituencies.json`
 
-~133 KB JSON array of 1997 UK Westminster constituencies. Each entry includes constituency name, region, winning party, and MP name. Generated from the CSV source by `scripts/convert-1997-csv.js`.
+~133 KB JSON array of 1997 UK Westminster constituencies. Each entry includes constituency name, region, winning party, and MP name. Generated from the scenario CSV source by `scripts/convert-scenario-csv.js 1997`.
 
 Used by:
-- `POST /api/admin/constituencies/initialize-1997` — seeds the constituencies table from this file (dev/staging only, guarded by `isDevSeedAllowed()`).
+- `POST /api/admin/constituencies/initialize-scenario` — seeds the constituencies table from the selected scenario's committed JSON (dev/staging only, guarded by `isDevSeedAllowed()`).
 - `js/constituency-utils.js` — lookup and filtering helpers for the frontend.
 
 ### `assets/1997_structured.csv` / `data/1997_structured.csv`
 
-Source CSV file for the 1997 constituency data. The canonical copy lives in `assets/`; a duplicate is also present in `data/`. Convert to JSON with:
+Source CSV file for the 1997 constituency data. The canonical copy lives in `assets/`; a duplicate is also present in `data/`. Convert to scenario JSON with:
 
 ```bash
-node scripts/convert-1997-csv.js
+node scripts/convert-scenario-csv.js 1997
 ```
 
-This regenerates `data/constituencies_1997.json`.
+This regenerates `data/scenarios/1997/constituencies.json`.
 
 ---
 
@@ -432,14 +436,14 @@ node scripts/render-version-assets.mjs --dry-run # prints changes without writin
 | Build Command | `node scripts/render-version-assets.mjs` |
 | Publish Directory | `.` |
 
-### `scripts/convert-1997-csv.js`
+### `scripts/convert-scenario-csv.js`
 
-**Purpose:** Convert the raw `assets/1997_structured.csv` into `data/constituencies_1997.json`.
+**Purpose:** Convert a scenario's raw election CSV into the committed constituency JSON path declared in that scenario's manifest.
 
-Normalises party name variants (e.g. multiple spellings of "Sinn Féin") and outputs structured JSON.
+Normalises party name variants (e.g. multiple spellings of "Sinn Féin") and outputs structured JSON for the requested scenario.
 
 ```bash
-node scripts/convert-1997-csv.js
+node scripts/convert-scenario-csv.js 1997
 ```
 
 ### `scripts/static-checks.js`

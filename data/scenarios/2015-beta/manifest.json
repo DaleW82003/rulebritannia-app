@@ -1,0 +1,32 @@
+{
+  "key": "2015-beta",
+  "title": "May 2015 General Election (Beta — Alternative History)",
+  "description": "Beta scenario based on the May 2015 UK general election. The simulation begins in August 2015 with players entering a newly-formed Parliament. Constituency/election baseline data is now populated, but this scenario remains in active development because budget baselines, factions, and bodies/locals seeding are not yet fully scenario-specific.",
+  "startDate": { "month": 5, "year": 2015 },
+  "clockDefault": { "month": 8, "year": 2015 },
+  "status": "beta",
+  "parentScenario": "1997",
+  "inheritance": {
+    "constituencies": "replace"
+  },
+  "initialization": {
+    "ready": false,
+    "blockedReason": "Initialization remains blocked: while 2015-beta constituency/election baseline data is populated, full admin initialization is not yet scenario-safe (election/faction seeding still enforces default-scenario-only paths, and budget/bodies/locals still seed default-scenario baselines)."
+  },
+  "tags": ["beta", "alternative-history", "2015"],
+  "constituenciesFile": "data/scenarios/2015-beta/constituencies.json",
+  "worldSeedFile": "data/scenarios/2015-beta/world-seed.json",
+  "electionCsvFile": "assets/2015-beta_structured.csv",
+  "expectedConstituencyCount": 650,
+  "playableParties": ["Conservative", "Labour", "Liberal Democrat"],
+  "_TODO": [
+    "Define the specific alternative-history divergence/narrative for this scenario.",
+    "Fill in budget.lastYear and budget.currentYear with real 2014-15 / 2015-16 figures.",
+    "Fill in factions with post-2015 party wing data.",
+    "Fill in bodies (Lords, European Parliament, devolved assemblies) with post-2015 composition.",
+    "Fill in locals with post-2015 local council data.",
+    "Fill in partyStructures and partyTreasuryCash with appropriate 2015-era figures.",
+    "Decide whether UKIP or SNP should be added to playableParties for this scenario.",
+    "Review and confirm officeSpecs and salaryScale (2015 IPSA figures used as placeholder)."
+  ]
+}

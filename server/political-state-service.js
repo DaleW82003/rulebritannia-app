@@ -10,7 +10,7 @@
  *   - computeFactionStrength / computeFactionCohesion / computeLeadershipPressure
  *   - computeFactionPoliticalState (faction state persistence)
  *   - getPartyFactionClimate (party-level faction climate summary)
- *   - seed1997Factions (admin seed helper for playable parties)
+ *   - seedDefaultScenarioFactions (admin seed helper for playable parties)
  *   - FACTION_PLAYABLE_PARTIES constant
  *
  * All DB-dependent functions import pool from ./db.js so they remain
@@ -23,17 +23,70 @@
  */
 
 import { pool } from "./db.js";
+import {
+  DEFAULT_SCENARIO_KEY,
+  getDefaultScenarioKey as _loaderGetDefaultScenarioKey,
+  loadScenarioManifest,
+  loadScenarioWorldSeed,
+} from "./scenario-manifest-loader.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Parties that have faction infrastructure wired up.
- * To add or remove playable parties, update this array — it is the single
- * authoritative source used by all faction-related logic and API guards.
+ * Parties that have faction infrastructure wired up for the active default
+ * scenario.  The list is loaded from the scenario manifest so the base world can
+ * move with the scenario pack rather than a hardcoded server constant.
  */
-export const FACTION_PLAYABLE_PARTIES = ["Conservative", "Labour", "Liberal Democrat"];
+export const FACTION_PLAYABLE_PARTIES =
+  Array.isArray(loadScenarioManifest(DEFAULT_SCENARIO_KEY)?.playableParties)
+    ? loadScenarioManifest(DEFAULT_SCENARIO_KEY).playableParties.map((party) => String(party))
+    : ["Conservative", "Labour", "Liberal Democrat"];
+
+// Phase 3: the default scenario key is now owned by scenario-manifest-loader.js.
+// Re-export it from there so this module remains the single import point for
+// callers that already reference getDefaultScenarioKey() from here.
+export { DEFAULT_SCENARIO_KEY };
+export function getDefaultScenarioKey() {
+  return _loaderGetDefaultScenarioKey();
+}
+
+function assertDefaultScenarioSeedKey(scenarioKey = DEFAULT_SCENARIO_KEY) {
+  if (typeof scenarioKey !== "string" && typeof scenarioKey !== "number") {
+    const err = new Error("scenarioKey must be a string or number");
+    err.status = 400;
+    throw err;
+  }
+  const normalized = String(scenarioKey).trim();
+  if (normalized !== DEFAULT_SCENARIO_KEY) {
+    const err = new Error(`Unsupported scenarioKey: ${normalized}`);
+    err.status = 400;
+    throw err;
+  }
+  return normalized;
+}
+
+function getDefaultScenarioClockFallback() {
+  const manifest = loadScenarioManifest(DEFAULT_SCENARIO_KEY);
+  const month = Number(manifest?.clockDefault?.month);
+  const year = Number(manifest?.clockDefault?.year);
+  return {
+    month: Number.isInteger(month) && month >= 1 && month <= 12 ? month : 8,
+    year: Number.isInteger(year) && year > 0 ? year : 1997,
+  };
+}
+
+function normalizeLegacySimIndex(rawIndex) {
+  const parsed = Number(rawIndex);
+  if (!Number.isFinite(parsed)) return 0;
+  // Backward-compat: earlier writes stored "(simYear - 1997) * 12 + (simMonth - 1)".
+  // Current writes use absolute "simYear * 12 + (simMonth - 1)".
+  if (parsed >= 0 && parsed < 10_000) {
+    return LEGACY_SIM_INDEX_BASE + parsed;
+  }
+  return parsed;
+}
 
 const DOMINANCE_COMPONENT_WEIGHTS = {
   commons: 1.0,
@@ -41,6 +94,8 @@ const DOMINANCE_COMPONENT_WEIGHTS = {
   locals: 0.1,
   dem: 0.2,
 };
+const LEGACY_SIM_INDEX_BASE_YEAR = 1997;
+const LEGACY_SIM_INDEX_BASE = LEGACY_SIM_INDEX_BASE_YEAR * 12;
 
 const DOMINANCE_STABILISER = {
   hostilePressureReductionMax: 0.4,
@@ -62,7 +117,7 @@ function clamp01(v) {
 }
 
 function emptyPlayablePartyTotals() {
-  return { Labour: 0, Conservative: 0, "Liberal Democrat": 0 };
+  return Object.fromEntries(FACTION_PLAYABLE_PARTIES.map((party) => [party, 0]));
 }
 
 function buildPlayablePartyTotalsFromRows(rows, fieldName) {
@@ -130,12 +185,13 @@ export async function recomputeCharacterPoliticalState(characterId) {
   let total = 0;
 
   // ── Shared data ────────────────────────────────────────────────────────────
+  const scenarioClock = getDefaultScenarioClockFallback();
   const { rows: clkRows } = await pool.query(
     "SELECT sim_current_month, sim_current_year FROM sim_clock WHERE id = 'main'"
   );
-  const simMonth = clkRows[0]?.sim_current_month ?? 8;
-  const simYear  = clkRows[0]?.sim_current_year  ?? 1997;
-  const currentIndex = (simYear - 1997) * 12 + (simMonth - 1);
+  const simMonth = Number(clkRows[0]?.sim_current_month ?? scenarioClock.month);
+  const simYear  = Number(clkRows[0]?.sim_current_year  ?? scenarioClock.year);
+  const currentIndex = (simYear * 12) + (simMonth - 1);
 
   // Character's party and constituency
   const { rows: charRows } = await pool.query(
@@ -234,7 +290,7 @@ export async function recomputeCharacterPoliticalState(characterId) {
     [characterId]
   );
   if (wpRows.length > 0) {
-    const savedIndex = Number(wpRows[0].last_saved_sim_index ?? 0);
+    const savedIndex = normalizeLegacySimIndex(wpRows[0].last_saved_sim_index ?? 0);
     if (currentIndex - savedIndex <= 3) {
       const delta = 5;
       total += delta;
@@ -378,7 +434,7 @@ export async function recomputeCharacterPoliticalState(characterId) {
     constituencyPressureRaw += 30;
     constituencyPressureBreakdown.push("No work plan on record");
   } else {
-    const savedIndex = Number(wpRows[0].last_saved_sim_index ?? 0);
+    const savedIndex = normalizeLegacySimIndex(wpRows[0].last_saved_sim_index ?? 0);
     const monthsStale = currentIndex - savedIndex;
     if (monthsStale > 3) {
       const stalePenalty = Math.min(40, monthsStale * 5);
@@ -964,125 +1020,22 @@ export async function getPartyFactionClimate(partySlug, { includeDebug = false }
 }
 
 /**
- * Seed editable 1997 baseline factions for the three playable parties.
+ * Seed editable starter factions for the current default scenario.
  * Inserts only if no factions exist for that party yet — safe to call repeatedly.
  * Returns a summary of what was inserted vs. already present.
  *
- * SEED VALUES — mods/admins can change these after seeding via the control panel.
- * All mp_counts are approximate 1997 estimates; adjust freely in-game.
+ * Seed values come from the default scenario world seed.
+ * Mods/admins can change seeded faction allocations later via the control panel.
  */
-export async function seed1997Factions(actorUserId = "") {
-  const SEED_DATA = [
-    // ── Labour (418 seats, May 1997) ─────────────────────────────────────────
-    // New Labour swept to power; internal factions reflect Blairite dominance
-    // with a sizeable traditional left and eurosceptic minority.
-    {
-      party_slug: "Labour", slug: "new-labour-blairite", name: "New Labour / Blairite",
-      description: "The dominant Blairite modernising wing backing Blair's third-way programme.",
-      colour: "#cc0000", ideology_tags: ["centrist", "moderniser", "third-way"],
-      leadership_alignment: "aligned", rebellion_bias: 0.05, media_sensitivity: 0.4,
-      constituency_sensitivity: 0.2, display_order: 1, mp_count: 200, influence_bonus: 2.0,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Labour", slug: "tribune-group", name: "Tribune Group / Soft Left",
-      description: "Broad soft-left grouping supportive of Labour values but cautious on market reforms.",
-      colour: "#e05050", ideology_tags: ["soft-left", "labour-movement"],
-      leadership_alignment: "neutral", rebellion_bias: 0.30, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.3, display_order: 2, mp_count: 100, influence_bonus: 0.5,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Labour", slug: "campaign-group", name: "Campaign Group / Hard Left",
-      description: "Socialist left grouping, most likely to rebel against New Labour policies.",
-      colour: "#7b0000", ideology_tags: ["socialist", "hard-left", "anti-war"],
-      leadership_alignment: "hostile", rebellion_bias: 0.80, media_sensitivity: 0.5,
-      constituency_sensitivity: 0.4, display_order: 3, mp_count: 40, influence_bonus: 0.0,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Labour", slug: "labour-first", name: "Labour First / Mainstream Right",
-      description: "Right-of-party grouping favouring electability and fiscal caution.",
-      colour: "#ff6666", ideology_tags: ["centre-right", "labour-right"],
-      leadership_alignment: "aligned", rebellion_bias: 0.10, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.2, display_order: 4, mp_count: 50, influence_bonus: 0.3,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Labour", slug: "labour-eurosceptics", name: "Labour Eurosceptics",
-      description: "Cross-ideological group sceptical of deeper European integration.",
-      colour: "#994444", ideology_tags: ["eurosceptic", "sovereign"],
-      leadership_alignment: "neutral", rebellion_bias: 0.50, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.3, display_order: 5, mp_count: 28, influence_bonus: 0.0,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-
-    // ── Conservative (165 seats, May 1997) ───────────────────────────────────
-    // Party in shock defeat; split between eurosceptic resurgence and one-nation moderates.
-    {
-      party_slug: "Conservative", slug: "one-nation", name: "One Nation Conservatives",
-      description: "Moderate, pro-European strand emphasising social cohesion and pragmatic governance.",
-      colour: "#1d6ab0", ideology_tags: ["one-nation", "moderate", "pro-europe"],
-      leadership_alignment: "aligned", rebellion_bias: 0.10, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.2, display_order: 1, mp_count: 50, influence_bonus: 0.5,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Conservative", slug: "fresh-start-eurosceptics", name: "Fresh Start / Eurosceptics",
-      description: "Dominant eurosceptic grouping; grew after Maastricht and pushed for harder EU line.",
-      colour: "#003087", ideology_tags: ["eurosceptic", "sovereign", "thatcherite"],
-      leadership_alignment: "hostile", rebellion_bias: 0.60, media_sensitivity: 0.4,
-      constituency_sensitivity: 0.3, display_order: 2, mp_count: 60, influence_bonus: 1.0,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Conservative", slug: "thatcherite-right", name: "Thatcherite Right",
-      description: "Free-market Thatcherites prioritising low tax, deregulation, and strong defence.",
-      colour: "#001f5b", ideology_tags: ["thatcherite", "free-market", "right"],
-      leadership_alignment: "neutral", rebellion_bias: 0.40, media_sensitivity: 0.4,
-      constituency_sensitivity: 0.3, display_order: 3, mp_count: 35, influence_bonus: 0.3,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Conservative", slug: "tory-modernisers", name: "Conservative Modernisers",
-      description: "Post-defeat modernising faction pushing for social liberalism and party reform.",
-      colour: "#4a90d9", ideology_tags: ["moderniser", "liberal-conservative", "centrist"],
-      leadership_alignment: "aligned", rebellion_bias: 0.05, media_sensitivity: 0.5,
-      constituency_sensitivity: 0.2, display_order: 4, mp_count: 20, influence_bonus: 0.5,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-
-    // ── Liberal Democrat (46 seats, May 1997) ────────────────────────────────
-    // Paddy Ashdown era; broadly cohesive with a social/economic liberal divide.
-    {
-      party_slug: "Liberal Democrat", slug: "social-liberals", name: "Social Liberal Forum",
-      description: "Left-leaning social liberals prioritising public services and civil liberties.",
-      colour: "#f4a900", ideology_tags: ["social-liberal", "left-leaning", "civil-liberties"],
-      leadership_alignment: "aligned", rebellion_bias: 0.10, media_sensitivity: 0.4,
-      constituency_sensitivity: 0.3, display_order: 1, mp_count: 25, influence_bonus: 0.5,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Liberal Democrat", slug: "economic-liberals", name: "Economic Liberals",
-      description: "Market-oriented liberals emphasising enterprise, free trade, and fiscal discipline.",
-      colour: "#e8961e", ideology_tags: ["economic-liberal", "free-market", "orange-book"],
-      leadership_alignment: "aligned", rebellion_bias: 0.20, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.2, display_order: 2, mp_count: 15, influence_bonus: 0.3,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-    {
-      party_slug: "Liberal Democrat", slug: "independent-liberals", name: "Independent Liberals",
-      description: "Constituency-first pragmatists resistant to strong whipping.",
-      colour: "#d4891e", ideology_tags: ["pragmatist", "localist"],
-      leadership_alignment: "neutral", rebellion_bias: 0.35, media_sensitivity: 0.3,
-      constituency_sensitivity: 0.5, display_order: 3, mp_count: 6, influence_bonus: 0.0,
-      notes: "1997 estimate — editable by mods/admins",
-    },
-  ];
+export async function seedDefaultScenarioFactions(scenarioKey = getDefaultScenarioKey(), actorUserId = "") {
+  assertDefaultScenarioSeedKey(scenarioKey);
+  const DEFAULT_SCENARIO_FACTION_SEED_DATA = Array.isArray(loadScenarioWorldSeed(scenarioKey)?.factions)
+    ? loadScenarioWorldSeed(scenarioKey).factions
+    : [];
 
   const results = { inserted: [], skipped: [] };
 
-  for (const f of SEED_DATA) {
+  for (const f of DEFAULT_SCENARIO_FACTION_SEED_DATA) {
     // Skip if a faction with this slug already exists for this party
     const { rows: existing } = await pool.query(
       "SELECT id FROM party_factions WHERE party_slug = $1 AND slug = $2",
@@ -1116,4 +1069,9 @@ export async function seed1997Factions(actorUserId = "") {
   }
 
   return results;
+}
+
+/** @deprecated Use seedDefaultScenarioFactions(scenarioKey, actorUserId). */
+export async function seed1997Factions(actorUserId = "") {
+  return seedDefaultScenarioFactions(getDefaultScenarioKey(), actorUserId);
 }

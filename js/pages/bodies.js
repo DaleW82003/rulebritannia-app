@@ -1,6 +1,6 @@
 import { setHTML, esc } from "../ui.js";
 import { canManage } from "../permissions.js";
-import { apiAdminSeed1997BodiesLocals, apiGetBodies, apiGetLocals, apiUpdateBody } from "../api.js";
+import { DEFAULT_SCENARIO_SEED_LABEL, apiAdminSeedScenarioBodiesLocals, apiGetBodies, apiGetLocals, apiUpdateBody } from "../api.js";
 
 const BODY_ORDER = [
   "lords",
@@ -344,12 +344,12 @@ function renderControlPanel(data, state) {
     <h2>Bodies Control Panel</h2>
     <div class="muted-block" style="margin-bottom:12px;">Set visibility and edit seat data for each elected body.</div>
     <div class="muted-block" style="margin-bottom:12px;">
-      <b style="font-size:.9em;">Seed May 1997 Bodies/Locals</b>
-      <p style="margin:6px 0 8px;">Seed baseline bodies and locals data. Merge is non-destructive; force overwrite replaces existing seeded fields.</p>
+      <b style="font-size:.9em;">Seed Default Scenario Bodies/Locals</b>
+      <p style="margin:6px 0 8px;">Seed baseline bodies and locals data for the current default scenario (currently ${DEFAULT_SCENARIO_SEED_LABEL}). Merge is non-destructive; force overwrite replaces existing seeded fields.</p>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <button class="btn" type="button" id="bodies-seed-1997-merge">Seed (merge)</button>
-        <button class="btn danger" type="button" id="bodies-seed-1997-force">Seed (force overwrite)</button>
-        <span id="bodies-seed-1997-status" style="font-size:.85em;"></span>
+        <button class="btn" type="button" id="bodies-seed-scenario-merge">Seed (merge)</button>
+        <button class="btn danger" type="button" id="bodies-seed-scenario-force">Seed (force overwrite)</button>
+        <span id="bodies-seed-scenario-status" style="font-size:.85em;"></span>
       </div>
     </div>
     ${ordered.map((body) => renderBodyEditorRow(body, state.editingBodyId, data)).join("")}
@@ -362,15 +362,15 @@ function bindControlPanelEvents(data, state) {
   if (!panel) return;
 
 
-  panel.querySelector("#bodies-seed-1997-merge")?.addEventListener("click", async () => {
-    const mergeBtn = panel.querySelector("#bodies-seed-1997-merge");
-    const forceBtn = panel.querySelector("#bodies-seed-1997-force");
-    const statusEl = panel.querySelector("#bodies-seed-1997-status");
+  panel.querySelector("#bodies-seed-scenario-merge")?.addEventListener("click", async () => {
+    const mergeBtn = panel.querySelector("#bodies-seed-scenario-merge");
+    const forceBtn = panel.querySelector("#bodies-seed-scenario-force");
+    const statusEl = panel.querySelector("#bodies-seed-scenario-status");
     if (mergeBtn) mergeBtn.disabled = true;
     if (forceBtn) forceBtn.disabled = true;
     if (statusEl) { statusEl.style.color = ""; statusEl.textContent = "Seeding (merge)…"; }
     try {
-      await apiAdminSeed1997BodiesLocals(false);
+      await apiAdminSeedScenarioBodiesLocals(false);
       if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (merge)."; }
       const [bodiesRes, localsRes] = await Promise.all([apiGetBodies(), apiGetLocals()]);
       ensureBodyDefaults(data);
@@ -395,15 +395,15 @@ function bindControlPanelEvents(data, state) {
     }
   });
 
-  panel.querySelector("#bodies-seed-1997-force")?.addEventListener("click", async () => {
-    const mergeBtn = panel.querySelector("#bodies-seed-1997-merge");
-    const forceBtn = panel.querySelector("#bodies-seed-1997-force");
-    const statusEl = panel.querySelector("#bodies-seed-1997-status");
+  panel.querySelector("#bodies-seed-scenario-force")?.addEventListener("click", async () => {
+    const mergeBtn = panel.querySelector("#bodies-seed-scenario-merge");
+    const forceBtn = panel.querySelector("#bodies-seed-scenario-force");
+    const statusEl = panel.querySelector("#bodies-seed-scenario-status");
     if (mergeBtn) mergeBtn.disabled = true;
     if (forceBtn) forceBtn.disabled = true;
     if (statusEl) { statusEl.style.color = ""; statusEl.textContent = "Seeding (force overwrite)…"; }
     try {
-      await apiAdminSeed1997BodiesLocals(true);
+      await apiAdminSeedScenarioBodiesLocals(true);
       if (statusEl) { statusEl.style.color = "var(--success,green)"; statusEl.textContent = "✓ Seeded (force overwrite)."; }
       const [bodiesRes, localsRes] = await Promise.all([apiGetBodies(), apiGetLocals()]);
       ensureBodyDefaults(data);
