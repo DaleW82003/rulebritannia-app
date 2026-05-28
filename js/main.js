@@ -141,16 +141,6 @@ function renderDataSourcePanel(sources) {
 (async function () {
   document.body.dataset.bootState = "booting";
   try {
-    const { data, user, clock, sources, simFreeze, bootWarning } = await bootData();
-    initNavUI(user, clock, data.gameState, simFreeze);
-    if (bootWarning) {
-      const msg = document.createElement("div");
-      msg.style.cssText = "padding:16px;border:2px solid #f90;background:#fffbf0;color:#111;border-radius:12px;margin-bottom:8px";
-      msg.innerHTML = `<b>Server notice:</b> ${esc(bootWarning)} Running in read-only demo mode.`;
-      document.body.prepend(msg);
-    }
-    if (isDebugEnabled()) renderDataSourcePanel(sources);
-
     const page = document.body?.dataset?.page || "";
 
     // One router to rule them all
@@ -220,6 +210,25 @@ function renderDataSourcePanel(sources) {
     };
 
     const init = routes[page];
+    const entryPages = new Set(["login", "register", "verify-email", "landing"]);
+
+    let data = {};
+    let user = null;
+    if (entryPages.has(page)) {
+      data = { gameState: {} };
+    } else {
+      const boot = await bootData();
+      data = boot.data;
+      user = boot.user;
+      initNavUI(user, boot.clock, data.gameState, boot.simFreeze);
+      if (boot.bootWarning) {
+        const msg = document.createElement("div");
+        msg.style.cssText = "padding:16px;border:2px solid #f90;background:#fffbf0;color:#111;border-radius:12px;margin-bottom:8px";
+        msg.innerHTML = `<b>Server notice:</b> ${esc(boot.bootWarning)} Running in read-only demo mode.`;
+        document.body.prepend(msg);
+      }
+      if (isDebugEnabled()) renderDataSourcePanel(boot.sources);
+    }
 
     if (typeof init === "function") {
       await init(data, user);
