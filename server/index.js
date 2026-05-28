@@ -18647,6 +18647,8 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
 
     // Vacate all office assignments (clear government and opposition to vacant)
     await pool.query(`TRUNCATE office_assignments, office_assignment_history CASCADE`);
+    // Remove all canonical office:* user roles so no stale office permissions survive.
+    await pool.query(`DELETE FROM user_roles WHERE role LIKE 'office:%'`);
 
     // Reset group_drafts (clear cabinet and shadow cabinet drafts)
     await pool.query(`UPDATE group_drafts SET drafts = '[]'::jsonb, updated_at = NOW()`);
@@ -18712,7 +18714,7 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
         "game_events", "scandal_situations", "scandals", "scandal_player_choices", "scandal_mod_decisions",
         "red_lion_posts", "online_posts", "fundraising_items",
         "privy_council_posts", "cs_briefings", "cs_cases", "frontbench_reshuffles",
-        "office_assignments (vacated)", "group_drafts (reset)", `budget_data (reset to default scenario baseline: ${defaultScenarioStartLabel})`,
+        "office_assignments (vacated)", "user_roles.office:* (removed)", "group_drafts (reset)", `budget_data (reset to default scenario baseline: ${defaultScenarioStartLabel})`,
       ],
       simResetTo: `default scenario start (${defaultScenarioStartLabel})`,
       newSnapshotId,
@@ -18731,7 +18733,7 @@ app.post("/api/admin/wipe-content", wipeContentLimit, async (req, res) => {
         "divisions", "division_votes", "game_events", "scandals",
         "red_lion_posts", "online_posts", "fundraising_items",
         "privy_council_posts", "cs_briefings", "cs_cases",
-        "office_assignments (vacated)", "group_drafts (reset)", "budget_data (reset)",
+        "office_assignments (vacated)", "user_roles.office:* (removed)", "group_drafts (reset)", "budget_data (reset)",
       ],
       simResetTo: `default scenario start (${defaultScenarioStartLabel})`,
     });
@@ -18830,6 +18832,8 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
     //             division_votes, bill_amendment_supporters, bill_opposition_quota.
     // users, parties, and pending_character_applications rows are NOT deleted.
     await pool.query(`DELETE FROM characters`);
+    // Remove all canonical office:* user roles so no stale office permissions survive.
+    await pool.query(`DELETE FROM user_roles WHERE role LIKE 'office:%'`);
 
     // ── Step 3: TRUNCATE content / character tables (no CASCADE) ──────────────
     // All FK references from preserved tables have been broken in Steps 1–2.
@@ -18947,6 +18951,7 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
         "party_internal_tickets", "party_internal_ticket_costing", "party_internal_ticket_approvals",
         "party_internal_ticket_ignores", "party_internal_ticket_outcomes",
         "party_internal_messages", "party_internal_freeze_snapshots",
+        "user_roles.office:* (removed)",
         "group_drafts (reset)", `budget_data (reset to default scenario baseline: ${defaultScenarioStartLabel})`,
       ],
       simResetTo: `default scenario start (${defaultScenarioStartLabel})`,
@@ -18976,6 +18981,7 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
         "divisions", "division_votes", "scandals", "game_events",
         "red_lion_posts", "online_posts", "fundraising_items", "cs_briefings", "cs_cases",
         "party_internal_tickets (+ costing/approvals/ignores/outcomes/messages/freeze-snapshots)",
+        "user_roles.office:* (removed)",
         "group_drafts (reset)", "budget_data (reset)",
       ],
       preserved: ["users", "parties", "pending_character_applications", "app_state_elections (singleton row)"],
