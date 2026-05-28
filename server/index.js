@@ -18795,11 +18795,14 @@ app.post("/api/admin/wipe-with-characters", wipeContentLimit, async (req, res) =
       });
     }
 
-    // ── Step 1: Pre-clear app_state_elections FK pointer ─────────────────────
+    // ── Step 1: Pre-clear preserved-table FK pointers ─────────────────────────
     // app_state_elections is a preserved singleton (id='main'); only the FK
     // column is cleared here so the TRUNCATE of elections below can succeed
     // without needing CASCADE.
     await pool.query(`UPDATE app_state_elections SET last_general_election_id = NULL WHERE id = 'main'`);
+    // support_tickets rows are preserved; clear their character pointer so the
+    // character DELETE below cannot be blocked by NO ACTION FK rows.
+    await pool.query(`UPDATE support_tickets SET created_by_character_id = NULL WHERE created_by_character_id IS NOT NULL`);
 
     // ── Step 2: Delete all character rows ─────────────────────────────────────
     // DELETE (not TRUNCATE) fires the ON DELETE action for every FK pointing at
