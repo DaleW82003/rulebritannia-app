@@ -185,9 +185,10 @@ export function convertScenarioCsvToConstituencies(scenarioKey = getDefaultScena
       case "constituency_result": {
         const party = normaliseParty(row.party);
         const csvRegion = row.region;
-        if (csvRegion && !CANONICAL_REGIONS.has(csvRegion) && !warnedRegions.has(csvRegion)) {
+        if (!CANONICAL_REGIONS.has(csvRegion) && !warnedRegions.has(csvRegion)) {
+          const label = csvRegion ? `"${csvRegion}"` : "(empty)";
           console.warn(
-            `WARNING: Unrecognised region "${csvRegion}" in scenario "${scenarioKey}".` +
+            `WARNING: Unrecognised region ${label} in scenario "${scenarioKey}".` +
             ` Check CANONICAL_REGIONS in scripts/convert-scenario-csv.js if this is intentional.`
           );
           warnedRegions.add(csvRegion);

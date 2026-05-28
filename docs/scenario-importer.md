@@ -127,6 +127,7 @@ The standard CSV layout splits the data across two rows:
 - Second row carries `electorate` (registered electorate).
 
 ```
+# record_type,party,region,constituency,seats,votes,vote_pct,majority,turnout_pct,turnout_total,electorate
 overall_total,,,,,,,,66.1%,30697525,
 overall_total,,,,,,,,,,46354197
 ```
