@@ -1,7 +1,6 @@
 {
-  "_note": "2015-beta inherits the 1997 world seed and overrides only the currently-known 2015-era differences. Omitted domains intentionally continue to use the base scenario until real 2015/alt-history data exists.",
+  "_note": "2015-beta inherits the 1997 world seed and overrides only currently-confirmed 2015-era differences. Constituency/election seed data is now populated for this scenario, but broader world domains still intentionally inherit from 1997 until scenario-safe admin initialization is fully wired.",
   "_TODO": [
-    "Populate real 2015/alternative-history constituency results before enabling initialization.",
     "Replace inherited 1997-era party structures, treasury cash, factions, bodies, locals, and budget baselines with 2015-specific data.",
     "Review whether additional scenario-specific domains (for example events/news state) need explicit overrides once those loaders become scenario-aware."
   ],
@@ -54,6 +53,13 @@
       "committee_chairman": 79468,
       "committee_member": 67060,
       "backbencher": 67060
+    }
+  },
+  "economy": {
+    "hqBaselineUpkeep": {
+      "Conservative": 18360,
+      "Labour": 22950,
+      "Liberal Democrat": 12240
     }
   }
 }
