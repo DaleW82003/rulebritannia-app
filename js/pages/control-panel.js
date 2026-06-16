@@ -162,6 +162,7 @@ export async function initControlPanelPage(data) {
             <b>${esc(p.name)}</b> (${esc(p.party)}) · Financial level ${esc(String(p.financial_background_level || "-"))}
             <div class="muted">Submitted by ${esc(p.applicant_username || "User")} at ${esc(p.submitted_at ? new Date(p.submitted_at).toLocaleString("en-GB") : "")}</div>
             <div class="muted">Constituency: ${esc(p.constituency || "-")}</div>
+            <div class="muted">Faction: ${esc(p.faction_name || p.faction_slug || "Unaligned")}</div>
             <div class="muted">Bio: ${esc((p.bio || p.personal_background || "-").slice(0, 200))}${(p.bio || p.personal_background || "").length > 200 ? "…" : ""}</div>
             <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn" type="button" data-action="cp-approve-character" data-id="${esc(p.id)}">Approve + Activate</button>

@@ -764,15 +764,16 @@ test("APPROVE NPC APPLICATION: NPC-only party does not require faction and creat
   assert.equal(membershipRows.length, 0);
 });
 
-test("APPLICATION: applying without faction_id fails with 400", async () => {
+test("APPLICATION: applying without faction_id defaults to Unaligned", async () => {
   const applicant = await seedUserAndCharacter({ roles: [], party: "Labour" });
   await pool.query("UPDATE characters SET is_active = FALSE WHERE id = $1", [applicant.charId]);
   await pool.query("UPDATE users SET active_character_id = NULL WHERE id = $1", [applicant.userId]);
+  await seedConstituencies("Labour", 1);
 
   const client = new TestClient(baseUrl);
   await client.login(applicant.email, applicant.password);
 
-  const { status } = await client.post("/api/characters/apply", {
+  const { status, body } = await client.post("/api/characters/apply", {
     name: "Applicant No Faction",
     party: "Labour",
     constituency: "Test Seat No Faction",
@@ -785,10 +786,12 @@ test("APPLICATION: applying without faction_id fails with 400", async () => {
     financial_background_level: 5,
     avatar_attribution: "Tester",
   });
-  assert.equal(status, 400);
+  assert.equal(status, 201, JSON.stringify(body));
+  assert.equal(String(body.application?.faction_slug || ""), "unaligned");
+  assert.equal(String(body.application?.faction_name || ""), "Unaligned");
 });
 
-test("APPLICATION: applying with inactive faction fails with 400", async () => {
+test("APPLICATION: applying with inactive faction falls back to Unaligned", async () => {
   const applicant = await seedUserAndCharacter({ roles: [], party: "Labour" });
   await pool.query("UPDATE characters SET is_active = FALSE WHERE id = $1", [applicant.charId]);
   await pool.query("UPDATE users SET active_character_id = NULL WHERE id = $1", [applicant.userId]);
@@ -814,11 +817,22 @@ test("APPLICATION: applying with inactive faction fails with 400", async () => {
     financial_background_level: 5,
     avatar_attribution: "Tester",
   });
-  assert.equal(status, 400);
+  assert.equal(status, 201);
+
+  const { rows: appRows } = await pool.query(
+    `SELECT pf.slug AS faction_slug
+       FROM pending_character_applications pca
+       LEFT JOIN party_factions pf ON pf.id = pca.faction_id
+      WHERE pca.applicant_user_id = $1
+      ORDER BY pca.submitted_at DESC
+      LIMIT 1`,
+    [applicant.userId]
+  );
+  assert.equal(String(appRows[0]?.faction_slug || ""), "unaligned");
 });
 
 
-test("APPROVE APPLICATION: new MP joins chosen faction and rebalances allocation from largest faction", async () => {
+test("APPROVE APPLICATION: new MP joins chosen faction and rebalances allocation from Unaligned", async () => {
   const applicant = await seedUserAndCharacter({ roles: [], party: "Labour" });
   await pool.query("UPDATE characters SET is_active = FALSE WHERE id = $1", [applicant.charId]);
   await pool.query("UPDATE users SET active_character_id = NULL WHERE id = $1", [applicant.userId]);
@@ -833,14 +847,30 @@ test("APPROVE APPLICATION: new MP joins chosen faction and rebalances allocation
 
   const { factionId: majorFactionId } = await seedFaction({ partySlug: "Labour", slug: `major-${Date.now()}`, mpCount: 120 });
   await seedFaction({ partySlug: "Labour", slug: `minor-${Date.now()}`, mpCount: 20 });
+  const { rows: unalignedRows } = await pool.query(
+    `SELECT id FROM party_factions WHERE party_slug = 'Labour' AND slug = 'unaligned' LIMIT 1`
+  );
+  const unalignedFactionId = unalignedRows[0]?.id;
+  assert.ok(unalignedFactionId, "unaligned faction should exist for Labour");
+  await pool.query(
+    `UPDATE party_faction_allocations SET mp_count = 40 WHERE faction_id = $1`,
+    [unalignedFactionId]
+  );
 
-  const { rows: beforeRows } = await pool.query(
+  const { rows: beforeTargetRows } = await pool.query(
     `SELECT COALESCE(a.mp_count, 0)::INT AS mp_count
-       FROM party_faction_allocations a
+      FROM party_faction_allocations a
       WHERE a.faction_id = $1`,
     [majorFactionId]
   );
-  const beforeMajorMpCount = Number(beforeRows[0]?.mp_count || 0);
+  const beforeMajorMpCount = Number(beforeTargetRows[0]?.mp_count || 0);
+  const { rows: beforeUnalignedRows } = await pool.query(
+    `SELECT COALESCE(a.mp_count, 0)::INT AS mp_count
+      FROM party_faction_allocations a
+      WHERE a.faction_id = $1`,
+    [unalignedFactionId]
+  );
+  const beforeUnalignedMpCount = Number(beforeUnalignedRows[0]?.mp_count || 0);
 
   const { rows: appRows } = await pool.query(
     `INSERT INTO pending_character_applications
@@ -893,6 +923,14 @@ test("APPROVE APPLICATION: new MP joins chosen faction and rebalances allocation
   );
   const afterMajorMpCount = Number(afterRows[0]?.mp_count || 0);
   assert.equal(afterMajorMpCount, beforeMajorMpCount + 1, "chosen faction should gain one allocation slot on join");
+  const { rows: afterUnalignedRows } = await pool.query(
+    `SELECT COALESCE(a.mp_count, 0)::INT AS mp_count
+       FROM party_faction_allocations a
+      WHERE a.faction_id = $1`,
+    [unalignedFactionId]
+  );
+  const afterUnalignedMpCount = Number(afterUnalignedRows[0]?.mp_count || 0);
+  assert.equal(afterUnalignedMpCount, Math.max(0, beforeUnalignedMpCount - 1), "unaligned allocation should be reduced by one on join");
 });
 
 test("FACTION SWITCH: switch rebalances allocations and is not blocked by zero target slots", async () => {

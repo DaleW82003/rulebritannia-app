@@ -11578,27 +11578,26 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
       return res.status(409).json({ error: "You already have a pending application." });
     }
 
-    // Faction selection is mandatory and must be an active faction for the selected party.
-    if (!faction_id || typeof faction_id !== "string") {
-      return res.status(400).json({ error: "faction_id is required" });
-    }
     if (!party) {
       return res.status(400).json({ error: "party is required" });
     }
+
     await getOrCreateUnalignedFaction(party);
+    const requestedFactionId = typeof faction_id === "string" ? String(faction_id).trim() : "";
     const { rows: factionRows } = await pool.query(
-      `SELECT id, party_slug, slug, active FROM party_factions WHERE id = $1 LIMIT 1`,
-      [String(faction_id).trim()]
+      `SELECT id, party_slug, slug, name
+         FROM party_factions
+        WHERE party_slug = $1
+          AND active = TRUE
+          AND (id = $2 OR slug = 'unaligned')
+        ORDER BY CASE WHEN id = $2 THEN 0 ELSE 1 END
+        LIMIT 1`,
+      [party, requestedFactionId || null]
     );
     if (!factionRows.length) {
-      return res.status(400).json({ error: "Invalid faction_id" });
+      return res.status(400).json({ error: "No valid active faction found for selected party" });
     }
-    if (!factionRows[0].active) {
-      return res.status(400).json({ error: "Selected faction is inactive" });
-    }
-    if (String(factionRows[0].party_slug) !== party) {
-      return res.status(400).json({ error: "Selected faction does not belong to the chosen party" });
-    }
+    const chosenFaction = factionRows[0];
 
     // Check constituency not already taken by an active character
     if (constituency) {
@@ -11630,11 +11629,16 @@ app.post("/api/characters/apply", charAppWriteLimit, async (req, res) => {
         String(avatar || "").trim(),
         String(avatar_attribution || "").trim(),
         String(twitter_handle || "").trim().replace(/^@+/, ""),
-        JSON.stringify(home), JSON.stringify(rentals), String(faction_id).trim()
+        JSON.stringify(home), JSON.stringify(rentals), chosenFaction.id
       ]
     );
-    await writeAuditLog(req.session.userId, "character.apply", "pending_character_application", rows[0].id, null, rows[0]);
-    res.status(201).json({ ok: true, application: rows[0] });
+    const applicationWithFaction = {
+      ...rows[0],
+      faction_slug: chosenFaction.slug,
+      faction_name: chosenFaction.name,
+    };
+    await writeAuditLog(req.session.userId, "character.apply", "pending_character_application", rows[0].id, null, applicationWithFaction);
+    res.status(201).json({ ok: true, application: applicationWithFaction });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Server error" });
@@ -11803,7 +11807,11 @@ app.get("/api/characters/applications/mine", charAppReadLimit, async (req, res) 
   try {
     if (!requireAuth(req, res)) return;
     const { rows } = await pool.query(
-      "SELECT * FROM pending_character_applications WHERE applicant_user_id = $1 ORDER BY submitted_at DESC",
+      `SELECT pca.*, pf.name AS faction_name, pf.slug AS faction_slug
+         FROM pending_character_applications pca
+         LEFT JOIN party_factions pf ON pf.id = pca.faction_id
+        WHERE pca.applicant_user_id = $1
+        ORDER BY pca.submitted_at DESC`,
       [req.session.userId]
     );
     res.json({ applications: rows });
@@ -11819,10 +11827,12 @@ app.get("/api/admin/characters/applications", charAppReadLimit, async (req, res)
     if (!requireAdminOrMod(req, res)) return;
     const { status } = req.query;
     const { limit, offset } = parsePaginationParams(req);
-    let q = "SELECT * FROM pending_character_applications";
+    let q = `SELECT pca.*, pf.name AS faction_name, pf.slug AS faction_slug
+               FROM pending_character_applications pca
+               LEFT JOIN party_factions pf ON pf.id = pca.faction_id`;
     const params = [];
-    if (status) { q += " WHERE status = $1"; params.push(status); }
-    q += ` ORDER BY submitted_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    if (status) { q += " WHERE pca.status = $1"; params.push(status); }
+    q += ` ORDER BY pca.submitted_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(limit, offset);
     const { rows } = await pool.query(q, params);
     res.json({ applications: rows });
@@ -24456,6 +24466,22 @@ async function adjustFactionAllocationByOne(db, factionId, delta, updatedBy = "s
 
 async function rebalanceFactionAllocationOnJoin(db, { partySlug, targetFactionId, updatedBy = "system" }) {
   if (!partySlug || !targetFactionId) return;
+  const unalignedFactionId = await getOrCreateUnalignedFaction(partySlug, db);
+  if (unalignedFactionId && String(unalignedFactionId) !== String(targetFactionId)) {
+    const { rows: unalignedRows } = await db.query(
+      `SELECT COALESCE(a.mp_count, 0)::INT AS mp_count
+         FROM party_faction_allocations a
+        WHERE a.faction_id = $1`,
+      [unalignedFactionId]
+    );
+    const unalignedMpCount = Number(unalignedRows[0]?.mp_count ?? 0);
+    if (unalignedMpCount > 0) {
+      await adjustFactionAllocationByOne(db, unalignedFactionId, -1, updatedBy);
+      await adjustFactionAllocationByOne(db, targetFactionId, 1, updatedBy);
+      return;
+    }
+  }
+
   const { rows: donorRows } = await db.query(
     `SELECT a.faction_id, COALESCE(a.mp_count, 0)::INT AS mp_count
        FROM party_factions f
